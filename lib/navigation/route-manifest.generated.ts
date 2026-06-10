@@ -516,37 +516,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/admin/exophone-mapping",
-        "label": "Exophone Mapping",
-        "iconName": "FileText",
-        "children": []
-      },
-      {
-        "path": "/admin/instagram-attribution",
-        "label": "Instagram Attribution",
-        "iconName": "FileText",
-        "children": []
-      },
-      {
-        "path": "/admin/integrations",
-        "label": "Integrations",
-        "iconName": "FileText",
-        "children": [
-          {
-            "path": "/admin/integrations/meta-audiences",
-            "label": "Meta Audiences",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/admin/integrations/meta-pixel",
-            "label": "Meta Pixel",
-            "iconName": "FileText",
-            "children": []
-          }
-        ]
-      },
-      {
         "path": "/admin/landing-pages",
         "label": "Landing Pages",
         "iconName": "FileText",
@@ -611,12 +580,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/admin/saml",
         "label": "Saml",
         "iconName": "KeyRound",
-        "children": []
-      },
-      {
-        "path": "/admin/voice-memo-monitor",
-        "label": "Voice Memo Monitor",
-        "iconName": "Mic",
         "children": []
       },
       {
@@ -1161,6 +1124,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/settings/exophone-mapping",
+            "label": "Exophone Mapping",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
             "path": "/admission/settings/fees-structure",
             "label": "Fees Structure",
             "iconName": "GraduationCap",
@@ -1278,6 +1247,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           },
           {
+            "path": "/admission/settings/voice-memo-monitor",
+            "label": "Voice Memo Monitor",
+            "iconName": "Mic",
+            "children": []
+          },
+          {
             "path": "/admission/settings/whatsapp-numbers",
             "label": "Whatsapp Numbers",
             "iconName": "GraduationCap",
@@ -1316,6 +1291,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "GraduationCap",
         "children": [
           {
+            "path": "/admission/social/attribution",
+            "label": "Attribution",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
             "path": "/admission/social/departments",
             "label": "Departments",
             "iconName": "GraduationCap",
@@ -1342,6 +1323,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admission/social/lead-ads",
             "label": "Lead Ads",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/social/meta-audiences",
+            "label": "Meta Audiences",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/social/meta-pixel",
+            "label": "Meta Pixel",
             "iconName": "GraduationCap",
             "children": []
           }

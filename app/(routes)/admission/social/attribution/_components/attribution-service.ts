@@ -1,5 +1,5 @@
 /**
- * Instagram attribution service — local to /admin/instagram-attribution.
+ * Instagram attribution service — local to /admission/social/attribution.
  *
  * Two read paths + one policy upsert:
  *   - useAttributionByAccount() → leads by IG account (drilldown #1)

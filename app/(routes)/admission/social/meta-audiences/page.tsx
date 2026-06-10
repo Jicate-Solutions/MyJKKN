@@ -1,7 +1,7 @@
 'use client';
 
 // =====================================================================
-// /admin/integrations/meta-audiences — Agent η
+// /admission/social/meta-audiences — Agent η (relocated from /admin/integrations/meta-audiences 2026-06-11, wave-2)
 // =====================================================================
 // CRUD + criteria builder + sync status + per-rule history log for Meta
 // Custom Audiences. Single client component that talks to the existing
@@ -44,8 +44,8 @@ export default function MetaAudiencesPage() {
         <PageBreadcrumb
           items={[
             { label: 'Dashboard', href: '/' },
-            { label: 'Administration' },
-            { label: 'Integrations' },
+            { label: 'Admission', href: '/admission' },
+            { label: 'Social' },
             { label: 'Meta Audiences' },
           ]}
         />

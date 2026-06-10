@@ -374,9 +374,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/social/insights': 'super_admin',
   '/admission/social/lead-ads': 'super_admin',
   '/admission/social/departments': 'super_admin',
-  '/admin/instagram-attribution': 'super_admin',
-  '/admin/integrations/meta-pixel': 'super_admin',
-  '/admin/integrations/meta-audiences': 'super_admin',
+  '/admission/social/attribution': 'super_admin',
+  '/admission/social/meta-pixel': 'super_admin',
+  '/admission/social/meta-audiences': 'super_admin',
 
   // Internship Module — Policy Admin (super_admin only)
   '/internships/policy': 'super_admin',
@@ -1757,9 +1757,6 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/audit-trail', label: 'Audit Trail', active: pathname.startsWith('/audit-trail') },
             { href: '/admin/lifecycle', label: 'Lifecycle Analytics', active: pathname.startsWith('/admin/lifecycle') },
             { href: '/admin/page-metadata', label: 'Page Metadata', active: pathname.startsWith('/admin/page-metadata') },
-            { href: '/admin/instagram-attribution', label: 'Social · IG Attribution', active: pathname.startsWith('/admin/instagram-attribution') },
-            { href: '/admin/integrations/meta-pixel', label: 'Meta · Pixel / CAPI', active: pathname.startsWith('/admin/integrations/meta-pixel') },
-            { href: '/admin/integrations/meta-audiences', label: 'Meta · Custom Audiences', active: pathname.startsWith('/admin/integrations/meta-audiences') },
             { href: '/admin/ai-models', label: 'AI Models', active: pathname.startsWith('/admin/ai-models') },
           ]
         }

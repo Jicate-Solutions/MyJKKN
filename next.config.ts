@@ -294,6 +294,57 @@ const nextConfig: NextConfig = {
         destination: '/hr/admin/:path*',
         permanent: false
       },
+      // 2026-06-11 admin-cluster relocation wave-2 — admission (attribution + meta integrations + telephony)
+      {
+        source: '/admin/instagram-attribution',
+        destination: '/admission/social/attribution',
+        permanent: false
+      },
+      {
+        source: '/admin/instagram-attribution/:path*',
+        destination: '/admission/social/attribution/:path*',
+        permanent: false
+      },
+      {
+        source: '/admin/integrations/meta-pixel',
+        destination: '/admission/social/meta-pixel',
+        permanent: false
+      },
+      {
+        source: '/admin/integrations/meta-pixel/:path*',
+        destination: '/admission/social/meta-pixel/:path*',
+        permanent: false
+      },
+      {
+        source: '/admin/integrations/meta-audiences',
+        destination: '/admission/social/meta-audiences',
+        permanent: false
+      },
+      {
+        source: '/admin/integrations/meta-audiences/:path*',
+        destination: '/admission/social/meta-audiences/:path*',
+        permanent: false
+      },
+      {
+        source: '/admin/voice-memo-monitor',
+        destination: '/admission/settings/voice-memo-monitor',
+        permanent: false
+      },
+      {
+        source: '/admin/voice-memo-monitor/:path*',
+        destination: '/admission/settings/voice-memo-monitor/:path*',
+        permanent: false
+      },
+      {
+        source: '/admin/exophone-mapping',
+        destination: '/admission/settings/exophone-mapping',
+        permanent: false
+      },
+      {
+        source: '/admin/exophone-mapping/:path*',
+        destination: '/admission/settings/exophone-mapping/:path*',
+        permanent: false
+      },
       // 2026-06-11 admin-cluster relocation wave-2 — notifications
       {
         source: '/admin/notifications',
