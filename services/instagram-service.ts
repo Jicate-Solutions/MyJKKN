@@ -150,18 +150,67 @@ export async function fetchIgAccountDetail(id: string): Promise<IgAccountDetail>
   return apiGet<IgAccountDetail>(`/api/social/instagram/accounts/${id}`);
 }
 
-/**
- * Trigger account discovery — scans Meta API for new institutional accounts.
- * Delivered by Agent γ (POST /api/social/instagram/discover).
- */
-export async function discoverIgAccounts(): Promise<IgDiscoverResponse> {
-  return apiPost<IgDiscoverResponse>('/api/social/instagram/discover');
+/** Envelope + payload shapes returned by the /accounts/discover route. */
+interface IgDiscoverRouteResponse {
+  success: boolean;
+  data: {
+    discovered: Array<{ ig_user_id: string; username: string; already_synced: boolean }>;
+    total: number;
+    already_synced: number;
+    available: number;
+    pages_scanned: number;
+  };
+}
+
+/** Envelope + payload shapes returned by the /accounts/sync route. */
+interface IgSyncRouteResponse {
+  success: boolean;
+  data: {
+    synced: number;
+    failed: number;
+    total: number;
+    results: Array<{
+      ig_user_id: string;
+      username: string;
+      status: 'upserted' | 'error';
+      error?: string;
+    }>;
+  };
 }
 
 /**
- * Trigger a metric sync for all active accounts (or a specific one).
- * Delivered by Agent γ (POST /api/social/instagram/sync).
+ * Trigger account discovery — scans Meta API for new institutional accounts.
+ * Calls GET /api/social/instagram/accounts/discover (the previous
+ * POST /api/social/instagram/discover path never existed — 404).
  */
-export async function syncIgMetrics(accountId?: string): Promise<IgSyncResponse> {
-  return apiPost<IgSyncResponse>('/api/social/instagram/sync', accountId ? { account_id: accountId } : {});
+export async function discoverIgAccounts(): Promise<IgDiscoverResponse> {
+  const res = await apiGet<IgDiscoverRouteResponse>(
+    '/api/social/instagram/accounts/discover'
+  );
+  return {
+    discovered: res.data.total,
+    synced: res.data.already_synced,
+    accounts: [],
+    errors: [],
+  };
+}
+
+/**
+ * Sync discovered IG accounts into ig_accounts (all, or one by IG user id).
+ * Calls POST /api/social/instagram/accounts/sync (the previous
+ * POST /api/social/instagram/sync path never existed — 404).
+ * super_admin may call with no institution context; per-account
+ * institution_id resolves server-side via the fb_pages join.
+ */
+export async function syncIgMetrics(igUserId?: string): Promise<IgSyncResponse> {
+  const res = await apiPost<IgSyncRouteResponse>(
+    '/api/social/instagram/accounts/sync',
+    igUserId ? { ig_user_ids: [igUserId] } : {}
+  );
+  return {
+    synced: res.data.synced,
+    errors: res.data.results
+      .filter((r) => r.status === 'error')
+      .map((r) => `${r.username || r.ig_user_id}: ${r.error ?? 'unknown error'}`),
+  };
 }
