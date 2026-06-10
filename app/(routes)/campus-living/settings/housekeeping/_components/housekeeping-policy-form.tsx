@@ -509,7 +509,7 @@ export function HousekeepingPolicyForm() {
                 </p>
                 <p className="text-sm text-muted-foreground mt-0.5">
                   {form.bookingEnabled
-                    ? 'Entitled residents can book cleaning slots. Turning this off pauses all new bookings instantly.'
+                    ? 'Entitled residents can book cleaning slots. Turning this off (and saving) pauses all new bookings.'
                     : 'Booking is OFF — residents see “Housekeeping slot booking is temporarily paused”. Existing bookings stay on the staff board.'}
                 </p>
               </div>
@@ -673,7 +673,8 @@ export function HousekeepingPolicyForm() {
                 </li>
               ) : consequences === null ? (
                 <li className="text-amber-700">
-                  Slot duration must be at least 1 minute.
+                  Enter a slot duration of at least 1 minute and valid window
+                  times to see the full picture.
                 </li>
               ) : !consequences.windowValid ? (
                 <li className="text-red-700 font-medium">
