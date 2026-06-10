@@ -321,6 +321,12 @@ const config: ModuleNavConfig = {
           href: '/campus-living/housekeeping/schedules',
           matchPaths: ['/campus-living/housekeeping/schedules'],
         },
+        {
+          label: 'Housekeeping Bookings',
+          icon: 'CalendarCheck',
+          href: '/campus-living/housekeeping/bookings',
+          matchPaths: ['/campus-living/housekeeping/bookings'],
+        },
       ],
     },
     {
@@ -612,6 +618,12 @@ const config: ModuleNavConfig = {
           icon: 'Package',
           href: '/campus-living/settings/packages',
           matchPaths: ['/campus-living/settings/packages'],
+        },
+        {
+          label: 'Housekeeping Booking',
+          icon: 'Brush',
+          href: '/campus-living/settings/housekeeping',
+          matchPaths: ['/campus-living/settings/housekeeping'],
         },
         {
           label: 'Fee Config',

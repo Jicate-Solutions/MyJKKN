@@ -2079,6 +2079,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "SprayCan",
         "children": [
           {
+            "path": "/campus-living/housekeeping/bookings",
+            "label": "Bookings",
+            "iconName": "SprayCan",
+            "children": []
+          },
+          {
             "path": "/campus-living/housekeeping/schedules",
             "label": "Schedules",
             "iconName": "CalendarClock",
@@ -2260,6 +2266,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "My Hostel",
         "iconName": "FileText",
         "children": [
+          {
+            "path": "/campus-living/my-hostel/housekeeping",
+            "label": "Room Cleaning",
+            "iconName": "Brush",
+            "children": []
+          },
           {
             "path": "/campus-living/my-hostel/premium",
             "label": "Premium Stay — Opt-in",
@@ -2499,6 +2511,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/campus-living/settings/hostel-years",
             "label": "Hostel Years",
             "iconName": "Building",
+            "children": []
+          },
+          {
+            "path": "/campus-living/settings/housekeeping",
+            "label": "Housekeeping",
+            "iconName": "SprayCan",
             "children": []
           },
           {
