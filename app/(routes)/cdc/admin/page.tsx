@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================
-// /admin/cdc — CDC module admin landing
+// /cdc/admin — CDC module admin landing
 // ============================================
 // Director-facing hub for all CDC configuration surfaces.
 // Cards link to: policies, master tables, cron status.
@@ -42,7 +42,7 @@ interface AdminCard {
 
 const ADMIN_CARDS: AdminCard[] = [
   {
-    href: '/admin/cdc/policies',
+    href: '/cdc/admin/policies',
     title: 'CDC Policies',
     description: 'Configure drive lifecycle rules, eligibility thresholds, NAAC/AICTE export mappings, and escalation timers. Changes take effect immediately — no deploy.',
     icon: Settings,
@@ -51,49 +51,49 @@ const ADMIN_CARDS: AdminCard[] = [
     color: 'text-blue-600 bg-blue-50',
   },
   {
-    href: '/admin/cdc/drive-types',
+    href: '/cdc/admin/drive-types',
     title: 'Drive Types',
     description: 'Manage placement drive categories (On-Campus, Off-Campus, Pool, etc.). Controls which drive types coordinators can create.',
     icon: ListChecks,
     color: 'text-indigo-600 bg-indigo-50',
   },
   {
-    href: '/admin/cdc/offer-types',
+    href: '/cdc/admin/offer-types',
     title: 'Offer Types',
     description: 'Configure placement offer categories (Full-time, Internship, PPO, Apprenticeship). The "counts_toward_placement" flag affects NAAC statistics.',
     icon: Gift,
     color: 'text-emerald-600 bg-emerald-50',
   },
   {
-    href: '/admin/cdc/training-types',
+    href: '/cdc/admin/training-types',
     title: 'Training Types',
     description: 'Manage training programme categories (Unnati, MRB, Springboard, etc.) used in the training module.',
     icon: GraduationCap,
     color: 'text-amber-600 bg-amber-50',
   },
   {
-    href: '/admin/cdc/workshop-types',
+    href: '/cdc/admin/workshop-types',
     title: 'Workshop Types',
     description: 'Configure workshop and seminar categories for career development activities.',
     icon: PresentationIcon,
     color: 'text-orange-600 bg-orange-50',
   },
   {
-    href: '/admin/cdc/industry-sectors',
+    href: '/cdc/admin/industry-sectors',
     title: 'Industry Sectors',
     description: 'Manage industry sector classifications (IT, Manufacturing, Healthcare, etc.) used to categorise recruiters.',
     icon: Factory,
     color: 'text-cyan-600 bg-cyan-50',
   },
   {
-    href: '/admin/cdc/recruiters',
+    href: '/cdc/admin/recruiters',
     title: 'Recruiter Directory',
     description: 'Full CRUD for the company/recruiter master. Manage contact details, package bands, and blacklist status.',
     icon: Building2,
     color: 'text-purple-600 bg-purple-50',
   },
   {
-    href: '/admin/cdc/cron-status',
+    href: '/cdc/admin/cron-status',
     title: 'Cron Status',
     description: 'Read-only view of the coordinator-escalation and placement-snapshot cron jobs — last run, status, and schedule.',
     icon: Clock,
@@ -136,8 +136,8 @@ export default function CdcAdminPage() {
     <ContentLayout title="CDC Admin">
       <PageBreadcrumb
         items={[
-          { label: 'Admin', href: '/admin' },
-          { label: 'CDC', href: '/admin/cdc' },
+          { label: 'CDC', href: '/cdc' },
+          { label: 'Admin', href: '/cdc/admin' },
         ]}
       />
 
@@ -149,7 +149,7 @@ export default function CdcAdminPage() {
       </div>
 
       {/* Operational dashboard — featured link, separate from configuration cards (T1.3) */}
-      <Link href="/admin/cdc/dashboard" className="group mb-6 block">
+      <Link href="/cdc/admin/dashboard" className="group mb-6 block">
         <Card className="border-blue-200 bg-blue-50/40 transition-shadow group-hover:shadow-md dark:border-blue-900 dark:bg-blue-950/20">
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between gap-2">

@@ -7,9 +7,9 @@ export default function WorkshopTypesPage() {
       title="Workshop Types"
       description="Workshop and seminar categories for CDC career development activities."
       breadcrumbs={[
-        { label: 'Admin', href: '/admin' },
-        { label: 'CDC', href: '/admin/cdc' },
-        { label: 'Workshop Types', href: '/admin/cdc/workshop-types' },
+        { label: 'CDC', href: '/cdc' },
+        { label: 'Admin', href: '/cdc/admin' },
+        { label: 'Workshop Types', href: '/cdc/admin/workshop-types' },
       ]}
     />
   );

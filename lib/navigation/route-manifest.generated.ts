@@ -478,67 +478,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/admin/cdc",
-        "label": "Cdc",
-        "iconName": "FileText",
-        "children": [
-          {
-            "path": "/admin/cdc/cron-status",
-            "label": "Cron Status",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/admin/cdc/dashboard",
-            "label": "Dashboard",
-            "iconName": "LayoutGrid",
-            "children": []
-          },
-          {
-            "path": "/admin/cdc/drive-types",
-            "label": "Drive Types",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/admin/cdc/industry-sectors",
-            "label": "Industry Sectors",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/admin/cdc/offer-types",
-            "label": "Offer Types",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/admin/cdc/policies",
-            "label": "Policies",
-            "iconName": "BookText",
-            "children": []
-          },
-          {
-            "path": "/admin/cdc/recruiters",
-            "label": "Recruiters",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/admin/cdc/training-types",
-            "label": "Training Types",
-            "iconName": "Dumbbell",
-            "children": []
-          },
-          {
-            "path": "/admin/cdc/workshop-types",
-            "label": "Workshop Types",
-            "iconName": "FileText",
-            "children": []
-          }
-        ]
-      },
-      {
         "path": "/admin/config",
         "label": "Config",
         "iconName": "FileText",
@@ -3144,6 +3083,67 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "label": "Cdc",
     "iconName": "FileText",
     "children": [
+      {
+        "path": "/cdc/admin",
+        "label": "Admin",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/cdc/admin/cron-status",
+            "label": "Cron Status",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/cdc/admin/dashboard",
+            "label": "Dashboard",
+            "iconName": "LayoutGrid",
+            "children": []
+          },
+          {
+            "path": "/cdc/admin/drive-types",
+            "label": "Drive Types",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/cdc/admin/industry-sectors",
+            "label": "Industry Sectors",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/cdc/admin/offer-types",
+            "label": "Offer Types",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/cdc/admin/policies",
+            "label": "Policies",
+            "iconName": "BookText",
+            "children": []
+          },
+          {
+            "path": "/cdc/admin/recruiters",
+            "label": "Recruiters",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/cdc/admin/training-types",
+            "label": "Training Types",
+            "iconName": "Dumbbell",
+            "children": []
+          },
+          {
+            "path": "/cdc/admin/workshop-types",
+            "label": "Workshop Types",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
       {
         "path": "/cdc/bulletin",
         "label": "Bulletin",

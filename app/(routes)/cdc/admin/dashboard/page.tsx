@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================
-// /admin/cdc/dashboard — CDC Operational Dashboard (T1.3)
+// /cdc/admin/dashboard — CDC Operational Dashboard (T1.3)
 // ============================================
 // Director-facing live metrics across all 8 institutions.
 //
@@ -317,9 +317,9 @@ export default function CdcDashboardPage() {
     <ContentLayout title="CDC Dashboard">
       <PageBreadcrumb
         items={[
-          { label: 'Admin', href: '/admin' },
-          { label: 'CDC', href: '/admin/cdc' },
-          { label: 'Dashboard', href: '/admin/cdc/dashboard' },
+          { label: 'CDC', href: '/cdc' },
+          { label: 'Admin', href: '/cdc/admin' },
+          { label: 'Dashboard', href: '/cdc/admin/dashboard' },
         ]}
       />
 
@@ -331,7 +331,7 @@ export default function CdcDashboardPage() {
           </p>
         </div>
         <Button asChild variant="outline" size="sm">
-          <Link href="/admin/cdc">
+          <Link href="/cdc/admin">
             <ArrowLeft className="mr-2 h-4 w-4" /> Back to CDC Admin
           </Link>
         </Button>

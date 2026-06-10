@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================
-// /admin/cdc/recruiters — Recruiter directory CRUD
+// /cdc/admin/recruiters — Recruiter directory CRUD
 // ============================================================
 // Recruiters have more fields than simple master tables
 // (contact info, package bands, blacklist). Uses the generic
@@ -19,9 +19,9 @@ export default function RecruitersPage() {
       title="Recruiter Directory"
       description="Company and recruiter master. Manage contact details, package bands, and blacklist status. Paginated — 50 per page."
       breadcrumbs={[
-        { label: 'Admin', href: '/admin' },
-        { label: 'CDC', href: '/admin/cdc' },
-        { label: 'Recruiters', href: '/admin/cdc/recruiters' },
+        { label: 'CDC', href: '/cdc' },
+        { label: 'Admin', href: '/cdc/admin' },
+        { label: 'Recruiters', href: '/cdc/admin/recruiters' },
       ]}
       extraFields={[
         { key: 'legal_name', label: 'Legal name', type: 'text', placeholder: 'e.g. Infosys Limited' },
