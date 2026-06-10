@@ -294,6 +294,17 @@ const nextConfig: NextConfig = {
         destination: '/hr/admin/:path*',
         permanent: false
       },
+      // 2026-06-11 admin-cluster relocation wave-2 — departments (HoD assignment)
+      {
+        source: '/admin/departments',
+        destination: '/organizations/departments/hod-assignment',
+        permanent: false
+      },
+      {
+        source: '/admin/departments/:path*',
+        destination: '/organizations/departments/hod-assignment/:path*',
+        permanent: false
+      },
       // 2026-06-11 admin-cluster relocation wave-2 — lifecycle + ai-query + ai-pulse config
       {
         source: '/admin/lifecycle',
