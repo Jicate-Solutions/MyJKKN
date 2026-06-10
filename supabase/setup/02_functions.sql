@@ -14557,6 +14557,15 @@ AS $function$
           AND fn_room_serves_institution(rm.id, c.institution_id)
           AND fn_learner_strictly_eligible_for_room(c.id, rm.id)
       ) AS physical_rule_ok,
+      -- Diagnostic (20260610140000): rooms they may PHYSICALLY occupy here exist, but none
+      -- is in their eligible room category (reservation rooms vs fee-band conflict).
+      EXISTS (
+        SELECT 1 FROM hostel_rooms rm
+        WHERE rm.block_id=p_block_id AND rm.room_purpose='student'
+          AND NOT (rm.category_id = ANY(c.room_cats))
+          AND fn_room_serves_institution(rm.id, c.institution_id)
+          AND fn_learner_strictly_eligible_for_room(c.id, rm.id)
+      ) AS physical_ok_other_category,
       EXISTS (
         SELECT 1 FROM hostel_beds bd JOIN hostel_rooms r ON r.id=bd.room_id
         JOIN hostel_categories hc ON hc.id = r.category_id
@@ -14622,6 +14631,10 @@ AS $function$
       WHEN NOT s.has_profile THEN 'No login profile'
       WHEN NOT s.gender_ok THEN 'Gender does not match the resolved room category'
       WHEN NOT s.not_allocated THEN 'Already allocated'
+      WHEN NOT s.physical_rule_ok AND s.physical_ok_other_category THEN
+        'Rooms they may occupy in this block are a different room category than their eligible '
+        || COALESCE(s.resolved_room_category_name, 'category')
+        || ' — fix the reservation rooms or the Category-Eligibility band'
       WHEN NOT s.physical_rule_ok THEN 'No room they can occupy in their category — rooms here are reserved for other cohorts, or this cohort''s reserved rooms are in another block'
       WHEN NOT s.bed_available THEN 'Their category rooms are full — no free bed'
       ELSE NULL
