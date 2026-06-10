@@ -1348,8 +1348,8 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": [
           {
             "path": "/admission/consultants/admin",
-            "label": "Admin",
-            "iconName": "Users",
+            "label": "Consultant Admin",
+            "iconName": "Settings",
             "children": [
               {
                 "path": "/admission/consultants/admin/commission-triggers",

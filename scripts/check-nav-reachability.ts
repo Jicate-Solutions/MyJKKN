@@ -281,6 +281,9 @@ const NAV_EXCLUDE = new Set<string>([
   // nav-config, which suppresses auto-render, so the new paths have no
   // chip surface yet. Reached by direct URL / the 307 redirects from the
   // old paths. Follow-up: wire literal hrefs into admission nav-config.
+  // The bare /admission/consultants/admin hub (card links to the 3 pages
+  // below) exists so the cluster root + old-URL redirect don't 404.
+  '/admission/consultants/admin',
   '/admission/consultants/admin/commission-triggers',
   '/admission/consultants/admin/portal-access',
   '/admission/consultants/admin/tier-policy',
