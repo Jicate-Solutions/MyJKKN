@@ -41,7 +41,7 @@ export async function GET(
     const { data: account, error: acctErr } = await supabase
       .from('ig_accounts')
       .select(
-        'id, institution_id, department_id, ig_user_id, username, account_type, status, last_polled_at, connected_at, created_at, updated_at, institutions(name), departments(name)'
+        'id, institution_id, department_id, ig_user_id, username, account_type, status, last_polled_at, connected_at, created_at, updated_at, institutions(name), departments(department_name)'
       )
       .eq('id', id)
       .maybeSingle();
@@ -110,7 +110,7 @@ export async function GET(
         (account.institutions as unknown as { name: string } | null)?.name ?? '',
       department_id: account.department_id,
       department_name:
-        (account.departments as unknown as { name: string } | null)?.name ?? null,
+        (account.departments as unknown as { department_name: string } | null)?.department_name ?? null,
       account_type: account.account_type,
       display_name: null,
       bio: null,
