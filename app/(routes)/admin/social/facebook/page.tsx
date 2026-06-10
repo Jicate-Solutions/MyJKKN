@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Facebook, RefreshCw } from 'lucide-react';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -82,6 +84,28 @@ export default function FacebookAdminPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [discovering, setDiscovering] = useState(false);
+  // fb_page_id (Meta id) → fb_pages.id (internal UUID) for drilldown links.
+  // page-health rows carry only the Meta id; the drilldown route + insights
+  // contracts (F1–F3) are keyed by the internal UUID.
+  const [idMap, setIdMap] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const loadIdMap = async () => {
+      try {
+        const supabase = createClientSupabaseClient();
+        const { data } = await supabase.from('fb_pages').select('id, fb_page_id');
+        if (!data) return;
+        const map: Record<string, string> = {};
+        for (const row of data as { id: string; fb_page_id: string }[]) {
+          map[row.fb_page_id] = row.id;
+        }
+        setIdMap(map);
+      } catch {
+        // Non-fatal: rows render without drilldown links.
+      }
+    };
+    void loadIdMap();
+  }, []);
 
   const load = async () => {
     setIsLoading(true);
@@ -258,7 +282,18 @@ export default function FacebookAdminPage() {
                   ) : (
                     summary.pages.map((pg) => (
                       <TableRow key={pg.fb_page_id}>
-                        <TableCell className="font-medium">{pg.name}</TableCell>
+                        <TableCell className="font-medium">
+                          {idMap[pg.fb_page_id] ? (
+                            <Link
+                              href={`/admin/social/facebook/${idMap[pg.fb_page_id]}`}
+                              className="hover:underline text-primary"
+                            >
+                              {pg.name}
+                            </Link>
+                          ) : (
+                            pg.name
+                          )}
+                        </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {pg.fan_count?.toLocaleString() ?? '—'}
                         </TableCell>
