@@ -179,7 +179,21 @@ export class StudentFormService {
     // Nullable UUID FKs must never reach the UPDATE as '' — Postgres rejects an
     // empty string cast to uuid with 22P02. Coerce blank → null for every
     // uuid-typed writable column the student form can submit.
-    for (const uuidCol of ['hostel_category_id', 'mess_category_id', 'community_category_id', 'caste_id', 'quota_id', 'accommodation_type_id']) {
+    //
+    // 2026-06-10: list extended to ALL uuid columns across every section.
+    // department_id was the painful one — it's prefilled as `?? ''` in
+    // step-course-selection, is NOT wizard-required, and only gets set when
+    // the student re-picks a Program. Legacy leads with a null department
+    // sent department_id='' → 22P02 aborted the whole course UPDATE → the
+    // step silently refused to advance. transport_route_id/transport_stop_id
+    // had the same gap on the accommodation step.
+    for (const uuidCol of [
+      'hostel_category_id', 'mess_category_id', 'community_category_id',
+      'caste_id', 'quota_id', 'accommodation_type_id',
+      'institution_id', 'degree_id', 'department_id', 'program_id',
+      'semester_id', 'admission_year_id',
+      'transport_route_id', 'transport_stop_id',
+    ]) {
       if (allowedFields[uuidCol] === '') allowedFields[uuidCol] = null;
     }
 
