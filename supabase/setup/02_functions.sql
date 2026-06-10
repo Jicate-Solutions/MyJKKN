@@ -14349,6 +14349,7 @@ DECLARE
   v_inst uuid; v_degree uuid; v_dept uuid; v_program uuid; v_semester uuid;
   v_has_covering boolean;
   v_matches boolean;
+  v_pinned boolean;
 BEGIN
   SELECT block_id, floor INTO v_block, v_floor FROM hostel_rooms WHERE id = p_room_id;
   IF v_block IS NULL THEN RETURN false; END IF;
@@ -14380,8 +14381,23 @@ BEGIN
          )
     INTO v_has_covering, v_matches;
 
-  -- FAIL-OPEN: covered room -> must match a covering rule; uncovered room -> open to all.
-  RETURN v_matches OR NOT v_has_covering;
+  IF v_matches THEN RETURN true; END IF;       -- room reserved for THIS cohort
+  IF v_has_covering THEN RETURN false; END IF; -- room reserved for ANOTHER cohort
+
+  -- Open (rule-free) room: admit only if the learner's cohort has no matching
+  -- reservation anywhere (20260610130000) — a reserved cohort is PINNED to its
+  -- reserved rooms, so it cannot leak into open rooms of other blocks.
+  SELECT EXISTS (
+    SELECT 1 FROM hostel_room_eligibility_rules r
+    WHERE r.is_active
+      AND r.institution_id = v_inst
+      AND (r.degree_id     IS NULL OR r.degree_id     = v_degree)
+      AND (r.department_id IS NULL OR r.department_id = v_dept)
+      AND (r.program_id    IS NULL OR r.program_id    = v_program)
+      AND (r.semester_id   IS NULL OR r.semester_id   = v_semester)
+  ) INTO v_pinned;
+
+  RETURN NOT v_pinned;
 END;
 $function$;
 
@@ -14478,7 +14494,7 @@ BEGIN
 
   UPDATE hostel_allocation_batches
     SET allocated_count = v_alloc, skipped_count = v_skip,
-        notes = format('%s allocated (rules-driven category + mess; physical rooms fail-open: reserved rooms go to their cohort, unreserved rooms open to served institutions; filled primary-institution first, then A-Z). %s skipped (no free bed they can occupy / gender / no academic year). Strict: learners with no rule-resolved room category (e.g. no current-year bill) are excluded from the cohort.', v_alloc, v_skip)
+        notes = format('%s allocated (rules-driven category + mess; physical rooms: reserved rooms go to their matching cohort, cohorts with a reservation in ANY block are placed only in their reserved rooms, rule-free rooms are open to served-institution learners without a reservation; filled primary-institution first, then A-Z). %s skipped (no free bed they can occupy / reserved rooms in another block / gender / no academic year). Strict: learners with no rule-resolved room category (e.g. no current-year bill) are excluded from the cohort.', v_alloc, v_skip)
     WHERE id = v_batch;
 
   RETURN v_batch;
@@ -14606,7 +14622,7 @@ AS $function$
       WHEN NOT s.has_profile THEN 'No login profile'
       WHEN NOT s.gender_ok THEN 'Gender does not match the resolved room category'
       WHEN NOT s.not_allocated THEN 'Already allocated'
-      WHEN NOT s.physical_rule_ok THEN 'No room they can occupy in their category — all matching rooms are reserved for other cohorts'
+      WHEN NOT s.physical_rule_ok THEN 'No room they can occupy in their category — rooms here are reserved for other cohorts, or this cohort''s reserved rooms are in another block'
       WHEN NOT s.bed_available THEN 'Their category rooms are full — no free bed'
       ELSE NULL
     END AS exclusion_reason
@@ -14950,6 +14966,7 @@ DECLARE
   v_resolved_room_name text; v_resolved_mess_name text;
   v_fee numeric; v_ay_name text;
   v_has_covering boolean; v_matched boolean; v_rules jsonb;
+  v_pinned boolean; v_pinned_blocks text;
   v_serves boolean; v_cur_bill int; v_acad_bill int;
   v_elig_rules jsonb; v_bills jsonb;
 BEGIN
@@ -15094,6 +15111,27 @@ BEGIN
      ) ORDER BY c.rule_name) FROM covering c)
   INTO v_has_covering, v_matched, v_rules;
 
+  -- Cohort pinning (20260610130000): does ANY active rule (any block) match this cohort?
+  SELECT EXISTS (
+    SELECT 1 FROM hostel_room_eligibility_rules r
+    WHERE r.is_active
+      AND r.institution_id = v_inst
+      AND (r.degree_id     IS NULL OR r.degree_id     = v_degree)
+      AND (r.department_id IS NULL OR r.department_id = v_dept)
+      AND (r.program_id    IS NULL OR r.program_id    = v_program)
+      AND (r.semester_id   IS NULL OR r.semester_id   = v_semester)
+  ),
+  (SELECT string_agg(DISTINCT hb.name, ', ')
+     FROM hostel_room_eligibility_rules r
+     JOIN hostel_blocks hb ON hb.id = r.block_id
+     WHERE r.is_active
+       AND r.institution_id = v_inst
+       AND (r.degree_id     IS NULL OR r.degree_id     = v_degree)
+       AND (r.department_id IS NULL OR r.department_id = v_dept)
+       AND (r.program_id    IS NULL OR r.program_id    = v_program)
+       AND (r.semester_id   IS NULL OR r.semester_id   = v_semester))
+  INTO v_pinned, v_pinned_blocks;
+
   SELECT count(*)::int INTO v_acad_bill FROM billing_student_bills b
     WHERE b.student_id=v_lp AND b.fee_source='academic' AND b.status NOT IN ('cancelled','superseded');
   SELECT count(*)::int INTO v_cur_bill FROM billing_student_bills b
@@ -15131,7 +15169,9 @@ BEGIN
       'is_rule_covered', v_has_covering,
       'rule_matched', v_matched,
       'open_room', NOT v_has_covering,
-      'access_ok', (v_matched OR NOT v_has_covering),
+      'pinned_elsewhere', (v_pinned AND NOT v_matched),
+      'pinned_blocks', v_pinned_blocks,
+      'access_ok', (v_matched OR (NOT v_has_covering AND NOT v_pinned)),
       'covering_rules', COALESCE(v_rules, '[]'::jsonb)
     ),
     'bill', jsonb_build_object('current_year_bills', v_cur_bill, 'academic_bills', v_acad_bill),

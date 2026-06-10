@@ -120,6 +120,9 @@ export interface AllocationEligibilityExplain {
     is_rule_covered: boolean;
     rule_matched: boolean;
     open_room: boolean;
+    /** Cohort matches a reservation rule in another block — pinned to those rooms. */
+    pinned_elsewhere?: boolean;
+    pinned_blocks?: string | null;
     access_ok: boolean;
     covering_rules: Array<{
       rule_name: string;

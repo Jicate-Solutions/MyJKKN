@@ -276,7 +276,11 @@ export function AllocationDetailDialog({ open, onOpenChange, allocationId, learn
               </Cond>
               <Cond ok={data.physical.access_ok}>
                 {data.physical.open_room
-                  ? 'Open room — no cohort reservation; admitted as a served-institution learner'
+                  ? data.physical.pinned_elsewhere
+                    ? `Open room, but this cohort has reserved rooms in ${
+                        data.physical.pinned_blocks ?? 'another block'
+                      } — pinned cohorts may only occupy their reserved rooms`
+                    : 'Open room — no cohort reservation; admitted as a served-institution learner'
                   : data.physical.rule_matched
                   ? 'Matches a cohort reservation rule for this room'
                   : 'Room is reserved for another cohort'}
