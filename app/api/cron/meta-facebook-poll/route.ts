@@ -19,6 +19,12 @@ export const dynamic = 'force-dynamic';
 // before the last_polled_at update, freezing "Last Polled" and leaving
 // first-tick pages permanently "Never synced".
 //
+// Gap-fill (2026-06-10, v2): uncertain/deprecation-listed metrics are now
+// PROBED per tick instead of hard-skipped — page_fan_adds, page_fan_removes,
+// page_views_total, page_follows at page level and the full 7-metric set at
+// post level. Dead metrics store NULL (failure logged); live ones fill their
+// columns. fb_post_metrics gets a snapshot row per post per tick regardless.
+//
 // Auth: Bearer CRON_SECRET (Vercel-provided in production).
 // Logs every Meta API call to social_facebook_logs.
 //
@@ -34,7 +40,13 @@ import {
   getPostInsights,
   getPageProfile,
 } from '@/lib/facebook/api-client';
-import type { FbInsightSeries, FbPage, FbPost } from '@/lib/facebook/types';
+import type {
+  FbInsightSeries,
+  FbPage,
+  FbPost,
+  FbPostInsightEntry,
+  FbPostMetric,
+} from '@/lib/facebook/types';
 
 const DORMANCY_THRESHOLD_DAYS_FALLBACK = 30;
 const GRAPH_VERSION = 'v25.0';
@@ -342,6 +354,40 @@ const PAGE_METRICS_DAY = [
   'page_fans',
 ] as const;
 
+// Gap-fill PROBE set (2026-06-10). The Nov-2024 deprecation notice listed
+// these as removed, but live status varies by Page / Graph version, so each
+// is probed isolated per tick: success → value lands in its fb_page_metrics
+// column; (#100) → that column stays NULL, the failure is logged to
+// social_facebook_logs, and nothing else is affected.
+//   page_fan_adds    → fb_page_metrics.fan_adds
+//   page_fan_removes → fb_page_metrics.fan_removes
+//   page_views_total → fb_page_metrics.page_views
+//   page_follows     → fb_page_metrics.followers_count (total follows; falls
+//                      back to the profile followers_count, which works today)
+const PAGE_METRICS_PROBE = [
+  'page_fan_adds',
+  'page_fan_removes',
+  'page_views_total',
+  'page_follows',
+] as const;
+
+// Per-post insight probe set. post_engaged_users / post_clicks were removed
+// by the Nov-2024 deprecation (live (#100) evidence); parts of the
+// post_impressions* family were deprecated for NEWER posts in the 2024-25
+// purges, so their status varies per post. Probed ONE PER CALL: dead metrics
+// store NULL, live ones store their value — and the fb_post_metrics snapshot
+// row is written either way (reactions/comments/shares from the posts fetch
+// always anchor it).
+const POST_METRICS_PROBE: ReadonlyArray<FbPostMetric> = [
+  'post_impressions',
+  'post_impressions_unique',
+  'post_engaged_users',
+  'post_clicks',
+  'post_reactions_by_type_total',
+  'post_video_views',
+  'post_video_avg_time_watched',
+] as const;
+
 export async function GET(request: Request): Promise<Response> {
   const auth = request.headers.get('authorization');
   if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -489,12 +535,14 @@ export async function GET(request: Request): Promise<Response> {
       // ----------------------------------------------------------------
       // 1b. Page-level insights — ONE call per metric so a single invalid
       //     or newly-deprecated metric can never kill the whole insights
-      //     write again (the "(#100) valid insights metric" trap).
+      //     write again (the "(#100) valid insights metric" trap). The
+      //     PROBE metrics ride the same loop: dead ones log + store NULL.
       // ----------------------------------------------------------------
+      const allPageMetrics = [...PAGE_METRICS_DAY, ...PAGE_METRICS_PROBE];
       const pageInsightsStart = Date.now();
       const pageInsights: FbInsightSeries[] = [];
       const failedMetrics: string[] = [];
-      for (const metric of PAGE_METRICS_DAY) {
+      for (const metric of allPageMetrics) {
         try {
           const series = await getPageInsights(pg.fb_page_id, [metric], 'day', cfg);
           pageInsights.push(...series);
@@ -510,7 +558,7 @@ export async function GET(request: Request): Promise<Response> {
           });
         }
       }
-      if (failedMetrics.length < PAGE_METRICS_DAY.length) {
+      if (failedMetrics.length < allPageMetrics.length) {
         await logApiCall(supabase, {
           page_id: pg.id,
           event_type: 'page_insights',
@@ -531,21 +579,30 @@ export async function GET(request: Request): Promise<Response> {
         insightMap.set(series.name, flattenInsightValue(lastVal));
       }
 
+      // page_follows (when it works) is the total-follows insight metric —
+      // prefer it for the snapshot followers_count; guard against the
+      // empty-values→0 flatten so a hollow series can never clobber a real
+      // follower count with 0. Falls back to the profile field (works today).
+      const pageFollows = insightMap.get('page_follows');
+
       // Write fb_page_metrics row — isolated: a DB failure here must not
-      // block posts polling or the last_polled_at update.
+      // block posts polling or the last_polled_at update. Probe metrics
+      // (fan_adds / fan_removes / page_views) store NULL when Meta rejects
+      // them with (#100) — see PAGE_METRICS_PROBE above.
       const { error: metricErr } = await supabase.from('fb_page_metrics').insert({
         page_id: pg.id,
         fan_count: profile.fan_count ?? 0,
-        followers_count: profile.followers_count ?? 0,
+        followers_count:
+          pageFollows && pageFollows > 0
+            ? pageFollows
+            : profile.followers_count ?? 0,
         impressions: insightMap.get('page_impressions') ?? null,
         impressions_unique: insightMap.get('page_impressions_unique') ?? null,
         post_engagements: insightMap.get('page_post_engagements') ?? null,
-        // page_views_total / page_fan_adds / page_fan_removes were removed
-        // by Meta's Nov-2024 insights deprecation — no v25 equivalent.
-        page_views: null,
-        fan_adds: null,
-        fan_removes: null,
-        raw: { profile, insights: pageInsights },
+        page_views: insightMap.get('page_views_total') ?? null,
+        fan_adds: insightMap.get('page_fan_adds') ?? null,
+        fan_removes: insightMap.get('page_fan_removes') ?? null,
+        raw: { profile, insights: pageInsights, failed_metrics: failedMetrics },
         snapshot_at: new Date().toISOString(),
       });
       if (metricErr) {
@@ -652,33 +709,42 @@ export async function GET(request: Request): Promise<Response> {
           }
 
           // ------------------------------------------------------------
-          // 3. Fetch per-post insights
+          // 3. Per-post insights — ONE call per metric (mirrors the page
+          //    loop). Parts of the post_impressions* family are dead for
+          //    newer posts and post_engaged_users / post_clicks are dead
+          //    everywhere: a (#100)/(#12) on one metric stores NULL for
+          //    that column only and never aborts the post loop. The
+          //    fb_post_metrics snapshot row is written EVEN IF every
+          //    insight metric failed — reactions/comments/shares from the
+          //    posts fetch still anchor the per-tick time series.
           // ------------------------------------------------------------
           const postInsightsStart = Date.now();
-          let postInsights;
-          try {
-            postInsights = await getPostInsights(post.id, cfg);
-            await logApiCall(supabase, {
-              page_id: pg.id,
-              event_type: 'post_insights',
-              status: 'success',
-              payload: {
-                fb_post_id: post.id,
-                duration_ms: Date.now() - postInsightsStart,
-              },
-            });
-          } catch (e) {
-            const msg = e instanceof Error ? e.message : 'unknown';
-            await logApiCall(supabase, {
-              page_id: pg.id,
-              event_type: 'post_insights',
-              status: 'error',
-              payload: { fb_post_id: post.id, duration_ms: Date.now() - postInsightsStart },
-              error_message: msg,
-            });
-            // Skip writing metrics for this post; continue with next
-            continue;
+          const postInsights: FbPostInsightEntry[] = [];
+          const failedPostMetrics: string[] = [];
+          let lastPostInsightError: string | null = null;
+          for (const metric of POST_METRICS_PROBE) {
+            try {
+              const entries = await getPostInsights(post.id, cfg, [metric]);
+              postInsights.push(...entries);
+            } catch (e) {
+              failedPostMetrics.push(metric);
+              lastPostInsightError = e instanceof Error ? e.message : 'unknown';
+            }
           }
+          const allPostMetricsFailed =
+            failedPostMetrics.length === POST_METRICS_PROBE.length;
+          await logApiCall(supabase, {
+            page_id: pg.id,
+            event_type: 'post_insights',
+            status: allPostMetricsFailed ? 'error' : 'success',
+            payload: {
+              fb_post_id: post.id,
+              metrics_count: postInsights.length,
+              failed_metrics: failedPostMetrics,
+              duration_ms: Date.now() - postInsightsStart,
+            },
+            error_message: allPostMetricsFailed ? lastPostInsightError : null,
+          });
 
           const postInsightMap = new Map<string, number>();
           for (const entry of postInsights) {
@@ -686,22 +752,25 @@ export async function GET(request: Request): Promise<Response> {
             postInsightMap.set(entry.name, flattenInsightValue(lastVal));
           }
 
-          // Write fb_post_metrics row
+          // Write fb_post_metrics row — always one snapshot per post per
+          // tick. reactions_total falls back to the posts-fetch summary
+          // count when the insight metric is unavailable.
           const { error: postMetricErr } = await supabase
             .from('fb_post_metrics')
             .insert({
               post_id: postRow.id,
               impressions: postInsightMap.get('post_impressions') ?? null,
               impressions_unique: postInsightMap.get('post_impressions_unique') ?? null,
-              // post_engaged_users / post_clicks were removed by Meta's
-              // Nov-2024 insights deprecation — no v25 equivalent.
-              engaged_users: null,
-              clicks: null,
-              reactions_total: postInsightMap.get('post_reactions_by_type_total') ?? null,
+              engaged_users: postInsightMap.get('post_engaged_users') ?? null,
+              clicks: postInsightMap.get('post_clicks') ?? null,
+              reactions_total:
+                postInsightMap.get('post_reactions_by_type_total') ??
+                post.reactions?.summary?.total_count ??
+                null,
               video_views: postInsightMap.get('post_video_views') ?? null,
               video_avg_time_watched_ms:
                 postInsightMap.get('post_video_avg_time_watched') ?? null,
-              raw: postInsights,
+              raw: { insights: postInsights, failed_metrics: failedPostMetrics },
               snapshot_at: new Date().toISOString(),
             });
           if (postMetricErr) throw postMetricErr;

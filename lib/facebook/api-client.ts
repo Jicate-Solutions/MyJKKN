@@ -222,17 +222,21 @@ export async function getPagePosts(
  *   post_impressions, post_impressions_unique, post_reactions_by_type_total
  *
  * NOTE (2026-06-10): post_engaged_users and post_clicks were removed by
- * Meta's Nov-2024 insights deprecation — including either fails the WHOLE
- * call with "(#100) The value must be a valid insights metric".
+ * Meta's Nov-2024 insights deprecation, and parts of the post_impressions*
+ * family were deprecated for NEWER posts in the 2024-25 purges — including
+ * ANY dead metric fails the WHOLE call with "(#100) The value must be a
+ * valid insights metric". Pollers should therefore probe metrics ONE PER
+ * CALL and isolate failures (store NULL, keep going) — the param accepts
+ * plain strings for metrics not yet in the `FbPostMetric` union.
  *
  * Must be called with the parent page's per-page `access_token`.
  */
 export async function getPostInsights(
   postId: string,
   config: FbCallConfig,
-  metrics?: FbPostMetric[]
+  metrics?: ReadonlyArray<FbPostMetric | (string & {})>
 ): Promise<FbPostInsightEntry[]> {
-  const metricList: FbPostMetric[] =
+  const metricList: ReadonlyArray<FbPostMetric | (string & {})> =
     metrics && metrics.length > 0
       ? metrics
       : [
