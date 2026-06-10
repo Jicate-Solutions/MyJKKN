@@ -168,6 +168,14 @@
       "schedule": "17 * * * *"
     },
     {
+      "path": "/api/cron/ig-login-insights-poll?secret=${CRON_SECRET}",
+      "schedule": "37 * * * *"
+    },
+    {
+      "path": "/api/cron/ig-login-token-refresh?secret=${CRON_SECRET}",
+      "schedule": "43 2 * * *"
+    },
+    {
       "path": "/api/cron/instagram-monthly-audit?secret=${CRON_SECRET}",
       "schedule": "0 6 1 * *"
     },

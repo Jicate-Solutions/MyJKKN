@@ -37,6 +37,8 @@ See `docs/fixes/` for bug-fix writeups, organized by month (`YYYY-MM/`).
 
 ## Guides
 
+- [Instagram Business Login — Setup & Connect (Track 3)](guides/2026-06-10-GUIDE-instagram-login-connect-setup.md) — Meta app config, env vars, app testers, per-account connect flow for Page-less dept IG insights
+
 See `docs/plans/` for implementation plans and `docs/modules/` for per-module documentation.
 
 ---
