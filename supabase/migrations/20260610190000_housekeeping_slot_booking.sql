@@ -36,8 +36,8 @@
 --   - profiles.id == auth.users.id; profiles.learner_id → learners_profiles.id.
 --   - learners_profiles: first_name, last_name.
 --   - hostel_rooms: room_number (NO institution_id). hostel_blocks: name.
---   - fn_get_policy(p_key text, p_scope_id uuid DEFAULT NULL) → jsonb;
---     fn_get_policy_int(key, default, scope) / _text / _bool / _json.
+--   - fn_get_policy(p_key, p_scope_id) → jsonb and fn_get_policy_json(p_key,
+--     p_default, p_scope_id) → jsonb are the ONLY live readers (verified 2026-06-10);
 --   - platform_policies unique index: (policy_key, scope_type,
 --     COALESCE(scope_id, zero-uuid)).
 --   - Quota week = ISO week: date_trunc('week', ...) (Monday start).
@@ -193,13 +193,13 @@ BEGIN
   END IF;
 
   -- Policy knobs (Director-tunable, zero deploys).
-  v_enabled      := COALESCE(fn_get_policy_bool('housekeeping.booking_enabled', true, NULL), true);
-  v_slot_minutes := COALESCE(fn_get_policy_int('housekeeping.slot_duration_minutes', 10, NULL), 10);
+  v_enabled      := COALESCE((fn_get_policy_json('housekeeping.booking_enabled', 'true'::jsonb, NULL) #>> '{}')::boolean, true);
+  v_slot_minutes := COALESCE((fn_get_policy_json('housekeeping.slot_duration_minutes', '10'::jsonb, NULL) #>> '{}')::int, 10);
   v_window       := COALESCE(fn_get_policy_json('housekeeping.service_window',
                       '{"start":"09:00","end":"17:00"}'::jsonb, NULL),
                       '{"start":"09:00","end":"17:00"}'::jsonb);
-  v_capacity     := COALESCE(fn_get_policy_int('housekeeping.capacity_per_slot_per_block', 1, NULL), 1);
-  v_advance_days := COALESCE(fn_get_policy_int('housekeeping.booking_advance_days', 7, NULL), 7);
+  v_capacity     := COALESCE((fn_get_policy_json('housekeeping.capacity_per_slot_per_block', '1'::jsonb, NULL) #>> '{}')::int, 1);
+  v_advance_days := COALESCE((fn_get_policy_json('housekeeping.booking_advance_days', '7'::jsonb, NULL) #>> '{}')::int, 7);
 
   IF v_slot_minutes <= 0 THEN v_slot_minutes := 10; END IF;
   v_win_start := COALESCE((v_window->>'start')::time, '09:00'::time);
@@ -303,7 +303,7 @@ BEGIN
   END IF;
 
   -- Master kill-switch.
-  v_enabled := COALESCE(fn_get_policy_bool('housekeeping.booking_enabled', true, NULL), true);
+  v_enabled := COALESCE((fn_get_policy_json('housekeeping.booking_enabled', 'true'::jsonb, NULL) #>> '{}')::boolean, true);
   IF NOT v_enabled THEN
     RETURN jsonb_build_object('success', false, 'error_code', 'disabled',
       'message', 'Housekeeping slot booking is currently turned off.');
@@ -348,15 +348,15 @@ BEGIN
   END IF;
 
   -- Remaining policy knobs.
-  v_slot_minutes := COALESCE(fn_get_policy_int('housekeeping.slot_duration_minutes', 10, NULL), 10);
+  v_slot_minutes := COALESCE((fn_get_policy_json('housekeeping.slot_duration_minutes', '10'::jsonb, NULL) #>> '{}')::int, 10);
   IF v_slot_minutes <= 0 THEN v_slot_minutes := 10; END IF;
   v_window       := COALESCE(fn_get_policy_json('housekeeping.service_window',
                       '{"start":"09:00","end":"17:00"}'::jsonb, NULL),
                       '{"start":"09:00","end":"17:00"}'::jsonb);
   v_win_start    := COALESCE((v_window->>'start')::time, '09:00'::time);
   v_win_end      := COALESCE((v_window->>'end')::time,   '17:00'::time);
-  v_capacity     := COALESCE(fn_get_policy_int('housekeeping.capacity_per_slot_per_block', 1, NULL), 1);
-  v_advance_days := COALESCE(fn_get_policy_int('housekeeping.booking_advance_days', 7, NULL), 7);
+  v_capacity     := COALESCE((fn_get_policy_json('housekeeping.capacity_per_slot_per_block', '1'::jsonb, NULL) #>> '{}')::int, 1);
+  v_advance_days := COALESCE((fn_get_policy_json('housekeeping.booking_advance_days', '7'::jsonb, NULL) #>> '{}')::int, 7);
   v_quota_json   := COALESCE(fn_get_policy_json('housekeeping.weekly_quota_by_tier',
                       '{"standard":0,"premium":2,"premium_plus":5}'::jsonb, NULL),
                       '{"standard":0,"premium":2,"premium_plus":5}'::jsonb);
@@ -508,7 +508,7 @@ BEGIN
   -- Owners must respect the cancellation cutoff; staff may cancel any time.
   IF v_is_owner AND NOT v_is_staff THEN
     v_cutoff_minutes := COALESCE(
-      fn_get_policy_int('housekeeping.cancellation_cutoff_minutes', 60, NULL), 60);
+      (fn_get_policy_json('housekeeping.cancellation_cutoff_minutes', '60'::jsonb, NULL) #>> '{}')::int, 60);
     v_now_ist := now() AT TIME ZONE 'Asia/Kolkata';
     IF (v_booking.booking_date + v_booking.slot_start)
          - make_interval(mins => v_cutoff_minutes) <= v_now_ist THEN
