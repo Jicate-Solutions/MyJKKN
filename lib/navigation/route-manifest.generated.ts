@@ -1285,6 +1285,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/admin/social/departments",
+            "label": "Departments",
+            "iconName": "Building2",
+            "children": []
+          },
+          {
             "path": "/admin/social/facebook",
             "label": "Facebook",
             "iconName": "FileText",
