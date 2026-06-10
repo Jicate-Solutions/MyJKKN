@@ -45,8 +45,36 @@ export interface ProposedAllocation {
   learner_semester: string | null;
   block_name: string | null;
   room_number: string | null;
+  room_category: string | null;
   bed_number: string | null;
   status: string;
+}
+
+/** One configured Program-Eligibility condition with per-condition verdicts for the learner.
+ *  selected_room/selected_mess mark the winner-scope row(s) the resolvers actually applied. */
+export interface EligibilityRuleExplain {
+  program: string | null; // null = any program (institution default)
+  quota: string | null; // null = any quota
+  fee_min: number | null;
+  fee_max: number | null;
+  room_category: string | null;
+  mess_category: string | null;
+  program_ok: boolean;
+  quota_ok: boolean;
+  fee_ok: boolean;
+  matched: boolean;
+  selected_room: boolean;
+  selected_mess: boolean;
+}
+
+/** One academic bill; `counted` = it produced the gating fee (current-AY, not cancelled/superseded). */
+export interface BillExplain {
+  description: string | null;
+  amount: number;
+  status: string | null;
+  due_date: string;
+  academic_year: string | null;
+  counted: boolean;
 }
 
 /** Shape returned by fn_explain_allocation — why a resident was allocated to a room. */
@@ -54,6 +82,19 @@ export interface AllocationEligibilityExplain {
   allocation_id: string;
   room_number: string | null;
   status: string;
+  learner: {
+    institution: string | null;
+    degree: string | null;
+    department: string | null;
+    program: string | null;
+    semester: string | null;
+    quota: string | null;
+    academic_year: string | null;
+    academic_fee: number | null;
+    gender: string | null;
+  };
+  eligibility_rules: EligibilityRuleExplain[];
+  bills: BillExplain[];
   category: {
     allocated_room_category: string | null;
     resolved_room_category: string | null;
@@ -75,6 +116,17 @@ export interface AllocationEligibilityExplain {
       floor: number | null;
       matched: boolean;
       cohort: string | null;
+      // Per-dimension condition-vs-learner comparison (null dim = "any").
+      institution: string | null;
+      institution_ok: boolean;
+      degree: string | null;
+      degree_ok: boolean;
+      department: string | null;
+      department_ok: boolean;
+      program: string | null;
+      program_ok: boolean;
+      semester: string | null;
+      semester_ok: boolean;
     }>;
   };
   bill: {

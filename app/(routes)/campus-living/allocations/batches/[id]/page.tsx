@@ -241,6 +241,7 @@ export default function AllocationBatchDetailPage({
                       <TableHead>Semester</TableHead>
                       <TableHead>Block</TableHead>
                       <TableHead>Room</TableHead>
+                      <TableHead>Category</TableHead>
                       <TableHead>Bed</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Details</TableHead>
@@ -255,6 +256,7 @@ export default function AllocationBatchDetailPage({
                         <TableCell>{a.learner_semester ?? '—'}</TableCell>
                         <TableCell>{a.block_name ?? '—'}</TableCell>
                         <TableCell>{a.room_number ?? '—'}</TableCell>
+                        <TableCell>{a.room_category ?? '—'}</TableCell>
                         <TableCell>{a.bed_number ?? '—'}</TableCell>
                         <TableCell>
                           <Badge variant="outline" className="capitalize">
