@@ -27,7 +27,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { connection } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { getAccountProfile } from '@/lib/instagram/api-client';
+import { discoverAccounts, getAccountProfile } from '@/lib/instagram/api-client';
+import { getExtraIgPortfolios } from '@/lib/instagram/extra-portfolios';
 
 const GRAPH_API = 'https://graph.facebook.com/v25.0';
 const GRAPH_VERSION = 'v25.0';
@@ -186,11 +187,49 @@ export async function POST(request: NextRequest) {
       console.warn('[ig-sync] /me/accounts enumeration failed:', meAccountsError);
     }
 
+    // Step 1b: extra portfolios. Department accounts are owned by OTHER
+    // Business Portfolios (e.g. "JKKN All Departments"), each with its own
+    // token — a system-user token only reads its own portfolio's assets. Build
+    // igId -> {token, username} via owned_instagram_accounts per portfolio so
+    // the upsert can store the correct per-account token (the poller reads it).
+    const extraByIgId = new Map<string, { token: string; username: string | null }>();
+    for (const portfolio of getExtraIgPortfolios()) {
+      try {
+        const summaries = await discoverAccounts(portfolio.businessId, {
+          accessToken: portfolio.token,
+          apiVersion: GRAPH_VERSION,
+        });
+        for (const s of summaries) {
+          if (!extraByIgId.has(s.id)) {
+            extraByIgId.set(s.id, { token: portfolio.token, username: s.username || null });
+          }
+        }
+      } catch (err) {
+        console.warn(`[ig-sync] extra-portfolio ${portfolio.businessId} discovery failed:`, err);
+      }
+    }
+
+    // institution_id per department handle, from the social_dept_accounts
+    // registry (PR #1292). Extra-portfolio accounts have no fb_pages parent, so
+    // this is their institution source.
+    const deptInstitutionByUsername = new Map<string, string>();
+    if (extraByIgId.size > 0) {
+      const { data: deptRows } = await serviceClient
+        .from('social_dept_accounts')
+        .select('username, institution_id')
+        .not('institution_id', 'is', null);
+      for (const row of deptRows || []) {
+        if (row.username && row.institution_id) {
+          deptInstitutionByUsername.set(row.username as string, row.institution_id as string);
+        }
+      }
+    }
+
     // Determine which IG user IDs to sync
     const targetIds: string[] =
       body.ig_user_ids && body.ig_user_ids.length > 0
         ? body.ig_user_ids
-        : Array.from(parentPageByIgId.keys());
+        : Array.from(new Set([...parentPageByIgId.keys(), ...extraByIgId.keys()]));
 
     if (targetIds.length === 0) {
       if (meAccountsError) {
@@ -238,15 +277,23 @@ export async function POST(request: NextRequest) {
       targetIds.map(async (igUserId) => {
         try {
           const parent = parentPageByIgId.get(igUserId);
+          const extra = extraByIgId.get(igUserId);
+          // Token precedence: page token (owned-via-Page) → extra-portfolio
+          // token (department account) → primary system token.
+          const igToken = parent?.pageToken || extra?.token || accessToken;
 
           const igProfile = await getAccountProfile(igUserId, {
-            accessToken: parent?.pageToken || accessToken,
+            accessToken: igToken,
             apiVersion: GRAPH_VERSION,
           });
 
           const now = new Date().toISOString();
           const resolvedInstitutionId =
-            (parent?.pageId && institutionByPageId.get(parent.pageId)) || institutionId;
+            (parent?.pageId && institutionByPageId.get(parent.pageId)) ||
+            (igProfile.username
+              ? deptInstitutionByUsername.get(igProfile.username)
+              : undefined) ||
+            institutionId;
           if (!resolvedInstitutionId) {
             // institution_id is NOT NULL on ig_accounts. No fb_pages parent
             // mapping and no body fallback (super_admin group-level sync) —
@@ -269,7 +316,7 @@ export async function POST(request: NextRequest) {
           // Only columns that exist on ig_accounts (migrations 20260530140000
           // + 20260609000726). Follower/media counts belong to
           // ig_account_metrics and are written by the metrics poller cron.
-          const { error: upsertError } = await serviceClient
+          const { data: upserted, error: upsertError } = await serviceClient
             .from('ig_accounts')
             .upsert(
               {
@@ -278,11 +325,13 @@ export async function POST(request: NextRequest) {
                 username: igProfile.username || parent?.igUsername || igUserId,
                 account_type: accountType,
                 status: 'active',
-                access_token: parent?.pageToken || null,
+                access_token: parent?.pageToken || extra?.token || null,
                 updated_at: now,
               },
               { onConflict: 'ig_user_id', ignoreDuplicates: false }
-            );
+            )
+            .select('id')
+            .maybeSingle();
 
           if (upsertError) {
             results.push({
@@ -293,6 +342,21 @@ export async function POST(request: NextRequest) {
             });
             failed++;
             return;
+          }
+
+          // For department accounts, link the registry row so the
+          // /admin/social/departments chip flips to "Monitored". Non-fatal.
+          if (extra && upserted?.id && igProfile.username) {
+            const { error: linkError } = await serviceClient
+              .from('social_dept_accounts')
+              .update({ ig_account_id: upserted.id, updated_at: now })
+              .eq('username', igProfile.username);
+            if (linkError) {
+              console.warn(
+                `[ig-sync] failed to link social_dept_accounts for ${igProfile.username}:`,
+                linkError.message
+              );
+            }
           }
 
           results.push({
