@@ -36,7 +36,7 @@ interface IgAccountRow {
   created_at: string;
   updated_at: string;
   institutions: { name: string } | null;
-  departments: { name: string } | null;
+  departments: { department_name: string } | null;
 }
 
 /** DB status → service IgAccountStatus ('orphaned' has no UI equivalent). */
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('ig_accounts')
       .select(
-        'id, institution_id, department_id, ig_user_id, username, account_type, status, last_polled_at, connected_at, created_at, updated_at, institutions(name), departments(name)'
+        'id, institution_id, department_id, ig_user_id, username, account_type, status, last_polled_at, connected_at, created_at, updated_at, institutions(name), departments(department_name)'
       )
       .order('username', { ascending: true });
 
@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
         institution_id: a.institution_id,
         institution_name: a.institutions?.name ?? '',
         department_id: a.department_id,
-        department_name: a.departments?.name ?? null,
+        department_name: a.departments?.department_name ?? null,
         account_type: a.account_type,
         display_name: null,
         bio: null,
