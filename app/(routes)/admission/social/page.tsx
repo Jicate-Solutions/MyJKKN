@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 
 const breadcrumbItems = [
   { label: 'Home', href: '/' },
-  { label: 'Administration' },
+  { label: 'Admission', href: '/admission' },
   { label: 'Social Media' },
 ];
 
@@ -63,7 +63,7 @@ export default function SocialAdminIndexPage() {
                 Track followers, engagement, post frequency, and health scores
                 for all JKKN Instagram accounts.
               </p>
-              <Link href="/admin/social/instagram">
+              <Link href="/admission/social/instagram">
                 <Button size="sm" className="w-full">
                   Open Dashboard
                 </Button>

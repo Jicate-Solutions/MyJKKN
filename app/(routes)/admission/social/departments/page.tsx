@@ -59,8 +59,8 @@ interface DeptAccountRow {
 
 const breadcrumbItems = [
   { label: 'Home', href: '/' },
-  { label: 'Administration' },
-  { label: 'Social Media', href: '/admin/social' },
+  { label: 'Admission', href: '/admission' },
+  { label: 'Social Media', href: '/admission/social' },
   { label: 'Department Accounts' },
 ];
 

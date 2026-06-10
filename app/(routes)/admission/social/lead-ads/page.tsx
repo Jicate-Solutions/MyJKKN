@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * /admin/social/lead-ads
+ * /admission/social/lead-ads
  *
  * Lead Ads admin: lists synced forms, lets admin edit field-mapping rules,
  * fire a test lead, and review the last 50 webhook events.
@@ -106,8 +106,8 @@ interface EventRow {
 
 const breadcrumbItems = [
   { label: 'Home', href: '/' },
-  { label: 'Administration' },
-  { label: 'Social Media', href: '/admin/social' },
+  { label: 'Admission', href: '/admission' },
+  { label: 'Social Media', href: '/admission/social' },
   { label: 'Lead Ads' },
 ];
 

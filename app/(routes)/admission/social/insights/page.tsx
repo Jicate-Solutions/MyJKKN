@@ -13,14 +13,14 @@ import { FbTotalsTiles, type FbInsightsTotals } from './_components/fb-totals-ti
 import { FbSummaryTable, type FbInsightsPageRow } from './_components/fb-summary-table';
 
 /**
- * Cross-account social insights dashboard (/admin/social/insights).
+ * Cross-account social insights dashboard (/admission/social/insights).
  *
  * Instagram tab consumes contract C7: GET /api/social/instagram/insights/summary?days=N
  *   data: { accounts: InsightsAccountRow[], totals: InsightsTotals }
  * Facebook tab consumes contract F4: GET /api/social/facebook/insights/summary?days=N
  *   data: { pages: FbInsightsPageRow[], totals: FbInsightsTotals }
  *
- * Super-admin only — mirrors /admin/social/facebook's guard + layout
+ * Super-admin only — mirrors /admission/social/facebook's guard + layout
  * pattern. Metrics accumulate from the pollers' first runs, so an all-zero
  * table over the connected accounts/pages is the expected early state.
  *
@@ -54,8 +54,8 @@ const NETWORK_OPTIONS: Array<{
 
 const breadcrumbItems = [
   { label: 'Home', href: '/' },
-  { label: 'Administration' },
-  { label: 'Social Media', href: '/admin/social' },
+  { label: 'Admission', href: '/admission' },
+  { label: 'Social Media', href: '/admission/social' },
   { label: 'Insights' },
 ];
 

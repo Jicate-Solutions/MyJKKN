@@ -26,7 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { SubscribedAssetsPanel } from '@/components/admin/social/subscribed-assets-panel';
+import { SubscribedAssetsPanel } from '@/components/admission/social/subscribed-assets-panel';
 
 interface PageHealthRow {
   fb_page_id: string;
@@ -54,8 +54,8 @@ interface HealthSummary {
 
 const breadcrumbItems = [
   { label: 'Home', href: '/' },
-  { label: 'Administration' },
-  { label: 'Social Media', href: '/admin/social' },
+  { label: 'Admission', href: '/admission' },
+  { label: 'Social Media', href: '/admission/social' },
   { label: 'Facebook' },
 ];
 
@@ -285,7 +285,7 @@ export default function FacebookAdminPage() {
                         <TableCell className="font-medium">
                           {idMap[pg.fb_page_id] ? (
                             <Link
-                              href={`/admin/social/facebook/${idMap[pg.fb_page_id]}`}
+                              href={`/admission/social/facebook/${idMap[pg.fb_page_id]}`}
                               className="hover:underline text-primary"
                             >
                               {pg.name}

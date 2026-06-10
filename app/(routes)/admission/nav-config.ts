@@ -22,6 +22,51 @@ const config: ModuleNavConfig = {
       matchPaths: ['/admission/dashboard', '/admission'],
     },
     {
+      // Social-media monitoring + lead-gen surfaces. Relocated from
+      // /admin/social/* 2026-06-10 (Director: "social can be moved to top of
+      // admission crm module") — admin-cluster relocation program, one module
+      // = one URL prefix. Pages remain SuperAdminOnly-gated with explicit
+      // restriction fallbacks; non-super-admin admission users who click the
+      // tab see the restriction card, not a silent redirect.
+      label: 'Social',
+      icon: 'Share2',
+      href: '/admission/social',
+      matchPaths: ['/admission/social'],
+      children: [
+        {
+          label: 'Overview',
+          icon: 'Share2',
+          href: '/admission/social',
+          exact: true,
+        },
+        {
+          label: 'Insights',
+          icon: 'LineChart',
+          href: '/admission/social/insights',
+        },
+        {
+          label: 'Instagram',
+          icon: 'Instagram',
+          href: '/admission/social/instagram',
+        },
+        {
+          label: 'Facebook',
+          icon: 'Facebook',
+          href: '/admission/social/facebook',
+        },
+        {
+          label: 'Lead Ads',
+          icon: 'Megaphone',
+          href: '/admission/social/lead-ads',
+        },
+        {
+          label: 'Dept Accounts',
+          icon: 'KeyRound',
+          href: '/admission/social/departments',
+        },
+      ],
+    },
+    {
       label: 'Analytics',
       icon: 'LineChart',
       href: '/admission/analytics',
