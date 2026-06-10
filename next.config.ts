@@ -213,6 +213,20 @@ const nextConfig: NextConfig = {
         source: '/admin/internship-policy/:path*',
         destination: '/internships/policy/:path*',
         permanent: false
+      },
+      // 2026-06-10 admin-cluster relocation — consultants
+      // /admin/consultants/* → /admission/consultants/admin/* ("one module = one
+      // URL prefix"). 307 (non-permanent) preserves bookmarks while the new
+      // canonical path stabilizes.
+      {
+        source: '/admin/consultants',
+        destination: '/admission/consultants/admin',
+        permanent: false
+      },
+      {
+        source: '/admin/consultants/:path*',
+        destination: '/admission/consultants/admin/:path*',
+        permanent: false
       }
     ];
   },
