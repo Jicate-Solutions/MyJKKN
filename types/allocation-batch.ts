@@ -182,6 +182,7 @@ export interface AllocationCandidate {
   learner_id: string;
   full_name: string;
   email: string | null;
+  institution_name: string | null;
   program_name: string | null;
   semester_name: string | null;
   gender: string | null;

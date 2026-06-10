@@ -134,15 +134,41 @@ export function CandidateValidationTable({
   // ── Advanced filters ──────────────────────────────────────────────
   const [search, setSearch] = useState('');
   const [verdict, setVerdict] = useState(ALL);
-  const [semester, setSemester] = useState(ALL);
+  const [institution, setInstitution] = useState(ALL);
   const [program, setProgram] = useState(ALL);
+  const [semester, setSemester] = useState(ALL);
   const [roomCat, setRoomCat] = useState(ALL);
   const [messCat, setMessCat] = useState(ALL);
   const [billState, setBillState] = useState(ALL);
   const [gender, setGender] = useState(ALL);
 
-  const semesterOpts = useMemo(() => distinct(candidates, (c) => c.semester_name), [candidates]);
-  const programOpts = useMemo(() => distinct(candidates, (c) => c.program_name), [candidates]);
+  // Institution → Program → Semester cascade. The block can serve several
+  // institutions (hostel_block_institutions); picking one narrows the program
+  // list to that institution's cohort, and picking a program narrows semesters.
+  const institutionOpts = useMemo(
+    () => distinct(candidates, (c) => c.institution_name),
+    [candidates]
+  );
+  const programOpts = useMemo(
+    () =>
+      distinct(
+        candidates.filter((c) => institution === ALL || c.institution_name === institution),
+        (c) => c.program_name
+      ),
+    [candidates, institution]
+  );
+  const semesterOpts = useMemo(
+    () =>
+      distinct(
+        candidates.filter(
+          (c) =>
+            (institution === ALL || c.institution_name === institution) &&
+            (program === ALL || c.program_name === program)
+        ),
+        (c) => c.semester_name
+      ),
+    [candidates, institution, program]
+  );
   const roomCatOpts = useMemo(
     () => distinct(candidates, (c) => c.resolved_room_category_name),
     [candidates]
@@ -157,15 +183,30 @@ export function CandidateValidationTable({
     [candidates]
   );
 
+  // Cascade resets: changing institution clears program+semester; changing
+  // program clears semester — so a stale child selection can't hide all rows.
+  const onInstitutionChange = (v: string) => {
+    setInstitution(v);
+    setProgram(ALL);
+    setSemester(ALL);
+  };
+  const onProgramChange = (v: string) => {
+    setProgram(v);
+    setSemester(ALL);
+  };
+
   const filtersActive =
     !!search ||
-    [verdict, semester, program, roomCat, messCat, billState, gender].some((v) => v !== ALL);
+    [verdict, institution, program, semester, roomCat, messCat, billState, gender].some(
+      (v) => v !== ALL
+    );
 
   const resetFilters = () => {
     setSearch('');
     setVerdict(ALL);
-    setSemester(ALL);
+    setInstitution(ALL);
     setProgram(ALL);
+    setSemester(ALL);
     setRoomCat(ALL);
     setMessCat(ALL);
     setBillState(ALL);
@@ -180,15 +221,16 @@ export function CandidateValidationTable({
         if (!hay.includes(q)) return false;
       }
       if (verdict !== ALL && c.verdict !== verdict) return false;
-      if (semester !== ALL && c.semester_name !== semester) return false;
+      if (institution !== ALL && c.institution_name !== institution) return false;
       if (program !== ALL && c.program_name !== program) return false;
+      if (semester !== ALL && c.semester_name !== semester) return false;
       if (roomCat !== ALL && c.resolved_room_category_name !== roomCat) return false;
       if (messCat !== ALL && c.resolved_mess_category_name !== messCat) return false;
       if (billState !== ALL && c.bill_state !== billState) return false;
       if (gender !== ALL && c.gender !== gender) return false;
       return true;
     });
-  }, [candidates, search, verdict, semester, program, roomCat, messCat, billState, gender]);
+  }, [candidates, search, verdict, institution, program, semester, roomCat, messCat, billState, gender]);
 
   return (
     <div className="space-y-4">
@@ -261,18 +303,25 @@ export function CandidateValidationTable({
                 ]}
               />
               <FilterSelect
+                label="Institution"
+                value={institution}
+                onChange={onInstitutionChange}
+                allLabel="All institutions"
+                options={institutionOpts.map((i) => ({ value: i, label: i }))}
+              />
+              <FilterSelect
+                label="Program"
+                value={program}
+                onChange={onProgramChange}
+                allLabel="All programs"
+                options={programOpts.map((p) => ({ value: p, label: p }))}
+              />
+              <FilterSelect
                 label="Semester"
                 value={semester}
                 onChange={setSemester}
                 allLabel="All semesters"
                 options={semesterOpts.map((s) => ({ value: s, label: s }))}
-              />
-              <FilterSelect
-                label="Program"
-                value={program}
-                onChange={setProgram}
-                allLabel="All programs"
-                options={programOpts.map((p) => ({ value: p, label: p }))}
               />
               <FilterSelect
                 label="Room category"
@@ -333,6 +382,9 @@ export function CandidateValidationTable({
                     <td className="py-2 pr-3">
                       <div className="font-medium">{c.full_name}</div>
                       <div className="text-xs text-muted-foreground">{c.program_name ?? '—'}</div>
+                      {c.institution_name && (
+                        <div className="text-xs text-muted-foreground/80">{c.institution_name}</div>
+                      )}
                     </td>
                     <td className="px-2">
                       {c.semester_name ?? <span className="text-muted-foreground">—</span>}

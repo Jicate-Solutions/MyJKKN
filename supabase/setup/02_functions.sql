@@ -14502,9 +14502,11 @@ END $function$;
 
 -- 2) Per-learner validation preview (no category input; strict).
 -- 20260610160000: + semester_name (the cohort dimension physical-room rules reserve by).
+-- 20260610170000: + institution_name (enables Institution → Program → Semester filter).
 CREATE OR REPLACE FUNCTION public.fn_auto_allocate_candidates(p_block_id uuid)
 RETURNS TABLE(
-  learner_id uuid, full_name text, email text, program_name text, semester_name text, gender text,
+  learner_id uuid, full_name text, email text, institution_name text,
+  program_name text, semester_name text, gender text,
   has_profile boolean, gender_ok boolean, not_allocated boolean,
   physical_rule_ok boolean, bed_available boolean,
   academic_year_id uuid, academic_year_name text,
@@ -14532,7 +14534,8 @@ AS $function$
       COALESCE(p.full_name,
                NULLIF(btrim(coalesce(c.first_name,'') || ' ' || coalesce(c.last_name,'')), ''),
                p.email, '—') AS full_name,
-      p.email, prog.program_name, sem.semester_name, lower(trim(p.gender)) AS gender,
+      p.email, inst.name AS institution_name, prog.program_name, sem.semester_name,
+      lower(trim(p.gender)) AS gender,
       (p.id IS NOT NULL) AS has_profile,
       c.academic_year_id, ay.academic_year_name, c.room_cats, c.mess_cats,
       c.room_cats[1] AS resolved_room_category_id, rc.name AS resolved_room_category_name, rc.type AS resolved_room_category_type,
@@ -14581,6 +14584,7 @@ AS $function$
       ) AS bed_available
     FROM cohort c
     LEFT JOIN profiles p ON p.learner_id = c.id
+    LEFT JOIN institutions inst ON inst.id = c.institution_id
     LEFT JOIN programs prog ON prog.id = c.program_id
     LEFT JOIN semesters sem ON sem.id = c.semester_id
     LEFT JOIN academic_years ay ON ay.id = c.academic_year_id
@@ -14595,7 +14599,7 @@ AS $function$
     FROM base b
   )
   SELECT
-    s.learner_id, s.full_name, s.email, s.program_name, s.semester_name, s.gender,
+    s.learner_id, s.full_name, s.email, s.institution_name, s.program_name, s.semester_name, s.gender,
     s.has_profile, s.gender_ok, s.not_allocated, s.physical_rule_ok, s.bed_available,
     s.academic_year_id, s.academic_year_name,
     s.academic_bill_count, s.current_year_bill_count, s.bill_other_year_name, s.current_year_fee,
