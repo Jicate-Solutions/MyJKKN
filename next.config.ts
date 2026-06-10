@@ -214,6 +214,19 @@ const nextConfig: NextConfig = {
         destination: '/internships/policy/:path*',
         permanent: false
       },
+      // 2026-06-10 admin-cluster relocation — CDC
+      // /admin/cdc/* → /cdc/admin/* (module URL consolidation; 307 non-permanent
+      // preserves bookmarks while the new canonical path stabilizes).
+      {
+        source: '/admin/cdc',
+        destination: '/cdc/admin',
+        permanent: false
+      },
+      {
+        source: '/admin/cdc/:path*',
+        destination: '/cdc/admin/:path*',
+        permanent: false
+      },
       // 2026-06-10 admin-cluster relocation — HR
       {
         source: '/admin/hr',

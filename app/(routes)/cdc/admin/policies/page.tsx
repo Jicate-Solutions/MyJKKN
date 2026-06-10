@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================
-// /admin/cdc/policies — CDC platform_policies editor
+// /cdc/admin/policies — CDC platform_policies editor
 // ============================================================
 // Shows all 13 cdc.* policy keys grouped by category.
 // English-consequence descriptions per each policy.
@@ -286,9 +286,9 @@ export default function CdcPoliciesPage() {
     <ContentLayout title="CDC Policies">
       <PageBreadcrumb
         items={[
-          { label: 'Admin', href: '/admin' },
-          { label: 'CDC', href: '/admin/cdc' },
-          { label: 'Policies', href: '/admin/cdc/policies' },
+          { label: 'CDC', href: '/cdc' },
+          { label: 'Admin', href: '/cdc/admin' },
+          { label: 'Policies', href: '/cdc/admin/policies' },
         ]}
       />
 

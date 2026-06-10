@@ -7,9 +7,9 @@ export default function DriveTypesPage() {
       title="Drive Types"
       description="Placement drive categories available to coordinators when creating a new drive. System types cannot be deactivated."
       breadcrumbs={[
-        { label: 'Admin', href: '/admin' },
-        { label: 'CDC', href: '/admin/cdc' },
-        { label: 'Drive Types', href: '/admin/cdc/drive-types' },
+        { label: 'CDC', href: '/cdc' },
+        { label: 'Admin', href: '/cdc/admin' },
+        { label: 'Drive Types', href: '/cdc/admin/drive-types' },
       ]}
       extraListColumns={[
         {

@@ -7,9 +7,9 @@ export default function IndustrySectorsPage() {
       title="Industry Sectors"
       description="Industry classification sectors used to categorise recruiters in the CDC recruiter directory."
       breadcrumbs={[
-        { label: 'Admin', href: '/admin' },
-        { label: 'CDC', href: '/admin/cdc' },
-        { label: 'Industry Sectors', href: '/admin/cdc/industry-sectors' },
+        { label: 'CDC', href: '/cdc' },
+        { label: 'Admin', href: '/cdc/admin' },
+        { label: 'Industry Sectors', href: '/cdc/admin/industry-sectors' },
       ]}
     />
   );

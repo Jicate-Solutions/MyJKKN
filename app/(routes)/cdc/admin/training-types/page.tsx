@@ -7,9 +7,9 @@ export default function TrainingTypesPage() {
       title="Training Types"
       description="Training programme categories (Unnati, MRB, Springboard, etc.) used in the CDC training module."
       breadcrumbs={[
-        { label: 'Admin', href: '/admin' },
-        { label: 'CDC', href: '/admin/cdc' },
-        { label: 'Training Types', href: '/admin/cdc/training-types' },
+        { label: 'CDC', href: '/cdc' },
+        { label: 'Admin', href: '/cdc/admin' },
+        { label: 'Training Types', href: '/cdc/admin/training-types' },
       ]}
       extraFields={[
         {

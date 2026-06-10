@@ -81,7 +81,7 @@ async function storeAuditCopy(
 // later sprint extends `fn_naac_5_2_1_export` + `cdc_naac_5_2_1_row` to
 // derive them. The policy is the source of intent; the RPC is the source
 // of output. If NAAC publishes a new template, update the JSONB at
-// /admin/cdc/policies — zero deploys.
+// /cdc/admin/policies — zero deploys.
 // ------------------------------------------------------------------
 export async function generateNaacExport(
   cycle: string,
@@ -124,7 +124,7 @@ export async function generateNaacExport(
 // `source: 'manual'` in the policy (branch, year_of_admission,
 // year_of_passing, sector) are not yet populated by the RPC — Director
 // fills them before AICTE submission. If AICTE publishes a new template,
-// update the JSONB at /admin/cdc/policies — zero deploys.
+// update the JSONB at /cdc/admin/policies — zero deploys.
 // ------------------------------------------------------------------
 export async function generateAicteExport(
   year: number,

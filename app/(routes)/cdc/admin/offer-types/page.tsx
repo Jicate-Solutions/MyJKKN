@@ -8,9 +8,9 @@ export default function OfferTypesPage() {
       title="Offer Types"
       description="Placement offer categories. The 'counts toward placement' flag controls whether this offer type is included in NAAC 5.2.1 and AICTE placement statistics."
       breadcrumbs={[
-        { label: 'Admin', href: '/admin' },
-        { label: 'CDC', href: '/admin/cdc' },
-        { label: 'Offer Types', href: '/admin/cdc/offer-types' },
+        { label: 'CDC', href: '/cdc' },
+        { label: 'Admin', href: '/cdc/admin' },
+        { label: 'Offer Types', href: '/cdc/admin/offer-types' },
       ]}
       extraFields={[
         {

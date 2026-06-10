@@ -2,7 +2,7 @@
 
 // ============================================================
 // _components/master-table-page.tsx
-// Reusable master-table CRUD page for /admin/cdc/* masters.
+// Reusable master-table CRUD page for /cdc/admin/* masters.
 // Used by: drive-types, offer-types, training-types,
 //          workshop-types, industry-sectors, recruiters.
 // ============================================================

@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================
-// /admin/cdc/cron-status — CDC cron job status (read-only)
+// /cdc/admin/cron-status — CDC cron job status (read-only)
 // ============================================================
 // Shows last-run + status for the 2 CDC cron jobs:
 //   - cdc-coordinator-escalation
@@ -83,9 +83,9 @@ export default function CdcCronStatusPage() {
     <ContentLayout title="CDC Cron Status">
       <PageBreadcrumb
         items={[
-          { label: 'Admin', href: '/admin' },
-          { label: 'CDC', href: '/admin/cdc' },
-          { label: 'Cron Status', href: '/admin/cdc/cron-status' },
+          { label: 'CDC', href: '/cdc' },
+          { label: 'Admin', href: '/cdc/admin' },
+          { label: 'Cron Status', href: '/cdc/admin/cron-status' },
         ]}
       />
 
