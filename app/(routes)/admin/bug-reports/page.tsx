@@ -300,7 +300,7 @@ function AdminBugReportsContent() {
         // display to jump. Let invalidateQueries handle it.
         refetchStats();
       } catch (err: any) {
-        toast.error('Could not update the report status.');
+        toast.error(err?.message || 'Could not update the report status.');
       }
     },
     [updateStatusMutation, refetchStats]

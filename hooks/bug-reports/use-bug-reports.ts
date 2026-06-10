@@ -92,7 +92,16 @@ const updateBugReportStatus = async ({
     body: JSON.stringify({ status })
   });
   if (!response.ok) {
-    throw new Error('Failed to update bug report status');
+    // Surface the server's actual reason (e.g. the 403 admin-role gate) —
+    // a generic message makes auth failures indistinguishable from outages.
+    const errorData = await response.json().catch(() => ({}));
+    const message =
+      typeof errorData.error === 'string'
+        ? errorData.error
+        : 'Failed to update bug report status';
+    const error = new Error(message);
+    (error as any).status = response.status;
+    throw error;
   }
   return response.json();
 };
