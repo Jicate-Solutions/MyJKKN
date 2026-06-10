@@ -12,6 +12,15 @@ export interface MyHostelSummary {
   institutionId: string | null;
 }
 
+/** A co-resident of the current user's assigned room (from fn_my_roommates). */
+export interface Roommate {
+  full_name: string;
+  bed_number: string | null;
+  program_name: string | null;
+  semester_name: string | null;
+  status: string;
+}
+
 export class MyHostelService {
   // Resolves the current learner's hostel summary from their OWN learners_profiles
   // row (RLS: students_view_own_learner_profile). learnerId = profiles.learner_id.
@@ -40,6 +49,17 @@ export class MyHostelService {
       hostelFee: row.hostel_fee ?? null,
       institutionId: row.institution_id ?? null,
     };
+  }
+
+  // Co-residents of the current user's assigned room. SECURITY DEFINER RPC —
+  // residents can only read their own allocation row via RLS, so roommates must
+  // be resolved server-side (scoped to the caller's own room).
+  static async getMyRoommates(): Promise<Roommate[]> {
+    const supabase = createClientSupabaseClient();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc('fn_my_roommates');
+    if (error) { logger.error('campus-living/my-hostel', 'getMyRoommates', error); throw error; }
+    return (data ?? []) as Roommate[];
   }
 
   // Fee breakdown (additive room+mess) for the resident's hostel
