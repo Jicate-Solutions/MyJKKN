@@ -142,7 +142,7 @@ export class AllocationBatchService {
         // program is profiles.learner_id -> learners_profiles.program_id -> programs.
         `id, status,
          block:hostel_blocks(name),
-         room:hostel_rooms(room_number, floor),
+         room:hostel_rooms(room_number, floor, category:hostel_categories(name)),
          bed:hostel_beds(bed_number),
          learner:profiles!hostel_allocations_learner_id_fkey(
            full_name, email,
@@ -161,7 +161,11 @@ export class AllocationBatchService {
 
     const rawRows = (allocs ?? []).map((a: Record<string, unknown>) => {
       const block = a.block as { name?: string } | null;
-      const room = a.room as { room_number?: string; floor?: number } | null;
+      const room = a.room as {
+        room_number?: string;
+        floor?: number;
+        category?: { name?: string } | null;
+      } | null;
       const bed = a.bed as { bed_number?: string } | null;
       const learner = a.learner as {
         full_name?: string;
@@ -180,6 +184,7 @@ export class AllocationBatchService {
         semester_id: learner?.learner_profile?.semester_id ?? null,
         block_name: block?.name ?? null,
         room_number: room?.room_number ?? null,
+        room_category: room?.category?.name ?? null,
         bed_number: bed?.bed_number ?? null,
         status: a.status as string,
       };
@@ -199,10 +204,25 @@ export class AllocationBatchService {
       );
     }
 
+    // Mess category is not stored on allocations — resolved per learner by the
+    // fee-aware eligibility functions; one RPC covers the whole batch.
+    const messCategories = new Map<string, string>();
+    const { data: mess, error: mErr } = await this.rpcCall('fn_batch_mess_categories', {
+      p_batch_id: batchId,
+    });
+    if (mErr) {
+      logger.error(LOG, 'getBatch mess categories failed', mErr);
+    } else {
+      ((mess ?? []) as { allocation_id: string; mess_category: string | null }[]).forEach((m) => {
+        if (m.mess_category) messCategories.set(m.allocation_id, m.mess_category);
+      });
+    }
+
     const allocations: ProposedAllocation[] = rawRows
       .map(({ semester_id, ...r }) => ({
         ...r,
         learner_semester: semester_id ? semesterNames.get(semester_id) ?? null : null,
+        mess_category: messCategories.get(r.id) ?? null,
       }))
       .sort((x, y) => x.learner_name.localeCompare(y.learner_name));
 
