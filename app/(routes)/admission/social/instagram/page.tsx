@@ -32,7 +32,7 @@ import type { IgAccountStatus, IgAccountType } from '@/services/instagram-servic
 import { HealthSummaryTiles } from './_components/health-summary-tiles';
 import { AccountRow } from './_components/account-row';
 import { DiscoverButton } from './_components/discover-button';
-import { SubscribedAssetsPanel } from '@/components/admission/social/subscribed-assets-panel';
+import { SubscribedAssetsPanel } from '@/components/admin/social/subscribed-assets-panel';
 
 const breadcrumbItems = [
   { label: 'Home', href: '/' },

@@ -26,7 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { SubscribedAssetsPanel } from '@/components/admission/social/subscribed-assets-panel';
+import { SubscribedAssetsPanel } from '@/components/admin/social/subscribed-assets-panel';
 
 interface PageHealthRow {
   fb_page_id: string;
