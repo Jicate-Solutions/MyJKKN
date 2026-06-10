@@ -14763,56 +14763,110 @@ END $$;
 
 REVOKE ALL ON FUNCTION public._cl_apply_category_bill_change(uuid,uuid,uuid,uuid,numeric,text) FROM anon, PUBLIC;
 
+-- _cl_apply_upgrade_fee_bill (20260610210000): bills a single FLAT upgrade charge of the
+-- configured amount (no supersede of the old category bill — that stays). item_category_id
+-- FKs billing_categories (kind 'hostel'/'mess'), required for hostel_category bills
+-- (bsb_hostel_cat_required_chk), so p_kind resolves the matching billing category.
+CREATE OR REPLACE FUNCTION public._cl_apply_upgrade_fee_bill(
+  p_learner_lp uuid, p_hostel_year_id uuid, p_kind text,
+  p_upgrade_amount numeric, p_description text
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $$
+DECLARE
+  v_inst uuid; v_bcat uuid;
+BEGIN
+  IF p_upgrade_amount IS NULL OR p_upgrade_amount <= 0 THEN
+    RETURN jsonb_build_object('action','none','new_amount',COALESCE(p_upgrade_amount,0),
+                              'billed',0,'old_bill_id',NULL);
+  END IF;
+  SELECT institution_id INTO v_inst FROM learners_profiles WHERE id = p_learner_lp;
+  SELECT id INTO v_bcat FROM billing_categories
+    WHERE kind::text = p_kind AND is_active ORDER BY created_at LIMIT 1;
+  INSERT INTO billing_student_bills (
+    student_id, institution_id, item_category_id, hostel_year_id, fee_source,
+    bill_description, due_date, quantity, unit_amount, total_amount, final_amount,
+    balance_amount, status
+  ) VALUES (
+    p_learner_lp, v_inst, v_bcat, p_hostel_year_id, 'hostel_category',
+    p_description, now() + interval '30 day', 1, p_upgrade_amount, p_upgrade_amount,
+    p_upgrade_amount, p_upgrade_amount, 'unpaid'
+  );
+  RETURN jsonb_build_object('action','created','new_amount',p_upgrade_amount,
+                            'billed',p_upgrade_amount,'old_bill_id',NULL);
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public._cl_apply_upgrade_fee_bill(uuid,uuid,text,numeric,text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public._cl_apply_upgrade_fee_bill(uuid,uuid,text,numeric,text) TO authenticated;
+
 -- Self-service category-upgrade option lists (room + mess).
+-- 20260610210000: + upgrade_fee. 20260610220000: drop fee-eligibility gate so HIGHER
+-- categories (the upgrade target) are offered — upgrade fee is the gate, not base eligibility.
 CREATE OR REPLACE FUNCTION public.fn_my_upgrade_room_categories()
-RETURNS TABLE (category_id uuid, name text, type text, current_year_fee numeric, available_beds int)
+RETURNS TABLE (category_id uuid, name text, type text, current_year_fee numeric, upgrade_fee numeric, available_beds int)
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
 DECLARE
   v_lp uuid := get_my_learner_id();
-  v_year uuid; v_cur_cat uuid; v_cur_fee numeric := 0;
+  v_year uuid; v_cur_cat uuid; v_cur_fee numeric := 0; v_gender text;
 BEGIN
   IF v_lp IS NULL OR NOT user_is_hosteler() THEN RETURN; END IF;
   SELECT id INTO v_year FROM hostel_years WHERE is_current LIMIT 1;
   IF v_year IS NULL THEN RETURN; END IF;
   SELECT hostel_category_id INTO v_cur_cat FROM learners_profiles WHERE id = v_lp;
+  SELECT lower(trim(gender)) INTO v_gender FROM profiles WHERE id = auth.uid();
   SELECT COALESCE(amount,0) INTO v_cur_fee FROM hostel_fees
     WHERE hostel_category_id = v_cur_cat AND hostel_year_id = v_year AND mess_category_id IS NULL AND is_active LIMIT 1;
 
   RETURN QUERY
-  SELECT mc.id, mc.name, mc.type, hf.amount,
-         (SELECT count(*)::int FROM fn_my_room_options(mc.id))
-  FROM fn_my_manual_categories() mc
+  SELECT c.id, c.name, c.type, hf.amount,
+         COALESCE(
+           (SELECT uf.amount FROM hostel_category_upgrade_fees uf
+            WHERE uf.hostel_year_id = v_year AND uf.is_active
+              AND uf.from_hostel_category_id = v_cur_cat AND uf.to_hostel_category_id = c.id LIMIT 1),
+           hf.amount - v_cur_fee
+         ) AS upgrade_fee,
+         (SELECT count(*)::int FROM fn_my_room_options(c.id))
+  FROM hostel_categories c
   JOIN hostel_fees hf
-    ON hf.hostel_category_id = mc.id AND hf.hostel_year_id = v_year AND hf.mess_category_id IS NULL AND hf.is_active
-  WHERE mc.id <> COALESCE(v_cur_cat, '00000000-0000-0000-0000-000000000000'::uuid)
-    AND hf.amount >= v_cur_fee
+    ON hf.hostel_category_id = c.id AND hf.hostel_year_id = v_year AND hf.mess_category_id IS NULL AND hf.is_active
+  WHERE c.is_active AND c.allocation_mode = 'manual'
+    AND ((v_gender IN ('male','m')   AND c.type='boys')
+         OR (v_gender IN ('female','f') AND c.type='girls'))
+    AND c.id <> COALESCE(v_cur_cat, '00000000-0000-0000-0000-000000000000'::uuid)
+    AND hf.amount > v_cur_fee
   ORDER BY hf.amount;
 END $$;
 
 CREATE OR REPLACE FUNCTION public.fn_my_upgrade_mess_categories()
-RETURNS TABLE (mess_category_id uuid, name text, current_year_fee numeric)
+RETURNS TABLE (mess_category_id uuid, name text, current_year_fee numeric, upgrade_fee numeric)
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
 DECLARE
   v_lp uuid := get_my_learner_id();
-  v_year uuid; v_cur_mess uuid; v_cur_fee numeric := 0; v_allow uuid[];
+  v_year uuid; v_cur_mess uuid; v_cur_fee numeric := 0; v_gender text;
 BEGIN
   IF v_lp IS NULL OR NOT user_is_hosteler() THEN RETURN; END IF;
   SELECT id INTO v_year FROM hostel_years WHERE is_current LIMIT 1;
   IF v_year IS NULL THEN RETURN; END IF;
-  SELECT mess_category_id INTO v_cur_mess FROM learners_profiles WHERE id = v_lp;
-  SELECT COALESCE(amount,0) INTO v_cur_fee FROM hostel_fees
-    WHERE mess_category_id = v_cur_mess AND hostel_year_id = v_year AND is_active LIMIT 1;
-  SELECT array_agg(category_id) INTO v_allow FROM fn_hostel_learner_mess_categories(v_lp);
+  SELECT lp.mess_category_id INTO v_cur_mess FROM learners_profiles lp WHERE lp.id = v_lp;
+  SELECT lower(trim(gender)) INTO v_gender FROM profiles WHERE id = auth.uid();
+  SELECT COALESCE(hf.amount,0) INTO v_cur_fee FROM hostel_fees hf
+    WHERE hf.mess_category_id = v_cur_mess AND hf.hostel_year_id = v_year AND hf.is_active LIMIT 1;
 
   RETURN QUERY
-  SELECT m.id, m.name, hf.amount
+  SELECT m.id, m.name, hf.amount,
+         COALESCE(
+           (SELECT uf.amount FROM hostel_category_upgrade_fees uf
+            WHERE uf.hostel_year_id = v_year AND uf.is_active
+              AND uf.from_mess_category_id = v_cur_mess AND uf.to_mess_category_id = m.id LIMIT 1),
+           hf.amount - v_cur_fee
+         ) AS upgrade_fee
   FROM mess_categories m
   JOIN hostel_fees hf
     ON hf.mess_category_id = m.id AND hf.hostel_year_id = v_year AND hf.is_active
   WHERE m.is_active
-    AND (v_allow IS NULL OR m.id = ANY(v_allow))
+    AND ((v_gender IN ('male','m')   AND m.type='boys')
+         OR (v_gender IN ('female','f') AND m.type='girls'))
     AND m.id <> COALESCE(v_cur_mess, '00000000-0000-0000-0000-000000000000'::uuid)
-    AND hf.amount >= v_cur_fee
+    AND hf.amount > v_cur_fee
   ORDER BY hf.amount;
 END $$;
 
@@ -14830,7 +14884,8 @@ DECLARE
   v_lp uuid := get_my_learner_id();
   v_profile uuid := auth.uid();
   v_year uuid; v_cur_cat uuid; v_cur_fee numeric := 0; v_new_fee numeric;
-  v_new_name text; v_bed_status text; v_old RECORD; v_new_alloc uuid; v_bill jsonb;
+  v_new_name text; v_cur_name text; v_upgrade_fee numeric;
+  v_bed_status text; v_old RECORD; v_new_alloc uuid; v_bill jsonb;
 BEGIN
   IF v_lp IS NULL OR v_profile IS NULL OR NOT user_is_hosteler() THEN
     RAISE EXCEPTION 'Only a hostel resident can upgrade';
@@ -14844,6 +14899,7 @@ BEGIN
   SELECT name INTO v_new_name FROM hostel_categories WHERE id = p_new_category_id;
 
   SELECT hostel_category_id INTO v_cur_cat FROM learners_profiles WHERE id = v_lp;
+  SELECT name INTO v_cur_name FROM hostel_categories WHERE id = v_cur_cat;
   SELECT COALESCE(amount,0) INTO v_cur_fee FROM hostel_fees
     WHERE hostel_category_id = v_cur_cat AND hostel_year_id = v_year AND mess_category_id IS NULL AND is_active LIMIT 1;
   IF v_new_fee < v_cur_fee THEN RAISE EXCEPTION 'Downgrades are not allowed (new fee < current fee)'; END IF;
@@ -14888,7 +14944,14 @@ BEGIN
   UPDATE hostel_beds SET status='occupied', current_occupant_id=v_profile WHERE id = p_bed_id;
 
   UPDATE learners_profiles SET hostel_category_id = p_new_category_id, updated_at=now() WHERE id = v_lp;
-  v_bill := public._cl_apply_category_bill_change(v_lp, v_year, v_cur_cat, p_new_category_id, v_new_fee, v_new_name);
+
+  -- 20260610210000: bill the flat configured upgrade fee (else full-fee difference).
+  SELECT amount INTO v_upgrade_fee FROM hostel_category_upgrade_fees
+    WHERE hostel_year_id = v_year AND is_active
+      AND from_hostel_category_id = v_cur_cat AND to_hostel_category_id = p_new_category_id LIMIT 1;
+  v_upgrade_fee := COALESCE(v_upgrade_fee, v_new_fee - v_cur_fee);
+  v_bill := public._cl_apply_upgrade_fee_bill(v_lp, v_year, 'hostel', v_upgrade_fee,
+              format('Hostel room upgrade: %s → %s', COALESCE(v_cur_name,'—'), v_new_name));
 
   UPDATE hostel_waitlist
      SET status='allocated', allocated_allocation_id=v_new_alloc, updated_at=now()
@@ -14898,7 +14961,7 @@ BEGIN
   RETURN jsonb_build_object('success', true, 'old_allocation_id', v_old.id,
     'new_allocation_id', v_new_alloc, 'new_bed_id', p_bed_id,
     'old_category_id', v_cur_cat, 'new_category_id', p_new_category_id,
-    'old_fee', v_cur_fee, 'new_fee', v_new_fee, 'bill', v_bill);
+    'old_fee', v_cur_fee, 'new_fee', v_new_fee, 'upgrade_fee', v_upgrade_fee, 'bill', v_bill);
 END $$;
 
 CREATE OR REPLACE FUNCTION public.fn_self_upgrade_mess_category(p_new_mess_category_id uuid)
@@ -14906,7 +14969,7 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
   v_lp uuid := get_my_learner_id();
   v_year uuid; v_cur_mess uuid; v_cur_fee numeric := 0; v_new_fee numeric;
-  v_new_name text; v_allow uuid[]; v_bill jsonb;
+  v_new_name text; v_cur_name text; v_upgrade_fee numeric; v_bill jsonb;
 BEGIN
   IF v_lp IS NULL OR NOT user_is_hosteler() THEN RAISE EXCEPTION 'Only a hostel resident can upgrade'; END IF;
   SELECT id INTO v_year FROM hostel_years WHERE is_current LIMIT 1;
@@ -14917,21 +14980,26 @@ BEGIN
   IF v_new_fee IS NULL THEN RAISE EXCEPTION 'Selected mess category has no published fee for the current hostel year'; END IF;
   SELECT name INTO v_new_name FROM mess_categories WHERE id = p_new_mess_category_id;
 
-  SELECT array_agg(category_id) INTO v_allow FROM fn_hostel_learner_mess_categories(v_lp);
-  IF v_allow IS NOT NULL AND NOT (p_new_mess_category_id = ANY(v_allow)) THEN
-    RAISE EXCEPTION 'You are not eligible for this mess category';
-  END IF;
-
-  SELECT mess_category_id INTO v_cur_mess FROM learners_profiles WHERE id = v_lp;
-  SELECT COALESCE(amount,0) INTO v_cur_fee FROM hostel_fees
-    WHERE mess_category_id = v_cur_mess AND hostel_year_id = v_year AND is_active LIMIT 1;
+  -- 20260610220000: no fee-eligibility gate — the upgrade fee is the gate (downgrade still blocked).
+  SELECT lp.mess_category_id INTO v_cur_mess FROM learners_profiles lp WHERE lp.id = v_lp;
+  SELECT name INTO v_cur_name FROM mess_categories WHERE id = v_cur_mess;
+  SELECT COALESCE(hf.amount,0) INTO v_cur_fee FROM hostel_fees hf
+    WHERE hf.mess_category_id = v_cur_mess AND hf.hostel_year_id = v_year AND hf.is_active LIMIT 1;
   IF v_new_fee < v_cur_fee THEN RAISE EXCEPTION 'Downgrades are not allowed (new fee < current fee)'; END IF;
 
   UPDATE learners_profiles SET mess_category_id = p_new_mess_category_id, updated_at=now() WHERE id = v_lp;
-  v_bill := public._cl_apply_category_bill_change(v_lp, v_year, v_cur_mess, p_new_mess_category_id, v_new_fee, v_new_name);
+
+  -- 20260610210000: bill the flat configured upgrade fee (else full-fee difference).
+  SELECT amount INTO v_upgrade_fee FROM hostel_category_upgrade_fees
+    WHERE hostel_year_id = v_year AND is_active
+      AND from_mess_category_id = v_cur_mess AND to_mess_category_id = p_new_mess_category_id LIMIT 1;
+  v_upgrade_fee := COALESCE(v_upgrade_fee, v_new_fee - v_cur_fee);
+  v_bill := public._cl_apply_upgrade_fee_bill(v_lp, v_year, 'mess', v_upgrade_fee,
+              format('Mess upgrade: %s → %s', COALESCE(v_cur_name,'—'), v_new_name));
 
   RETURN jsonb_build_object('success', true, 'old_category_id', v_cur_mess,
-    'new_category_id', p_new_mess_category_id, 'old_fee', v_cur_fee, 'new_fee', v_new_fee, 'bill', v_bill);
+    'new_category_id', p_new_mess_category_id, 'old_fee', v_cur_fee, 'new_fee', v_new_fee,
+    'upgrade_fee', v_upgrade_fee, 'bill', v_bill);
 END $$;
 
 CREATE OR REPLACE FUNCTION public.fn_self_join_upgrade_waitlist(p_target_category_id uuid)

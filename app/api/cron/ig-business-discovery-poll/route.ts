@@ -18,7 +18,7 @@ export const maxDuration = 300;
  *      OFF the full-insights poller (which would 33-error on them)
  *   3. append ig_account_metrics (followers, media_count)
  *   4. upsert ig_posts + append ig_post_metrics (likes, comments, engagement)
- *   5. link social_dept_accounts.ig_account_id → /admin/social/departments
+ *   5. link social_dept_accounts.ig_account_id → /admission/social/departments
  *      "Monitored" chip flips on
  *
  * reach/impressions/saves/demographics stay NULL (not available without a

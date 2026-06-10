@@ -122,12 +122,13 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/admin/saml', 'System'],
   ['/admin/ai-query-tools', 'System'],
   ['/admin/reset-driver-passwords', 'System'],
-  ['/admin/hr', 'Staff'], // HR admin pages (recruitment-need, payroll, etc.)
+  // /admin/hr relocated to /hr/admin (2026-06-10 admin-cluster relocation) —
+  // covered by the base ['/hr', 'Staff'] mapping below; override dropped.
   // Meta surface modules (catalog consolidation 2026-05-30, κ).
-  // /admin/social/* — sub-prefixes BEFORE any future /admin/social catch-all.
-  ['/admin/social/facebook', 'Social Facebook'], // β PR #1150
-  ['/admin/social/lead-ads', 'Social Lead Ads'], // γ PR #1154
-  ['/admin/social/ads', 'Social Ads'], // ζ PR #1152
+  // /admission/social/* — sub-prefixes BEFORE the /admission catch-all below.
+  ['/admission/social/facebook', 'Social Facebook'], // β PR #1150
+  ['/admission/social/lead-ads', 'Social Lead Ads'], // γ PR #1154
+  ['/admission/social/ads', 'Social Ads'], // ζ PR #1152
   // /admin/integrations/* — sub-prefixes for Meta integrations.
   ['/admin/integrations/meta-pixel', 'Integrations Meta Pixel'], // ε PR #1151
   ['/admin/integrations/meta-audiences', 'Integrations Meta Audiences'], // η PR #1155

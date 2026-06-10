@@ -7,7 +7,7 @@
 // Zero deploys for future tweaks.
 //
 // This service backs:
-//   1. The admin CRUD UI at /admin/consultants/commission-triggers (list/upsert).
+//   1. The admin CRUD UI at /admission/consultants/admin/commission-triggers (list/upsert).
 //   2. A future engine call site that calls getTriggerForTransition(...) to
 //      decide whether a status change on a lead/admission/learner should fire
 //      ConsultantService.createCommissionTransaction.

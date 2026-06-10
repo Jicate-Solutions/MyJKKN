@@ -53,10 +53,12 @@ export function MessCategoryUpgradeCard({ currentMessName, currentFee }: Props) 
           options.map((opt) => (
             <div key={opt.mess_category_id} className="flex items-center justify-between gap-3 rounded-md border p-3">
               <div className="min-w-0">
-                <p className="font-medium truncate">{opt.name}</p>
+                <p className="font-medium truncate">
+                  {currentMessName ? `${currentMessName} → ` : ''}{opt.name}
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  {inr(opt.current_year_fee)}
-                  {currentMessName ? ` · from ${currentMessName} (${inr(currentFee)})` : ''}
+                  {currentMessName ? `${inr(currentFee)} → ` : ''}{inr(opt.current_year_fee)}
+                  {' · '}<span className="font-medium text-foreground">Pay {inr(opt.upgrade_fee)}</span>
                 </p>
               </div>
               <Button size="sm" onClick={() => setPicked(opt)}>
@@ -72,8 +74,10 @@ export function MessCategoryUpgradeCard({ currentMessName, currentFee }: Props) 
           <AlertDialogHeader>
             <AlertDialogTitle>Upgrade mess to {picked?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              Your mess bill will be re-issued: {inr(currentFee)} → {inr(picked?.current_year_fee ?? 0)}.
-              This applies immediately.
+              You&apos;ll be billed{' '}
+              <span className="font-medium text-foreground">{inr(picked?.upgrade_fee ?? 0)}</span> to
+              upgrade ({inr(currentFee)} → {inr(picked?.current_year_fee ?? 0)}). This applies
+              immediately.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

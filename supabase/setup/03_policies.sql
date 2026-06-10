@@ -6581,3 +6581,21 @@ CREATE POLICY hostel_rooms_select_own_allocation ON public.hostel_rooms
 DROP POLICY IF EXISTS hostel_beds_select_own_allocation ON public.hostel_beds;
 CREATE POLICY hostel_beds_select_own_allocation ON public.hostel_beds
   FOR SELECT USING (fn_user_allocated_bed(id));
+
+-- ============================================================================
+-- hostel_category_upgrade_fees (migration 20260610210000) — read open to
+-- authenticated (My Hostel reads it); writes behind campus_living.settings.edit.
+-- ============================================================================
+ALTER TABLE public.hostel_category_upgrade_fees ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS hostel_category_upgrade_fees_select ON public.hostel_category_upgrade_fees;
+CREATE POLICY hostel_category_upgrade_fees_select ON public.hostel_category_upgrade_fees
+  FOR SELECT USING (true);
+DROP POLICY IF EXISTS hostel_category_upgrade_fees_insert ON public.hostel_category_upgrade_fees;
+CREATE POLICY hostel_category_upgrade_fees_insert ON public.hostel_category_upgrade_fees
+  FOR INSERT WITH CHECK (user_has_permission('campus_living.settings.edit'));
+DROP POLICY IF EXISTS hostel_category_upgrade_fees_update ON public.hostel_category_upgrade_fees;
+CREATE POLICY hostel_category_upgrade_fees_update ON public.hostel_category_upgrade_fees
+  FOR UPDATE USING (user_has_permission('campus_living.settings.edit'));
+DROP POLICY IF EXISTS hostel_category_upgrade_fees_delete ON public.hostel_category_upgrade_fees;
+CREATE POLICY hostel_category_upgrade_fees_delete ON public.hostel_category_upgrade_fees
+  FOR DELETE USING (user_has_permission('campus_living.settings.edit'));

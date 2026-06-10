@@ -5,7 +5,8 @@ export interface UpgradeRoomCategoryOption {
   category_id: string;
   name: string;
   type: string;
-  current_year_fee: number;
+  current_year_fee: number; // the target category's full (base) fee
+  upgrade_fee: number; // configured from→to upgrade payment (else full-fee difference)
   available_beds: number; // 0 => waitlist branch
 }
 
@@ -13,10 +14,11 @@ export interface UpgradeMessCategoryOption {
   mess_category_id: string;
   name: string;
   current_year_fee: number;
+  upgrade_fee: number;
 }
 
 export interface UpgradeBillResult {
-  action: 'created' | 'replaced' | 'differential';
+  action: 'created' | 'replaced' | 'differential' | 'none' | 'exists';
   new_amount: number;
   billed: number;
   old_bill_id: string | null;
@@ -31,6 +33,7 @@ export interface RoomUpgradeResult {
   new_category_id: string;
   old_fee: number;
   new_fee: number;
+  upgrade_fee: number;
   bill: UpgradeBillResult;
 }
 
@@ -40,5 +43,6 @@ export interface MessUpgradeResult {
   new_category_id: string;
   old_fee: number;
   new_fee: number;
+  upgrade_fee: number;
   bill: UpgradeBillResult;
 }

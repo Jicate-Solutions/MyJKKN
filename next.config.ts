@@ -213,6 +213,86 @@ const nextConfig: NextConfig = {
         source: '/admin/internship-policy/:path*',
         destination: '/internships/policy/:path*',
         permanent: false
+      },
+      // 2026-06-10 admin-cluster relocation — consultants
+      // /admin/consultants/* → /admission/consultants/admin/* ("one module = one
+      // URL prefix"). 307 (non-permanent) preserves bookmarks while the new
+      // canonical path stabilizes.
+      {
+        source: '/admin/consultants',
+        destination: '/admission/consultants/admin',
+        permanent: false
+      },
+      {
+        source: '/admin/consultants/:path*',
+        destination: '/admission/consultants/admin/:path*',
+        permanent: false
+      },
+      // 2026-06-10 admin-cluster relocation — admission (counselors + policies)
+      {
+        source: '/admin/counselors',
+        destination: '/admission/counselors/admin',
+        permanent: false
+      },
+      {
+        source: '/admin/counselors/:path*',
+        destination: '/admission/counselors/admin/:path*',
+        permanent: false
+      },
+      {
+        source: '/admin/lead-stages-policy',
+        destination: '/admission/settings/lead-stages-policy',
+        permanent: false
+      },
+      {
+        source: '/admin/lead-stages-policy/:path*',
+        destination: '/admission/settings/lead-stages-policy/:path*',
+        permanent: false
+      },
+      {
+        source: '/admin/telephony-policies',
+        destination: '/admission/settings/telephony-policies',
+        permanent: false
+      },
+      {
+        source: '/admin/telephony-policies/:path*',
+        destination: '/admission/settings/telephony-policies/:path*',
+        permanent: false
+      },
+      // 2026-06-10 admin-cluster relocation — social → admission CRM
+      {
+        source: '/admin/social',
+        destination: '/admission/social',
+        permanent: false
+      },
+      {
+        source: '/admin/social/:path*',
+        destination: '/admission/social/:path*',
+        permanent: false
+      },
+      // 2026-06-10 admin-cluster relocation — CDC
+      // /admin/cdc/* → /cdc/admin/* (module URL consolidation; 307 non-permanent
+      // preserves bookmarks while the new canonical path stabilizes).
+      {
+        source: '/admin/cdc',
+        destination: '/cdc/admin',
+        permanent: false
+      },
+      {
+        source: '/admin/cdc/:path*',
+        destination: '/cdc/admin/:path*',
+        permanent: false
+      },
+      // 2026-06-10 admin-cluster relocation — HR
+      {
+        source: '/admin/hr',
+        destination: '/hr/admin',
+        permanent: false
+      },
+      {
+        source: '/admin/hr/:path*',
+        destination: '/hr/admin/:path*',
+        permanent: false
       }
     ];
   },

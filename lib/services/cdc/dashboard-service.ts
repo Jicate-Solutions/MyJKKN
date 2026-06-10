@@ -1,7 +1,7 @@
 /**
  * CDC Sprint 7b — Operational Dashboard Service
  *
- * Aggregation queries for the Director-facing /admin/cdc/dashboard page.
+ * Aggregation queries for the Director-facing /cdc/admin/dashboard page.
  * Each function is small and returns a typed result so widgets can be
  * loaded independently (one React Query key per widget).
  *

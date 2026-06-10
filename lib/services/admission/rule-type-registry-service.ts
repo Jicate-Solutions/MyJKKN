@@ -7,7 +7,7 @@
 //
 // Backs:
 //   - The rule-form-dialog dropdown that previously hardcoded RULE_TYPES.
-//   - The /admin/counselors/rule-types CRUD UI for super-admins.
+//   - The /admission/counselors/admin/rule-types CRUD UI for super-admins.
 //
 // Companion migration: supabase/migrations/20260510210001_create_assignment_rule_type_registry.sql
 // ============================================================================

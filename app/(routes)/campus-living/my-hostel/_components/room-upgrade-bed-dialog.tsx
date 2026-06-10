@@ -15,12 +15,13 @@ interface Props {
   categoryName: string;
   currentFee: number;
   newFee: number;
+  upgradeFee: number;
 }
 
 const inr = (n: number) => `₹${n.toLocaleString('en-IN')}`;
 
 export function RoomUpgradeBedDialog({
-  open, onOpenChange, categoryId, categoryName, currentFee, newFee,
+  open, onOpenChange, categoryId, categoryName, currentFee, newFee, upgradeFee,
 }: Props) {
   const { data: beds = [], isLoading } = useUpgradeRoomBeds(open ? categoryId : null);
   const upgrade = useUpgradeRoom();
@@ -51,8 +52,9 @@ export function RoomUpgradeBedDialog({
         <DialogHeader>
           <DialogTitle>Upgrade to {categoryName}</DialogTitle>
           <DialogDescription>
-            Pick an available bed. On confirm you move instantly and a new bill is generated:{' '}
-            <span className="font-medium text-foreground">{inr(currentFee)} → {inr(newFee)}</span>.
+            Pick an available bed. On confirm you move instantly and you&apos;ll be billed{' '}
+            <span className="font-medium text-foreground">{inr(upgradeFee)}</span> to upgrade (
+            {inr(currentFee)} → {inr(newFee)}).
           </DialogDescription>
         </DialogHeader>
 
@@ -62,7 +64,7 @@ export function RoomUpgradeBedDialog({
           </div>
         ) : beds.length === 0 ? (
           <p className="text-sm text-muted-foreground py-6">
-            No available beds right now. Close this and choose "Join waitlist" instead.
+            No available beds right now. Close this and choose &quot;Join waitlist&quot; instead.
           </p>
         ) : (
           <div className="space-y-4 max-h-[360px] overflow-y-auto">

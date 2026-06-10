@@ -31626,6 +31626,51 @@ export type Database = {
         }
         Relationships: []
       }
+      hostel_category_upgrade_fees: {
+        Row: {
+          amount: number
+          created_at: string
+          created_by: string | null
+          from_hostel_category_id: string | null
+          from_mess_category_id: string | null
+          hostel_year_id: string
+          id: string
+          is_active: boolean
+          to_hostel_category_id: string | null
+          to_mess_category_id: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          created_by?: string | null
+          from_hostel_category_id?: string | null
+          from_mess_category_id?: string | null
+          hostel_year_id: string
+          id?: string
+          is_active?: boolean
+          to_hostel_category_id?: string | null
+          to_mess_category_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          created_by?: string | null
+          from_hostel_category_id?: string | null
+          from_mess_category_id?: string | null
+          hostel_year_id?: string
+          id?: string
+          is_active?: boolean
+          to_hostel_category_id?: string | null
+          to_mess_category_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       hostel_fees: {
         Row: {
           amount: number

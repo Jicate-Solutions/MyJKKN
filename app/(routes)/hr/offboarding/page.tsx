@@ -222,7 +222,7 @@ function OffboardingContent() {
           <AlertTitle>Offboarding workflow not yet configured</AlertTitle>
           <AlertDescription>
             Super-admins can define the steps at{' '}
-            <code className="font-mono text-xs">/admin/hr/offboarding</code>.
+            <code className="font-mono text-xs">/hr/admin/offboarding</code>.
             Default 5-step flow will be used until a custom one is saved.
           </AlertDescription>
         </Alert>

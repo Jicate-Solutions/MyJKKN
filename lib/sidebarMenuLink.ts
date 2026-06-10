@@ -369,11 +369,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/page-metadata': 'super_admin', // Super admin only - Page Search Metadata
 
   // Meta admin pages (added 2026-05-31 for Meta integration nav-bar wiring).
-  '/admin/social/facebook': 'super_admin',
-  '/admin/social/instagram': 'super_admin',
-  '/admin/social/insights': 'super_admin',
-  '/admin/social/lead-ads': 'super_admin',
-  '/admin/social/departments': 'super_admin',
+  '/admission/social/facebook': 'super_admin',
+  '/admission/social/instagram': 'super_admin',
+  '/admission/social/insights': 'super_admin',
+  '/admission/social/lead-ads': 'super_admin',
+  '/admission/social/departments': 'super_admin',
   '/admin/instagram-attribution': 'super_admin',
   '/admin/integrations/meta-pixel': 'super_admin',
   '/admin/integrations/meta-audiences': 'super_admin',
@@ -1757,11 +1757,6 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/audit-trail', label: 'Audit Trail', active: pathname.startsWith('/audit-trail') },
             { href: '/admin/lifecycle', label: 'Lifecycle Analytics', active: pathname.startsWith('/admin/lifecycle') },
             { href: '/admin/page-metadata', label: 'Page Metadata', active: pathname.startsWith('/admin/page-metadata') },
-            { href: '/admin/social/facebook', label: 'Social · Facebook', active: pathname.startsWith('/admin/social/facebook') },
-            { href: '/admin/social/instagram', label: 'Social · Instagram', active: pathname.startsWith('/admin/social/instagram') },
-            { href: '/admin/social/insights', label: 'Social · Insights', active: pathname.startsWith('/admin/social/insights') },
-            { href: '/admin/social/lead-ads', label: 'Social · Lead Ads', active: pathname.startsWith('/admin/social/lead-ads') },
-            { href: '/admin/social/departments', label: 'Social · Dept Accounts', active: pathname.startsWith('/admin/social/departments') },
             { href: '/admin/instagram-attribution', label: 'Social · IG Attribution', active: pathname.startsWith('/admin/instagram-attribution') },
             { href: '/admin/integrations/meta-pixel', label: 'Meta · Pixel / CAPI', active: pathname.startsWith('/admin/integrations/meta-pixel') },
             { href: '/admin/integrations/meta-audiences', label: 'Meta · Custom Audiences', active: pathname.startsWith('/admin/integrations/meta-audiences') },

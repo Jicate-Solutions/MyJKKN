@@ -45,10 +45,12 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, currentFee }: Pro
           options.map((opt) => (
             <div key={opt.category_id} className="flex items-center justify-between gap-3 rounded-md border p-3">
               <div className="min-w-0">
-                <p className="font-medium truncate">{opt.name}</p>
+                <p className="font-medium truncate">
+                  {currentCategoryName ? `${currentCategoryName} → ` : ''}{opt.name}
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  {inr(opt.current_year_fee)}
-                  {currentCategoryName ? ` · from ${currentCategoryName} (${inr(currentFee)})` : ''}
+                  {currentCategoryName ? `${inr(currentFee)} → ` : ''}{inr(opt.current_year_fee)}
+                  {' · '}<span className="font-medium text-foreground">Pay {inr(opt.upgrade_fee)}</span>
                 </p>
               </div>
               {opt.available_beds > 0 ? (
@@ -82,6 +84,7 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, currentFee }: Pro
           categoryName={picked.name}
           currentFee={currentFee}
           newFee={picked.current_year_fee}
+          upgradeFee={picked.upgrade_fee}
         />
       )}
     </Card>
