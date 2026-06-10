@@ -140,7 +140,11 @@ CREATE POLICY hostel_cleaning_bookings_select
     )
   );
 
--- UPDATE: admins; staff with housekeeping manage + institution access.
+-- UPDATE: admins; staff with housekeeping schedule/mark_done + institution
+-- access. Catalog truth (lib/constants/permissions.ts + live custom_roles,
+-- verified 2026-06-10): the housekeeping keys are .view/.schedule/.mark_done —
+-- '.manage' is a phantom key granted to NO role (would silently lock staff
+-- out, the users.manage failure class).
 -- (Residents mutate ONLY via the SECURITY DEFINER RPCs, which bypass RLS.)
 DROP POLICY IF EXISTS hostel_cleaning_bookings_update ON public.hostel_cleaning_bookings;
 CREATE POLICY hostel_cleaning_bookings_update
@@ -149,14 +153,16 @@ CREATE POLICY hostel_cleaning_bookings_update
   USING (
     is_super_admin() OR is_admin()
     OR (
-      user_has_permission('campus_living.housekeeping.manage')
+      (user_has_permission('campus_living.housekeeping.schedule')
+       OR user_has_permission('campus_living.housekeeping.mark_done'))
       AND role_has_institution_access(institution_id)
     )
   )
   WITH CHECK (
     is_super_admin() OR is_admin()
     OR (
-      user_has_permission('campus_living.housekeeping.manage')
+      (user_has_permission('campus_living.housekeeping.schedule')
+       OR user_has_permission('campus_living.housekeeping.mark_done'))
       AND role_has_institution_access(institution_id)
     )
   );
@@ -507,8 +513,10 @@ BEGIN
     SELECT 1 FROM public.profiles p
     WHERE p.id = v_uid AND p.learner_id = v_booking.learner_id);
 
+  -- Staff cancel-override is a booking-management act → '.schedule'
+  -- (wardens/chief wardens hold it; catalog-true, no phantom '.manage').
   v_is_staff := is_super_admin() OR is_admin()
-    OR (user_has_permission('campus_living.housekeeping.manage')
+    OR (user_has_permission('campus_living.housekeeping.schedule')
         AND role_has_institution_access(v_booking.institution_id));
 
   IF NOT v_is_owner AND NOT v_is_staff THEN
@@ -602,7 +610,9 @@ GRANT  EXECUTE ON FUNCTION public.fn_housekeeping_booking_board(uuid, date) TO a
 -- ────────────────────────────────────────────────────────────────────────
 -- 3.5 fn_housekeeping_mark_booking — staff completes / no-shows a booking
 -- ────────────────────────────────────────────────────────────────────────
--- Gate: admins, or campus_living.housekeeping.manage + institution access.
+-- Gate: admins, or campus_living.housekeeping.mark_done + institution access
+-- (catalog-true: housekeeping_staff / ceo / executive_admin_officer hold
+-- .mark_done in live custom_roles — verified 2026-06-10).
 -- error_codes: invalid_status | not_found | forbidden | not_markable
 
 CREATE OR REPLACE FUNCTION public.fn_housekeeping_mark_booking(
@@ -634,7 +644,7 @@ BEGIN
 
   IF NOT (
     is_super_admin() OR is_admin()
-    OR (user_has_permission('campus_living.housekeeping.manage')
+    OR (user_has_permission('campus_living.housekeeping.mark_done')
         AND role_has_institution_access(v_booking.institution_id))
   ) THEN
     RETURN jsonb_build_object('success', false, 'error_code', 'forbidden');
