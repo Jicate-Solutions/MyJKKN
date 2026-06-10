@@ -29,6 +29,7 @@ export async function GET(req: NextRequest) {
       institution:institutions(name), degree:degrees(degree_name),
       department:departments(department_name), programme:programs(program_name),
       quota:quotas(name), admission_year:admission_years(admission_year_name),
+      accommodation:accommodation_types(name),
       communities:admission_fee_structure_communities(community_category:community_categories(name)),
       items:admission_fee_structure_items(amount, billing_category:billing_categories(category_name))
     `).order('updated_at', { ascending: false });
@@ -51,7 +52,8 @@ export async function GET(req: NextRequest) {
         Institution: s.institution?.name ?? '', Degree: s.degree?.degree_name ?? '',
         Department: s.department?.department_name ?? '', Programme: s.programme?.program_name ?? '',
         'Admission Year': s.admission_year?.admission_year_name ?? '', Quota: s.quota?.name ?? '',
-        Gender: s.gender ?? '', Name: s.name, Status: s.status,
+        Gender: s.gender ?? '', Accommodation: s.accommodation?.name ?? '',
+        Name: s.name, Status: s.status,
         'Effective From': s.effective_from ?? '', 'Effective To': s.effective_to ?? '', Notes: s.notes ?? '',
         Communities: (s.communities ?? []).map((c: any) => c.community_category?.name).filter(Boolean).join(', '),
       };
