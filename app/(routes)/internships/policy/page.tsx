@@ -5,7 +5,7 @@
 // ============================================
 // Super-admin policy hub for the Internship Module.
 // Shows 6 category cards + last-edit timestamps.
-// Pattern mirrors /admin/counselors/routing-config (Spec #26, #537).
+// Pattern mirrors /admission/counselors/admin/routing-config (Spec #26, #537).
 // ============================================
 
 import Link from 'next/link';

@@ -4,7 +4,7 @@
 // Director's STANDING RULE — every policy decision = config-table row + super_admin UI.
 // Backs:
 //   - components/admission/counselor-staffing-alert.tsx (consumer)
-//   - app/(routes)/admin/counselors/alert-thresholds/page.tsx (super-admin editor)
+//   - app/(routes)/admission/counselors/admin/alert-thresholds/page.tsx (super-admin editor)
 //
 // Pairs with `staffing_alert_thresholds` table (migration 20260429_staffing_alert_thresholds.sql).
 // Read access: super_admin / admin / admission role (via RLS).

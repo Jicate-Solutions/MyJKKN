@@ -5,7 +5,7 @@
 // Director's STANDING RULE (memory feedback_policy_decisions_must_be_config_rows.md):
 // every policy decision = config-table row + super_admin UI to write + reader fn.
 //
-// This service backs the admin CRUD UI at /admin/counselors/tier-policy. The
+// This service backs the admin CRUD UI at /admission/counselors/admin/tier-policy. The
 // table sits unused initially; the SQL function rewrite that READS from
 // fn_get_counselor_tier_policy is a SEPARATE follow-up PR. See companion
 // migration: supabase/migrations/20260510200001_create_counselor_tier_policy.sql

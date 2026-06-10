@@ -3,7 +3,7 @@
 /**
  * useLeadAdsSubmissions — TanStack Query wrapper around
  * `LeadAdsService.listSubmissions()`. Drives the "Received Leads" section
- * on /admin/social/lead-ads.
+ * on /admission/social/lead-ads.
  *
  * Refetches on a 30s interval (matches the existing events log polling) so
  * the table stays fresh as the importer processes webhooks in the

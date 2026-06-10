@@ -20,8 +20,8 @@
  * Spec: hr-module-decomposition-2026-05-09.md (T6.4)
  * Companions:
  *   - supabase/migrations/20260621_hr_separation_extension.sql
- *   - app/(routes)/admin/hr/offboarding/[id]/fnf/page.tsx
- *   - app/(routes)/admin/hr/offboarding/retirements/page.tsx
+ *   - app/(routes)/hr/admin/offboarding/[id]/fnf/page.tsx
+ *   - app/(routes)/hr/admin/offboarding/retirements/page.tsx
  *   - app/api/cron/hr-retirement-eligibility-detector/route.ts
  */
 

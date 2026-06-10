@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
  *
  * Lists ig_accounts with their latest metric snapshot, institution /
  * department names, and last-post timestamp — the shape the
- * /admin/social/instagram page consumes via services/instagram-service.ts
+ * /admission/social/instagram page consumes via services/instagram-service.ts
  * (IgAccountListResponse).
  *
  * This route was referenced by the 2026-05-30 IG sprint's service + hook
