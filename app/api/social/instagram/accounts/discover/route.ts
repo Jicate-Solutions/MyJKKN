@@ -3,25 +3,28 @@ export const dynamic = 'force-dynamic';
 /**
  * GET /api/social/instagram/accounts/discover
  *
- * Enumerates all Instagram Professional accounts accessible under the
- * configured Meta Business Manager token. Returns each account with a flag
- * indicating whether it is already synced into ig_accounts.
+ * Enumerates all Instagram Professional accounts linked to the Facebook
+ * Pages the configured token can manage (`GET /me/accounts`), mirroring the
+ * proven discovery pattern in app/api/cron/meta-facebook-poll/route.ts.
+ * Returns each account with a flag indicating whether it is already synced
+ * into ig_accounts.
  *
  * Auth: super_admin OR institution_admin scoped to requested institution_id.
  *
- * Stub note: lib/instagram/api-client.ts (Agent α) is not yet merged.
- * Direct Graph API calls are made here until that client is available.
- * When Agent α merges, replace the inline fetch calls with
- * `IgApiClient.getAccountsForBusiness(businessId, token)`.
+ * Uses lib/instagram/api-client.ts (merged in PR #1147) for per-account
+ * profile hydration. An optional Business-Manager path (META_BUSINESS_MANAGER_ID
+ * + discoverAccounts) supplements the page-edge discovery when that env is
+ * present, and is skipped silently when absent.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { connection } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { discoverAccounts, getAccountProfile } from '@/lib/instagram/api-client';
 
-const GRAPH_API = 'https://graph.facebook.com/v21.0';
+const GRAPH_API = 'https://graph.facebook.com/v25.0';
+const GRAPH_VERSION = 'v25.0';
 
-// --- Inline stub types (replaces lib/instagram/api-client.ts when Agent α merges) ---
 interface IgAccount {
   ig_user_id: string;
   username: string;
@@ -39,33 +42,42 @@ interface IgAccount {
 interface DiscoveredIgAccount extends IgAccount {
   already_synced: boolean;
 }
-// --- End stub ---
 
+interface MeAccountsPage {
+  id: string;
+  name?: string;
+  access_token?: string;
+  instagram_business_account?: { id: string; username?: string };
+}
+
+interface MeAccountsResponse {
+  data?: MeAccountsPage[];
+  error?: { message?: string; code?: number; type?: string };
+}
+
+// social_instagram_logs columns: account_id, event_type, payload, status,
+// error_message, occurred_at (see migration 20260530140000). Fail-silent —
+// a log failure must never break discovery.
 async function writeLog(
   supabase: ReturnType<typeof createServiceRoleClient>,
   params: {
-    institution_id: string | null;
-    endpoint: string;
-    method: string;
-    request_payload: Record<string, unknown>;
-    response_status: number;
-    response_body: Record<string, unknown>;
+    event_type: string;
+    status: 'success' | 'error';
+    payload: Record<string, unknown>;
     error_message: string | null;
   }
 ) {
-  // social_instagram_logs is created by Agent β. If the table is not yet applied
-  // this insert fails silently — acceptable during parallel build.
-  await supabase.from('social_instagram_logs').insert({
-    institution_id: params.institution_id,
-    endpoint: params.endpoint,
-    method: params.method,
-    request_payload: params.request_payload,
-    response_status: params.response_status,
-    response_body: params.response_body,
-    error_message: params.error_message,
-  }).then(() => {}).catch((err: unknown) => {
-    console.warn('[ig-discover] Log write failed (table may not exist yet):', err);
-  });
+  try {
+    await supabase.from('social_instagram_logs').insert({
+      account_id: null,
+      event_type: params.event_type,
+      status: params.status,
+      payload: params.payload,
+      error_message: params.error_message,
+    });
+  } catch (err: unknown) {
+    console.warn('[ig-discover] Log write failed:', err);
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -98,10 +110,20 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 });
     }
 
-    const accessToken = process.env.INSTAGRAM_ACCESS_TOKEN || process.env.META_ACCESS_TOKEN;
+    // Proven token fallback chain (same as meta-facebook-poll cron):
+    // both MESSENGER_PAGE_ACCESS_TOKEN and META_PAGE_ACCESS_TOKEN are
+    // verified present in prod, bound to JKKN Institutions App 437028995095541.
+    const accessToken =
+      process.env.META_IG_SYSTEM_USER_TOKEN ||
+      process.env.MESSENGER_PAGE_ACCESS_TOKEN ||
+      process.env.META_PAGE_ACCESS_TOKEN;
     if (!accessToken) {
       return NextResponse.json(
-        { success: false, error: 'INSTAGRAM_ACCESS_TOKEN not configured' },
+        {
+          success: false,
+          error:
+            'No Meta access token configured (META_IG_SYSTEM_USER_TOKEN / MESSENGER_PAGE_ACCESS_TOKEN / META_PAGE_ACCESS_TOKEN)',
+        },
         { status: 503 }
       );
     }
@@ -109,109 +131,101 @@ export async function GET(request: NextRequest) {
     const serviceClient = createServiceRoleClient();
     const logStart = Date.now();
 
-    // Step 1: Resolve Business Manager ID(s) from token
-    const businessIdSet = new Set<string>();
+    // Step 1: Page-edge discovery — GET /me/accounts with the linked IG
+    // business account on each Page. No business-manager id required.
+    const pages: MeAccountsPage[] = [];
+    const meAccountsUrl =
+      `${GRAPH_API}/me/accounts` +
+      `?fields=id,name,access_token,instagram_business_account{id,username}` +
+      `&limit=100&access_token=${encodeURIComponent(accessToken)}`;
 
-    // Method A: env var
-    const envBusinessId = process.env.META_BUSINESS_MANAGER_ID;
-    if (envBusinessId) businessIdSet.add(envBusinessId);
-
-    // Method B: token debug to find app → business
-    try {
-      const debugRes = await fetch(
-        `${GRAPH_API}/debug_token?input_token=${accessToken}&access_token=${accessToken}`
-      );
-      const debugData = await debugRes.json();
-      const appId = debugData.data?.app_id;
-      if (appId) {
-        const appRes = await fetch(
-          `${GRAPH_API}/${appId}?fields=business&access_token=${accessToken}`
-        );
-        const appData = await appRes.json();
-        if (appData.business?.id) businessIdSet.add(appData.business.id);
-      }
-    } catch {
-      // Non-critical
+    const meRes = await fetch(meAccountsUrl, { cache: 'no-store' });
+    const meJson = (await meRes.json()) as MeAccountsResponse;
+    if (!meRes.ok || meJson.error) {
+      const msg = meJson.error?.message ?? `Meta /me/accounts returned HTTP ${meRes.status}`;
+      await writeLog(serviceClient, {
+        event_type: 'discover',
+        status: 'error',
+        payload: { endpoint: '/me/accounts', institution_id: institutionId },
+        error_message: msg,
+      });
+      return NextResponse.json({ success: false, error: msg }, { status: 502 });
     }
+    pages.push(...(meJson.data ?? []));
 
-    // Method C: /me to get system user, then their businesses
-    try {
-      const meRes = await fetch(`${GRAPH_API}/me?fields=id&access_token=${accessToken}`);
-      const meData = await meRes.json();
-      if (meData.id) {
-        const bizRes = await fetch(
-          `${GRAPH_API}/${meData.id}/businesses?access_token=${accessToken}`
-        );
-        const bizData = await bizRes.json();
-        for (const biz of bizData.data || []) {
-          businessIdSet.add(biz.id);
-        }
-      }
-    } catch {
-      // Non-critical
-    }
-
-    const businessIds = Array.from(businessIdSet);
-
-    // Step 2: For each Business, enumerate connected Instagram accounts
+    // Step 2: hydrate the full profile for every linked IG account.
+    // Per-account failures are logged and skipped — one bad account must
+    // not abort the sweep.
     const discovered: DiscoveredIgAccount[] = [];
+    const seenIgIds = new Set<string>();
 
-    for (const bizId of businessIds) {
+    for (const page of pages) {
+      const igAccountId = page.instagram_business_account?.id;
+      if (!igAccountId || seenIgIds.has(igAccountId)) continue;
+      seenIgIds.add(igAccountId);
+
       try {
-        // Get owned pages, then get the connected IG account for each page
-        const pagesRes = await fetch(
-          `${GRAPH_API}/${bizId}/owned_pages?fields=id,name,instagram_business_account&access_token=${accessToken}`
-        );
-        const pagesData = await pagesRes.json();
+        const igProfile = await getAccountProfile(igAccountId, {
+          accessToken: page.access_token || accessToken,
+          apiVersion: GRAPH_VERSION,
+        });
 
-        for (const page of pagesData.data || []) {
-          const igAccountId = page.instagram_business_account?.id;
-          if (!igAccountId) continue;
+        discovered.push({
+          ig_user_id: igProfile.id,
+          username: igProfile.username || page.instagram_business_account?.username || '',
+          name: igProfile.name || '',
+          biography: igProfile.biography || null,
+          profile_picture_url: igProfile.profile_picture_url || null,
+          followers_count: igProfile.followers_count ?? null,
+          follows_count: igProfile.follows_count ?? null,
+          media_count: igProfile.media_count ?? null,
+          website: igProfile.website || null,
+          account_type: igProfile.account_type || null,
+          business_page_id: page.id || null,
+          already_synced: false,
+        });
+      } catch (err) {
+        console.warn(`[ig-discover] Failed to fetch IG account ${igAccountId}:`, err);
+      }
+    }
 
+    // Step 2b (optional): Business-Manager supplement. Only runs when
+    // META_BUSINESS_MANAGER_ID is configured; degrades silently otherwise.
+    const envBusinessId = process.env.META_BUSINESS_MANAGER_ID;
+    if (envBusinessId) {
+      try {
+        const summaries = await discoverAccounts(envBusinessId, {
+          accessToken,
+          apiVersion: GRAPH_VERSION,
+        });
+        for (const summary of summaries) {
+          if (seenIgIds.has(summary.id)) continue;
+          seenIgIds.add(summary.id);
           try {
-            const fields = [
-              'id',
-              'username',
-              'name',
-              'biography',
-              'profile_picture_url',
-              'followers_count',
-              'follows_count',
-              'media_count',
-              'website',
-              'account_type',
-            ].join(',');
-
-            const igRes = await fetch(
-              `${GRAPH_API}/${igAccountId}?fields=${fields}&access_token=${accessToken}`
-            );
-            const igData = await igRes.json();
-
-            if (igData.error) {
-              console.warn(`[ig-discover] IG account ${igAccountId} error:`, igData.error.message);
-              continue;
-            }
-
+            const igProfile = await getAccountProfile(summary.id, {
+              accessToken,
+              apiVersion: GRAPH_VERSION,
+            });
             discovered.push({
-              ig_user_id: igData.id,
-              username: igData.username || '',
-              name: igData.name || '',
-              biography: igData.biography || null,
-              profile_picture_url: igData.profile_picture_url || null,
-              followers_count: igData.followers_count ?? null,
-              follows_count: igData.follows_count ?? null,
-              media_count: igData.media_count ?? null,
-              website: igData.website || null,
-              account_type: igData.account_type || null,
-              business_page_id: page.id || null,
+              ig_user_id: igProfile.id,
+              username: igProfile.username || summary.username || '',
+              name: igProfile.name || '',
+              biography: igProfile.biography || null,
+              profile_picture_url: igProfile.profile_picture_url || null,
+              followers_count: igProfile.followers_count ?? null,
+              follows_count: igProfile.follows_count ?? null,
+              media_count: igProfile.media_count ?? null,
+              website: igProfile.website || null,
+              account_type: igProfile.account_type || null,
+              business_page_id: null,
               already_synced: false,
             });
           } catch (err) {
-            console.warn(`[ig-discover] Failed to fetch IG account ${igAccountId}:`, err);
+            console.warn(`[ig-discover] Failed to fetch IG account ${summary.id}:`, err);
           }
         }
       } catch (err) {
-        console.warn(`[ig-discover] Failed to enumerate pages for business ${bizId}:`, err);
+        console.warn(`[ig-discover] Business-manager supplement failed (non-critical):`, err);
       }
     }
 
@@ -233,16 +247,19 @@ export async function GET(request: NextRequest) {
       total: discovered.length,
       already_synced: discovered.filter((d) => d.already_synced).length,
       available: discovered.filter((d) => !d.already_synced).length,
-      business_count: businessIds.length,
+      pages_scanned: pages.length,
     };
 
     await writeLog(serviceClient, {
-      institution_id: institutionId,
-      endpoint: '/api/social/instagram/accounts/discover',
-      method: 'GET',
-      request_payload: { institution_id: institutionId },
-      response_status: 200,
-      response_body: { total: responsePayload.total, business_count: responsePayload.business_count },
+      event_type: 'discover',
+      status: 'success',
+      payload: {
+        endpoint: '/api/social/instagram/accounts/discover',
+        institution_id: institutionId,
+        total: responsePayload.total,
+        pages_scanned: responsePayload.pages_scanned,
+        duration_ms: Date.now() - logStart,
+      },
       error_message: null,
     });
 
