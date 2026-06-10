@@ -344,6 +344,17 @@ const nextConfig: NextConfig = {
         source: '/admin/exophone-mapping/:path*',
         destination: '/admission/settings/exophone-mapping/:path*',
         permanent: false
+      },
+      // 2026-06-11 admin-cluster relocation wave-2 — notifications
+      {
+        source: '/admin/notifications',
+        destination: '/notifications/admin',
+        permanent: false
+      },
+      {
+        source: '/admin/notifications/:path*',
+        destination: '/notifications/admin/:path*',
+        permanent: false
       }
     ];
   },

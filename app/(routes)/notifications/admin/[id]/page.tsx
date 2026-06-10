@@ -38,7 +38,7 @@ export default async function NotificationViewPage({
       <ContentLayout title='Notification Details'>
         <div className='flex-1 space-y-4 pt-2'>
           <div className='flex items-center gap-3'>
-            <Link href='/admin/notifications'>
+            <Link href='/notifications/admin'>
               <Button variant='outline' size='sm' className='h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3'>
                 <ArrowLeft className='h-4 w-4' />
               </Button>

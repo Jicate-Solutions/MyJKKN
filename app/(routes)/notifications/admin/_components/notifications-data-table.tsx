@@ -72,7 +72,7 @@ export function NotificationsDataTable({
         priority: notification.priority,
         category: notification.category
       });
-      router.push(`/admin/notifications/new?${params.toString()}`);
+      router.push(`/notifications/admin/new?${params.toString()}`);
     },
     [router]
   );
@@ -135,7 +135,7 @@ export function NotificationsDataTable({
         return (
           <div className='min-w-0'>
             <Link
-              href={`/admin/notifications/${notification.id}`}
+              href={`/notifications/admin/${notification.id}`}
               className='hover:text-primary'
             >
               <div className='font-medium text-sm line-clamp-1'>{notification.title}</div>
@@ -222,7 +222,7 @@ export function NotificationsDataTable({
             <DropdownMenuContent align='end' className='w-[160px]'>
               <DropdownMenuItem asChild>
                 <Link
-                  href={`/admin/notifications/${notification.id}`}
+                  href={`/notifications/admin/${notification.id}`}
                   className='flex items-center w-full'
                 >
                   <Eye className='mr-2 h-4 w-4' />

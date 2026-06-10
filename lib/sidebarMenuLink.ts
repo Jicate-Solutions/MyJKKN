@@ -332,11 +332,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/batches/new': 'academic.batches.create',
   '/academic/batches/[id]/edit': 'academic.batches.edit',
 
-  // Notification Management
-  '/admin/notifications': 'notifications.view',
-  '/admin/notifications/new': 'notifications.create',
-  '/admin/notifications/compliance': 'notifications.view',
-  '/admin/notifications/audiences': 'notifications.view',
+  // Notification Management (relocated /admin/notifications → /notifications/admin, 2026-06-11 wave-2)
+  '/notifications/admin': 'notifications.view',
+  '/notifications/admin/new': 'notifications.create',
+  '/notifications/admin/compliance': 'notifications.view',
+  '/notifications/admin/audiences': 'notifications.view',
 
   // System Management
   // Work Pulse
@@ -1741,11 +1741,11 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/admin' || pathname.startsWith('/admin/'),
           icon: Shield,
           submenus: [
-            // Notifications
-            { href: '/admin/notifications', label: 'Notifications · All', active: pathname === '/admin/notifications' },
-            { href: '/admin/notifications/new', label: 'Notifications · Send', active: pathname === '/admin/notifications/new' },
-            { href: '/admin/notifications/compliance', label: 'Notifications · Compliance', active: pathname === '/admin/notifications/compliance' },
-            { href: '/admin/notifications/audiences', label: 'Notifications · Audiences', active: pathname.startsWith('/admin/notifications/audiences') },
+            // Notifications (relocated /admin/notifications → /notifications/admin, 2026-06-11 wave-2)
+            { href: '/notifications/admin', label: 'Notifications · All', active: pathname === '/notifications/admin' },
+            { href: '/notifications/admin/new', label: 'Notifications · Send', active: pathname === '/notifications/admin/new' },
+            { href: '/notifications/admin/compliance', label: 'Notifications · Compliance', active: pathname === '/notifications/admin/compliance' },
+            { href: '/notifications/admin/audiences', label: 'Notifications · Audiences', active: pathname.startsWith('/notifications/admin/audiences') },
             // LTI
             { href: '/admin/lti', label: 'LTI · Dashboard', active: pathname === '/admin/lti' },
             { href: '/admin/lti/analytics', label: 'LTI · Analytics', active: pathname === '/admin/lti/analytics' },

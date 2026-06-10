@@ -559,44 +559,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/admin/notifications",
-        "label": "Notifications",
-        "iconName": "Bell",
-        "children": [
-          {
-            "path": "/admin/notifications/audiences",
-            "label": "Audiences",
-            "iconName": "Bell",
-            "children": [
-              {
-                "path": "/admin/notifications/audiences/new",
-                "label": "New",
-                "iconName": "Plus",
-                "children": []
-              }
-            ]
-          },
-          {
-            "path": "/admin/notifications/compliance",
-            "label": "Compliance",
-            "iconName": "Bell",
-            "children": []
-          },
-          {
-            "path": "/admin/notifications/new",
-            "label": "New",
-            "iconName": "Plus",
-            "children": []
-          },
-          {
-            "path": "/admin/notifications/recipients",
-            "label": "Recipients",
-            "iconName": "Bell",
-            "children": []
-          }
-        ]
-      },
-      {
         "path": "/admin/page-metadata",
         "label": "Page Metadata",
         "iconName": "FileText",
@@ -4397,6 +4359,44 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "label": "Notifications",
     "iconName": "Bell",
     "children": [
+      {
+        "path": "/notifications/admin",
+        "label": "Admin",
+        "iconName": "Bell",
+        "children": [
+          {
+            "path": "/notifications/admin/audiences",
+            "label": "Audiences",
+            "iconName": "Bell",
+            "children": [
+              {
+                "path": "/notifications/admin/audiences/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/notifications/admin/compliance",
+            "label": "Compliance",
+            "iconName": "Bell",
+            "children": []
+          },
+          {
+            "path": "/notifications/admin/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/notifications/admin/recipients",
+            "label": "Recipients",
+            "iconName": "Bell",
+            "children": []
+          }
+        ]
+      },
       {
         "path": "/notifications/sent",
         "label": "Sent",

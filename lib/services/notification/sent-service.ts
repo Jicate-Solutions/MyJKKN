@@ -3,7 +3,7 @@
 // Lists notifications the current user authored (the "Sent folder").
 //
 // Why: today there is no surface that shows a sender what they broadcast.
-// /admin/notifications is admin-scoped (all-of-platform). The bell + page
+// /notifications/admin is admin-scoped (all-of-platform). The bell + page
 // inbox surfaces only what the user RECEIVED. If a director broadcasts to
 // 4,617 principals, the only way to verify the dispatch is a Supabase query.
 //

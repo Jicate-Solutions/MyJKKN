@@ -124,13 +124,13 @@ export function NotificationCard({
   // Card click target: prefer action_config.url (the underlying work-item, e.g.
   // /hr/recruitment/candidates/<id> from PR #506/#510 queue generators) so a
   // click jumps Director straight to the actionable entity.
-  // Fallback: /admin/notifications/<id> meta page when no action URL is set.
+  // Fallback: /notifications/admin/<id> meta page when no action URL is set.
   // External URLs (http(s)://) open in a new tab.
   const _actionConfigUrl = (() => {
     const cfg = (notification as any).action_config as { url?: string } | null | undefined;
     return typeof cfg?.url === 'string' && cfg.url.trim() ? cfg.url.trim() : null;
   })();
-  const _cardHref = _actionConfigUrl ?? `/admin/notifications/${notification.id}`;
+  const _cardHref = _actionConfigUrl ?? `/notifications/admin/${notification.id}`;
   const _cardIsExternal = /^https?:\/\//i.test(_cardHref);
 
   return (
@@ -142,7 +142,7 @@ export function NotificationCard({
       />
 
       {/* Card content — the whole card is a Link, except the overflow menu.
-          href computed above (action_config.url first, fallback to /admin/notifications/<id>). */}
+          href computed above (action_config.url first, fallback to /notifications/admin/<id>). */}
       <Link
         href={_cardHref}
         target={_cardIsExternal ? '_blank' : undefined}

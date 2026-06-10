@@ -315,7 +315,7 @@ export function AudienceForm() {
       toast.success(`Audience saved — matched ${count} users`);
       // Once the audience exists, the form should navigate to the list so
       // the user sees their creation and doesn't double-create on re-click.
-      router.push('/admin/notifications/audiences');
+      router.push('/notifications/admin/audiences');
       router.refresh();
     } catch (err) {
       const message =
@@ -347,7 +347,7 @@ export function AudienceForm() {
       queryClient.invalidateQueries({ queryKey: ['notification-audiences'] });
 
       toast.success('Audience created');
-      router.push('/admin/notifications/audiences');
+      router.push('/notifications/admin/audiences');
       router.refresh();
     } catch (err) {
       toast.error(

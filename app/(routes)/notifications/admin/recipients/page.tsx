@@ -3,7 +3,7 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import { RecipientPoliciesClient } from './_components/recipient-policies-client';
 
 /**
- * /admin/notifications/recipients
+ * /notifications/admin/recipients
  *
  * Director's standing rule (2026-04-29):
  *   "Re-map CEO's digest categories? Click checkboxes" — verbatim Director example.
