@@ -42,6 +42,9 @@ const predicateParts = (r: RoomEligibilityRuleRow) =>
     Boolean
   ) as string[];
 
+const floorLabel = (floor: number | null) =>
+  floor == null ? 'Any' : floor === 0 ? 'Ground' : `Floor ${floor}`;
+
 export function RoomRulesTable() {
   // null => list rules across ALL institutions; each rule carries its own.
   const { rows, loading, error, deleteRule } = useRoomEligibilityRules(null);
@@ -97,6 +100,7 @@ export function RoomRulesTable() {
           <TableRow>
             <TableHead>Institution</TableHead>
             <TableHead>Block</TableHead>
+            <TableHead>Floor</TableHead>
             <TableHead>Scope</TableHead>
             <TableHead>Cohort</TableHead>
             <TableHead>Status</TableHead>
@@ -118,6 +122,11 @@ export function RoomRulesTable() {
                       {r.rule_name}
                     </span>
                   ) : null}
+                </TableCell>
+                <TableCell>
+                  <span className={r.floor == null ? 'text-muted-foreground' : ''}>
+                    {floorLabel(r.floor)}
+                  </span>
                 </TableCell>
                 <TableCell>
                   <Badge variant="outline">{scopeLabel(r)}</Badge>
