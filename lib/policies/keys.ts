@@ -50,7 +50,7 @@ export const POLICY_KEYS = {
   // Object policy: { tasks: string[], categories: string[] }.
   // Consumed by lib/services/telephony/call-pipeline-service.ts (server-only,
   // pipeline runs in API routes / cron, never client). Director can edit via
-  // /admin/telephony-policies — no deploy needed.
+  // /admission/settings/telephony-policies — no deploy needed.
   TELEPHONY_EXOVOICE_CONFIG: 'telephony.exovoice.config',
 
   // Telephony — CDR sync windowing (object: {default_lookback_days, chunk_max_days})

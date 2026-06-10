@@ -213,6 +213,37 @@ const nextConfig: NextConfig = {
         source: '/admin/internship-policy/:path*',
         destination: '/internships/policy/:path*',
         permanent: false
+      },
+      // 2026-06-10 admin-cluster relocation — admission (counselors + policies)
+      {
+        source: '/admin/counselors',
+        destination: '/admission/counselors/admin',
+        permanent: false
+      },
+      {
+        source: '/admin/counselors/:path*',
+        destination: '/admission/counselors/admin/:path*',
+        permanent: false
+      },
+      {
+        source: '/admin/lead-stages-policy',
+        destination: '/admission/settings/lead-stages-policy',
+        permanent: false
+      },
+      {
+        source: '/admin/lead-stages-policy/:path*',
+        destination: '/admission/settings/lead-stages-policy/:path*',
+        permanent: false
+      },
+      {
+        source: '/admin/telephony-policies',
+        destination: '/admission/settings/telephony-policies',
+        permanent: false
+      },
+      {
+        source: '/admin/telephony-policies/:path*',
+        destination: '/admission/settings/telephony-policies/:path*',
+        permanent: false
       }
     ];
   },

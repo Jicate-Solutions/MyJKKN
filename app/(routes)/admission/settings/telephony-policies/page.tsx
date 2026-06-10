@@ -1,7 +1,7 @@
 'use client';
 
 // =====================================================================
-// /admin/telephony-policies — Director's zero-deploy telephony config UI
+// /admission/settings/telephony-policies — Director's zero-deploy telephony config UI
 // =====================================================================
 // Standing rule (2026-04-29): every policy decision = config-table row +
 // super_admin UI. Edits land in `platform_policies` and the next call
@@ -85,7 +85,7 @@ export default function TelephonyPoliciesPage() {
         <PageBreadcrumb
           items={[
             { label: 'Dashboard', href: '/' },
-            { label: 'Administration' },
+            { label: 'Admission', href: '/admission' },
             { label: 'Telephony Policies' },
           ]}
         />

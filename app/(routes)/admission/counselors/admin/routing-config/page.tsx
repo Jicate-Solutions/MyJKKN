@@ -146,8 +146,8 @@ export default function CounselorRoutingConfigPage() {
     <ContentLayout title="Counselor Routing Config">
       <PageBreadcrumb
         items={[
-          { label: 'Admin', href: '/admin' },
-          { label: 'Counselors', href: '/admin/counselors' },
+          { label: 'Admission', href: '/admission' },
+          { label: 'Counselors', href: '/admission/counselors/admin' },
           { label: 'Routing Config' },
         ]}
       />

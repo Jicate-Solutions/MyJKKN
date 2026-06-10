@@ -1,11 +1,11 @@
 'use client';
 
 // ============================================
-// /admin/counselors — Counselor Admin landing hub
+// /admission/counselors/admin — Counselor Admin landing hub
 // ============================================
-// Operational landing page for the admin/counselors configuration cluster.
+// Operational landing page for the admission counselors/admin configuration cluster.
 // Surfaces the 5 sub-pages as cards so users land somewhere coherent
-// when they navigate to the bare /admin/counselors URL (previously 404'd).
+// when they navigate to the bare /admission/counselors/admin URL (previously 404'd).
 //
 // Sub-modules wired into this hub:
 //   Alert Thresholds, Routing Config, Routing Errors, Rule Types, Tier Policy
@@ -50,35 +50,35 @@ interface ModuleCard {
 
 const COUNSELOR_ADMIN_MODULES: ModuleCard[] = [
   {
-    href: '/admin/counselors/alert-thresholds',
+    href: '/admission/counselors/admin/alert-thresholds',
     title: 'Alert Thresholds',
     description: 'Configure when to flag a counselor’s queue — idle leads, overload, response-time breaches.',
     icon: AlertCircle,
     color: 'text-amber-600 bg-amber-50',
   },
   {
-    href: '/admin/counselors/routing-config',
+    href: '/admission/counselors/admin/routing-config',
     title: 'Routing Config',
     description: 'Rules and policies that decide how incoming leads are auto-assigned to counselors.',
     icon: Workflow,
     color: 'text-blue-600 bg-blue-50',
   },
   {
-    href: '/admin/counselors/routing-errors',
+    href: '/admission/counselors/admin/routing-errors',
     title: 'Routing Errors',
     description: 'Leads that failed to route. Diagnose mis-matched rules, missing scopes, retry manually.',
     icon: AlertTriangle,
     color: 'text-rose-600 bg-rose-50',
   },
   {
-    href: '/admin/counselors/rule-types',
+    href: '/admission/counselors/admin/rule-types',
     title: 'Rule Types',
     description: 'Taxonomy of routing rules — by program, institution, language, tier, and custom predicates.',
     icon: ListChecks,
     color: 'text-indigo-600 bg-indigo-50',
   },
   {
-    href: '/admin/counselors/tier-policy',
+    href: '/admission/counselors/admin/tier-policy',
     title: 'Tier Policy',
     description: 'Counselor tier definitions and quotas — seniority, lead-volume caps, escalation paths.',
     icon: Trophy,
@@ -108,7 +108,7 @@ export default function CounselorsAdminLandingPage() {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href="/admin">Admin</Link>
+              <Link href="/admission">Admission</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
