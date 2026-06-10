@@ -1239,3 +1239,44 @@ DROP TRIGGER IF EXISTS trigger_razorpay_accounts_updated_at ON public.razorpay_a
 CREATE TRIGGER trigger_razorpay_accounts_updated_at
 BEFORE UPDATE ON public.razorpay_accounts
 FOR EACH ROW EXECUTE FUNCTION public.update_razorpay_accounts_updated_at();
+
+-- ============================================================================
+-- trg_sync_lead_referral_to_learner_profile (migration 20260610160000)
+-- ============================================================================
+-- Mirrors admission_leads referral attribution (referral_type, referred_by_id,
+-- referred_by_name) onto the linked learners_profiles row so referral edits
+-- made AFTER lead→learner conversion stay visible on the Enquiries page.
+-- The leads module is the single edit surface for referral attribution
+-- (enquiry-form Reference Information block removed 2026-05-21).
+-- SECURITY DEFINER: lead editors don't necessarily hold learners_profiles
+-- UPDATE rights. The nested learners_profiles UPDATE fires
+-- trg_sync_learner_referral_to_attribution, whose NOT EXISTS guard finds the
+-- already-updated lead row and skips — no duplicate attribution rows.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.sync_lead_referral_to_learner_profile()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+BEGIN
+  IF NEW.learner_profile_id IS NOT NULL THEN
+    UPDATE learners_profiles lp
+    SET referral_type    = NEW.referral_type,
+        referred_by_id   = NEW.referred_by_id,
+        referred_by_name = NEW.referred_by_name,
+        updated_at       = now()
+    WHERE lp.id = NEW.learner_profile_id
+      AND (lp.referral_type    IS DISTINCT FROM NEW.referral_type
+        OR lp.referred_by_id   IS DISTINCT FROM NEW.referred_by_id
+        OR lp.referred_by_name IS DISTINCT FROM NEW.referred_by_name);
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+DROP TRIGGER IF EXISTS trg_sync_lead_referral_to_learner_profile ON public.admission_leads;
+CREATE TRIGGER trg_sync_lead_referral_to_learner_profile
+AFTER INSERT OR UPDATE OF referral_type, referred_by_id, referred_by_name, learner_profile_id
+ON public.admission_leads
+FOR EACH ROW EXECUTE FUNCTION public.sync_lead_referral_to_learner_profile();
