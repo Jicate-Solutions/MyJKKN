@@ -66,7 +66,7 @@ end-to-end before App Review completes.
 
 ## Step 4 — Connecting an account (admin flow)
 
-On **`/admin/social/departments`**, each row now has an **IG Login** column:
+On **`/admission/social/departments`** (relocated from `/admin/social/departments` by PR #1307), each row now has an **IG Login** column:
 
 - **Connect now** — use when this browser/phone is logged into that
   department's Instagram account; it goes straight to the approval screen.

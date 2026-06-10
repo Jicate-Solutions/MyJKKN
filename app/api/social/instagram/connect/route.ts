@@ -17,7 +17,8 @@ export const dynamic = 'force-dynamic';
  *         linked ig_accounts row flips back to metrics_source=
  *         'business_discovery' so the public-metrics poller resumes.
  *
- * Role: super_admin / administrator only (matches /admin/social/* gates).
+ * Role: super_admin / administrator only (matches the SuperAdminOnly gate
+ * on /admission/social/*).
  * Dormant until INSTAGRAM_APP_ID + INSTAGRAM_APP_SECRET are configured
  * (returns 503) — see docs/instagram-login-connect-runbook-2026-06-10.md.
  */
