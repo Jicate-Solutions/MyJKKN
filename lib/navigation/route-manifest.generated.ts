@@ -510,12 +510,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/admin/departments",
-        "label": "Departments",
-        "iconName": "Building2",
-        "children": []
-      },
-      {
         "path": "/admin/exophone-mapping",
         "label": "Exophone Mapping",
         "iconName": "FileText",
@@ -4592,6 +4586,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Departments",
         "iconName": "Building2",
         "children": [
+          {
+            "path": "/organizations/departments/hod-assignment",
+            "label": "Hod Assignment",
+            "iconName": "Building2",
+            "children": []
+          },
           {
             "path": "/organizations/departments/new",
             "label": "New",

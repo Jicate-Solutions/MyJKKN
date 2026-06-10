@@ -111,6 +111,18 @@ const NAV_EXCLUDE = new Set<string>([
   '/admission/settings/telephony-policies',
 
   // ────────────────────────────────────────────────────────────
+  // 2026-06-11 admin-cluster relocation wave-2 — departments
+  // (HoD assignment). Moved out of /admin/departments (auto-chip-
+  // reachable via the filesystem-derived admin tree) into the
+  // organizations namespace. Deliberately NOT wired as a nav-config
+  // chip: admin_or_super_admin policy surface (PolicyPageShell) —
+  // a chip would surface it to every organizations user (sidebar-
+  // shows/page-denies anti-pattern). 307 redirects cover old
+  // bookmarks. Same pattern as the 2026-06-10 admission block above.
+  // ────────────────────────────────────────────────────────────
+  '/organizations/departments/hod-assignment',
+
+  // ────────────────────────────────────────────────────────────
   // Form pages invoked from list-page "+ New" / "Add" / "Create"
   // buttons. Not tier-strip destinations — the user clicks a row
   // action on the parent list, lands here, submits, returns to list.
