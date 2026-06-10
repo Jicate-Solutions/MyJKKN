@@ -12,23 +12,23 @@ export const dynamic = 'force-dynamic';
  * Auth: super_admin OR institution_admin scoped to requested institution_id.
  *
  * Uses lib/instagram/api-client.ts (merged in PR #1147) for per-account
- * profile hydration. An optional Business-Manager path (META_BUSINESS_MANAGER_ID)
- * supplements the page-edge discovery when that env is present, and is skipped
- * silently when absent. It reads BOTH edges of the business:
- *   - `owned_instagram_accounts`  (discoverAccounts)        — accounts we own
- *   - `client_instagram_accounts` (discoverClientAccounts)  — accounts a
- *     partner business shared into ours (Business Settings → Partners). JKKN's
- *     department handles arrive only via this second edge.
+ * profile hydration. Discovery runs three sources, each degrading silently:
+ *   - Step 1/2  page-edge: GET /me/accounts → each Page's linked IG account.
+ *   - Step 2b   primary business: owned_instagram_accounts of
+ *               META_BUSINESS_MANAGER_ID (the portfolio the token belongs to).
+ *   - Step 2d   extra portfolios: for each {businessId, token} in
+ *               META_IG_EXTRA_PORTFOLIOS, owned_instagram_accounts queried with
+ *               THAT portfolio's own token. A system-user token can only read
+ *               assets its own portfolio owns, so accounts owned by other
+ *               portfolios (e.g. the department accounts in "JKKN All
+ *               Departments") need their own token — see extra-portfolios.ts.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { connection } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
-import {
-  discoverAccounts,
-  discoverClientAccounts,
-  getAccountProfile,
-} from '@/lib/instagram/api-client';
+import { discoverAccounts, getAccountProfile } from '@/lib/instagram/api-client';
+import { getExtraIgPortfolios } from '@/lib/instagram/extra-portfolios';
 
 const GRAPH_API = 'https://graph.facebook.com/v25.0';
 const GRAPH_VERSION = 'v25.0';
@@ -237,17 +237,17 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Step 2c (optional): partner-shared supplement. Mirrors Step 2b exactly
-    // but reads `client_instagram_accounts` — IG accounts another business
-    // shared into ours via a Partner relationship (Business Settings →
-    // Partners). JKKN's department accounts live in the "JKKN All Departments"
-    // portfolio and are partner-shared into JKKN Institutions, so they appear
-    // ONLY on this edge, never `owned_instagram_accounts`. Same env gate,
-    // same dedup (seenIgIds), same non-critical degradation.
-    if (envBusinessId) {
+    // Step 2d (optional): extra-portfolio supplement. For each {businessId,
+    // token} in META_IG_EXTRA_PORTFOLIOS, run the SAME owned_instagram_accounts
+    // path as Step 2b but with that portfolio's OWN token — a system-user token
+    // can only read assets its own portfolio owns. This is how the department
+    // accounts (owned by "JKKN All Departments", not JKKN Institutions) surface.
+    // Same dedup (seenIgIds), same per-account + per-portfolio non-critical
+    // degradation. Tokens stay server-side; never added to the response.
+    for (const portfolio of getExtraIgPortfolios()) {
       try {
-        const summaries = await discoverClientAccounts(envBusinessId, {
-          accessToken,
+        const summaries = await discoverAccounts(portfolio.businessId, {
+          accessToken: portfolio.token,
           apiVersion: GRAPH_VERSION,
         });
         for (const summary of summaries) {
@@ -255,7 +255,7 @@ export async function GET(request: NextRequest) {
           seenIgIds.add(summary.id);
           try {
             const igProfile = await getAccountProfile(summary.id, {
-              accessToken,
+              accessToken: portfolio.token,
               apiVersion: GRAPH_VERSION,
             });
             discovered.push({
@@ -273,11 +273,17 @@ export async function GET(request: NextRequest) {
               already_synced: false,
             });
           } catch (err) {
-            console.warn(`[ig-discover] Failed to fetch client IG account ${summary.id}:`, err);
+            console.warn(
+              `[ig-discover] Failed to fetch extra-portfolio IG account ${summary.id}:`,
+              err
+            );
           }
         }
       } catch (err) {
-        console.warn(`[ig-discover] Partner-shared supplement failed (non-critical):`, err);
+        console.warn(
+          `[ig-discover] Extra-portfolio supplement failed for ${portfolio.businessId} (non-critical):`,
+          err
+        );
       }
     }
 
