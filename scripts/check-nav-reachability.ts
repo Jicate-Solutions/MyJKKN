@@ -247,12 +247,16 @@ const NAV_EXCLUDE = new Set<string>([
   // ════════════════════════════════════════════════════════════
 
   // Admin HR /new forms (button-invoked from the reachable list page)
-  '/admin/hr/disciplinary/new',
-  '/admin/hr/payroll/periods/new',
-  '/admin/hr/training/new',
+  '/hr/admin/disciplinary/new',
+  '/hr/admin/payroll/periods/new',
+  '/hr/admin/training/new',
   // Admin button-invoked sub-views (linked from the reachable parent page)
-  '/admin/hr/forms/submissions', // ← /admin/hr/forms "View submissions"
-  '/admin/hr/performance-reviews/cycles', // ← /admin/hr/performance-reviews
+  '/hr/admin/forms/submissions', // ← /hr/admin/forms "View submissions"
+  '/hr/admin/performance-reviews/cycles', // ← /hr/admin/performance-reviews
+  // Tier-singleton: lone child of /hr/admin/offboarding — the min-2-chip rule
+  // hides single-chip tiers. Was auto-surfaced only by the old /admin
+  // fallback nav pre-relocation (2026-06-10); no page links to it either.
+  '/hr/admin/offboarding/retirements',
   '/pde/admin/compliance/per-college', // ← /pde/admin/compliance drill-down
 
   // Board of Studies /new forms

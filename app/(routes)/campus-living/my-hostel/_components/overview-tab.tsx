@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
-import { useMyHostelSummary } from '@/hooks/campus-living/use-my-hostel';
+import { useMyHostelSummary, useMyRoommates } from '@/hooks/campus-living/use-my-hostel';
 import { HostelAllocationService } from '@/lib/services/campus-living/hostel-allocation-service';
 import {
   BedDouble,
@@ -14,6 +14,7 @@ import {
   UtensilsCrossed,
   Loader2,
   Info,
+  Users,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -70,6 +71,11 @@ export function OverviewTab() {
 
   const activeAllocation = (allocations ?? [])[0] as any;
   const isPendingApproval = activeAllocation?.status === 'pending_approval';
+
+  // Co-residents of the assigned room (own-room scoped RPC). Only meaningful once
+  // the student has an allocation, so gate the query on it.
+  const hasAllocation = !!activeAllocation;
+  const { data: roommates, isLoading: roommatesLoading } = useMyRoommates(hasAllocation);
 
   if (summaryLoading || allocLoading) {
     return (
@@ -191,6 +197,58 @@ export function OverviewTab() {
             <p className='text-sm text-muted-foreground'>
               You don&apos;t have a room allocation yet — your hostel details are shown above.
             </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Roommates — co-residents of the assigned room */}
+      {hasAllocation && (
+        <Card>
+          <CardHeader>
+            <CardTitle className='flex items-center gap-2'>
+              <Users className='h-5 w-5 text-primary' />
+              Roommates
+            </CardTitle>
+            <CardDescription>
+              Others sharing {activeAllocation.hostel_rooms?.room_number
+                ? `Room ${activeAllocation.hostel_rooms.room_number}`
+                : 'your room'}
+              {isPendingApproval ? ' (proposed — pending approval)' : ''}.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {roommatesLoading ? (
+              <div className='flex items-center text-sm text-muted-foreground'>
+                <Loader2 className='mr-2 h-4 w-4 animate-spin' /> Loading roommates…
+              </div>
+            ) : (roommates ?? []).length === 0 ? (
+              <p className='text-sm text-muted-foreground'>
+                No roommates yet — you&apos;re currently the only resident in this room.
+              </p>
+            ) : (
+              <div className='divide-y'>
+                {(roommates ?? []).map((rm, i) => (
+                  <div key={i} className='flex items-center justify-between gap-3 py-2'>
+                    <div className='min-w-0'>
+                      <p className='truncate font-medium'>{rm.full_name}</p>
+                      <p className='truncate text-xs text-muted-foreground'>
+                        {[rm.program_name, rm.semester_name].filter(Boolean).join(' · ') || '—'}
+                      </p>
+                    </div>
+                    <div className='flex shrink-0 items-center gap-2'>
+                      {rm.bed_number && (
+                        <Badge variant='outline' className='gap-1'>
+                          <BedDouble className='h-3 w-3' /> Bed {rm.bed_number}
+                        </Badge>
+                      )}
+                      {rm.status === 'pending_approval' && (
+                        <Badge variant='secondary'>Pending</Badge>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

@@ -14483,11 +14483,17 @@ BEGIN
       (SELECT user_id FROM user_block_access WHERE block_id=p_block_id AND revoked_at IS NULL LIMIT 1)
     );
 
-    -- Mess category is assigned from rules at proposal time (rules-derived, idempotent); a rejected/reset batch does NOT revert it.
+    -- Sync the learner's profile categories to the proposal (rules-derived, idempotent;
+    -- a rejected/reset batch does NOT revert): hostel_category_id from the ALLOCATED room's
+    -- category (the truth), mess_category_id from the rules-derived mess (kept if none).
+    -- 20260610190000: hostel_category_id was previously never written → My Hostel + hostel
+    -- billing showed the stale admission-time category.
     v_mess := CASE WHEN cand.mess_cats IS NOT NULL THEN cand.mess_cats[1] ELSE NULL END;
-    IF v_mess IS NOT NULL THEN
-      UPDATE learners_profiles SET mess_category_id = v_mess WHERE id = cand.lp_id;
-    END IF;
+    UPDATE learners_profiles
+      SET hostel_category_id = (SELECT category_id FROM hostel_rooms WHERE id = v_room),
+          mess_category_id   = COALESCE(v_mess, mess_category_id),
+          updated_at = now()
+      WHERE id = cand.lp_id;
 
     v_alloc := v_alloc + 1;
   END LOOP;
@@ -15265,6 +15271,44 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_batch_room_category_breakdown(uuid[]) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_batch_room_category_breakdown(uuid[]) TO authenticated;
+
+-- fn_my_roommates: co-residents of the current user's assigned room (My Hostel Overview).
+-- Residents can only read their own allocation via RLS, so roommates resolve server-side,
+-- scoped to auth.uid()'s room. Exposes name + bed + program + year + status only.
+CREATE OR REPLACE FUNCTION public.fn_my_roommates()
+RETURNS TABLE(
+  full_name text, bed_number text, program_name text, semester_name text, status text
+)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  WITH me AS (
+    SELECT a.room_id
+    FROM hostel_allocations a
+    WHERE a.learner_id = auth.uid()
+      AND a.status IN ('active','pending_approval','pending_vacate')
+      AND a.room_id IS NOT NULL
+    ORDER BY a.allocation_date DESC NULLS LAST
+    LIMIT 1
+  )
+  SELECT
+    COALESCE(p.full_name, p.email, '—') AS full_name,
+    bd.bed_number,
+    prog.program_name,
+    sem.semester_name,
+    a.status
+  FROM hostel_allocations a
+  JOIN me ON me.room_id = a.room_id
+  JOIN profiles p ON p.id = a.learner_id
+  LEFT JOIN hostel_beds bd ON bd.id = a.bed_id
+  LEFT JOIN learners_profiles lp ON lp.id = p.learner_id
+  LEFT JOIN programs prog ON prog.id = lp.program_id
+  LEFT JOIN semesters sem ON sem.id = lp.semester_id
+  WHERE a.learner_id <> auth.uid()
+    AND a.status IN ('active','pending_approval','pending_vacate')
+  ORDER BY bd.bed_number NULLS LAST, p.full_name;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_my_roommates() FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_my_roommates() TO authenticated;
 
 -- fn_user_allocated_block/room/bed: a user may read the block/room/bed referenced by
 -- one of their OWN hostel allocations (My Hostel resident card). SECURITY DEFINER so
