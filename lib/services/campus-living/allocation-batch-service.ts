@@ -204,10 +204,25 @@ export class AllocationBatchService {
       );
     }
 
+    // Mess category is not stored on allocations — resolved per learner by the
+    // fee-aware eligibility functions; one RPC covers the whole batch.
+    const messCategories = new Map<string, string>();
+    const { data: mess, error: mErr } = await this.rpcCall('fn_batch_mess_categories', {
+      p_batch_id: batchId,
+    });
+    if (mErr) {
+      logger.error(LOG, 'getBatch mess categories failed', mErr);
+    } else {
+      ((mess ?? []) as { allocation_id: string; mess_category: string | null }[]).forEach((m) => {
+        if (m.mess_category) messCategories.set(m.allocation_id, m.mess_category);
+      });
+    }
+
     const allocations: ProposedAllocation[] = rawRows
       .map(({ semester_id, ...r }) => ({
         ...r,
         learner_semester: semester_id ? semesterNames.get(semester_id) ?? null : null,
+        mess_category: messCategories.get(r.id) ?? null,
       }))
       .sort((x, y) => x.learner_name.localeCompare(y.learner_name));
 

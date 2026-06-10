@@ -46,6 +46,7 @@ export interface ProposedAllocation {
   block_name: string | null;
   room_number: string | null;
   room_category: string | null;
+  mess_category: string | null;
   bed_number: string | null;
   status: string;
 }
