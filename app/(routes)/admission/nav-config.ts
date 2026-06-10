@@ -64,6 +64,23 @@ const config: ModuleNavConfig = {
           icon: 'KeyRound',
           href: '/admission/social/departments',
         },
+        // Relocated from /admin/* 2026-06-11 (admin-cluster relocation
+        // wave-2 — attribution + Meta integrations join Social).
+        {
+          label: 'Attribution',
+          icon: 'TrendingUp',
+          href: '/admission/social/attribution',
+        },
+        {
+          label: 'Meta Pixel',
+          icon: 'Target',
+          href: '/admission/social/meta-pixel',
+        },
+        {
+          label: 'Audiences',
+          icon: 'UsersRound',
+          href: '/admission/social/meta-audiences',
+        },
       ],
     },
     {
@@ -519,6 +536,22 @@ const config: ModuleNavConfig = {
           icon: 'MessageSquare',
           href: '/admission/settings/whatsapp-numbers',
           matchPaths: ['/admission/settings/whatsapp-numbers'],
+        },
+        // Telephony config surfaces relocated from /admin/* 2026-06-11
+        // (admin-cluster relocation wave-2). Both pages are super-admin
+        // gated with explicit restriction fallbacks (no silent redirect),
+        // matching the Social group's chip-with-restriction-card pattern.
+        {
+          label: 'Voice Memos',
+          icon: 'Mic',
+          href: '/admission/settings/voice-memo-monitor',
+          matchPaths: ['/admission/settings/voice-memo-monitor'],
+        },
+        {
+          label: 'Exophone Map',
+          icon: 'PhoneIncoming',
+          href: '/admission/settings/exophone-mapping',
+          matchPaths: ['/admission/settings/exophone-mapping'],
         },
         {
           label: 'Workflow Config',

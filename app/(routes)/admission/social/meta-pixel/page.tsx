@@ -1,4 +1,4 @@
-// app/(routes)/admin/integrations/meta-pixel/page.tsx
+// app/(routes)/admission/social/meta-pixel/page.tsx
 //
 // Per-institution Meta Pixel + CAPI configuration page + recent events
 // audit log. Server-rendered (no client islands required).
@@ -48,8 +48,8 @@ export const dynamic = 'force-dynamic';
 
 const breadcrumbItems = [
   { label: 'Home', href: '/' },
-  { label: 'Administration' },
-  { label: 'Integrations' },
+  { label: 'Admission', href: '/admission' },
+  { label: 'Social' },
   { label: 'Meta Pixel & CAPI' },
 ];
 
@@ -109,7 +109,7 @@ async function upsertPolicy(args: {
   if (error) {
     console.error('[meta-pixel-admin] policy upsert failed:', error);
   }
-  revalidatePath('/admin/integrations/meta-pixel');
+  revalidatePath('/admission/social/meta-pixel');
 }
 
 async function savePixelIdAction(formData: FormData) {
@@ -122,7 +122,7 @@ async function savePixelIdAction(formData: FormData) {
     value: pixelId,
     dataType: 'string',
     description:
-      'Meta Pixel id (numeric string). Empty string = CAPI disabled for this scope. Set per-institution via /admin/integrations/meta-pixel.',
+      'Meta Pixel id (numeric string). Empty string = CAPI disabled for this scope. Set per-institution via /admission/social/meta-pixel.',
   });
 }
 
@@ -225,7 +225,7 @@ export default async function MetaPixelAdminPage() {
 
   if (!user) {
     // Anonymous → punt to login; the redirect chain after login lands here again.
-    redirect('/auth/login?next=/admin/integrations/meta-pixel');
+    redirect('/auth/login?next=/admission/social/meta-pixel');
   }
 
   const { data: profile } = await supabase

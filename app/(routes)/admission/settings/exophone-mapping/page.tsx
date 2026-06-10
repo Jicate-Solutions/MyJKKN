@@ -122,7 +122,7 @@ export default function ExophoneMappingPage() {
       .eq('is_active', true)
       .order('name', { ascending: true });
     if (error) {
-      console.error('[admin/exophone-mapping] institutions load failed:', error);
+      console.error('[admission/settings/exophone-mapping] institutions load failed:', error);
       return [];
     }
     return (data || []) as InstitutionOption[];
@@ -242,7 +242,8 @@ export default function ExophoneMappingPage() {
     <ContentLayout title="ExoPhone → Institution Mapping">
       <PageBreadcrumb
         items={[
-          { label: 'Admin', href: '/admin' },
+          { label: 'Admission', href: '/admission' },
+          { label: 'Settings', href: '/admission/settings' },
           { label: 'ExoPhone Mapping' },
         ]}
       />

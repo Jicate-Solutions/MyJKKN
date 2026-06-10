@@ -1,7 +1,9 @@
 'use client';
 
 // =====================================================================
-// /admin/instagram-attribution — Phase 4 (Agent η)
+// /admission/social/attribution — Phase 4 (Agent η)
+// Relocated from /admin/instagram-attribution 2026-06-11 (admin-cluster
+// relocation wave-2 — one module = one URL prefix).
 // =====================================================================
 // Two outcome-attribution drilldowns + one tunable policy:
 //   1. WindowPolicyCard — edit ig.attribution_window_days (days)
@@ -34,7 +36,7 @@ export default function InstagramAttributionPage() {
         <PageBreadcrumb
           items={[
             { label: 'Dashboard', href: '/' },
-            { label: 'Administration' },
+            { label: 'Admission', href: '/admission' },
             { label: 'Instagram Attribution' },
           ]}
         />

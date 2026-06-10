@@ -103,7 +103,7 @@ export function VoiceMemoMonitorView() {
             <span className="ml-1 hidden sm:inline">Refresh</span>
           </Button>
           <Button asChild size="sm" variant="outline">
-            <Link href="/admin/voice-memo-monitor">
+            <Link href="/admission/settings/voice-memo-monitor">
               <Settings className="h-4 w-4 sm:mr-1" />
               <span className="hidden sm:inline">Config</span>
             </Link>
