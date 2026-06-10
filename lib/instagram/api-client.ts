@@ -49,7 +49,11 @@ const DEFAULT_PROFILE_FIELDS = [
   'followers_count',
   'follows_count',
   'media_count',
-  'account_type',
+  // 'account_type' removed 2026-06-10: Meta dropped the field from the
+  // page-linked IG User node — requesting it returns
+  // "(#100) Tried accessing nonexisting field (account_type)" and fails
+  // the whole profile fetch. Live receipt: 9/9 metrics-poller profile
+  // calls failed on first prod tick. Callers default to 'BUSINESS'.
 ].join(',');
 
 const DEFAULT_MEDIA_FIELDS = [
