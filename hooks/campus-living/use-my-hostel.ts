@@ -14,6 +14,16 @@ export function useMyHostelSummary() {
   });
 }
 
+export function useMyRoommates(enabled = true) {
+  const { profile } = useAuth();
+  const learnerId = profile?.learner_id ?? '';
+  return useQuery({
+    queryKey: ['campus-living', 'my-roommates', learnerId],
+    queryFn: () => MyHostelService.getMyRoommates(),
+    enabled: enabled && !!learnerId,
+  });
+}
+
 export function useMyCategoryFees(categoryId?: string | null) {
   return useQuery({
     queryKey: queryKeys.campusLiving.myHostel.fees(categoryId ?? ''),

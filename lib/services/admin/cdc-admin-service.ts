@@ -1,6 +1,6 @@
 /**
  * lib/services/admin/cdc-admin-service.ts
- * Admin service for CDC /admin/cdc/* pages (Sprint 7a).
+ * Admin service for CDC /cdc/admin/* pages (Sprint 7a).
  *
  * Pattern: mirrors internship-policy-service.ts — functional API (explicit
  * SupabaseClient) for server/API use, plus a class shim for client components.

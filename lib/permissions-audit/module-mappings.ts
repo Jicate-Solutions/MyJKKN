@@ -122,7 +122,8 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/admin/saml', 'System'],
   ['/admin/ai-query-tools', 'System'],
   ['/admin/reset-driver-passwords', 'System'],
-  ['/admin/hr', 'Staff'], // HR admin pages (recruitment-need, payroll, etc.)
+  // /admin/hr relocated to /hr/admin (2026-06-10 admin-cluster relocation) —
+  // covered by the base ['/hr', 'Staff'] mapping below; override dropped.
   // Meta surface modules (catalog consolidation 2026-05-30, κ).
   // /admin/social/* — sub-prefixes BEFORE any future /admin/social catch-all.
   ['/admin/social/facebook', 'Social Facebook'], // β PR #1150

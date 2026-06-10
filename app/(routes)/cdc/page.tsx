@@ -11,7 +11,7 @@
 //   Drives, Placements, Internships, IDP, Clubs, Mentor Pairings,
 //   Training, Opportunities Bulletin, Exports, Industry Mentors
 //
-// Pattern: mirrors /admin/cdc/page.tsx (Sprint 7a admin landing).
+// Pattern: mirrors /cdc/admin/page.tsx (Sprint 7a admin landing).
 // ============================================
 
 import Link from 'next/link';

@@ -8,7 +8,7 @@
  *   - PeriodStatusPill + PeriodBackdateBadge alongside in Status column.
  *   - Current stage column: the most recent stage's actor + relative time.
  *   - Last action: stale-check (red text if >7 days since last action and not terminal).
- *   - Row click → /admin/hr/payroll/periods/{id}
+ *   - Row click → /hr/admin/payroll/periods/{id}
  *   - Below md breakpoint, table collapses to card list.
  *   - Skeleton renders 6 rows on isLoading.
  *
@@ -186,7 +186,7 @@ export function PeriodListTable({
                 >
                   <TableCell className="font-medium">
                     <Link
-                      href={`/admin/hr/payroll/periods/${period.id}`}
+                      href={`/hr/admin/payroll/periods/${period.id}`}
                       className="hover:underline"
                     >
                       {formatPeriodLabel(period)}
@@ -217,7 +217,7 @@ export function PeriodListTable({
                   </TableCell>
                   <TableCell>
                     <Link
-                      href={`/admin/hr/payroll/periods/${period.id}`}
+                      href={`/hr/admin/payroll/periods/${period.id}`}
                       aria-label="Open period"
                     >
                       <ArrowRight className="h-4 w-4 text-muted-foreground hover:text-primary" />
@@ -238,7 +238,7 @@ export function PeriodListTable({
           return (
             <Link
               key={period.id}
-              href={`/admin/hr/payroll/periods/${period.id}`}
+              href={`/hr/admin/payroll/periods/${period.id}`}
               className="block"
             >
               <Card className="hover:border-primary/40 transition-colors">
