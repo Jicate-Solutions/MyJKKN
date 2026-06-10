@@ -210,7 +210,7 @@ function DashboardDrilldownsContent() {
 
       {/* Related drill-down surfaces — cross-links to companion admin pages
           that follow the same drill-down pattern but live outside the
-          dashboard.* metrics (e.g. /admin/instagram-attribution for
+          dashboard.* metrics (e.g. /admission/social/attribution for
           Instagram learner-creator outcome attribution, Phase 4). */}
       <Card>
         <CardHeader>
@@ -221,7 +221,7 @@ function DashboardDrilldownsContent() {
         </CardHeader>
         <CardContent>
           <Link
-            href="/admin/instagram-attribution"
+            href="/admission/social/attribution"
             className="flex items-center gap-3 rounded-md border bg-card p-3 hover:bg-accent transition-colors"
           >
             <Instagram className="h-5 w-5 text-fuchsia-600" />

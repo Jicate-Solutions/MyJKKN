@@ -110,7 +110,10 @@ export function getAllAuditModuleNames(): string[] {
 export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = [
   // /admin/* — sub-prefixes first
   ['/admin/bug-reports', 'Bug Reports'],
-  ['/admin/notifications', 'Notifications'],
+  // /admin/notifications relocated to /notifications/admin (2026-06-11
+  // admin-cluster relocation wave-2) — no broader '/notifications' base
+  // mapping exists, so the override is rewritten rather than dropped.
+  ['/notifications/admin', 'Notifications'],
   // /admin/lifecycle relocated to /learners/lifecycle (2026-06-11 admin-cluster
   // relocation wave-2) — sub-prefix kept BEFORE the broader ['/learners', ...]
   // mapping below so the dashboard keeps its own module identity.
@@ -134,9 +137,11 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/admission/social/facebook', 'Social Facebook'], // β PR #1150
   ['/admission/social/lead-ads', 'Social Lead Ads'], // γ PR #1154
   ['/admission/social/ads', 'Social Ads'], // ζ PR #1152
-  // /admin/integrations/* — sub-prefixes for Meta integrations.
-  ['/admin/integrations/meta-pixel', 'Integrations Meta Pixel'], // ε PR #1151
-  ['/admin/integrations/meta-audiences', 'Integrations Meta Audiences'], // η PR #1155
+  // Meta integrations — relocated /admin/integrations/* → /admission/social/*
+  // (2026-06-11 admin-cluster relocation wave-2). Sub-prefixes BEFORE the
+  // /admission catch-all below.
+  ['/admission/social/meta-pixel', 'Integrations Meta Pixel'], // ε PR #1151
+  ['/admission/social/meta-audiences', 'Integrations Meta Audiences'], // η PR #1155
   ['/admin', 'System'], // catch-all for any future /admin/*
 
   // Module-prefixed sidebar entries (sorted longest-first to be safe).

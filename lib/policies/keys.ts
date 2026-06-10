@@ -87,7 +87,7 @@ export const POLICY_KEYS = {
   WA_BYOW_SYNTHETIC_AUDIT_ENABLED: 'wa_byow.synthetic_audit_enabled',
 
   // Voice Memo Monitor (2026-05-10) — runtime-tunable thresholds for
-  // /admission/counselors/voice-memos. Director-tweakable via /admin/voice-memo-monitor.
+  // /admission/counselors/voice-memos. Director-tweakable via /admission/settings/voice-memo-monitor.
   VOICE_MEMO_MONITOR_WINDOW_HOURS: 'voice_memo_monitor.window_hours',
   VOICE_MEMO_MONITOR_STUCK_THRESHOLD_MINUTES: 'voice_memo_monitor.stuck_threshold_minutes',
   VOICE_MEMO_MONITOR_FAILURE_RATE_RED_PCT: 'voice_memo_monitor.failure_rate_red_pct',

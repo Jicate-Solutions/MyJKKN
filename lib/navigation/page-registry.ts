@@ -371,11 +371,11 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     description: 'Configure available service request types'
   },
   // Administration
-  '/admin/notifications': {
+  '/notifications/admin': {
     keywords: ['notification', 'announcement', 'broadcast', 'alert', 'push'],
     description: 'Manage and send notifications'
   },
-  '/admin/notifications/new': {
+  '/notifications/admin/new': {
     keywords: ['send notification', 'new announcement', 'broadcast message'],
     description: 'Send a new notification or announcement'
   },

@@ -497,37 +497,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/admin/exophone-mapping",
-        "label": "Exophone Mapping",
-        "iconName": "FileText",
-        "children": []
-      },
-      {
-        "path": "/admin/instagram-attribution",
-        "label": "Instagram Attribution",
-        "iconName": "FileText",
-        "children": []
-      },
-      {
-        "path": "/admin/integrations",
-        "label": "Integrations",
-        "iconName": "FileText",
-        "children": [
-          {
-            "path": "/admin/integrations/meta-audiences",
-            "label": "Meta Audiences",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/admin/integrations/meta-pixel",
-            "label": "Meta Pixel",
-            "iconName": "FileText",
-            "children": []
-          }
-        ]
-      },
-      {
         "path": "/admin/landing-pages",
         "label": "Landing Pages",
         "iconName": "FileText",
@@ -565,44 +534,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/admin/notifications",
-        "label": "Notifications",
-        "iconName": "Bell",
-        "children": [
-          {
-            "path": "/admin/notifications/audiences",
-            "label": "Audiences",
-            "iconName": "Bell",
-            "children": [
-              {
-                "path": "/admin/notifications/audiences/new",
-                "label": "New",
-                "iconName": "Plus",
-                "children": []
-              }
-            ]
-          },
-          {
-            "path": "/admin/notifications/compliance",
-            "label": "Compliance",
-            "iconName": "Bell",
-            "children": []
-          },
-          {
-            "path": "/admin/notifications/new",
-            "label": "New",
-            "iconName": "Plus",
-            "children": []
-          },
-          {
-            "path": "/admin/notifications/recipients",
-            "label": "Recipients",
-            "iconName": "Bell",
-            "children": []
-          }
-        ]
-      },
-      {
         "path": "/admin/page-metadata",
         "label": "Page Metadata",
         "iconName": "FileText",
@@ -624,12 +555,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/admin/saml",
         "label": "Saml",
         "iconName": "KeyRound",
-        "children": []
-      },
-      {
-        "path": "/admin/voice-memo-monitor",
-        "label": "Voice Memo Monitor",
-        "iconName": "Mic",
         "children": []
       },
       {
@@ -1174,6 +1099,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/settings/exophone-mapping",
+            "label": "Exophone Mapping",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
             "path": "/admission/settings/fees-structure",
             "label": "Fees Structure",
             "iconName": "GraduationCap",
@@ -1291,6 +1222,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           },
           {
+            "path": "/admission/settings/voice-memo-monitor",
+            "label": "Voice Memo Monitor",
+            "iconName": "Mic",
+            "children": []
+          },
+          {
             "path": "/admission/settings/whatsapp-numbers",
             "label": "Whatsapp Numbers",
             "iconName": "GraduationCap",
@@ -1329,6 +1266,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "GraduationCap",
         "children": [
           {
+            "path": "/admission/social/attribution",
+            "label": "Attribution",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
             "path": "/admission/social/departments",
             "label": "Departments",
             "iconName": "GraduationCap",
@@ -1355,6 +1298,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admission/social/lead-ads",
             "label": "Lead Ads",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/social/meta-audiences",
+            "label": "Meta Audiences",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/social/meta-pixel",
+            "label": "Meta Pixel",
             "iconName": "GraduationCap",
             "children": []
           }
@@ -4398,6 +4353,44 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "label": "Notifications",
     "iconName": "Bell",
     "children": [
+      {
+        "path": "/notifications/admin",
+        "label": "Admin",
+        "iconName": "Bell",
+        "children": [
+          {
+            "path": "/notifications/admin/audiences",
+            "label": "Audiences",
+            "iconName": "Bell",
+            "children": [
+              {
+                "path": "/notifications/admin/audiences/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/notifications/admin/compliance",
+            "label": "Compliance",
+            "iconName": "Bell",
+            "children": []
+          },
+          {
+            "path": "/notifications/admin/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/notifications/admin/recipients",
+            "label": "Recipients",
+            "iconName": "Bell",
+            "children": []
+          }
+        ]
+      },
       {
         "path": "/notifications/sent",
         "label": "Sent",
