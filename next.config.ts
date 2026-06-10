@@ -213,6 +213,17 @@ const nextConfig: NextConfig = {
         source: '/admin/internship-policy/:path*',
         destination: '/internships/policy/:path*',
         permanent: false
+      },
+      // 2026-06-10 admin-cluster relocation — HR
+      {
+        source: '/admin/hr',
+        destination: '/hr/admin',
+        permanent: false
+      },
+      {
+        source: '/admin/hr/:path*',
+        destination: '/hr/admin/:path*',
+        permanent: false
       }
     ];
   },

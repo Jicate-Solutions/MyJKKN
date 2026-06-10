@@ -243,6 +243,16 @@ const config: ModuleNavConfig = {
       href: '/hr/policies',
       matchPaths: ['/hr/policies'],
     },
+    {
+      // 2026-06-10 admin-cluster relocation: /admin/hr → /hr/admin.
+      // No explicit children — the deeper admin pages auto-surface via the
+      // manifest walk (deeperTiersFromManifest), mirroring how the old
+      // /admin auto-nav exposed them.
+      label: 'Admin',
+      icon: 'Settings',
+      href: '/hr/admin',
+      matchPaths: ['/hr/admin'],
+    },
   ],
 };
 
