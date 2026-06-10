@@ -180,13 +180,12 @@ export class StudentSearchService {
       }
 
       // Accommodation-type filter. The UI sends a catalog *code* (e.g. 'hostel');
-      // resolve it to that institution's actual accommodation_type_id(s) and
-      // filter the (left-joined) FK column directly. Using .in() avoids the
+      // resolve it to the global accommodation_type_id(s) and filter the
+      // (left-joined) FK column directly. Using .in() avoids the
       // PostgREST "can't filter an embedded resource without !inner" pitfall.
       if (filters.accommodation_type) {
         const accommodationTypeIds = await this.resolveAccommodationTypeIds(
-          filters.accommodation_type,
-          filters.institution_id
+          filters.accommodation_type
         );
         // A real code always resolves to at least one id; the empty-array guard
         // forces a no-match instead of silently returning every student.
@@ -532,23 +531,17 @@ export class StudentSearchService {
 
   /**
    * Resolve an accommodation-type catalog code (e.g. 'hostel') to the matching
-   * accommodation_type_id(s). The catalog is per-institution but the codes repeat
-   * across institutions, so we resolve across all accessible institutions unless
-   * an institution filter narrows it. Returns [] on error (caller forces no-match).
+   * accommodation_type_id(s). The catalog is global (one row per code).
+   * Returns [] on error (caller forces no-match).
    */
   private static async resolveAccommodationTypeIds(
-    code: string,
-    institutionId?: string
+    code: string
   ): Promise<string[]> {
     try {
-      let query = this.supabase
+      const query = this.supabase
         .from('accommodation_types')
         .select('id')
         .eq('code', code);
-
-      if (institutionId) {
-        query = query.eq('institution_id', institutionId);
-      }
 
       const { data, error } = await query;
       if (error) throw error;

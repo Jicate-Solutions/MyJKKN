@@ -164,23 +164,16 @@ export class StudentFormService {
 
     // accommodation_type TEXT is retired. The form still sends the HOSTEL/DAY
     // SCHOLAR choice as `accommodation_type` (not whitelisted anymore), so
-    // resolve it to the institution-scoped accommodation_types FK here and write
-    // that. Read the raw `fields` (the text was filtered out of allowedFields).
+    // resolve it to the global accommodation_types FK here and write that.
+    // Read the raw `fields` (the text was filtered out of allowedFields).
     if (
       section === 'accommodation' &&
       typeof fields.accommodation_type === 'string' &&
       fields.accommodation_type.trim() !== ''
     ) {
-      const { data: lp } = await (svc as any)
-        .from('learners_profiles')
-        .select('institution_id')
-        .eq('id', ctx.learner_profile_id)
-        .maybeSingle();
-      if (lp?.institution_id) {
-        const resolveAccommodation = await buildAccommodationTypeResolver(svc, lp.institution_id);
-        allowedFields.accommodation_type_id =
-          resolveAccommodation(fields.accommodation_type as string) ?? null;
-      }
+      const resolveAccommodation = await buildAccommodationTypeResolver(svc);
+      allowedFields.accommodation_type_id =
+        resolveAccommodation(fields.accommodation_type as string) ?? null;
     }
 
     // Nullable UUID FKs must never reach the UPDATE as '' — Postgres rejects an

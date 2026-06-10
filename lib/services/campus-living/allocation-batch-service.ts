@@ -4,6 +4,7 @@ import type {
   AllocationBatch,
   AllocationBatchRow,
   AllocatePreview,
+  BatchCategoryBreakdown,
   ProposedAllocation,
   AutoCategoryOption,
   AcademicYearOption,
@@ -91,6 +92,28 @@ export class AllocationBatchService {
       logger.error(LOG, 'getBatches failed', error);
       throw new Error(error.message || 'Failed to load batches');
     }
+
+    // Per-room-category rooms/beds across all listed batches in one RPC; a batch
+    // spans multiple room categories, so batches.category_id is not representative.
+    const breakdowns = new Map<string, BatchCategoryBreakdown[]>();
+    const batchIds = (data ?? []).map((r: Record<string, unknown>) => r.id as string);
+    if (batchIds.length > 0) {
+      const { data: bd, error: bdErr } = await this.rpcCall('fn_batch_room_category_breakdown', {
+        p_batch_ids: batchIds,
+      });
+      if (bdErr) {
+        logger.error(LOG, 'getBatches breakdown failed', bdErr);
+      } else {
+        ((bd ?? []) as { batch_id: string; category: string; rooms: number; beds: number }[]).forEach(
+          (row) => {
+            const list = breakdowns.get(row.batch_id) ?? [];
+            list.push({ category: row.category, rooms: row.rooms, beds: row.beds });
+            breakdowns.set(row.batch_id, list);
+          }
+        );
+      }
+    }
+
     return (data ?? []).map((r: Record<string, unknown>) => {
       const cat = r.category as { name?: string } | null;
       const inst = r.institution as { name?: string } | null;
@@ -101,6 +124,7 @@ export class AllocationBatchService {
         category_name: cat?.name ?? null,
         institution_name: inst?.name ?? null,
         block_name: blk?.name ?? null,
+        category_breakdown: breakdowns.get(r.id as string) ?? [],
       };
     });
   }

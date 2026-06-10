@@ -6548,3 +6548,19 @@ CREATE POLICY "Service role manages razorpay accounts" ON public.razorpay_accoun
   FOR ALL
   USING (auth.role() = 'service_role')
   WITH CHECK (auth.role() = 'service_role');
+
+-- ============================================================================
+-- accommodation_types (migration 20260610100000) — global lookup table.
+-- Read open to all authenticated users; writes behind admission_fees.manage.
+-- ============================================================================
+ALTER TABLE public.accommodation_types ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS accommodation_types_read ON public.accommodation_types;
+CREATE POLICY accommodation_types_read ON public.accommodation_types
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS accommodation_types_write ON public.accommodation_types;
+CREATE POLICY accommodation_types_write ON public.accommodation_types
+  FOR ALL
+  USING (public.user_has_permission('admission_fees.manage'))
+  WITH CHECK (public.user_has_permission('admission_fees.manage'));

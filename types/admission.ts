@@ -1533,9 +1533,9 @@ export type CreateAdmissionFeeCommunityCategoryInput = Pick<AdmissionFeeCommunit
   Partial<Pick<AdmissionFeeCommunityCategory, 'sort_order' | 'is_active'>>;
 export type UpdateAdmissionFeeCommunityCategoryInput = Partial<Pick<AdmissionFeeCommunityCategory, 'code' | 'name' | 'sort_order' | 'is_active'>>;
 
+// Global lookup (institution-agnostic since migration 20260610100000)
 export interface AdmissionFeeAccommodationType {
   id: string;
-  institution_id: string;
   code: string;
   name: string;
   sort_order: number;
@@ -1546,7 +1546,7 @@ export interface AdmissionFeeAccommodationType {
   updated_by: string | null;
 }
 
-export type CreateAdmissionFeeAccommodationTypeInput = Pick<AdmissionFeeAccommodationType, 'institution_id' | 'code' | 'name'> &
+export type CreateAdmissionFeeAccommodationTypeInput = Pick<AdmissionFeeAccommodationType, 'code' | 'name'> &
   Partial<Pick<AdmissionFeeAccommodationType, 'sort_order' | 'is_active'>>;
 export type UpdateAdmissionFeeAccommodationTypeInput = Partial<
   Pick<AdmissionFeeAccommodationType, 'code' | 'name' | 'sort_order' | 'is_active'>

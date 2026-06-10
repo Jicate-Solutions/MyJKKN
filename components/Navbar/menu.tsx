@@ -28,6 +28,7 @@ import {
 } from '@/hooks/use-expanded-sidebar-module';
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
 import { useCommitteeMembership } from '@/hooks/events/marathon/use-committee-membership';
+import { useIsHosteler } from '@/hooks/campus-living/use-is-hosteler';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
 import { FavoritesSidebarSection } from '@/components/Favorites/FavoritesSidebarSection';
 import { FavoriteStar } from '@/components/Favorites/FavoriteStar';
@@ -83,6 +84,11 @@ export function Menu({ isOpen }: MenuProps) {
   const marathonEventId = pathname.match(/\/events\/marathon\/([^/]+)/)?.[1] ?? '';
   const { isMember: isMarathonCommitteeMember } = useCommitteeMembership(marathonEventId);
 
+  // Students: the My Hostel sidebar entry is shown only for actual hostel
+  // residents (learners_profiles accommodation = hostel), not every student.
+  const isStudentRole = userProfile?.role === 'student';
+  const { data: isHosteler } = useIsHosteler(isStudentRole);
+
   // Build RolePermissionData from usePermissions (multi-role merged)
   const roleData = useMemo((): RolePermissionData | null => {
     if (!userProfile) return null;
@@ -108,7 +114,7 @@ export function Menu({ isOpen }: MenuProps) {
     // its 16 submenus (`/admission/marketing/expos`) becomes accessible. The
     // expo_counselor role legitimately needs expo access and gets it through
     // its own `custom_roles.permissions`, so it is intentionally NOT skipped.
-    let enrichedPermissions = { ...permissions };
+    const enrichedPermissions = { ...permissions };
     const EXPO_ENRICHMENT_SKIP_ROLES = new Set([
       'admission_counselor',
       'learner_counselor',
@@ -125,11 +131,19 @@ export function Menu({ isOpen }: MenuProps) {
       enrichedPermissions['events.marathon.ops.committee_access'] = true;
     }
 
+    // Students: gate the My Hostel entry on live hostel residency. The role-wide
+    // campus_living.my_hostel.view grant covers every student; overwrite it with
+    // user_is_hosteler() so dayscholars don't get a dead-end menu.
+    if (isStudentRole) {
+      enrichedPermissions['campus_living.my_hostel.view'] =
+        permissions['campus_living.my_hostel.view'] === true && isHosteler === true;
+    }
+
     return {
       role_key: userProfile.role || '',
       permissions: enrichedPermissions
     };
-  }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember, isMarathonCommitteeMember]);
+  }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember, isMarathonCommitteeMember, isStudentRole, isHosteler]);
 
   // Debug: Log permission state for troubleshooting
   if (process.env.NODE_ENV === 'development' && roleData && !permissionsLoading) {

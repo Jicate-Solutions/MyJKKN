@@ -117,18 +117,14 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
       .catch(() => setYears([]));
   }, [selectedDims.institution_id]);
 
-  // Institution change → load accommodation types (institution-scoped lookup)
+  // Accommodation types are a global lookup — load once on mount
   useEffect(() => {
-    if (!selectedDims.institution_id) {
-      setAccommodations([]);
-      return;
-    }
-    LookupService.listAccommodationTypes(selectedDims.institution_id, true)
+    LookupService.listAccommodationTypes(true)
       .then((rows) =>
         setAccommodations(rows.map((r) => ({ id: r.id, name: r.name }))),
       )
       .catch(() => setAccommodations([]));
-  }, [selectedDims.institution_id]);
+  }, []);
 
   // Cascading change handlers — picking a parent resets the affected descendants
   const setInstitution = (id: string) =>

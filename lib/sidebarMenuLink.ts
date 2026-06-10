@@ -2199,10 +2199,20 @@ export function GetRoleBasedPages(
   // manifest ungated and would otherwise leak the full admin list). Everyone
   // else (super admin, wardens, staff) gets the full auto-discovered
   // accordion. Set here because GetPages() has no role context.
+  //
+  // Students never hold the staff gate (campus_living.dashboard.view), so the
+  // entry is rewritten to the My Hostel hub and gated on
+  // campus_living.my_hostel.view instead. The nav surfaces (menu.tsx +
+  // bottom-navbar.tsx) overwrite that key with live user_is_hosteler() status,
+  // so only students with hostel accommodation see it.
   if (userRole?.role_key === 'student') {
     for (const group of allMenus) {
       for (const menu of group.menus) {
-        if (menu.href === '/campus-living') menu.noSubmenus = true;
+        if (menu.href === '/campus-living') {
+          menu.noSubmenus = true;
+          menu.href = '/campus-living/my-hostel';
+          menu.label = 'My Hostel';
+        }
       }
     }
   }

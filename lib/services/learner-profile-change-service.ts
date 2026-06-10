@@ -373,14 +373,9 @@ export class LearnerProfileChangeService {
       if ('accommodation_type' in updateData) {
         const accText = updateData.accommodation_type;
         delete updateData.accommodation_type;
-        const { data: lp } = await supabase
-          .from('learners_profiles')
-          .select('institution_id')
-          .eq('id', request.learner_id)
-          .maybeSingle();
-        if (lp?.institution_id && accText) {
+        if (accText) {
           const { buildAccommodationTypeResolver } = await import('@/lib/utils/accommodation-type-resolver');
-          const resolveAccommodation = await buildAccommodationTypeResolver(supabase, lp.institution_id);
+          const resolveAccommodation = await buildAccommodationTypeResolver(supabase);
           const aid = resolveAccommodation(accText);
           if (aid) updateData.accommodation_type_id = aid;
         }
