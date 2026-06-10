@@ -183,6 +183,7 @@ export interface AllocationCandidate {
   full_name: string;
   email: string | null;
   program_name: string | null;
+  semester_name: string | null;
   gender: string | null;
   has_profile: boolean;
   gender_ok: boolean;

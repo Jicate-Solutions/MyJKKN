@@ -104,6 +104,7 @@ export function CandidateValidationTable({
             <thead>
               <tr className="border-b text-left text-xs text-muted-foreground">
                 <th className="py-2 pr-3">Student</th>
+                <th className="px-2">Semester</th>
                 <th className="px-2">Acad. year</th>
                 <th className="px-2 text-center">Bill (curr. yr)</th>
                 <th className="px-2 text-center">Profile</th>
@@ -123,6 +124,9 @@ export function CandidateValidationTable({
                     <td className="py-2 pr-3">
                       <div className="font-medium">{c.full_name}</div>
                       <div className="text-xs text-muted-foreground">{c.program_name ?? '—'}</div>
+                    </td>
+                    <td className="px-2">
+                      {c.semester_name ?? <span className="text-muted-foreground">—</span>}
                     </td>
                     <td className="px-2">
                       {c.academic_year_id ? (
@@ -160,7 +164,7 @@ export function CandidateValidationTable({
               })}
               {candidates.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="py-6 text-center text-sm text-muted-foreground">
+                  <td colSpan={11} className="py-6 text-center text-sm text-muted-foreground">
                     No candidates found for this block.
                   </td>
                 </tr>
