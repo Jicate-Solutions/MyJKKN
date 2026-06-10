@@ -28,9 +28,11 @@ CREATE TABLE IF NOT EXISTS public.hostel_category_upgrade_fees (
     (from_mess_category_id IS NOT NULL AND to_mess_category_id IS NOT NULL
        AND from_hostel_category_id IS NULL AND to_hostel_category_id IS NULL)
   ),
+  -- from ≠ to within the populated pair only (the other pair is NULL/NULL, which
+  -- IS DISTINCT FROM would wrongly fail — so guard on the from side being present).
   CONSTRAINT chk_upgrade_distinct CHECK (
-    from_hostel_category_id IS DISTINCT FROM to_hostel_category_id
-    AND from_mess_category_id IS DISTINCT FROM to_mess_category_id
+    (from_hostel_category_id IS NULL OR from_hostel_category_id <> to_hostel_category_id)
+    AND (from_mess_category_id IS NULL OR from_mess_category_id <> to_mess_category_id)
   )
 );
 
