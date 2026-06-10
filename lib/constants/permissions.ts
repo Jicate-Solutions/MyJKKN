@@ -1625,6 +1625,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'academic.bos-ta-da.edit', label: 'Edit BoS TA/DA Claims' },
       { key: 'academic.bos-ta-da.delete', label: 'Delete BoS TA/DA Claims' },
       { key: 'academic.bos-ta-da.approve', label: 'Approve BoS TA/DA Claims' },
+      // Added 2026-06-10 — granted to faculty/school_faculty by DEFAULT_ROLE_PERMISSIONS
+      // but missing here; uncataloged keys get mangled to underscore format by the
+      // edit-role-dialog round-trip and rejected by trg_validate_custom_roles_permissions_format.
+      { key: 'academic.bos-ta-da.submit', label: 'Submit BoS TA/DA Claims' },
       { key: 'academic.bos-members.view', label: 'View BoS Members' },
       { key: 'academic.bos-members.create', label: 'Create BoS Members' },
       { key: 'academic.bos-members.edit', label: 'Edit BoS Members' },
@@ -1649,6 +1653,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'academic.bos-syllabus.delete', label: 'Delete BoS Syllabi' },
       { key: 'academic.bos-syllabus.approve', label: 'Approve BoS Syllabi' },
       { key: 'academic.bos-syllabus.export', label: 'Export BoS Syllabi' },
+      // Added 2026-06-10 — granted to hod via migrations but missing here (same
+      // mangling risk as academic.bos-ta-da.submit above).
+      { key: 'academic.bos-syllabus.revise', label: 'Revise BoS Syllabi' },
+      { key: 'academic.bos-syllabus.duplicate', label: 'Duplicate BoS Syllabi' },
       // Added 2026-05-08 — SOP (Standard Operating Procedure) document editor.
       // 'approve' is a separate gate so a chair/dean can approve without owning
       // edit rights, matching the meetings module's split (view/edit/approve).
