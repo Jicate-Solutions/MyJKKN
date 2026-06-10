@@ -36,9 +36,11 @@ import {
   Search,
   Loader2,
   CalendarDays,
+  CalendarClock,
   CheckCircle2,
   XCircle,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import {
@@ -146,10 +148,18 @@ export default function HousekeepingPage() {
               Recurring cleaning plans across blocks and common areas.
             </p>
           </div>
-          <Button onClick={() => setCreateOpen(true)} disabled={!institutionId}>
-            <Plus className="mr-2 h-4 w-4" />
-            New Schedule
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" asChild>
+              <Link href="/campus-living/housekeeping/bookings">
+                <CalendarClock className="mr-2 h-4 w-4" />
+                Bookings
+              </Link>
+            </Button>
+            <Button onClick={() => setCreateOpen(true)} disabled={!institutionId}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Schedule
+            </Button>
+          </div>
         </div>
 
         {/* Stats */}
