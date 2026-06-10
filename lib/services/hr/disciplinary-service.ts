@@ -587,7 +587,7 @@ export class HRDisciplinaryService {
     await this.supabase.from('hr_disciplinary_events').insert({
       case_id: discCase.id,
       event_type: 'note',
-      description: `Termination outcome triggered offboarding case ${created.id}. The /admin/hr/offboarding workflow takes over from here.`,
+      description: `Termination outcome triggered offboarding case ${created.id}. The /hr/admin/offboarding workflow takes over from here.`,
       recorded_by: recordedBy,
     });
 
