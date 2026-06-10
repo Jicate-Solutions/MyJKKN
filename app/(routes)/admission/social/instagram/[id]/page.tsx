@@ -96,9 +96,9 @@ export default function InstagramAccountDetailPage({ params }: PageProps) {
 
   const breadcrumbItems = [
     { label: 'Home', href: '/' },
-    { label: 'Administration' },
-    { label: 'Social Media', href: '/admin/social' },
-    { label: 'Instagram', href: '/admin/social/instagram' },
+    { label: 'Admission', href: '/admission' },
+    { label: 'Social Media', href: '/admission/social' },
+    { label: 'Instagram', href: '/admission/social/instagram' },
     { label: account?.username ? `@${account.username}` : 'Account Detail' },
   ];
 
@@ -130,7 +130,7 @@ export default function InstagramAccountDetailPage({ params }: PageProps) {
         <div className="mt-6 space-y-6">
           {/* Back + Refresh */}
           <div className="flex items-center justify-between">
-            <Link href="/admin/social/instagram">
+            <Link href="/admission/social/instagram">
               <Button variant="ghost" size="sm" className="gap-2">
                 <ArrowLeft className="h-4 w-4" />
                 Back to accounts

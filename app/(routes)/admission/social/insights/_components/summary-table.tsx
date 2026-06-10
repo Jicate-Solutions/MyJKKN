@@ -27,30 +27,30 @@ import {
   TableRow,
 } from '@/components/ui/table';
 
-export interface FbInsightsPageRow {
+export interface InsightsAccountRow {
   id: string;
-  name: string;
+  username: string;
   institution_name: string;
-  fans: number;
-  fans_gained: number;
-  impressions_unique: number;
-  post_engagements: number;
-  posts_in_window: number;
+  followers: number;
+  followers_gained: number;
+  reach: number;
+  impressions: number;
+  engagement_rate: number | null;
 }
 
 type SortKey =
-  | 'name'
+  | 'username'
   | 'institution_name'
-  | 'fans'
-  | 'fans_gained'
-  | 'impressions_unique'
-  | 'post_engagements'
-  | 'posts_in_window';
+  | 'followers'
+  | 'followers_gained'
+  | 'reach'
+  | 'impressions'
+  | 'engagement_rate';
 
 type SortDirection = 'asc' | 'desc';
 
-interface FbSummaryTableProps {
-  pages: FbInsightsPageRow[];
+interface SummaryTableProps {
+  accounts: InsightsAccountRow[];
   isLoading: boolean;
 }
 
@@ -62,13 +62,13 @@ const COLUMNS: Array<{
   numeric: boolean;
   className?: string;
 }> = [
-  { key: 'name', label: 'Page', numeric: false },
+  { key: 'username', label: 'Account', numeric: false },
   { key: 'institution_name', label: 'Institution', numeric: false },
-  { key: 'fans', label: 'Fans', numeric: true, className: 'w-[110px]' },
-  { key: 'fans_gained', label: 'Gained', numeric: true, className: 'w-[100px]' },
-  { key: 'impressions_unique', label: 'Impressions', numeric: true, className: 'w-[120px]' },
-  { key: 'post_engagements', label: 'Engagements', numeric: true, className: 'w-[120px]' },
-  { key: 'posts_in_window', label: 'Posts', numeric: true, className: 'w-[90px]' },
+  { key: 'followers', label: 'Followers', numeric: true, className: 'w-[110px]' },
+  { key: 'followers_gained', label: 'Gained', numeric: true, className: 'w-[100px]' },
+  { key: 'reach', label: 'Reach', numeric: true, className: 'w-[110px]' },
+  { key: 'impressions', label: 'Impressions', numeric: true, className: 'w-[120px]' },
+  { key: 'engagement_rate', label: 'Eng. Rate', numeric: true, className: 'w-[100px]' },
 ];
 
 function formatNumber(value: number | null | undefined): string {
@@ -76,7 +76,7 @@ function formatNumber(value: number | null | undefined): string {
   return value.toLocaleString();
 }
 
-function FansGained({ value }: { value: number }) {
+function FollowersGained({ value }: { value: number }) {
   if (value > 0) {
     return (
       <span className="inline-flex items-center gap-0.5 text-emerald-600 dark:text-emerald-400">
@@ -97,37 +97,37 @@ function FansGained({ value }: { value: number }) {
 }
 
 /**
- * Per-Page Facebook summary table (F4 `pages`). Client-side column sorting,
- * institution dropdown filter (options derived from the rows themselves —
- * deliberately NOT useUserInstitutionAccess, which is unreliable for admin
- * pickers per production memory), and row click navigation to the per-Page
- * detail (/admin/social/facebook/{id}). Mirrors the Instagram SummaryTable.
+ * Per-account Instagram summary table (C7 `accounts`). Client-side column
+ * sorting, institution dropdown filter (options derived from the rows
+ * themselves — deliberately NOT useUserInstitutionAccess, which is
+ * unreliable for admin pickers per production memory), and row click
+ * navigation to the per-account detail page.
  */
-export function FbSummaryTable({ pages, isLoading }: FbSummaryTableProps) {
+export function SummaryTable({ accounts, isLoading }: SummaryTableProps) {
   const router = useRouter();
   const [institution, setInstitution] = useState<string>(ALL_INSTITUTIONS);
-  const [sortKey, setSortKey] = useState<SortKey>('fans');
+  const [sortKey, setSortKey] = useState<SortKey>('followers');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   const institutionOptions = useMemo(() => {
     const names = new Set<string>();
-    for (const page of pages) {
-      if (page.institution_name) names.add(page.institution_name);
+    for (const acc of accounts) {
+      if (acc.institution_name) names.add(acc.institution_name);
     }
     return Array.from(names).sort((a, b) => a.localeCompare(b));
-  }, [pages]);
+  }, [accounts]);
 
   const rows = useMemo(() => {
     const filtered =
       institution === ALL_INSTITUTIONS
-        ? pages
-        : pages.filter((page) => page.institution_name === institution);
+        ? accounts
+        : accounts.filter((acc) => acc.institution_name === institution);
 
     const direction = sortDirection === 'asc' ? 1 : -1;
     return [...filtered].sort((a, b) => {
       const av = a[sortKey];
       const bv = b[sortKey];
-      // Defensive null ordering (contract values are non-null numbers/strings).
+      // Nulls (engagement_rate) always sort last regardless of direction.
       if (av === null && bv === null) return 0;
       if (av === null) return 1;
       if (bv === null) return -1;
@@ -136,14 +136,14 @@ export function FbSummaryTable({ pages, isLoading }: FbSummaryTableProps) {
       }
       return ((av as number) - (bv as number)) * direction;
     });
-  }, [pages, institution, sortKey, sortDirection]);
+  }, [accounts, institution, sortKey, sortDirection]);
 
   const toggleSort = (key: SortKey) => {
     if (key === sortKey) {
       setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortKey(key);
-      setSortDirection(key === 'name' || key === 'institution_name' ? 'asc' : 'desc');
+      setSortDirection(key === 'username' || key === 'institution_name' ? 'asc' : 'desc');
     }
   };
 
@@ -163,11 +163,11 @@ export function FbSummaryTable({ pages, isLoading }: FbSummaryTableProps) {
       <CardHeader>
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
           <div>
-            <CardTitle className="text-base">Pages</CardTitle>
+            <CardTitle className="text-base">Accounts</CardTitle>
             <CardDescription>
               {isLoading
                 ? 'Loading…'
-                : `${rows.length} of ${pages.length} page${pages.length === 1 ? '' : 's'}`}
+                : `${rows.length} of ${accounts.length} account${accounts.length === 1 ? '' : 's'}`}
             </CardDescription>
           </div>
           <Select value={institution} onValueChange={setInstitution}>
@@ -224,37 +224,39 @@ export function FbSummaryTable({ pages, isLoading }: FbSummaryTableProps) {
                 <TableRow>
                   <TableCell colSpan={COLUMNS.length} className="text-center py-12">
                     <p className="text-muted-foreground text-sm">
-                      {pages.length === 0
-                        ? 'No Facebook Pages connected yet.'
-                        : 'No pages match the selected institution.'}
+                      {accounts.length === 0
+                        ? 'No Instagram accounts connected yet.'
+                        : 'No accounts match the selected institution.'}
                     </p>
                   </TableCell>
                 </TableRow>
               ) : (
-                rows.map((page) => (
+                rows.map((acc) => (
                   <TableRow
-                    key={page.id}
+                    key={acc.id}
                     className="cursor-pointer"
-                    onClick={() => router.push(`/admin/social/facebook/${page.id}`)}
+                    onClick={() => router.push(`/admission/social/instagram/${acc.id}`)}
                   >
-                    <TableCell className="font-medium">{page.name}</TableCell>
+                    <TableCell className="font-medium">@{acc.username}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {page.institution_name || '—'}
+                      {acc.institution_name || '—'}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {formatNumber(page.fans)}
+                      {formatNumber(acc.followers)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      <FansGained value={page.fans_gained ?? 0} />
+                      <FollowersGained value={acc.followers_gained ?? 0} />
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {formatNumber(page.impressions_unique)}
+                      {formatNumber(acc.reach)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {formatNumber(page.post_engagements)}
+                      {formatNumber(acc.impressions)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {formatNumber(page.posts_in_window)}
+                      {acc.engagement_rate === null || acc.engagement_rate === undefined
+                        ? '—'
+                        : `${acc.engagement_rate.toFixed(2)}%`}
                     </TableCell>
                   </TableRow>
                 ))

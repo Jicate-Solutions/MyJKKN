@@ -652,43 +652,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/admin/social",
-        "label": "Social",
-        "iconName": "FileText",
-        "children": [
-          {
-            "path": "/admin/social/departments",
-            "label": "Departments",
-            "iconName": "Building2",
-            "children": []
-          },
-          {
-            "path": "/admin/social/facebook",
-            "label": "Facebook",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/admin/social/insights",
-            "label": "Insights",
-            "iconName": "Lightbulb",
-            "children": []
-          },
-          {
-            "path": "/admin/social/instagram",
-            "label": "Instagram",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/admin/social/lead-ads",
-            "label": "Lead Ads",
-            "iconName": "FileText",
-            "children": []
-          }
-        ]
-      },
-      {
         "path": "/admin/voice-memo-monitor",
         "label": "Voice Memo Monitor",
         "iconName": "Mic",
@@ -1382,6 +1345,43 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          }
+        ]
+      },
+      {
+        "path": "/admission/social",
+        "label": "Social",
+        "iconName": "GraduationCap",
+        "children": [
+          {
+            "path": "/admission/social/departments",
+            "label": "Departments",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/social/facebook",
+            "label": "Facebook",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/social/insights",
+            "label": "Insights",
+            "iconName": "Lightbulb",
+            "children": []
+          },
+          {
+            "path": "/admission/social/instagram",
+            "label": "Instagram",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/social/lead-ads",
+            "label": "Lead Ads",
+            "iconName": "GraduationCap",
+            "children": []
           }
         ]
       },

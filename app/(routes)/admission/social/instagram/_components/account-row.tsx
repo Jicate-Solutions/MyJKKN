@@ -116,7 +116,7 @@ export function AccountRow({ account }: AccountRowProps) {
 
       {/* Actions */}
       <TableCell>
-        <Link href={`/admin/social/instagram/${account.id}`}>
+        <Link href={`/admission/social/instagram/${account.id}`}>
           <Button variant="ghost" size="icon" className="h-8 w-8">
             <Eye className="h-4 w-4" />
             <span className="sr-only">View details</span>

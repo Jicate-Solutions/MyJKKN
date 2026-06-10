@@ -99,9 +99,9 @@ export default function FacebookPageDetailPage({ params }: PageProps) {
 
   const breadcrumbItems = [
     { label: 'Home', href: '/' },
-    { label: 'Administration' },
-    { label: 'Social Media', href: '/admin/social' },
-    { label: 'Facebook', href: '/admin/social/facebook' },
+    { label: 'Admission', href: '/admission' },
+    { label: 'Social Media', href: '/admission/social' },
+    { label: 'Facebook', href: '/admission/social/facebook' },
     { label: page?.name ?? 'Page Detail' },
   ];
 
@@ -121,7 +121,7 @@ export default function FacebookPageDetailPage({ params }: PageProps) {
         <div className="mt-6 space-y-6">
           {/* Back link */}
           <div className="flex items-center justify-between">
-            <Link href="/admin/social/facebook">
+            <Link href="/admission/social/facebook">
               <Button variant="ghost" size="sm" className="gap-2">
                 <ArrowLeft className="h-4 w-4" />
                 Back to pages

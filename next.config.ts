@@ -259,6 +259,17 @@ const nextConfig: NextConfig = {
         destination: '/admission/settings/telephony-policies/:path*',
         permanent: false
       },
+      // 2026-06-10 admin-cluster relocation — social → admission CRM
+      {
+        source: '/admin/social',
+        destination: '/admission/social',
+        permanent: false
+      },
+      {
+        source: '/admin/social/:path*',
+        destination: '/admission/social/:path*',
+        permanent: false
+      },
       // 2026-06-10 admin-cluster relocation — CDC
       // /admin/cdc/* → /cdc/admin/* (module URL consolidation; 307 non-permanent
       // preserves bookmarks while the new canonical path stabilizes).
