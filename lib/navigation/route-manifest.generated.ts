@@ -1291,6 +1291,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admin/social/insights",
+            "label": "Insights",
+            "iconName": "Lightbulb",
+            "children": []
+          },
+          {
             "path": "/admin/social/instagram",
             "label": "Instagram",
             "iconName": "FileText",
