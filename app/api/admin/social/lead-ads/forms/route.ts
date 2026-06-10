@@ -144,10 +144,14 @@ export async function POST(request: NextRequest) {
   // Per-page tokens, seeded from /me/accounts by the facebook poll cron.
   // RLS scopes this to the caller's institution unless role='super_admin';
   // when no rows come back the env fallback below still covers every page.
+  // 'dormant' is included deliberately: dormancy means "no recent posts",
+  // not "disconnected" — lead forms on a dormant page are still live. The
+  // 2026-06-10 first-run synced only 2 of 9 pages because the other 7 were
+  // (falsely, pre-#1286) marked dormant and this filter excluded them.
   const { data: fbPageRows } = await supabase
     .from('fb_pages')
     .select('fb_page_id, access_token')
-    .eq('status', 'active');
+    .in('status', ['active', 'dormant']);
 
   const pageTokens = new Map<string, string>();
   for (const r of fbPageRows ?? []) {

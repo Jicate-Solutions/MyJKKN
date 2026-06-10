@@ -2,7 +2,9 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "ignoreCommand": "git diff \"${VERCEL_GIT_PREVIOUS_SHA:-HEAD~20}\" HEAD --quiet -- . ':(exclude)supabase' ':(exclude)docs' ':(exclude)specs' ':(exclude).claude' ':(exclude).github' ':(exclude)*.md' 2>/dev/null || exit 1",
-  "regions": ["bom1"],
+  "regions": [
+    "bom1"
+  ],
   "git": {
     "deploymentEnabled": false
   },
@@ -172,6 +174,10 @@
     {
       "path": "/api/cron/meta-subscription-drift-check",
       "schedule": "30 21 * * *"
+    },
+    {
+      "path": "/api/cron/meta-leadgen-backfill",
+      "schedule": "47 22 * * *"
     },
     {
       "path": "/api/cron/meta-ads-sync?secret=${CRON_SECRET}",
