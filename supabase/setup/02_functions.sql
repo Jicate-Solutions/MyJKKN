@@ -15176,4 +15176,41 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_batch_room_category_breakdown(uuid[]) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_batch_room_category_breakdown(uuid[]) TO authenticated;
 
+-- fn_user_allocated_block/room/bed: a user may read the block/room/bed referenced by
+-- one of their OWN hostel allocations (My Hostel resident card). SECURITY DEFINER so
+-- the hostel_allocations lookup bypasses RLS (avoids transitive policy recursion).
+CREATE OR REPLACE FUNCTION public.fn_user_allocated_block(p_block_id uuid)
+RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM hostel_allocations a
+    WHERE a.block_id = p_block_id AND a.learner_id = auth.uid()
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.fn_user_allocated_room(p_room_id uuid)
+RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM hostel_allocations a
+    WHERE a.room_id = p_room_id AND a.learner_id = auth.uid()
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.fn_user_allocated_bed(p_bed_id uuid)
+RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM hostel_allocations a
+    WHERE a.bed_id = p_bed_id AND a.learner_id = auth.uid()
+  );
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_user_allocated_block(uuid) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_user_allocated_room(uuid) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_user_allocated_bed(uuid) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_user_allocated_block(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_user_allocated_room(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_user_allocated_bed(uuid) TO authenticated;
+
 NOTIFY pgrst, 'reload schema';

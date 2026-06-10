@@ -141,7 +141,7 @@ export class HostelAllocationService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_allocations')
-        .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email), hostel_blocks(name, code), hostel_rooms(room_number, floor), hostel_beds(bed_number)')
+        .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email), hostel_blocks(name, code), hostel_rooms(room_number, room_type, floor), hostel_beds(bed_number, bed_type)')
         .eq('learner_id', learnerId);
 
       if (statuses && statuses.length > 0) query = query.in('status', statuses);

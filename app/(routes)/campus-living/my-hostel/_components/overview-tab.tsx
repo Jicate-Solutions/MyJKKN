@@ -152,7 +152,11 @@ export function OverviewTab() {
               <InfoTile
                 icon={<BedDouble className='h-4 w-4' />}
                 label='Bed'
-                value={`Bed ${getJoined(activeAllocation, 'hostel_beds', 'bed_number')}`}
+                value={
+                  getJoined(activeAllocation, 'hostel_beds', 'bed_number')
+                    ? `Bed ${getJoined(activeAllocation, 'hostel_beds', 'bed_number')}`
+                    : ''
+                }
                 sub={getJoined(activeAllocation, 'hostel_beds', 'bed_type')}
               />
               <InfoTile

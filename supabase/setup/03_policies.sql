@@ -6564,3 +6564,20 @@ CREATE POLICY accommodation_types_write ON public.accommodation_types
   FOR ALL
   USING (public.user_has_permission('admission_fees.manage'))
   WITH CHECK (public.user_has_permission('admission_fees.manage'));
+
+-- ============================================================================
+-- Resident room-detail visibility (migration 20260610120000) — a user may read
+-- the block/room/bed referenced by their OWN hostel allocation (My Hostel card).
+-- Additive to the staff perm-gated SELECT policies on these tables.
+-- ============================================================================
+DROP POLICY IF EXISTS hostel_blocks_select_own_allocation ON public.hostel_blocks;
+CREATE POLICY hostel_blocks_select_own_allocation ON public.hostel_blocks
+  FOR SELECT USING (fn_user_allocated_block(id));
+
+DROP POLICY IF EXISTS hostel_rooms_select_own_allocation ON public.hostel_rooms;
+CREATE POLICY hostel_rooms_select_own_allocation ON public.hostel_rooms
+  FOR SELECT USING (fn_user_allocated_room(id));
+
+DROP POLICY IF EXISTS hostel_beds_select_own_allocation ON public.hostel_beds;
+CREATE POLICY hostel_beds_select_own_allocation ON public.hostel_beds
+  FOR SELECT USING (fn_user_allocated_bed(id));
