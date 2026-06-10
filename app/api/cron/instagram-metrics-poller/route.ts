@@ -6,8 +6,13 @@ export const dynamic = 'force-dynamic';
 // (instagram_business_account edge), resolving institution_id via fb_pages.
 // For each active ig_account:
 //   1. Fetch account profile + account-level insights → write ig_account_metrics row
+//      (real columns: reach, impressions, profile_views, website_clicks,
+//       accounts_engaged, total_interactions [metric_type=total_value],
+//       online_followers hourly map, follower_demographics [once per UTC day])
 //   2. Fetch recent media since last_polled_at → upsert ig_posts
 //   3. Fetch per-post insights → write ig_post_metrics rows
+//      (real columns incl. likes for all media; plays / avg_watch_time_ms /
+//       total_watch_time_ms for reels, with v22+ plays→views fallback)
 //   4. Update ig_accounts.last_polled_at (and last_post_at if new posts)
 //   5. Mark accounts dormant if no post in ig.dormancy_threshold_days
 //
@@ -28,6 +33,13 @@ import {
   getMediaInsights,
 } from '@/lib/instagram/api-client';
 import type { IgCallConfig } from '@/lib/instagram/api-client';
+// READ-ONLY shared imports: the IG client can't pass metric_type=total_value
+// (accounts_engaged / total_interactions / follower_demographics) nor request
+// metrics outside its IgAccountMetric/IgMediaMetric unions (online_followers,
+// ig_reels_* watch-time, views). Route-local helpers below call the base Graph
+// client directly for those.
+import { graphRequestData } from '@/lib/meta/graph-api-client';
+import { MetaGraphError } from '@/lib/meta/types';
 import type {
   IgAccountMetric,
   IgMedia as IgApiMedia,
@@ -50,6 +62,12 @@ interface IgAccountInsights {
   profile_views?: number;
   website_clicks?: number;
   email_contacts?: number;
+  /** Requires metric_type=total_value — fetched via route-local helper. */
+  accounts_engaged?: number;
+  /** Requires metric_type=total_value — fetched via route-local helper. */
+  total_interactions?: number;
+  /** Hourly audience-online map {"0":n..."23":n} from the lifetime metric. */
+  online_followers?: Record<string, number> | null;
   raw: Record<string, unknown>;
 }
 
@@ -77,6 +95,10 @@ interface IgPostInsights {
   engagement?: number;
   plays?: number;
   shares?: number;
+  /** Reels only — ig_reels_avg_watch_time (milliseconds). */
+  avg_watch_time_ms?: number;
+  /** Reels only — ig_reels_video_view_total_time (milliseconds). */
+  total_watch_time_ms?: number;
   raw: Record<string, unknown>;
 }
 
@@ -157,6 +179,250 @@ async function getDormancyThresholdDays(
 }
 
 // ---------------------------------------------------------------------------
+// Route-local Graph helpers for metrics the shared IG client cannot express
+// (metric_type=total_value, online_followers, follower_demographics, reels
+// watch-time / views). All go through graphRequestData (read-only shared
+// import) with the explicit v25.0 version pin.
+// ---------------------------------------------------------------------------
+
+interface IgInsightEnvelopeEntry {
+  name: string;
+  period?: string;
+  values?: Array<{
+    value: number | Record<string, number>;
+    end_time?: string;
+  }>;
+  total_value?: { value?: number; breakdowns?: unknown };
+  title?: string;
+  description?: string;
+  id?: string;
+}
+
+interface IgInsightsEnvelope {
+  data?: IgInsightEnvelopeEntry[];
+}
+
+/**
+ * GET /{ig-user-id}/insights with metric_type=total_value (period=day).
+ * Returns a name→value map; metrics whose total_value is missing are omitted.
+ */
+async function fetchTotalValueMetrics(
+  accessToken: string,
+  igUserId: string,
+  metrics: string[]
+): Promise<Record<string, number>> {
+  const payload = await graphRequestData<IgInsightsEnvelope>({
+    endpoint: `/${igUserId}/insights`,
+    accessToken,
+    apiVersion: GRAPH_VERSION,
+    query: {
+      metric: metrics.join(','),
+      period: 'day',
+      metric_type: 'total_value',
+    },
+    sentryOp: 'meta.instagram',
+    sentrySpanName: 'getAccountInsightsTotalValue',
+  });
+  const out: Record<string, number> = {};
+  for (const entry of payload.data ?? []) {
+    if (typeof entry.total_value?.value === 'number') {
+      out[entry.name] = entry.total_value.value;
+    }
+  }
+  return out;
+}
+
+const ENGAGEMENT_TOTAL_VALUE_METRICS = ['accounts_engaged', 'total_interactions'];
+
+/**
+ * accounts_engaged + total_interactions (both total_value-only). Grouped call
+ * first; on failure retries per metric so one unsupported metric can't drop
+ * the other. Failures are logged and tolerated.
+ */
+async function fetchEngagementTotals(
+  supabase: SupabaseClient,
+  accountId: string,
+  accessToken: string,
+  igUserId: string
+): Promise<Record<string, number>> {
+  try {
+    return await fetchTotalValueMetrics(
+      accessToken,
+      igUserId,
+      ENGAGEMENT_TOTAL_VALUE_METRICS
+    );
+  } catch {
+    const out: Record<string, number> = {};
+    for (const metric of ENGAGEMENT_TOTAL_VALUE_METRICS) {
+      try {
+        Object.assign(
+          out,
+          await fetchTotalValueMetrics(accessToken, igUserId, [metric])
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'unknown';
+        await logApiCall(supabase, {
+          account_id: accountId,
+          event_type: 'account_insight_metric',
+          status: 'error',
+          payload: { ig_user_id: igUserId, metric, metric_type: 'total_value' },
+          error_message: msg,
+        });
+      }
+    }
+    return out;
+  }
+}
+
+/**
+ * online_followers (period=lifetime) — hourly map of when the audience is
+ * online. Meta returns a values series; take the latest entry's value object
+ * ({"0":n..."23":n}). Failures are logged and return null.
+ */
+async function fetchOnlineFollowers(
+  supabase: SupabaseClient,
+  accountId: string,
+  accessToken: string,
+  igUserId: string
+): Promise<Record<string, number> | null> {
+  try {
+    const payload = await graphRequestData<IgInsightsEnvelope>({
+      endpoint: `/${igUserId}/insights`,
+      accessToken,
+      apiVersion: GRAPH_VERSION,
+      query: { metric: 'online_followers', period: 'lifetime' },
+      sentryOp: 'meta.instagram',
+      sentrySpanName: 'getOnlineFollowers',
+    });
+    const values = payload.data?.[0]?.values ?? [];
+    const latest = values[values.length - 1]?.value;
+    if (latest && typeof latest === 'object') {
+      return latest as Record<string, number>;
+    }
+    return null;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'unknown';
+    await logApiCall(supabase, {
+      account_id: accountId,
+      event_type: 'account_insight_metric',
+      status: 'error',
+      payload: { ig_user_id: igUserId, metric: 'online_followers' },
+      error_message: msg,
+    });
+    return null;
+  }
+}
+
+/**
+ * True when a snapshot taken today (UTC) for this account already carries a
+ * non-null follower_demographics — demographics are fetched at most once per
+ * UTC day per account (readers take the latest non-null).
+ */
+async function hasDemographicsSnapshotToday(
+  supabase: SupabaseClient,
+  accountId: string
+): Promise<boolean> {
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const { data } = await supabase
+    .from('ig_account_metrics')
+    .select('id')
+    .eq('account_id', accountId)
+    .gte('snapshot_at', todayStart.toISOString())
+    .not('follower_demographics', 'is', null)
+    .limit(1);
+  return Boolean(data && data.length > 0);
+}
+
+const DEMOGRAPHIC_BREAKDOWNS: Array<{ key: string; breakdown: string }> = [
+  { key: 'age_gender', breakdown: 'age,gender' },
+  { key: 'city', breakdown: 'city' },
+];
+
+/**
+ * follower_demographics — requires metric_type=total_value + a breakdown
+ * (period=lifetime, timeframe=this_week). Two isolated calls (age,gender then
+ * city) stored combined as { age_gender, city }. Accounts under 100 followers
+ * 400 on this metric: store NULL, log ONE error row per attempt, continue.
+ */
+async function fetchFollowerDemographics(
+  supabase: SupabaseClient,
+  accountId: string,
+  accessToken: string,
+  igUserId: string
+): Promise<Record<string, unknown> | null> {
+  const combined: Record<string, unknown> = {};
+  const failures: string[] = [];
+
+  for (const { key, breakdown } of DEMOGRAPHIC_BREAKDOWNS) {
+    try {
+      const payload = await graphRequestData<IgInsightsEnvelope>({
+        endpoint: `/${igUserId}/insights`,
+        accessToken,
+        apiVersion: GRAPH_VERSION,
+        query: {
+          metric: 'follower_demographics',
+          period: 'lifetime',
+          timeframe: 'this_week',
+          metric_type: 'total_value',
+          breakdown,
+        },
+        sentryOp: 'meta.instagram',
+        sentrySpanName: 'getFollowerDemographics',
+      });
+      const entry = payload.data?.[0];
+      if (entry) combined[key] = entry;
+    } catch (e) {
+      failures.push(
+        `${breakdown}: ${e instanceof Error ? e.message : 'unknown'}`
+      );
+    }
+  }
+
+  if (failures.length > 0) {
+    await logApiCall(supabase, {
+      account_id: accountId,
+      event_type: 'follower_demographics',
+      status: 'error',
+      payload: { ig_user_id: igUserId, failed_breakdowns: failures.length },
+      error_message: failures.join(' | ').slice(0, 500),
+    });
+  }
+
+  return Object.keys(combined).length > 0 ? combined : null;
+}
+
+/** Single-metric media insights call (string metric — covers names outside
+ *  the shared IgMediaMetric union: views, ig_reels_* watch-time). */
+async function fetchMediaInsightEntry(
+  accessToken: string,
+  mediaId: string,
+  metric: string
+): Promise<IgInsightEnvelopeEntry | undefined> {
+  const payload = await graphRequestData<IgInsightsEnvelope>({
+    endpoint: `/${mediaId}/insights`,
+    accessToken,
+    apiVersion: GRAPH_VERSION,
+    query: { metric },
+    sentryOp: 'meta.instagram',
+    sentrySpanName: 'getReelInsights',
+  });
+  return payload.data?.[0];
+}
+
+/** Flatten a media insight entry to a scalar (values[0].value preferred,
+ *  total_value.value as fallback; breakdown objects sum their values). */
+function entryValue(
+  entry: IgInsightEnvelopeEntry | undefined
+): number | undefined {
+  if (!entry) return undefined;
+  const v = entry.values?.[0]?.value ?? entry.total_value?.value;
+  if (typeof v === 'number') return v;
+  if (v && typeof v === 'object') return flattenInsightValue(v);
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
 // Adapters over lib/instagram/api-client — translate series/envelope shapes
 // into the flat shapes above. Per-metric failures are logged and tolerated
 // (one bad metric must not kill the whole account poll).
@@ -193,6 +459,25 @@ async function fetchAccountInsights(
       flat[metric] = flattenInsightValue(values[values.length - 1]?.value);
       raw[metric] = series;
     } catch (e) {
+      // v22+ moved several interaction metrics (profile_views, website_clicks)
+      // to metric_type=total_value-only — the plain time-series call 400s with
+      // (#100). Retry once via total_value before logging the failure.
+      if (
+        e instanceof MetaGraphError &&
+        e.code === 100 &&
+        (metric === 'profile_views' || metric === 'website_clicks')
+      ) {
+        try {
+          const tv = await fetchTotalValueMetrics(accessToken, igUserId, [metric]);
+          if (typeof tv[metric] === 'number') {
+            flat[metric] = tv[metric];
+            raw[`${metric}_total_value`] = tv[metric];
+            continue;
+          }
+        } catch {
+          // fall through to the error log below
+        }
+      }
       const msg = e instanceof Error ? e.message : 'unknown';
       await logApiCall(supabase, {
         account_id: accountId,
@@ -204,6 +489,30 @@ async function fetchAccountInsights(
     }
   }
 
+  // accounts_engaged + total_interactions require metric_type=total_value —
+  // the shared client can't pass it, so these go through the route-local
+  // helper. Failures are logged inside and tolerated.
+  const engagement = await fetchEngagementTotals(
+    supabase,
+    accountId,
+    accessToken,
+    igUserId
+  );
+  if (typeof engagement.accounts_engaged === 'number') {
+    raw.accounts_engaged = engagement.accounts_engaged;
+  }
+  if (typeof engagement.total_interactions === 'number') {
+    raw.total_interactions = engagement.total_interactions;
+  }
+
+  // Hourly when-is-my-audience-online map (lifetime metric, latest entry).
+  const onlineFollowers = await fetchOnlineFollowers(
+    supabase,
+    accountId,
+    accessToken,
+    igUserId
+  );
+
   return {
     followers_count: profile.followers_count ?? 0,
     follows_count: profile.follows_count ?? 0,
@@ -213,6 +522,9 @@ async function fetchAccountInsights(
     profile_views: flat.profile_views,
     website_clicks: flat.website_clicks,
     email_contacts: flat.email_contacts,
+    accounts_engaged: engagement.accounts_engaged,
+    total_interactions: engagement.total_interactions,
+    online_followers: onlineFollowers,
     raw,
   };
 }
@@ -249,15 +561,83 @@ async function fetchRecentMedia(
     }));
 }
 
+// REELS media are handled route-locally (see REEL_METRICS) because their
+// metric names are volatile across Graph versions and several fall outside
+// the shared IgMediaMetric union.
 function metricsForProductType(productType?: string): IgMediaMetric[] {
-  if (productType === 'REELS') {
-    return ['plays', 'reach', 'likes', 'comments', 'shares', 'saved', 'total_interactions'];
-  }
   if (productType === 'STORY') {
     return ['impressions', 'reach', 'replies'];
   }
-  // FEED (IMAGE / VIDEO / CAROUSEL_ALBUM) + unknown product types
-  return ['impressions', 'reach', 'engagement', 'saved'];
+  // FEED (IMAGE / VIDEO / CAROUSEL_ALBUM) + unknown product types.
+  // 'likes' added 2026-06-10 so ig_post_metrics.likes populates for all media.
+  return ['impressions', 'reach', 'engagement', 'saved', 'likes'];
+}
+
+// Reels metric catalog. Each is requested INDIVIDUALLY-ISOLATED: names are
+// volatile across Graph versions (v22+ replaced `plays` with `views`; the
+// ig_reels_* watch-time metrics 400 on some media) — one bad metric must not
+// drop the rest. (#100) on `plays` retries `views` and maps it → plays.
+const REEL_METRICS = [
+  'plays',
+  'reach',
+  'likes',
+  'comments',
+  'shares',
+  'saved',
+  'total_interactions',
+  'ig_reels_avg_watch_time',
+  'ig_reels_video_view_total_time',
+];
+
+async function fetchReelInsights(
+  supabase: SupabaseClient,
+  accountId: string,
+  accessToken: string,
+  mediaId: string
+): Promise<{ flat: Record<string, number>; raw: Record<string, unknown> }> {
+  const flat: Record<string, number> = {};
+  const raw: Record<string, unknown> = {};
+
+  for (const metric of REEL_METRICS) {
+    try {
+      const entry = await fetchMediaInsightEntry(accessToken, mediaId, metric);
+      const value = entryValue(entry);
+      if (value !== undefined) flat[metric] = value;
+      if (entry) raw[metric] = entry;
+      continue;
+    } catch (e) {
+      // v22+ renamed `plays` → `views`: retry once and map onto plays.
+      if (metric === 'plays' && e instanceof MetaGraphError && e.code === 100) {
+        try {
+          const entry = await fetchMediaInsightEntry(accessToken, mediaId, 'views');
+          const value = entryValue(entry);
+          if (value !== undefined) flat.plays = value;
+          if (entry) raw.views = entry;
+          continue;
+        } catch (e2) {
+          const msg2 = e2 instanceof Error ? e2.message : 'unknown';
+          await logApiCall(supabase, {
+            account_id: accountId,
+            event_type: 'post_insight_metric',
+            status: 'error',
+            payload: { ig_media_id: mediaId, metric: 'views' },
+            error_message: msg2,
+          });
+          continue;
+        }
+      }
+      const msg = e instanceof Error ? e.message : 'unknown';
+      await logApiCall(supabase, {
+        account_id: accountId,
+        event_type: 'post_insight_metric',
+        status: 'error',
+        payload: { ig_media_id: mediaId, metric },
+        error_message: msg,
+      });
+    }
+  }
+
+  return { flat, raw };
 }
 
 async function fetchPostInsights(
@@ -267,35 +647,45 @@ async function fetchPostInsights(
   media: IgMedia
 ): Promise<IgPostInsights> {
   const config: IgCallConfig = { accessToken, apiVersion: GRAPH_VERSION };
-  const metrics = metricsForProductType(media.media_product_type);
+  const isReel =
+    media.media_product_type === 'REELS' || media.media_type === 'REEL';
 
-  let entries: IgMediaInsightEntry[] = [];
-  try {
-    entries = await getMediaInsights(media.id, metrics, config);
-  } catch {
-    // Grouped call failed — one unsupported metric 400s the whole request.
-    // Retry per metric so the supported ones still land; log the failures.
-    for (const metric of metrics) {
-      try {
-        entries.push(...(await getMediaInsights(media.id, [metric], config)));
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : 'unknown';
-        await logApiCall(supabase, {
-          account_id: accountId,
-          event_type: 'post_insight_metric',
-          status: 'error',
-          payload: { ig_media_id: media.id, metric },
-          error_message: msg,
-        });
+  let flat: Record<string, number> = {};
+  let raw: Record<string, unknown> = {};
+
+  if (isReel) {
+    const reel = await fetchReelInsights(supabase, accountId, accessToken, media.id);
+    flat = reel.flat;
+    raw = reel.raw;
+  } else {
+    const metrics = metricsForProductType(media.media_product_type);
+
+    let entries: IgMediaInsightEntry[] = [];
+    try {
+      entries = await getMediaInsights(media.id, metrics, config);
+    } catch {
+      // Grouped call failed — one unsupported metric 400s the whole request.
+      // Retry per metric so the supported ones still land; log the failures.
+      for (const metric of metrics) {
+        try {
+          entries.push(...(await getMediaInsights(media.id, [metric], config)));
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : 'unknown';
+          await logApiCall(supabase, {
+            account_id: accountId,
+            event_type: 'post_insight_metric',
+            status: 'error',
+            payload: { ig_media_id: media.id, metric },
+            error_message: msg,
+          });
+        }
       }
     }
-  }
 
-  const flat: Partial<Record<IgMediaMetric, number>> = {};
-  const raw: Record<string, unknown> = {};
-  for (const entry of entries) {
-    flat[entry.name] = flattenInsightValue(entry.values?.[0]?.value);
-    raw[entry.name] = entry;
+    for (const entry of entries) {
+      flat[entry.name] = flattenInsightValue(entry.values?.[0]?.value);
+      raw[entry.name] = entry;
+    }
   }
 
   return {
@@ -308,6 +698,14 @@ async function fetchPostInsights(
     engagement: flat.engagement ?? flat.total_interactions,
     plays: flat.plays,
     shares: flat.shares,
+    avg_watch_time_ms:
+      flat.ig_reels_avg_watch_time !== undefined
+        ? Math.round(flat.ig_reels_avg_watch_time)
+        : undefined,
+    total_watch_time_ms:
+      flat.ig_reels_video_view_total_time !== undefined
+        ? Math.round(flat.ig_reels_video_view_total_time)
+        : undefined,
     raw,
   };
 }
@@ -659,8 +1057,27 @@ export async function GET(request: Request): Promise<Response> {
           throw e;
         }
 
-        // Write ig_account_metrics row. The table carries the counter columns;
-        // the day-bucketed insight scalars travel in raw alongside the series.
+        // Follower demographics — heavyweight + slow-changing: fetch at most
+        // once per UTC day per account. The first snapshot of the day carries
+        // it; later snapshots store NULL and readers take the latest non-null.
+        // Failures (e.g. <100-follower accounts always 400) store NULL and are
+        // logged once inside the helper.
+        let demographics: Record<string, unknown> | null = null;
+        const alreadyHasDemographics = await hasDemographicsSnapshotToday(
+          supabase,
+          account.id
+        );
+        if (!alreadyHasDemographics) {
+          demographics = await fetchFollowerDemographics(
+            supabase,
+            account.id,
+            account.access_token,
+            account.ig_user_id
+          );
+        }
+
+        // Write ig_account_metrics row. Counter columns + the real insight
+        // columns (substrate 2026-06-10); raw keeps the full series payloads.
         const { error: metricErr } = await supabase
           .from('ig_account_metrics')
           .insert({
@@ -668,6 +1085,14 @@ export async function GET(request: Request): Promise<Response> {
             followers: insights.followers_count,
             follows: insights.follows_count,
             media_count: insights.media_count,
+            reach: insights.reach ?? null,
+            impressions: insights.impressions ?? null,
+            profile_views: insights.profile_views ?? null,
+            website_clicks: insights.website_clicks ?? null,
+            accounts_engaged: insights.accounts_engaged ?? null,
+            total_interactions: insights.total_interactions ?? null,
+            online_followers: insights.online_followers ?? null,
+            follower_demographics: demographics,
             raw: {
               ...insights.raw,
               reach: insights.reach ?? null,
@@ -752,7 +1177,8 @@ export async function GET(request: Request): Promise<Response> {
             );
 
             // Write ig_post_metrics row (FK is the ig_posts UUID, not the
-            // Meta media id; counter columns are NOT NULL DEFAULT 0).
+            // Meta media id; counter columns are NOT NULL DEFAULT 0; the new
+            // substrate columns likes/plays/watch-time are nullable).
             const { error: postMetricErr } = await supabase
               .from('ig_post_metrics')
               .insert({
@@ -763,6 +1189,10 @@ export async function GET(request: Request): Promise<Response> {
                 saves: postInsights.saved ?? 0,
                 shares: postInsights.shares ?? 0,
                 comments: postInsights.comments_count ?? 0,
+                likes: postInsights.like_count ?? null,
+                plays: postInsights.plays ?? null,
+                avg_watch_time_ms: postInsights.avg_watch_time_ms ?? null,
+                total_watch_time_ms: postInsights.total_watch_time_ms ?? null,
                 raw: {
                   ...postInsights.raw,
                   like_count: postInsights.like_count ?? null,
