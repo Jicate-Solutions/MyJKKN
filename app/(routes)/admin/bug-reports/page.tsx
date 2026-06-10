@@ -189,10 +189,22 @@ function AdminBugReportsContent() {
     [searchParams]
   );
 
+  // Mirror of the latest filters, updated synchronously on every write.
+  // router.replace commits async, so consecutive updates (filter click +
+  // pagination + search debounce) must compose against this ref instead of
+  // the not-yet-committed URL — otherwise the later write drops the earlier
+  // one's params (filters "resetting on their own").
+  const filtersRef = useRef(filters);
+  useEffect(() => {
+    filtersRef.current = filters;
+  }, [filters]);
+
   // Write filter changes back to the URL; router.replace avoids polluting history
   const setFilters = useCallback(
     (updater: BugReportFilters | ((prev: BugReportFilters) => BugReportFilters)) => {
-      const nf = typeof updater === 'function' ? updater(filters) : updater;
+      const nf =
+        typeof updater === 'function' ? updater(filtersRef.current) : updater;
+      filtersRef.current = nf;
       const params = new URLSearchParams();
       if (nf.page && nf.page !== 1) params.set('page', String(nf.page));
       if (nf.limit && nf.limit !== 10) params.set('limit', String(nf.limit));
@@ -206,7 +218,7 @@ function AdminBugReportsContent() {
       const qs = params.toString();
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     },
-    [filters, pathname, router]
+    [pathname, router]
   );
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [reportToDelete, setReportToDelete] = useState<string | null>(null);
@@ -217,16 +229,16 @@ function AdminBugReportsContent() {
     useState<BugReportStatus>('seen');
   // Seed from URL so the input reflects an already-active search on mount
   const [searchInput, setSearchInput] = useState(filters.search ?? '');
-  const isFirstSearchMount = useRef(true);
   const { isSuperAdmin } = usePermissions();
 
   // Debounce search: update filters.search 300ms after the user stops typing.
-  // Skip the very first mount so we don't overwrite the page/filter restored from URL.
+  // Guard by VALUE (input vs last-written search) rather than a first-mount
+  // ref: a ref guard leaks one write per mount under Strict Mode's double
+  // effect invocation, which rewrote the URL with page:1 ~300ms after every
+  // mount. Comparing values is idempotent — if the input already matches the
+  // URL there is nothing to write, on mount or ever.
   useEffect(() => {
-    if (isFirstSearchMount.current) {
-      isFirstSearchMount.current = false;
-      return;
-    }
+    if (searchInput.trim() === (filtersRef.current.search ?? '')) return;
     const timer = setTimeout(() => {
       setFilters((prev) => ({
         ...prev,
@@ -236,9 +248,10 @@ function AdminBugReportsContent() {
       setSelectedReports([]);
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchInput]);
+  }, [searchInput, setFilters]);
 
-  const { data, isLoading, isFetching, refetch } = useBugReports(filters);
+  const { data, isLoading, isFetching, isPlaceholderData, refetch } =
+    useBugReports(filters);
   const updateStatusMutation = useUpdateBugReportStatus();
   const deleteReportMutation = useDeleteBugReport();
   const bulkDeleteMutation = useBulkDeleteBugReports();
@@ -901,7 +914,9 @@ function AdminBugReportsContent() {
                       totalItems: metadata?.total ?? 0,
                       onPageChange: handlePageChange,
                       onPageSizeChange: handlePageSizeChange,
-                      isLoading: isLoading,
+                      // Overlay during first load AND while previous-page
+                      // placeholder rows are shown for an in-flight page change
+                      isLoading: isLoading || (isPlaceholderData && isFetching),
                       hasPreviousPage: (filters.page ?? 1) > 1,
                       hasNextPage:
                         (filters.page ?? 1) < (metadata?.totalPages ?? 1)

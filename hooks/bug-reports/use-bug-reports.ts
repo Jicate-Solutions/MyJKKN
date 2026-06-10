@@ -1,6 +1,11 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  keepPreviousData
+} from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query/query-keys';
 import {
   BugReport,
@@ -247,7 +252,11 @@ export const useBugReports = (filters: BugReportFilters) => {
     queryKey: queryKeys.bugReports.list(filters),
     queryFn: () => fetchBugReports(filters),
     staleTime: 2 * 60 * 1000, // 2 minutes
-    refetchOnWindowFocus: true
+    refetchOnWindowFocus: true,
+    // Keep the previous page's rows + metadata visible while the next page
+    // loads — without this the table blanks and the pager flashes "Page N of 1"
+    // on every page/filter change, which reads as a pagination reset.
+    placeholderData: keepPreviousData
   });
 };
 
