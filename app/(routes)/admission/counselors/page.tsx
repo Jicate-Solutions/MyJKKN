@@ -23,6 +23,7 @@ import {
 import { DataAlertBanner } from '@/components/shared/data-alert-banner/data-alert-banner';
 import { useUnassignedLeadsCount } from '@/hooks/admission/use-unassigned-leads-count';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { PermissionError } from '@/components/errors/permission-error';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
@@ -544,7 +545,23 @@ function CounselorPerformancePageContent() {
   const goldCount = counselors.filter(c => c.conversionRate >= 30).length;
 
   return (
-    <PermissionGuard module="admission" action="counselors.view">
+    <PermissionGuard
+      module="admission"
+      action="counselors.view"
+      // BUG-003986: without a fallback, users lacking admission.counselors.view
+      // (e.g. counselor roles — 'admission.counselors' is a restricted prefix in
+      // permission-guard.tsx, so the counselor bypass does NOT apply here) got a
+      // fully BLANK page with zero explanation. Permission failures must be
+      // explicit, never silent (CLAUDE.md rule #27).
+      fallback={
+        <ContentLayout title="Counselor Performance">
+          <PermissionError
+            message="The Counselor Performance dashboard is restricted to admission leadership."
+            requiredPermission="admission.counselors.view"
+          />
+        </ContentLayout>
+      }
+    >
       <ContentLayout title="Counselor Performance">
         <div className="space-y-6">
           {/* Header */}
