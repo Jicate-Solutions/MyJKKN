@@ -31,6 +31,13 @@ const BOOKING_ERROR_MESSAGES: Record<string, string> = {
   too_far_ahead: 'That date is too far ahead to book yet',
   past_slot: 'That slot has already passed',
   duplicate: 'You already have a booking for this slot',
+  // cancel / mark codes (fn_housekeeping_cancel_booking / _mark_booking)
+  cutoff_passed: 'Too close to the slot time to cancel — please contact the hostel office',
+  forbidden: 'You can only manage your own bookings',
+  invalid_status: 'That status change is not allowed',
+  not_cancellable: 'This booking can no longer be cancelled',
+  not_found: 'This booking no longer exists',
+  not_markable: 'Only booked slots can be marked complete or no-show',
 };
 
 function bookingErrorMessage(errorCode?: string, fallback = 'Request failed'): string {
