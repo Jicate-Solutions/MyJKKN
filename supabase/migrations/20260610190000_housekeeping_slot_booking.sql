@@ -24,7 +24,10 @@
 --
 -- VERIFIED LIVE-SCHEMA FACTS honored here:
 --   - hostel_allocations: institution_id, learner_id, block_id, room_id,
---     tier_id (NOT NULL → hostel_tier_policy), status allocation_status_enum
+--     tier_id (NOT NULL → hostel_tier_policy), status allocation_status_enum.
+--     ⚠️ allocations.learner_id FKs profiles(id) (PR #1267), while
+--     hostel_cleaning_bookings.learner_id FKs learners_profiles(id) —
+--     two different keys; see fn_housekeeping_book_slot.
 --     ('active','vacated','transferred','suspended','pending_approval',
 --     'rejected'), allocation_date, check_out_date (added 20260703000000).
 --     "Active" for BOOKING entitlement = status = 'active' AND
@@ -321,10 +324,15 @@ BEGIN
 
   -- ACTIVE allocation only (status = 'active' AND not checked out).
   -- pending_approval / rejected / vacated residents cannot book.
+  -- ⚠️ hostel_allocations.learner_id FKs profiles(id), NOT learners_profiles
+  -- (PR #1267 "hostel allocation profiles.id keying"; live FK-embed verified
+  -- 2026-06-10) — so the match key here is v_uid. v_learner_id (a
+  -- learners_profiles.id) is still required for the bookings INSERT + quota,
+  -- whose FK does target learners_profiles.
   SELECT a.id, a.room_id, a.block_id, a.institution_id, a.tier_id
   INTO v_alloc
   FROM public.hostel_allocations a
-  WHERE a.learner_id = v_learner_id
+  WHERE a.learner_id = v_uid
     AND a.status = 'active'
     AND a.check_out_date IS NULL
   ORDER BY a.allocation_date DESC, a.created_at DESC
