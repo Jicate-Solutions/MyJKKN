@@ -18,10 +18,19 @@ export interface AllocationBatch {
   updated_at: string;
 }
 
+/** Rooms used + beds filled for one room category within a batch. */
+export interface BatchCategoryBreakdown {
+  category: string;
+  rooms: number;
+  beds: number;
+}
+
 export interface AllocationBatchRow extends AllocationBatch {
   category_name: string | null;
   institution_name: string | null;
   block_name: string | null;
+  // Populated by getBatches (list) only — per-room-category rooms/beds in the batch.
+  category_breakdown?: BatchCategoryBreakdown[];
   // Populated by getBatch (detail) only; the list (getBatches) omits them.
   block_total_capacity?: number | null;
   block_current_occupancy?: number | null;
