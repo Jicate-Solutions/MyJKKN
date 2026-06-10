@@ -293,6 +293,37 @@ const nextConfig: NextConfig = {
         source: '/admin/hr/:path*',
         destination: '/hr/admin/:path*',
         permanent: false
+      },
+      // 2026-06-11 admin-cluster relocation wave-2 — lifecycle + ai-query + ai-pulse config
+      {
+        source: '/admin/lifecycle',
+        destination: '/learners/lifecycle',
+        permanent: false
+      },
+      {
+        source: '/admin/lifecycle/:path*',
+        destination: '/learners/lifecycle/:path*',
+        permanent: false
+      },
+      {
+        source: '/admin/ai-query-tools',
+        destination: '/ai-query/admin',
+        permanent: false
+      },
+      {
+        source: '/admin/ai-query-tools/:path*',
+        destination: '/ai-query/admin/:path*',
+        permanent: false
+      },
+      {
+        source: '/admin/config/ai-pulse',
+        destination: '/ai-pulse/admin/policies',
+        permanent: false
+      },
+      {
+        source: '/admin/config/ai-pulse/:path*',
+        destination: '/ai-pulse/admin/policies/:path*',
+        permanent: false
       }
     ];
   },

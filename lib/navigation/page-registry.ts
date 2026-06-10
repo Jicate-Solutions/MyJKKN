@@ -391,7 +391,7 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['audit', 'system logs', 'change history', 'who changed'],
     description: 'View system audit trail and change history'
   },
-  '/admin/lifecycle': {
+  '/learners/lifecycle': {
     keywords: ['lifecycle', 'student journey', 'enrollment to graduation'],
     description: 'Lifecycle analytics from enrollment to graduation'
   },
@@ -459,7 +459,7 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['bug leaderboard', 'top reporters', 'bug hunters'],
     description: 'Bug reporting leaderboard'
   },
-  '/admin/ai-query-tools': {
+  '/ai-query/admin': {
     keywords: ['ai tools', 'query tools', 'ai registry'],
     description: 'Manage AI query tool registry'
   },

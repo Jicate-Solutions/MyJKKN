@@ -111,7 +111,10 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   // /admin/* — sub-prefixes first
   ['/admin/bug-reports', 'Bug Reports'],
   ['/admin/notifications', 'Notifications'],
-  ['/admin/lifecycle', 'Lifecycle Analytics'],
+  // /admin/lifecycle relocated to /learners/lifecycle (2026-06-11 admin-cluster
+  // relocation wave-2) — sub-prefix kept BEFORE the broader ['/learners', ...]
+  // mapping below so the dashboard keeps its own module identity.
+  ['/learners/lifecycle', 'Lifecycle Analytics'],
   ['/admin/lti', 'System'],
   ['/pde/admin', 'PDE Learning'],
   // /pde/* catch-all — covers /pde/faculty/* and /pde/learn/* (the case-based
@@ -120,7 +123,9 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/pde', 'PDE Learning'],
   ['/admin/page-metadata', 'System'],
   ['/admin/saml', 'System'],
-  ['/admin/ai-query-tools', 'System'],
+  // /admin/ai-query-tools relocated to /ai-query/admin (2026-06-11 admin-cluster
+  // relocation wave-2) — covered by the base ['/ai-query', 'System'] mapping
+  // below; override dropped.
   ['/admin/reset-driver-passwords', 'System'],
   // /admin/hr relocated to /hr/admin (2026-06-10 admin-cluster relocation) —
   // covered by the base ['/hr', 'Staff'] mapping below; override dropped.

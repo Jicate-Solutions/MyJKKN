@@ -364,7 +364,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/system/api-management': 'system.api.view',
   '/system/lti-tools': 'lti.tools.view',
   '/admin/bug-reports': 'system.bugs.view',
-  '/admin/ai-query-tools': 'super_admin', // Super admin only - AI Query Tools Registry
+  '/ai-query/admin': 'super_admin', // Super admin only - AI Query Tools Registry
   '/admin/ai-models': 'super_admin', // Super admin only - AI Model Config (provider/model picker + spend caps + usage)
   '/admin/page-metadata': 'super_admin', // Super admin only - Page Search Metadata
 
@@ -402,7 +402,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/internships/vehicles/[id]': 'internship.vehicles.view',
 
   // Lifecycle Analytics
-  '/admin/lifecycle': 'admin.lifecycle.view',
+  '/learners/lifecycle': 'admin.lifecycle.view',
 
   // LTI Monitoring
   '/admin/lti/analytics': 'lti.analytics.view',
@@ -1755,7 +1755,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             // sidebar-unify, 2026-06-09). See groupLabel: 'PDE' below.
             // Other
             { href: '/audit-trail', label: 'Audit Trail', active: pathname.startsWith('/audit-trail') },
-            { href: '/admin/lifecycle', label: 'Lifecycle Analytics', active: pathname.startsWith('/admin/lifecycle') },
+            { href: '/learners/lifecycle', label: 'Lifecycle Analytics', active: pathname.startsWith('/learners/lifecycle') },
             { href: '/admin/page-metadata', label: 'Page Metadata', active: pathname.startsWith('/admin/page-metadata') },
             { href: '/admin/instagram-attribution', label: 'Social · IG Attribution', active: pathname.startsWith('/admin/instagram-attribution') },
             { href: '/admin/integrations/meta-pixel', label: 'Meta · Pixel / CAPI', active: pathname.startsWith('/admin/integrations/meta-pixel') },
@@ -2156,7 +2156,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             pathname === '/system' ||
             pathname.startsWith('/system/') ||
             pathname.startsWith('/admin/bug-reports') ||
-            pathname.startsWith('/admin/ai-query-tools'),
+            pathname.startsWith('/ai-query/admin'),
           icon: Settings,
           submenus: [
             { href: '/system/api-management', label: 'API Management', active: pathname === '/system/api-management' },
@@ -2164,7 +2164,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/my-bug-reports', label: 'My Bug Reports', active: pathname === '/my-bug-reports' },
             { href: '/bug-leaderboard', label: 'Bug Leaderboard', active: pathname === '/bug-leaderboard' },
             { href: '/admin/bug-reports', label: 'All Bug Reports', active: pathname === '/admin/bug-reports' },
-            { href: '/admin/ai-query-tools', label: 'AI Query Tools', active: pathname.startsWith('/admin/ai-query-tools') },
+            { href: '/ai-query/admin', label: 'AI Query Tools', active: pathname.startsWith('/ai-query/admin') },
           ]
         }
       ]

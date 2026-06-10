@@ -466,29 +466,10 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/admin/ai-query-tools",
-        "label": "Ai Query Tools",
-        "iconName": "FileText",
-        "children": []
-      },
-      {
         "path": "/admin/bug-reports",
         "label": "Bug Reports",
         "iconName": "FileText",
         "children": []
-      },
-      {
-        "path": "/admin/config",
-        "label": "Config",
-        "iconName": "FileText",
-        "children": [
-          {
-            "path": "/admin/config/ai-pulse",
-            "label": "Ai Pulse",
-            "iconName": "FileText",
-            "children": []
-          }
-        ]
       },
       {
         "path": "/admin/dashboard",
@@ -549,12 +530,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/admin/landing-pages",
         "label": "Landing Pages",
-        "iconName": "FileText",
-        "children": []
-      },
-      {
-        "path": "/admin/lifecycle",
-        "label": "Lifecycle",
         "iconName": "FileText",
         "children": []
       },
@@ -1421,6 +1396,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "Cycles",
             "iconName": "RotateCw",
             "children": []
+          },
+          {
+            "path": "/ai-pulse/admin/policies",
+            "label": "Policies",
+            "iconName": "BookText",
+            "children": []
           }
         ]
       },
@@ -1449,7 +1430,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "path": "/ai-query",
     "label": "Ai Query",
     "iconName": "FileText",
-    "children": []
+    "children": [
+      {
+        "path": "/ai-query/admin",
+        "label": "Admin",
+        "iconName": "FileText",
+        "children": []
+      }
+    ]
   },
   {
     "path": "/application-hub",
@@ -4139,6 +4127,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/learners/lifecycle",
+        "label": "Lifecycle",
+        "iconName": "GraduationCap",
+        "children": []
       },
       {
         "path": "/learners/my-attendance",
