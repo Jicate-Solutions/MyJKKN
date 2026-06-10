@@ -164,6 +164,10 @@
       "schedule": "0 * * * *"
     },
     {
+      "path": "/api/cron/ig-business-discovery-poll?secret=${CRON_SECRET}",
+      "schedule": "17 * * * *"
+    },
+    {
       "path": "/api/cron/instagram-monthly-audit?secret=${CRON_SECRET}",
       "schedule": "0 6 1 * *"
     },

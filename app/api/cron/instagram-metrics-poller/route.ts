@@ -1000,6 +1000,9 @@ export async function GET(request: Request): Promise<Response> {
       .from('ig_accounts')
       .select('id, ig_user_id, access_token, last_polled_at, last_post_at')
       .eq('status', 'active')
+      // Skip business_discovery accounts (no Facebook Page → full insights
+      // 33-error here). They are handled by ig-business-discovery-poll.
+      .eq('metrics_source', 'graph')
       .or(`last_polled_at.is.null,last_polled_at.lt.${pollCutoff}`);
 
     if (acctErr) throw acctErr;
