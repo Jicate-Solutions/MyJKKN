@@ -14483,11 +14483,17 @@ BEGIN
       (SELECT user_id FROM user_block_access WHERE block_id=p_block_id AND revoked_at IS NULL LIMIT 1)
     );
 
-    -- Mess category is assigned from rules at proposal time (rules-derived, idempotent); a rejected/reset batch does NOT revert it.
+    -- Sync the learner's profile categories to the proposal (rules-derived, idempotent;
+    -- a rejected/reset batch does NOT revert): hostel_category_id from the ALLOCATED room's
+    -- category (the truth), mess_category_id from the rules-derived mess (kept if none).
+    -- 20260610190000: hostel_category_id was previously never written → My Hostel + hostel
+    -- billing showed the stale admission-time category.
     v_mess := CASE WHEN cand.mess_cats IS NOT NULL THEN cand.mess_cats[1] ELSE NULL END;
-    IF v_mess IS NOT NULL THEN
-      UPDATE learners_profiles SET mess_category_id = v_mess WHERE id = cand.lp_id;
-    END IF;
+    UPDATE learners_profiles
+      SET hostel_category_id = (SELECT category_id FROM hostel_rooms WHERE id = v_room),
+          mess_category_id   = COALESCE(v_mess, mess_category_id),
+          updated_at = now()
+      WHERE id = cand.lp_id;
 
     v_alloc := v_alloc + 1;
   END LOOP;
