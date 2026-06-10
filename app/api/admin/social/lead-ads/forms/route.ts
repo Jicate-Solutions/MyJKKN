@@ -8,8 +8,22 @@ export const dynamic = 'force-dynamic';
  *        Page id in the body, upserts the form row, refreshes questions[],
  *        keeps existing institution_id assignment.
  *
+ * Page set resolution (POST): body.page_ids → distinct fb_page_id already
+ * in meta_lead_forms → active fb_pages rows (first-time sync needs no args;
+ * the admin UI button POSTs an empty body).
+ *
+ * Token resolution (POST): per-page fb_pages.access_token (seeded from
+ * /me/accounts by the facebook poll cron) preferred, falling back to the
+ * standard env chain: META_LEAD_ADS_PAGE_ACCESS_TOKEN →
+ * META_IG_SYSTEM_USER_TOKEN → MESSENGER_PAGE_ACCESS_TOKEN →
+ * META_PAGE_ACCESS_TOKEN. Mirrors app/api/cron/meta-facebook-poll. Graph
+ * version pinned to v25.0 explicitly (lib default is still v21.0).
+ *
  * Role: super_admin / administrator only. The webhook + cron run as
- * service_role so they bypass these endpoints entirely.
+ * service_role so they bypass these endpoints entirely. Note: fb_pages RLS
+ * scopes the per-page token lookup to the caller's institution unless
+ * profiles.role = 'super_admin' — when RLS returns no rows the env
+ * fallback chain still applies.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -92,8 +106,22 @@ export async function GET() {
 //
 // Body: { page_ids?: string[] }
 //   If page_ids omitted, syncs the distinct fb_page_id set already in
-//   meta_lead_forms. First-time setup: pass the page ids explicitly.
+//   meta_lead_forms, falling back to active fb_pages rows so the admin UI's
+//   empty-body POST works on first-time setup too.
 // ---------------------------------------------------------------------------
+
+const GRAPH_API_VERSION = 'v25.0';
+
+/** Standard env fallback chain (mirrors the other Meta routes fixed for this). */
+function getEnvFallbackToken(): string | undefined {
+  return (
+    process.env.META_LEAD_ADS_PAGE_ACCESS_TOKEN ||
+    process.env.META_IG_SYSTEM_USER_TOKEN ||
+    process.env.MESSENGER_PAGE_ACCESS_TOKEN ||
+    process.env.META_PAGE_ACCESS_TOKEN ||
+    undefined
+  );
+}
 
 export async function POST(request: NextRequest) {
   const auth = await requireAdmin();
@@ -113,6 +141,20 @@ export async function POST(request: NextRequest) {
     // Empty body is fine — fall back to known pages.
   }
 
+  // Per-page tokens, seeded from /me/accounts by the facebook poll cron.
+  // RLS scopes this to the caller's institution unless role='super_admin';
+  // when no rows come back the env fallback below still covers every page.
+  const { data: fbPageRows } = await supabase
+    .from('fb_pages')
+    .select('fb_page_id, access_token')
+    .eq('status', 'active');
+
+  const pageTokens = new Map<string, string>();
+  for (const r of fbPageRows ?? []) {
+    const row = r as { fb_page_id: string; access_token: string | null };
+    if (row.access_token) pageTokens.set(row.fb_page_id, row.access_token);
+  }
+
   let pageIds = body.page_ids ?? [];
   if (!pageIds.length) {
     const { data: rows } = await supabase
@@ -120,22 +162,35 @@ export async function POST(request: NextRequest) {
       .select('fb_page_id');
     pageIds = Array.from(new Set((rows ?? []).map((r) => (r as { fb_page_id: string }).fb_page_id)));
   }
+  if (!pageIds.length) {
+    // First-time sync: no forms yet — derive the page set from fb_pages.
+    pageIds = Array.from(
+      new Set((fbPageRows ?? []).map((r) => (r as { fb_page_id: string }).fb_page_id))
+    );
+  }
 
   if (!pageIds.length) {
     return NextResponse.json(
       {
         ok: false,
         error:
-          'No page_ids supplied and no existing forms to derive page set from. Pass {page_ids: ["..."]} on first sync.',
+          'No page_ids supplied, no existing forms, and no fb_pages rows to derive a page set from. ' +
+          'Run the facebook poll cron once to seed fb_pages, or pass {page_ids: ["..."]} explicitly.',
       },
       { status: 400 }
     );
   }
 
-  const pageAccessToken = process.env.META_LEAD_ADS_PAGE_ACCESS_TOKEN;
-  if (!pageAccessToken) {
+  const envToken = getEnvFallbackToken();
+  if (!envToken && pageTokens.size === 0) {
     return NextResponse.json(
-      { ok: false, error: 'META_LEAD_ADS_PAGE_ACCESS_TOKEN unset' },
+      {
+        ok: false,
+        error:
+          'No Meta access token available. Set one of META_LEAD_ADS_PAGE_ACCESS_TOKEN / ' +
+          'META_IG_SYSTEM_USER_TOKEN / MESSENGER_PAGE_ACCESS_TOKEN / META_PAGE_ACCESS_TOKEN, ' +
+          'or seed per-page tokens into fb_pages via the facebook poll cron.',
+      },
       { status: 500 }
     );
   }
@@ -144,12 +199,28 @@ export async function POST(request: NextRequest) {
     page_id: string;
     fetched: number;
     upserted: number;
+    token_source?: 'fb_pages' | 'env';
     error?: string;
   }> = [];
 
   for (const pageId of pageIds) {
+    const perPageToken = pageTokens.get(pageId);
+    const accessToken = perPageToken ?? envToken;
+    if (!accessToken) {
+      summary.push({
+        page_id: pageId,
+        fetched: 0,
+        upserted: 0,
+        error: 'No token: fb_pages row has no access_token and no env fallback is set.',
+      });
+      continue;
+    }
+    const tokenSource: 'fb_pages' | 'env' = perPageToken ? 'fb_pages' : 'env';
     try {
-      const forms = await listForms(pageId, { accessToken: pageAccessToken });
+      const forms = await listForms(pageId, {
+        accessToken,
+        apiVersion: GRAPH_API_VERSION,
+      });
       let upserted = 0;
       for (const f of forms) {
         const { error } = await supabase
@@ -170,12 +241,18 @@ export async function POST(request: NextRequest) {
           );
         if (!error) upserted += 1;
       }
-      summary.push({ page_id: pageId, fetched: forms.length, upserted });
+      summary.push({
+        page_id: pageId,
+        fetched: forms.length,
+        upserted,
+        token_source: tokenSource,
+      });
     } catch (err) {
       summary.push({
         page_id: pageId,
         fetched: 0,
         upserted: 0,
+        token_source: tokenSource,
         error: err instanceof Error ? err.message : String(err),
       });
     }
