@@ -166,7 +166,7 @@ export function ComplianceDashboard() {
     return (
       <div className='space-y-4'>
         <div className='flex items-center gap-3'>
-          <Link href='/admin/notifications'>
+          <Link href='/notifications/admin'>
             <Button variant='outline' size='sm' className='h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3'>
               <ArrowLeft className='h-4 w-4' />
             </Button>
@@ -198,7 +198,7 @@ export function ComplianceDashboard() {
       {/* Header */}
       <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-3'>
         <div className='flex items-center gap-3'>
-          <Link href='/admin/notifications'>
+          <Link href='/notifications/admin'>
             <Button variant='outline' size='sm' className='h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3'>
               <ArrowLeft className='h-4 w-4' />
             </Button>
@@ -390,7 +390,7 @@ export function ComplianceDashboard() {
               {data.by_notification.map((notif) => (
                 <Link
                   key={notif.id}
-                  href={`/admin/notifications/${notif.id}`}
+                  href={`/notifications/admin/${notif.id}`}
                   className='block'
                 >
                   <div className='flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 p-3 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors'>

@@ -27,7 +27,7 @@ import { NotificationsPageSkeleton } from './_components/notifications-page-skel
 
 export default function NotificationsPage() {
   // URL state for category filter — Bug A fix (2026-04-27).
-  // Director's "/admin/notifications?category=dashboard:approval" was being
+  // Director's "/notifications/admin?category=dashboard:approval" was being
   // ignored: activeCategory was pure React state defaulting to 'all'. Other
   // categories (especially doctrines:sunday-wrap) bled through.
   const searchParams = useSearchParams();
@@ -130,7 +130,7 @@ export default function NotificationsPage() {
               </div>
               <div className='flex items-center gap-2'>
                 {canCreateNotifications && (
-                  <Link href='/admin/notifications/new'>
+                  <Link href='/notifications/admin/new'>
                     <Button size='sm' className='h-9'>
                       <Plus className='h-4 w-4 sm:mr-2' />
                       <span className='hidden sm:inline'>Send Notification</span>

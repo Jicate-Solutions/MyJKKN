@@ -3,7 +3,7 @@
 /**
  * recipient-policies-client.tsx
  *
- * Director-facing UI for /admin/notifications/recipients. One card per digest
+ * Director-facing UI for /notifications/admin/recipients. One card per digest
  * category, each with:
  *
  *   - Role checkboxes (alphabetically ordered active roles)

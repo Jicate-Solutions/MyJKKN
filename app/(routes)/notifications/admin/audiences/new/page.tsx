@@ -8,7 +8,7 @@ import { AudienceForm } from '../_components/audience-form';
  * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
  */
 export const navMeta = {
-  invokedFrom: '/admin/notifications/audiences',
+  invokedFrom: '/notifications/admin/audiences',
 } as const;
 
 

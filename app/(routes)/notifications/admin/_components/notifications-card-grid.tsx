@@ -159,7 +159,7 @@ export function NotificationsCardGrid({
         priority: notification.priority,
         category: notification.category
       });
-      router.push(`/admin/notifications/new?${params.toString()}`);
+      router.push(`/notifications/admin/new?${params.toString()}`);
     },
     [router]
   );

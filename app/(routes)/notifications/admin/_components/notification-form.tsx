@@ -55,7 +55,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { NOTIFICATION_CATEGORIES } from '@/lib/constants/notification-categories';
 
-// Use shared canonical list so the filter tabs on /admin/notifications
+// Use shared canonical list so the filter tabs on /notifications/admin
 // always stay in sync with the options in this dropdown.
 const notificationCategories = NOTIFICATION_CATEGORIES;
 
@@ -457,7 +457,7 @@ export function NotificationForm() {
       }
 
       // Delay redirect so user can read the delivery details
-      setTimeout(() => router.push('/admin/notifications'), 3000);
+      setTimeout(() => router.push('/notifications/admin'), 3000);
     } catch (error) {
       console.error('Error sending notification:', error);
       toast.error(
@@ -937,7 +937,7 @@ export function NotificationForm() {
                 </h4>
                 <p className='text-sm text-muted-foreground mb-3'>
                   Target predefined groups like &quot;Hostel Residents&quot;, &quot;Work Pulse Laggards&quot;, etc.
-                  <Link href='/admin/notifications/audiences' className='ml-2 text-primary hover:underline'>
+                  <Link href='/notifications/admin/audiences' className='ml-2 text-primary hover:underline'>
                     Manage audiences →
                   </Link>
                 </p>

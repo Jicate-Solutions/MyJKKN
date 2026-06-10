@@ -467,7 +467,7 @@ function OverrideEditorDialog({
                 id="override-href"
                 value={draft.href}
                 onChange={(e) => patch({ href: e.target.value })}
-                placeholder="/admin/notifications/recipients"
+                placeholder="/admin/retention-policies"
                 className="font-mono text-sm"
                 disabled={isEditing /* href = identity, can't change */}
                 aria-invalid={!hrefValid}
