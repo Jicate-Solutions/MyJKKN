@@ -1,6 +1,6 @@
 'use client';
 
-// /admin/counselors/routing-errors
+// /admission/counselors/admin/routing-errors
 // Observability surface for fn_auto_assign_counselor_v2 routing failures.
 // Today the table is intentionally unwritten — see migration
 // 20260506234138_create_counselor_routing_errors.sql for the writer-side
@@ -104,11 +104,11 @@ export default function RoutingErrorsPage() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink href="/admin">Admin</BreadcrumbLink>
+            <BreadcrumbLink href="/admission">Admission</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbLink href="/admin/counselors">Counselors</BreadcrumbLink>
+            <BreadcrumbLink href="/admission/counselors/admin">Counselors</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>

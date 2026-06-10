@@ -54,7 +54,7 @@ import { BriefingNotificationBanner } from '@/components/admission/briefing-noti
 import { BriefingPopup } from '@/components/admission/briefing-popup';
 
 // navMeta — declares this page for sidebar auto-discovery, matching the
-// canonical `{ label, icon }` shape used by `/admin/counselors/rule-types`.
+// canonical `{ label, icon }` shape used by `/admission/counselors/admin/rule-types`.
 // Aligns discoverability with `/admission/group-dashboard` so both admission
 // dashboards render consistently in nav scaffolding.
 export const navMeta = { label: 'Admission Dashboard', icon: 'LayoutDashboard' } as const;

@@ -516,43 +516,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
-        "path": "/admin/counselors",
-        "label": "Counselors",
-        "iconName": "Users",
-        "children": [
-          {
-            "path": "/admin/counselors/alert-thresholds",
-            "label": "Alert Thresholds",
-            "iconName": "Users",
-            "children": []
-          },
-          {
-            "path": "/admin/counselors/routing-config",
-            "label": "Routing Config",
-            "iconName": "Users",
-            "children": []
-          },
-          {
-            "path": "/admin/counselors/routing-errors",
-            "label": "Routing Errors",
-            "iconName": "AlertTriangle",
-            "children": []
-          },
-          {
-            "path": "/admin/counselors/rule-types",
-            "label": "Rule Types",
-            "iconName": "ListChecks",
-            "children": []
-          },
-          {
-            "path": "/admin/counselors/tier-policy",
-            "label": "Tier Policy",
-            "iconName": "Layers",
-            "children": []
-          }
-        ]
-      },
-      {
         "path": "/admin/dashboard",
         "label": "Dashboard",
         "iconName": "LayoutGrid",
@@ -612,12 +575,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/admin/landing-pages",
         "label": "Landing Pages",
         "iconName": "FileText",
-        "children": []
-      },
-      {
-        "path": "/admin/lead-stages-policy",
-        "label": "Lead Stages Policy",
-        "iconName": "GitBranch",
         "children": []
       },
       {
@@ -757,12 +714,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
-        "path": "/admin/telephony-policies",
-        "label": "Telephony Policies",
-        "iconName": "FileText",
-        "children": []
-      },
-      {
         "path": "/admin/voice-memo-monitor",
         "label": "Voice Memo Monitor",
         "iconName": "Mic",
@@ -848,6 +799,43 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Counselors",
         "iconName": "Users",
         "children": [
+          {
+            "path": "/admission/counselors/admin",
+            "label": "Admin",
+            "iconName": "Users",
+            "children": [
+              {
+                "path": "/admission/counselors/admin/alert-thresholds",
+                "label": "Alert Thresholds",
+                "iconName": "Users",
+                "children": []
+              },
+              {
+                "path": "/admission/counselors/admin/routing-config",
+                "label": "Routing Config",
+                "iconName": "Users",
+                "children": []
+              },
+              {
+                "path": "/admission/counselors/admin/routing-errors",
+                "label": "Routing Errors",
+                "iconName": "AlertTriangle",
+                "children": []
+              },
+              {
+                "path": "/admission/counselors/admin/rule-types",
+                "label": "Rule Types",
+                "iconName": "ListChecks",
+                "children": []
+              },
+              {
+                "path": "/admission/counselors/admin/tier-policy",
+                "label": "Tier Policy",
+                "iconName": "Layers",
+                "children": []
+              }
+            ]
+          },
           {
             "path": "/admission/counselors/alerts",
             "label": "Alerts",
@@ -1273,6 +1261,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/settings/lead-stages-policy",
+            "label": "Lead Stages Policy",
+            "iconName": "GitBranch",
+            "children": []
+          },
+          {
             "path": "/admission/settings/lookups",
             "label": "Lookups",
             "iconName": "GraduationCap",
@@ -1324,6 +1318,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admission/settings/statuses",
             "label": "Statuses",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/settings/telephony-policies",
+            "label": "Telephony Policies",
             "iconName": "GraduationCap",
             "children": []
           },

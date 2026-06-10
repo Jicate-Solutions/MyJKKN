@@ -91,6 +91,26 @@ const NAV_EXCLUDE = new Set<string>([
   '/okr/admin',
 
   // ────────────────────────────────────────────────────────────
+  // 2026-06-10 admin-cluster relocation — admission (counselors +
+  // policies). These super-admin config pages moved out of /admin/*
+  // (where the filesystem-derived admin tree made them auto-chip-
+  // reachable) into the admission namespace. Deliberately NOT wired
+  // as nav-config chips: they're SuperAdminOnly/config surfaces and
+  // chips would surface them to every admission user (sidebar-shows/
+  // page-denies anti-pattern). The counselors/admin hub page links
+  // its 5 sub-pages via cards; 307 redirects cover old bookmarks.
+  // Same pattern as '/okr/admin' and '/pde/admin/compliance/per-college'.
+  // ────────────────────────────────────────────────────────────
+  '/admission/counselors/admin',
+  '/admission/counselors/admin/alert-thresholds',
+  '/admission/counselors/admin/routing-config',
+  '/admission/counselors/admin/routing-errors',
+  '/admission/counselors/admin/rule-types',
+  '/admission/counselors/admin/tier-policy',
+  '/admission/settings/lead-stages-policy',
+  '/admission/settings/telephony-policies',
+
+  // ────────────────────────────────────────────────────────────
   // Form pages invoked from list-page "+ New" / "Add" / "Create"
   // buttons. Not tier-strip destinations — the user clicks a row
   // action on the parent list, lands here, submits, returns to list.
