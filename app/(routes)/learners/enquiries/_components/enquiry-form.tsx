@@ -1071,14 +1071,11 @@ export function EnquiryForm({
     };
 
     // accommodation_type TEXT is retired — resolve the HOSTEL/DAY SCHOLAR choice
-    // to the institution-scoped accommodation_types FK and persist that instead.
+    // to the global accommodation_types FK and persist that instead.
     let accommodationTypeId: string | null = null;
-    if (values.institution_id && values.accommodation_type) {
+    if (values.accommodation_type) {
       try {
-        const accommodations = await LookupService.listAccommodationTypes(
-          values.institution_id,
-          true,
-        );
+        const accommodations = await LookupService.listAccommodationTypes(true);
         const norm = String(values.accommodation_type).trim().toLowerCase();
         accommodationTypeId =
           accommodations.find(
@@ -1756,9 +1753,9 @@ export function EnquiryForm({
         // Accommodation is still a TEXT field on the form — resolve TEXT→FK for
         // the matrix preview when its FK isn't already known. (Quota + community
         // are FKs on the form directly.)
-        if (!resolvedAccommodationId && values.institution_id) {
+        if (!resolvedAccommodationId) {
           try {
-            const accommodations = await LookupService.listAccommodationTypes(values.institution_id, true);
+            const accommodations = await LookupService.listAccommodationTypes(true);
             resolvedAccommodationId = resolveLookupId(values.accommodation_type, accommodations);
           } catch (err) {
             console.error('[enquiry-form] TEXT→FK lookup failed:', err);

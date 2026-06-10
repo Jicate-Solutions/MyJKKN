@@ -603,10 +603,10 @@ export class LearnerProfileService {
       const { buildQuotaResolver } = await import('@/lib/utils/quota-name-resolver');
       dto.quota_id = (await buildQuotaResolver(supabase))(dto.quota) ?? null;
     }
-    if (dto.accommodation_type != null && dto.accommodation_type !== '' && !dto.accommodation_type_id && institutionId) {
+    if (dto.accommodation_type != null && dto.accommodation_type !== '' && !dto.accommodation_type_id) {
       const { buildAccommodationTypeResolver } = await import('@/lib/utils/accommodation-type-resolver');
       dto.accommodation_type_id =
-        (await buildAccommodationTypeResolver(supabase, institutionId))(dto.accommodation_type) ?? null;
+        (await buildAccommodationTypeResolver(supabase))(dto.accommodation_type) ?? null;
     }
     if (dto.admission_year != null && dto.admission_year !== '' && !dto.admission_year_id && institutionId && programId) {
       const { resolveAdmissionYearId } = await import('@/lib/services/admission/resolve-admission-year');

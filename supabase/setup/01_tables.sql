@@ -4972,3 +4972,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_hostel_waitlist_active_upgrade
   WHERE entry_kind = 'upgrade' AND status = 'waiting';
 
 ALTER TABLE public.razorpay_webhook_events ENABLE ROW LEVEL SECURITY;
+
+-- accommodation_types: GLOBAL lookup (institution-agnostic).
+-- Originally created institution-scoped in 20260505100001; deduped to one row
+-- per code and institution_id dropped in 20260610100000_accommodation_types_global.sql.
+CREATE TABLE IF NOT EXISTS public.accommodation_types (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_accommodation_types_active
+  ON public.accommodation_types (is_active, sort_order);

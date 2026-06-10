@@ -421,33 +421,21 @@ export class LearnerHosteliteService {
     }
   }
 
-  // ── Resolve the institution-scoped accommodation_types id for a learner ──
+  // ── Resolve the global accommodation_types id for a code ──
   // accommodation_type TEXT is retired; the hostel/day-scholar flip now writes
-  // accommodation_type_id. The right row is institution-scoped, so derive the
-  // institution from the learner and look up (institution_id, code).
-  private static async accommodationIdForLearner(
+  // accommodation_type_id. The catalog is global (one row per code).
+  private static async accommodationIdForCode(
     supabase: ReturnType<typeof createClientSupabaseClient>,
-    learnerId: string,
     code: 'hostel' | 'dayscholar',
   ): Promise<string> {
-    const { data: lp, error: lpErr } = await supabase
-      .from('learners_profiles')
-      .select('institution_id')
-      .eq('id', learnerId)
-      .maybeSingle();
-    if (lpErr) throw lpErr;
-    if (!lp?.institution_id) {
-      throw new Error('Learner has no institution; cannot set accommodation type');
-    }
     const { data: at, error: atErr } = await supabase
       .from('accommodation_types')
       .select('id')
-      .eq('institution_id', lp.institution_id)
       .eq('code', code)
       .maybeSingle();
     if (atErr) throw atErr;
     if (!at?.id) {
-      throw new Error(`No '${code}' accommodation type configured for this institution`);
+      throw new Error(`No '${code}' accommodation type configured`);
     }
     return at.id;
   }
@@ -459,7 +447,7 @@ export class LearnerHosteliteService {
   static async removeFromHostel(learnerId: string): Promise<void> {
     try {
       const supabase = createClientSupabaseClient();
-      const accId = await this.accommodationIdForLearner(supabase, learnerId, 'dayscholar');
+      const accId = await this.accommodationIdForCode(supabase, 'dayscholar');
       const { error } = await supabase
         .from('learners_profiles')
         .update({ accommodation_type_id: accId })
@@ -478,7 +466,7 @@ export class LearnerHosteliteService {
   static async addToHostel(learnerId: string): Promise<void> {
     try {
       const supabase = createClientSupabaseClient();
-      const accId = await this.accommodationIdForLearner(supabase, learnerId, 'hostel');
+      const accId = await this.accommodationIdForCode(supabase, 'hostel');
       const { error } = await supabase
         .from('learners_profiles')
         .update({ accommodation_type_id: accId })
@@ -601,13 +589,12 @@ export class LearnerHosteliteService {
       const supabase = createClientSupabaseClient();
 
       // Existing hostelers are excluded by FK now (accommodation_type TEXT
-      // retired). Gather the institution-scoped 'hostel' accommodation_type ids
-      // to exclude; null-FK learners (blank accommodation) stay valid candidates.
-      let hostelQuery = supabase
+      // retired). Gather the global 'hostel' accommodation_type ids to
+      // exclude; null-FK learners (blank accommodation) stay valid candidates.
+      const hostelQuery = supabase
         .from('accommodation_types')
         .select('id')
         .eq('code', 'hostel');
-      if (institutionId) hostelQuery = hostelQuery.eq('institution_id', institutionId);
       const { data: hostelRows, error: hostelErr } = await hostelQuery;
       if (hostelErr) {
         logger.error('campus-living/learner-hostelite', 'searchCandidates hostel-id lookup failed', hostelErr);

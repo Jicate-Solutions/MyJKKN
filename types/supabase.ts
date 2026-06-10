@@ -200,7 +200,6 @@ export type Database = {
           created_at: string
           created_by: string | null
           id: string
-          institution_id: string
           is_active: boolean
           name: string
           sort_order: number
@@ -212,7 +211,6 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           id?: string
-          institution_id: string
           is_active?: boolean
           name: string
           sort_order?: number
@@ -224,7 +222,6 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           id?: string
-          institution_id?: string
           is_active?: boolean
           name?: string
           sort_order?: number
@@ -259,41 +256,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "users_profiles"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "accommodation_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "case_graduation_readiness"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "accommodation_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "institutions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "accommodation_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_colleges"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "accommodation_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "semester_hierarchy_health"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "accommodation_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_institutions_needing_admission_counselors"
-            referencedColumns: ["institution_id"]
           },
           {
             foreignKeyName: "accommodation_types_updated_by_fkey"

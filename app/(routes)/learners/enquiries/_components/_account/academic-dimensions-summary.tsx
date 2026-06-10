@@ -148,19 +148,17 @@ export function AcademicDimensionsSummary({ learner }: Props) {
           else if (text) next.community = text;
         }),
       );
-      if (learner.institution_id) {
-        tasks.push(
-          LookupService.listAccommodationTypes(learner.institution_id, true).then((rows) => {
-            const fk = (learner as { accommodation_type_id?: string }).accommodation_type_id;
-            const text = (learner as { accommodation_type?: string }).accommodation_type;
-            const match =
-              (fk && rows.find((r) => r.id === fk)) ??
-              (text && rows.find((r) => r.code.toLowerCase() === text.trim().toLowerCase() || r.name.toLowerCase() === text.trim().toLowerCase()));
-            if (match) next.accommodation = match.name;
-            else if (text) next.accommodation = text;
-          }),
-        );
-      }
+      tasks.push(
+        LookupService.listAccommodationTypes(true).then((rows) => {
+          const fk = (learner as { accommodation_type_id?: string }).accommodation_type_id;
+          const text = (learner as { accommodation_type?: string }).accommodation_type;
+          const match =
+            (fk && rows.find((r) => r.id === fk)) ??
+            (text && rows.find((r) => r.code.toLowerCase() === text.trim().toLowerCase() || r.name.toLowerCase() === text.trim().toLowerCase()));
+          if (match) next.accommodation = match.name;
+          else if (text) next.accommodation = text;
+        }),
+      );
 
       await Promise.allSettled(tasks);
       if (!cancelled) setLabels(next);
