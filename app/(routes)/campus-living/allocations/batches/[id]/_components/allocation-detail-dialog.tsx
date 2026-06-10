@@ -106,6 +106,8 @@ export function AllocationDetailDialog({ open, onOpenChange, allocationId, learn
 
   const learner = data?.learner;
   const rules = data?.eligibility_rules ?? [];
+  const appliedRoomRule = rules.find((r) => r.selected_room);
+  const pinnedRules = data?.physical?.pinned_rules ?? [];
   const bills = data?.bills ?? [];
   const countedTotal = bills
     .filter((b) => b.counted)
@@ -228,6 +230,13 @@ export function AllocationDetailDialog({ open, onOpenChange, allocationId, learn
                 Resolved from {data.category.academic_year ?? 'academic year'} · academic fee{' '}
                 {inr(data.category.academic_fee)}
               </p>
+              {appliedRoomRule && (
+                <p className="pl-6 text-xs text-muted-foreground">
+                  Condition fee: <strong>{feeBand(appliedRoomRule.fee_min, appliedRoomRule.fee_max)}</strong>
+                  {' · '}Learner fee: <strong>{inr(learner?.academic_fee ?? null)}</strong>
+                  {' → '}{appliedRoomRule.room_category ?? '—'}
+                </p>
+              )}
             </Section>
 
             {/* The learner's academic bills — which one produced the gating fee */}
@@ -285,6 +294,60 @@ export function AllocationDetailDialog({ open, onOpenChange, allocationId, learn
                   ? 'Matches a cohort reservation rule for this room'
                   : 'Room is reserved for another cohort'}
               </Cond>
+              {/* The cohort's own reservation rule(s) — the configured condition vs the learner */}
+              {pinnedRules.length > 0 && (
+                <div className="space-y-2 pl-6">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Cohort reservation condition{pinnedRules.length > 1 ? 's' : ''} (where this
+                    cohort&apos;s rooms are)
+                  </p>
+                  {pinnedRules.map((r, i) => (
+                    <div key={i} className="rounded-md border p-2.5 space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                        <Badge>{r.block}</Badge>
+                        <span className="font-medium">{r.rule_name}</span>
+                        <span className="text-muted-foreground">
+                          · {r.rooms} room{r.rooms === 1 ? '' : 's'}
+                          {r.floor != null
+                            ? ` · ${r.floor === 0 ? 'Ground floor' : `Floor ${r.floor}`}`
+                            : ''}
+                        </span>
+                      </div>
+                      <CompareHeader />
+                      <CompareRow
+                        label="Institution"
+                        condition={r.institution ?? '—'}
+                        learner={learner?.institution ?? '—'}
+                        ok
+                      />
+                      <CompareRow
+                        label="Degree"
+                        condition={r.degree ?? 'Any'}
+                        learner={learner?.degree ?? '—'}
+                        ok
+                      />
+                      <CompareRow
+                        label="Department"
+                        condition={r.department ?? 'Any'}
+                        learner={learner?.department ?? '—'}
+                        ok
+                      />
+                      <CompareRow
+                        label="Program"
+                        condition={r.program ?? 'Any'}
+                        learner={learner?.program ?? '—'}
+                        ok
+                      />
+                      <CompareRow
+                        label="Semester"
+                        condition={r.semester ?? 'Any'}
+                        learner={learner?.semester ?? '—'}
+                        ok
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
               {!data.physical.open_room && data.physical.covering_rules.length > 0 && (
                 <div className="space-y-2 pl-6">
                   {data.physical.covering_rules.map((r, i) => (

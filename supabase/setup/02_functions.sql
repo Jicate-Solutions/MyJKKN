@@ -14979,7 +14979,7 @@ DECLARE
   v_resolved_room_name text; v_resolved_mess_name text;
   v_fee numeric; v_ay_name text;
   v_has_covering boolean; v_matched boolean; v_rules jsonb;
-  v_pinned boolean; v_pinned_blocks text;
+  v_pinned boolean; v_pinned_blocks text; v_pinned_rules jsonb;
   v_serves boolean; v_cur_bill int; v_acad_bill int;
   v_elig_rules jsonb; v_bills jsonb;
 BEGIN
@@ -15145,6 +15145,30 @@ BEGIN
        AND (r.semester_id   IS NULL OR r.semester_id   = v_semester))
   INTO v_pinned, v_pinned_blocks;
 
+  -- The cohort's reservation rule(s) themselves (any block) — the configured condition
+  -- the learner matches; lets the UI show condition + learner status (20260610150000).
+  SELECT jsonb_agg(jsonb_build_object(
+      'block', hb.name,
+      'rule_name', COALESCE(NULLIF(btrim(r.rule_name),''),'(unnamed rule)'),
+      'floor', r.floor,
+      'rooms', (SELECT count(*)::int FROM hostel_room_eligibility_rule_rooms rr WHERE rr.rule_id=r.id),
+      'institution', (SELECT name FROM institutions WHERE id=r.institution_id),
+      'degree',      (SELECT degree_name FROM degrees WHERE id=r.degree_id),
+      'department',  (SELECT department_name FROM departments WHERE id=r.department_id),
+      'program',     (SELECT program_name FROM programs WHERE id=r.program_id),
+      'semester',    (SELECT semester_name FROM semesters WHERE id=r.semester_id),
+      'covers_allocated_room', (r.block_id = v_block)
+    ) ORDER BY hb.name)
+  INTO v_pinned_rules
+  FROM hostel_room_eligibility_rules r
+  JOIN hostel_blocks hb ON hb.id = r.block_id
+  WHERE r.is_active
+    AND r.institution_id = v_inst
+    AND (r.degree_id     IS NULL OR r.degree_id     = v_degree)
+    AND (r.department_id IS NULL OR r.department_id = v_dept)
+    AND (r.program_id    IS NULL OR r.program_id    = v_program)
+    AND (r.semester_id   IS NULL OR r.semester_id   = v_semester);
+
   SELECT count(*)::int INTO v_acad_bill FROM billing_student_bills b
     WHERE b.student_id=v_lp AND b.fee_source='academic' AND b.status NOT IN ('cancelled','superseded');
   SELECT count(*)::int INTO v_cur_bill FROM billing_student_bills b
@@ -15184,6 +15208,7 @@ BEGIN
       'open_room', NOT v_has_covering,
       'pinned_elsewhere', (v_pinned AND NOT v_matched),
       'pinned_blocks', v_pinned_blocks,
+      'pinned_rules', COALESCE(v_pinned_rules, '[]'::jsonb),
       'access_ok', (v_matched OR (NOT v_has_covering AND NOT v_pinned)),
       'covering_rules', COALESCE(v_rules, '[]'::jsonb)
     ),

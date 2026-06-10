@@ -123,6 +123,19 @@ export interface AllocationEligibilityExplain {
     /** Cohort matches a reservation rule in another block — pinned to those rooms. */
     pinned_elsewhere?: boolean;
     pinned_blocks?: string | null;
+    /** The cohort's own reservation rule(s) (any block) — the configured condition. */
+    pinned_rules?: Array<{
+      block: string;
+      rule_name: string;
+      floor: number | null;
+      rooms: number;
+      institution: string | null;
+      degree: string | null;
+      department: string | null;
+      program: string | null;
+      semester: string | null;
+      covers_allocated_room: boolean;
+    }>;
     access_ok: boolean;
     covering_rules: Array<{
       rule_name: string;
