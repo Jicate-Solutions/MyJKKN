@@ -110,6 +110,37 @@ export async function discoverAccounts(
   return payload.data;
 }
 
+/**
+ * List Instagram Business / Creator accounts that OTHER businesses have shared
+ * with this business via a partner relationship.
+ *
+ * Endpoint: `GET /{business-id}/client_instagram_accounts`
+ *
+ * Twin of {@link discoverAccounts}: `owned_*` returns accounts the business
+ * owns directly; `client_*` returns accounts a partner business granted this
+ * business access to (Business Settings → Partners → "Give a partner access
+ * to your assets"). JKKN's department accounts are owned by the "JKKN All
+ * Departments" portfolio (208146911814983) and shared into "JKKN Institutions"
+ * (1720903384834051, the id MyJKKN's token belongs to) — so they arrive only
+ * through this edge, never `owned_instagram_accounts`. Same shape, same scope
+ * requirement (`business_management`), same hydration via getAccountProfile.
+ */
+export async function discoverClientAccounts(
+  businessId: string,
+  config: IgCallConfig
+): Promise<IgAccountSummary[]> {
+  const payload = await graphRequestData<MetaGraphListResponse<IgAccountSummary>>({
+    endpoint: `/${businessId}/client_instagram_accounts`,
+    accessToken: config.accessToken,
+    apiVersion: config.apiVersion,
+    query: { fields: 'id,username' },
+    sentryOp: SENTRY_OP,
+    sentrySpanName: 'discoverClientAccounts',
+  });
+
+  return payload.data;
+}
+
 // ---------------------------------------------------------------------------
 // 2. getAccountProfile(igUserId)
 // ---------------------------------------------------------------------------
