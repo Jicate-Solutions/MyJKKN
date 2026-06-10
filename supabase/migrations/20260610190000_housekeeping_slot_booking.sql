@@ -24,12 +24,12 @@
 --
 -- VERIFIED LIVE-SCHEMA FACTS honored here:
 --   - hostel_allocations: institution_id, learner_id, block_id, room_id,
---     tier_id (NOT NULL → hostel_tier_policy), status allocation_status_enum.
+--     tier_id (NOT NULL → hostel_tier_policy), status allocation_status_enum
+--     ('active','vacated','transferred','suspended','pending_approval',
+--     'rejected'), allocation_date, check_out_date (added 20260703000000).
 --     ⚠️ allocations.learner_id FKs profiles(id) (PR #1267), while
 --     hostel_cleaning_bookings.learner_id FKs learners_profiles(id) —
 --     two different keys; see fn_housekeeping_book_slot.
---     ('active','vacated','transferred','suspended','pending_approval',
---     'rejected'), allocation_date, check_out_date (added 20260703000000).
 --     "Active" for BOOKING entitlement = status = 'active' AND
 --     check_out_date IS NULL (stricter than the bed-econ occupancy canonical,
 --     deliberately: pending_approval residents must NOT book — spec empty
@@ -39,8 +39,10 @@
 --   - profiles.id == auth.users.id; profiles.learner_id → learners_profiles.id.
 --   - learners_profiles: first_name, last_name.
 --   - hostel_rooms: room_number (NO institution_id). hostel_blocks: name.
---   - fn_get_policy(p_key, p_scope_id) → jsonb and fn_get_policy_json(p_key,
---     p_default, p_scope_id) → jsonb are the ONLY live readers (verified 2026-06-10);
+--   - Policy readers live in prod: fn_get_policy, fn_get_policy_json, and the
+--     scalar trio fn_get_policy_int/_text/_bool (their p_default param has NO
+--     default value, so REST probes must pass it). This file uses
+--     fn_get_policy_json uniformly with #>> '{}' scalar extraction.
 --   - platform_policies unique index: (policy_key, scope_type,
 --     COALESCE(scope_id, zero-uuid)).
 --   - Quota week = ISO week: date_trunc('week', ...) (Monday start).
