@@ -167,7 +167,7 @@ export default function LifecycleAnalyticsPage() {
 
   const breadcrumbItems = [
     { label: 'Home', href: '/' },
-    { label: 'Administration' },
+    { label: 'Learners', href: '/learners' },
     { label: 'Lifecycle Analytics' },
   ];
 
