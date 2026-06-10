@@ -131,7 +131,7 @@ const NAV_EXCLUDE = new Set<string>([
   '/accreditation/naac/grievance/new',
 
   // Admin /new forms
-  '/admin/notifications/audiences/new',
+  '/notifications/admin/audiences/new',
   '/pde/admin/assessments/create',
   '/pde/admin/quests/create',
 

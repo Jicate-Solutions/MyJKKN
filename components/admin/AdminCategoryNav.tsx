@@ -49,7 +49,7 @@ interface AdminCategoryNavProps {
   /** Category key, e.g. 'notifications', 'pde', 'lti', 'counselors', 'system'. */
   category: string;
   /**
-   * Hide create-route pages (e.g. `/admin/notifications/new`) so they don't
+   * Hide create-route pages (e.g. `/admin/<category>/new`) so they don't
    * clutter the Tier-3 strip. Defaults to true.
    */
   hideCreatePages?: boolean;

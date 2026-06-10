@@ -110,7 +110,10 @@ export function getAllAuditModuleNames(): string[] {
 export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = [
   // /admin/* — sub-prefixes first
   ['/admin/bug-reports', 'Bug Reports'],
-  ['/admin/notifications', 'Notifications'],
+  // /admin/notifications relocated to /notifications/admin (2026-06-11
+  // admin-cluster relocation wave-2) — no broader '/notifications' base
+  // mapping exists, so the override is rewritten rather than dropped.
+  ['/notifications/admin', 'Notifications'],
   ['/admin/lifecycle', 'Lifecycle Analytics'],
   ['/admin/lti', 'System'],
   ['/pde/admin', 'PDE Learning'],

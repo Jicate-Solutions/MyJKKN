@@ -208,7 +208,7 @@ export interface PendingAction {
 // (app/api/admin/notifications/audiences/route.ts and [id]/route.ts),
 // but it was never added to this file — blocking all production deploys
 // since the notifications module merged. See the audience form for the
-// UI side: app/(routes)/admin/notifications/audiences/_components/audience-form.tsx
+// UI side: app/(routes)/notifications/admin/audiences/_components/audience-form.tsx
 export const VALID_BUILT_IN_AUDIENCE_NAMES = [
   'role_filter',
   'institution_filter',

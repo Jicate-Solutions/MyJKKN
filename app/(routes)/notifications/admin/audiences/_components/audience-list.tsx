@@ -222,7 +222,7 @@ export function AudienceList() {
             </p>
           </div>
           <div className='flex items-center gap-2'>
-            <Link href='/admin/notifications/audiences/new'>
+            <Link href='/notifications/admin/audiences/new'>
               <Button size='sm' className='h-9'>
                 <Plus className='h-4 w-4 sm:mr-2' />
                 <span className='hidden sm:inline'>Create Audience</span>
@@ -516,7 +516,7 @@ function EmptyState({ hasSearch }: { hasSearch: boolean }) {
         </p>
       </div>
       {!hasSearch && (
-        <Link href='/admin/notifications/audiences/new'>
+        <Link href='/notifications/admin/audiences/new'>
           <Button size='sm' className='mt-2'>
             <Plus className='h-4 w-4 mr-2' />
             Create Audience
