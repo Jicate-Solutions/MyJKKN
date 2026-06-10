@@ -12,15 +12,23 @@ export const dynamic = 'force-dynamic';
  * Auth: super_admin OR institution_admin scoped to requested institution_id.
  *
  * Uses lib/instagram/api-client.ts (merged in PR #1147) for per-account
- * profile hydration. An optional Business-Manager path (META_BUSINESS_MANAGER_ID
- * + discoverAccounts) supplements the page-edge discovery when that env is
- * present, and is skipped silently when absent.
+ * profile hydration. An optional Business-Manager path (META_BUSINESS_MANAGER_ID)
+ * supplements the page-edge discovery when that env is present, and is skipped
+ * silently when absent. It reads BOTH edges of the business:
+ *   - `owned_instagram_accounts`  (discoverAccounts)        — accounts we own
+ *   - `client_instagram_accounts` (discoverClientAccounts)  — accounts a
+ *     partner business shared into ours (Business Settings → Partners). JKKN's
+ *     department handles arrive only via this second edge.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { connection } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { discoverAccounts, getAccountProfile } from '@/lib/instagram/api-client';
+import {
+  discoverAccounts,
+  discoverClientAccounts,
+  getAccountProfile,
+} from '@/lib/instagram/api-client';
 
 const GRAPH_API = 'https://graph.facebook.com/v25.0';
 const GRAPH_VERSION = 'v25.0';
@@ -226,6 +234,50 @@ export async function GET(request: NextRequest) {
         }
       } catch (err) {
         console.warn(`[ig-discover] Business-manager supplement failed (non-critical):`, err);
+      }
+    }
+
+    // Step 2c (optional): partner-shared supplement. Mirrors Step 2b exactly
+    // but reads `client_instagram_accounts` — IG accounts another business
+    // shared into ours via a Partner relationship (Business Settings →
+    // Partners). JKKN's department accounts live in the "JKKN All Departments"
+    // portfolio and are partner-shared into JKKN Institutions, so they appear
+    // ONLY on this edge, never `owned_instagram_accounts`. Same env gate,
+    // same dedup (seenIgIds), same non-critical degradation.
+    if (envBusinessId) {
+      try {
+        const summaries = await discoverClientAccounts(envBusinessId, {
+          accessToken,
+          apiVersion: GRAPH_VERSION,
+        });
+        for (const summary of summaries) {
+          if (seenIgIds.has(summary.id)) continue;
+          seenIgIds.add(summary.id);
+          try {
+            const igProfile = await getAccountProfile(summary.id, {
+              accessToken,
+              apiVersion: GRAPH_VERSION,
+            });
+            discovered.push({
+              ig_user_id: igProfile.id,
+              username: igProfile.username || summary.username || '',
+              name: igProfile.name || '',
+              biography: igProfile.biography || null,
+              profile_picture_url: igProfile.profile_picture_url || null,
+              followers_count: igProfile.followers_count ?? null,
+              follows_count: igProfile.follows_count ?? null,
+              media_count: igProfile.media_count ?? null,
+              website: igProfile.website || null,
+              account_type: igProfile.account_type || null,
+              business_page_id: null,
+              already_synced: false,
+            });
+          } catch (err) {
+            console.warn(`[ig-discover] Failed to fetch client IG account ${summary.id}:`, err);
+          }
+        }
+      } catch (err) {
+        console.warn(`[ig-discover] Partner-shared supplement failed (non-critical):`, err);
       }
     }
 
