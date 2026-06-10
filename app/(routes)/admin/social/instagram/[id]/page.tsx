@@ -1,27 +1,36 @@
 'use client';
 
-import { use } from 'react';
+/**
+ * Instagram account drilldown — full insights view.
+ *
+ * Composes per-section client components, each consuming one locked insights
+ * contract (C1–C6 with account_id = the route param):
+ *   InsightTiles        C1 growth (+C7 summary for engagement rate) + detail route
+ *   GrowthChart         C1 growth
+ *   HashtagsTable       C2 hashtags
+ *   ActiveHoursChart    C3 active-hours
+ *   ReelsSection        C4 reels
+ *   StoriesSection      C5 stories
+ *   DemographicsSection C6 demographics
+ *
+ * Every section owns its useQuery + skeleton + error alert, so one failing
+ * endpoint never blanks the page. The header / recent-posts / audit-log block
+ * still comes from the existing detail route via useInstagramAccountDetail;
+ * if THAT fails, only the detail block degrades to an alert — the insight
+ * sections render regardless (they need only the route param).
+ */
+
+import { use, useState } from 'react';
 import Link from 'next/link';
-import { formatDistanceToNow, format } from 'date-fns';
+import { formatDistanceToNow } from 'date-fns';
 import {
   ArrowLeft,
   ExternalLink,
   RefreshCw,
-  Users,
-  Image as ImageIcon,
-  Activity,
   Heart,
   MessageCircle,
+  CalendarRange,
 } from 'lucide-react';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
@@ -39,10 +48,17 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Progress } from '@/components/ui/progress';
 
 import { useInstagramAccountDetail } from '@/hooks/use-instagram-account-detail';
 import type { IgAccountStatus } from '@/services/instagram-service';
+
+import { InsightTiles } from './_components/insight-tiles';
+import { GrowthChart } from './_components/growth-chart';
+import { HashtagsTable } from './_components/hashtags-table';
+import { ActiveHoursChart } from './_components/active-hours-chart';
+import { ReelsSection } from './_components/reels-section';
+import { StoriesSection } from './_components/stories-section';
+import { DemographicsSection } from './_components/demographics-section';
 
 // ─── Status badge helper ────────────────────────────────────────────────────
 
@@ -56,12 +72,6 @@ const STATUS_BADGE: Record<
   error: { label: 'Error', variant: 'destructive' },
 };
 
-function fmt(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
 function relativeTime(iso: string | null): string {
   if (!iso) return '—';
   try {
@@ -71,12 +81,7 @@ function relativeTime(iso: string | null): string {
   }
 }
 
-function healthColor(score: number): string {
-  if (score >= 75) return 'text-green-600';
-  if (score >= 50) return 'text-yellow-600';
-  if (score >= 25) return 'text-orange-600';
-  return 'text-red-600';
-}
+const DATE_RANGES = [7, 30, 90] as const;
 
 // ─── Page ───────────────────────────────────────────────────────────────────
 
@@ -86,6 +91,7 @@ interface PageProps {
 
 export default function InstagramAccountDetailPage({ params }: PageProps) {
   const { id } = use(params);
+  const [days, setDays] = useState<number>(30);
   const { data: account, isLoading, error, refetch } = useInstagramAccountDetail(id);
 
   const breadcrumbItems = [
@@ -96,56 +102,17 @@ export default function InstagramAccountDetailPage({ params }: PageProps) {
     { label: account?.username ? `@${account.username}` : 'Account Detail' },
   ];
 
-  // ── Loading ──────────────────────────────────────────────────────────────
-  if (isLoading) {
-    return (
-      <ContentLayout title="Instagram Account">
-        <PageBreadcrumb items={breadcrumbItems} />
-        <div className="mt-6 space-y-6">
-          <Skeleton className="h-32 w-full rounded-xl" />
-          <div className="grid grid-cols-3 gap-4">
-            {[0, 1, 2].map((i) => <Skeleton key={i} className="h-24 rounded-lg" />)}
-          </div>
-          <Skeleton className="h-64 w-full rounded-lg" />
-        </div>
-      </ContentLayout>
-    );
-  }
+  const status = account ? (STATUS_BADGE[account.status] ?? STATUS_BADGE.error) : null;
 
-  // ── Error ────────────────────────────────────────────────────────────────
-  if (error || !account) {
-    return (
-      <ContentLayout title="Instagram Account">
-        <PageBreadcrumb items={breadcrumbItems} />
-        <div className="mt-6 space-y-4">
-          <Link href="/admin/social/instagram">
-            <Button variant="ghost" size="sm" className="gap-2">
-              <ArrowLeft className="h-4 w-4" />
-              Back to accounts
-            </Button>
-          </Link>
-          <Alert variant="destructive">
-            <AlertDescription>
-              {error?.message.includes('404')
-                ? 'Account detail API route not yet deployed (Agent γ PR pending).'
-                : `Failed to load account: ${error?.message ?? 'Unknown error'}`}
-            </AlertDescription>
-          </Alert>
-        </div>
-      </ContentLayout>
-    );
-  }
-
-  const status = STATUS_BADGE[account.status] ?? STATUS_BADGE.error;
-
-  // Prepare trendline data (last 30 snapshots, oldest first)
-  const trendData = [...(account.metric_snapshots ?? [])]
-    .sort((a, b) => new Date(a.captured_at).getTime() - new Date(b.captured_at).getTime())
-    .slice(-30)
-    .map((s) => ({
-      date: format(new Date(s.captured_at), 'MMM d'),
-      followers: s.followers_count,
-    }));
+  // Optional new snapshot columns — present only once the detail route exposes
+  // them; read defensively so tiles degrade to '—' instead of crashing.
+  const accountExtras = account as
+    | (typeof account & {
+        accounts_engaged?: number | null;
+        total_interactions?: number | null;
+      })
+    | null
+    | undefined;
 
   return (
     <SuperAdminOnly
@@ -157,284 +124,242 @@ export default function InstagramAccountDetailPage({ params }: PageProps) {
         </ContentLayout>
       }
     >
-    <ContentLayout title={`@${account.username}`}>
-      <PageBreadcrumb items={breadcrumbItems} />
+      <ContentLayout title={account?.username ? `@${account.username}` : 'Instagram Account'}>
+        <PageBreadcrumb items={breadcrumbItems} />
 
-      <div className="mt-6 space-y-6">
-        {/* Back + Refresh */}
-        <div className="flex items-center justify-between">
-          <Link href="/admin/social/instagram">
-            <Button variant="ghost" size="sm" className="gap-2">
-              <ArrowLeft className="h-4 w-4" />
-              Back to accounts
+        <div className="mt-6 space-y-6">
+          {/* Back + Refresh */}
+          <div className="flex items-center justify-between">
+            <Link href="/admin/social/instagram">
+              <Button variant="ghost" size="sm" className="gap-2">
+                <ArrowLeft className="h-4 w-4" />
+                Back to accounts
+              </Button>
+            </Link>
+            <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-2">
+              <RefreshCw className="h-4 w-4" />
+              Refresh
             </Button>
-          </Link>
-          <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-2">
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </Button>
-        </div>
+          </div>
 
-        {/* Account header card */}
-        <Card>
-          <CardContent className="p-5">
-            <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-              {/* Avatar placeholder */}
-              <div className="h-16 w-16 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
-                <span className="text-white text-xl font-bold">
-                  {account.username.charAt(0).toUpperCase()}
-                </span>
-              </div>
+          {/* Account header card (detail route — degrades independently) */}
+          {isLoading ? (
+            <Skeleton className="h-32 w-full rounded-xl" />
+          ) : error || !account ? (
+            <Alert variant="destructive">
+              <AlertDescription>
+                Failed to load account header: {error?.message ?? 'Account not found'}. Insight
+                sections below load independently.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <Card>
+              <CardContent className="p-5">
+                <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+                  {/* Avatar placeholder */}
+                  <div className="h-16 w-16 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
+                    <span className="text-white text-xl font-bold">
+                      {account.username.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
 
-              <div className="flex-1 min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-xl font-bold">@{account.username}</h1>
-                  <Badge variant={status.variant}>{status.label}</Badge>
-                  <Badge variant="outline" className="capitalize text-xs">
-                    {account.account_type}
-                  </Badge>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h1 className="text-xl font-bold">@{account.username}</h1>
+                      {status && <Badge variant={status.variant}>{status.label}</Badge>}
+                      <Badge variant="outline" className="capitalize text-xs">
+                        {account.account_type}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                      {account.institution_name}
+                      {account.department_name ? ` · ${account.department_name}` : ''}
+                    </p>
+                    {account.bio && (
+                      <p className="text-sm mt-1 text-muted-foreground line-clamp-2">
+                        {account.bio}
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Health score {account.health_score}/100 · Last polled{' '}
+                      {relativeTime(account.last_polled_at)} · Last post{' '}
+                      {relativeTime(account.last_post_at)}
+                    </p>
+                  </div>
+
+                  <a
+                    href={`https://instagram.com/${account.username}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-shrink-0"
+                  >
+                    <Button variant="outline" size="sm" className="gap-2">
+                      <ExternalLink className="h-4 w-4" />
+                      Open on Instagram
+                    </Button>
+                  </a>
                 </div>
-                <p className="text-sm text-muted-foreground mt-0.5">
-                  {account.institution_name}
-                  {account.department_name ? ` · ${account.department_name}` : ''}
-                </p>
-                {account.bio && (
-                  <p className="text-sm mt-1 text-muted-foreground line-clamp-2">
-                    {account.bio}
-                  </p>
-                )}
-              </div>
+              </CardContent>
+            </Card>
+          )}
 
-              <a
-                href={`https://instagram.com/${account.username}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-shrink-0"
+          {/* Date range selector (applies to growth, hashtags, reels, stories) */}
+          <div className="flex items-center gap-2">
+            <CalendarRange className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm text-muted-foreground mr-1">Window:</span>
+            {DATE_RANGES.map((range) => (
+              <Button
+                key={range}
+                variant={days === range ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setDays(range)}
               >
-                <Button variant="outline" size="sm" className="gap-2">
-                  <ExternalLink className="h-4 w-4" />
-                  Open on Instagram
-                </Button>
-              </a>
-            </div>
-          </CardContent>
-        </Card>
+                {range}d
+              </Button>
+            ))}
+          </div>
 
-        {/* KPI row */}
-        <div className="grid gap-4 grid-cols-2 sm:grid-cols-4">
-          <Card>
-            <CardHeader className="pb-1 pt-4 px-4">
-              <CardTitle className="text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                <Users className="h-3.5 w-3.5" /> Followers
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pb-4 px-4">
-              <p className="text-2xl font-bold">{fmt(account.followers_count)}</p>
-            </CardContent>
-          </Card>
+          {/* KPI tiles (C1 + C7 + detail payload) */}
+          <InsightTiles
+            accountId={id}
+            days={days}
+            followingCount={account?.following_count ?? null}
+            postsCount={account?.media_count ?? null}
+            accountsEngaged={accountExtras?.accounts_engaged ?? null}
+            totalInteractions={accountExtras?.total_interactions ?? null}
+          />
 
-          <Card>
-            <CardHeader className="pb-1 pt-4 px-4">
-              <CardTitle className="text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                <ImageIcon className="h-3.5 w-3.5" /> Posts
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pb-4 px-4">
-              <p className="text-2xl font-bold">{fmt(account.media_count)}</p>
-            </CardContent>
-          </Card>
+          {/* Growth chart (C1) */}
+          <GrowthChart accountId={id} days={days} />
 
-          <Card>
-            <CardHeader className="pb-1 pt-4 px-4">
-              <CardTitle className="text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                <Activity className="h-3.5 w-3.5" /> Health Score
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pb-4 px-4">
-              <p className={`text-2xl font-bold ${healthColor(account.health_score)}`}>
-                {account.health_score}/100
-              </p>
-              <Progress value={account.health_score} className="h-1.5 mt-1" />
-            </CardContent>
-          </Card>
+          {/* Active hours (C3) + Demographics (C6) */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            <ActiveHoursChart accountId={id} />
+            <DemographicsSection accountId={id} />
+          </div>
 
-          <Card>
-            <CardHeader className="pb-1 pt-4 px-4">
-              <CardTitle className="text-xs text-muted-foreground uppercase tracking-wide">
-                Last Polled
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pb-4 px-4">
-              <p className="text-sm font-medium">{relativeTime(account.last_polled_at)}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Last post: {relativeTime(account.last_post_at)}
-              </p>
-            </CardContent>
-          </Card>
+          {/* Reels (C4) */}
+          <ReelsSection accountId={id} days={days} />
+
+          {/* Stories (C5) */}
+          <StoriesSection accountId={id} days={days} />
+
+          {/* Hashtags (C2) */}
+          <HashtagsTable accountId={id} days={days} />
+
+          {/* Recent Posts (detail route) */}
+          {account && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Recent Posts</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                {!account.recent_posts || account.recent_posts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8">
+                    No posts synced yet.
+                  </p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Caption</TableHead>
+                        <TableHead className="w-[90px]">Type</TableHead>
+                        <TableHead className="text-right w-[80px]">
+                          <Heart className="h-3.5 w-3.5 inline mr-1" />
+                          Likes
+                        </TableHead>
+                        <TableHead className="text-right w-[90px]">
+                          <MessageCircle className="h-3.5 w-3.5 inline mr-1" />
+                          Comments
+                        </TableHead>
+                        <TableHead className="w-[90px] text-right">Eng %</TableHead>
+                        <TableHead className="w-[130px]">Published</TableHead>
+                        <TableHead className="w-[50px]" />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {account.recent_posts.map((post) => (
+                        <TableRow key={post.id}>
+                          <TableCell className="text-sm max-w-[260px]">
+                            <span className="line-clamp-1 text-muted-foreground">
+                              {post.caption ?? '(no caption)'}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-xs capitalize">
+                              {post.media_type.toLowerCase().replace(/_/g, ' ')}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-sm">
+                            {post.like_count.toLocaleString()}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-sm">
+                            {post.comments_count.toLocaleString()}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-sm">
+                            {post.engagement_rate != null
+                              ? `${post.engagement_rate.toFixed(2)}%`
+                              : '—'}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {relativeTime(post.published_at)}
+                          </TableCell>
+                          <TableCell>
+                            <a href={post.permalink} target="_blank" rel="noopener noreferrer">
+                              <Button variant="ghost" size="icon" className="h-7 w-7">
+                                <ExternalLink className="h-3.5 w-3.5" />
+                              </Button>
+                            </a>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Audit Log (detail route) */}
+          {account && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Audit Log (last 20 events)</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                {!account.audit_logs || account.audit_logs.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8">
+                    No audit events recorded yet.
+                  </p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Event</TableHead>
+                        <TableHead>Details</TableHead>
+                        <TableHead className="w-[160px]">When</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {account.audit_logs.slice(0, 20).map((log) => (
+                        <TableRow key={log.id}>
+                          <TableCell className="font-mono text-xs">{log.event_type}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground max-w-xs">
+                            <span className="line-clamp-1">{JSON.stringify(log.details)}</span>
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {relativeTime(log.created_at)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
-
-        {/* Followers trendline */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Follower Trend (last 30 polls)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {trendData.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">
-                No metric history yet. Data will populate after the first poll cycle.
-              </p>
-            ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={trendData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(v) => fmt(v as number)}
-                  />
-                  <Tooltip
-                    formatter={(value: number) => [fmt(value), 'Followers']}
-                    labelStyle={{ fontSize: 12 }}
-                    contentStyle={{ fontSize: 12 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="followers"
-                    stroke="#8b5cf6"
-                    strokeWidth={2}
-                    dot={false}
-                    activeDot={{ r: 4 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Recent Posts */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Recent Posts</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {!account.recent_posts || account.recent_posts.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">
-                No posts synced yet.
-              </p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Caption</TableHead>
-                    <TableHead className="w-[90px]">Type</TableHead>
-                    <TableHead className="text-right w-[80px]">
-                      <Heart className="h-3.5 w-3.5 inline mr-1" />
-                      Likes
-                    </TableHead>
-                    <TableHead className="text-right w-[90px]">
-                      <MessageCircle className="h-3.5 w-3.5 inline mr-1" />
-                      Comments
-                    </TableHead>
-                    <TableHead className="w-[90px] text-right">Eng %</TableHead>
-                    <TableHead className="w-[130px]">Published</TableHead>
-                    <TableHead className="w-[50px]" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {account.recent_posts.map((post) => (
-                    <TableRow key={post.id}>
-                      <TableCell className="text-sm max-w-[260px]">
-                        <span className="line-clamp-1 text-muted-foreground">
-                          {post.caption ?? '(no caption)'}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs capitalize">
-                          {post.media_type.toLowerCase().replace(/_/g, ' ')}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums text-sm">
-                        {post.like_count.toLocaleString()}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums text-sm">
-                        {post.comments_count.toLocaleString()}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums text-sm">
-                        {post.engagement_rate != null
-                          ? `${post.engagement_rate.toFixed(2)}%`
-                          : '—'}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {relativeTime(post.published_at)}
-                      </TableCell>
-                      <TableCell>
-                        <a
-                          href={post.permalink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <Button variant="ghost" size="icon" className="h-7 w-7">
-                            <ExternalLink className="h-3.5 w-3.5" />
-                          </Button>
-                        </a>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Audit Log */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Audit Log (last 20 events)</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {!account.audit_logs || account.audit_logs.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">
-                No audit events recorded yet.
-              </p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Event</TableHead>
-                    <TableHead>Details</TableHead>
-                    <TableHead className="w-[160px]">When</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {account.audit_logs.slice(0, 20).map((log) => (
-                    <TableRow key={log.id}>
-                      <TableCell className="font-mono text-xs">
-                        {log.event_type}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground max-w-xs">
-                        <span className="line-clamp-1">
-                          {JSON.stringify(log.details)}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {relativeTime(log.created_at)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    </ContentLayout>
+      </ContentLayout>
     </SuperAdminOnly>
   );
 }
