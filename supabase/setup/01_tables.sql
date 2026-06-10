@@ -4990,3 +4990,45 @@ CREATE TABLE IF NOT EXISTS public.accommodation_types (
 
 CREATE INDEX IF NOT EXISTS ix_accommodation_types_active
   ON public.accommodation_types (is_active, sort_order);
+
+-- ============================================================================
+-- hostel_category_upgrade_fees (migration 20260610210000)
+-- Explicit from→to upgrade pricing (room OR mess), per hostel year. Drives the
+-- My Hostel upgrade options + flat-fee upgrade billing.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.hostel_category_upgrade_fees (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  hostel_year_id uuid NOT NULL REFERENCES public.hostel_years(id) ON DELETE CASCADE,
+  from_hostel_category_id uuid REFERENCES public.hostel_categories(id) ON DELETE CASCADE,
+  to_hostel_category_id   uuid REFERENCES public.hostel_categories(id) ON DELETE CASCADE,
+  from_mess_category_id   uuid REFERENCES public.mess_categories(id)  ON DELETE CASCADE,
+  to_mess_category_id     uuid REFERENCES public.mess_categories(id)  ON DELETE CASCADE,
+  amount numeric(12,2) NOT NULL CHECK (amount >= 0),
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  created_by uuid REFERENCES public.profiles(id),
+  updated_by uuid REFERENCES public.profiles(id),
+  CONSTRAINT chk_upgrade_one_kind CHECK (
+    (from_hostel_category_id IS NOT NULL AND to_hostel_category_id IS NOT NULL
+       AND from_mess_category_id IS NULL AND to_mess_category_id IS NULL)
+    OR
+    (from_mess_category_id IS NOT NULL AND to_mess_category_id IS NOT NULL
+       AND from_hostel_category_id IS NULL AND to_hostel_category_id IS NULL)
+  ),
+  CONSTRAINT chk_upgrade_distinct CHECK (
+    (from_hostel_category_id IS NULL OR from_hostel_category_id <> to_hostel_category_id)
+    AND (from_mess_category_id IS NULL OR from_mess_category_id <> to_mess_category_id)
+  )
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_upgrade_fee_pair ON public.hostel_category_upgrade_fees (
+  hostel_year_id,
+  COALESCE(from_hostel_category_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(to_hostel_category_id,   '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(from_mess_category_id,   '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(to_mess_category_id,     '00000000-0000-0000-0000-000000000000'::uuid)
+);
+CREATE INDEX IF NOT EXISTS idx_upgrade_fee_room ON public.hostel_category_upgrade_fees
+  (hostel_year_id, from_hostel_category_id, to_hostel_category_id) WHERE is_active;
+CREATE INDEX IF NOT EXISTS idx_upgrade_fee_mess ON public.hostel_category_upgrade_fees
+  (hostel_year_id, from_mess_category_id, to_mess_category_id) WHERE is_active;

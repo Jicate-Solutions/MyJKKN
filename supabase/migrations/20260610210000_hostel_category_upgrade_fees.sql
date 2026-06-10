@@ -68,26 +68,30 @@ CREATE POLICY hostel_category_upgrade_fees_delete ON public.hostel_category_upgr
 
 -- 2) Flat upgrade-fee billing helper -----------------------------------------
 -- Bills a single upgrade charge of the configured amount (no supersede of the old
--- category bill — that stays). Returns the UpgradeBillResult-compatible shape.
+-- category bill — that stays). item_category_id FKs billing_categories (kind
+-- 'hostel'/'mess') and is required for hostel_category bills (bsb_hostel_cat_required_chk),
+-- so p_kind resolves the matching billing category. Returns UpgradeBillResult shape.
 CREATE OR REPLACE FUNCTION public._cl_apply_upgrade_fee_bill(
-  p_learner_lp uuid, p_hostel_year_id uuid, p_new_item_cat uuid,
+  p_learner_lp uuid, p_hostel_year_id uuid, p_kind text,
   p_upgrade_amount numeric, p_description text
 ) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $function$
 DECLARE
-  v_inst uuid;
+  v_inst uuid; v_bcat uuid;
 BEGIN
   IF p_upgrade_amount IS NULL OR p_upgrade_amount <= 0 THEN
     RETURN jsonb_build_object('action','none','new_amount',COALESCE(p_upgrade_amount,0),
                               'billed',0,'old_bill_id',NULL);
   END IF;
   SELECT institution_id INTO v_inst FROM learners_profiles WHERE id = p_learner_lp;
+  SELECT id INTO v_bcat FROM billing_categories
+    WHERE kind::text = p_kind AND is_active ORDER BY created_at LIMIT 1;
   INSERT INTO billing_student_bills (
     student_id, institution_id, item_category_id, hostel_year_id, fee_source,
     bill_description, due_date, quantity, unit_amount, total_amount, final_amount,
     balance_amount, status
   ) VALUES (
-    p_learner_lp, v_inst, p_new_item_cat, p_hostel_year_id, 'hostel_category',
+    p_learner_lp, v_inst, v_bcat, p_hostel_year_id, 'hostel_category',
     p_description, now() + interval '30 day', 1, p_upgrade_amount, p_upgrade_amount,
     p_upgrade_amount, p_upgrade_amount, 'unpaid'
   );
@@ -95,8 +99,8 @@ BEGIN
                             'billed',p_upgrade_amount,'old_bill_id',NULL);
 END $function$;
 
-REVOKE EXECUTE ON FUNCTION public._cl_apply_upgrade_fee_bill(uuid,uuid,uuid,numeric,text) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public._cl_apply_upgrade_fee_bill(uuid,uuid,uuid,numeric,text) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public._cl_apply_upgrade_fee_bill(uuid,uuid,text,numeric,text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public._cl_apply_upgrade_fee_bill(uuid,uuid,text,numeric,text) TO authenticated;
 
 -- 3) Upgrade option loaders — now return the explicit upgrade_fee ------------
 DROP FUNCTION IF EXISTS public.fn_my_upgrade_room_categories();
@@ -248,7 +252,7 @@ BEGIN
     WHERE hostel_year_id = v_year AND is_active
       AND from_hostel_category_id = v_cur_cat AND to_hostel_category_id = p_new_category_id LIMIT 1;
   v_upgrade_fee := COALESCE(v_upgrade_fee, v_new_fee - v_cur_fee);
-  v_bill := public._cl_apply_upgrade_fee_bill(v_lp, v_year, p_new_category_id, v_upgrade_fee,
+  v_bill := public._cl_apply_upgrade_fee_bill(v_lp, v_year, 'hostel', v_upgrade_fee,
               format('Hostel room upgrade: %s → %s', COALESCE(v_cur_name,'—'), v_new_name));
 
   UPDATE hostel_waitlist
@@ -297,7 +301,7 @@ BEGIN
     WHERE hostel_year_id = v_year AND is_active
       AND from_mess_category_id = v_cur_mess AND to_mess_category_id = p_new_mess_category_id LIMIT 1;
   v_upgrade_fee := COALESCE(v_upgrade_fee, v_new_fee - v_cur_fee);
-  v_bill := public._cl_apply_upgrade_fee_bill(v_lp, v_year, p_new_mess_category_id, v_upgrade_fee,
+  v_bill := public._cl_apply_upgrade_fee_bill(v_lp, v_year, 'mess', v_upgrade_fee,
               format('Mess upgrade: %s → %s', COALESCE(v_cur_name,'—'), v_new_name));
 
   RETURN jsonb_build_object('success', true, 'old_category_id', v_cur_mess,
