@@ -12748,8 +12748,8 @@ BEGIN
   IF v_structure_id IS NULL THEN
     INSERT INTO admission_fee_structures (
       institution_id, degree_id, department_id, programme_id,
-      quota_id, admission_year_id, gender, name, status, notes,
-      effective_from, effective_to
+      quota_id, admission_year_id, gender, accommodation_type_id,
+      name, status, notes, effective_from, effective_to
     ) VALUES (
       v_institution_id,
       (p_payload->>'degree_id')::uuid,
@@ -12758,6 +12758,7 @@ BEGIN
       (p_payload->>'quota_id')::uuid,
       (p_payload->>'admission_year_id')::uuid,
       NULLIF(p_payload->>'gender','')::text,
+      NULLIF(p_payload->>'accommodation_type_id','')::uuid,
       p_payload->>'name',
       COALESCE(NULLIF(p_payload->>'status',''),'draft'),
       NULLIF(p_payload->>'notes',''),
@@ -12779,13 +12780,18 @@ BEGIN
         'dimension_mismatch: dimensions are immutable on edit and no longer match this Fee Structure ID');
     END IF;
     UPDATE admission_fee_structures SET
-      gender         = NULLIF(p_payload->>'gender','')::text,
-      name           = p_payload->>'name',
-      status         = COALESCE(NULLIF(p_payload->>'status',''),'draft'),
-      notes          = NULLIF(p_payload->>'notes',''),
-      effective_from = NULLIF(p_payload->>'effective_from','')::date,
-      effective_to   = NULLIF(p_payload->>'effective_to','')::date,
-      updated_at     = now()
+      gender                = NULLIF(p_payload->>'gender','')::text,
+      -- Key absent (older client / partial payload) = preserve current value;
+      -- key present with null/'' = explicit "Any accommodation".
+      accommodation_type_id = CASE WHEN p_payload ? 'accommodation_type_id'
+                                   THEN NULLIF(p_payload->>'accommodation_type_id','')::uuid
+                                   ELSE v_existing.accommodation_type_id END,
+      name                  = p_payload->>'name',
+      status                = COALESCE(NULLIF(p_payload->>'status',''),'draft'),
+      notes                 = NULLIF(p_payload->>'notes',''),
+      effective_from        = NULLIF(p_payload->>'effective_from','')::date,
+      effective_to          = NULLIF(p_payload->>'effective_to','')::date,
+      updated_at            = now()
     WHERE id = v_structure_id;
   END IF;
 
