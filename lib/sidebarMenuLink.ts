@@ -345,6 +345,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/work-pulse/agents': 'work_pulse.agents.view',
   '/work-pulse/impact': 'work_pulse.impact.view',
 
+  // AI Pulse Module (events-extension — weekly Pulse-to-Practice cycle)
+  '/ai-pulse': 'ai_pulse.view',
+  '/ai-pulse/my-pulse': 'aiPulse:view.self',
+  '/ai-pulse/admin/cycles': 'aiPulse:cycles.manage',
+  '/ai-pulse/admin/anomalies': 'aiPulse:anomaly.review',
+  '/ai-pulse/admin/policies': 'aiPulse:policies.manage',
+  '/ai-pulse/evidence/naac': 'aiPulse:naac.evidence_export',
+
   // VAC (Value-Added Courses) Module
   '/vac': 'vac.courses.view',
   '/vac/my-courses': 'vac.my_courses.view',
@@ -1808,6 +1816,26 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/vac/admin/analytics', label: 'Admin · Analytics', active: pathname.startsWith('/vac/admin/analytics') },
             { href: '/vac/admin/case', label: 'Admin · CASE', active: pathname.startsWith('/vac/admin/case') },
             { href: '/vac/admin/settings', label: 'Admin · Settings', active: pathname.startsWith('/vac/admin/settings') },
+          ]
+        },
+        {
+          // AI Pulse — JKKN's weekly Pulse-to-Practice AI-learning cycle.
+          // Events-module extension (cycles = startup_events rows, config.kind
+          // = 'ai_pulse'). Re-added to the sidebar after the 2026-06-09
+          // sidebar-unify wave dropped the May entry. Each submenu is gated by
+          // its MENU_PERMISSIONS key, so learners see My Pulse, the Champion
+          // sees the admin consoles, IQAC sees NAAC evidence.
+          href: '/ai-pulse',
+          label: 'AI Pulse',
+          active: pathname === '/ai-pulse' || pathname.startsWith('/ai-pulse/'),
+          icon: Sparkles,
+          submenus: [
+            { href: '/ai-pulse', label: 'Home', active: pathname === '/ai-pulse' },
+            { href: '/ai-pulse/my-pulse', label: 'My Pulse', active: pathname.startsWith('/ai-pulse/my-pulse') },
+            { href: '/ai-pulse/admin/cycles', label: 'Champion · Cycles', active: pathname.startsWith('/ai-pulse/admin/cycles') },
+            { href: '/ai-pulse/admin/anomalies', label: 'Champion · Anomalies', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
+            { href: '/ai-pulse/admin/policies', label: 'Admin · Policies', active: pathname.startsWith('/ai-pulse/admin/policies') },
+            { href: '/ai-pulse/evidence/naac', label: 'NAAC Evidence', active: pathname.startsWith('/ai-pulse/evidence/naac') },
           ]
         }
       ]

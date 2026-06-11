@@ -54,7 +54,7 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'Account not found' }, { status: 404 });
     }
 
-    const [{ data: snapshots }, { data: posts }, { data: logs }] = await Promise.all([
+    const [{ data: snapshots }, { data: posts }, { data: logs }, { data: auditRows }] = await Promise.all([
       supabase
         .from('ig_account_metrics')
         .select('id, account_id, snapshot_at, followers, follows, media_count')
@@ -73,6 +73,12 @@ export async function GET(
         .eq('account_id', id)
         .order('occurred_at', { ascending: false })
         .limit(LOGS_LIMIT),
+      supabase
+        .from('ig_monthly_audit')
+        .select('health_score, audit_month')
+        .eq('ig_account_id', id)
+        .order('audit_month', { ascending: false })
+        .limit(1),
     ]);
 
     // Latest post-metric snapshot per post (batched, newest-first dedupe).
@@ -101,6 +107,11 @@ export async function GET(
 
     const latest = (snapshots ?? [])[0];
 
+    // Latest ig_monthly_audit health score (computed by the monthly audit
+    // cron); NUMERIC(6,2) — coerce defensively. 0 until first audit row.
+    const auditScore = Number((auditRows ?? [])[0]?.health_score);
+    const healthScore = isNaN(auditScore) ? 0 : auditScore;
+
     const detail = {
       id: account.id,
       username: account.username,
@@ -118,7 +129,7 @@ export async function GET(
       followers_count: latest?.followers ?? 0,
       following_count: latest?.follows ?? 0,
       media_count: latest?.media_count ?? 0,
-      health_score: 0,
+      health_score: healthScore,
       status: account.status === 'orphaned' ? 'error' : account.status,
       last_post_at: (posts ?? [])[0]?.posted_at ?? null,
       last_polled_at: account.last_polled_at,
