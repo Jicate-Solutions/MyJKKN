@@ -3,7 +3,9 @@
 // ============================================================================
 // MenuGrid — 7-column × 4-row weekly menu grid for a single tier.
 // ============================================================================
-// Reads via useMessMenuWeek(institutionId, weekStartDate, tierKey).
+// Reads via useMessMenuWeek(institutionId, weekStartDate, tierKey, catererId).
+// catererId scopes the fetch to one gender (Boys/Girls) so the two menus stay
+// in distinct rows and distinct query caches.
 // Cells show items_tamil chips with items_english underneath (when present).
 // "Edit" pencil opens CellEditDialog.
 //
@@ -51,7 +53,7 @@ interface EditTarget {
 }
 
 export function MenuGrid({ institutionId, catererId, weekStartDate, tierKey }: MenuGridProps) {
-  const { data: rows, isLoading } = useMessMenuWeek(institutionId, weekStartDate, tierKey);
+  const { data: rows, isLoading } = useMessMenuWeek(institutionId, weekStartDate, tierKey, catererId);
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
 
   // Build a (day, meal) → MessMenu lookup so the grid render is O(1) per cell.
