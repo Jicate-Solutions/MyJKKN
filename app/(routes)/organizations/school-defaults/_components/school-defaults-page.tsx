@@ -9,9 +9,11 @@ import EditDefaultsModal from './edit-defaults-modal';
 import BulkRestoreDialog from './bulk-restore-dialog';
 import RestoreConfirmationDialog from './restore-confirmation-dialog';
 import { SchoolDefaultsFilters } from './school-defaults-filters';
+import Link from 'next/link';
 import { PageHeader } from '@/components/page-header';
 import { AlertBox } from '@/components/ui/alert-box';
-import { Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { History, Loader2 } from 'lucide-react';
 import { SchoolDefaultsAuditService } from '@/lib/services/school-defaults-audit-service';
 import { SchoolDefaultsRestoreService } from '@/lib/services/school-defaults-restore-service';
 
@@ -335,6 +337,14 @@ export default function SchoolDefaultsPage() {
       <PageHeader
         title="School Defaults"
         description="Manage virtual K-12 Program and Academic department assignments for school institutions"
+        actions={
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/organizations/school-defaults/audit">
+              <History className="mr-1.5 h-4 w-4" />
+              Audit log
+            </Link>
+          </Button>
+        }
       />
 
       {error && <AlertBox type="error" message={error} />}
