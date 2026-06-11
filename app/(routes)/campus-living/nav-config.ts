@@ -625,6 +625,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/settings/housekeeping'],
         },
         {
+          label: 'Choose Your Menu',
+          icon: 'UtensilsCrossed',
+          href: '/campus-living/settings/choose-your-menu',
+          matchPaths: ['/campus-living/settings/choose-your-menu'],
+        },
+        {
           label: 'Fee Config',
           icon: 'Coins',
           href: '/campus-living/settings/fee-config',
