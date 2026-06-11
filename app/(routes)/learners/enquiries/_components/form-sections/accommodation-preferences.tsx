@@ -36,10 +36,6 @@ import {
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { useEffect } from 'react';
-import {
-  useHostelCategoriesForGender,
-  useMessCategoriesForGender
-} from '@/hooks/campus-living/use-gender-categories';
 import { useActiveRoutes, useRouteStops } from '@/hooks/tms/use-route-lookup';
 
 interface AccommodationPreferencesProps {
@@ -57,13 +53,10 @@ export function AccommodationPreferencesSection({
     name: 'accommodation_type'
   });
 
-  // Gender drives which hostel room / mess categories are offered (boys vs
-  // girls + mixed). Captured on the Basic Details tab earlier in the flow.
-  const gender = useWatch({ control: form.control, name: 'gender' });
-  const { categories: hostelCategories, loading: loadingHostelCategories } =
-    useHostelCategoriesForGender(gender);
-  const { categories: messCategories, loading: loadingMessCategories } =
-    useMessCategoriesForGender(gender);
+  // hostel_category_id / mess_category_id pickers removed (20260611190000):
+  // room & mess categories are allocation-derived — set automatically by
+  // trg_allocation_sync_learner_categories when a hostel room allocation
+  // becomes active, never chosen at admission/enquiry time.
 
   // Day-Scholar bus transport: bus required → route → boarding-point stop.
   const busRequired = useWatch({ control: form.control, name: 'bus_required' });
@@ -78,11 +71,6 @@ export function AccommodationPreferencesSection({
 
   // Reset dependent fields when selection changes
   useEffect(() => {
-    if (accommodationType !== 'HOSTEL') {
-      // Reset hostel-specific category fields when accommodation isn't a hostel
-      form.setValue('hostel_category_id', undefined);
-      form.setValue('mess_category_id', undefined);
-    }
     if (accommodationType !== 'DAY SCHOLAR') {
       // Reset bus/transport fields when not a day scholar
       form.setValue('bus_required', undefined);
@@ -111,25 +99,6 @@ export function AccommodationPreferencesSection({
       form.setValue('transport_stop_id', undefined);
     }
   }, [transportRouteId, stops, loadingStops, form]);
-
-  // Clear a previously-chosen category if it's no longer valid for the current
-  // gender (e.g. operator changed gender after picking). Guarded on load + on
-  // membership so a valid prefilled selection on edit is preserved.
-  useEffect(() => {
-    if (loadingHostelCategories) return;
-    const cur = form.getValues('hostel_category_id');
-    if (cur && !hostelCategories.some((c) => c.id === cur)) {
-      form.setValue('hostel_category_id', undefined);
-    }
-  }, [gender, hostelCategories, loadingHostelCategories, form]);
-
-  useEffect(() => {
-    if (loadingMessCategories) return;
-    const cur = form.getValues('mess_category_id');
-    if (cur && !messCategories.some((c) => c.id === cur)) {
-      form.setValue('mess_category_id', undefined);
-    }
-  }, [gender, messCategories, loadingMessCategories, form]);
 
   return (
     <div className='space-y-8'>
@@ -171,91 +140,11 @@ export function AccommodationPreferencesSection({
         />
 
         {accommodationType === 'HOSTEL' && (
-          <>
-            {/* Hostel Room Category — sourced from campus-living
-                hostel_categories, filtered to the learner's gender (+ mixed). */}
-            <FormField
-              control={form.control}
-              name='hostel_category_id'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Hostel Room Category</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value || ''}
-                    disabled={loadingHostelCategories || hostelCategories.length === 0}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue
-                          placeholder={
-                            loadingHostelCategories
-                              ? 'Loading...'
-                              : hostelCategories.length === 0
-                              ? 'No categories available'
-                              : 'Select room category'
-                          }
-                        />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent className='max-h-60 overflow-y-auto'>
-                      {hostelCategories.map((category) => (
-                        <SelectItem key={category.id} value={category.id}>
-                          {category.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormDescription>
-                    Room category for your hostel stay (varies by gender)
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Mess Category — sourced from campus-living mess_categories,
-                filtered to the learner's gender (+ mixed). */}
-            <FormField
-              control={form.control}
-              name='mess_category_id'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Mess Category</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value || ''}
-                    disabled={loadingMessCategories || messCategories.length === 0}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue
-                          placeholder={
-                            loadingMessCategories
-                              ? 'Loading...'
-                              : messCategories.length === 0
-                              ? 'No categories available'
-                              : 'Select mess category'
-                          }
-                        />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent className='max-h-60 overflow-y-auto'>
-                      {messCategories.map((category) => (
-                        <SelectItem key={category.id} value={category.id}>
-                          {category.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormDescription>
-                    Mess plan for your hostel stay (varies by gender)
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </>
+          <p className='text-sm text-muted-foreground rounded-md border bg-muted/30 p-3'>
+            Room and mess categories are assigned automatically when the
+            learner is allocated a hostel room — they are no longer picked
+            here.
+          </p>
         )}
 
         {accommodationType === 'DAY SCHOLAR' && (

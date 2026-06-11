@@ -15863,3 +15863,31 @@ BEGIN
   END;
   RETURN NEW;
 END $$;
+
+-- 20260611190000: learner room/mess categories are allocation-derived ----------
+-- Fires when a hostel allocation becomes ACTIVE (trigger in 04_triggers.sql):
+-- room category = allocated room's category; mess category = first eligible
+-- mess category from program-eligibility rules, only when still NULL.
+-- Admission-form writes to these columns were removed in the same change set.
+CREATE OR REPLACE FUNCTION public._on_allocation_sync_learner_categories()
+RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_lp uuid; v_mess uuid;
+BEGIN
+  BEGIN
+    SELECT learner_id INTO v_lp FROM profiles WHERE id = NEW.learner_id;
+    IF v_lp IS NULL THEN RETURN NEW; END IF;
+    SELECT mc.category_id INTO v_mess
+    FROM fn_hostel_learner_mess_categories(v_lp) mc
+    LIMIT 1;
+    UPDATE learners_profiles
+       SET hostel_category_id = (SELECT category_id FROM hostel_rooms WHERE id = NEW.room_id),
+           mess_category_id   = COALESCE(mess_category_id, v_mess),
+           updated_at = now()
+     WHERE id = v_lp;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '_on_allocation_sync_learner_categories: %', SQLERRM;
+  END;
+  RETURN NEW;
+END $$;

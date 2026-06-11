@@ -1292,3 +1292,11 @@ FOR EACH ROW EXECUTE FUNCTION public.sync_lead_referral_to_learner_profile();
 -- schedule is created (daily plans appear on the Tasks page immediately).
 CREATE TRIGGER trg_cleaning_schedule_seed_task AFTER INSERT ON hostel_cleaning_schedules
     FOR EACH ROW EXECUTE FUNCTION _on_cleaning_schedule_seed_task();
+
+-- 20260611190000: sync learners_profiles room/mess categories from the room
+-- whenever an allocation becomes active (single enforcement point for manual,
+-- batch-approval, auto-allocate and upgrade allocation paths).
+CREATE TRIGGER trg_allocation_sync_learner_categories
+AFTER INSERT OR UPDATE OF status ON hostel_allocations
+FOR EACH ROW WHEN (NEW.status = 'active')
+EXECUTE FUNCTION _on_allocation_sync_learner_categories();
