@@ -304,9 +304,9 @@ export class JicateBookingProvisionService {
             locale,
             theme,
             "emailVerified",
-            "createdDate"
+            uuid
           )
-          VALUES ($1, $2, $3, 'Asia/Kolkata', 'Monday', 'en', 'light', NOW(), NOW())
+          VALUES ($1, $2, $3, 'Asia/Kolkata', 'Monday', 'en', 'light', NOW(), gen_random_uuid())
           ON CONFLICT (email) DO UPDATE
             SET email = EXCLUDED.email
           RETURNING id, email
