@@ -56,6 +56,10 @@
       "schedule": "30 10 * * 5"
     },
     {
+      "path": "/api/cron/ai-pulse-tick?secret=${CRON_SECRET}",
+      "schedule": "23 1 * * *"
+    },
+    {
       "path": "/api/cron/dashboard-work-items?secret=${CRON_SECRET}",
       "schedule": "7 * * * *"
     },

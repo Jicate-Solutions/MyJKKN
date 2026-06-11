@@ -324,16 +324,6 @@ const NAV_EXCLUDE = new Set<string>([
   '/admission/consultants/admin/portal-access',
   '/admission/consultants/admin/tier-policy',
 
-  // 2026-06-11 admin-cluster relocation wave-2 — ai-pulse config. The
-  // platform_policies editor relocated from /admin/config/ai-pulse (where
-  // the /admin tree made it auto-chip-reachable) to /ai-pulse/admin/policies.
-  // The ai-pulse module has no sidebar entry yet (its other admin pages —
-  // cycles/quiz/anomalies — sit in the unreachable baseline for the same
-  // reason), so the relocated page has no chip surface. Super-admin config
-  // surface reached by direct URL / the 307 redirect from the old path.
-  // Follow-up: when ai-pulse gets a sidebar entry + nav-config, wire this
-  // in and drop the exclusion. Same pattern as the consultants block above.
-  '/ai-pulse/admin/policies',
 ]);
 
 /** Walk app/(routes)/ collecting {url} for every static page.tsx. */

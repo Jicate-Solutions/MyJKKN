@@ -91,9 +91,13 @@ export async function GET(request: NextRequest) {
     >();
     // Latest post timestamp per account (same batched pattern).
     const lastPostAt = new Map<string, string>();
+    // Latest monthly-audit health score per account (same batched pattern;
+    // newest audit_month first, first-seen-wins). Best-effort — accounts
+    // without an audit row yet fall back to 0.
+    const latestHealthScore = new Map<string, number>();
 
     if (accountIds.length > 0) {
-      const [{ data: metricRows }, { data: postRows }] = await Promise.all([
+      const [{ data: metricRows }, { data: postRows }, { data: auditRows }] = await Promise.all([
         supabase
           .from('ig_account_metrics')
           .select('account_id, followers, follows, media_count, snapshot_at')
@@ -104,6 +108,11 @@ export async function GET(request: NextRequest) {
           .select('account_id, posted_at')
           .in('account_id', accountIds)
           .order('posted_at', { ascending: false }),
+        supabase
+          .from('ig_monthly_audit')
+          .select('ig_account_id, health_score, audit_month')
+          .in('ig_account_id', accountIds)
+          .order('audit_month', { ascending: false }),
       ]);
 
       for (const m of metricRows ?? []) {
@@ -118,6 +127,13 @@ export async function GET(request: NextRequest) {
       for (const p of postRows ?? []) {
         if (!lastPostAt.has(p.account_id)) {
           lastPostAt.set(p.account_id, p.posted_at);
+        }
+      }
+      for (const r of auditRows ?? []) {
+        if (!latestHealthScore.has(r.ig_account_id)) {
+          // health_score is NUMERIC(6,2) — coerce defensively to number.
+          const n = Number(r.health_score);
+          latestHealthScore.set(r.ig_account_id, isNaN(n) ? 0 : n);
         }
       }
     }
@@ -139,9 +155,9 @@ export async function GET(request: NextRequest) {
         followers_count: metrics?.followers ?? 0,
         following_count: metrics?.follows ?? 0,
         media_count: metrics?.media_count ?? 0,
-        // health_score is computed by the monthly audit cron; 0 until the
-        // first ig_monthly_audit row lands for this account.
-        health_score: 0,
+        // Latest ig_monthly_audit health score (computed by the monthly
+        // audit cron); 0 until the first audit row lands for this account.
+        health_score: latestHealthScore.get(a.id) ?? 0,
         status: mapStatus(a.status),
         last_post_at: lastPostAt.get(a.id) ?? null,
         last_polled_at: a.last_polled_at,
