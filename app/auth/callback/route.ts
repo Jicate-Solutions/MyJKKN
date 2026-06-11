@@ -10,6 +10,41 @@ import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
 import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
 import { SessionTrackingService } from '@/lib/services/analytics/session-tracking-service';
 
+/**
+ * Path W ignition — fire-and-forget. Auto-provisions an invisible Cal.com backing
+ * identity (user + per-user API key, encrypted in profiles via CalApiKeyVault) for
+ * every authenticated MyJKKN user on login, so booking/calendar works with the MyJKKN
+ * identity and NO separate Cal.com login. Idempotent (fast-path returns if already done).
+ *
+ * Self-catching: NEVER throws. A Cal outage or missing env degrades to "no provisioning
+ * this login" — login + redirect are never blocked. Dynamic import keeps the `pg`-backed
+ * provision module off the route's static graph (loads only when ignition actually fires).
+ */
+async function igniteCalProvision(
+  userId: string,
+  email: string | null | undefined,
+  name?: string | null
+): Promise<void> {
+  if (!email) return;
+  try {
+    const { JicateBookingProvisionService } = await import(
+      '@/lib/services/integrations/jicate-booking-provision-service'
+    );
+    const result = await JicateBookingProvisionService.ensureProvisioned({
+      myjkknUserId: userId,
+      email,
+      name: name ?? undefined,
+    });
+    if (result.action === 'created') {
+      console.warn(
+        `[jicate-booking/provision] (non-blocking) provisioned cal_user_id=${result.cal_user_id} for ${userId}`
+      );
+    }
+  } catch (error) {
+    console.error('[jicate-booking/provision] (non-blocking) ensureProvisioned failed:', error);
+  }
+}
+
 
 export async function GET(request: NextRequest) {
   await connection();
@@ -418,6 +453,10 @@ export async function GET(request: NextRequest) {
         // Log login activity for new (legitimate) user
         await logLoginActivity({ ...newProfile, role: 'student' });
 
+        // Path W: auto-provision invisible Cal.com identity (fire-and-forget, never blocks).
+        // New-learner profile has no full_name yet → name falls back to email local-part.
+        void igniteCalProvision(user.id, newProfile.email ?? user.email);
+
         // Create session tracking record
         try {
           const sessionInfo = await SessionTrackingService.createSession({
@@ -454,6 +493,10 @@ export async function GET(request: NextRequest) {
 
       // Log login activity for existing user
       await logLoginActivity(actualProfile);
+
+      // Path W: auto-provision invisible Cal.com identity (fire-and-forget, never blocks).
+      // user.email is the authenticated email (always present); full_name from the profile.
+      void igniteCalProvision(user.id, user.email, actualProfile?.full_name);
 
       // Create session tracking record for engagement analytics
       console.log('[Auth Callback] 🎯 Attempting to create analytics session...');
