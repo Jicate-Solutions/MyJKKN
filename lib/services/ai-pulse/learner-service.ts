@@ -6,8 +6,10 @@
 //   - app/(routes)/ai-pulse/page.tsx (Server Component)
 //   - app/(routes)/ai-pulse/_components/* (Client Components via React Query hooks)
 //
-// AI Pulse cycles are stored as `startup_events` rows with
-// `event_type = 'ai_pulse'` and `config->>'kind' = 'ai_pulse'` per spec v3.
+// AI Pulse cycles are stored as `startup_events` rows discriminated solely by
+// `config->>'kind' = 'ai_pulse'`. (startup_events has NO event_type column —
+// the spec v3 §4.3 event_type CHECK was never applied; config.kind is the
+// production discriminator, matching cycles-service.)
 // Substrate (PR #644) adds the JSONB discriminator + `engagement_signals` column
 // on `event_team_attendance`.
 //
@@ -122,7 +124,6 @@ export class AiPulseLearnerService {
       const { data, error } = await (supabase as any)
         .from('startup_events')
         .select('id, name, start_date, end_date, status, config')
-        .eq('event_type', 'ai_pulse')
         .filter('config->>kind', 'eq', 'ai_pulse')
         .gte('start_date', start)
         .lt('start_date', end)
@@ -149,7 +150,6 @@ export class AiPulseLearnerService {
       const { data, error } = await (supabase as any)
         .from('startup_events')
         .select('id, name, start_date, end_date, status, config')
-        .eq('event_type', 'ai_pulse')
         .filter('config->>kind', 'eq', 'ai_pulse')
         .gte('start_date', start)
         .lt('start_date', end)
@@ -269,7 +269,6 @@ export class AiPulseLearnerService {
       const { data: cycles, error: cyErr } = await supabase
         .from('startup_events')
         .select('id, start_date')
-        .eq('event_type', 'ai_pulse')
         .filter('config->>kind', 'eq', 'ai_pulse')
         .order('start_date', { ascending: false })
         .limit(12);
