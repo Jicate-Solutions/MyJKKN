@@ -1,6 +1,8 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   UpgradeRoomCategoryOption,
+  UpgradeRoomOption,
+  MyUpgradeWaitlistEntry,
   UpgradeMessCategoryOption,
   RoomUpgradeResult,
   MessUpgradeResult,
@@ -32,9 +34,19 @@ export class CategoryUpgradeService {
     return (data as UpgradeMessCategoryOption[]) ?? [];
   }
 
-  static async upgradeRoom(categoryId: string, roomId: string, bedId: string): Promise<RoomUpgradeResult> {
+  // Available rooms (with capacity/occupancy) of the target category only.
+  static async getRoomOptions(categoryId: string): Promise<UpgradeRoomOption[]> {
+    const { data, error } = await this.rpc('fn_my_upgrade_room_options', {
+      p_category_id: categoryId,
+    });
+    if (error) throw new Error(error.message || 'Failed to load available rooms');
+    return (data as UpgradeRoomOption[]) ?? [];
+  }
+
+  // Room-level upgrade — the RPC auto-assigns the lowest-numbered free bed.
+  static async upgradeRoom(categoryId: string, roomId: string): Promise<RoomUpgradeResult> {
     const { data, error } = await this.rpc('fn_self_upgrade_room_category', {
-      p_new_category_id: categoryId, p_room_id: roomId, p_bed_id: bedId,
+      p_new_category_id: categoryId, p_room_id: roomId,
     });
     if (error) throw new Error(error.message || 'Upgrade failed');
     return data as RoomUpgradeResult;
@@ -54,5 +66,19 @@ export class CategoryUpgradeService {
     });
     if (error) throw new Error(error.message || 'Failed to join waitlist');
     return data as string;
+  }
+
+  static async getMyWaitlist(): Promise<MyUpgradeWaitlistEntry[]> {
+    const { data, error } = await this.rpc('fn_my_upgrade_waitlist', {});
+    if (error) throw new Error(error.message || 'Failed to load waitlist status');
+    return (data as MyUpgradeWaitlistEntry[]) ?? [];
+  }
+
+  static async leaveWaitlist(targetCategoryId: string): Promise<boolean> {
+    const { data, error } = await this.rpc('fn_self_leave_upgrade_waitlist', {
+      p_target_category_id: targetCategoryId,
+    });
+    if (error) throw new Error(error.message || 'Failed to leave waitlist');
+    return data as boolean;
   }
 }

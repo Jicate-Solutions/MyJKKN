@@ -10,6 +10,26 @@ export interface UpgradeRoomCategoryOption {
   available_beds: number; // 0 => waitlist branch
 }
 
+// Room-level picker row from fn_my_upgrade_room_options (only rooms with free beds).
+export interface UpgradeRoomOption {
+  room_id: string;
+  room_number: string;
+  floor: number;
+  block_name: string;
+  capacity: number;
+  occupied_beds: number;
+  available_beds: number;
+}
+
+// Resident's own pending upgrade intents from fn_my_upgrade_waitlist.
+export interface MyUpgradeWaitlistEntry {
+  waitlist_id: string;
+  target_category_id: string;
+  target_category_name: string | null;
+  status: string;
+  created_at: string;
+}
+
 export interface UpgradeMessCategoryOption {
   mess_category_id: string;
   name: string;

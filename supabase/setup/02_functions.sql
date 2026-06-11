@@ -14877,7 +14877,7 @@ GRANT EXECUTE ON FUNCTION public.fn_my_upgrade_mess_categories() TO authenticate
 
 -- Instant self-service category-upgrade action RPCs (room move / mess / waitlist).
 CREATE OR REPLACE FUNCTION public.fn_self_upgrade_room_category(
-  p_new_category_id uuid, p_room_id uuid, p_bed_id uuid
+  p_new_category_id uuid, p_room_id uuid, p_bed_id uuid DEFAULT NULL
 ) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
@@ -14903,6 +14903,17 @@ BEGIN
   SELECT COALESCE(amount,0) INTO v_cur_fee FROM hostel_fees
     WHERE hostel_category_id = v_cur_cat AND hostel_year_id = v_year AND mess_category_id IS NULL AND is_active LIMIT 1;
   IF v_new_fee < v_cur_fee THEN RAISE EXCEPTION 'Downgrades are not allowed (new fee < current fee)'; END IF;
+
+  -- 20260611100000: room-level flow — auto-assign the lowest-numbered available bed
+  IF p_bed_id IS NULL THEN
+    SELECT o.bed_id INTO p_bed_id
+    FROM fn_my_room_options(p_new_category_id) o
+    WHERE o.room_id = p_room_id
+    ORDER BY o.bed_number LIMIT 1;
+    IF p_bed_id IS NULL THEN
+      RAISE EXCEPTION 'No available bed left in that room. Pick another room.';
+    END IF;
+  END IF;
 
   IF NOT EXISTS (
     SELECT 1 FROM fn_my_room_options(p_new_category_id) o
@@ -15414,5 +15425,82 @@ REVOKE EXECUTE ON FUNCTION public.fn_user_allocated_bed(uuid) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_user_allocated_block(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_user_allocated_room(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_user_allocated_bed(uuid) TO authenticated;
+
+-- 20260611100000: My Hostel room-centric upgrade picker + waitlist self-service.
+-- Room-level options (capacity + free beds; only rooms with >=1 available bed).
+CREATE OR REPLACE FUNCTION public.fn_my_upgrade_room_options(p_category_id uuid)
+RETURNS TABLE(
+  room_id uuid, room_number text, floor integer, block_name text,
+  capacity integer, occupied_beds integer, available_beds integer
+)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_lp uuid := get_my_learner_id(); v_inst uuid; v_gender text;
+BEGIN
+  IF v_lp IS NULL THEN RETURN; END IF;
+  SELECT institution_id INTO v_inst FROM learners_profiles WHERE id = v_lp;
+  SELECT lower(trim(gender)) INTO v_gender FROM profiles WHERE profiles.id = auth.uid();
+  RETURN QUERY
+  SELECT r.id, r.room_number, r.floor, bl.name,
+         COALESCE(r.actual_capacity, r.capacity)::int,
+         GREATEST(COALESCE(r.actual_capacity, r.capacity)::int - av.free, 0),
+         av.free
+  FROM hostel_rooms r
+  JOIN hostel_blocks bl ON bl.id = r.block_id
+  CROSS JOIN LATERAL (
+    SELECT count(*)::int AS free
+    FROM hostel_beds b
+    WHERE b.room_id = r.id AND b.status = 'available'
+      AND NOT EXISTS (
+        SELECT 1 FROM hostel_allocations a
+        WHERE a.bed_id = b.id AND a.status IN ('active','pending_approval')
+      )
+  ) av
+  WHERE r.category_id = p_category_id AND r.room_purpose = 'student'
+    AND (bl.hostel_type::text = 'mixed'
+         OR (v_gender IN ('male','m')   AND bl.hostel_type::text = 'boys')
+         OR (v_gender IN ('female','f') AND bl.hostel_type::text = 'girls'))
+    AND fn_room_serves_institution(r.id, v_inst)
+    AND fn_learner_eligible_for_room(v_lp, r.id)
+    AND av.free > 0
+  ORDER BY bl.name, r.floor, r.room_number;
+END $$;
+
+-- Resident's own pending upgrade waitlist entries.
+CREATE OR REPLACE FUNCTION public.fn_my_upgrade_waitlist()
+RETURNS TABLE(
+  waitlist_id uuid, target_category_id uuid, target_category_name text,
+  status text, created_at timestamptz
+)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT w.id, w.target_hostel_category_id, c.name, w.status::text, w.created_at
+  FROM hostel_waitlist w
+  LEFT JOIN hostel_categories c ON c.id = w.target_hostel_category_id
+  WHERE w.learner_id = auth.uid()
+    AND w.entry_kind = 'upgrade'
+    AND w.status IN ('waiting','offered')
+  ORDER BY w.created_at DESC;
+$$;
+
+-- Leave the upgrade waitlist (status -> declined; resident may re-join later).
+CREATE OR REPLACE FUNCTION public.fn_self_leave_upgrade_waitlist(p_target_category_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Not authenticated'; END IF;
+  UPDATE hostel_waitlist
+     SET status='declined', updated_at=now()
+   WHERE learner_id = auth.uid()
+     AND entry_kind = 'upgrade'
+     AND target_hostel_category_id = p_target_category_id
+     AND status = 'waiting';
+  RETURN FOUND;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_my_upgrade_room_options(uuid) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_my_upgrade_waitlist() FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_self_leave_upgrade_waitlist(uuid) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_my_upgrade_room_options(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_my_upgrade_waitlist() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_self_leave_upgrade_waitlist(uuid) TO authenticated;
 
 NOTIFY pgrst, 'reload schema';
