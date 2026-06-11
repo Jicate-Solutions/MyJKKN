@@ -402,35 +402,39 @@ export class DeptHeatmapService {
       return { notified: 0 };
     }
 
+    // notifications has NO recipient_id column — the live schema uses
+    // created_by (NOT NULL) + targeting JSONB (NOT NULL). Single insert
+    // targeting all recipients (same corrected shape as rotation-service
+    // escalateAbsence after the pre-session hotfix lane).
     let notified = 0;
-    for (const recipientId of recipientIds) {
-      try {
-        const { error } = await sb.from('notifications').insert({
-          recipient_id: recipientId,
-          title: 'AI Pulse: department intervention requested',
-          body: `${args.department_name} has missed ${args.miss_count} recent AI Pulse week(s) (tier: ${args.tier.replace('_', ' ')}). Please follow up with the department.`,
-          category: 'ai_pulse',
-          metadata: {
-            kind: 'ai_pulse_dept_intervention',
-            department_id: args.department_id,
-            department_name: args.department_name,
-            miss_count: args.miss_count,
-            tier: args.tier,
-            requested_by: userId,
-          },
-        });
-        if (error) {
-          logger.warn(
-            'ai-pulse/dept-heatmap',
-            'intervention notification skipped',
-            error,
-          );
-        } else {
-          notified += 1;
-        }
-      } catch (e) {
-        logger.warn('ai-pulse/dept-heatmap', 'intervention insert suppressed', e);
+    try {
+      const { error } = await sb.from('notifications').insert({
+        title: 'AI Pulse: department intervention requested',
+        body: `${args.department_name} has missed ${args.miss_count} recent AI Pulse week(s) (tier: ${args.tier.replace('_', ' ')}). Please follow up with the department.`,
+        created_by: userId,
+        targeting: { user_ids: Array.from(recipientIds) },
+        category: 'ai_pulse',
+        kind: 'work_item',
+        metadata: {
+          kind: 'ai_pulse_dept_intervention',
+          department_id: args.department_id,
+          department_name: args.department_name,
+          miss_count: args.miss_count,
+          tier: args.tier,
+          requested_by: userId,
+        },
+      });
+      if (error) {
+        logger.warn(
+          'ai-pulse/dept-heatmap',
+          'intervention notification skipped',
+          error,
+        );
+      } else {
+        notified = recipientIds.size;
       }
+    } catch (e) {
+      logger.warn('ai-pulse/dept-heatmap', 'intervention insert suppressed', e);
     }
 
     return { notified };

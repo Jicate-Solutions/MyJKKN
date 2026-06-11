@@ -230,7 +230,7 @@ export class NaacEvidenceService extends BaseService {
     const featuredToolIds = Array.from(
       new Set(
         cycles
-          .map((c) => c?.config?.featured_tool_id)
+          .map((c) => c?.config?.ai_pulse?.featured_tool_id ?? c?.config?.featured_tool_id)
           .filter(Boolean) as string[],
       ),
     );
@@ -254,7 +254,7 @@ export class NaacEvidenceService extends BaseService {
     const hostUserIds = Array.from(
       new Set(
         cycles
-          .map((c) => c?.config?.host_user_id)
+          .map((c) => c?.config?.ai_pulse?.host_user_id ?? c?.config?.host_user_id)
           .filter(Boolean) as string[],
       ),
     );
@@ -465,11 +465,15 @@ export class NaacEvidenceService extends BaseService {
         ? departmentNameById.get(owner.department_id) ?? ''
         : '';
 
-      const featuredToolName = cycle?.config?.featured_tool_id
-        ? featuredToolNameById.get(cycle.config.featured_tool_id) ?? ''
+      const cycleToolId =
+        cycle?.config?.ai_pulse?.featured_tool_id ?? cycle?.config?.featured_tool_id;
+      const cycleHostId =
+        cycle?.config?.ai_pulse?.host_user_id ?? cycle?.config?.host_user_id;
+      const featuredToolName = cycleToolId
+        ? featuredToolNameById.get(cycleToolId) ?? ''
         : '';
-      const championName = cycle?.config?.host_user_id
-        ? hostNameById.get(cycle.config.host_user_id) ?? ''
+      const championName = cycleHostId
+        ? hostNameById.get(cycleHostId) ?? ''
         : '';
 
       const description =

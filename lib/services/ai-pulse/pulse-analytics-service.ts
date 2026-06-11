@@ -115,8 +115,13 @@ function deadlineAnchor(
   if (!base) return null;
   const d = new Date(base);
   if (Number.isNaN(d.getTime())) return null;
+  // Nested-first (cycles now write config.ai_pulse.* per the pre-session
+  // hotfix lane), flat fallback for legacy rows, then the policy value.
   const timeStr: string =
-    cycle.config?.session_start_time || policySessionStart || '18:55';
+    cycle.config?.ai_pulse?.session_start_time ||
+    cycle.config?.session_start_time ||
+    policySessionStart ||
+    '18:55';
   const [h, m] = timeStr.split(':').map((x: string) => parseInt(x, 10));
   if (!Number.isNaN(h)) d.setHours(h, Number.isNaN(m) ? 0 : m, 0, 0);
   return d;
