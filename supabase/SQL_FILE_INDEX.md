@@ -1551,3 +1551,8 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Tables: `meeting_host_schedules`, `meeting_schedule_windows`, `meeting_schedule_overrides`, `meeting_types`, `meeting_bookings`
 - Location: `supabase/migrations/20260611190000_native_scheduling_engine.sql` (applied live via exec_sql 2026-06-11)
 - Purpose: In-house scheduling engine replacing Cal.com (jicate-booking). Times stored as minutes-since-midnight in schedule TZ; gist EXCLUSION constraint `mb_no_double_booking` makes double-booking impossible for confirmed rows (verified live: overlap → 23P01; cancelled rows don't block). Multi-tenant via institution_id. Requires btree_gist extension.
+
+### Meeting Routing Log — native linkage (2026-06-11)
+- Column: `meeting_routing_log.meeting_type_id` (uuid → meeting_types)
+- Location: `supabase/migrations/20260611200000_meeting_routing_log_native_link.sql` (applied live)
+- Purpose: Phase N2 — routed bookings reference native meeting_types; cal_booking_uid column now stores native uids for new rows.

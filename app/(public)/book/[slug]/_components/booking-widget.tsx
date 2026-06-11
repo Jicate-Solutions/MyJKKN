@@ -33,7 +33,7 @@ interface BookingWidgetProps {
 
 interface SlotsResponse {
   counselor?: { name: string } | null;
-  eventTypeId?: number;
+  meetingTypeId?: string;
   durationMin?: number;
   days?: Record<string, Array<{ start: string }>>;
   error?: string;
@@ -81,7 +81,7 @@ export function BookingWidget({ slug, displayName, durationMin, questions }: Boo
   const [error, setError] = useState<string | null>(null);
   const [noCounselors, setNoCounselors] = useState(false);
   const [counselorName, setCounselorName] = useState('');
-  const [eventTypeId, setEventTypeId] = useState<number | null>(null);
+  const [meetingTypeId, setMeetingTypeId] = useState<string | null>(null);
   const [slotStarts, setSlotStarts] = useState<string[]>([]);
   const [activeDay, setActiveDay] = useState<string>('');
   const [selectedSlot, setSelectedSlot] = useState<string>('');
@@ -124,7 +124,7 @@ export function BookingWidget({ slug, displayName, durationMin, questions }: Boo
         setStep('time');
         return;
       }
-      if (!res.ok || !data.eventTypeId) {
+      if (!res.ok || !data.meetingTypeId) {
         setError(data.error ?? 'Could not load available times. Please try again.');
         return;
       }
@@ -134,7 +134,7 @@ export function BookingWidget({ slug, displayName, durationMin, questions }: Boo
         .filter((s) => new Date(s).getTime() > Date.now())
         .sort();
       setCounselorName(data.counselor?.name ?? '');
-      setEventTypeId(data.eventTypeId);
+      setMeetingTypeId(data.meetingTypeId);
       setSlotStarts(starts);
       setSelectedSlot('');
       setActiveDay(starts.length ? istDateKey(starts[0]) : '');
@@ -147,7 +147,7 @@ export function BookingWidget({ slug, displayName, durationMin, questions }: Boo
   }
 
   async function confirmBooking() {
-    if (!selectedSlot || !eventTypeId) return;
+    if (!selectedSlot || !meetingTypeId) return;
     setLoading(true);
     setError(null);
     try {
@@ -155,7 +155,7 @@ export function BookingWidget({ slug, displayName, durationMin, questions }: Boo
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          eventTypeId,
+          meetingTypeId,
           start: selectedSlot,
           name: name.trim(),
           email: email.trim(),
