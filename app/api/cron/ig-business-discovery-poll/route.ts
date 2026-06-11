@@ -165,6 +165,23 @@ export async function GET(request: Request): Promise<Response> {
     return NextResponse.json({ success: false, error: deptErr.message }, { status: 500 });
   }
 
+  // Accounts upgraded to per-account Instagram Login get FULL insights from
+  // ig-login-insights-poll — skip them here, both to avoid flipping their
+  // metrics_source back via the upsert below and to keep their metric series
+  // free of public-only snapshot rows. Two skip axes: username (matches the
+  // registry handle pre-fetch) AND ig_user_id (matches the upsert conflict
+  // key, in case the stored handle drifted from the sheet handle).
+  const { data: upgradedRows } = await supabase
+    .from('ig_accounts')
+    .select('username, ig_user_id')
+    .eq('metrics_source', 'instagram_login');
+  const upgraded = new Set(
+    (upgradedRows ?? []).map((r) => (r.username as string).toLowerCase())
+  );
+  const upgradedIds = new Set(
+    (upgradedRows ?? []).map((r) => r.ig_user_id as string).filter(Boolean)
+  );
+
   let resolved = 0;
   let seeded = 0;
   let metricsWritten = 0;
@@ -172,11 +189,24 @@ export async function GET(request: Request): Promise<Response> {
   let failed = 0;
   const now = new Date().toISOString();
 
+  let skippedUpgraded = 0;
+
   for (const dept of (deptRows ?? []) as DeptRow[]) {
+    if (upgraded.has(dept.username.toLowerCase())) {
+      skippedUpgraded++;
+      continue;
+    }
     try {
       const bd = await fetchBusinessDiscovery(originId, dept.username, token);
       if (!bd || !bd.id) {
         failed++;
+        continue;
+      }
+      // Second skip axis: the discovery id IS the upsert conflict key — this
+      // guarantees an instagram_login row can never be flipped back even if
+      // the handles diverged.
+      if (upgradedIds.has(bd.id)) {
+        skippedUpgraded++;
         continue;
       }
       resolved++;
@@ -278,6 +308,7 @@ export async function GET(request: Request): Promise<Response> {
     data: {
       origin_id: originId,
       handles: deptRows?.length ?? 0,
+      skipped_instagram_login: skippedUpgraded,
       resolved,
       seeded,
       account_metrics: metricsWritten,

@@ -15,8 +15,9 @@
  * reach the query.
  */
 
-import { useEffect, useMemo, useState } from 'react';
-import { Copy, Eye, EyeOff, Instagram, Check } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Copy, Eye, EyeOff, Instagram, Check, Link2, Unlink } from 'lucide-react';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
@@ -55,6 +56,31 @@ interface DeptAccountRow {
   notes: string | null;
   institutions: { name: string } | null;
   departments: { department_name: string } | null;
+}
+
+/** Instagram Business Login connection status (token column is not readable
+ *  client-side — service_role only via column-level grant). */
+interface IgConnectionRow {
+  id: string;
+  dept_account_id: string | null;
+  username: string;
+  status: 'active' | 'expired' | 'revoked' | 'error';
+  expires_at: string;
+  connected_at: string;
+  last_polled_at: string | null;
+}
+
+/** Pick the connection to display when several map to one dept:
+ *  active beats non-active; ties go to the most recent connection. */
+function preferConnection(
+  a: IgConnectionRow | undefined,
+  b: IgConnectionRow
+): IgConnectionRow {
+  if (!a) return b;
+  const aActive = a.status === 'active';
+  const bActive = b.status === 'active';
+  if (aActive !== bActive) return bActive ? b : a;
+  return b.connected_at > a.connected_at ? b : a;
 }
 
 const breadcrumbItems = [
@@ -122,13 +148,150 @@ function PasswordCell({ password }: { password: string | null }) {
   );
 }
 
+/**
+ * Per-row Instagram Business Login control. "Connect now" sends THIS browser
+ * to the Instagram authorize dialog; "Copy connect link" copies a 24h
+ * shareable authorize URL to send to the staffer who is logged into the
+ * department account on their own device.
+ */
+function IgLoginCell({
+  dept,
+  connection,
+  onChanged,
+  onActionError,
+}: {
+  dept: DeptAccountRow;
+  connection: IgConnectionRow | undefined;
+  onChanged: () => void;
+  onActionError: (msg: string) => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const copyLink = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(
+        `/api/social/instagram/connect?dept_id=${dept.id}&mode=link`
+      );
+      const json = await res.json();
+      if (!res.ok) {
+        onActionError(json.error ?? `Connect link failed (HTTP ${res.status})`);
+        return;
+      }
+      await navigator.clipboard.writeText(json.authorize_url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (e) {
+      onActionError(e instanceof Error ? e.message : 'Copy failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disconnect = async () => {
+    if (!connection) return;
+    setBusy(true);
+    try {
+      const res = await fetch('/api/social/instagram/connect', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ connection_id: connection.id }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        onActionError(json.error ?? `Disconnect failed (HTTP ${res.status})`);
+        return;
+      }
+      onChanged();
+    } catch (e) {
+      onActionError(e instanceof Error ? e.message : 'Disconnect failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (connection?.status === 'active') {
+    const daysLeft = Math.max(
+      0,
+      Math.round(
+        (new Date(connection.expires_at).getTime() - Date.now()) / 86400000
+      )
+    );
+    return (
+      <div className="flex items-center gap-1">
+        <Badge variant="default" title={`Token expires in ~${daysLeft} days`}>
+          Connected
+        </Badge>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6"
+          onClick={disconnect}
+          disabled={busy}
+          aria-label={`Disconnect Instagram Login for @${dept.username}`}
+          title="Disconnect"
+        >
+          <Unlink className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    );
+  }
+
+  const needsReconnect =
+    connection?.status === 'expired' || connection?.status === 'error';
+
+  return (
+    <div className="flex items-center gap-1">
+      {needsReconnect && (
+        <Badge variant="destructive">
+          {connection?.status === 'expired' ? 'Expired' : 'Error'}
+        </Badge>
+      )}
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 px-2 text-xs"
+        disabled={busy}
+        onClick={() => {
+          window.location.href = `/api/social/instagram/connect?dept_id=${dept.id}`;
+        }}
+      >
+        <Link2 className="mr-1 h-3.5 w-3.5" />
+        {needsReconnect ? 'Reconnect' : 'Connect'}
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6"
+        onClick={copyLink}
+        disabled={busy}
+        aria-label={`Copy connect link for @${dept.username}`}
+        title="Copy connect link (valid 24h — send it to the account owner)"
+      >
+        {copied ? (
+          <Check className="h-3.5 w-3.5 text-green-600" />
+        ) : (
+          <Copy className="h-3.5 w-3.5" />
+        )}
+      </Button>
+    </div>
+  );
+}
+
 export default function SocialDepartmentAccountsPage() {
   const [rows, setRows] = useState<DeptAccountRow[]>([]);
+  const [connections, setConnections] = useState<IgConnectionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const supabase = createClientSupabaseClient();
+  const load = useCallback(() => {
+    // social_dept_accounts + ig_account_connections are not in the generated
+    // Database types (types/supabase.ts) — with the typed client, inference
+    // on these two selects blows TS's instantiation depth (TS2589). Untyped
+    // client here; results are cast to the explicit row interfaces above.
+    const supabase = createClientSupabaseClient() as unknown as SupabaseClient;
     supabase
       .from('social_dept_accounts')
       .select(
@@ -141,7 +304,43 @@ export default function SocialDepartmentAccountsPage() {
         else setRows((data as unknown as DeptAccountRow[]) ?? []);
         setLoading(false);
       });
+    // Connection status (RLS admin-only; access_token column is not granted
+    // to authenticated, so it is deliberately absent from this select).
+    supabase
+      .from('ig_account_connections')
+      .select(
+        'id, dept_account_id, username, status, expires_at, connected_at, last_polled_at'
+      )
+      .then(({ data }) => {
+        setConnections((data as unknown as IgConnectionRow[]) ?? []);
+      });
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const connectionByDept = useMemo(() => {
+    const map = new Map<string, IgConnectionRow>();
+    for (const c of connections) {
+      if (c.dept_account_id) {
+        map.set(c.dept_account_id, preferConnection(map.get(c.dept_account_id), c));
+      }
+    }
+    // fallback: match by handle for connections stored without a dept binding
+    const byUsername = new Map<string, IgConnectionRow>();
+    for (const c of connections) {
+      const key = c.username.toLowerCase();
+      byUsername.set(key, preferConnection(byUsername.get(key), c));
+    }
+    for (const r of rows) {
+      if (!map.has(r.id)) {
+        const c = byUsername.get(r.username.toLowerCase());
+        if (c) map.set(r.id, c);
+      }
+    }
+    return map;
+  }, [connections, rows]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, DeptAccountRow[]>();
@@ -161,8 +360,9 @@ export default function SocialDepartmentAccountsPage() {
       businessSuite: rows.filter((r) => r.business_suite_connected === true).length,
       contentStudio: rows.filter((r) => r.content_studio_connected === true).length,
       monitored: rows.filter((r) => r.ig_account_id !== null).length,
+      igLogin: connections.filter((c) => c.status === 'active').length,
     }),
-    [rows]
+    [rows, connections]
   );
 
   return (
@@ -170,7 +370,7 @@ export default function SocialDepartmentAccountsPage() {
       <ContentLayout title="Department Social Accounts">
         <PageBreadcrumb items={breadcrumbItems} />
 
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Department handles</CardDescription>
@@ -195,7 +395,19 @@ export default function SocialDepartmentAccountsPage() {
               <CardTitle className="text-3xl">{loading ? '…' : totals.monitored}</CardTitle>
             </CardHeader>
           </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>IG Login connected</CardDescription>
+              <CardTitle className="text-3xl">{loading ? '…' : totals.igLogin}</CardTitle>
+            </CardHeader>
+          </Card>
         </div>
+
+        {actionError && (
+          <Alert variant="destructive" className="mt-4">
+            <AlertDescription>{actionError}</AlertDescription>
+          </Alert>
+        )}
 
         {error && (
           <Alert variant="destructive" className="mt-4">
@@ -241,6 +453,7 @@ export default function SocialDepartmentAccountsPage() {
                     <TableHead>Content Studio</TableHead>
                     <TableHead>Business Suite</TableHead>
                     <TableHead>Monitoring</TableHead>
+                    <TableHead>IG Login</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -271,6 +484,14 @@ export default function SocialDepartmentAccountsPage() {
                         ) : (
                           <Badge variant="secondary">Not in pipeline</Badge>
                         )}
+                      </TableCell>
+                      <TableCell>
+                        <IgLoginCell
+                          dept={r}
+                          connection={connectionByDept.get(r.id)}
+                          onChanged={load}
+                          onActionError={setActionError}
+                        />
                       </TableCell>
                     </TableRow>
                   ))}
