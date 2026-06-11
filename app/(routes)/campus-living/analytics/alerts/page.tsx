@@ -1,54 +1,97 @@
 'use client';
 
+// Risk Alerts — LIVE-WIRED 2026-06-11 (was an honest PreviewBanner page with
+// sample data; the promised hooks existed all along). Reads hostel_risk_alerts
+// via useHostelRiskAlerts (super admins see all institutions — the hook
+// handles scoping); Acknowledge / Resolve are real mutations.
+// NOTE: nothing GENERATES risk alerts yet (no evaluation engine writes
+// hostel_risk_alerts) — until that ships, this page truthfully shows the
+// all-clear empty state. Rules are managed at ./alert-rules (live CRUD).
+
 import Link from 'next/link';
-import { toast } from 'sonner';
+import { useMemo, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Bell, AlertTriangle, CheckCircle2, Clock, Settings } from 'lucide-react';
-import { PreviewBanner } from '../../_components/preview-banner';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Bell, AlertTriangle, CheckCircle2, Clock, Settings, ShieldCheck } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
+import {
+  useHostelRiskAlerts,
+  useAcknowledgeRiskAlert,
+  useResolveRiskAlert,
+} from '@/hooks/campus-living/use-hostel-alerts';
+import type { HostelRiskAlert, AlertSeverity, AlertStatus } from '@/types/campus-living';
+
+const SEVERITY_BADGE: Record<AlertSeverity, { label: string; cls: string }> = {
+  critical: { label: 'Critical', cls: 'bg-red-100 text-red-800 hover:bg-red-100' },
+  warning: { label: 'Warning', cls: 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100' },
+  info: { label: 'Info', cls: 'bg-blue-100 text-blue-800 hover:bg-blue-100' },
+};
+
+const ALERT_TYPE_LABEL: Record<string, string> = {
+  dropout_risk: 'Dropout Risk',
+  mental_health: 'Mental Health',
+  fee_default: 'Fees',
+  caterer_quality: 'Mess',
+  attendance_drop: 'Attendance',
+  meal_skip: 'Meal Skip',
+};
+
+function statusIcon(status: AlertStatus) {
+  switch (status) {
+    case 'active':
+      return <AlertTriangle className="h-5 w-5 text-red-600" />;
+    case 'acknowledged':
+      return <Clock className="h-5 w-5 text-yellow-600" />;
+    case 'resolved':
+      return <CheckCircle2 className="h-5 w-5 text-green-600" />;
+    default:
+      return <Bell className="h-5 w-5 text-muted-foreground" />;
+  }
+}
 
 export default function AlertsPage() {
-  // SAMPLE DATA — useHostelRiskAlerts hook exists but page is not wired yet.
-  // Acknowledge / Take Action buttons below are placeholders.
-  const alerts = [
-    { id: '1', title: 'Block D plumbing SLA breach', severity: 'critical', domain: 'Maintenance', triggered: '2026-02-21 09:00 AM', status: 'active', detail: '3 plumbing requests exceeded 24-hour SLA in Block D' },
-    { id: '2', title: 'Low mess rating alert', severity: 'warning', domain: 'Mess', triggered: '2026-02-20 08:00 PM', status: 'active', detail: 'Dinner rating dropped below 3.0 for 3 consecutive days' },
-    { id: '3', title: 'Attendance dip - Block B', severity: 'warning', domain: 'Attendance', triggered: '2026-02-20 11:00 PM', status: 'active', detail: 'Night attendance fell below 85% in Block B' },
-    { id: '4', title: 'Fire extinguisher expiry', severity: 'info', domain: 'Safety', triggered: '2026-02-18 10:00 AM', status: 'acknowledged', detail: '5 extinguishers in Block A expire within 30 days' },
-    { id: '5', title: 'Fee collection below target', severity: 'warning', domain: 'Fees', triggered: '2026-02-15 09:00 AM', status: 'resolved', detail: 'February collection at 60% (target: 70% by mid-month)' },
-  ];
+  const { profile } = useAuth();
+  const institutionId = (profile?.institution_id as string | undefined) ?? undefined;
 
-  const getSeverityBadge = (severity: string) => {
-    switch (severity) {
-      case 'critical': return <Badge className="bg-red-100 text-red-800 hover:bg-red-100">Critical</Badge>;
-      case 'warning': return <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Warning</Badge>;
-      case 'info': return <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">Info</Badge>;
-      default: return <Badge variant="outline">{severity}</Badge>;
-    }
-  };
+  // Hook scoping: super admins fetch ALL institutions; others their own.
+  const { data: alertsResult, isLoading } = useHostelRiskAlerts(institutionId);
+  const alerts: HostelRiskAlert[] = useMemo(
+    () => alertsResult?.data ?? [],
+    [alertsResult],
+  );
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'active': return <AlertTriangle className="h-5 w-5 text-red-600" />;
-      case 'acknowledged': return <Clock className="h-5 w-5 text-yellow-600" />;
-      case 'resolved': return <CheckCircle2 className="h-5 w-5 text-green-600" />;
-      default: return <Bell className="h-5 w-5" />;
-    }
-  };
+  const acknowledge = useAcknowledgeRiskAlert();
+  const resolve = useResolveRiskAlert();
+
+  const [resolveTarget, setResolveTarget] = useState<HostelRiskAlert | null>(null);
+  const [resolutionNotes, setResolutionNotes] = useState('');
+
+  const counts = useMemo(() => {
+    const by = (s: AlertStatus) => alerts.filter((a) => a.status === s).length;
+    return { active: by('active'), acknowledged: by('acknowledged'), resolved: by('resolved') };
+  }, [alerts]);
 
   return (
     <ContentLayout title="Risk Alerts">
       <div className="space-y-6">
-        <PreviewBanner
-          feature="risk alerts"
-          note="This Risk Alerts page shows sample data. The Acknowledge and Take Action buttons are placeholders — they have no effect yet. The underlying hooks (useHostelRiskAlerts, useAcknowledgeRiskAlert, useResolveRiskAlert) exist; the page wiring ships next."
-        />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold">Active Risk Alerts</h1>
-            <p className="text-muted-foreground">Real-time alerts based on configured thresholds and anomaly detection</p>
+            <p className="text-muted-foreground">
+              Alerts raised against the rules configured for your hostels
+            </p>
           </div>
           <Button variant="outline" asChild>
             <Link href="/campus-living/analytics/alert-rules">
@@ -58,72 +101,140 @@ export default function AlertsPage() {
           </Button>
         </div>
 
+        {/* Status strip — counts from live rows */}
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
           <Card>
             <CardContent className="p-4">
-              <p className="text-sm text-muted-foreground">Active Alerts</p>
-              <p className="text-2xl font-bold text-red-600">{alerts.filter(a => a.status === 'active').length}</p>
+              <p className="text-sm text-muted-foreground">Active</p>
+              <p className="text-2xl font-bold text-red-600">{counts.active}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4">
               <p className="text-sm text-muted-foreground">Acknowledged</p>
-              <p className="text-2xl font-bold text-yellow-600">{alerts.filter(a => a.status === 'acknowledged').length}</p>
+              <p className="text-2xl font-bold text-yellow-600">{counts.acknowledged}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4">
-              <p className="text-sm text-muted-foreground">Resolved (this week)</p>
-              <p className="text-2xl font-bold text-green-600">{alerts.filter(a => a.status === 'resolved').length}</p>
+              <p className="text-sm text-muted-foreground">Resolved</p>
+              <p className="text-2xl font-bold text-green-600">{counts.resolved}</p>
             </CardContent>
           </Card>
         </div>
 
-        <div className="space-y-4">
-          {alerts.map((alert) => (
-            <Card key={alert.id} className={alert.status === 'active' ? 'border-l-4 border-l-red-500' : alert.status === 'acknowledged' ? 'border-l-4 border-l-yellow-500' : ''}>
-              <CardContent className="p-4">
-                <div className="flex items-start gap-4">
-                  {getStatusIcon(alert.status)}
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h4 className="font-semibold">{alert.title}</h4>
-                      {getSeverityBadge(alert.severity)}
-                      <Badge variant="outline">{alert.domain}</Badge>
+        {isLoading ? (
+          <Skeleton className="h-64 w-full" />
+        ) : alerts.length === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col items-center gap-2 p-10 text-center">
+              <ShieldCheck className="h-8 w-8 text-green-600" />
+              <p className="font-medium">No risk alerts — all clear</p>
+              <p className="max-w-md text-sm text-muted-foreground">
+                Alerts appear here when a configured rule is triggered. Manage rules under
+                Configure Rules.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {alerts.map((alert) => (
+              <Card key={alert.id}>
+                <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-start gap-3">
+                    {statusIcon(alert.status)}
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium">{alert.title}</p>
+                        <Badge className={SEVERITY_BADGE[alert.severity].cls}>
+                          {SEVERITY_BADGE[alert.severity].label}
+                        </Badge>
+                        <Badge variant="outline">
+                          {ALERT_TYPE_LABEL[alert.alert_type] ?? alert.alert_type}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground">{alert.description}</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Raised{' '}
+                        {alert.created_at ? new Date(alert.created_at).toLocaleString('en-IN') : '—'}
+                        {alert.status !== 'active' && ` · ${alert.status}`}
+                      </p>
                     </div>
-                    <p className="text-sm text-muted-foreground mb-2">{alert.detail}</p>
-                    <p className="text-xs text-muted-foreground">Triggered: {alert.triggered}</p>
                   </div>
-                  {alert.status === 'active' && (
-                    <div className="flex gap-2">
+                  <div className="flex shrink-0 items-center gap-2">
+                    {alert.status === 'active' && (
                       <Button
-                        variant="outline"
                         size="sm"
+                        variant="outline"
+                        disabled={acknowledge.isPending}
                         onClick={() =>
-                          toast.info('Preview only — alert wiring ships next.', {
-                            description: `Would acknowledge alert "${alert.title}" once wired to useAcknowledgeRiskAlert.`,
+                          profile?.id &&
+                          acknowledge.mutate({
+                            id: alert.id,
+                            payload: { acknowledged_by: profile.id as string },
                           })
                         }
                       >
                         Acknowledge
                       </Button>
+                    )}
+                    {(alert.status === 'active' || alert.status === 'acknowledged') && (
                       <Button
                         size="sm"
-                        onClick={() =>
-                          toast.info('Preview only — alert wiring ships next.', {
-                            description: `Would open the action workflow for "${alert.title}" once wired.`,
-                          })
-                        }
+                        disabled={resolve.isPending}
+                        onClick={() => {
+                          setResolutionNotes('');
+                          setResolveTarget(alert);
+                        }}
                       >
-                        Take Action
+                        Resolve
                       </Button>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {/* Resolve dialog — captures resolution notes (required by the mutation) */}
+        <Dialog open={!!resolveTarget} onOpenChange={(open) => !open && setResolveTarget(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Resolve alert</DialogTitle>
+              <DialogDescription>{resolveTarget?.title}</DialogDescription>
+            </DialogHeader>
+            <Textarea
+              placeholder="What was done about it? (resolution notes)"
+              value={resolutionNotes}
+              onChange={(e) => setResolutionNotes(e.target.value)}
+              rows={4}
+            />
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setResolveTarget(null)}>
+                Cancel
+              </Button>
+              <Button
+                disabled={resolve.isPending || resolutionNotes.trim().length === 0}
+                onClick={() => {
+                  if (!resolveTarget || !profile?.id) return;
+                  resolve.mutate(
+                    {
+                      id: resolveTarget.id,
+                      payload: {
+                        resolved_by: profile.id as string,
+                        resolution_notes: resolutionNotes.trim(),
+                      },
+                    },
+                    { onSuccess: () => setResolveTarget(null) },
+                  );
+                }}
+              >
+                Mark Resolved
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </ContentLayout>
   );
