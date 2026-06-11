@@ -32,6 +32,22 @@ const DEFAULT_LOOKBACK_DAYS = 7;
 const FORM_HARD_CAP = 50; // total forms processed per cron tick
 const PER_FORM_LEAD_CAP = 500; // safety stop per form per tick
 
+/**
+ * Standard Meta token env fallback chain — mirrors
+ * app/api/admin/social/lead-ads/forms (#1282 follow-up). Previously this
+ * cron hard-required META_LEAD_ADS_PAGE_ACCESS_TOKEN and 500'd when only
+ * one of the sibling tokens was configured.
+ */
+function getEnvFallbackToken(): string | undefined {
+  return (
+    process.env.META_LEAD_ADS_PAGE_ACCESS_TOKEN ||
+    process.env.META_IG_SYSTEM_USER_TOKEN ||
+    process.env.MESSENGER_PAGE_ACCESS_TOKEN ||
+    process.env.META_PAGE_ACCESS_TOKEN ||
+    undefined
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Service-role Supabase client
 // ---------------------------------------------------------------------------
@@ -96,11 +112,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       });
     }
 
-    const pageAccessToken = process.env.META_LEAD_ADS_PAGE_ACCESS_TOKEN;
+    const pageAccessToken = getEnvFallbackToken();
     if (!pageAccessToken) {
       return NextResponse.json({
         ok: false,
-        error: 'META_LEAD_ADS_PAGE_ACCESS_TOKEN unset',
+        error:
+          'No Meta access token available. Set one of META_LEAD_ADS_PAGE_ACCESS_TOKEN / ' +
+          'META_IG_SYSTEM_USER_TOKEN / MESSENGER_PAGE_ACCESS_TOKEN / META_PAGE_ACCESS_TOKEN.',
       }, { status: 500 });
     }
 
