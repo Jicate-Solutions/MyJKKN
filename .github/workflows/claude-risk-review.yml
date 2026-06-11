@@ -1,0 +1,190 @@
+name: Claude Risk Review (advisory)
+
+# Path-glob risk router + single Claude "L1 skeptic" reviewer.
+#
+# Tier model (decided 2026-06-11):
+#   L0  every PR        → existing grep gates (free, deterministic)
+#   L1  risky PRs       → THIS workflow: one adversarial Claude review,
+#                         posted as a PR comment. ADVISORY — never blocks.
+#   L2+ (future)        → after a ~2-week trial, if findings are real more
+#                         often than noise, promote to blocking with a
+#                         2-of-3 independent-lens consensus rule.
+#
+# The ROUTER is mechanical (path regex, no model) — the model only spends
+# Max-subscription quota on PRs that touch migrations, auth, or money paths.
+#
+# Review focus encodes the silent-failure-auditor skill's five non-greppable
+# patterns (a–e) — pattern (f), Radix SelectItem value="", already has its own
+# grep gate (radix-select-empty-value-audit.yml). Delta-only discipline: the
+# reviewer is instructed to report ONLY on files this PR touched, never
+# legacy baseline issues (same ratchet as typecheck-pr-scoped.yml).
+#
+# Auth: CLAUDE_CODE_OAUTH_TOKEN repo secret (Claude Max subscription token,
+# generated via `claude setup-token` — no separate API billing). If the
+# secret is absent the review is skipped with a notice, so this workflow is
+# safe to merge before the token is configured. CI reviews share the Max
+# subscription's rate limits with interactive sessions.
+#
+# Model: claude-fable-5. If the OAuth token's plan can't access it in CI,
+# swap --model to claude-opus-4-8 below.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  route:
+    name: Risk router (path globs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    if: ${{ !github.event.pull_request.draft }}
+    outputs:
+      risky: ${{ steps.classify.outputs.risky }}
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify PR risk by changed paths
+        id: classify
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$BASE_REF" --quiet
+          CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD")
+
+          # Tier-2 risk surface: database migrations, auth/session code,
+          # and money paths. Tune by editing this regex — the router is
+          # deliberately dumb and auditable.
+          RISK_REGEX='^(supabase/migrations/|supabase/setup/|lib/auth/|app/api/auth/|middleware\.ts$|utils/supabase/)'
+          MONEY_REGEX='(fee|billing|payment|invoice|scholarship|payroll)'
+
+          RISKY_FILES=$(echo "$CHANGED" | grep -E "$RISK_REGEX" || true)
+          MONEY_FILES=$(echo "$CHANGED" | grep -iE "$MONEY_REGEX" || true)
+          HITS=$(printf '%s\n%s\n' "$RISKY_FILES" "$MONEY_FILES" | grep -v '^$' | sort -u || true)
+
+          if [[ -z "$HITS" ]]; then
+            echo "risky=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No migration/auth/money paths in diff — Claude review not spent on this PR."
+          else
+            echo "risky=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "### 🔍 Risk router: Claude review triggered"
+              echo ""
+              echo "Matched paths:"
+              echo '```'
+              echo "$HITS" | head -30
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  review:
+    name: Claude L1 skeptic (advisory)
+    needs: route
+    if: needs.route.outputs.risky == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check token configured
+        id: token
+        env:
+          HAS_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: |
+          echo "has_token=$HAS_TOKEN" >> "$GITHUB_OUTPUT"
+          if [ "$HAS_TOKEN" != "true" ]; then
+            echo "::notice::CLAUDE_CODE_OAUTH_TOKEN secret not set — skipping advisory review. Generate with 'claude setup-token' and add via 'gh secret set CLAUDE_CODE_OAUTH_TOKEN'."
+          fi
+
+      - name: Fetch base ref for diff
+        if: steps.token.outputs.has_token == 'true'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: git fetch origin "$BASE_REF" --quiet
+
+      - name: Run Claude adversarial review
+        if: steps.token.outputs.has_token == 'true'
+        continue-on-error: true  # advisory — quota/model failures must not redden PRs
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: |
+            --model claude-fable-5
+            --allowedTools "Read,Grep,Glob,Write,Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
+          prompt: |
+            You are an adversarial reviewer for a production multi-tenant
+            college ERP (MyJKKN). Your job: try to REFUTE the claim "this PR
+            is safe to merge". This review is ADVISORY — be precise, not loud.
+
+            HARD SCOPE RULE (delta-only): review ONLY changes in this PR.
+            Get them with: git diff origin/${{ github.base_ref }}...HEAD
+            Never report problems in unchanged legacy code.
+
+            Focus lenses, in priority order:
+            1. Migrations (supabase/migrations/): destructive DDL (DROP,
+               column type changes), new tables missing RLS policies,
+               policy gaps that leak rows across institutions/tenants,
+               backfills that lock large tables.
+            2. Auth/session: role or scope mistakes; silent permission
+               failures — a denied user must see an explicit 403/contact
+               page or structured error, NEVER a silent redirect() to a
+               generic page.
+            3. Money paths (fees/billing/payment/invoice/payroll): rounding,
+               currency handling, double-submission/idempotency on payment
+               endpoints and webhooks, amounts trusted from the client.
+            4. The five non-greppable silent-failure patterns:
+               (a) async action with no client-side timeout → user clicks,
+                   waits past the serverless limit, sees nothing;
+               (b) `if (isLoading) return;` early-return that swallows
+                   clicks with zero feedback;
+               (c) result rendered below the fold with no scrollIntoView/
+                   focus after the action completes;
+               (d) loading indicator too subtle to notice (tiny, low
+                   contrast, or only a disabled-state change);
+               (e) optional callback invoked as `cb?.()` where the parent
+                   forgot to pass the prop — button renders but no-ops.
+
+            Output: write your review to the file /tmp/claude-review.md as
+            GitHub markdown. First line exactly: <!-- claude-risk-review -->
+            Then: "## 🤖 Claude Risk Review (advisory)" heading, a one-line
+            verdict, then findings as a list — each with severity
+            (CRITICAL/HIGH/MEDIUM), file:line, one line on why it breaks,
+            one line on the fix. Maximum 8 findings, highest severity first.
+            If you find nothing real, write the marker + heading + a single
+            line saying the diff held up under review — DO NOT invent
+            findings to seem useful. Do not post any comments yourself; a
+            later workflow step posts the file.
+
+      - name: Post review comment (idempotent)
+        if: steps.token.outputs.has_token == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ ! -s /tmp/claude-review.md ]; then
+            echo "::warning::Claude produced no review file (quota/model error?). Advisory job ends green by design — check the step above."
+            exit 0
+          fi
+          # One review comment per PR, updated in place on each push.
+          EXISTING_ID=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            --paginate --jq '[.[] | select(.body | startswith("<!-- claude-risk-review -->"))] | last | .id' 2>/dev/null || echo "")
+          if [ -n "$EXISTING_ID" ] && [ "$EXISTING_ID" != "null" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$EXISTING_ID" \
+              -F body=@/tmp/claude-review.md > /dev/null
+            echo "::notice::Updated existing review comment #$EXISTING_ID"
+          else
+            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/claude-review.md
+            echo "::notice::Posted new review comment"
+          fi
