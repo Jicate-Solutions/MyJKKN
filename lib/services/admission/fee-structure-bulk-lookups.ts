@@ -6,7 +6,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { BulkResolveLookups } from '@/lib/utils/mappings/fee-structure-excel-mappings';
 
-const EXCLUDED_KINDS = ['transport', 'hostel'];
+// Mirrors FEE_STRUCTURE_EXCLUDED_CATEGORY_KINDS in fees-structure-form.tsx —
+// hostel categories are selectable; only transport stays module-owned.
+const EXCLUDED_KINDS = ['transport'];
 
 /** Active billing categories that may be used as fee-structure items. */
 export async function loadActiveFeeCategories(
