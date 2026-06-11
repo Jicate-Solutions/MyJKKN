@@ -8,7 +8,7 @@
 -- year-1 placement signals, and brands the 7-category framework publicly.
 --
 -- Pattern: every governance decision = row in platform_policies. Director
--- edits via /admin/pde/policies/governance UI → behavior changes on next
+-- edits via /pde/admin/policies/governance UI → behavior changes on next
 -- reporting cycle. Zero deploys, zero developer round-trips.
 --
 -- Read at runtime via fn_get_policy('pde.governance.<key>', institution_id).

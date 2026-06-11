@@ -125,11 +125,18 @@ export default function RoleManagementPage() {
       await fetchRoles();
     } catch (error) {
       console.error('Page: Error updating role:', error);
+      // Supabase/PostgREST errors are plain objects, not Error instances —
+      // read .message off either shape so DB-side validation messages (e.g.
+      // the BoS key-format trigger) reach the admin instead of a generic toast.
+      const message = (error as { message?: string } | null)?.message;
       toast.error(
-        error instanceof Error
-          ? `Update failed: ${error.message}`
+        message
+          ? `Update failed: ${message}`
           : 'Failed to update role. Please check console for details.'
       );
+      // Rethrow so the edit dialog's handleSubmit doesn't show a false
+      // "updated successfully" toast and reset the form as if the save worked.
+      throw error;
     } finally {
       setIsLoading(false);
     }

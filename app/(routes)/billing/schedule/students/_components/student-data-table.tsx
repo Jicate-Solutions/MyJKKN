@@ -44,6 +44,7 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
       search.program_id ||
       search.semester_id ||
       search.section_id ||
+      search.accommodation_type ||
       search.first_name ||
       search.last_name ||
       search.roll_number ||
@@ -81,6 +82,7 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
           program_id: search.program_id || undefined,
           semester_id: search.semester_id || undefined,
           section_id: search.section_id || undefined,
+          accommodation_type: search.accommodation_type || undefined,
           is_profile_complete: search.is_profile_complete
         };
 
@@ -114,6 +116,7 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
       search.program_id,
       search.semester_id,
       search.section_id,
+      search.accommodation_type,
       search.is_profile_complete,
       isSuperAdmin,
       userProfile?.institution_id

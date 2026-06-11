@@ -18,6 +18,7 @@ export const FIXED_HEADERS = [
   'Admission Year',
   'Quota',
   'Gender',
+  'Accommodation',
   'Communities',
   'Name',
   'Status',
@@ -33,6 +34,7 @@ export interface BulkResolveLookups {
   programmes: Map<string, string>;          // `${departmentId}::${programmeName(lower)}` -> id
   admissionYears: Map<string, string>;      // `${programmeId}::${yearName(lower)}` -> id
   quotas: Map<string, string>;              // name(lower) -> id
+  accommodations: Map<string, string>;      // name(lower) AND code(lower) -> id (global lookup)
   communities: Map<string, string>;         // name(lower) -> id
   categoriesByName: Map<string, string>;    // category_name(lower) -> billing_category_id
   amountHeaders: string[];                   // category names, in column order
@@ -47,6 +49,7 @@ export interface BulkUpsertPayload {
   admission_year_id: string;
   quota_id: string;
   gender: string | null;
+  accommodation_type_id: string | null;
   community_category_ids: string[];
   name: string;
   status: 'draft' | 'active' | 'archived';
@@ -134,6 +137,16 @@ export function resolveRow(
   const gender = normalizeGender(raw['Gender']);
   if (gender === 'INVALID') errors.push('Gender must be Male, Female, or blank');
 
+  // Accommodation is an optional matching dimension (parallel to gender):
+  // blank or "Any" = NULL = applies to any accommodation.
+  const accommodationRaw = norm(raw['Accommodation']);
+  let accommodationTypeId: string | null = null;
+  if (accommodationRaw !== '' && !/^any( accommodation)?$/i.test(accommodationRaw)) {
+    const aid = lookups.accommodations.get(accommodationRaw.toLowerCase());
+    if (aid) accommodationTypeId = aid;
+    else errors.push(`Accommodation "${accommodationRaw}" not found (use the catalog name, e.g. Hostel / Day Scholar, or blank for Any)`);
+  }
+
   const status = normalizeStatus(raw['Status']);
   if (status === 'INVALID') errors.push('Status must be draft, active, or archived');
 
@@ -176,6 +189,7 @@ export function resolveRow(
       institution_id: instId!, degree_id: degId!, department_id: deptId!,
       programme_id: progId!, admission_year_id: yearId!, quota_id: quotaId!,
       gender: gender as string | null,
+      accommodation_type_id: accommodationTypeId,
       community_category_ids: communityIds,
       name,
       status: status as 'draft' | 'active' | 'archived',

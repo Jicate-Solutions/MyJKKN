@@ -1,11 +1,22 @@
 'use client';
 
+// Weekly Mess Menu — VIEWER (live-wired 2026-06-11).
+// Replaces the hardcoded February mockup that shipped with the original
+// scaffold: every cell, the week label and the "Published" badge were
+// string literals, so real menus (mess_menus, written by the Menu Editor
+// at /campus-living/mess/menu-editor/[tier]) never reflected here.
+// This page reads the SAME mechanism the editor writes:
+//   useMessMenuWeek(institutionId, weekStartDate, tierKey) → mess_menus.
+// Cells render items_tamil (primary) + items_english, matching menu-grid.
+
 import Link from 'next/link';
-import { toast } from 'sonner';
+import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Select,
   SelectContent,
@@ -13,217 +24,299 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { Plus, ChevronLeft, ChevronRight, Edit, Loader2 } from 'lucide-react';
-import { useState } from 'react';
+import { ChevronLeft, ChevronRight, ChefHat, CalendarRange } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
-import { useMessMenus } from '@/hooks/campus-living/use-mess-menus';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useMessMenuWeek, useActiveMessTiers } from '@/hooks/campus-living/use-mess-menu-week';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import type { MessMenu, MealType, TierKey } from '@/types/campus-living';
 
-export default function MenuPlannerPage() {
+const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+// The editor's grid uses these 4 slots ('tea' is the snacks slot in
+// mess_menus rows; the MealType union also carries a legacy 'snacks').
+const MEAL_ROWS = ['breakfast', 'lunch', 'tea', 'dinner'] as const satisfies readonly MealType[];
+const MEAL_LABELS: Record<(typeof MEAL_ROWS)[number], string> = {
+  breakfast: 'Breakfast',
+  lunch: 'Lunch',
+  tea: 'Tea / Snacks',
+  dinner: 'Dinner',
+};
+
+/**
+ * Monday (ISO date) of the week containing today, shifted by `weekOffset`
+ * weeks. Formats the LOCAL date — `toISOString()` converts to UTC and shifts
+ * IST midnight back to the previous day (Monday → Sunday), which is exactly
+ * the week-keying drift that made menus unfindable.
+ */
+function mondayOf(base: Date, weekOffset: number): string {
+  const d = new Date(base);
+  const dow = d.getDay(); // 0=Sun..6=Sat
+  d.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow) + weekOffset * 7);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+function weekRangeLabel(mondayIso: string): string {
+  const start = new Date(`${mondayIso}T00:00:00`);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  const fmt = (d: Date) =>
+    d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  return `${fmt(start)} – ${fmt(end)}`;
+}
+
+/**
+ * Institution options for super admins. Per
+ * feedback_user_institution_access_hook_unreliable_for_pickers: query the
+ * institutions table directly (the access hook returns mixed entities and
+ * may omit institutions for super admins).
+ */
+function useInstitutionOptions(enabled: boolean) {
+  return useQuery({
+    queryKey: ['mess-menu-viewer', 'institutions'],
+    enabled,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('institutions')
+        .select('id, name')
+        .like('name', 'JKKN%')
+        .order('name');
+      if (error) throw error;
+      return (data ?? []) as { id: string; name: string }[];
+    },
+  });
+}
+
+export default function WeeklyMessMenuPage() {
   const { profile } = useAuth();
-  const institutionId = profile?.institution_id || '';
-  const [selectedWeek, setSelectedWeek] = useState('current');
-  const { data: menuListData, isLoading } = useMessMenus(institutionId);
+  const { isSuperAdmin } = usePermissions();
+  const profileInstitutionId = (profile?.institution_id as string | undefined) ?? undefined;
 
-  if (isLoading) {
-    return (
-      <ContentLayout title="Menu Planner">
-        <div className="flex justify-center items-center p-12">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      </ContentLayout>
-    );
-  }
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [tierKey, setTierKey] = useState<TierKey>('standard');
+  const [pickedInstitutionId, setPickedInstitutionId] = useState<string | undefined>(undefined);
 
-  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-  const meals = ['Breakfast', 'Lunch', 'Snacks', 'Dinner'];
+  const { data: institutions } = useInstitutionOptions(isSuperAdmin);
+  const institutionId =
+    pickedInstitutionId ?? profileInstitutionId ?? (isSuperAdmin ? institutions?.[0]?.id : undefined);
 
-  const menuData: Record<string, Record<string, string>> = {
-    Monday: {
-      Breakfast: 'Idli, Sambar, Chutney, Tea/Coffee',
-      Lunch: 'Rice, Dal, Paneer Masala, Roti, Salad, Curd',
-      Snacks: 'Samosa, Tea',
-      Dinner: 'Rice, Chicken Curry, Chapati, Raita',
-    },
-    Tuesday: {
-      Breakfast: 'Dosa, Coconut Chutney, Sambar, Milk',
-      Lunch: 'Rice, Rasam, Aloo Gobi, Roti, Pickle',
-      Snacks: 'Bread Pakora, Coffee',
-      Dinner: 'Biryani, Raita, Salad',
-    },
-    Wednesday: {
-      Breakfast: 'Poha, Boiled Eggs, Tea/Coffee',
-      Lunch: 'Rice, Sambar, Bhindi Fry, Roti, Buttermilk',
-      Snacks: 'Biscuits, Banana, Tea',
-      Dinner: 'Rice, Dal Makhani, Chapati, Salad',
-    },
-    Thursday: {
-      Breakfast: 'Upma, Vada, Chutney, Tea/Coffee',
-      Lunch: 'Rice, Kootu, Fish Fry, Roti, Curd',
-      Snacks: 'Cutlet, Coffee',
-      Dinner: 'Rice, Egg Curry, Chapati, Pickle',
-    },
-    Friday: {
-      Breakfast: 'Pongal, Chutney, Sambar, Milk',
-      Lunch: 'Rice, Rasam, Mixed Veg, Roti, Papad',
-      Snacks: 'Sundal, Tea',
-      Dinner: 'Fried Rice, Gobi Manchurian, Soup',
-    },
-    Saturday: {
-      Breakfast: 'Paratha, Curd, Pickle, Tea/Coffee',
-      Lunch: 'Rice, Sambar, Chicken 65, Roti, Salad',
-      Snacks: 'Cake, Juice',
-      Dinner: 'Chapati, Paneer Butter Masala, Rice, Dal',
-    },
-    Sunday: {
-      Breakfast: 'Chole Bhature, Lassi',
-      Lunch: 'Special Biryani, Raita, Gulab Jamun',
-      Snacks: 'Fruit Salad, Milkshake',
-      Dinner: 'Rice, Egg Masala, Chapati, Ice Cream',
-    },
-  };
+  const weekStartDate = useMemo(() => mondayOf(new Date(), weekOffset), [weekOffset]);
+
+  const { data: tiers } = useActiveMessTiers(institutionId);
+  const tierOptions: TierKey[] =
+    tiers && tiers.length > 0 ? (tiers as TierKey[]) : (['standard', 'premium'] as TierKey[]);
+
+  const { data: cells, isLoading } = useMessMenuWeek(institutionId, weekStartDate, tierKey);
+
+  const lookup = useMemo(() => {
+    const m = new Map<string, MessMenu>();
+    for (const row of cells ?? []) m.set(`${row.day_of_week}-${row.meal_type}`, row);
+    return m;
+  }, [cells]);
+
+  const hasAnyItems = (cells ?? []).some(
+    (c) =>
+      (c.items_tamil?.length ?? 0) > 0 ||
+      (c.items_english?.length ?? 0) > 0 ||
+      ((c.items as string[] | null)?.length ?? 0) > 0,
+  );
+  // Real MenuStatus lifecycle: planned → confirmed → served (no 'published';
+  // the old mockup's "Published" badge was fictional vocabulary).
+  const weekStatus: 'confirmed' | 'planned' | 'none' = !cells?.length
+    ? 'none'
+    : cells.some((c) => c.status === 'confirmed' || c.status === 'served')
+      ? 'confirmed'
+      : 'planned';
 
   return (
-    <ContentLayout title="Menu Planner">
+    <ContentLayout title="Menu">
       <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        {/* Header */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold">Weekly Menu Planner</h1>
+            <h1 className="flex items-center gap-2 text-2xl font-bold">
+              <ChefHat className="h-6 w-6 text-primary" />
+              Weekly Mess Menu
+            </h1>
             <p className="text-muted-foreground">
-              Plan and manage daily meals for all hostel blocks
+              What the kitchen serves this week, by tier. Menus are managed in the Menu Editor.
             </p>
           </div>
-          <Button
-            onClick={() =>
-              toast.info('Menu builder ships next.', {
-                description: 'Inline create-menu form is being wired in a follow-up PR.',
-              })
-            }
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Create Menu
-          </Button>
+          {isSuperAdmin && (
+            <Button asChild variant="outline">
+              <Link href={`/campus-living/mess/menu-editor/${tierKey}`}>
+                <CalendarRange className="mr-2 h-4 w-4" />
+                Open Menu Editor
+              </Link>
+            </Button>
+          )}
         </div>
 
-        {/* Week Navigation */}
+        {/* Context bar: week nav · tier toggle · institution (super admin) */}
         <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
+          <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setSelectedWeek('prev')}
+                aria-label="Previous week"
+                onClick={() => setWeekOffset((w) => w - 1)}
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <div className="flex items-center gap-4">
-                <h3 className="font-semibold">Week: Feb 17 - Feb 23, 2026</h3>
-                <Select value={selectedWeek} onValueChange={setSelectedWeek}>
-                  <SelectTrigger className="w-[160px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="current">Current Week</SelectItem>
-                    <SelectItem value="next">Next Week</SelectItem>
-                    <SelectItem value="prev">Previous Week</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Published</Badge>
+              <div className="min-w-[230px] text-center">
+                <p className="font-semibold">{weekRangeLabel(weekStartDate)}</p>
+                <p className="text-xs text-muted-foreground">
+                  {weekOffset === 0 ? 'Current week' : `Week of ${weekStartDate}`}
+                </p>
               </div>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setSelectedWeek('next')}
+                aria-label="Next week"
+                onClick={() => setWeekOffset((w) => w + 1)}
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
+              {weekOffset !== 0 && (
+                <Button variant="ghost" size="sm" onClick={() => setWeekOffset(0)}>
+                  Today
+                </Button>
+              )}
+              {weekStatus === 'confirmed' && (
+                <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Confirmed</Badge>
+              )}
+              {weekStatus === 'planned' && <Badge variant="secondary">Draft — planned</Badge>}
             </div>
-          </CardContent>
-        </Card>
 
-        {/* Menu Grid */}
-        <Card>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[120px] sticky left-0 bg-background">Day</TableHead>
-                    {meals.map((meal) => (
-                      <TableHead key={meal} className="min-w-[200px]">{meal}</TableHead>
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Tier toggle — segmented buttons (not tabs) */}
+              <div className="inline-flex rounded-md border border-border p-0.5">
+                {tierOptions.map((t) => (
+                  <Button
+                    key={t}
+                    size="sm"
+                    variant={tierKey === t ? 'default' : 'ghost'}
+                    className="capitalize"
+                    onClick={() => setTierKey(t)}
+                  >
+                    {t.replace('_', ' ')}
+                  </Button>
+                ))}
+              </div>
+
+              {isSuperAdmin && (institutions?.length ?? 0) > 0 && (
+                <Select value={institutionId ?? ''} onValueChange={(v) => setPickedInstitutionId(v)}>
+                  <SelectTrigger className="w-[260px]">
+                    <SelectValue placeholder="Select institution" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {institutions!.map((i) => (
+                      <SelectItem key={i.id} value={i.id}>
+                        {i.name}
+                      </SelectItem>
                     ))}
-                    <TableHead className="w-[80px]">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {days.map((day) => (
-                    <TableRow key={day}>
-                      <TableCell className="font-medium sticky left-0 bg-background">
-                        {day}
-                      </TableCell>
-                      {meals.map((meal) => (
-                        <TableCell key={meal} className="text-sm">
-                          {menuData[day]?.[meal] || '-'}
-                        </TableCell>
-                      ))}
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            toast.info('Menu cell edit ships next.', {
-                              description: `Edit-row dialog for ${day} is being wired in a follow-up PR.`,
-                            })
-                          }
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           </CardContent>
         </Card>
 
-        {/* Recent Menus */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Saved Menus</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {[
-                { id: '1', week: 'Feb 17 - Feb 23, 2026', status: 'published', caterer: 'Annapurna Catering' },
-                { id: '2', week: 'Feb 10 - Feb 16, 2026', status: 'published', caterer: 'Annapurna Catering' },
-                { id: '3', week: 'Feb 24 - Mar 2, 2026', status: 'draft', caterer: 'Annapurna Catering' },
-              ].map((menu) => (
-                <div key={menu.id} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div>
-                    <p className="font-medium">{menu.week}</p>
-                    <p className="text-sm text-muted-foreground">{menu.caterer}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Badge variant={menu.status === 'published' ? 'default' : 'secondary'}>
-                      {menu.status}
-                    </Badge>
-                    <Button variant="ghost" size="sm" asChild>
-                      <Link href={`/campus-living/mess/menu/${menu.id}`}>View</Link>
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+        {/* Grid / states */}
+        {!institutionId ? (
+          <Card>
+            <CardContent className="p-8 text-center text-sm text-muted-foreground">
+              No institution context loaded — sign in with an institution-scoped account.
+            </CardContent>
+          </Card>
+        ) : isLoading ? (
+          <Skeleton className="h-72 w-full" />
+        ) : !hasAnyItems ? (
+          <Card>
+            <CardContent className="flex flex-col items-center gap-2 p-10 text-center">
+              <ChefHat className="h-8 w-8 text-muted-foreground" />
+              <p className="font-medium">No menu published for this week yet</p>
+              <p className="max-w-md text-sm text-muted-foreground">
+                {weekStatus === 'planned'
+                  ? 'A draft plan exists for this week but its meals are still empty.'
+                  : 'No weekly plan exists for this week.'}{' '}
+                {isSuperAdmin ? 'Fill and publish it from the Menu Editor.' : 'Please check back later.'}
+              </p>
+              {isSuperAdmin && (
+                <Button asChild size="sm" className="mt-2">
+                  <Link href={`/campus-living/mess/menu-editor/${tierKey}`}>Open Menu Editor</Link>
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardContent className="overflow-x-auto p-0">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr>
+                    <th className="border border-border bg-muted/30 p-2 text-left">Meal</th>
+                    {DAY_LABELS.map((d) => (
+                      <th key={d} className="border border-border bg-muted/30 p-2 text-left">
+                        {d}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {MEAL_ROWS.map((meal) => (
+                    <tr key={meal}>
+                      <th
+                        scope="row"
+                        className="border border-border bg-muted/20 p-2 text-left align-top font-medium"
+                      >
+                        {MEAL_LABELS[meal]}
+                      </th>
+                      {DAY_LABELS.map((_, i) => {
+                        const cell = lookup.get(`${i + 1}-${meal}`) ?? null;
+                        const tamil = cell?.items_tamil ?? [];
+                        const english = cell?.items_english ?? [];
+                        const legacy = ((cell?.items as string[] | null) ?? []).filter(Boolean);
+                        const empty = tamil.length === 0 && english.length === 0 && legacy.length === 0;
+                        return (
+                          <td key={i} className="h-24 min-w-[130px] border border-border p-2 align-top">
+                            {empty ? (
+                              <p className="text-xs italic text-muted-foreground">—</p>
+                            ) : (
+                              <div className="space-y-0.5">
+                                {tamil.map((it, idx) => (
+                                  <p key={`t-${idx}`} className="text-sm leading-snug">
+                                    {it}
+                                  </p>
+                                ))}
+                                {english.map((it, idx) => (
+                                  <p key={`e-${idx}`} className="text-xs leading-snug text-muted-foreground">
+                                    {it}
+                                  </p>
+                                ))}
+                                {tamil.length === 0 &&
+                                  english.length === 0 &&
+                                  legacy.map((it, idx) => (
+                                    <p key={`l-${idx}`} className="text-sm leading-snug">
+                                      {it}
+                                    </p>
+                                  ))}
+                              </div>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </ContentLayout>
   );

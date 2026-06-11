@@ -13,7 +13,7 @@
 // counts (submitted/validated/scored/passed), and a small sample of scored
 // rows per bucket (the actual evidence rows the accreditation packet cites).
 //
-// The page that consumes this aggregator (`/admin/pde/accreditation-evidence/
+// The page that consumes this aggregator (`/pde/admin/accreditation-evidence/
 // [body]`) used to read engagement/OBE/Fink's/agency/innovation metrics
 // scattered across 6 tables (`pde_quest_enrollments`, `pde_submissions`,
 // `pde_engagement_daily`, `pde_certificates`, `pde_capabilities`,

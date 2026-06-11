@@ -56,6 +56,12 @@ const DEFAULT_PROFILE_FIELDS = [
   'is_published',
 ].join(',');
 
+// NOTE (2026-06-10): the top-level `type` field and the aggregated attachment
+// subfields (`type`, `url`) are deprecated for Graph v3.3+ — requesting them
+// fails the whole call with "(#12) deprecate_post_aggregated_fields_for_
+// attachement is deprecated for versions v3.3 and higher" (live evidence in
+// social_facebook_logs, every tick, all pages). Callers should derive a coarse
+// post type from `attachments.data[0].media_type` with a fallback of 'status'.
 const DEFAULT_POST_FIELDS = [
   'id',
   'message',
@@ -63,8 +69,7 @@ const DEFAULT_POST_FIELDS = [
   'created_time',
   'updated_time',
   'permalink_url',
-  'type',
-  'attachments{media_type,type,title,url}',
+  'attachments{media_type,title,unshimmed_url}',
   'reactions.summary(true)',
   'comments.summary(true)',
   'shares',
@@ -213,25 +218,30 @@ export async function getPagePosts(
  *
  * Endpoint: `GET /{post-id}/insights`
  *
- * If `metrics` is omitted, a sensible default set is used:
- *   post_impressions, post_impressions_unique, post_engaged_users,
- *   post_clicks, post_reactions_by_type_total
+ * If `metrics` is omitted, a conservative v25-valid default set is used:
+ *   post_impressions, post_impressions_unique, post_reactions_by_type_total
+ *
+ * NOTE (2026-06-10): post_engaged_users and post_clicks were removed by
+ * Meta's Nov-2024 insights deprecation, and parts of the post_impressions*
+ * family were deprecated for NEWER posts in the 2024-25 purges — including
+ * ANY dead metric fails the WHOLE call with "(#100) The value must be a
+ * valid insights metric". Pollers should therefore probe metrics ONE PER
+ * CALL and isolate failures (store NULL, keep going) — the param accepts
+ * plain strings for metrics not yet in the `FbPostMetric` union.
  *
  * Must be called with the parent page's per-page `access_token`.
  */
 export async function getPostInsights(
   postId: string,
   config: FbCallConfig,
-  metrics?: FbPostMetric[]
+  metrics?: ReadonlyArray<FbPostMetric | (string & {})>
 ): Promise<FbPostInsightEntry[]> {
-  const metricList: FbPostMetric[] =
+  const metricList: ReadonlyArray<FbPostMetric | (string & {})> =
     metrics && metrics.length > 0
       ? metrics
       : [
           'post_impressions',
           'post_impressions_unique',
-          'post_engaged_users',
-          'post_clicks',
           'post_reactions_by_type_total',
         ];
 
@@ -259,10 +269,17 @@ export async function getPostInsights(
  *
  * Must be called with the page's per-page `access_token` (with the
  * `read_insights` scope).
+ *
+ * Metric validity changes across Graph versions (Meta's Nov-2024 deprecation
+ * removed page_fan_adds / page_fan_removes / page_views_total among others),
+ * so the param also accepts plain strings for metrics not yet in the
+ * `FbPageMetric` union (e.g. `page_fans`). ONE invalid metric fails the
+ * whole request with "(#100) The value must be a valid insights metric" —
+ * pollers should fetch metrics individually and isolate failures.
  */
 export async function getPageInsights(
   pageId: string,
-  metrics: FbPageMetric[],
+  metrics: ReadonlyArray<FbPageMetric | (string & {})>,
   period: FbInsightPeriod,
   config: FbCallConfig,
   options?: { since?: string; until?: string }

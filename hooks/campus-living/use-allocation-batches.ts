@@ -21,6 +21,15 @@ export function useAllocationBatch(batchId: string | null) {
   });
 }
 
+// Per-allocation eligibility explanation — fetched lazily when the details modal opens.
+export function useAllocationExplain(allocationId: string | null) {
+  return useQuery({
+    queryKey: [...KEY, 'explain', allocationId],
+    queryFn: () => AllocationBatchService.explainAllocation(allocationId!),
+    enabled: !!allocationId,
+  });
+}
+
 export function useAutoCategories() {
   const query = useQuery({
     queryKey: [...KEY, 'auto-categories'],
@@ -54,8 +63,8 @@ export function useAllocationBatchActions() {
   );
 
   const generate = useCallback(
-    async (blockId: string, categoryId: string, hostelYearId: string) => {
-      const id = await AllocationBatchService.generate(blockId, categoryId, hostelYearId);
+    async (blockId: string, hostelYearId: string) => {
+      const id = await AllocationBatchService.generate(blockId, hostelYearId);
       await invalidate();
       return id;
     },

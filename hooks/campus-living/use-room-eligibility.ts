@@ -97,11 +97,13 @@ export function useEligibilitySemesters(programId: string | null) {
   return { options: query.data ?? [], loading: query.isLoading };
 }
 
-export function useEligibilityBlocks(institutionId: string | null) {
+// Block-first flow: blocks are global physical targets, so the list no longer
+// depends on a chosen institution — enable it as soon as the dialog opens.
+export function useEligibilityBlocks(enabled: boolean) {
   const query = useQuery({
     queryKey: [...KEY, 'blocks'],
     queryFn: () => RoomEligibilityService.getBlocks(),
-    enabled: !!institutionId,
+    enabled,
   });
   return { options: query.data ?? [], loading: query.isLoading };
 }

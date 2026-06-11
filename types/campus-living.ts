@@ -135,6 +135,36 @@ export interface AllocationFilters {
 
 export type LearnerAccommodationType = 'HOSTEL' | 'DAY SCHOLAR' | '' | null;
 
+export interface HosteliteBillStatus {
+  bill_count: number;
+  total_billed: number;
+  total_paid: number;
+  total_outstanding: number;
+  payment_status: 'none' | 'paid' | 'partial' | 'unpaid';
+  academic_year_name: string | null;
+}
+
+// One itemized bill for the Residents → Learners detail drawer. Each row of
+// billing_student_bills IS a line item (a billing category with its own amount /
+// balance / status). Returned by the campus_living_get_hostelite_bills RPC;
+// paid_amount is final_amount - balance_amount. Covers ALL academic years and
+// both hostel and academic (tuition) fee sources.
+export interface LearnerBillItem {
+  id: string;
+  item_category_id: string | null;
+  category_name: string | null;
+  bill_description: string | null;
+  due_date: string | null;
+  final_amount: number | null;
+  balance_amount: number | null;
+  paid_amount: number | null;
+  status: string | null;
+  fee_source: string | null;
+  applies_year_of_study: number | null;
+  academic_year_id: string | null;
+  academic_year_name: string | null;
+}
+
 export interface LearnerHostelite {
   id: string;
   first_name: string | null;
@@ -160,6 +190,7 @@ export interface LearnerHostelite {
   program_name?: string | null;
   degree_name?: string | null;
   semester_name?: string | null;
+  academic_year_name?: string | null;
   current_block_name?: string | null;
   current_block_code?: string | null;
   // Surfaced from v_learner_hostelites (PR pending — bugs BUG-003325 + BUG-003326).
@@ -169,8 +200,13 @@ export interface LearnerHostelite {
   current_room_id?: string | null;
   current_bed_id?: string | null;
   current_allocation_id?: string | null;
+  /** Learner lifecycle status (surfaced from v_learner_hostelites, which is filtered to active/reserved/admitted). */
+  lifecycle_status?: string | null;
   /** Which date source produced year_of_study. NULL when no source available. PR #823. */
   year_source?: 'admission_year' | 'batch' | 'enquiry' | null;
+  // Current-academic-year billing rollup, merged in by LearnersTab.fetchData
+  // from campus_living_get_hostelite_bill_status (not part of v_learner_hostelites).
+  bill_status?: HosteliteBillStatus;
 }
 
 // Sentinel for the "Unassigned" block filter chip. Matches LEFT JOIN ... IS NULL
@@ -277,6 +313,8 @@ export interface LearnerDetailBundle {
   recentAttendance: LearnerAttendanceSummary[];
   openVacateRequest: LearnerVacateRequestSummary | null;
   recentLeaves: LearnerLeaveSummary[];
+  // Itemized bills across all academic years (campus_living_get_hostelite_bills).
+  bills: LearnerBillItem[];
 }
 
 // ─── Hostel leave (mirrors migration 20260222000015 + 20260424 approval-chain rewire) ───
@@ -678,6 +716,33 @@ export interface HostelAttendance {
   remarks: string | null;
   created_at: string | null;
   updated_at: string | null;
+  /** Joined relations (HostelAttendanceService.getAttendance only). */
+  learner?: { id: string; full_name: string | null; email: string | null } | null;
+  block?: { id: string; name: string | null; code: string | null } | null;
+  marker?: { id: string; full_name: string | null; email: string | null } | null;
+}
+
+// Resident row for the Mark Attendance page — hostel_residents merged with
+// the learner's active hostel_allocations row (block/room/bed context).
+export interface MarkableResidentAllocation {
+  learner_id: string;
+  block_id: string;
+  room_id: string | null;
+  bed_id: string | null;
+  block: { id: string; name: string | null; code: string | null } | null;
+  room: { id: string; room_number: string | null; floor: number | null } | null;
+  bed: { id: string; bed_number: string | null } | null;
+  /** Joined learner profile — used to synthesise rows for allocated
+   *  learners that have no hostel_residents record yet. */
+  learner?: { id: string; full_name: string | null; email: string | null } | null;
+}
+
+export interface MarkableResident {
+  id: string;
+  profile_id: string;
+  id_proof_number: string | null;
+  profile: { id: string; full_name: string | null; email: string | null } | null;
+  allocation: MarkableResidentAllocation | null;
 }
 
 export interface CreateHostelAttendanceDTO {

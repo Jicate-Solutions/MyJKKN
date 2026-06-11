@@ -22,6 +22,7 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { PermissionError } from '@/components/errors/permission-error';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { TeamNav } from './_components/team-nav';
 
@@ -80,7 +81,23 @@ export default function TeamLayout({ children }: { children: ReactNode }) {
   const meta = resolveMeta(pathname);
 
   return (
-    <PermissionGuard module="admission" action="view">
+    <PermissionGuard
+      module="admission.counselors.team"
+      action="view"
+      // BUG-003988 companion: the inner allocation/layout.tsx manage-gate already
+      // surfaces an explicit view-only message, but this OUTER view-gate rendered
+      // a fully BLANK page (incl. /team/allocation) for anyone without
+      // admission.counselors.team.view. Permission failures must be explicit,
+      // never silent (CLAUDE.md rule #27).
+      fallback={
+        <ContentLayout title="Team Management">
+          <PermissionError
+            message="Counselor team management is restricted to admission leaders (Admission Manager, Principal, HOD)."
+            requiredPermission="admission.counselors.team.view"
+          />
+        </ContentLayout>
+      }
+    >
       <AdmissionErrorBoundary>
         <ContentLayout title={meta.contentTitle}>
           <div className="space-y-6">

@@ -114,7 +114,19 @@ export async function POST(request: NextRequest) {
     const isSuperAdmin = profile?.role === 'super_admin';
     const isInstitutionAdmin = profile?.role === 'institution_admin';
 
+    // 2026-06-11 granular-permission retrofit: roles granted
+    // social.ads.manage via Role Management pass too — like
+    // institution_admin they are hard-pinned to their own institution by
+    // the effectiveInstitutionId resolution below.
+    let hasManagePerm = false;
     if (!isSuperAdmin && !isInstitutionAdmin) {
+      const { data: perm } = await supabase.rpc('user_has_permission', {
+        permission_name: 'social.ads.manage',
+      });
+      hasManagePerm = !!perm;
+    }
+
+    if (!isSuperAdmin && !isInstitutionAdmin && !hasManagePerm) {
       return NextResponse.json(
         { success: false, error: 'Access denied' },
         { status: 403 }

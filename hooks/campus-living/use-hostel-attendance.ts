@@ -16,7 +16,21 @@ export const hostelAttendanceKeys = {
   list: (filters: Record<string, unknown>) => ['hostel-attendance', 'list', filters] as const,
   byDate: (institutionId: string | undefined, date: string) => ['hostel-attendance', 'by-date', institutionId, date] as const,
   detail: (id: string) => ['hostel-attendance', 'detail', id] as const,
+  markable: (institutionId: string | undefined, blockId: string | undefined) =>
+    ['hostel-attendance', 'markable', institutionId, blockId] as const,
+  myBlockAccess: ['hostel-attendance', 'my-block-access'] as const,
 };
+
+// The current user's active block grants (user_block_access, self-readable).
+// Non-empty for wardens — used to scope the Mark Attendance UI to their
+// assigned blocks. Empty for admins/unscoped staff.
+export function useMyBlockAccess() {
+  return useQuery({
+    queryKey: hostelAttendanceKeys.myBlockAccess,
+    queryFn: () => HostelAttendanceService.getMyBlockGrants(),
+    staleTime: 60_000,
+  });
+}
 
 // --- Query hooks ---
 
@@ -25,6 +39,21 @@ export function useHostelAttendance(institutionId: string | undefined, filters?:
   return useQuery({
     queryKey: hostelAttendanceKeys.list({ institutionId, ...filters }),
     queryFn: () => HostelAttendanceService.getAttendance(isSuperAdmin ? undefined : institutionId, filters),
+    enabled: isSuperAdmin || !!institutionId,
+  });
+}
+
+// Active residents merged with their allocation (block/room/bed) for the
+// Mark Attendance page. blockId narrows to residents allocated in that block.
+export function useMarkableResidents(institutionId: string | undefined, blockId?: string) {
+  const { isSuperAdmin } = usePermissions();
+  return useQuery({
+    queryKey: hostelAttendanceKeys.markable(institutionId, blockId),
+    queryFn: () =>
+      HostelAttendanceService.getMarkableResidents(
+        isSuperAdmin ? undefined : institutionId,
+        blockId
+      ),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

@@ -251,22 +251,44 @@ export class RoomEligibilityService {
   static async getRoomsForBlock(blockId: string): Promise<RoomOption[]> {
     // Left-join the category (no !inner) so a room missing a category still
     // appears — it lands in the "Uncategorized" group rather than vanishing.
+    // `capacity` is the planned bed count (also what the Block detail page sums).
     const { data, error } = await this.supabase
       .from('hostel_rooms')
-      .select('id, room_number, floor, category_id, hostel_categories(name)')
+      .select('id, room_number, floor, capacity, category_id, hostel_categories(name)')
       .eq('block_id', blockId)
       .eq('room_purpose', 'student')
       .order('floor', { ascending: true })
       .order('room_number', { ascending: true });
     if (error) throw new Error(error.message || 'Failed to load rooms');
+
+    // Live occupancy for the free/total bed badge — same source the Block detail
+    // Overview uses. Non-fatal: if it fails, degrade to occupied=0 (shows full
+    // capacity as free) rather than blocking the rooms picker.
+    const { data: occ, error: occErr } = await this.supabase
+      .from('v_hostel_room_occupancy')
+      .select('room_id, active_residents')
+      .eq('block_id', blockId);
+    if (occErr) {
+      logger.error(LOG, 'Failed to load room occupancy for rooms picker', occErr);
+    }
+    const occupiedByRoom = new Map<string, number>();
+    for (const row of (occ ?? []) as { room_id: string | null; active_residents: number | null }[]) {
+      if (row.room_id) occupiedByRoom.set(row.room_id, row.active_residents ?? 0);
+    }
+
     return (data ?? []).map((r: Record<string, unknown>) => {
       const category = r.hostel_categories as { name?: string } | null;
+      const capacity = (r.capacity as number) ?? 0;
+      const occupied = occupiedByRoom.get(r.id as string) ?? 0;
       return {
         id: r.id as string,
         room_number: r.room_number as string,
         floor: r.floor as number,
         category_id: (r.category_id as string) ?? null,
         category_name: category?.name ?? null,
+        capacity,
+        occupied,
+        available: Math.max(capacity - occupied, 0),
       };
     });
   }

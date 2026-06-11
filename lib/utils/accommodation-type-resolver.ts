@@ -1,16 +1,15 @@
 // lib/utils/accommodation-type-resolver.ts
 //
 // Resolves an accommodation label (form radio 'HOSTEL'/'DAY SCHOLAR', Excel
-// "Accommodation Type" column, or API input) to accommodation_types.id (FK),
-// scoped to ONE institution. Storage on learners_profiles is accommodation_type_id
-// only — the legacy `accommodation_type` TEXT column is being retired. This
-// mirrors the matching the (now-removed) shadow-FK trigger did: code / name /
-// code-with-spaces / name-without-spaces, case-insensitive, plus the handful of
-// historical typo spellings backfilled 2026-06-02. Returns null when unmatched.
+// "Accommodation Type" column, or API input) to accommodation_types.id (FK).
+// Storage on learners_profiles is accommodation_type_id only — the legacy
+// `accommodation_type` TEXT column is being retired. This mirrors the matching
+// the (now-removed) shadow-FK trigger did: code / name / code-with-spaces /
+// name-without-spaces, case-insensitive, plus the handful of historical typo
+// spellings backfilled 2026-06-02. Returns null when unmatched.
 //
-// accommodation_types is institution-scoped (4 codes × 13 institutions:
-// hostel / dayscholar / not_applicable / pg), so a resolver instance is bound to
-// a single institution_id.
+// accommodation_types is a GLOBAL lookup (4 codes: hostel / dayscholar /
+// not_applicable / pg) since migration 20260610100000 — no institution scoping.
 
 export type AccommodationTypeResolver = (
   raw: string | null | undefined,
@@ -76,51 +75,26 @@ function matchRow(
 
 export async function buildAccommodationTypeResolver(
   supabase: any,
-  institutionId: string,
 ): Promise<AccommodationTypeResolver> {
   const { data, error } = await supabase
     .from('accommodation_types')
-    .select('id, code, name')
-    .eq('institution_id', institutionId);
+    .select('id, code, name');
   if (error) throw error;
 
   const rows = (data ?? []) as Array<{ id: string; code: string; name: string | null }>;
   return (raw) => matchRow(rows, raw);
 }
 
-// Multi-institution variant for bulk paths where rows span institutions. The
-// caller passes the row's institution_id with each lookup; resolution is scoped
-// to that institution's accommodation_types.
+// Bulk-path variant. The institutionId arg is retained for call-site
+// compatibility but ignored — accommodation_types is global now.
 export type AccommodationTypeResolverMulti = (
   raw: string | null | undefined,
-  institutionId: string | null | undefined,
+  institutionId?: string | null | undefined,
 ) => string | null;
 
 export async function buildAccommodationTypeResolverMulti(
   supabase: any,
 ): Promise<AccommodationTypeResolverMulti> {
-  const { data, error } = await supabase
-    .from('accommodation_types')
-    .select('id, code, name, institution_id');
-  if (error) throw error;
-
-  const byInstitution = new Map<
-    string,
-    Array<{ id: string; code: string; name: string | null }>
-  >();
-  for (const r of (data ?? []) as Array<{
-    id: string;
-    code: string;
-    name: string | null;
-    institution_id: string;
-  }>) {
-    const list = byInstitution.get(r.institution_id) ?? [];
-    list.push({ id: r.id, code: r.code, name: r.name });
-    byInstitution.set(r.institution_id, list);
-  }
-
-  return (raw, institutionId) => {
-    if (!institutionId) return null;
-    return matchRow(byInstitution.get(institutionId) ?? [], raw);
-  };
+  const resolve = await buildAccommodationTypeResolver(supabase);
+  return (raw) => resolve(raw);
 }

@@ -50,7 +50,7 @@ export const POLICY_KEYS = {
   // Object policy: { tasks: string[], categories: string[] }.
   // Consumed by lib/services/telephony/call-pipeline-service.ts (server-only,
   // pipeline runs in API routes / cron, never client). Director can edit via
-  // /admin/telephony-policies — no deploy needed.
+  // /admission/settings/telephony-policies — no deploy needed.
   TELEPHONY_EXOVOICE_CONFIG: 'telephony.exovoice.config',
 
   // Telephony — CDR sync windowing (object: {default_lookback_days, chunk_max_days})
@@ -87,7 +87,7 @@ export const POLICY_KEYS = {
   WA_BYOW_SYNTHETIC_AUDIT_ENABLED: 'wa_byow.synthetic_audit_enabled',
 
   // Voice Memo Monitor (2026-05-10) — runtime-tunable thresholds for
-  // /admission/counselors/voice-memos. Director-tweakable via /admin/voice-memo-monitor.
+  // /admission/counselors/voice-memos. Director-tweakable via /admission/settings/voice-memo-monitor.
   VOICE_MEMO_MONITOR_WINDOW_HOURS: 'voice_memo_monitor.window_hours',
   VOICE_MEMO_MONITOR_STUCK_THRESHOLD_MINUTES: 'voice_memo_monitor.stuck_threshold_minutes',
   VOICE_MEMO_MONITOR_FAILURE_RATE_RED_PCT: 'voice_memo_monitor.failure_rate_red_pct',
@@ -157,7 +157,7 @@ export const POLICY_KEYS = {
 
   // T4.2 deduction-engine knobs (Director-locked spec 2026-05-15).
   // Seeded as global rows by 20260626000000_hr_pay_components_and_payslip_line_items.sql.
-  // Editable via /admin/hr/policies/payroll-* UIs (ships in a later T-sprint).
+  // Editable via /hr/admin/policies/payroll-* UIs (ships in a later T-sprint).
   // Consumer: lib/services/hr/payroll/deduction-engine.ts.
   //
   // tds_slabs: { regime, fiscal_year, slabs:[{upto_inr,rate_pct}], rebate_87a_*, surcharge_thresholds, cess_pct }
@@ -186,10 +186,10 @@ export const POLICY_KEYS = {
   HR_DASHBOARD_ROLE_GROUPS: 'hr.dashboard.role_groups',
 
   // Nav landing pages (super-admin-tunable redirect targets for module roots).
-  // Consumed by app/(routes)/admin/page.tsx + /admin/lti/page.tsx + /admin/pde/page.tsx
-  // + /learn/pde/page.tsx + the 4 sweep hubs added 2026-06-02
-  // (/learn/pde/cases, /admin/pde/rubrics, /admin/pde/accreditation-evidence,
-  // /admin/pde/transcript).
+  // Consumed by app/(routes)/admin/page.tsx + /admin/lti/page.tsx + /pde/admin/page.tsx
+  // + /pde/learn/page.tsx + the 4 sweep hubs added 2026-06-02
+  // (/pde/learn/cases, /pde/admin/rubrics, /pde/admin/accreditation-evidence,
+  // /pde/admin/transcript).
   // Editable via /admin/landing-pages — zero-deploy redirect retargeting.
   NAV_ADMIN_DEFAULT_LANDING: 'nav.admin.default_landing',
   NAV_ADMIN_LTI_DEFAULT_LANDING: 'nav.admin.lti.default_landing',
@@ -199,18 +199,21 @@ export const POLICY_KEYS = {
   NAV_ADMIN_PDE_TRANSCRIPT_DEFAULT_LANDING: 'nav.admin.pde.transcript.default_landing',
   NAV_LEARN_PDE_DEFAULT_LANDING: 'nav.learn.pde.default_landing',
   NAV_LEARN_PDE_CASES_DEFAULT_LANDING: 'nav.learn.pde.cases.default_landing',
+  // PDE Module Extraction (2026-06-09): top-level /pde landing.
+  // Consumed by app/(routes)/pde/page.tsx — the new unified PDE module hub.
+  NAV_PDE_DEFAULT_LANDING: 'nav.pde.default_landing',
 
   // HR Recruitment approvals — viewer-scope enforcement.
   // Consumed by lib/services/hr/recruitment-service.ts (resolveViewerScope).
   // Master toggle (boolean) + per-role scope_rules (JSONB object).
-  // Editable via /admin/hr/recruitment-approvals-scope (super-admin UI).
+  // Editable via /hr/admin/recruitment-approvals-scope (super-admin UI).
   HR_RECRUITMENT_APPROVALS_ENFORCE_SCOPING: 'hr.recruitment.approvals.enforce_scoping',
   HR_RECRUITMENT_APPROVALS_SCOPE_RULES: 'hr.recruitment.approvals.scope_rules',
 
   // HR Recruitment approvals — role-match enforcement on Approve action.
   // Consumed by lib/services/hr/recruitment-service.ts (approveCandidate).
   // Seeded by 20260516120000_seed_recruitment_role_enforcement_policies.sql.
-  // Editable via /admin/hr/recruitment-approvals-scope (super-admin UI).
+  // Editable via /hr/admin/recruitment-approvals-scope (super-admin UI).
   // When enforce_role_match=true, the caller's role_keys must include
   // approval_chain[current_step].approver_role OR overlap with override_roles
   // OR the caller must be super_admin. When false (default), today's behavior
@@ -242,7 +245,7 @@ export const POLICY_KEYS = {
   // communities. Each row is a JSONB object with evidence_required, min_*
   // thresholds, validator_role, deliverables, and scoring_band.
   // Seeded by 20260518_pde_social_leadership_rubrics.sql (scope=global).
-  // Editable via /admin/pde/rubrics/social-leadership (Director-only).
+  // Editable via /pde/admin/rubrics/social-leadership (Director-only).
   // Consumer (future): demonstration-evaluator services will read these via
   // fn_get_policy to validate Phase-8 submissions. No deploy needed to retune.
   PDE_RUBRICS_SOCIAL_LEADERSHIP_PEER_MENTOR: 'pde.rubrics.social_leadership.peer_mentor',
@@ -253,7 +256,7 @@ export const POLICY_KEYS = {
   // 4 rubric rows that define how JKKN students earn the cultural & civic
   // literacy slice of their PDE score. Seeded by
   // supabase/migrations/20260518_pde_cultural_civic_rubrics.sql.
-  // Edited via /admin/pde/rubrics/cultural-civic (Director-only).
+  // Edited via /pde/admin/rubrics/cultural-civic (Director-only).
   // Reflects NEP 2020 §4.6-4.7 (IKS + mother-tongue), §4.23 (fundamental
   // duties / constitutional values), §11.8 (community-service credit).
   // JKKN-Tamil-Nadu rooted: Tamil is the primary approved language; local-
@@ -270,7 +273,7 @@ export const POLICY_KEYS = {
   //   { discipline, rubric: [{skill, evidence_required, validator_role,
   //     scoring_band:[min,max], passing_threshold}],
   //     min_demonstrations_per_year, validity_period_months }
-  // Edited via /admin/pde/rubrics/embodied (super-admin). Consumed by PDE
+  // Edited via /pde/admin/rubrics/embodied (super-admin). Consumed by PDE
   // demonstration gate logic at runtime — no deploy required to retune.
   PDE_RUBRICS_EMBODIED_MEDICAL: 'pde.rubrics.embodied.medical',
   PDE_RUBRICS_EMBODIED_PHARMACY: 'pde.rubrics.embodied.pharmacy',
@@ -287,6 +290,23 @@ export const POLICY_KEYS = {
   // (server-only — runs in the vacancy-price-drops cron, never client).
   FRACTIONAL_OCCUPANCY_EMPTY_VACANCY_DROP_PCT: 'fractional_occupancy.empty_vacancy_drop_pct',
   FRACTIONAL_OCCUPANCY_EMPTY_VACANCY_DROP_INTERVAL_DAYS: 'fractional_occupancy.empty_vacancy_drop_interval_days',
+
+  // Bed Economics — scalar tunables (Bed Economics PR A, 2026-06-07) ---------
+  // Seeded as global system rows by
+  // supabase/migrations/20260607120000_bed_economics_substrate.sql (§3) and read
+  // at runtime by the fn_bed_econ_* RPCs (denominator / mess toggle / sellable
+  // filter / stoplight targets / stale-vacancy window / housekeeping unit cost).
+  // EDIT surface = the super-admin settings panel on the bed-economics dashboard
+  // page (PR B, gear → sheet); storage stays in platform_policies (the single
+  // locked registry). Spec: specs/bed-economics-dashboard-spec-2026-06-07.md §7.1.
+  // Constant strings here MUST match the policy_key values seeded in the migration.
+  BED_ECON_DENOMINATOR: 'bed_econ.denominator',
+  BED_ECON_INCLUDE_MESS_IN_REVENUE: 'bed_econ.include_mess_in_revenue',
+  BED_ECON_SELLABLE_ROOM_PURPOSES: 'bed_econ.sellable_room_purposes',
+  BED_ECON_OCCUPANCY_TARGET_PCT: 'bed_econ.occupancy_target_pct',
+  BED_ECON_COLLECTION_TARGET_PCT: 'bed_econ.collection_target_pct',
+  BED_ECON_STALE_VACANCY_DAYS: 'bed_econ.stale_vacancy_days',
+  BED_ECON_HOUSEKEEPING_COST_PER_ROOM_MONTH: 'bed_econ.housekeeping_cost_per_room_month',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];

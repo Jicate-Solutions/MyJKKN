@@ -77,4 +77,10 @@ export interface RoomOption {
   floor: number;
   category_id: string | null;
   category_name: string | null;
+  /** Planned bed count (hostel_rooms.capacity, NOT NULL). */
+  capacity: number;
+  /** Live occupied beds (active residents, from v_hostel_room_occupancy). */
+  occupied: number;
+  /** Free beds = max(capacity - occupied, 0). */
+  available: number;
 }

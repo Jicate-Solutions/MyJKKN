@@ -120,7 +120,7 @@ export async function PATCH(
       );
     }
 
-    if (!['super_admin', 'administrator'].includes(profile.role)) {
+    if (!['super_admin', 'administrator', 'ceo'].includes(profile.role)) {
       return NextResponse.json(
         { error: 'Only administrators can update bug report status' },
         { status: 403 }

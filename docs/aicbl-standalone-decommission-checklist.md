@@ -11,7 +11,7 @@
 | Step | Status | Notes |
 |---|---|---|
 | MyJKKN port deployed to production | ✅ Verified 2026-05-24 | Discriminating route probe: `POST /api/pde/clinical-reasoning/score` returns 401 (route only exists post-merge). PR #1059 merged 2026-05-23 15:12 UTC. |
-| Visual verification by real BDS learner | ⏳ Director action | Log in as BDS student, navigate to `/learn/pde/cases/leukoplakia`, complete a full attempt. Then run gating SQL queries below. |
+| Visual verification by real BDS learner | ⏳ Director action | Log in as BDS student, navigate to `/pde/learn/cases/leukoplakia`, complete a full attempt. Then run gating SQL queries below. |
 | `pde_attempt_grants` migration applied | ⏳ Agent J running in parallel | Re-read DB state when Agent J completes; update this row to ✅ once verified via information_schema probe. |
 | Receiver code (`handler.ts`) removed | ✅ Agent K running in parallel | Agent K owns deletion of `lib/pde/external-providers/aicbl/handler.ts` + related route registration. Re-read repo when complete; this checklist documents the change, doesn't perform it. |
 | Standalone `aicbl.vercel.app` retirement | ⏳ Director action | Manual deletion via Vercel dashboard (see Step 1 below). Do NOT use deploy-hook curl per `feedback_vercel_deploy_hook_is_method_agnostic`. |
@@ -83,7 +83,7 @@ PR #727 originally shipped the AICBL-receiver path at `lib/pde/external-provider
    - `lib/pde/external-providers/aicbl/handler.ts`
    - Any route registration in `app/api/pde/external-providers/aicbl/route.ts` (if AICBL-specific)
    - Related service files like `lib/services/pde-bridge-service.ts` IF used exclusively by AICBL (verify with `grep -r 'pde-bridge-service' app/ lib/ hooks/ components/` first)
-   - Any UI under `/admin/pde/bridge` if AICBL-specific
+   - Any UI under `/pde/admin/bridge` if AICBL-specific
 4. Run `npm run typecheck` and `npm run build` to confirm nothing else depends on the receiver code.
 5. Hand the PR to Director for review + merge.
 
@@ -136,7 +136,7 @@ After verified teardown:
 
 1. Update `~/.claude/projects/-Users-omm-PROJECTS-MyJKKN/memory/reference_aicbl_project.md` with a teardown timestamp + final disposition.
 2. Update the spec file (`specs/aicbl-as-pde-clinical-reasoning-2026-05-21.md`) line 347 status from "pending" to "decommissioned YYYY-MM-DD".
-3. If any external stakeholders (Sakthi, Director, accreditation reviewers) have been pointed at `https://aicbl.vercel.app`, send a one-time notice with the new MyJKKN URL: `https://jkkn.ai/learn/pde/cases/leukoplakia`.
+3. If any external stakeholders (Sakthi, Director, accreditation reviewers) have been pointed at `https://aicbl.vercel.app`, send a one-time notice with the new MyJKKN URL: `https://jkkn.ai/pde/learn/cases/leukoplakia`.
 
 ---
 

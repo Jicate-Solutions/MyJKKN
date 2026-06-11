@@ -1,15 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { useCreateHostelBlock } from '@/hooks/campus-living/use-hostel-blocks';
 import { useAmenitiesByScope } from '@/hooks/campus-living/use-amenities';
@@ -17,7 +20,8 @@ import {
   Building2,
   ArrowLeft,
   Save,
-  Loader2
+  Loader2,
+  Star,
 } from 'lucide-react';
 
 
@@ -53,6 +57,36 @@ export default function NewBlockPage() {
     useAmenitiesByScope('block');
   const [selectedAmenityIds, setSelectedAmenityIds] = useState<string[]>([]);
 
+  // Colleges served by this block (hostel_block_institutions). The local
+  // institutions catalog is RLS-scoped (super-admin sees all; scoped admins see
+  // their accessible set). Same source as the edit page's Colleges card.
+  const { data: institutions, isLoading: institutionsLoading } = useQuery<
+    { id: string; name: string }[]
+  >({
+    queryKey: ['institutions', 'for-new-block-colleges'],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('institutions')
+        .select('id, name')
+        .order('name');
+      if (error) throw error;
+      return (data ?? []) as { id: string; name: string }[];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Ordered selection — the FIRST entry is the primary college. Pre-select the
+  // creator's own college once (profile loads after mount); the user can change it.
+  const [selectedInstitutionIds, setSelectedInstitutionIds] = useState<string[]>([]);
+  const didPreselect = useRef(false);
+  useEffect(() => {
+    if (!didPreselect.current && profile?.institution_id) {
+      didPreselect.current = true;
+      setSelectedInstitutionIds([profile.institution_id]);
+    }
+  }, [profile?.institution_id]);
+
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
@@ -63,16 +97,23 @@ export default function NewBlockPage() {
     );
   };
 
+  const toggleInstitution = (id: string) => {
+    setSelectedInstitutionIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
 
     try {
-      // hostel-rooms-v2 PR 2 (2026-05-26): hostel_blocks.institution_id
-      // dropped; createBlock auto-grants caller's institution via the
-      // hostel_block_institutions junction (see service layer).
+      // hostel-rooms-v2 PR 2 (2026-05-26): hostel_blocks.institution_id dropped;
+      // createBlock grants the selected colleges via the hostel_block_institutions
+      // junction (first selected = primary). Empty = no college linked (block stays
+      // RLS-invisible until granted later) — same as the old super-admin flow.
       const created = await createBlock.mutateAsync({
-        primaryInstitutionId: profile?.institution_id ?? undefined,
+        institutionIds: selectedInstitutionIds,
         name: formData.name,
         code: formData.code,
         hostel_type: formData.hostel_type as 'boys' | 'girls' | 'mixed',
@@ -214,6 +255,61 @@ export default function NewBlockPage() {
                   onChange={(e) => handleInputChange('contact_phone', e.target.value)}
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Colleges served */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-blue-600" />
+                Colleges served
+              </CardTitle>
+              <CardDescription>
+                Students from any selected college can be allocated to this block. The first
+                selected college is the <span className="font-medium">primary</span> (you can change
+                it later on the block&apos;s Colleges card). Reserve specific rooms or floors for a
+                cohort under Settings → Program Eligibility → Physical Rooms. Leave empty only if
+                you&apos;ll assign colleges afterwards.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {institutionsLoading ? (
+                <div className="flex items-center text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading colleges…
+                </div>
+              ) : (institutions ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">No colleges available to assign.</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {(institutions ?? []).map((inst) => {
+                    const checked = selectedInstitutionIds.includes(inst.id);
+                    const isPrimary = checked && selectedInstitutionIds[0] === inst.id;
+                    return (
+                      <div
+                        key={inst.id}
+                        className="flex items-center justify-between rounded-lg border p-3"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Label htmlFor={`inst-${inst.id}`} className="cursor-pointer">
+                            {inst.name}
+                          </Label>
+                          {isPrimary && (
+                            <Badge variant="secondary" className="gap-1">
+                              <Star className="h-3 w-3 fill-current" /> Primary
+                            </Badge>
+                          )}
+                        </div>
+                        <Switch
+                          id={`inst-${inst.id}`}
+                          checked={checked}
+                          onCheckedChange={() => toggleInstitution(inst.id)}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
 

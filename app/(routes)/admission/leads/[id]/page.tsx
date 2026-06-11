@@ -1000,6 +1000,22 @@ function LeadDetailPageContent() {
     }
     const selectedState = indianStates.find((s) => s.id === editForm.state);
     const selectedDistrict = editDistricts.find((d) => d.id === editForm.district);
+    // The counselor dropdown is pre-seeded from assigned_counselor_id when the
+    // dialog opens, so "has a value" does NOT mean "the admin changed it".
+    // Compare against the seed to distinguish an intentional (re)assignment
+    // from an untouched field — otherwise every unrelated edit (e.g. course
+    // name) re-ran assignCounselor: overwrote assigned_at, inserted a
+    // duplicate "Counselor Assigned" timeline activity, and could re-notify
+    // the counselor.
+    const counselorChanged =
+      editCounselorProfileId !== (lead.assigned_counselor_id || '');
+    // Explicit unassign: admin picked "No counselor" while one was assigned.
+    // updateLead auto-clears assigned_counselor_id when counselor_id is sent
+    // without it (see LeadService.updateLead), so counselor_id: null suffices.
+    const shouldUnassignCounselor =
+      editForm.source !== 'referral' &&
+      editCounselorProfileId === '_none' &&
+      Boolean(lead.assigned_counselor_id || lead.counselor_id);
     updateLead.mutate(
       {
         id: lead.id,
@@ -1049,12 +1065,20 @@ function LeadDetailPageContent() {
             }
             return null;
           })(),
+          ...(shouldUnassignCounselor ? { counselor_id: null } : {}),
         },
       },
       {
         onSuccess: async () => {
-          // Best-effort: assign counselor or consultant based on source
-          if (editForm.source !== 'referral' && editCounselorProfileId && editCounselorProfileId !== '_none') {
+          // Best-effort: assign counselor or consultant based on source —
+          // only when the admin actually changed the selection (see
+          // counselorChanged above).
+          if (
+            editForm.source !== 'referral' &&
+            counselorChanged &&
+            editCounselorProfileId &&
+            editCounselorProfileId !== '_none'
+          ) {
             try {
               // Resolve profile → admission_counselors row (creates if missing)
               const counselorId = await CounselorDailyViewService.resolveOrCreateCounselor(
@@ -1068,6 +1092,23 @@ function LeadDetailPageContent() {
               });
             } catch (e) {
               console.warn('[admission/leads] Could not assign counselor during edit:', e);
+            }
+          }
+          // Mirror assignCounselor's timeline logging for the unassign path so
+          // the audit trail shows who removed the counselor and when.
+          if (shouldUnassignCounselor) {
+            try {
+              const supabase = createClientSupabaseClient();
+              const { data: { user } } = await supabase.auth.getUser();
+              await (supabase as any).from('admission_lead_activities').insert({
+                lead_id: lead.id,
+                activity_type: 'note',
+                subject: 'Counselor Unassigned',
+                description: 'Counselor removed from this lead via lead edit',
+                created_by: user?.id || null,
+              });
+            } catch (e) {
+              console.warn('[admission/leads] Could not log counselor unassignment:', e);
             }
           }
           if (editForm.source === 'referral' && editReferralType === 'consultant' && editConsultantId && editConsultantId !== '_none' && lead.institution_id) {

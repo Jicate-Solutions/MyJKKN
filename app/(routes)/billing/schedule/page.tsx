@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -13,7 +14,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Settings2, Filter, Receipt } from 'lucide-react';
+import { Settings2, Filter, Receipt, Pencil } from 'lucide-react';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BillingScheduleDataTable } from './_components/billing-schedule-data-table';
@@ -27,7 +28,7 @@ export default function BillingSchedulePage() {
   const searchParams = useSearchParams();
   const [useAdvancedFilters, setUseAdvancedFilters] = useState(false);
   const [bulkReceiptOpen, setBulkReceiptOpen] = useState(false);
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, can } = usePermissions();
 
   // Parse current search parameters
   const search = billingScheduleSearchParamsSchema.parse(
@@ -138,6 +139,14 @@ export default function BillingSchedulePage() {
                 >
                   <Receipt className='h-4 w-4' />
                   Bulk Generate Receipts
+                </Button>
+              )}
+              {can('billing.schedule.update') && (
+                <Button asChild variant='outline' size='sm' className='flex items-center gap-2'>
+                  <Link href='/billing/schedule/bulk-edit'>
+                    <Pencil className='h-4 w-4' />
+                    Bulk Edit
+                  </Link>
                 </Button>
               )}
               <Button

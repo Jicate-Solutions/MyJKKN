@@ -3,9 +3,12 @@
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
-import { Settings, IndianRupee, CalendarDays, Wrench, Bell, GitBranch, ArrowRight, LayoutGrid, CalendarRange, Wifi, Wind, ListChecks, Package } from 'lucide-react';
+import { Settings, IndianRupee, CalendarDays, Wrench, Bell, GitBranch, ArrowRight, LayoutGrid, CalendarRange, Wifi, Wind, ListChecks, Package, Calculator, Sparkles } from 'lucide-react';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export default function SettingsPage() {
+  const { isSuperAdmin } = usePermissions();
+
   const settingsPages = [
     { title: 'General Settings', desc: 'Basic campus living configuration, academic year, hostel names', href: '/campus-living/settings/general', icon: Settings },
     { title: 'Hostel Rooms Categories', desc: 'Manage hostel rooms categories — Boys, Girls, Mixed hostels', href: '/campus-living/settings/categories', icon: LayoutGrid },
@@ -15,6 +18,8 @@ export default function SettingsPage() {
     { title: 'Hostel Years', desc: 'Define hostel calendar years — name, start & end dates (scopes fee config)', href: '/campus-living/settings/hostel-years', icon: CalendarRange },
     { title: 'Admission Packages', desc: 'Bundle a Classic room for a flat price; learners pick mess separately and can opt-in to Premium upgrades', href: '/campus-living/settings/packages', icon: Package },
     { title: 'Fee Configuration', desc: 'Room-type fees, AC charges, deposit amounts, payment modes', href: '/campus-living/settings/fee-config', icon: IndianRupee },
+    { title: 'Block Economics', desc: 'Enter each block’s yearly running costs and one-time investments — powers ROI, margin & payback on the Bed Economics dashboard', href: '/campus-living/settings/block-economics', icon: Calculator, superAdminOnly: true },
+    { title: 'Housekeeping Booking', desc: 'Slot length, daily window, capacity, advance booking, cancellation cutoff, and per-tier weekly quotas — with a live plain-English preview', href: '/campus-living/settings/housekeeping', icon: Sparkles, superAdminOnly: true },
     { title: 'Leave Types', desc: 'Configure leave types, max days, parent consent requirements', href: '/campus-living/settings/leave-types', icon: CalendarDays },
     { title: 'Maintenance SLA', desc: 'Set SLA targets by category and priority level', href: '/campus-living/settings/maintenance-sla', icon: Wrench },
     { title: 'Notification Rules', desc: 'Email, SMS, and push notification preferences', href: '/campus-living/settings/notification-rules', icon: Bell },
@@ -30,7 +35,9 @@ export default function SettingsPage() {
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {settingsPages.map((page) => (
+          {settingsPages
+            .filter((page) => !('superAdminOnly' in page && page.superAdminOnly) || isSuperAdmin)
+            .map((page) => (
             <Link key={page.href} href={page.href}>
               <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
                 <CardContent className="p-6">

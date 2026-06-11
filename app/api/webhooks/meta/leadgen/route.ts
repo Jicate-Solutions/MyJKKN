@@ -206,9 +206,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return response;
   }
 
-  const pageAccessToken = process.env.META_LEAD_ADS_PAGE_ACCESS_TOKEN;
+  // Standard Meta token env fallback chain — mirrors
+  // app/api/admin/social/lead-ads/forms (#1282 follow-up). Previously the
+  // webhook hard-required META_LEAD_ADS_PAGE_ACCESS_TOKEN and silently
+  // skipped hydration when only a sibling token was configured.
+  const pageAccessToken =
+    process.env.META_LEAD_ADS_PAGE_ACCESS_TOKEN ||
+    process.env.META_IG_SYSTEM_USER_TOKEN ||
+    process.env.MESSENGER_PAGE_ACCESS_TOKEN ||
+    process.env.META_PAGE_ACCESS_TOKEN ||
+    undefined;
   if (!pageAccessToken) {
-    logger.warn('meta/leadgen-webhook', 'META_LEAD_ADS_PAGE_ACCESS_TOKEN unset — cannot hydrate leads');
+    logger.warn(
+      'meta/leadgen-webhook',
+      'No Meta access token in env (META_LEAD_ADS_PAGE_ACCESS_TOKEN / META_IG_SYSTEM_USER_TOKEN / ' +
+        'MESSENGER_PAGE_ACCESS_TOKEN / META_PAGE_ACCESS_TOKEN) — cannot hydrate leads'
+    );
     return response;
   }
 

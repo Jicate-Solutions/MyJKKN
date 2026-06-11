@@ -26,6 +26,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import { getStories, getStoryInsights } from '@/lib/instagram/stories-client';
 
 const JOB_NAME = 'ig-stories-poll';
+const GRAPH_API_VERSION = 'v25.0';
 
 export async function GET(request: NextRequest) {
   const started = Date.now();
@@ -66,10 +67,20 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const accessToken = process.env.INSTAGRAM_ACCESS_TOKEN || process.env.META_ACCESS_TOKEN;
+    // Token fallback chain — matches instagram-metrics-poller + meta-facebook-poll.
+    // (INSTAGRAM_ACCESS_TOKEN / META_ACCESS_TOKEN are not provisioned in prod Vercel.)
+    const accessToken =
+      process.env.META_IG_SYSTEM_USER_TOKEN ||
+      process.env.MESSENGER_PAGE_ACCESS_TOKEN ||
+      process.env.META_PAGE_ACCESS_TOKEN;
     if (!accessToken) {
       return NextResponse.json(
-        { ok: false, job: JOB_NAME, error: 'INSTAGRAM_ACCESS_TOKEN not configured' },
+        {
+          ok: false,
+          job: JOB_NAME,
+          error:
+            'no Instagram access token configured (META_IG_SYSTEM_USER_TOKEN / MESSENGER_PAGE_ACCESS_TOKEN / META_PAGE_ACCESS_TOKEN)',
+        },
         { status: 503 }
       );
     }
@@ -102,7 +113,10 @@ export async function GET(request: NextRequest) {
 
     for (const account of accountList) {
       try {
-        const stories = await getStories(account.ig_user_id, { accessToken });
+        const stories = await getStories(account.ig_user_id, {
+          accessToken,
+          apiVersion: GRAPH_API_VERSION,
+        });
         for (const story of stories) {
           try {
             const postedAt = story.timestamp ?? new Date().toISOString();
@@ -126,7 +140,10 @@ export async function GET(request: NextRequest) {
 
             // Best-effort insights capture
             try {
-              const insights = await getStoryInsights(story.id, { accessToken });
+              const insights = await getStoryInsights(story.id, {
+                accessToken,
+                apiVersion: GRAPH_API_VERSION,
+              });
               const rows = insights.map((insight) => ({
                 story_id: story.id,
                 metric: insight.name,
@@ -154,6 +171,15 @@ export async function GET(request: NextRequest) {
       } catch (acctRunErr) {
         errors++;
         console.error(`[cron:${JOB_NAME}] account ${account.id} failed:`, acctRunErr);
+        // Best-effort audit log — schema: account_id / event_type / status / payload
+        await supabase.from('social_instagram_logs').insert({
+          account_id: account.id,
+          event_type: 'stories_poll',
+          status: 'error',
+          error_message:
+            acctRunErr instanceof Error ? acctRunErr.message : String(acctRunErr),
+          payload: { ig_user_id: account.ig_user_id, job: JOB_NAME },
+        });
       }
     }
 

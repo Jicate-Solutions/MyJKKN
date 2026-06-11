@@ -51,37 +51,63 @@ function readPolicy<T>(rows: PolicyRow[], key: string, fallback: T): T {
   return row.value_jsonb as T;
 }
 
-/** Compute the upcoming Thursday's date (or today if today is Thursday). */
-function nextThursday(now: Date): Date {
+/** Day-name → JS getDay() index. Tolerant of case + short forms ("Thu"). */
+const DAY_NAME_TO_INDEX: Record<string, number> = {
+  sunday: 0, sun: 0,
+  monday: 1, mon: 1,
+  tuesday: 2, tue: 2, tues: 2,
+  wednesday: 3, wed: 3,
+  thursday: 4, thu: 4, thur: 4, thurs: 4,
+  friday: 5, fri: 5,
+  saturday: 6, sat: 6,
+};
+
+/**
+ * Compute the upcoming session day's date (or today if today is the session
+ * day), honoring the `session_day` policy row. Fallback: Thursday.
+ */
+function nextSessionDay(policies: PolicyRow[], now: Date): Date {
+  const sessionDayName = readPolicy<string>(policies, 'session_day', 'Thursday');
+  const targetDay =
+    DAY_NAME_TO_INDEX[String(sessionDayName).trim().toLowerCase()] ?? 4;
   const d = new Date(now);
-  const day = d.getDay(); // 0=Sun, 4=Thu
-  const offset = (4 - day + 7) % 7;
+  const offset = (targetDay - d.getDay() + 7) % 7;
   d.setDate(d.getDate() + offset);
   d.setHours(0, 0, 0, 0);
   return d;
 }
 
-/** Build the startup_events.config JSONB blob per spec §4.4 */
-function buildCycleConfig(policies: PolicyRow[], thursdayISO: string) {
+/**
+ * Build the startup_events.config JSONB blob per spec §4.4.
+ *
+ * Shape contract (2026-06-11 hotfix): per-cycle settings are NESTED under
+ * config.ai_pulse.* — every reader (live-session-service deriveCycleTimes,
+ * quiz-service, rotation-service) expects the nested shape. The top-level
+ * `kind` discriminator stays flat — every config->>kind query depends on it.
+ */
+function buildCycleConfig(policies: PolicyRow[], sessionDateISO: string) {
   return {
     kind: 'ai_pulse',
-    cycle_week_start_date: thursdayISO,
-    featured_tool_id: null, // Champion picks via UI
-    briefing_topic_id: null, // Champion sets via UI
-    host_user_id: null, // Champion Console assigns
-    meet_url: null,
-    recording_url: null,
-    external_judge_cycle: false,
-    gold_standard_count: readPolicy<number>(policies, 'gold_standard_count', 2),
-    bottom_n_publication_count: readPolicy<number>(
-      policies,
-      'bottom_n_publication_count',
-      2
-    ),
-    primary_language: readPolicy<string>(policies, 'primary_language', 'en'),
-    secondary_language: readPolicy<string>(policies, 'secondary_language', 'ta'),
-    session_start_time: readPolicy<string>(policies, 'session_start_time', '18:55'),
-    session_end_time: readPolicy<string>(policies, 'session_end_time', '19:30'),
+    ai_pulse: {
+      cycle_week_start_date: sessionDateISO,
+      featured_tool_id: null, // Champion picks via UI
+      briefing_topic_id: null, // Champion sets via UI
+      briefing_topic_text: null,
+      host_user_id: null, // Champion Console assigns
+      meet_url: null,
+      recording_url: null,
+      external_judge_cycle: false,
+      gold_standard_count: readPolicy<number>(policies, 'gold_standard_count', 2),
+      bottom_n_publication_count: readPolicy<number>(
+        policies,
+        'bottom_n_publication_count',
+        2
+      ),
+      primary_language: readPolicy<string>(policies, 'primary_language', 'en'),
+      secondary_language: readPolicy<string>(policies, 'secondary_language', 'ta'),
+      session_start_time: readPolicy<string>(policies, 'session_start_time', '18:55'),
+      session_end_time: readPolicy<string>(policies, 'session_end_time', '19:30'),
+    },
   };
 }
 
@@ -120,9 +146,9 @@ export async function GET(req: NextRequest) {
   }
   const policies = (policiesRaw || []) as PolicyRow[];
 
-  // -- 2. Compute upcoming Thursday --------------------------------------
-  const thursday = nextThursday(new Date());
-  const thursdayISO = thursday.toISOString().split('T')[0];
+  // -- 2. Compute upcoming session day (session_day policy; default Thu) --
+  const sessionDate = nextSessionDay(policies, new Date());
+  const sessionDateISO = sessionDate.toISOString().split('T')[0];
 
   // -- 3. List institutions to seed cycles for ---------------------------
   // Multi-campus mode: 'unified' = single row at JKKN parent;
@@ -176,7 +202,7 @@ export async function GET(req: NextRequest) {
       .from('startup_events')
       .select('id, config')
       .eq('host_institution_id', inst.id)
-      .eq('demo_date', thursdayISO)
+      .eq('demo_date', sessionDateISO)
       .filter('config->>kind', 'eq', 'ai_pulse')
       .limit(1);
 
@@ -199,14 +225,14 @@ export async function GET(req: NextRequest) {
     }
 
     // Insert new cycle row
-    const cycleConfig = buildCycleConfig(policies, thursdayISO);
+    const cycleConfig = buildCycleConfig(policies, sessionDateISO);
     const { error: insertError } = await (supabase as any)
       .from('startup_events')
       .insert({
-        name: `AI Pulse Cycle ${thursdayISO}`,
+        name: `AI Pulse Cycle ${sessionDateISO}`,
         host_institution_id: inst.id,
         status: 'draft',
-        demo_date: thursdayISO,
+        demo_date: sessionDateISO,
         config: cycleConfig,
       });
 
@@ -228,7 +254,7 @@ export async function GET(req: NextRequest) {
 
   const summary = {
     multi_campus_mode: multiCampusMode,
-    upcoming_thursday: thursdayISO,
+    upcoming_session_date: sessionDateISO,
     institutions_processed: institutions.length,
     created: results.filter((r) => r.action === 'created').length,
     existed: results.filter((r) => r.action === 'exists').length,

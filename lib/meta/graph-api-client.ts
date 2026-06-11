@@ -2,7 +2,7 @@
 // Parameterized base client for the Meta Graph API.
 //
 // Server-only by convention. Wraps fetch() with:
-//   - version-pinned base URL (default v21.0 — see DEFAULT_GRAPH_API_VERSION)
+//   - version-pinned base URL (default v25.0 — see DEFAULT_GRAPH_API_VERSION)
 //   - Bearer-token auth header
 //   - JSON parse + normalized MetaGraphError on non-2xx
 //   - Sentry span instrumentation

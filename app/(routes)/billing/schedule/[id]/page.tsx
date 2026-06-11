@@ -395,6 +395,14 @@ export default function StudentBillDetailPage() {
                     </p>
                   )}
                 </div>
+                <div>
+                  <label className='text-sm font-medium text-muted-foreground'>
+                    Academic Year
+                  </label>
+                  <p className='font-medium'>
+                    {bill.academic_year?.academic_year_name ?? 'Unspecified'}
+                  </p>
+                </div>
                 <div className='grid grid-cols-2 gap-4'>
                   <div>
                     <label className='text-sm font-medium text-muted-foreground'>

@@ -97,6 +97,48 @@ export function StudentBillsTable({
     return bills.filter((bill) => bill.status === statusFilter);
   }, [bills, statusFilter]);
 
+  // Group bills by the bill's own academic year. Null → "Unspecified".
+  const billGroups = useMemo(() => {
+    const groups = new Map<
+      string,
+      { key: string; name: string; bills: StudentBill[] }
+    >();
+    for (const bill of filteredBills) {
+      const key = bill.academic_year_id || 'unspecified';
+      const name = bill.academic_year?.academic_year_name || 'Unspecified';
+      if (!groups.has(key)) groups.set(key, { key, name, bills: [] });
+      groups.get(key)!.bills.push(bill);
+    }
+    // Named years descending (e.g. 2025-2026 before 2024-2025); Unspecified last.
+    return Array.from(groups.values()).sort((a, b) => {
+      if (a.key === 'unspecified') return 1;
+      if (b.key === 'unspecified') return -1;
+      return b.name.localeCompare(a.name);
+    });
+  }, [filteredBills]);
+
+  // Total / paid / outstanding + an aggregate badge for one year's bills.
+  const summarizeGroup = (groupBills: StudentBill[]) => {
+    const billed = groupBills.filter((b) => b.status !== 'superseded');
+    const total = billed.reduce((s, b) => s + b.final_amount, 0);
+    const outstanding = groupBills.reduce(
+      (s, b) =>
+        s +
+        (['unpaid', 'partially_paid', 'overdue'].includes(b.status)
+          ? b.balance_amount > 0
+            ? b.balance_amount
+            : b.final_amount
+          : 0),
+      0
+    );
+    const paid = Math.max(0, total - outstanding);
+    const allSettled =
+      billed.length > 0 &&
+      billed.every((b) => b.status === 'paid' || b.status === 'cancelled');
+    const label = allSettled ? 'PAID' : paid > 0 ? 'PARTIAL' : 'UNPAID';
+    return { total, paid, outstanding, label };
+  };
+
   // Get bills that can be selected (unpaid and partially_paid)
   const selectableBills = filteredBills.filter(
     (bill) => bill.status === 'unpaid' || bill.status === 'partially_paid'
@@ -213,16 +255,6 @@ export function StudentBillsTable({
     }
   };
 
-  const handleSelectAllSelectable = () => {
-    const selectableBillIds = selectableBills.map((bill) => bill.id);
-
-    if (selectedBills.length === selectableBillIds.length) {
-      setSelectedBills([]);
-    } else {
-      setSelectedBills(selectableBillIds);
-    }
-  };
-
   const handleGenerateReceipt = () => {
     if (selectedSelectableBills.length === 0) return;
 
@@ -249,6 +281,324 @@ export function StudentBillsTable({
 
     window.location.href = `/billing/refunds/new?bill_ids=${billIds}&student_id=${studentId}`;
   };
+
+  const renderBillCard = (bill: StudentBill) => (
+    <Card key={bill.id} className='p-4 hover:shadow-md transition-shadow'>
+      <div className='space-y-3'>
+        {/* Card Header */}
+        <div className='flex items-start justify-between'>
+          <div className='flex items-start gap-3 flex-1 min-w-0'>
+            {canSelectBill(bill) && (
+              <div
+                className='cursor-pointer mt-1 shrink-0'
+                onClick={() =>
+                  handleSelectBill(bill.id, !selectedBills.includes(bill.id))
+                }
+              >
+                {selectedBills.includes(bill.id) ? (
+                  <CheckSquare className='h-4 w-4 text-blue-600' />
+                ) : (
+                  <Square className='h-4 w-4' />
+                )}
+              </div>
+            )}
+            <div className='flex-1 min-w-0'>
+              <h3 className='font-semibold text-sm text-gray-900 dark:text-gray-100 truncate'>
+                {bill.bill_description}
+              </h3>
+              <p className='text-xs text-muted-foreground mt-1'>
+                {bill.item_category?.category_name}
+              </p>
+            </div>
+          </div>
+          <div className='flex items-center gap-2 shrink-0'>
+            {getStatusBadge(bill.status)}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant='ghost' size='sm' className='h-8 w-8 p-0'>
+                  <span className='sr-only'>Open menu</span>
+                  <Eye className='h-4 w-4' />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align='end'>
+                <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                <DropdownMenuItem asChild>
+                  <Link href={`/billing/schedule/${bill.id}`}>
+                    <Eye className='mr-2 h-4 w-4' />
+                    View Details
+                  </Link>
+                </DropdownMenuItem>
+                {canEditBills && (
+                  <DropdownMenuItem asChild>
+                    <Link href={`/billing/schedule/${bill.id}/edit`}>
+                      <Edit className='mr-2 h-4 w-4' />
+                      Edit Bill
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+                {canSelectBill(bill) && canCreateReceipts && (
+                  <DropdownMenuItem asChild>
+                    <Link href={`/billing/receipts/new?bill_ids=${bill.id}`}>
+                      <Receipt className='mr-2 h-4 w-4' />
+                      Generate Receipt
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+                {canSelectBill(bill) && canApplyDiscounts && (
+                  <DropdownMenuItem asChild>
+                    <Link href={`/billing/discounts/new?bill_id=${bill.id}`}>
+                      <Percent className='mr-2 h-4 w-4' />
+                      Apply Discount
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+                {canSelectBill(bill) &&
+                  bill.status === 'partially_paid' &&
+                  canProcessRefunds && (
+                    <DropdownMenuItem asChild>
+                      <Link href={`/billing/refunds/new?bill_id=${bill.id}`}>
+                        <Undo className='mr-2 h-4 w-4' />
+                        Process Refund
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+
+        {/* Card Body - Amount Details */}
+        <div className='grid grid-cols-2 gap-4 pt-2 border-t'>
+          <div>
+            <p className='text-xs text-muted-foreground'>Due Date</p>
+            <div className='flex items-center gap-1 mt-1'>
+              <Calendar className='h-3 w-3 text-muted-foreground' />
+              <span className='text-sm font-medium'>
+                {formatDate(bill.due_date)}
+              </span>
+              {isOverdue(bill.due_date, bill.status) && (
+                <AlertCircle className='h-3 w-3 text-red-600' />
+              )}
+            </div>
+          </div>
+          <div>
+            <p className='text-xs text-muted-foreground'>Amount</p>
+            <p className='text-sm font-semibold text-gray-900 dark:text-gray-100 mt-1'>
+              {formatCurrency(bill.final_amount)}
+            </p>
+          </div>
+          <div>
+            <p className='text-xs text-muted-foreground'>Balance Due</p>
+            <p className='text-sm font-semibold text-orange-600 mt-1'>
+              {bill.status === 'paid'
+                ? formatCurrency(0)
+                : formatCurrency(
+                    bill.balance_amount > 0
+                      ? bill.balance_amount
+                      : bill.final_amount
+                  )}
+            </p>
+          </div>
+          <div>
+            <p className='text-xs text-muted-foreground'>Category</p>
+            <p className='text-xs text-gray-600 dark:text-gray-400 mt-1 truncate'>
+              {bill.item_category?.category_name || '—'}
+            </p>
+          </div>
+        </div>
+
+        {/* Additional Info */}
+        {(bill.remarks || bill.quantity > 1) && (
+          <div className='pt-2 border-t space-y-1'>
+            {bill.quantity > 1 && (
+              <p className='text-xs text-muted-foreground'>
+                Qty: {bill.quantity} × {formatCurrency(bill.unit_amount)}
+              </p>
+            )}
+            {bill.remarks && (
+              <p className='text-xs text-muted-foreground'>{bill.remarks}</p>
+            )}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+
+  const renderBillRow = (bill: StudentBill, index: number) => (
+    <TableRow
+      key={bill.id}
+      className={`hover:bg-muted/50 transition-colors ${
+        index % 2 === 0
+          ? 'bg-white dark:bg-gray-900'
+          : 'bg-gray-50 dark:bg-gray-800'
+      }`}
+    >
+      <TableCell>
+        {canSelectBill(bill) && (
+          <div
+            className='flex items-center justify-center cursor-pointer'
+            onClick={() =>
+              handleSelectBill(bill.id, !selectedBills.includes(bill.id))
+            }
+          >
+            {selectedBills.includes(bill.id) ? (
+              <CheckSquare className='h-4 w-4 text-blue-600' />
+            ) : (
+              <Square className='h-4 w-4' />
+            )}
+          </div>
+        )}
+      </TableCell>
+
+      <TableCell className='max-w-xs'>
+        <div className='space-y-1'>
+          <div className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+            {bill.item_category?.category_name}
+          </div>
+          {bill.item_category?.frequency && (
+            <div className='text-xs text-muted-foreground capitalize'>
+              {bill.item_category.frequency}
+            </div>
+          )}
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className='flex items-center gap-2'>
+          <Calendar className='h-4 w-4 text-muted-foreground shrink-0' />
+          <div className='space-y-1'>
+            <div className='text-sm font-medium'>
+              {formatDate(bill.due_date)}
+            </div>
+            {isOverdue(bill.due_date, bill.status) && (
+              <div className='flex items-center gap-1 text-xs text-red-600'>
+                <AlertCircle className='h-3 w-3' />
+                Overdue
+              </div>
+            )}
+          </div>
+        </div>
+      </TableCell>
+      <TableCell className='text-right'>
+        <div className='space-y-1'>
+          <div className='font-semibold text-gray-900 dark:text-gray-100'>
+            {formatCurrency(bill.final_amount)}
+          </div>
+          {bill.tax_amount > 0 && (
+            <div className='text-xs text-muted-foreground'>
+              Tax: {formatCurrency(bill.tax_amount)}
+            </div>
+          )}
+        </div>
+      </TableCell>
+      <TableCell className='text-right'>
+        <div className='space-y-1'>
+          <div className='font-semibold text-orange-600'>
+            {bill.status === 'paid'
+              ? formatCurrency(0)
+              : formatCurrency(
+                  bill.balance_amount > 0
+                    ? bill.balance_amount
+                    : bill.final_amount
+                )}
+          </div>
+          {bill.status === 'partially_paid' && (
+            <div className='text-xs text-green-600'>
+              Paid: {formatCurrency(bill.final_amount - bill.balance_amount)}
+            </div>
+          )}
+        </div>
+      </TableCell>
+      <TableCell className='text-center'>{getStatusBadge(bill.status)}</TableCell>
+      <TableCell className='text-center'>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant='ghost' size='sm' className='h-8 w-8 p-0'>
+              <span className='sr-only'>Open menu</span>
+              <EllipsisVertical className='h-4 w-4' />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align='end'>
+            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+            <DropdownMenuItem asChild>
+              <Link href={`/billing/schedule/${bill.id}`}>
+                <Eye className='mr-2 h-4 w-4' />
+                View Details
+              </Link>
+            </DropdownMenuItem>
+            {canEditBills && (
+              <DropdownMenuItem asChild>
+                <Link href={`/billing/schedule/${bill.id}/edit`}>
+                  <Edit className='mr-2 h-4 w-4' />
+                  Edit Bill
+                </Link>
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            {canSelectBill(bill) && canCreateReceipts && (
+              <DropdownMenuItem asChild>
+                <Link href={`/billing/receipts/new?bill_ids=${bill.id}`}>
+                  <Receipt className='mr-2 h-4 w-4' />
+                  Generate Receipt
+                </Link>
+              </DropdownMenuItem>
+            )}
+            {canSelectBill(bill) && canApplyDiscounts && (
+              <DropdownMenuItem asChild>
+                <Link href={`/billing/discounts/new?bill_id=${bill.id}`}>
+                  <Percent className='mr-2 h-4 w-4' />
+                  Apply Discount
+                </Link>
+              </DropdownMenuItem>
+            )}
+            {canSelectBill(bill) &&
+              bill.status === 'partially_paid' &&
+              canProcessRefunds && (
+                <DropdownMenuItem asChild>
+                  <Link href={`/billing/refunds/new?bill_id=${bill.id}`}>
+                    <Undo className='mr-2 h-4 w-4' />
+                    Process Refund
+                  </Link>
+                </DropdownMenuItem>
+              )}
+            {canDeleteBills && (
+              <>
+                <DropdownMenuSeparator />
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <DropdownMenuItem
+                      onSelect={(e) => e.preventDefault()}
+                      className='text-destructive'
+                    >
+                      <Trash2 className='mr-2 h-4 w-4' />
+                      Delete Bill
+                    </DropdownMenuItem>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete Bill</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Are you sure you want to delete this bill? This action
+                        cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => handleDeleteBill(bill.id)}
+                        className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                      >
+                        Delete
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </TableCell>
+    </TableRow>
+  );
 
   return (
     <div className='space-y-4'>
@@ -339,386 +689,93 @@ export function StudentBillsTable({
         </div>
       )}
 
-      {/* Mobile Card Layout - Hidden on large screens */}
-      <div className='lg:hidden space-y-3'>
-        {filteredBills.map((bill) => (
-          <Card key={bill.id} className='p-4 hover:shadow-md transition-shadow'>
-            <div className='space-y-3'>
-              {/* Card Header */}
-              <div className='flex items-start justify-between'>
-                <div className='flex items-start gap-3 flex-1 min-w-0'>
-                  {canSelectBill(bill) && (
-                    <div
-                      className='cursor-pointer mt-1 shrink-0'
-                      onClick={() =>
-                        handleSelectBill(
-                          bill.id,
-                          !selectedBills.includes(bill.id)
-                        )
-                      }
-                    >
-                      {selectedBills.includes(bill.id) ? (
-                        <CheckSquare className='h-4 w-4 text-blue-600' />
-                      ) : (
-                        <Square className='h-4 w-4' />
-                      )}
-                    </div>
-                  )}
-                  <div className='flex-1 min-w-0'>
-                    <h3 className='font-semibold text-sm text-gray-900 dark:text-gray-100 truncate'>
-                      {bill.bill_description}
-                    </h3>
-                    <p className='text-xs text-muted-foreground mt-1'>
-                      {bill.item_category?.category_name}
-                    </p>
-                  </div>
-                </div>
-                <div className='flex items-center gap-2 shrink-0'>
-                  {getStatusBadge(bill.status)}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant='ghost' size='sm' className='h-8 w-8 p-0'>
-                        <span className='sr-only'>Open menu</span>
-                        <Eye className='h-4 w-4' />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align='end'>
-                      <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                      <DropdownMenuItem asChild>
-                        <Link href={`/billing/schedule/${bill.id}`}>
-                          <Eye className='mr-2 h-4 w-4' />
-                          View Details
-                        </Link>
-                      </DropdownMenuItem>
-                      {canEditBills && (
-                        <DropdownMenuItem asChild>
-                          <Link href={`/billing/schedule/${bill.id}/edit`}>
-                            <Edit className='mr-2 h-4 w-4' />
-                            Edit Bill
-                          </Link>
-                        </DropdownMenuItem>
-                      )}
-                      {canSelectBill(bill) && canCreateReceipts && (
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/billing/receipts/new?bill_ids=${bill.id}`}
-                          >
-                            <Receipt className='mr-2 h-4 w-4' />
-                            Generate Receipt
-                          </Link>
-                        </DropdownMenuItem>
-                      )}
-                      {canSelectBill(bill) && canApplyDiscounts && (
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/billing/discounts/new?bill_id=${bill.id}`}
-                          >
-                            <Percent className='mr-2 h-4 w-4' />
-                            Apply Discount
-                          </Link>
-                        </DropdownMenuItem>
-                      )}
-                      {canSelectBill(bill) &&
-                        bill.status === 'partially_paid' &&
-                        canProcessRefunds && (
-                          <DropdownMenuItem asChild>
-                            <Link
-                              href={`/billing/refunds/new?bill_id=${bill.id}`}
-                            >
-                              <Undo className='mr-2 h-4 w-4' />
-                              Process Refund
-                            </Link>
-                          </DropdownMenuItem>
-                        )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+      {/* Mobile Card Layout — grouped by academic year */}
+      <div className='lg:hidden space-y-6'>
+        {billGroups.map((group) => {
+          const s = summarizeGroup(group.bills);
+          return (
+            <div key={group.key} className='space-y-3'>
+              <div className='flex items-center justify-between rounded-md bg-muted px-3 py-2'>
+                <div className='font-semibold text-sm'>{group.name}</div>
+                <div className='flex items-center gap-2'>
+                  <span className='text-xs text-muted-foreground'>
+                    {formatCurrency(s.paid)} / {formatCurrency(s.total)}
+                  </span>
+                  <Badge
+                    className={
+                      s.label === 'PAID'
+                        ? 'bg-green-100 text-green-800 border-green-200'
+                        : s.label === 'PARTIAL'
+                        ? 'bg-yellow-100 text-yellow-800 border-yellow-200'
+                        : 'bg-orange-100 text-orange-800 border-orange-200'
+                    }
+                  >
+                    {s.label}
+                  </Badge>
                 </div>
               </div>
-
-              {/* Card Body - Amount Details */}
-              <div className='grid grid-cols-2 gap-4 pt-2 border-t'>
-                <div>
-                  <p className='text-xs text-muted-foreground'>Due Date</p>
-                  <div className='flex items-center gap-1 mt-1'>
-                    <Calendar className='h-3 w-3 text-muted-foreground' />
-                    <span className='text-sm font-medium'>
-                      {formatDate(bill.due_date)}
-                    </span>
-                    {isOverdue(bill.due_date, bill.status) && (
-                      <AlertCircle className='h-3 w-3 text-red-600' />
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <p className='text-xs text-muted-foreground'>Amount</p>
-                  <p className='text-sm font-semibold text-gray-900 dark:text-gray-100 mt-1'>
-                    {formatCurrency(bill.final_amount)}
-                  </p>
-                </div>
-                <div>
-                  <p className='text-xs text-muted-foreground'>Balance Due</p>
-                  <p className='text-sm font-semibold text-orange-600 mt-1'>
-                    {bill.status === 'paid'
-                      ? formatCurrency(0)
-                      : formatCurrency(
-                          bill.balance_amount > 0
-                            ? bill.balance_amount
-                            : bill.final_amount
-                        )}
-                  </p>
-                </div>
-                <div>
-                  <p className='text-xs text-muted-foreground'>Category</p>
-                  <p className='text-xs text-gray-600 dark:text-gray-400 mt-1 truncate'>
-                    {bill.item_category?.category_name || '—'}
-                  </p>
-                </div>
-              </div>
-
-              {/* Additional Info */}
-              {(bill.remarks || bill.quantity > 1) && (
-                <div className='pt-2 border-t space-y-1'>
-                  {bill.quantity > 1 && (
-                    <p className='text-xs text-muted-foreground'>
-                      Qty: {bill.quantity} × {formatCurrency(bill.unit_amount)}
-                    </p>
-                  )}
-                  {bill.remarks && (
-                    <p className='text-xs text-muted-foreground'>
-                      {bill.remarks}
-                    </p>
-                  )}
-                </div>
-              )}
+              {group.bills.map((bill) => renderBillCard(bill))}
             </div>
-          </Card>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Desktop Table Layout - Hidden on mobile */}
-      <div className='hidden lg:block rounded-md border overflow-hidden'>
-        <Table>
-          <TableHeader>
-            <TableRow className='bg-gray-50 dark:bg-gray-800'>
-              <TableHead className='w-12'>
-                <div
-                  className='flex items-center justify-center cursor-pointer'
-                  onClick={handleSelectAllSelectable}
-                >
-                  {selectedBills.length > 0 &&
-                  selectedBills.length === selectableBills.length ? (
-                    <CheckSquare className='h-4 w-4 text-blue-600' />
-                  ) : (
-                    <Square className='h-4 w-4' />
-                  )}
+      {/* Desktop Table Layout — grouped by academic year */}
+      <div className='hidden lg:block space-y-6'>
+        {billGroups.map((group) => {
+          const s = summarizeGroup(group.bills);
+          return (
+            <div key={group.key} className='rounded-md border overflow-hidden'>
+              <div className='flex items-center justify-between bg-muted px-4 py-2 border-b'>
+                <div className='font-semibold'>{group.name}</div>
+                <div className='flex items-center gap-4 text-sm'>
+                  <span>Total: {formatCurrency(s.total)}</span>
+                  <span className='text-green-600'>
+                    Paid: {formatCurrency(s.paid)}
+                  </span>
+                  <span className='text-orange-600'>
+                    Outstanding: {formatCurrency(s.outstanding)}
+                  </span>
+                  <Badge
+                    className={
+                      s.label === 'PAID'
+                        ? 'bg-green-100 text-green-800 border-green-200'
+                        : s.label === 'PARTIAL'
+                        ? 'bg-yellow-100 text-yellow-800 border-yellow-200'
+                        : 'bg-orange-100 text-orange-800 border-orange-200'
+                    }
+                  >
+                    {s.label}
+                  </Badge>
                 </div>
-              </TableHead>
-              <TableHead className='font-semibold'>Category</TableHead>
-              <TableHead className='font-semibold'>Due Date</TableHead>
-              <TableHead className='text-right font-semibold'>Amount</TableHead>
-              <TableHead className='text-right font-semibold'>
-                Balance Due
-              </TableHead>
-              <TableHead className='text-center font-semibold'>
-                Status
-              </TableHead>
-              <TableHead className='text-center font-semibold'>
-                Actions
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredBills.map((bill, index) => (
-              <TableRow
-                key={bill.id}
-                className={`hover:bg-muted/50 transition-colors ${
-                  index % 2 === 0
-                    ? 'bg-white dark:bg-gray-900'
-                    : 'bg-gray-50 dark:bg-gray-800'
-                }`}
-              >
-                <TableCell>
-                  {canSelectBill(bill) && (
-                    <div
-                      className='flex items-center justify-center cursor-pointer'
-                      onClick={() =>
-                        handleSelectBill(
-                          bill.id,
-                          !selectedBills.includes(bill.id)
-                        )
-                      }
-                    >
-                      {selectedBills.includes(bill.id) ? (
-                        <CheckSquare className='h-4 w-4 text-blue-600' />
-                      ) : (
-                        <Square className='h-4 w-4' />
-                      )}
-                    </div>
-                  )}
-                </TableCell>
-
-                <TableCell className='max-w-xs'>
-                  <div className='space-y-1'>
-                    <div className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                      {bill.item_category?.category_name}
-                    </div>
-                    {bill.item_category?.frequency && (
-                      <div className='text-xs text-muted-foreground capitalize'>
-                        {bill.item_category.frequency}
-                      </div>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className='flex items-center gap-2'>
-                    <Calendar className='h-4 w-4 text-muted-foreground shrink-0' />
-                    <div className='space-y-1'>
-                      <div className='text-sm font-medium'>
-                        {formatDate(bill.due_date)}
-                      </div>
-                      {isOverdue(bill.due_date, bill.status) && (
-                        <div className='flex items-center gap-1 text-xs text-red-600'>
-                          <AlertCircle className='h-3 w-3' />
-                          Overdue
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell className='text-right'>
-                  <div className='space-y-1'>
-                    <div className='font-semibold text-gray-900 dark:text-gray-100'>
-                      {formatCurrency(bill.final_amount)}
-                    </div>
-                    {bill.tax_amount > 0 && (
-                      <div className='text-xs text-muted-foreground'>
-                        Tax: {formatCurrency(bill.tax_amount)}
-                      </div>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell className='text-right'>
-                  <div className='space-y-1'>
-                    <div className='font-semibold text-orange-600'>
-                      {bill.status === 'paid'
-                        ? formatCurrency(0)
-                        : formatCurrency(
-                            bill.balance_amount > 0
-                              ? bill.balance_amount
-                              : bill.final_amount
-                          )}
-                    </div>
-                    {bill.status === 'partially_paid' && (
-                      <div className='text-xs text-green-600'>
-                        Paid:{' '}
-                        {formatCurrency(
-                          bill.final_amount - bill.balance_amount
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell className='text-center'>
-                  {getStatusBadge(bill.status)}
-                </TableCell>
-                <TableCell className='text-center'>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant='ghost' size='sm' className='h-8 w-8 p-0'>
-                        <span className='sr-only'>Open menu</span>
-                        <EllipsisVertical className='h-4 w-4' />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align='end'>
-                      <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                      <DropdownMenuItem asChild>
-                        <Link href={`/billing/schedule/${bill.id}`}>
-                          <Eye className='mr-2 h-4 w-4' />
-                          View Details
-                        </Link>
-                      </DropdownMenuItem>
-                      {canEditBills && (
-                        <DropdownMenuItem asChild>
-                          <Link href={`/billing/schedule/${bill.id}/edit`}>
-                            <Edit className='mr-2 h-4 w-4' />
-                            Edit Bill
-                          </Link>
-                        </DropdownMenuItem>
-                      )}
-                      <DropdownMenuSeparator />
-                      {canSelectBill(bill) && canCreateReceipts && (
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/billing/receipts/new?bill_ids=${bill.id}`}
-                          >
-                            <Receipt className='mr-2 h-4 w-4' />
-                            Generate Receipt
-                          </Link>
-                        </DropdownMenuItem>
-                      )}
-                      {canSelectBill(bill) && canApplyDiscounts && (
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/billing/discounts/new?bill_id=${bill.id}`}
-                          >
-                            <Percent className='mr-2 h-4 w-4' />
-                            Apply Discount
-                          </Link>
-                        </DropdownMenuItem>
-                      )}
-                      {canSelectBill(bill) &&
-                        bill.status === 'partially_paid' &&
-                        canProcessRefunds && (
-                          <DropdownMenuItem asChild>
-                            <Link
-                              href={`/billing/refunds/new?bill_id=${bill.id}`}
-                            >
-                              <Undo className='mr-2 h-4 w-4' />
-                              Process Refund
-                            </Link>
-                          </DropdownMenuItem>
-                        )}
-                      {canDeleteBills && (
-                        <>
-                          <DropdownMenuSeparator />
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <DropdownMenuItem
-                                onSelect={(e) => e.preventDefault()}
-                                className='text-destructive'
-                              >
-                                <Trash2 className='mr-2 h-4 w-4' />
-                                Delete Bill
-                              </DropdownMenuItem>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Delete Bill</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Are you sure you want to delete this bill?
-                                  This action cannot be undone.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={() => handleDeleteBill(bill.id)}
-                                  className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
-                                >
-                                  Delete
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow className='bg-gray-50 dark:bg-gray-800'>
+                    <TableHead className='w-12'></TableHead>
+                    <TableHead className='font-semibold'>Category</TableHead>
+                    <TableHead className='font-semibold'>Due Date</TableHead>
+                    <TableHead className='text-right font-semibold'>
+                      Amount
+                    </TableHead>
+                    <TableHead className='text-right font-semibold'>
+                      Balance Due
+                    </TableHead>
+                    <TableHead className='text-center font-semibold'>
+                      Status
+                    </TableHead>
+                    <TableHead className='text-center font-semibold'>
+                      Actions
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {group.bills.map((bill, index) => renderBillRow(bill, index))}
+                </TableBody>
+              </Table>
+            </div>
+          );
+        })}
       </div>
 
       {/* Empty State */}

@@ -42,18 +42,22 @@ export function useHostelBlock(id: string) {
 export function useCreateHostelBlock() {
   const queryClient = useQueryClient();
   return useMutation({
-    // hostel-rooms-v2 PR 2 (2026-05-26): accepts optional primaryInstitutionId
-    // so the service can auto-grant the new block to a college via the
-    // hostel_block_institutions junction. Callers can pass via the variables
-    // object: `mutateAsync({ ...payload, primaryInstitutionId: '...' })`.
+    // hostel-rooms-v2 PR 2 (2026-05-26): grants the new block to college(s) via
+    // the hostel_block_institutions junction. Pass `institutionIds` (ordered —
+    // the FIRST becomes the primary college, the rest secondary). The legacy
+    // `primaryInstitutionId` is still honored as a fallback when institutionIds
+    // is absent. Call: `mutateAsync({ ...payload, institutionIds: [...] })`.
     mutationFn: (
       vars: CreateHostelBlockDTO & {
+        institutionIds?: string[];
         primaryInstitutionId?: string;
         amenityTagIds?: string[];
       },
     ) => {
-      const { primaryInstitutionId, amenityTagIds, ...payload } = vars;
-      return HostelBlockService.createBlock(payload, primaryInstitutionId, amenityTagIds);
+      const { institutionIds, primaryInstitutionId, amenityTagIds, ...payload } = vars;
+      const primary = institutionIds?.[0] ?? primaryInstitutionId;
+      const secondary = institutionIds?.slice(1);
+      return HostelBlockService.createBlock(payload, primary, amenityTagIds, secondary);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: hostelBlockKeys.all });

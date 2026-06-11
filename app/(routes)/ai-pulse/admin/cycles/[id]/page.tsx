@@ -10,6 +10,7 @@ import { use } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { CycleEditForm } from '../_components/cycle-edit-form';
+import { PublicationMetricsCard } from './_components/publication-metrics-card';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -28,8 +29,10 @@ export default function AIPulseCycleEditPage({ params }: Props) {
           { label: 'Edit' },
         ]}
       />
-      <div className="mt-4">
+      <div className="mt-4 space-y-6">
         <CycleEditForm cycleId={id} />
+        {/* Publication Metrics — SOP Phase V read path (2026-06-11) */}
+        <PublicationMetricsCard cycleId={id} />
       </div>
     </ContentLayout>
   );

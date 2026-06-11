@@ -127,15 +127,25 @@ export class HostelAllocationService {
   }
 
   // ── Allocation by learner ─────────────────────────────────────────
-  static async getAllocationByLearner(learnerId: string, activeOnly = true) {
+  // learnerId is a profiles.id (hostel_allocations.learner_id FKs to profiles).
+  // `statuses` overrides the default active-only filter — pass e.g.
+  // ['active','pending_approval','pending_vacate'] for display surfaces that
+  // should also surface a not-yet-approved (proposed) allocation. Gating callers
+  // (vacate / premium) keep the default active-only behaviour.
+  static async getAllocationByLearner(
+    learnerId: string,
+    activeOnly = true,
+    statuses?: string[]
+  ) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_allocations')
-        .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email), hostel_blocks(name, code), hostel_rooms(room_number, floor), hostel_beds(bed_number)')
+        .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email), hostel_blocks(name, code), hostel_rooms(room_number, room_type, floor), hostel_beds(bed_number, bed_type)')
         .eq('learner_id', learnerId);
 
-      if (activeOnly) query = query.eq('status', 'active');
+      if (statuses && statuses.length > 0) query = query.in('status', statuses);
+      else if (activeOnly) query = query.eq('status', 'active');
       query = query.order('allocation_date', { ascending: false });
 
       const { data, error } = await query;

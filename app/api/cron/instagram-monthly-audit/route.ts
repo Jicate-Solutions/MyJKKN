@@ -11,7 +11,10 @@ export const dynamic = 'force-dynamic';
 // Auth: Bearer CRON_SECRET (Vercel-provided in production).
 // Logs each run outcome to social_instagram_logs.
 //
-// NOTE: Depends on ig_* tables (Agent β). Runtime errors expected if not merged yet.
+// NOTE: Depends on ig_* tables (migration 20260530140000). The ig_monthly_audit
+// sink table is NOT yet provisioned by any migration — until it ships, the
+// per-account upsert fails and is captured by the per-account error isolation
+// (logged to social_instagram_logs + Sentry); the cron itself still returns 200.
 
 import { NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
@@ -38,21 +41,20 @@ function firstDayOfCurrentMonthUTC(): string {
 async function logAuditRun(
   supabase: SupabaseClient,
   args: {
-    ig_account_id: string;
-    endpoint: string;
+    account_id: string;
     error_message?: string | null;
     duration_ms?: number;
     meta: Record<string, unknown>;
   }
 ): Promise<void> {
+  // social_instagram_logs schema (20260530140000): account_id / event_type /
+  // payload / status('success'|'error') / error_message / occurred_at(default).
   await supabase.from('social_instagram_logs').insert({
-    ig_account_id: args.ig_account_id,
-    endpoint: args.endpoint,
-    http_status: args.error_message ? null : 200,
+    account_id: args.account_id,
+    event_type: 'monthly_audit',
+    status: args.error_message ? 'error' : 'success',
     error_message: args.error_message ?? null,
-    duration_ms: args.duration_ms ?? null,
-    payload: args.meta,
-    created_at: new Date().toISOString(),
+    payload: { ...args.meta, duration_ms: args.duration_ms ?? null },
   });
 }
 
@@ -110,7 +112,6 @@ interface AuditMetrics {
   total_posts: number;
   total_reach: number;
   total_impressions: number;
-  total_likes: number;
   total_comments: number;
   total_saves: number;
   total_shares: number;
@@ -120,36 +121,50 @@ interface AuditMetrics {
   last_post_at: string | null;
 }
 
+interface PostMetricRow {
+  post_id: string;
+  snapshot_at: string;
+  reach: number;
+  impressions: number;
+  engagement: number;
+  saves: number;
+  shares: number;
+  comments: number;
+}
+
 async function aggregateMetrics(
   supabase: SupabaseClient,
   igAccountId: string,
   cutoff: string
 ): Promise<AuditMetrics> {
-  // Post-level metrics for the period
+  // Post-level metrics for the period.
+  // ig_post_metrics has NO account_id column — scope via the ig_posts FK
+  // (!inner + filter on the embedded table is intentional here: we WANT to
+  // exclude metric rows whose post belongs to another account).
   const { data: postMetrics } = await supabase
     .from('ig_post_metrics')
     .select(
-      'reach, impressions, like_count, comments_count, saved, shares, engagement'
+      'post_id, snapshot_at, reach, impressions, engagement, saves, shares, comments, ig_posts!inner(account_id)'
     )
-    .eq('ig_account_id', igAccountId)
-    .gte('snapshotted_at', cutoff);
+    .eq('ig_posts.account_id', igAccountId)
+    .gte('snapshot_at', cutoff);
 
   // Most recent and oldest account-level metrics for follower delta
   const { data: latestAcct } = await supabase
     .from('ig_account_metrics')
-    .select('followers_count, snapshotted_at')
-    .eq('ig_account_id', igAccountId)
-    .gte('snapshotted_at', cutoff)
-    .order('snapshotted_at', { ascending: false })
+    .select('followers, snapshot_at')
+    .eq('account_id', igAccountId)
+    .gte('snapshot_at', cutoff)
+    .order('snapshot_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
   const { data: earliestAcct } = await supabase
     .from('ig_account_metrics')
-    .select('followers_count')
-    .eq('ig_account_id', igAccountId)
-    .gte('snapshotted_at', cutoff)
-    .order('snapshotted_at', { ascending: true })
+    .select('followers')
+    .eq('account_id', igAccountId)
+    .gte('snapshot_at', cutoff)
+    .order('snapshot_at', { ascending: true })
     .limit(1)
     .maybeSingle();
 
@@ -157,45 +172,51 @@ async function aggregateMetrics(
   const { data: lastPost } = await supabase
     .from('ig_posts')
     .select('posted_at')
-    .eq('ig_account_id', igAccountId)
+    .eq('account_id', igAccountId)
     .order('posted_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  const rows = postMetrics ?? [];
+  // ig_post_metrics is a snapshot table (many rows per post over the period).
+  // Keep only the LATEST snapshot per post so totals count each post once.
+  const latestByPost = new Map<string, PostMetricRow>();
+  for (const raw of (postMetrics ?? []) as unknown as PostMetricRow[]) {
+    const existing = latestByPost.get(raw.post_id);
+    if (!existing || raw.snapshot_at > existing.snapshot_at) {
+      latestByPost.set(raw.post_id, raw);
+    }
+  }
+
   let totalReach = 0;
   let totalImpressions = 0;
-  let totalLikes = 0;
   let totalComments = 0;
   let totalSaves = 0;
   let totalShares = 0;
   let totalEngagement = 0;
 
-  for (const r of rows) {
-    totalReach += (r as any).reach ?? 0;
-    totalImpressions += (r as any).impressions ?? 0;
-    totalLikes += (r as any).like_count ?? 0;
-    totalComments += (r as any).comments_count ?? 0;
-    totalSaves += (r as any).saved ?? 0;
-    totalShares += (r as any).shares ?? 0;
-    totalEngagement += (r as any).engagement ?? 0;
+  for (const r of latestByPost.values()) {
+    totalReach += r.reach ?? 0;
+    totalImpressions += r.impressions ?? 0;
+    totalComments += r.comments ?? 0;
+    totalSaves += r.saves ?? 0;
+    totalShares += r.shares ?? 0;
+    totalEngagement += r.engagement ?? 0;
   }
 
-  const avgEngagementRate =
-    rows.length > 0 ? totalEngagement / rows.length : 0;
+  const postCount = latestByPost.size;
+  const avgEngagementRate = postCount > 0 ? totalEngagement / postCount : 0;
 
   return {
-    total_posts: rows.length,
+    total_posts: postCount,
     total_reach: totalReach,
     total_impressions: totalImpressions,
-    total_likes: totalLikes,
     total_comments: totalComments,
     total_saves: totalSaves,
     total_shares: totalShares,
     avg_engagement_rate: avgEngagementRate,
-    latest_follower_count: (latestAcct as any)?.followers_count ?? null,
-    earliest_follower_count: (earliestAcct as any)?.followers_count ?? null,
-    last_post_at: (lastPost as any)?.posted_at ?? null,
+    latest_follower_count: (latestAcct as { followers: number } | null)?.followers ?? null,
+    earliest_follower_count: (earliestAcct as { followers: number } | null)?.followers ?? null,
+    last_post_at: (lastPost as { posted_at: string } | null)?.posted_at ?? null,
   };
 }
 
@@ -243,7 +264,7 @@ function computeHealthScore(
 interface AuditAccount {
   id: string;
   ig_user_id: string;
-  account_name: string | null;
+  username: string | null;
   status: string;
   last_post_at: string | null;
 }
@@ -274,7 +295,7 @@ export async function GET(request: Request): Promise<Response> {
     // Audit covers both active and dormant accounts
     const { data: accounts, error: acctErr } = await supabase
       .from('ig_accounts')
-      .select('id, ig_user_id, account_name, status, last_post_at')
+      .select('id, ig_user_id, username, status, last_post_at')
       .in('status', ['active', 'dormant']);
 
     if (acctErr) throw acctErr;
@@ -307,7 +328,7 @@ export async function GET(request: Request): Promise<Response> {
             extra: {
               ig_account_id: account.id,
               ig_user_id: account.ig_user_id,
-              account_name: account.account_name,
+              username: account.username,
               last_post_at: metrics.last_post_at,
               alert_dormant_after_days: alertDormantAfterDays,
               audit_month: auditMonth,
@@ -325,7 +346,6 @@ export async function GET(request: Request): Promise<Response> {
               total_posts: metrics.total_posts,
               total_reach: metrics.total_reach,
               total_impressions: metrics.total_impressions,
-              total_likes: metrics.total_likes,
               total_comments: metrics.total_comments,
               total_saves: metrics.total_saves,
               total_shares: metrics.total_shares,
@@ -344,8 +364,7 @@ export async function GET(request: Request): Promise<Response> {
 
         // Log this audit run to social_instagram_logs
         await logAuditRun(supabase, {
-          ig_account_id: account.id,
-          endpoint: 'cron/instagram-monthly-audit',
+          account_id: account.id,
           duration_ms: Date.now() - acctStart,
           meta: {
             audit_month: auditMonth,
@@ -358,12 +377,18 @@ export async function GET(request: Request): Promise<Response> {
         accountsProcessed++;
       } catch (e) {
         errorsCount++;
-        const msg = e instanceof Error ? e.message : 'unknown';
+        // PostgrestError is a plain object (not an Error instance) — read its
+        // message too, or per-account failures all surface as 'unknown'.
+        const msg =
+          e instanceof Error
+            ? e.message
+            : e && typeof e === 'object' && 'message' in e
+              ? String((e as { message: unknown }).message)
+              : 'unknown';
         perAccountErrors.push({ id: account.id, error: msg });
 
         await logAuditRun(supabase, {
-          ig_account_id: account.id,
-          endpoint: 'cron/instagram-monthly-audit',
+          account_id: account.id,
           error_message: msg,
           duration_ms: Date.now() - acctStart,
           meta: { audit_month: auditMonth },

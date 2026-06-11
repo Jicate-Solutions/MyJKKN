@@ -72,7 +72,7 @@ export default function HousekeepingSchedulesPage() {
   }, [blockFilter, statusFilter, dateFrom, dateTo]);
 
   const { data, isLoading } = useCleaningSchedules(institutionId, filters);
-  const schedules = data?.data ?? [];
+  const schedules = useMemo(() => data?.data ?? [], [data?.data]);
 
   const filteredSchedules = schedules.filter((s) => {
     if (!searchQuery) return true;
@@ -93,10 +93,7 @@ export default function HousekeepingSchedulesPage() {
       total: schedules.length,
       active: schedules.filter((s) => s.is_active).length,
       inactive: schedules.filter((s) => !s.is_active).length,
-      upcoming: schedules.filter((s) => {
-        const due = s.next_due_at ? new Date(s.next_due_at as string).getTime() : 0;
-        return due > Date.now();
-      }).length,
+      daily: schedules.filter((s) => s.frequency === 'daily').length,
     }),
     [schedules]
   );
@@ -161,8 +158,8 @@ export default function HousekeepingSchedulesPage() {
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
-              <p className="text-xs text-muted-foreground">Upcoming</p>
-              <p className="text-2xl font-bold text-blue-600">{stats.upcoming}</p>
+              <p className="text-xs text-muted-foreground">Daily Plans</p>
+              <p className="text-2xl font-bold text-blue-600">{stats.daily}</p>
             </CardContent>
           </Card>
         </div>
@@ -202,7 +199,7 @@ export default function HousekeepingSchedulesPage() {
                   htmlFor="schedules-date-from"
                   className="text-xs text-muted-foreground block mb-1"
                 >
-                  Next-due from
+                  Created from
                 </label>
                 <Input
                   id="schedules-date-from"
@@ -216,7 +213,7 @@ export default function HousekeepingSchedulesPage() {
                   htmlFor="schedules-date-to"
                   className="text-xs text-muted-foreground block mb-1"
                 >
-                  Next-due to
+                  Created to
                 </label>
                 <Input
                   id="schedules-date-to"
@@ -253,7 +250,7 @@ export default function HousekeepingSchedulesPage() {
                   <TableRow>
                     <TableHead>Type</TableHead>
                     <TableHead>Frequency</TableHead>
-                    <TableHead>Next Due</TableHead>
+                    <TableHead>Scheduled Time</TableHead>
                     <TableHead>Assigned Staff</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Created</TableHead>
@@ -269,10 +266,10 @@ export default function HousekeepingSchedulesPage() {
                         {String(s.frequency ?? s.cadence ?? '—').replace(/_/g, ' ')}
                       </TableCell>
                       <TableCell>
-                        {s.next_due_at ? (
+                        {s.scheduled_time ? (
                           <span className="flex items-center gap-1 text-sm">
                             <CalendarDays className="h-3 w-3 text-muted-foreground" />
-                            {new Date(s.next_due_at as string).toLocaleDateString()}
+                            {String(s.scheduled_time).slice(0, 5)}
                           </span>
                         ) : (
                           '—'

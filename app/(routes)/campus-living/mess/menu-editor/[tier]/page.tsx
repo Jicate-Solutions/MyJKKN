@@ -65,7 +65,12 @@ function computeWeekOptions(): { value: string; label: string }[] {
   return Array.from({ length: 5 }).map((_, i) => {
     const d = new Date(thisMonday);
     d.setDate(thisMonday.getDate() + i * 7);
-    const iso = d.toISOString().split('T')[0]!;
+    // Format the LOCAL date — toISOString() converts to UTC, shifting IST
+    // midnight to the previous day (Monday-keyed weeks became Sunday-keyed,
+    // so editor-written rows and Monday-keyed readers could never match).
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+      d.getDate(),
+    ).padStart(2, '0')}`;
     const label = i === 0 ? `Current week (${iso})` : `Week of ${iso}`;
     return { value: iso, label };
   });

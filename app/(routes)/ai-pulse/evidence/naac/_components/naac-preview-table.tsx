@@ -57,6 +57,7 @@ export function NaacPreviewTable({ rows, isLoading }: NaacPreviewTableProps) {
             <TableHead className="min-w-[120px]">Live App</TableHead>
             <TableHead className="min-w-[140px]">Featured Tool</TableHead>
             <TableHead className="min-w-[140px]">Champion</TableHead>
+            <TableHead className="min-w-[130px]">Verification</TableHead>
             <TableHead className="text-right">IG Reach</TableHead>
           </TableRow>
         </TableHeader>
@@ -116,6 +117,15 @@ export function NaacPreviewTable({ rows, isLoading }: NaacPreviewTableProps) {
               </TableCell>
               <TableCell className="text-sm">{row.featured_tool}</TableCell>
               <TableCell className="text-sm">{row.champion_at_time}</TableCell>
+              <TableCell>
+                <Badge
+                  variant={row.is_faculty_verified ? 'default' : 'outline'}
+                  className="text-[11px]"
+                >
+                  {row.verification ??
+                    (row.is_faculty_verified ? 'Faculty-selected' : 'Self-reported')}
+                </Badge>
+              </TableCell>
               <TableCell className="text-right font-mono text-sm">
                 {row.ig_reach.toLocaleString()}
               </TableCell>

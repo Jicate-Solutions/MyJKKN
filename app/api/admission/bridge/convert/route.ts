@@ -115,17 +115,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   // accommodation_type TEXT is retired — convert defaults a lead to day-scholar,
-  // so resolve the institution's 'dayscholar' accommodation_types FK to persist.
-  let accommodationTypeId: string | null = null;
-  if (lead.institution_id) {
-    const { data: accRow } = await (svc as any)
-      .from('accommodation_types')
-      .select('id')
-      .eq('institution_id', lead.institution_id)
-      .eq('code', 'dayscholar')
-      .maybeSingle();
-    accommodationTypeId = accRow?.id ?? null;
-  }
+  // so resolve the global 'dayscholar' accommodation_types FK to persist.
+  const { data: accRow } = await (svc as any)
+    .from('accommodation_types')
+    .select('id')
+    .eq('code', 'dayscholar')
+    .maybeSingle();
+  const accommodationTypeId: string | null = accRow?.id ?? null;
 
   // ── 5. Map fields ────────────────────────────────────────────────────────────
   const profileData = {

@@ -286,37 +286,53 @@ export const useUpdateBugReportStatus = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: updateBugReportStatus,
+    onMutate: async (variables) => {
+      // Cancel in-flight list refetches so they don't overwrite our optimistic update
+      await queryClient.cancelQueries({ queryKey: queryKeys.bugReports.lists() });
+
+      // Snapshot all active list caches for rollback on error
+      const previousLists = queryClient.getQueriesData<{ data: BugReport[]; metadata: any }>({
+        queryKey: queryKeys.bugReports.lists()
+      });
+
+      // Immediately flip the status badge in every active list cache — no server round-trip
+      queryClient.setQueriesData<{ data: BugReport[]; metadata: any }>(
+        { queryKey: queryKeys.bugReports.lists() },
+        (old) => {
+          if (!old?.data) return old;
+          return {
+            ...old,
+            data: old.data.map((r) =>
+              r.id === variables.reportId ? { ...r, status: variables.status } : r
+            )
+          };
+        }
+      );
+
+      return { previousLists };
+    },
+    onError: (_err, _variables, context) => {
+      // Roll back all list caches if the mutation fails
+      context?.previousLists?.forEach(([queryKey, data]) => {
+        queryClient.setQueryData(queryKey, data);
+      });
+    },
     onSuccess: (data, variables) => {
-      // Synchronously merge the new status into the detail cache so the badge
-      // updates immediately, before any refetch round-trip resolves.
+      // Merge confirmed server fields into the detail cache
       queryClient.setQueryData(
         queryKeys.bugReports.detail(variables.reportId),
         (old: any) => (old ? { ...old, ...data } : old)
       );
 
-      // Invalidate and refetch all bug reports queries using centralized keys
-      queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.lists() });
-
-      // Invalidate my bug reports
       queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.mine() });
-
-      // Invalidate leaderboard (in case status changed to/from resolved)
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.bugReports.leaderboard()
-      });
-
-      // Background-refresh the detail to pick up any joined fields
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.bugReports.detail(variables.reportId)
-      });
-
-      // Invalidate stats widget (total/resolved/in-progress counters)
+      queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.leaderboard() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.detail(variables.reportId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.stats() });
-
-      // Invalidate reporter analytics (resolved_count, resolution_rate, etc.)
-      queryClient.invalidateQueries({
-        queryKey: [...queryKeys.bugReports.all, 'reporter-stats']
-      });
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.bugReports.all, 'reporter-stats'] });
+    },
+    onSettled: () => {
+      // Background-sync the lists after every mutation (success or error)
+      queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.lists() });
     }
   });
 };
@@ -363,23 +379,42 @@ export const useBulkUpdateBugReportsStatus = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: bulkUpdateBugReportsStatus,
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.bugReports.lists() });
+
+      const previousLists = queryClient.getQueriesData<{ data: BugReport[]; metadata: any }>({
+        queryKey: queryKeys.bugReports.lists()
+      });
+
+      const ids = new Set(variables.reportIds);
+      queryClient.setQueriesData<{ data: BugReport[]; metadata: any }>(
+        { queryKey: queryKeys.bugReports.lists() },
+        (old) => {
+          if (!old?.data) return old;
+          return {
+            ...old,
+            data: old.data.map((r) =>
+              ids.has(r.id) ? { ...r, status: variables.status } : r
+            )
+          };
+        }
+      );
+
+      return { previousLists };
+    },
+    onError: (_err, _variables, context) => {
+      context?.previousLists?.forEach(([queryKey, data]) => {
+        queryClient.setQueryData(queryKey, data);
+      });
+    },
     onSuccess: () => {
-      // Invalidate and refetch all bug reports queries
-      queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.lists() });
-
-      // Invalidate my bug reports
       queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.mine() });
-
-      // Invalidate leaderboard (in case status changed to/from resolved)
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.bugReports.leaderboard()
-      });
-
-      // Invalidate stats widget and reporter analytics
+      queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.leaderboard() });
       queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.stats() });
-      queryClient.invalidateQueries({
-        queryKey: [...queryKeys.bugReports.all, 'reporter-stats']
-      });
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.bugReports.all, 'reporter-stats'] });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.lists() });
     }
   });
 };

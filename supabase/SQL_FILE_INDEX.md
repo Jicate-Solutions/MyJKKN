@@ -6,6 +6,8 @@
 
 ## 📝 Recent Changes
 
+- **2026-07-10** — Fixed pgcrypto search_path bug in 4 SECURITY DEFINER fns (5 instances incl. both `generate_api_key` overloads): `ALTER FUNCTION ... SET search_path = public, extensions` on `create_api_key`, `generate_api_key()`, `generate_api_key(integer)`, `create_staff_auth_profile`, `bulk_sync_applications_to_auth_server` — they call pgcrypto primitives in the `extensions` schema and were failing at runtime with 42883. Migration `20260710120000_fix_sibling_pgcrypto_search_path.sql` (idempotent; body unchanged).
+
 - **2026-05-02** — IMS permission-system audit: full RLS resolution (Part 2 — bugs #1, #2, #3, #5, #6, #7, #8, #9, #10)
   - Continuation of the morning's granular-overrides session (Part 1 below). The `rls-fixer` agent in team `ims-permission-resolve` resolved the remaining 10 RLS/scope bugs flagged by the `scope-reviewer` and `rls-reviewer` audits. All listed open follow-ups from Part 1 are now closed except the deferred UI-layer concerns.
   - **`03_policies.sql` edit #3 (helper-call corrections)**: the `pg_temp.ims_apply_*` helpers in the main IMS RLS block assume every table has an `institution_id` column. Several tables don't — re-running the file on a fresh DB would have crashed or generated globally-permissive policies that regress live state. Replaced helper calls for 7 tables (lines ~5575, 5587-5590, 5595-5597, 5610-5612) with explicit pointers to hand-written DO blocks below + corrected ones for `ims_suppliers` (BUG #5: was global, now inst-scoped) and `ims_unit_conversions` (BUG #9: was global, now child-scoped via `ims_items.institution_id`).
@@ -1538,3 +1540,9 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Tables: `admission_form_templates`, `admission_forms`, `admission_form_sections`, `admission_form_fields`, `admission_form_submissions`, `admission_form_events`
 - Location: `supabase/setup/01_tables.sql` (appended)
 - Purpose: Dynamic public admission form builder with submissions flowing to leads
+
+### Meeting Routing Substrate (2026-06-11)
+- Tables: `meeting_routing_config` (repo-sync of live table), `meeting_routing_log` (round-robin pick audit + visitor answers per routed booking)
+- Column: `jicate_booking_meeting_types.host_profile_id` (links per-counselor Cal.com EventTypes to MyJKKN profiles)
+- Location: `supabase/migrations/20260611170000_meeting_routing_substrate.sql` (applied live via exec_sql 2026-06-11)
+- Purpose: Public routed-booking form at /book/[slug] — MyJKKN-side round-robin (least_loaded on admission_counselors.current_leads) over a headless Cal.com. Writes via service-role only; staff read via RLS.

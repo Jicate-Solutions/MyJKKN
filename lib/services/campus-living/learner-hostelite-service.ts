@@ -13,6 +13,8 @@ import { logger } from '@/lib/utils/enhanced-logger';
 import { accommodationLegacyFromCode } from '@/lib/utils/accommodation-type-resolver';
 import {
   UNASSIGNED_BLOCK,
+  type HosteliteBillStatus,
+  type LearnerBillItem,
   type LearnerHostelite,
   type LearnerHostelitesFilters,
   type LearnerDetailBundle,
@@ -56,6 +58,8 @@ const VIEW_SELECT = [
   'current_block_code',
   'degree_name',
   'semester_name',
+  'academic_year_name',
+  'lifecycle_status',
 ].join(',');
 
 // learners_profiles columns NOT exposed on the view (used by mutations and the
@@ -263,6 +267,23 @@ export class LearnerHosteliteService {
     try {
       const supabase = createClientSupabaseClient();
 
+      // The hostel activity tables (allocations / gate-passes / attendance /
+      // vacate / leaves) FK learner_id -> profiles.id, but this drawer is opened
+      // with a learners_profiles.id (v_learner_hostelites.id). Resolve the bridge
+      // once (profiles.learner_id is strictly 1:1). learner_hostel_profiles and
+      // the bills RPC key on learners_profiles.id, so they keep `learnerId`.
+      const { data: profRow } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('learner_id', learnerId)
+        .maybeSingle();
+      const profileId = (profRow as { id: string } | null)?.id ?? null;
+
+      // Resolved-empty fallbacks keep the Promise.all positional when a learner
+      // has no login profile (profileId null) — avoids `.eq(col, null/undefined)`.
+      const emptyMaybe = Promise.resolve({ data: null, error: null });
+      const emptyList = Promise.resolve({ data: [], error: null });
+
       const [
         learnerRes,
         profileRes,
@@ -271,6 +292,7 @@ export class LearnerHosteliteService {
         attRes,
         vacRes,
         leaveRes,
+        bills,
       ] = await Promise.all([
         (supabase as any)
           .from('v_learner_hostelites')
@@ -282,45 +304,62 @@ export class LearnerHosteliteService {
           .select('*')
           .eq('learner_id', learnerId)
           .maybeSingle(),
-        supabase
-          .from('hostel_allocations')
-          .select(
-            'id, block_id, room_id, bed_id, allocation_date, expected_vacate_date, status, ' +
-              'block:hostel_blocks!block_id(name,code), ' +
-              'room:hostel_rooms!room_id(room_number), ' +
-              'bed:hostel_beds!bed_id(bed_number)',
-          )
-          .eq('learner_id', learnerId)
-          .eq('status', 'active')
-          .order('allocation_date', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        supabase
-          .from('hostel_gate_passes')
-          .select('id, pass_number, status, out_time, in_time, purpose, created_at')
-          .eq('learner_id', learnerId)
-          .order('created_at', { ascending: false })
-          .limit(5),
-        supabase
-          .from('hostel_attendance')
-          .select('id, date, status, marked_at')
-          .eq('learner_id', learnerId)
-          .order('date', { ascending: false })
-          .limit(5),
-        supabase
-          .from('hostel_vacate_requests')
-          .select('id, status, reason, effective_date, created_at')
-          .eq('learner_id', learnerId)
-          .not('status', 'in', '(completed,cancelled,rejected)')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        supabase
-          .from('hostel_leave_requests')
-          .select('id, status, leave_type, reason, from_date, to_date, created_at')
-          .eq('learner_id', learnerId)
-          .order('created_at', { ascending: false })
-          .limit(5),
+        // Active OR proposed (pending_approval) OR pending_vacate, so a freshly
+        // allocated learner shows their room with a status instead of "Unallocated".
+        profileId
+          ? supabase
+              .from('hostel_allocations')
+              .select(
+                'id, block_id, room_id, bed_id, allocation_date, expected_vacate_date, status, ' +
+                  'block:hostel_blocks!block_id(name,code), ' +
+                  'room:hostel_rooms!room_id(room_number), ' +
+                  'bed:hostel_beds!bed_id(bed_number)',
+              )
+              .eq('learner_id', profileId)
+              .in('status', ['active', 'pending_approval', 'pending_vacate'])
+              .order('allocation_date', { ascending: false })
+              .limit(1)
+              .maybeSingle()
+          : emptyMaybe,
+        profileId
+          ? supabase
+              .from('hostel_gate_passes')
+              .select('id, pass_number, status, out_time, in_time, purpose, created_at')
+              .eq('learner_id', profileId)
+              .order('created_at', { ascending: false })
+              .limit(5)
+          : emptyList,
+        profileId
+          ? supabase
+              .from('hostel_attendance')
+              .select('id, date, status, marked_at')
+              .eq('learner_id', profileId)
+              .order('date', { ascending: false })
+              .limit(5)
+          : emptyList,
+        profileId
+          ? supabase
+              .from('hostel_vacate_requests')
+              .select('id, status, reason, effective_date, created_at')
+              .eq('learner_id', profileId)
+              .not('status', 'in', '(completed,cancelled,rejected)')
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle()
+          : emptyMaybe,
+        profileId
+          ? supabase
+              .from('hostel_leave_requests')
+              .select('id, status, leave_type, reason, from_date, to_date, created_at')
+              .eq('learner_id', profileId)
+              .order('created_at', { ascending: false })
+              .limit(5)
+          : emptyList,
+        // Itemized bills across all academic years (SECURITY DEFINER RPC —
+        // campus-living operators usually lack billing.* SELECT). Non-fatal:
+        // returns [] on error so the rest of the drawer still renders. Keyed on
+        // learners_profiles.id (billing_student_bills.student_id).
+        this.getBillsForStudent(learnerId),
       ]);
 
       if (learnerRes.error || !learnerRes.data) {
@@ -374,6 +413,7 @@ export class LearnerHosteliteService {
         recentAttendance,
         openVacateRequest,
         recentLeaves,
+        bills: bills ?? [],
       };
     } catch (error) {
       logger.error('campus-living/learner-hostelite', 'getLearnerDetailBundle failed', error);
@@ -381,33 +421,21 @@ export class LearnerHosteliteService {
     }
   }
 
-  // ── Resolve the institution-scoped accommodation_types id for a learner ──
+  // ── Resolve the global accommodation_types id for a code ──
   // accommodation_type TEXT is retired; the hostel/day-scholar flip now writes
-  // accommodation_type_id. The right row is institution-scoped, so derive the
-  // institution from the learner and look up (institution_id, code).
-  private static async accommodationIdForLearner(
+  // accommodation_type_id. The catalog is global (one row per code).
+  private static async accommodationIdForCode(
     supabase: ReturnType<typeof createClientSupabaseClient>,
-    learnerId: string,
     code: 'hostel' | 'dayscholar',
   ): Promise<string> {
-    const { data: lp, error: lpErr } = await supabase
-      .from('learners_profiles')
-      .select('institution_id')
-      .eq('id', learnerId)
-      .maybeSingle();
-    if (lpErr) throw lpErr;
-    if (!lp?.institution_id) {
-      throw new Error('Learner has no institution; cannot set accommodation type');
-    }
     const { data: at, error: atErr } = await supabase
       .from('accommodation_types')
       .select('id')
-      .eq('institution_id', lp.institution_id)
       .eq('code', code)
       .maybeSingle();
     if (atErr) throw atErr;
     if (!at?.id) {
-      throw new Error(`No '${code}' accommodation type configured for this institution`);
+      throw new Error(`No '${code}' accommodation type configured`);
     }
     return at.id;
   }
@@ -419,7 +447,7 @@ export class LearnerHosteliteService {
   static async removeFromHostel(learnerId: string): Promise<void> {
     try {
       const supabase = createClientSupabaseClient();
-      const accId = await this.accommodationIdForLearner(supabase, learnerId, 'dayscholar');
+      const accId = await this.accommodationIdForCode(supabase, 'dayscholar');
       const { error } = await supabase
         .from('learners_profiles')
         .update({ accommodation_type_id: accId })
@@ -438,7 +466,7 @@ export class LearnerHosteliteService {
   static async addToHostel(learnerId: string): Promise<void> {
     try {
       const supabase = createClientSupabaseClient();
-      const accId = await this.accommodationIdForLearner(supabase, learnerId, 'hostel');
+      const accId = await this.accommodationIdForCode(supabase, 'hostel');
       const { error } = await supabase
         .from('learners_profiles')
         .update({ accommodation_type_id: accId })
@@ -477,6 +505,76 @@ export class LearnerHosteliteService {
     return Array.from(set).sort((a, b) => a - b);
   }
 
+  // ── Current-year billing rollup for a page of hostelers ───────────────
+  // Batched, non-fatal cross-module read. Calls the SECURITY DEFINER RPC
+  // campus_living_get_hostelite_bill_status (scoped to accessible institutions)
+  // so campus-living operators without billing.schedule.view can still see
+  // per-student rollups. Returns a Map keyed by student_id (= learner id).
+  static async getBillStatusForStudents(
+    studentIds: string[],
+  ): Promise<Map<string, HosteliteBillStatus>> {
+    const map = new Map<string, HosteliteBillStatus>();
+    if (!studentIds.length) return map;
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await (supabase as any).rpc(
+        'campus_living_get_hostelite_bill_status',
+        { p_student_ids: studentIds },
+      );
+      if (error) {
+        logger.error(
+          'campus-living/learner-hostelite',
+          'getBillStatusForStudents failed',
+          error,
+        );
+        return map; // non-fatal — table still lists residents without billing cols
+      }
+      for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+        map.set(String(row.student_id), {
+          bill_count: Number(row.bill_count ?? 0),
+          total_billed: Number(row.total_billed ?? 0),
+          total_paid: Number(row.total_paid ?? 0),
+          total_outstanding: Number(row.total_outstanding ?? 0),
+          payment_status:
+            (row.payment_status as HosteliteBillStatus['payment_status']) ?? 'none',
+          academic_year_name: (row.academic_year_name as string | null) ?? null,
+        });
+      }
+    } catch (err) {
+      logger.error(
+        'campus-living/learner-hostelite',
+        'getBillStatusForStudents unexpected',
+        err,
+      );
+    }
+    return map;
+  }
+
+  // ── Itemized bills for one hostelite (detail drawer) ──────────────────
+  // Each row of billing_student_bills is a line item (category + amount +
+  // balance + status). Calls the SECURITY DEFINER RPC
+  // campus_living_get_hostelite_bills (gated on campus_living.residents.view,
+  // scoped to accessible institutions) so wardens without billing.* SELECT can
+  // still see the breakdown — a direct read would silently return 0 rows under
+  // billing_student_bills RLS. ALL academic years; non-fatal (returns []).
+  static async getBillsForStudent(studentId: string): Promise<LearnerBillItem[]> {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await (supabase as any).rpc(
+        'campus_living_get_hostelite_bills',
+        { p_student_id: studentId },
+      );
+      if (error) {
+        logger.error('campus-living/learner-hostelite', 'getBillsForStudent failed', error);
+        return [];
+      }
+      return (data ?? []) as LearnerBillItem[];
+    } catch (err) {
+      logger.error('campus-living/learner-hostelite', 'getBillsForStudent unexpected', err);
+      return [];
+    }
+  }
+
   // ── Search candidate learners for the "Add to Hostel" picker ─────────
   // Reads from learners_profiles (NOT the view) since candidates are by
   // definition non-HOSTEL learners who aren't in the view's WHERE clause.
@@ -491,13 +589,12 @@ export class LearnerHosteliteService {
       const supabase = createClientSupabaseClient();
 
       // Existing hostelers are excluded by FK now (accommodation_type TEXT
-      // retired). Gather the institution-scoped 'hostel' accommodation_type ids
-      // to exclude; null-FK learners (blank accommodation) stay valid candidates.
-      let hostelQuery = supabase
+      // retired). Gather the global 'hostel' accommodation_type ids to
+      // exclude; null-FK learners (blank accommodation) stay valid candidates.
+      const hostelQuery = supabase
         .from('accommodation_types')
         .select('id')
         .eq('code', 'hostel');
-      if (institutionId) hostelQuery = hostelQuery.eq('institution_id', institutionId);
       const { data: hostelRows, error: hostelErr } = await hostelQuery;
       if (hostelErr) {
         logger.error('campus-living/learner-hostelite', 'searchCandidates hostel-id lookup failed', hostelErr);

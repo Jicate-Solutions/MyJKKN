@@ -25,7 +25,7 @@
 --   forms.
 --
 -- Pattern: every rubric = row in platform_policies. Director edits via
--- /admin/pde/rubrics/cultural-civic UI → effective on next demonstration
+-- /pde/admin/rubrics/cultural-civic UI → effective on next demonstration
 -- submission. Zero deploys, zero developer round-trips.
 --
 -- Read at runtime via fn_get_policy('pde.rubrics.cultural_civic.<key>',

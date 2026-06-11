@@ -1423,7 +1423,7 @@ export class TelephonyService {
    * `exophone_institution_map` DB table via `resolveInstitutionForExoPhone()`.
    * That helper has a 60s in-memory cache and falls back to a 5-entry hardcoded
    * map if the DB read fails — zero regression risk relative to the previous
-   * inline EXOPHONE_MAP. Director adds/edits DIDs via /admin/exophone-mapping.
+   * inline EXOPHONE_MAP. Director adds/edits DIDs via /admission/settings/exophone-mapping.
    *
    * Per probe-capture-2026-05-03.md (D1): 22 of 27 active inbound DIDs were
    * silently defaulting to JKKN Pharmacy before this — 8+ institutions

@@ -113,12 +113,13 @@ import type {
 import type { BillingCategory, BillingCategoryKind } from '@/types/billing';
 
 // Billing-category kinds the admission fee structure does NOT manage. Transport
-// fees are owned by the transport module and hostel fees by campus-living
-// (hostel_category_fees), so neither should be selectable as an admission
-// fee-structure line item. Exported so the clone page applies the same filter.
+// fees are owned by the transport module, so they are not selectable as an
+// admission fee-structure line item. Hostel categories ARE selectable here —
+// beware that campus-living (hostel_category_fees) also bills hostel fees, so
+// avoid configuring the same hostel charge in both places (double-billing).
+// Exported so the clone page applies the same filter.
 export const FEE_STRUCTURE_EXCLUDED_CATEGORY_KINDS: BillingCategoryKind[] = [
   'transport',
-  'hostel',
 ];
 
 export function filterFeeStructureCategories(
@@ -182,6 +183,7 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
       quota_id:              dims.quota_id!,
       admission_year_id:     dims.admission_year_id!,
       gender:                dims.gender,
+      accommodation_type_id: dims.accommodation_type_id,
     };
     FeeStructureService.findByDimensions(sevenDims, dims.community_category_id!)
       .then((s) => {
@@ -258,6 +260,7 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
           quota_id:              dims.quota_id!,
           admission_year_id:     dims.admission_year_id!,
           gender:                dims.gender,
+          accommodation_type_id: dims.accommodation_type_id,
         }}
         // Leaf hint is optional; absent on /new where the user hasn't drilled
         // into a community yet. The form treats it as a default selection.
@@ -734,6 +737,7 @@ function ExistingStructureEditor({
     quota_id: structure.quota_id,
     admission_year_id: structure.admission_year_id,
     gender: structure.gender ?? undefined,
+    accommodation_type_id: structure.accommodation_type_id ?? undefined,
   };
   const [editableDims, setEditableDims] =
     useState<Partial<FeeStructureMatrixDimensions>>(initialDims);
@@ -767,9 +771,10 @@ function ExistingStructureEditor({
       quota_id: structure.quota_id,
       admission_year_id: structure.admission_year_id,
       gender: structure.gender ?? undefined,
+      accommodation_type_id: structure.accommodation_type_id ?? undefined,
     });
     setEditableCommunityIds(structure.community_category_ids ?? []);
-  }, [structure.id, structure.items, structure.institution_id, structure.degree_id, structure.department_id, structure.programme_id, structure.quota_id, structure.admission_year_id, structure.gender, structure.community_category_ids]);
+  }, [structure.id, structure.items, structure.institution_id, structure.degree_id, structure.department_id, structure.programme_id, structure.quota_id, structure.admission_year_id, structure.gender, structure.accommodation_type_id, structure.community_category_ids]);
 
   const form = useForm<EditFormValues>({
     resolver: zodResolver(editSchema),
@@ -804,7 +809,7 @@ function ExistingStructureEditor({
   const dimsChanged = useMemo(() => {
     const k: Array<keyof FeeStructureMatrixDimensions> = [
       'institution_id', 'degree_id', 'department_id', 'programme_id',
-      'quota_id', 'admission_year_id', 'gender',
+      'quota_id', 'admission_year_id', 'gender', 'accommodation_type_id',
     ];
     return k.some((key) => editableDims[key] !== initialDims[key]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -944,6 +949,7 @@ function ExistingStructureEditor({
             quota_id: editableDims.quota_id!,
             admission_year_id: editableDims.admission_year_id!,
             gender: editableDims.gender ?? null,
+            accommodation_type_id: editableDims.accommodation_type_id ?? null,
           } : {}),
           // Only send community list when it actually changed — a no-op diff
           // skips the read-back-and-replace round-trip on the junction.

@@ -3,7 +3,7 @@
 // PDE Tier 6 (T6.4) — KPI snapshot endpoint
 // =====================================================================
 //
-// Returns the active-use-ratio snapshot used by the /admin/pde/kpi
+// Returns the active-use-ratio snapshot used by the /pde/admin/kpi
 // dashboard. Super-admin only.
 //
 // Authz: super_admin OR administrator profile role.

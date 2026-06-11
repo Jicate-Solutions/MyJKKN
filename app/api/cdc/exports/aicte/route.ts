@@ -13,6 +13,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // CDC-staff gate. This export returns institution-wide placement PII
+    // (student name, enrollment number, social category, salary). The 401
+    // above only proves "logged in" — without this, any authenticated account
+    // (e.g. a student in any college) could pull the full cross-institution
+    // dataset. The authoritative guard is is_cdc_staff() inside
+    // fn_aicte_annual_export; this is the app-layer defense in front of it.
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role, is_super_admin')
+      .eq('id', user.id)
+      .single();
+    const CDC_EXPORT_ROLES = ['cdc_head', 'cdc_coordinator', 'admin', 'super_admin', 'administrator'];
+    const isCdcStaff =
+      profile?.is_super_admin === true ||
+      (profile?.role != null && CDC_EXPORT_ROLES.includes(profile.role));
+    if (!isCdcStaff) {
+      return NextResponse.json({ error: 'Forbidden — CDC staff only' }, { status: 403 });
+    }
+
     const body = await req.json();
     const { year, format = 'csv' } = body as { year?: number; format?: ExportFormat };
 
