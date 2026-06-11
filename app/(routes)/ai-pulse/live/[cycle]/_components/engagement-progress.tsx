@@ -51,7 +51,7 @@ export function EngagementProgress({ gates, className }: EngagementProgressProps
     },
     {
       label: 'Passed the quiz',
-      description: 'Quiz opens after the session. Pass mark = 60%.',
+      description: 'Quiz opens after the session. Pass mark is policy-set (default 40% live, 60% async make-up).',
       passed: gates.quiz_passed,
       Icon: ScrollText,
     },
