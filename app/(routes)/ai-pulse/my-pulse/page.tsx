@@ -27,6 +27,7 @@ import { MyTeamCard } from '../_components/my-team-card';
 import { MyAttendanceCard } from '../_components/my-attendance-card';
 import { QuickActionsCard } from '../_components/quick-actions-card';
 import { PulseImpactCard } from './_components/pulse-impact-card';
+import { PdeProgressCard } from './_components/pde-progress-card';
 
 export const dynamic = 'force-dynamic';
 
@@ -128,6 +129,10 @@ export default async function AiPulseLearnerPage() {
           {/* Pulse Impact — SOP Phase V read path (2026-06-11) */}
           <div className="md:col-span-2">
             <PulseImpactCard cycleId={cycle?.id ?? null} />
+          </div>
+          {/* PDE Progress — AI Pulse → PDE bridge read path (2026-06-11) */}
+          <div className="md:col-span-2">
+            <PdeProgressCard />
           </div>
         </div>
       </div>
