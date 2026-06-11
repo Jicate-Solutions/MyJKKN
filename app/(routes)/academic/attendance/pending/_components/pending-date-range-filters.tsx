@@ -34,6 +34,7 @@ import { useDepartments } from '@/hooks/organization/use-departments';
 import { useSemesters } from '@/hooks/organization/use-semesters';
 import { useSections } from '@/hooks/organization/use-sections';
 import { cn } from '@/lib/utils';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import type { DashboardFilters } from '@/types/attendance-dashboard';
 
 interface ActiveFilterBadge {
@@ -77,6 +78,7 @@ export function PendingDateRangeFilters({
   userDepartmentName,
   timetables = []
 }: PendingDateRangeFiltersProps) {
+  const label = useAdaptiveLabels();
   const [expanded, setExpanded] = useState(true);
   const [startCalendarOpen, setStartCalendarOpen] = useState(false);
   const [endCalendarOpen, setEndCalendarOpen] = useState(false);
@@ -178,31 +180,31 @@ export function PendingDateRangeFilters({
   if (filters.degreeId && !isFaculty) {
     const degreeName =
       degrees.find((d: any) => d.id === filters.degreeId)?.degree_name ??
-      'Degree';
+      label('Degree');
     activeFilters.push({ key: 'degreeId', label: degreeName });
   }
   if (filters.departmentId && !isFaculty && !isHOD) {
     const deptName =
       departments.find((d: any) => d.id === filters.departmentId)
-        ?.department_name ?? 'Department';
+        ?.department_name ?? label('Department');
     activeFilters.push({ key: 'departmentId', label: deptName });
   }
   if (filters.programId && !isFaculty) {
     const progName =
       programs.find((p: any) => p.id === filters.programId)?.program_name ??
-      'Program';
+      label('Program');
     activeFilters.push({ key: 'programId', label: progName });
   }
   if (filters.semesterId && !isFaculty) {
     const semName =
       semesters.find((s: any) => s.id === filters.semesterId)?.semester_name ??
-      'Semester';
+      label('Semester');
     activeFilters.push({ key: 'semesterId', label: semName });
   }
   if (filters.sectionId && !isFaculty) {
     const secName =
       sections.find((s: any) => s.id === filters.sectionId)?.section_name ??
-      'Section';
+      label('Section');
     activeFilters.push({ key: 'sectionId', label: secName });
   }
   if (filters.timetableId) {
@@ -458,7 +460,7 @@ export function PendingDateRangeFilters({
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
                   {/* Degree */}
                   <div className="space-y-1">
-                    <Label className="text-xs">Degree</Label>
+                    <Label className="text-xs">{label('Degree')}</Label>
                     <Select
                       value={filters.degreeId || undefined}
                       onValueChange={(value) =>
@@ -474,7 +476,7 @@ export function PendingDateRangeFilters({
                       disabled={!effectiveInstitutionId}
                     >
                       <SelectTrigger className="h-9">
-                        <SelectValue placeholder="All degrees" />
+                        <SelectValue placeholder={`All ${label('degrees')}`} />
                       </SelectTrigger>
                       <SelectContent>
                         {degrees.map((degree: any) => (
@@ -488,7 +490,7 @@ export function PendingDateRangeFilters({
 
                   {/* Department */}
                   <div className="space-y-1">
-                    <Label className="text-xs">Department</Label>
+                    <Label className="text-xs">{label('Department')}</Label>
                     {isHOD ? (
                       // HOD: department pre-filled and locked.
                       // Prefer the directly-passed userDepartmentName so the label is always
@@ -516,7 +518,7 @@ export function PendingDateRangeFilters({
                         disabled={!filters.degreeId}
                       >
                         <SelectTrigger className="h-9">
-                          <SelectValue placeholder="All departments" />
+                          <SelectValue placeholder={`All ${label('departments')}`} />
                         </SelectTrigger>
                         <SelectContent>
                           {Array.from(
@@ -535,7 +537,7 @@ export function PendingDateRangeFilters({
 
                   {/* Program */}
                   <div className="space-y-1">
-                    <Label className="text-xs">Program</Label>
+                    <Label className="text-xs">{label('Program')}</Label>
                     <Select
                       value={filters.programId || undefined}
                       onValueChange={(value) =>
@@ -549,7 +551,7 @@ export function PendingDateRangeFilters({
                       disabled={!filters.departmentId}
                     >
                       <SelectTrigger className="h-9">
-                        <SelectValue placeholder="All programs" />
+                        <SelectValue placeholder={`All ${label('programs')}`} />
                       </SelectTrigger>
                       <SelectContent>
                         {Array.from(
@@ -567,7 +569,7 @@ export function PendingDateRangeFilters({
 
                   {/* Semester */}
                   <div className="space-y-1">
-                    <Label className="text-xs">Semester</Label>
+                    <Label className="text-xs">{label('Semester')}</Label>
                     <Select
                       value={filters.semesterId || undefined}
                       onValueChange={(value) =>
@@ -580,7 +582,7 @@ export function PendingDateRangeFilters({
                       disabled={!filters.programId}
                     >
                       <SelectTrigger className="h-9">
-                        <SelectValue placeholder="All semesters" />
+                        <SelectValue placeholder={`All ${label('semesters')}`} />
                       </SelectTrigger>
                       <SelectContent>
                         {Array.from(
@@ -598,7 +600,7 @@ export function PendingDateRangeFilters({
 
                   {/* Section */}
                   <div className="space-y-1">
-                    <Label className="text-xs">Section</Label>
+                    <Label className="text-xs">{label('Section')}</Label>
                     <Select
                       value={filters.sectionId || undefined}
                       onValueChange={(value) =>
@@ -611,11 +613,11 @@ export function PendingDateRangeFilters({
                       disabled={!filters.semesterId}
                     >
                       <SelectTrigger className="h-9">
-                        <SelectValue placeholder="All sections" />
+                        <SelectValue placeholder={`All ${label('sections')}`} />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all_sections">
-                          All Sections
+                          {label('All Sections')}
                         </SelectItem>
                         {Array.from(
                           new Map(

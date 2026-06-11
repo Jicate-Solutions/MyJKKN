@@ -47,6 +47,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/academic/attendance/day",
+            "label": "Day",
+            "iconName": "CheckSquare",
+            "children": []
+          },
+          {
             "path": "/academic/attendance/mark",
             "label": "Mark",
             "iconName": "CheckSquare",
@@ -2456,6 +2462,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/bos/committees",
+        "label": "Committees",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/bos/compositions",
         "label": "Compositions",
         "iconName": "Layers",
@@ -2518,6 +2530,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/bos/member-types",
+        "label": "Member Types",
+        "iconName": "FileText",
+        "children": []
       },
       {
         "path": "/bos/reports",

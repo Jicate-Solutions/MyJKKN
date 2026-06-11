@@ -60,6 +60,7 @@ import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import type { DetailedAttendanceReport } from '@/types/attendance-reports';
 import type { AttendanceAuditEntry } from '@/types/attendance';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 // Color scheme constants - Using primary (blue), success (green), danger (red)
 const COLORS = {
@@ -80,6 +81,7 @@ const convertTo12Hour = (time24: string) => {
 };
 
 export default function AttendanceReportDetailPage() {
+  const label = useAdaptiveLabels();
   const router = useRouter();
   const params = useParams();
   const { profile } = useAuth();
@@ -486,34 +488,34 @@ export default function AttendanceReportDetailPage() {
                   </p>
                 </div>
                 <div>
-                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>Department</p>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>{label('Department')}</p>
                   <p className='font-semibold text-sm dark:text-gray-200'>
                     {report.department_name || 'N/A'}
                   </p>
                 </div>
                 <div>
-                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>Degree</p>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>{label('Degree')}</p>
                   <p className='font-semibold text-sm dark:text-gray-200'>
                     {report.degree_name || 'N/A'}
                   </p>
                 </div>
                 <div>
-                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>Program</p>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>{label('Program')}</p>
                   <p className='font-semibold text-sm dark:text-gray-200'>
                     {report.program_name || 'N/A'}
                   </p>
                 </div>
                 <div>
-                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>Section</p>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>{label('Section')}</p>
                   <p className='font-semibold text-sm dark:text-gray-200'>
                     {/* Updated: 2025-10-09 - Display all sections for semester-level timetables */}
                     {report.section_names && report.section_names.length > 1
-                      ? `Sections ${report.section_names.join(', ')}`
+                      ? `${label('Sections')} ${report.section_names.join(', ')}`
                       : report.section_name || 'N/A'}
                   </p>
                 </div>
                 <div>
-                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>Semester</p>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>{label('Semester')}</p>
                   <p className='font-semibold text-sm dark:text-gray-200'>
                     {report.semester_name || 'N/A'}
                   </p>
@@ -541,8 +543,8 @@ export default function AttendanceReportDetailPage() {
                         }
                       >
                         {report.timetable_type === 'semester'
-                          ? 'Semester Level'
-                          : 'Section Level'}
+                          ? `${label('Semester')} Level`
+                          : `${label('Section')} Level`}
                       </Badge>
                     )}
                   </div>
@@ -662,7 +664,7 @@ export default function AttendanceReportDetailPage() {
                               </div>
                               <div className='flex-1'>
                                 <h4 className='text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2'>
-                                  Course Information
+                                  {label('Course')} Information
                                 </h4>
                                 <p className='font-bold text-gray-900 text-lg'>
                                   {period.course_name || 'Not Available'}
@@ -892,7 +894,7 @@ export default function AttendanceReportDetailPage() {
                                 <TableHead className='w-16'>S.No</TableHead>
                                 <TableHead>Student Name</TableHead>
                                 <TableHead>Roll Number</TableHead>
-                                <TableHead>Section</TableHead>
+                                <TableHead>{label('Section')}</TableHead>
                                 <TableHead className='text-center'>
                                   Status
                                 </TableHead>

@@ -17,10 +17,27 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Settings2 } from 'lucide-react';
-import type { CiaViewSession } from '@/types/my-marks';
+import type { CiaViewSession, CiaViewCourse } from '@/types/my-marks';
 import { CiaSettingPicker } from './cia-setting-picker';
 import { RoundPicker } from './round-picker';
 import { MarksTable } from './marks-table';
+
+/**
+ * A course is CIA-applicable when:
+ *   - evaluation_type ∈ {CIA, CIA + ESE}  — i.e. it has a CIA component
+ *     (matched as "contains cia" so "CIA", "CIA + ESE", "CIA+ESE" all pass and
+ *     "ESE"-only is excluded), AND
+ *   - result_type = Mark  (excludes grade/credit-typed courses).
+ * Missing fields are treated as applicable, so the filter is a no-op until COE
+ * includes evaluation_type/result_type on the cia-view course.
+ */
+function isCiaApplicable(c: CiaViewCourse): boolean {
+  const evalType = c.evaluation_type?.trim().toLowerCase();
+  const resultType = c.result_type?.trim().toLowerCase();
+  const evalOk = !evalType || evalType.includes('cia');
+  const resultOk = !resultType || resultType === 'mark';
+  return evalOk && resultOk;
+}
 
 interface Props {
   session: CiaViewSession;
@@ -34,6 +51,19 @@ export function AssessmentPanel({ session, initialSettingId, initialRound }: Pro
   const searchParams = useSearchParams();
 
   const settings = session.settings ?? [];
+
+  // Internal/CIA tab shows:
+  //  - REGULAR papers only (arrears belong to an earlier semester), AND
+  //  - CIA-applicable courses only: evaluation_type ∈ {CIA, CIA + ESE} and
+  //    result_type = Mark (excludes grade/credit-typed courses like extension
+  //    activities that have no CIA marks).
+  // The evaluation/result filters are no-ops until COE includes those fields on
+  // the cia-view course (a course with the field absent is kept).
+  const regularCourses = session.courses.filter((c) => {
+    if (c.is_regular === false) return false;
+    if (!isCiaApplicable(c)) return false;
+    return true;
+  });
 
   const [settingId, setSettingId] = useState<string | undefined>(initialSettingId);
   const [round, setRound] = useState<number | undefined>(initialRound);
@@ -127,7 +157,7 @@ export function AssessmentPanel({ session, initialSettingId, initialRound }: Pro
       )}
 
       {selectedRound && (
-        <MarksTable courses={session.courses} round={selectedRound} />
+        <MarksTable courses={regularCourses} round={selectedRound} />
       )}
     </div>
   );

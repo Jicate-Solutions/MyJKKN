@@ -25,6 +25,9 @@ const LABEL_MAP: Partial<Record<InstitutionType, Record<string, string>>> = {
     'Course Mappings': 'Subject Mappings',
     'Sections': 'Sections',
     'Section': 'Section',
+    // Timetable PDF metadata labels (schools use different role wording)
+    'Class Co-ordinator': 'Class In-Charge',
+    'Class Chairman': 'Academic Co-ordinator',
     // Help text & descriptions
     'Manage academic degrees': 'Manage academic streams',
     'Manage academic departments': 'Manage academic wings',

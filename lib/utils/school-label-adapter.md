@@ -22,6 +22,8 @@ different words for the same academic entities:
 | Semester          | Term        |
 | Course            | Subject     |
 | Course Mapping    | Subject Mapping |
+| Class Co-ordinator | Class In-Charge |
+| Class Chairman    | Academic Co-ordinator |
 
 Rather than fork pages per institution type, the UI is written once in generic
 terms and **translated at render time** based on the current institution type.

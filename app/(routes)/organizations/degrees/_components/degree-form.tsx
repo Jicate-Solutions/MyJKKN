@@ -264,7 +264,7 @@ export function DegreeForm({ degree, isEditing }: DegreeFormProps) {
                   <div className='space-y-0.5'>
                     <FormLabel>Active Status</FormLabel>
                     <div className='text-sm text-muted-foreground'>
-                      Disable to temporarily hide this degree
+                      Disable to temporarily hide this {adapt('degree')}
                     </div>
                   </div>
                   <FormControl>
@@ -295,7 +295,7 @@ export function DegreeForm({ degree, isEditing }: DegreeFormProps) {
                 : 'Creating...'
               : isEditing
               ? 'Save Changes'
-              : 'Create Degree'}
+              : `Create ${adapt('Degree')}`}
           </Button>
         </div>
       </form>

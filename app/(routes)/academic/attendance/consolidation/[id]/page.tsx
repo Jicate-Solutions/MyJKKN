@@ -67,6 +67,7 @@ import {
 } from '@/components/ui/tooltip';
 import { useConsolidationReport } from '@/hooks/academic/use-attendance-consolidation';
 import { cn } from '@/lib/utils';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { exportConsolidationReportToPDF } from '@/lib/utils/pdf-export/consolidation-report-pdf';
 import { exportConsolidationReportToExcel } from '@/lib/utils/excel-export/consolidation-report-excel';
 import type { StudentAttendanceSummary, GroupAttendanceSummary } from '@/types/attendance';
@@ -101,6 +102,7 @@ function GroupStatisticsCard({
   onViewDetails: () => void;
   isExpanded: boolean;
 }) {
+  const label = useAdaptiveLabels();
   const firstStudent = group.students[0];
   const presentPercentage = group.averageAttendance;
   const absentPercentage = 100 - presentPercentage;
@@ -195,7 +197,7 @@ function GroupStatisticsCard({
           {firstStudent?.sectionName && (
             <Badge variant="secondary" className="px-3 py-1.5 font-normal text-muted-foreground bg-muted/50 border hover:bg-muted/80">
               <BookOpen className="h-3.5 w-3.5 mr-2 text-primary" />
-              <span className="font-medium text-foreground">Section {firstStudent.sectionName}</span>
+              <span className="font-medium text-foreground">{label('Section')} {firstStudent.sectionName}</span>
             </Badge>
           )}
         </div>

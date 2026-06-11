@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import type {
   PracticalConfig,
   BatchDefinition,
@@ -39,6 +40,7 @@ export function PracticalPeriodConfigForm({
   courses,
   availableStaff
 }: PracticalPeriodConfigFormProps) {
+  const adapt = useAdaptiveLabels();
   const [batches, setBatches] = useState<BatchDefinition[]>(
     value?.batches || []
   );
@@ -347,12 +349,12 @@ export function PracticalPeriodConfigForm({
                   {/* NEW: Batch-Specific Course Assignment (Updated: 2025-11-07) */}
                   <div className='space-y-2'>
                     <Label className='text-xs'>
-                      Courses for this Batch ({batch.assigned_courses?.length || 0} selected)
+                      {adapt('Courses')} for this Batch ({batch.assigned_courses?.length || 0} selected)
                     </Label>
                     <div className='border rounded-md p-3 max-h-32 overflow-y-auto space-y-2 bg-blue-50 dark:bg-blue-900/10'>
                       {courses.length === 0 ? (
                         <p className='text-xs text-muted-foreground text-center py-2'>
-                          No courses available
+                          No {adapt('courses')} available
                         </p>
                       ) : (
                         courses.map((course) => (
@@ -379,7 +381,7 @@ export function PracticalPeriodConfigForm({
                     </div>
                     {(!batch.assigned_courses || batch.assigned_courses.length === 0) && (
                       <p className='text-xs text-amber-600'>
-                        ⚠️ No courses assigned to this batch
+                        ⚠️ No {adapt('courses')} assigned to this batch
                       </p>
                     )}
                   </div>
@@ -513,7 +515,7 @@ export function PracticalPeriodConfigForm({
               );
               return (
                 <div key={batch.batch_id} className='text-xs text-blue-600 dark:text-blue-400 pl-4'>
-                  <strong>{batch.batch_name}:</strong> {coursesCount} course{coursesCount !== 1 ? 's' : ''}, {staffCount} staff assignment{staffCount !== 1 ? 's' : ''}
+                  <strong>{batch.batch_name}:</strong> {coursesCount} {adapt('course')}{coursesCount !== 1 ? 's' : ''}, {staffCount} staff assignment{staffCount !== 1 ? 's' : ''}
                 </div>
               );
             })}

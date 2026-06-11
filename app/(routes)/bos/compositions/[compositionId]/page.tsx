@@ -30,6 +30,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { useBosComposition } from '@/hooks/bos/use-bos-compositions';
+import { useBosCommittees } from '@/hooks/bos/use-bos-committees';
+import { useBosMemberTypes } from '@/hooks/bos/use-bos-member-types';
 import { useBosMembersByComposition, useRemoveBosMember } from '@/hooks/bos/use-bos-members';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -40,8 +42,10 @@ import {
 import { useAuth } from '@/hooks/use-auth-provider';
 import { useInstitutionContextById } from '@/hooks/use-institution-context';
 import {
+  BosCommittee,
   BosMember,
   BosMemberType,
+  BosMemberTypeRecord,
 } from '@/types/bos';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { AddMemberDialog } from '../_components/add-member-dialog';
@@ -69,6 +73,67 @@ const MEMBER_GROUPS: { type: BosMemberType; label: string }[] = [
   { type: 'alumni',             label: 'Alumni Members' },
   { type: 'startup',            label: 'Startup Members' },
 ];
+
+// ── Member type groups (within one committee section) ───────────────────────
+
+function MemberTypeGroups({
+  members,
+  memberTypes,
+  canManage,
+  onRemove,
+}: {
+  members: BosMember[];
+  /** Institution's bos_member_types rows (already ordered by sort_order). */
+  memberTypes: BosMemberTypeRecord[];
+  canManage: boolean;
+  onRemove: (id: string) => void;
+}) {
+  // Primary grouping: table-driven member types (member_type_id). Old rows
+  // whose member_type_id is null (or points at a deleted type) fall back to
+  // the legacy enum groups so nothing disappears.
+  const knownTypeIds = new Set(memberTypes.map((t) => t.id));
+  const leftovers = members.filter(
+    (m) => !m.member_type_id || !knownTypeIds.has(m.member_type_id)
+  );
+
+  const sections: { key: string; label: string; items: BosMember[] }[] = [
+    ...memberTypes.map((t) => ({
+      key: t.id,
+      label: t.name,
+      items: members.filter((m) => m.member_type_id === t.id),
+    })),
+    ...MEMBER_GROUPS.map(({ type, label }) => ({
+      key: `legacy:${type}`,
+      label,
+      items: leftovers.filter((m) => m.member_type === type),
+    })),
+  ];
+
+  return (
+    <div className='space-y-4'>
+      {sections.map(({ key, label, items }) => {
+        if (items.length === 0) return null;
+        return (
+          <div key={key}>
+            <h4 className='text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2'>
+              {label} ({items.length})
+            </h4>
+            <div className='grid gap-2 sm:grid-cols-2'>
+              {items.map((member) => (
+                <MemberCard
+                  key={member.id}
+                  member={member}
+                  canEdit={canManage}
+                  onRemove={onRemove}
+                />
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 // ── Member Card ───────────────────────────────────────────────────────────────
 
@@ -177,6 +242,15 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
   // UUIDs (Aided/Self-Financing), but the regulation + taxonomy rows might
   // live under either. Pass the full sibling list so both are searched.
   const institutionIdsCsv = allInstitutionIds.join(',');
+
+  // Committees of this institution — members are grouped by committee below.
+  // Inactive committees are included so legacy sections still show their name.
+  const { data: committees = [] } = useBosCommittees(institutionIdsCsv || null);
+
+  // Member types of this institution — drive the Add Member dropdown and the
+  // per-type grouping inside each committee section. Inactive types included
+  // for display (old rows keep their label); the dialog gets active only.
+  const { data: memberTypeRows = [] } = useBosMemberTypes(institutionIdsCsv || null);
 
   // Regulations for this institution (all CAS siblings)
   const { data: regulations = [], isLoading: loadingRegs } = useQuery<Regulation[]>({
@@ -347,27 +421,60 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
                   )}
                 </div>
               ) : (
-                MEMBER_GROUPS.map(({ type, label }) => {
-                  const group = members.filter((m) => m.member_type === type);
-                  if (group.length === 0) return null;
-                  return (
-                    <div key={type}>
-                      <h4 className='text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2'>
-                        {label} ({group.length})
-                      </h4>
-                      <div className='grid gap-2 sm:grid-cols-2'>
-                        {group.map((member) => (
-                          <MemberCard
-                            key={member.id}
-                            member={member}
-                            canEdit={canManage}
-                            onRemove={handleRemoveMember}
-                          />
-                        ))}
+                <>
+                  {/* One section per committee (in committee sort_order), then
+                      a "General" section for legacy/no-committee rows. */}
+                  {committees.map((committee: BosCommittee) => {
+                    const group = members.filter((m) => m.committee_id === committee.id);
+                    if (group.length === 0) return null;
+                    return (
+                      <div key={committee.id} className='rounded-lg border p-4'>
+                        <div className='flex items-center gap-2 mb-3'>
+                          <h3 className='text-sm font-semibold'>{committee.name}</h3>
+                          {committee.short_code && (
+                            <Badge variant='outline' className='text-xs'>{committee.short_code}</Badge>
+                          )}
+                          {!committee.is_active && (
+                            <Badge variant='secondary' className='text-xs'>Inactive</Badge>
+                          )}
+                          <span className='text-xs text-muted-foreground ml-auto'>
+                            {group.length} member{group.length === 1 ? '' : 's'}
+                          </span>
+                        </div>
+                        <MemberTypeGroups
+                          members={group}
+                          memberTypes={memberTypeRows}
+                          canManage={canManage}
+                          onRemove={handleRemoveMember}
+                        />
                       </div>
-                    </div>
-                  );
-                })
+                    );
+                  })}
+                  {(() => {
+                    // Rows with no committee, or whose committee was deleted.
+                    const knownIds = new Set(committees.map((c) => c.id));
+                    const general = members.filter(
+                      (m) => !m.committee_id || !knownIds.has(m.committee_id)
+                    );
+                    if (general.length === 0) return null;
+                    return (
+                      <div className='rounded-lg border border-dashed p-4'>
+                        <div className='flex items-center gap-2 mb-3'>
+                          <h3 className='text-sm font-semibold text-muted-foreground'>General</h3>
+                          <span className='text-xs text-muted-foreground ml-auto'>
+                            {general.length} member{general.length === 1 ? '' : 's'}
+                          </span>
+                        </div>
+                        <MemberTypeGroups
+                          members={general}
+                          memberTypes={memberTypeRows}
+                          canManage={canManage}
+                          onRemove={handleRemoveMember}
+                        />
+                      </div>
+                    );
+                  })()}
+                </>
               )}
             </CardContent>
           </Card>
@@ -448,21 +555,23 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
       {/* ── Add Member Dialog ───────────────────────────────────────────── */}
       {/* AddMemberDialog resolves CAS siblings itself via useInstitutionContextById
           (no need to pass allInstitutionIds — see FacilitatorPicker).
-          We pass the currently-assigned staff/expert IDs so the pickers can
-          hide them — preventing the same person from being added twice. The
-          DB also enforces uniqueness (see 20260516 migration). */}
+          We pass the existing members (with their committee) so the pickers
+          can hide people already on the SELECTED committee — the same person
+          may sit on two different committees. The DB enforces the same rule
+          via per-(composition, committee) unique indexes (20260610). */}
       {composition.institutions_id && (
         <AddMemberDialog
           open={addDialogOpen}
           onClose={() => setAddDialogOpen(false)}
           compositionId={compositionId}
           institutionsId={composition.institutions_id}
-          assignedStaffIds={members
-            .map((m) => m.staff_id)
-            .filter((id): id is string => !!id)}
-          assignedExpertIds={members
-            .map((m) => m.expert_id)
-            .filter((id): id is string => !!id)}
+          committees={committees.filter((c) => c.is_active)}
+          memberTypes={memberTypeRows.filter((t) => t.is_active)}
+          existingMembers={members.map((m) => ({
+            staff_id: m.staff_id,
+            expert_id: m.expert_id,
+            committee_id: m.committee_id,
+          }))}
         />
       )}
     </div>

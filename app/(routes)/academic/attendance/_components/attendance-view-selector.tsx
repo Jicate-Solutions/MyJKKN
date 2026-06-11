@@ -5,9 +5,12 @@ import { format } from 'date-fns';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { FacultyQuickAttendance } from './faculty-quick-attendance';
+import { DaySessionAttendance } from '../day/_components/day-session-attendance';
 import { AttendanceFilters } from './attendance-filters';
 import { AvailablePeriodsCards } from './available-periods-cards';
 import { FacultyAttendanceService } from '@/lib/services/academic/faculty-attendance-service';
+import { ClassInchargeService } from '@/lib/services/staff/class-incharge-service';
+import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -29,7 +32,8 @@ import {
 } from 'lucide-react';
 import type {
   AttendanceSearchContext,
-  AttendancePeriodOption
+  AttendancePeriodOption,
+  DaySessionClass
 } from '@/types/attendance';
 import toast from 'react-hot-toast';
 
@@ -79,9 +83,75 @@ export function AttendanceViewSelector({
 
   const [loadingStaffId, setLoadingStaffId] = useState(shouldCheckStaff);
 
+  // Updated: 2026-06-10 - Class incharges (any role) may mark day-wise
+  // (session_wise) attendance. Detect incharge status so they reach the search
+  // flow even when their role isn't faculty/hod/admin.
+  const [isClassIncharge, setIsClassIncharge] = useState(false);
+  const [inchargeStaffId, setInchargeStaffId] = useState<string | null>(null);
+  const [checkingIncharge, setCheckingIncharge] = useState(
+    !isUserSuperAdmin && !isAdmin && !isHOD
+  );
+
   // Combined loading state - wait for both auth and permissions to load
   const isInitialLoading = authLoading || permissionsLoading;
   const [activeTab, setActiveTab] = useState<string>('quick');
+
+  // Added: 2026-06-11 - The attendance TYPE is decided server-side from the
+  // selected criteria. After an admin/HOD search, we look up whether the chosen
+  // class is Day-wise (session_wise); if so we show the FN/AN marker instead of
+  // the (empty) period cards — no manual Period/Day tab needed.
+  const [dayClass, setDayClass] = useState<DaySessionClass | null>(null);
+  const [detectingMode, setDetectingMode] = useState(false);
+
+  useEffect(() => {
+    // Only relevant for the admin/HOD search flow, only after a search, and only
+    // once an institution is chosen (else a bare date-only search could match an
+    // unrelated school's day-wise class).
+    if (
+      !(isUserSuperAdmin || isAdmin || isHOD) ||
+      !showResults ||
+      !searchContext.institution_id
+    ) {
+      setDayClass(null);
+      return;
+    }
+    let active = true;
+    (async () => {
+      try {
+        setDetectingMode(true);
+        const cls = await AttendanceService.getSessionWiseClassForCriteria({
+          institution_id: searchContext.institution_id,
+          academic_year_id: searchContext.academic_year_id,
+          degree_id: searchContext.degree_id,
+          program_id: searchContext.program_id,
+          department_id: searchContext.department_id,
+          semester_id: searchContext.semester_id,
+          section_id: searchContext.section_id
+        });
+        if (active) setDayClass(cls);
+      } catch (error) {
+        logger.error('academic/attendance', 'Error detecting attendance mode', error);
+        if (active) setDayClass(null);
+      } finally {
+        if (active) setDetectingMode(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [
+    isUserSuperAdmin,
+    isAdmin,
+    isHOD,
+    showResults,
+    searchContext.institution_id,
+    searchContext.academic_year_id,
+    searchContext.degree_id,
+    searchContext.program_id,
+    searchContext.department_id,
+    searchContext.semester_id,
+    searchContext.section_id
+  ]);
 
   // Updated: 2025-10-14 - Set client flag for date operations
   useEffect(() => {
@@ -117,6 +187,42 @@ export function AttendanceViewSelector({
 
     checkIfFaculty();
   }, [profile?.email, profile?.role, isUserSuperAdmin, isAdmin, isFaculty, isHOD]);
+
+  // Detect whether the current user is a class incharge (eligible to mark
+  // day-wise attendance). Runs for non-super-admin/admin/hod users, who would
+  // otherwise be blocked by the role-based fallback below.
+  useEffect(() => {
+    const checkIncharge = async () => {
+      if (isUserSuperAdmin || isAdmin || isHOD) {
+        setCheckingIncharge(false);
+        return;
+      }
+      if (!profile?.email) {
+        setCheckingIncharge(false);
+        return;
+      }
+      try {
+        setCheckingIncharge(true);
+        const id = await FacultyAttendanceService.getStaffIdByEmail(
+          profile.email
+        );
+        if (!id) {
+          setIsClassIncharge(false);
+          return;
+        }
+        const incharge = await ClassInchargeService.isStaffIncharge(id);
+        setIsClassIncharge(incharge);
+        if (incharge) setInchargeStaffId(id);
+      } catch (error) {
+        logger.error('academic/attendance', 'Error checking incharge status', error);
+        setIsClassIncharge(false);
+      } finally {
+        setCheckingIncharge(false);
+      }
+    };
+
+    checkIncharge();
+  }, [profile?.email, isUserSuperAdmin, isAdmin, isHOD]);
 
   // Updated: 2025-10-09 - Validate search criteria before search
   const validateSearch = (): boolean => {
@@ -197,7 +303,9 @@ export function AttendanceViewSelector({
   };
 
   // Loading state - Updated: 2025-11-29 - Include initial loading to prevent premature "no permission" message
-  if (isInitialLoading || loadingStaffId) {
+  // Updated: 2026-06-10 - Also wait for the class-incharge check so incharges
+  // don't briefly see the "no permission" fallback before being admitted.
+  if (isInitialLoading || loadingStaffId || checkingIncharge) {
     return (
       <div className='flex items-center justify-center py-8'>
         <Loader2 className='h-6 w-6 animate-spin mr-2' />
@@ -206,7 +314,11 @@ export function AttendanceViewSelector({
     );
   }
 
-  // For super admins, administrators, and HOD users, show the full search interface
+  // For super admins, administrators, and HOD users, show the full search
+  // interface. Updated: 2026-06-11 - The attendance TYPE is decided server-side
+  // from the selected criteria: after Search we look up whether the chosen class
+  // is Day-wise (session_wise, schools). If so we show the FN/AN day marker;
+  // otherwise the period cards (colleges). No manual Period/Day tab needed.
   if (isUserSuperAdmin || isAdmin || isHOD) {
     return (
       <div className='space-y-6 flex flex-col gap-4'>
@@ -239,17 +351,43 @@ export function AttendanceViewSelector({
           </Button>
         </div>
 
-        {/* Show search results for admins */}
+        {/* Results: the type is decided from the selected class. */}
         {showResults && (
           <div ref={periodsRef} className='mt-6'>
-            <AvailablePeriodsCards
-              periods={availablePeriods}
-              onPeriodSelect={onPeriodSelect}
-              loading={loading}
-              selectedDate={searchContext.attendance_date || undefined}
-              attendancePermissions={attendancePermissions}
-              isSuperAdmin={isSuperAdmin}
-            />
+            {detectingMode ? (
+              <div className='flex items-center justify-center py-8'>
+                <Loader2 className='h-6 w-6 animate-spin mr-2' />
+                <span>Checking attendance type…</span>
+              </div>
+            ) : dayClass ? (
+              // Day-wise (school) class detected — mark FN/AN sessions directly.
+              <div className='space-y-4'>
+                <Alert className='flex items-center gap-2 border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800'>
+                  <AlertDescription className='flex items-center gap-2'>
+                    <Info className='h-4 w-4' />
+                    This class uses Day-wise attendance. Mark Forenoon (FN) &amp;
+                    Afternoon (AN) sessions below — both present = full day, one =
+                    half day.
+                  </AlertDescription>
+                </Alert>
+                <DaySessionAttendance
+                  staffId={null}
+                  allowOverride
+                  fixedClass={dayClass}
+                  initialDate={searchContext.attendance_date || undefined}
+                />
+              </div>
+            ) : (
+              // Period-wise (college) class — show the period cards.
+              <AvailablePeriodsCards
+                periods={availablePeriods}
+                onPeriodSelect={onPeriodSelect}
+                loading={loading}
+                selectedDate={searchContext.attendance_date || undefined}
+                attendancePermissions={attendancePermissions}
+                isSuperAdmin={isSuperAdmin}
+              />
+            )}
           </div>
         )}
       </div>
@@ -388,6 +526,26 @@ export function AttendanceViewSelector({
           )}
         </TabsContent>
       </Tabs>
+    );
+  }
+
+  // For class incharges (any role): auto-load their assigned class(es) — no
+  // search needed. They can change the date to mark/view other days. The
+  // per-slot permission gate (canMarkAttendanceForSlot) still ensures they can
+  // only mark session_wise periods; period-wise stays subject-staff only.
+  if (isClassIncharge && inchargeStaffId) {
+    return (
+      <div className='space-y-4'>
+        <Alert className='flex items-center gap-2 border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800'>
+          <AlertDescription className='flex items-center gap-2'>
+            <Info className='h-4 w-4' />
+            As a class incharge, mark day-wise (FN &amp; AN) attendance for your
+            class below.
+          </AlertDescription>
+        </Alert>
+
+        <DaySessionAttendance staffId={inchargeStaffId} />
+      </div>
     );
   }
 

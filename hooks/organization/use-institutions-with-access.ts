@@ -8,7 +8,7 @@ import type { EntityType } from '@/types/organizations';
 interface UseInstitutionsWithAccessOptions {
   isActive?: boolean;
   autoFetch?: boolean;
-  entityType?: EntityType | 'all'; // Defaults to 'institution' — only shows educational institutions in dropdowns
+  entityType?: EntityType | 'all' | EntityType[]; // Defaults to 'institution'. Pass an array (e.g. ['institution','school']) to include multiple kinds
 }
 
 export function useInstitutionsWithAccess(

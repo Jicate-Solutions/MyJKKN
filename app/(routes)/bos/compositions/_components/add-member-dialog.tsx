@@ -49,7 +49,9 @@ import { Badge } from '@/components/ui/badge';
 import { useAddBosMember } from '@/hooks/bos/use-bos-members';
 import { useInstitutionContextById } from '@/hooks/use-institution-context';
 import {
+  BosCommittee,
   BosMemberType,
+  BosMemberTypeRecord,
   BOS_MEMBER_TYPE_LABELS,
   BosExternalExpert,
 } from '@/types/bos';
@@ -102,18 +104,35 @@ interface AddMemberDialogProps {
    */
   institutionsId: string;
   /**
-   * IDs of staff already present on this composition. The FacilitatorPicker
-   * filters them out so the same person can't be added twice. The DB also
-   * enforces this via uniq_bos_members_composition_staff — this prop is just
-   * the UX softener so the user never sees the duplicate option.
+   * Committees of this composition's institution. The dialog asks which
+   * committee the new member sits on; members are grouped by committee on the
+   * detail page. Empty list = the select is hidden and members go to "General".
    */
-  assignedStaffIds?: readonly string[];
+  committees?: readonly BosCommittee[];
   /**
-   * IDs of external experts already present on this composition. See
-   * `assignedStaffIds` — same rationale, mirrored for the expert picker.
+   * Institution-wise member types (from /bos/member-types). When provided,
+   * the Member Type dropdown is table-driven and the insert carries
+   * member_type_id; member_type is set to the row's base_type so chairman
+   * authorization and the staff/expert picker keep working. Empty list =
+   * fall back to the legacy hardcoded enum (old data / unseeded institution).
    */
-  assignedExpertIds?: readonly string[];
+  memberTypes?: readonly BosMemberTypeRecord[];
+  /**
+   * Existing members of this composition (staff/expert source + committee).
+   * Used to hide people already on the SELECTED committee from the pickers —
+   * the same person may legitimately sit on two different committees, so the
+   * exclusion is per committee, mirroring the DB's per-(composition,
+   * committee) unique indexes (20260610_bos_committees.sql).
+   */
+  existingMembers?: readonly {
+    staff_id?: string | null;
+    expert_id?: string | null;
+    committee_id?: string | null;
+  }[];
 }
+
+/** Sentinel for "no committee" in the Radix Select (empty value is reserved). */
+const GENERAL_COMMITTEE = '__general__';
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -122,22 +141,64 @@ export function AddMemberDialog({
   onClose,
   compositionId,
   institutionsId,
-  assignedStaffIds,
-  assignedExpertIds,
+  committees = [],
+  memberTypes = [],
+  existingMembers = [],
 }: AddMemberDialogProps) {
   const addMember = useAddBosMember();
-  // Stable Set references so the pickers can do O(1) `.has(id)` filtering
-  // without rebuilding the set on every keystroke.
+
+  // Member type — table-driven when the institution has bos_member_types rows,
+  // legacy hardcoded enum otherwise. Defaults are derived (not effect-synced):
+  // null state = "user hasn't picked yet" → first row by sort_order.
+  const activeMemberTypes = useMemo(
+    () => memberTypes.filter((t) => t.is_active),
+    [memberTypes],
+  );
+  const [memberTypeId, setMemberTypeId] = useState<string | null>(null);
+  const [legacyMemberType, setLegacyMemberType] = useState<BosMemberType>('internal_member');
+
+  const effectiveMemberTypeId = memberTypeId ?? activeMemberTypes[0]?.id ?? null;
+  const selectedTypeRow = effectiveMemberTypeId
+    ? activeMemberTypes.find((t) => t.id === effectiveMemberTypeId) ?? null
+    : null;
+  // Behaviour key used everywhere below (picker choice, payload member_type).
+  const memberType: BosMemberType =
+    activeMemberTypes.length > 0
+      ? (selectedTypeRow?.base_type ?? 'internal_member')
+      : legacyMemberType;
+
+  // null = "user hasn't picked yet" → default to the first (lowest sort_order)
+  // active committee; the API returns committees already ordered. Derived
+  // rather than synced via effect; resetAll() returns it to null on close.
+  const [committeeId, setCommitteeId] = useState<string | null>(null);
+  const effectiveCommitteeId =
+    committeeId ?? committees.find((c) => c.is_active)?.id ?? GENERAL_COMMITTEE;
+  const selectedCommitteeId =
+    effectiveCommitteeId === GENERAL_COMMITTEE ? null : effectiveCommitteeId;
+
+  // People already on the SELECTED committee — hidden from the pickers. Stable
+  // Set references so the pickers can do O(1) `.has(id)` filtering without
+  // rebuilding the set on every keystroke.
   const assignedStaffSet = useMemo(
-    () => new Set(assignedStaffIds ?? []),
-    [assignedStaffIds],
+    () =>
+      new Set(
+        existingMembers
+          .filter((m) => (m.committee_id ?? null) === selectedCommitteeId)
+          .map((m) => m.staff_id)
+          .filter((id): id is string => !!id),
+      ),
+    [existingMembers, selectedCommitteeId],
   );
   const assignedExpertSet = useMemo(
-    () => new Set(assignedExpertIds ?? []),
-    [assignedExpertIds],
+    () =>
+      new Set(
+        existingMembers
+          .filter((m) => (m.committee_id ?? null) === selectedCommitteeId)
+          .map((m) => m.expert_id)
+          .filter((id): id is string => !!id),
+      ),
+    [existingMembers, selectedCommitteeId],
   );
-
-  const [memberType, setMemberType] = useState<BosMemberType>('internal_member');
 
   // Selected source row + derived display fields. Exactly one of
   // selectedFacilitator / selectedExpert is non-null at a time.
@@ -160,7 +221,9 @@ export function AddMemberDialog({
 
   // Reset to a clean slate.
   const resetAll = () => {
-    setMemberType('internal_member');
+    setMemberTypeId(null);
+    setLegacyMemberType('internal_member');
+    setCommitteeId(null);
     setSelectedFacilitator(null);
     setSelectedExpert(null);
     setDisplayName('');
@@ -254,7 +317,9 @@ export function AddMemberDialog({
       {
         institutions_id: institutionsId,
         composition_id: compositionId,
+        committee_id: selectedCommitteeId,
         member_type: memberType,
+        member_type_id: activeMemberTypes.length > 0 ? effectiveMemberTypeId : null,
         // Persist the source link so future edits can re-resolve canonical info.
         staff_id: selectedFacilitator?.id,
         expert_id: selectedExpert?.id,
@@ -296,26 +361,69 @@ export function AddMemberDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className='space-y-4'>
+          {/* ── Committee ────────────────────────────────────────────────── */}
+          {committees.length > 0 && (
+            <div className='space-y-2'>
+              <Label>Committee</Label>
+              <Select value={effectiveCommitteeId} onValueChange={setCommitteeId}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {committees.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                      {c.short_code ? ` (${c.short_code})` : ''}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value={GENERAL_COMMITTEE}>
+                    General (no committee)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           {/* ── Member Type ──────────────────────────────────────────────── */}
+          {/* Table-driven from bos_member_types when the institution has rows;
+              legacy hardcoded enum otherwise (old data / unseeded institution). */}
           <div className='space-y-2'>
             <Label>
               Member Type <span className='text-destructive'>*</span>
             </Label>
-            <Select
-              value={memberType}
-              onValueChange={(v) => setMemberType(v as BosMemberType)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(BOS_MEMBER_TYPE_LABELS).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {activeMemberTypes.length > 0 ? (
+              <Select
+                value={effectiveMemberTypeId ?? undefined}
+                onValueChange={setMemberTypeId}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeMemberTypes.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Select
+                value={legacyMemberType}
+                onValueChange={(v) => setLegacyMemberType(v as BosMemberType)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(BOS_MEMBER_TYPE_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
 
           {/* ── Picker (depends on member type) ─────────────────────────── */}

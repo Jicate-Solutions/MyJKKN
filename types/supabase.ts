@@ -69538,6 +69538,7 @@ export type Database = {
           institution_id: string | null
           is_break: boolean | null
           period_name: string
+          session: string | null
           start_time: string
           updated_at: string | null
         }
@@ -69548,6 +69549,7 @@ export type Database = {
           institution_id?: string | null
           is_break?: boolean | null
           period_name: string
+          session?: string | null
           start_time: string
           updated_at?: string | null
         }
@@ -69558,6 +69560,7 @@ export type Database = {
           institution_id?: string | null
           is_break?: boolean | null
           period_name?: string
+          session?: string | null
           start_time?: string
           updated_at?: string | null
         }
@@ -92484,6 +92487,8 @@ export type Database = {
           migrated_from_old_structure: boolean | null
           migration_timestamp: string | null
           num_cycles: number | null
+          attendance_mode: string
+          class_incharge_id: string | null
           periods: Json
           program_id: string | null
           section_id: string | null
@@ -92518,6 +92523,8 @@ export type Database = {
           migrated_from_old_structure?: boolean | null
           migration_timestamp?: string | null
           num_cycles?: number | null
+          attendance_mode?: string
+          class_incharge_id?: string | null
           periods?: Json
           program_id?: string | null
           section_id?: string | null
@@ -92552,6 +92559,8 @@ export type Database = {
           migrated_from_old_structure?: boolean | null
           migration_timestamp?: string | null
           num_cycles?: number | null
+          attendance_mode?: string
+          class_incharge_id?: string | null
           periods?: Json
           program_id?: string | null
           section_id?: string | null

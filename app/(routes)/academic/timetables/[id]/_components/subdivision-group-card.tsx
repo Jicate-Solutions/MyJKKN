@@ -27,6 +27,7 @@ import { ChevronDown, ChevronUp, Users, User, MapPin, Plus, X } from 'lucide-rea
 import { SubdivisionGroup, SubdivisionMode, Timetable } from '@/types/academics';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface SubdivisionGroupCardProps {
   group: SubdivisionGroup;
@@ -49,6 +50,7 @@ export function SubdivisionGroupCard({
   subdivisionMode,
   timetable
 }: SubdivisionGroupCardProps) {
+  const adapt = useAdaptiveLabels();
   const [isExpanded, setIsExpanded] = useState(false);
 
   // Updated: 2025-10-13 - Added course-based staff filtering
@@ -174,19 +176,19 @@ export function SubdivisionGroupCard({
         {/* Course Selection */}
         <div className='space-y-2'>
           <Label className='text-sm font-medium'>
-            Course <span className='text-red-500'>*</span>
+            {adapt('Course')} <span className='text-red-500'>*</span>
           </Label>
           <Select
             value={group.course_id || ''}
             onValueChange={(value) => onUpdate({ course_id: value })}
           >
             <SelectTrigger className={!group.course_id ? 'border-red-300' : ''}>
-              <SelectValue placeholder='Select a course (required)' />
+              <SelectValue placeholder={`Select a ${adapt('course')} (required)`} />
             </SelectTrigger>
             <SelectContent>
               {availableCourses.length === 0 ? (
                 <div className='p-2 text-center text-sm text-muted-foreground'>
-                  No courses available
+                  No {adapt('courses')} available
                 </div>
               ) : (
                 availableCourses.map((course) => (
@@ -199,7 +201,7 @@ export function SubdivisionGroupCard({
           </Select>
           {!group.course_id && (
             <p className='text-xs text-red-600'>
-              Course is required for this group
+              {adapt('Course')} is required for this group
             </p>
           )}
         </div>
@@ -261,11 +263,11 @@ export function SubdivisionGroupCard({
               </div>
             ) : !group.course_id ? (
               <div className='text-center text-sm text-muted-foreground py-2'>
-                Please select a course first
+                Please select a {adapt('course')} first
               </div>
             ) : displayStaff.length === 0 ? (
               <div className='text-center text-sm text-muted-foreground py-2'>
-                <div className='mb-1'>No staff assigned to this course</div>
+                <div className='mb-1'>No staff assigned to this {adapt('course')}</div>
                 <div className='text-xs text-gray-400'>
                   Please assign staff in Staff Planning module first
                 </div>

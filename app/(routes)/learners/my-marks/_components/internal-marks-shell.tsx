@@ -149,7 +149,8 @@ export function InternalMarksShell({
           semesters={sessions.map((s) => ({
             semester_code: tabKeyOf(s),
             semester_label: s.semester_label,
-            count: s.courses.length,
+            // Internal tab shows regular (current) papers only — count them, not arrears.
+            count: s.courses.filter((c) => c.is_regular !== false).length,
           }))}
           activeCode={activeKey}
           currentCode={currentKey}

@@ -7,6 +7,7 @@ import { Timetable } from '@/types/academics';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface TimetableHeaderProps {
   timetable: Timetable;
@@ -16,6 +17,7 @@ interface TimetableHeaderProps {
   isSuperAdmin?: boolean;
   canEdit?: boolean; // New prop
   todaysCycle?: number | null; // For cycle-format timetables: today's active cycle
+  inchargeName?: string | null; // Resolved class incharge display name (session/day-wise)
 }
 
 /**
@@ -34,9 +36,11 @@ export function TimetableHeader({
   attendanceCount = 0,
   isSuperAdmin = false,
   canEdit = false,
-  todaysCycle = null
+  todaysCycle = null,
+  inchargeName = null
 }: TimetableHeaderProps) {
   const router = useRouter();
+  const adapt = useAdaptiveLabels();
 
   return (
     <div className='bg-white rounded-lg shadow-sm border'>
@@ -62,7 +66,7 @@ export function TimetableHeader({
               {/* Updated: 2025-10-08 - Only show Section badge for section-level timetables */}
               {timetable.timetable_type === 'section' && timetable.sections?.section_name && (
                 <Badge variant='outline' className='text-sm'>
-                  Section {timetable.sections.section_name}
+                  {adapt('Section')} {timetable.sections.section_name}
                 </Badge>
               )}
 
@@ -92,7 +96,7 @@ export function TimetableHeader({
               {timetable.timetable_type === 'semester'
                 ? 'Semester-level timetable with multi-section slot support'
                 : timetable.timetable_type === 'section' && timetable.sections?.section_name
-                ? `Section-level timetable for Section ${timetable.sections.section_name}`
+                ? `Section-level timetable for ${adapt('Section')} ${timetable.sections.section_name}`
                 : 'Manage and view the timetable details'}
             </p>
           </div>
@@ -215,25 +219,25 @@ export function TimetableHeader({
             <h3 className='font-medium text-gray-900'>Program Information</h3>
             <div className='space-y-3 text-sm'>
               <div>
-                <span className='text-gray-500'>Degree</span>
+                <span className='text-gray-500'>{adapt('Degree')}</span>
                 <p className='font-medium'>
                   {timetable.degree?.degree_name || 'N/A'}
                 </p>
               </div>
               <div>
-                <span className='text-gray-500'>Program</span>
+                <span className='text-gray-500'>{adapt('Program')}</span>
                 <p className='font-medium'>
                   {timetable.program?.program_name || 'N/A'}
                 </p>
               </div>
               <div>
-                <span className='text-gray-500'>Department</span>
+                <span className='text-gray-500'>{adapt('Department')}</span>
                 <p className='font-medium'>
                   {timetable.department?.department_name || 'N/A'}
                 </p>
               </div>
               <div>
-                <span className='text-gray-500'>Semester</span>
+                <span className='text-gray-500'>{adapt('Semester')}</span>
                 <p className='font-medium'>
                   {timetable.semesters?.semester_name || 'N/A'}
                 </p>
@@ -257,7 +261,7 @@ export function TimetableHeader({
               {/* Updated: 2025-10-08 - Section - Only show for section-level timetables with a section */}
               {timetable.timetable_type === 'section' && timetable.sections?.section_name && (
                 <div>
-                  <span className='text-gray-500'>Section</span>
+                  <span className='text-gray-500'>{adapt('Section')}</span>
                   <p className='font-medium'>
                     {timetable.sections.section_name}
                   </p>
@@ -267,9 +271,9 @@ export function TimetableHeader({
               {/* For semester-level, show available sections count */}
               {timetable.timetable_type === 'semester' && (
                 <div>
-                  <span className='text-gray-500'>Available Sections</span>
+                  <span className='text-gray-500'>{adapt('Sections')}</span>
                   <p className='font-medium'>
-                    {timetable.available_sections?.length || 0} section(s)
+                    {timetable.available_sections?.length || 0} {adapt('Section').toLowerCase()}(s)
                   </p>
                 </div>
               )}
@@ -298,6 +302,21 @@ export function TimetableHeader({
                     month: 'short',
                     day: 'numeric'
                   })}
+                </p>
+              </div>
+              {/* Attendance configuration (school day-wise support) */}
+              <div>
+                <span className='text-gray-500'>Attendance Mode</span>
+                <p className='font-medium'>
+                  {timetable.attendance_mode === 'session_wise'
+                    ? 'Day-wise (FN & AN sessions)'
+                    : 'Period-wise (every period)'}
+                </p>
+              </div>
+              <div>
+                <span className='text-gray-500'>Class Incharge</span>
+                <p className='font-medium'>
+                  {inchargeName || 'Not assigned'}
                 </p>
               </div>
             </div>
