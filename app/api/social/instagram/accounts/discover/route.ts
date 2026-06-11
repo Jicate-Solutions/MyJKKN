@@ -114,7 +114,22 @@ export async function GET(request: NextRequest) {
       profile?.role === 'institution_admin' &&
       (!institutionId || profile?.institution_id === institutionId);
 
-    if (!isSuperAdmin && !isInstitutionAdmin) {
+    // 2026-06-11 granular-permission retrofit: roles granted
+    // social.instagram.manage via Role Management pass too, under the same
+    // institution-match constraint as institution_admin.
+    let hasManagePerm = false;
+    if (
+      !isSuperAdmin &&
+      !isInstitutionAdmin &&
+      (!institutionId || profile?.institution_id === institutionId)
+    ) {
+      const { data: perm } = await supabase.rpc('user_has_permission', {
+        permission_name: 'social.instagram.manage',
+      });
+      hasManagePerm = !!perm;
+    }
+
+    if (!isSuperAdmin && !isInstitutionAdmin && !hasManagePerm) {
       return NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 });
     }
 

@@ -15,7 +15,7 @@ import { Loader2, Plus, RefreshCw, Trash2, History, AlertCircle } from 'lucide-r
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,7 +39,18 @@ import type {
 
 export default function MetaAudiencesPage() {
   return (
-    <SuperAdminOnly>
+    <PermissionGuard
+      module="social.meta_audiences"
+      action="view"
+      fallback={
+        <ContentLayout title="Meta Custom Audiences">
+          <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+            You do not have permission to view this page. Ask an administrator
+            to grant the Social Media permissions to your role.
+          </div>
+        </ContentLayout>
+      }
+    >
       <ContentLayout title="Meta Custom Audiences">
         <PageBreadcrumb
           items={[
@@ -51,7 +62,7 @@ export default function MetaAudiencesPage() {
         />
         <Content />
       </ContentLayout>
-    </SuperAdminOnly>
+    </PermissionGuard>
   );
 }
 

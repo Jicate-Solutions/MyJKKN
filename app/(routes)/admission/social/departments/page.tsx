@@ -10,9 +10,9 @@
  * whether the handle is wired into the Graph-API monitoring pipeline
  * (ig_account_id → "Monitored").
  *
- * RLS on social_dept_accounts is admin-only (credential vault), matching
- * the SuperAdminOnly gate below — non-admins get zero rows even if they
- * reach the query.
+ * RLS on social_dept_accounts is admin-only OR social.departments.view
+ * (credential vault), matching the PermissionGuard gate below — users
+ * without the key get zero rows even if they reach the query.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -20,7 +20,7 @@ import { Copy, Eye, EyeOff, Instagram, Check, Link2, Unlink } from 'lucide-react
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -366,7 +366,18 @@ export default function SocialDepartmentAccountsPage() {
   );
 
   return (
-    <SuperAdminOnly>
+    <PermissionGuard
+      module="social.departments"
+      action="view"
+      fallback={
+        <ContentLayout title="Department Social Accounts">
+          <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+            You do not have permission to view this page. Ask an administrator
+            to grant the Social Media permissions to your role.
+          </div>
+        </ContentLayout>
+      }
+    >
       <ContentLayout title="Department Social Accounts">
         <PageBreadcrumb items={breadcrumbItems} />
 
@@ -501,6 +512,6 @@ export default function SocialDepartmentAccountsPage() {
           </Card>
         ))}
       </ContentLayout>
-    </SuperAdminOnly>
+    </PermissionGuard>
   );
 }

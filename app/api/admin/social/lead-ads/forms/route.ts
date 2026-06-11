@@ -31,7 +31,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { listForms } from '@/lib/meta/lead-ads-client';
 
-async function requireAdmin() {
+async function requireAdmin(permissionKey: string) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -46,10 +46,19 @@ async function requireAdmin() {
 
   if (!profile) return { ok: false as const, status: 403 };
 
-  const allowed =
+  let allowed =
     profile.is_super_admin ||
     profile.role === 'super_admin' ||
     profile.role === 'administrator';
+
+  // 2026-06-11 granular-permission retrofit: roles granted the social.*
+  // key via Role Management pass too.
+  if (!allowed) {
+    const { data: perm } = await supabase.rpc('user_has_permission', {
+      permission_name: permissionKey,
+    });
+    allowed = !!perm;
+  }
   if (!allowed) return { ok: false as const, status: 403 };
 
   return { ok: true as const, userId: user.id, supabase };
@@ -97,7 +106,7 @@ interface FbPageTokenRow {
 // ---------------------------------------------------------------------------
 
 export async function GET() {
-  const auth = await requireAdmin();
+  const auth = await requireAdmin('social.lead_ads.view');
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? 'Unauthorized' : 'Forbidden' },
@@ -163,7 +172,7 @@ function getEnvFallbackToken(): string | undefined {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireAdmin();
+  const auth = await requireAdmin('social.lead_ads.manage');
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? 'Unauthorized' : 'Forbidden' },

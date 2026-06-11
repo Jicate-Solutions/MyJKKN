@@ -2054,6 +2054,39 @@ export const PERMISSION_CATEGORIES = [
       { key: 'internship.certificates.view', label: 'View Internship Certificates' },
       { key: 'internship.certificates.generate', label: 'Generate Internship Certificate' }
     ]
+  },
+  {
+    // Social Media module (/admission/social/* + /admission/inbox/* surfaces).
+    // Added 2026-06-11 — retrofit from SuperAdminOnly to granular keys.
+    // Top-level `social.*` namespace ON PURPOSE (not `admission.social.*`):
+    // PermissionGuard gives counselor / admission-global users a blanket
+    // bypass for `admission.*` module keys, which would silently open
+    // Dept Accounts (API keys), Meta Pixel and Audiences to every counselor.
+    // RLS policies and API routes gate on these same keys.
+    name: 'Social Media',
+    key: 'social',
+    permissions: [
+      { key: 'social.view', label: 'View Social Hub Overview' },
+      { key: 'social.insights.view', label: 'View Social Insights' },
+      { key: 'social.instagram.view', label: 'View Instagram Analytics' },
+      { key: 'social.instagram.manage', label: 'Manage Instagram Accounts (connect / discover / sync)' },
+      { key: 'social.facebook.view', label: 'View Facebook Analytics' },
+      { key: 'social.facebook.manage', label: 'Manage Facebook Pages (discover / sync)' },
+      { key: 'social.lead_ads.view', label: 'View Lead Ads' },
+      { key: 'social.lead_ads.manage', label: 'Manage Lead Ads (sync forms / field mappings / test)' },
+      { key: 'social.ads.view', label: 'View Ads Insights' },
+      { key: 'social.ads.manage', label: 'Manage Ad Accounts (discover / sync)' },
+      { key: 'social.departments.view', label: 'View Department Social Accounts' },
+      { key: 'social.departments.manage', label: 'Manage Department Social Accounts' },
+      { key: 'social.attribution.view', label: 'View Attribution Reports' },
+      { key: 'social.attribution.edit', label: 'Edit Attribution Window Policy' },
+      { key: 'social.meta_pixel.view', label: 'View Meta Pixel Events' },
+      { key: 'social.meta_pixel.manage', label: 'Manage Meta Pixel Configuration' },
+      { key: 'social.meta_audiences.view', label: 'View Meta Audiences' },
+      { key: 'social.meta_audiences.manage', label: 'Manage Meta Audiences' },
+      { key: 'social.messenger.view', label: 'View Messenger / Instagram Inbox' },
+      { key: 'social.messenger.send', label: 'Send Messenger / Instagram Replies' }
+    ]
   }
 ];
 

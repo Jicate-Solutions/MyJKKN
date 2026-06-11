@@ -368,15 +368,19 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/ai-models': 'super_admin', // Super admin only - AI Model Config (provider/model picker + spend caps + usage)
   '/admin/page-metadata': 'super_admin', // Super admin only - Page Search Metadata
 
-  // Meta admin pages (added 2026-05-31 for Meta integration nav-bar wiring).
-  '/admission/social/facebook': 'super_admin',
-  '/admission/social/instagram': 'super_admin',
-  '/admission/social/insights': 'super_admin',
-  '/admission/social/lead-ads': 'super_admin',
-  '/admission/social/departments': 'super_admin',
-  '/admission/social/attribution': 'super_admin',
-  '/admission/social/meta-pixel': 'super_admin',
-  '/admission/social/meta-audiences': 'super_admin',
+  // Social Media module (added 2026-05-31 for Meta integration nav-bar
+  // wiring; 2026-06-11 retrofit from hardcoded 'super_admin' to granular
+  // social.* keys — grantable per-role via Role Management. Super admins
+  // still see everything via the isSuperAdmin bypass in the nav filter).
+  '/admission/social': 'social.view',
+  '/admission/social/facebook': 'social.facebook.view',
+  '/admission/social/instagram': 'social.instagram.view',
+  '/admission/social/insights': 'social.insights.view',
+  '/admission/social/lead-ads': 'social.lead_ads.view',
+  '/admission/social/departments': 'social.departments.view',
+  '/admission/social/attribution': 'social.attribution.view',
+  '/admission/social/meta-pixel': 'social.meta_pixel.view',
+  '/admission/social/meta-audiences': 'social.meta_audiences.view',
 
   // Internship Module — Policy Admin (super_admin only)
   '/internships/policy': 'super_admin',

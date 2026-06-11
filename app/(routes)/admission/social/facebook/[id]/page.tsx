@@ -28,7 +28,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, CalendarRange, Facebook } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
-import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -106,11 +106,14 @@ export default function FacebookPageDetailPage({ params }: PageProps) {
   ];
 
   return (
-    <SuperAdminOnly
+    <PermissionGuard
+      module="social.facebook"
+      action="view"
       fallback={
         <ContentLayout title="Facebook Page">
           <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
-            This page is restricted to super administrators.
+            You do not have permission to view this page. Ask an administrator
+            to grant the Social Media permissions to your role.
           </div>
         </ContentLayout>
       }
@@ -197,6 +200,6 @@ export default function FacebookPageDetailPage({ params }: PageProps) {
           <FbTopPostsTable pageId={id} days={days} />
         </div>
       </ContentLayout>
-    </SuperAdminOnly>
+    </PermissionGuard>
   );
 }

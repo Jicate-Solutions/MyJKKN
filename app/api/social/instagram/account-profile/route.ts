@@ -88,7 +88,18 @@ export async function GET(request: NextRequest) {
     const isSuperAdmin = profile?.role === 'super_admin';
     const isInstitutionAdmin = profile?.role === 'institution_admin';
 
+    // 2026-06-11 granular-permission retrofit: roles granted
+    // social.instagram.view via Role Management pass too; the ownership
+    // check against the ig_account's institution below still applies.
+    let hasViewPerm = false;
     if (!isSuperAdmin && !isInstitutionAdmin) {
+      const { data: perm } = await supabase.rpc('user_has_permission', {
+        permission_name: 'social.instagram.view',
+      });
+      hasViewPerm = !!perm;
+    }
+
+    if (!isSuperAdmin && !isInstitutionAdmin && !hasViewPerm) {
       return NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 });
     }
 

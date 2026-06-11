@@ -25,9 +25,10 @@ const config: ModuleNavConfig = {
       // Social-media monitoring + lead-gen surfaces. Relocated from
       // /admin/social/* 2026-06-10 (Director: "social can be moved to top of
       // admission crm module") — admin-cluster relocation program, one module
-      // = one URL prefix. Pages remain SuperAdminOnly-gated with explicit
-      // restriction fallbacks; non-super-admin admission users who click the
-      // tab see the restriction card, not a silent redirect.
+      // = one URL prefix. 2026-06-11: pages gated by granular social.*
+      // permission keys (PermissionGuard + MENU_PERMISSIONS), grantable per
+      // role via Role Management. Users without the key who click the tab
+      // see the restriction card, not a silent redirect.
       label: 'Social',
       icon: 'Share2',
       href: '/admission/social',

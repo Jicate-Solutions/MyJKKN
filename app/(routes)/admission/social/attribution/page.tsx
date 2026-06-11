@@ -21,7 +21,7 @@ import { Compass } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { usePermissions } from '@/hooks/use-permissions';
 
@@ -31,7 +31,18 @@ import { WindowPolicyCard } from './_components/window-policy-card';
 
 export default function InstagramAttributionPage() {
   return (
-    <SuperAdminOnly>
+    <PermissionGuard
+      module="social.attribution"
+      action="view"
+      fallback={
+        <ContentLayout title="Instagram Attribution">
+          <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+            You do not have permission to view this page. Ask an administrator
+            to grant the Social Media permissions to your role.
+          </div>
+        </ContentLayout>
+      }
+    >
       <ContentLayout title="Instagram Attribution">
         <PageBreadcrumb
           items={[
@@ -42,12 +53,15 @@ export default function InstagramAttributionPage() {
         />
         <Content />
       </ContentLayout>
-    </SuperAdminOnly>
+    </PermissionGuard>
   );
 }
 
 function Content() {
-  const { isSuperAdmin } = usePermissions();
+  // canAccess returns true for super admins, so the previous behaviour is
+  // preserved; other roles need the social.attribution.edit key.
+  const { canAccess } = usePermissions();
+  const canEditPolicy = canAccess('social.attribution', 'edit');
 
   return (
     <div className="mt-6 space-y-6">
@@ -66,7 +80,7 @@ function Content() {
         </AlertDescription>
       </Alert>
 
-      <WindowPolicyCard canEdit={isSuperAdmin} />
+      <WindowPolicyCard canEdit={canEditPolicy} />
       <AccountDrilldown />
       <PostDrilldown />
     </div>

@@ -120,7 +120,23 @@ export async function POST(request: NextRequest) {
       !!institutionId &&
       profile?.institution_id === institutionId;
 
-    if (!isSuperAdmin && !isInstitutionAdmin) {
+    // 2026-06-11 granular-permission retrofit: roles granted
+    // social.instagram.manage via Role Management pass too — like
+    // institution_admin they must name their own institution.
+    let hasManagePerm = false;
+    if (
+      !isSuperAdmin &&
+      !isInstitutionAdmin &&
+      !!institutionId &&
+      profile?.institution_id === institutionId
+    ) {
+      const { data: perm } = await supabase.rpc('user_has_permission', {
+        permission_name: 'social.instagram.manage',
+      });
+      hasManagePerm = !!perm;
+    }
+
+    if (!isSuperAdmin && !isInstitutionAdmin && !hasManagePerm) {
       if (profile?.role === 'institution_admin' && !institutionId) {
         return NextResponse.json(
           { success: false, error: 'institution_id is required' },

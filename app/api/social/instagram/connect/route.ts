@@ -47,10 +47,20 @@ async function requireAdmin() {
 
   if (!profile) return { ok: false as const, status: 403 };
 
-  const allowed =
+  let allowed =
     profile.is_super_admin ||
     profile.role === 'super_admin' ||
     profile.role === 'administrator';
+
+  // 2026-06-11 granular-permission retrofit: roles granted
+  // social.instagram.manage via Role Management may run the IG login
+  // connect flow too.
+  if (!allowed) {
+    const { data: perm } = await supabase.rpc('user_has_permission', {
+      permission_name: 'social.instagram.manage',
+    });
+    allowed = !!perm;
+  }
   if (!allowed) return { ok: false as const, status: 403 };
 
   return { ok: true as const, supabase };

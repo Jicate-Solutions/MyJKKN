@@ -239,7 +239,18 @@ export default async function MetaPixelAdminPage() {
   const isAdminish =
     isSuperAdmin || role === 'admin' || role === 'institution_admin';
 
-  if (!isAdminish) {
+  // 2026-06-11 granular-permission retrofit: roles granted
+  // social.meta_pixel.view via Role Management get in alongside the
+  // legacy admin role allowlist.
+  let canViewPixel = isAdminish;
+  if (!canViewPixel) {
+    const { data: hasPerm } = await supabase.rpc('user_has_permission', {
+      permission_name: 'social.meta_pixel.view',
+    });
+    canViewPixel = !!hasPerm;
+  }
+
+  if (!canViewPixel) {
     // Rule #27 — explicit 403 page, NOT a silent redirect.
     return (
       <ContentLayout title="Meta Pixel & CAPI">
@@ -248,8 +259,11 @@ export default async function MetaPixelAdminPage() {
           <Alert variant="destructive">
             <AlertTitle>You don&apos;t have access</AlertTitle>
             <AlertDescription>
-              The Meta Pixel &amp; CAPI configuration page is restricted to
-              super_admin, admin, and institution_admin roles. Your role is{' '}
+              The Meta Pixel &amp; CAPI configuration page requires the{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                social.meta_pixel.view
+              </code>{' '}
+              permission (or an admin role). Your role is{' '}
               <code className="rounded bg-muted px-1 py-0.5 text-xs">
                 {role ?? 'none'}
               </code>
