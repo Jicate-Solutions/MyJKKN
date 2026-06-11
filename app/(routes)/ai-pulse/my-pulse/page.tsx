@@ -26,6 +26,7 @@ import { CurrentCycleCard } from '../_components/current-cycle-card';
 import { MyTeamCard } from '../_components/my-team-card';
 import { MyAttendanceCard } from '../_components/my-attendance-card';
 import { QuickActionsCard } from '../_components/quick-actions-card';
+import { PulseImpactCard } from './_components/pulse-impact-card';
 
 export const dynamic = 'force-dynamic';
 
@@ -124,6 +125,10 @@ export default async function AiPulseLearnerPage() {
             canSubmitQuiz={canQuiz}
             canSubmitPublication={canPublication}
           />
+          {/* Pulse Impact — SOP Phase V read path (2026-06-11) */}
+          <div className="md:col-span-2">
+            <PulseImpactCard cycleId={cycle?.id ?? null} />
+          </div>
         </div>
       </div>
     </ContentLayout>
