@@ -210,6 +210,14 @@
     {
       "path": "/api/cron/ig-stories-poll?secret=${CRON_SECRET}",
       "schedule": "30 */2 * * *"
+    },
+    {
+      "path": "/api/cron/ai-pulse-rotation-tick?secret=${CRON_SECRET}",
+      "schedule": "37 2 * * *"
+    },
+    {
+      "path": "/api/cron/ai-pulse-anomaly-scan?secret=${CRON_SECRET}",
+      "schedule": "43 3 * * *"
     }
   ]
 }

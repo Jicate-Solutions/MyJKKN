@@ -107,13 +107,64 @@ function diffMinutes(a: string, b: string): number {
   return Math.abs(new Date(a).getTime() - new Date(b).getTime()) / 60_000;
 }
 
-/** Compute joined_within_5min relative to cycle.starts_at. */
-function withinFiveMin(joinedAt: string, startsAt: string | null): boolean {
+/**
+ * Compute the on-time-join signal relative to cycle.starts_at.
+ *
+ * The window is policy-driven (`late_threshold_minutes`, seeded 10) — NOT the
+ * old hardcoded 5 minutes. The JSONB signal key stays `joined_within_5min`
+ * for backward compatibility (6 files read it); semantically it now means
+ * "joined within the configured late threshold".
+ */
+function withinJoinWindow(
+  joinedAt: string,
+  startsAt: string | null,
+  windowMinutes: number,
+): boolean {
   if (!startsAt) return true; // no start time → assume in-window
   const joined = new Date(joinedAt).getTime();
   const start = new Date(startsAt).getTime();
-  // joined must be no later than start + 5 min
-  return joined <= start + 5 * 60_000;
+  return joined <= start + windowMinutes * 60_000;
+}
+
+// ---------------------------------------------------------------------------
+// Policy reads (config mandate — every threshold is an ai_pulse_policies row)
+// ---------------------------------------------------------------------------
+
+type PolicyMap = Record<string, unknown>;
+
+let policyCache: { fetchedAt: number; map: PolicyMap } | null = null;
+const POLICY_CACHE_TTL_MS = 60_000;
+
+/**
+ * Fetch active ai_pulse_policies rows as a config_key→value map. Cached at
+ * module level for 60s so the per-action helpers (recordJoin, submitQuiz,
+ * getLiveSession) don't refetch on every call. RLS: active rows are readable
+ * by any authenticated user (PR #644/#715).
+ */
+async function readPolicies(supabase: any): Promise<PolicyMap> {
+  if (policyCache && Date.now() - policyCache.fetchedAt < POLICY_CACHE_TTL_MS) {
+    return policyCache.map;
+  }
+  const { data, error } = await supabase
+    .from('ai_pulse_policies')
+    .select('config_key, value_jsonb')
+    .eq('is_active', true);
+  if (error) {
+    logger.warn('ai-pulse/live-session', 'policy fetch failed — using fallbacks', error);
+    return policyCache?.map ?? {};
+  }
+  const map: PolicyMap = {};
+  for (const row of (data ?? []) as Array<{ config_key: string; value_jsonb: unknown }>) {
+    map[row.config_key] = row.value_jsonb;
+  }
+  policyCache = { fetchedAt: Date.now(), map };
+  return map;
+}
+
+/** Coerce a policy value to a finite number, else the fallback. */
+function policyNumber(map: PolicyMap, key: string, fallback: number): number {
+  const v = Number(map[key]);
+  return Number.isFinite(v) ? v : fallback;
 }
 
 /** "HH:MM" of an ISO timestamp in IST (Asia/Kolkata). */
@@ -161,8 +212,6 @@ function deriveCycleTimes(row: {
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
-
-const DEFAULT_PASS_THRESHOLD = 60;
 
 export class LiveSessionService {
   /**
@@ -228,11 +277,15 @@ export class LiveSessionService {
     const { starts_at: startsAt, ends_at: endsAt } = deriveCycleTimes(cycleRow);
     const now = Date.now();
 
+    // Async make-up window is policy-driven (async_makeup_window_hours, seeded 48).
+    const policies = await readPolicies(supabase);
+    const asyncWindowHours = policyNumber(policies, 'async_makeup_window_hours', 48);
+
     const quiz_open = status === 'post_event' &&
       (!endsAt || diffMinutes(new Date(now).toISOString(), endsAt) <= 60);
 
     const quiz_async_window_open = status === 'post_event' && !!endsAt &&
-      diffMinutes(new Date(now).toISOString(), endsAt) <= 48 * 60;
+      diffMinutes(new Date(now).toISOString(), endsAt) <= asyncWindowHours * 60;
 
     return {
       cycle: {
@@ -283,7 +336,11 @@ export class LiveSessionService {
 
     const nowIso = new Date().toISOString();
     const { starts_at: startsAt } = deriveCycleTimes(cycleRow ?? {});
-    const joinedWithinFive = withinFiveMin(nowIso, startsAt);
+    // On-time window is the late_threshold_minutes policy row (seeded 10) —
+    // replaces the old hardcoded 5 minutes.
+    const policies = await readPolicies(supabase);
+    const lateThresholdMinutes = policyNumber(policies, 'late_threshold_minutes', 10);
+    const joinedWithinWindow = withinJoinWindow(nowIso, startsAt, lateThresholdMinutes);
 
     // Read existing row (preserve other writers' JSONB keys)
     const { data: existing } = await supabase
@@ -298,7 +355,7 @@ export class LiveSessionService {
     const nextSignals: EngagementSignals = {
       ...prevSignals,
       joined_at: nowIso,
-      joined_within_5min: joinedWithinFive,
+      joined_within_5min: joinedWithinWindow,
     };
 
     const { error } = await supabase
@@ -485,11 +542,20 @@ export class LiveSessionService {
       .eq('day_type', 'live_session')
       .maybeSingle();
 
+    // Pass threshold is policy-driven per submission type:
+    //   live submission  → quiz_pass_threshold_live  (seeded 40)
+    //   async make-up    → quiz_pass_threshold_async (seeded 60)
+    // Replaces the old hardcoded DEFAULT_PASS_THRESHOLD = 60.
+    const policies = await readPolicies(supabase);
+    const passThreshold = asyncMakeup
+      ? policyNumber(policies, 'quiz_pass_threshold_async', 60)
+      : policyNumber(policies, 'quiz_pass_threshold_live', 40);
+
     const prevSignals = (existing?.engagement_signals ?? {}) as EngagementSignals;
     const nextSignals: EngagementSignals = {
       ...prevSignals,
       quiz_score: score,
-      quiz_passed: score >= DEFAULT_PASS_THRESHOLD,
+      quiz_passed: score >= passThreshold,
       quiz_async_makeup: asyncMakeup,
     };
 

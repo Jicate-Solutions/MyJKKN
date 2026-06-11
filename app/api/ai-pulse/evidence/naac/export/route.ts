@@ -43,6 +43,7 @@ const CSV_FIELDS: Array<{ label: string; value: string }> = [
   { label: 'Featured Tool', value: 'featured_tool' },
   { label: 'Champion at time', value: 'champion_at_time' },
   { label: 'IG Reach', value: 'ig_reach' },
+  { label: 'Verification', value: 'verification' },
   { label: 'Proof URLs', value: 'proof_urls' },
 ];
 

@@ -1355,6 +1355,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/ai-pulse/dept",
+        "label": "Dept",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/ai-pulse/evidence",
         "label": "Evidence",
         "iconName": "FileText",
@@ -1368,10 +1374,35 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/ai-pulse/lab",
+        "label": "Lab",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/ai-pulse/my-pulse",
         "label": "My Pulse",
         "iconName": "FileText",
         "children": []
+      },
+      {
+        "path": "/ai-pulse/submit",
+        "label": "Submit",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/ai-pulse/submit/domain-sync",
+            "label": "Domain Sync",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/ai-pulse/submit/publication",
+            "label": "Publication",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
       }
     ]
   },
