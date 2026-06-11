@@ -62,7 +62,11 @@ export function useUpgradeRoom() {
       CategoryUpgradeService.upgradeRoom(categoryId, roomId),
     onSuccess: (res) => {
       invalidate();
-      toast.success(`Upgraded · new bill ₹${res.bill.billed.toLocaleString('en-IN')} generated`);
+      if (res.state === 'waitlisted') {
+        toast.success('Room reserved — it confirms automatically once your fee payment reaches the required level');
+      } else {
+        toast.success(`Upgraded · new bill ₹${(res.bill?.billed ?? 0).toLocaleString('en-IN')} generated`);
+      }
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Upgrade failed'),
   });

@@ -6,7 +6,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowRight, BedDouble, DoorOpen, Loader2 } from 'lucide-react';
+import { ArrowRight, BedDouble, CalendarClock, DoorOpen, Loader2 } from 'lucide-react';
 import { useUpgradeRooms, useUpgradeRoom } from '@/hooks/campus-living/use-category-upgrade';
 import type { UpgradeRoomOption } from '@/types/campus-living/category-upgrade';
 
@@ -19,6 +19,10 @@ interface Props {
   currentFee: number;
   newFee: number;
   upgradeFee: number;
+  thresholdPct: number | null;
+  paidPct: number | null;
+  meetsThreshold: boolean;
+  holdDays: number;
 }
 
 const inr = (n: number) => `₹${n.toLocaleString('en-IN')}`;
@@ -26,6 +30,7 @@ const floorLabel = (floor: number) => (floor === 0 ? 'Ground floor' : `Floor ${f
 
 export function RoomUpgradeDialog({
   open, onOpenChange, categoryId, categoryName, currentCategoryName, currentFee, newFee, upgradeFee,
+  thresholdPct, paidPct, meetsThreshold, holdDays,
 }: Props) {
   const { data: rooms = [], isLoading } = useUpgradeRooms(open ? categoryId : null);
   const upgrade = useUpgradeRoom();
@@ -116,9 +121,11 @@ export function RoomUpgradeDialog({
         ) : (
           <>
             <DialogHeader>
-              <DialogTitle>Confirm your upgrade</DialogTitle>
+              <DialogTitle>{meetsThreshold ? 'Confirm your upgrade' : 'Reserve this room'}</DialogTitle>
               <DialogDescription>
-                Please review the details below — this happens instantly on confirm.
+                {meetsThreshold
+                  ? 'Please review the details below — this happens instantly on confirm.'
+                  : 'Please review the details below — the room will be held for you while you complete your fee payment.'}
               </DialogDescription>
             </DialogHeader>
 
@@ -149,11 +156,29 @@ export function RoomUpgradeDialog({
                     <span className="font-medium">{inr(currentFee)} → {inr(newFee)}</span>
                   </div>
                 </div>
-                <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
-                  You will be billed <span className="font-semibold">{inr(upgradeFee)}</span> for this
-                  upgrade (as configured under Fee Config → Upgrade Fees). The bill is generated
-                  automatically once you confirm, and a bed in this room is assigned to you.
-                </div>
+                {meetsThreshold ? (
+                  <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+                    You will be billed <span className="font-semibold">{inr(upgradeFee)}</span> for this
+                    upgrade (as configured under Fee Config → Upgrade Fees). The bill is generated
+                    automatically once you confirm, and a bed in this room is assigned to you.
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-amber-400/60 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-sm space-y-1.5">
+                    <p className="flex items-center gap-1.5 font-medium text-amber-800 dark:text-amber-300">
+                      <CalendarClock className="h-4 w-4 shrink-0" />
+                      Fee payment below the required level
+                    </p>
+                    <p className="text-amber-800/90 dark:text-amber-200/90">
+                      You&apos;ve paid <span className="font-semibold">{paidPct ?? 0}%</span> of this
+                      academic year&apos;s fees; <span className="font-semibold">{thresholdPct}%</span> is
+                      required to upgrade instantly. A bed in this room will be{' '}
+                      <span className="font-semibold">reserved for you for {holdDays} day{holdDays === 1 ? '' : 's'}</span>{' '}
+                      — the upgrade confirms automatically (and the {inr(upgradeFee)} upgrade bill is
+                      generated) as soon as your payments reach {thresholdPct}%. If not, the
+                      reservation is cancelled and the room is released.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -163,7 +188,9 @@ export function RoomUpgradeDialog({
               </Button>
               <Button onClick={confirm} disabled={!selected || upgrade.isPending}>
                 {upgrade.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Confirm upgrade · Pay {inr(upgradeFee)}
+                {meetsThreshold
+                  ? <>Confirm upgrade · Pay {inr(upgradeFee)}</>
+                  : <>Reserve room for {holdDays} day{holdDays === 1 ? '' : 's'}</>}
               </Button>
             </DialogFooter>
           </>

@@ -117,6 +117,13 @@ CREATE TRIGGER trigger_update_bill_status_on_payment AFTER INSERT ON billing_rec
 CREATE TRIGGER trigger_update_bill_status_on_delete AFTER DELETE ON billing_receipt_items
     FOR EACH ROW EXECUTE FUNCTION update_bill_status_on_delete();
 
+-- 20260611150000: re-check hostel upgrade payment-threshold holds on every payment
+-- (gateway callbacks and office receipts both insert receipt items). The function
+-- computes paid % from receipt items, so its order relative to
+-- trigger_update_bill_status_on_payment does not matter.
+CREATE TRIGGER trg_cl_upgrade_holds_after_payment AFTER INSERT ON billing_receipt_items
+    FOR EACH ROW EXECUTE FUNCTION _on_receipt_item_process_upgrade_holds();
+
 CREATE TRIGGER trigger_update_bill_balance_on_amount_change AFTER UPDATE OF bill_amount ON billing_student_bills
     FOR EACH ROW EXECUTE FUNCTION update_bill_balance_on_amount_change();
 

@@ -31601,6 +31601,8 @@ export type Database = {
           sort_order: number
           type: string
           updated_at: string
+          upgrade_hold_days: number
+          upgrade_threshold_pct: number | null
         }
         Insert: {
           allocation_mode?: string
@@ -31612,6 +31614,8 @@ export type Database = {
           sort_order?: number
           type: string
           updated_at?: string
+          upgrade_hold_days?: number
+          upgrade_threshold_pct?: number | null
         }
         Update: {
           allocation_mode?: string
@@ -31623,6 +31627,8 @@ export type Database = {
           sort_order?: number
           type?: string
           updated_at?: string
+          upgrade_hold_days?: number
+          upgrade_threshold_pct?: number | null
         }
         Relationships: []
       }
@@ -38036,6 +38042,9 @@ export type Database = {
           allocated_allocation_id: string | null
           created_at: string | null
           entry_kind: string
+          held_bed_id: string | null
+          held_room_id: string | null
+          hold_expires_at: string | null
           id: string
           institution_id: string
           learner_id: string
@@ -38059,6 +38068,9 @@ export type Database = {
           allocated_allocation_id?: string | null
           created_at?: string | null
           entry_kind?: string
+          held_bed_id?: string | null
+          held_room_id?: string | null
+          hold_expires_at?: string | null
           id?: string
           institution_id: string
           learner_id: string
@@ -38082,6 +38094,9 @@ export type Database = {
           allocated_allocation_id?: string | null
           created_at?: string | null
           entry_kind?: string
+          held_bed_id?: string | null
+          held_room_id?: string | null
+          hold_expires_at?: string | null
           id?: string
           institution_id?: string
           learner_id?: string

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Building2, Clock, Loader2, ArrowUpCircle, Sparkles } from 'lucide-react';
+import { Building2, CalendarClock, Clock, Loader2, ArrowUpCircle, Sparkles } from 'lucide-react';
 import {
   useUpgradeRoomCategories,
   useJoinUpgradeWaitlist,
@@ -54,12 +54,18 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, currentFee }: Pro
         ) : (
           options.map((opt) => {
             const waitlisted = waitlistFor(opt.category_id);
+            // A below-threshold reservation: bed is hard-held until paid or expiry.
+            const held = waitlisted?.held_room_number ? waitlisted : null;
             const hasRooms = opt.available_beds > 0;
             return (
               <div
                 key={opt.category_id}
                 className={`rounded-md border p-3 space-y-2 ${
-                  waitlisted && hasRooms ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-950/30' : ''
+                  held
+                    ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/30'
+                    : waitlisted && hasRooms
+                      ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-950/30'
+                      : ''
                 }`}
               >
                 <div className="flex items-center justify-between gap-3">
@@ -72,9 +78,25 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, currentFee }: Pro
                       {' · '}<span className="font-medium text-foreground">Pay {inr(opt.upgrade_fee)}</span>
                     </p>
                   </div>
-                  {hasRooms ? (
+                  {held ? (
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-400">
+                        <CalendarClock className="mr-1 h-3 w-3" /> Room reserved
+                      </Badge>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={leaveWaitlist.isPending}
+                        onClick={() => { if (!leaveWaitlist.isPending) leaveWaitlist.mutate(opt.category_id); }}
+                      >
+                        {leaveWaitlist.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : hasRooms ? (
                     <Button size="sm" onClick={() => setPicked(opt)}>
-                      <ArrowUpCircle className="mr-1.5 h-4 w-4" /> Upgrade now
+                      <ArrowUpCircle className="mr-1.5 h-4 w-4" />
+                      {opt.meets_threshold ? 'Upgrade now' : 'Reserve room'}
                     </Button>
                   ) : waitlisted ? (
                     <div className="flex items-center gap-2">
@@ -106,13 +128,32 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, currentFee }: Pro
                     </div>
                   )}
                 </div>
-                {waitlisted && hasRooms && (
+                {held && (
+                  <p className="text-xs text-amber-800 dark:text-amber-300">
+                    Room {held.held_room_number}
+                    {held.held_block_name ? ` (${held.held_block_name})` : ''} is held for you
+                    {held.hold_expires_at
+                      ? ` until ${new Date(held.hold_expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
+                      : ''}
+                    . You&apos;ve paid {held.paid_pct ?? 0}% of this year&apos;s fees — it confirms
+                    automatically at {held.threshold_pct}%; the reservation is cancelled after the
+                    deadline.
+                  </p>
+                )}
+                {!held && hasRooms && !opt.meets_threshold && (
+                  <p className="text-xs text-muted-foreground">
+                    You&apos;ve paid {opt.paid_pct ?? 0}% of this year&apos;s fees; {opt.threshold_pct}% is
+                    needed for an instant upgrade — you can still reserve a room for {opt.hold_days} day
+                    {opt.hold_days === 1 ? '' : 's'} while you pay.
+                  </p>
+                )}
+                {!held && waitlisted && hasRooms && (
                   <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
                     <Sparkles className="h-3.5 w-3.5" />
                     A room is now available — upgrade now to claim it.
                   </p>
                 )}
-                {waitlisted && !hasRooms && (
+                {!held && waitlisted && !hasRooms && (
                   <p className="text-xs text-muted-foreground">
                     Joined {new Date(waitlisted.created_at).toLocaleDateString('en-IN')} — we&apos;ll show the
                     rooms here as soon as one frees up.
@@ -134,6 +175,10 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, currentFee }: Pro
           currentFee={currentFee}
           newFee={picked.current_year_fee}
           upgradeFee={picked.upgrade_fee}
+          thresholdPct={picked.threshold_pct}
+          paidPct={picked.paid_pct}
+          meetsThreshold={picked.meets_threshold}
+          holdDays={picked.hold_days}
         />
       )}
     </Card>

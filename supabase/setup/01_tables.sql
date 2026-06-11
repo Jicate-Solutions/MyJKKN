@@ -4947,6 +4947,9 @@ CREATE INDEX IF NOT EXISTS idx_prog_elig_resolve
 -- hostel_waitlist: waitlist for hostel room allocation and self-service category-upgrade intent.
 -- Originally created in migration 20260222000015_campus_living_enums_and_tables.sql.
 -- Columns target_hostel_category_id and entry_kind added in 20260609160000_hostel_waitlist_upgrade_columns.sql.
+-- Columns held_room_id/held_bed_id/hold_expires_at added in
+-- 20260611150000_upgrade_payment_threshold_and_holds.sql: a below-threshold upgrade
+-- hard-reserves the chosen bed (bed status 'reserved') until paid or expired.
 CREATE TABLE IF NOT EXISTS public.hostel_waitlist (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES public.institutions(id),
@@ -4963,9 +4966,21 @@ CREATE TABLE IF NOT EXISTS public.hostel_waitlist (
     notes TEXT,
     target_hostel_category_id UUID REFERENCES public.hostel_categories(id),
     entry_kind TEXT NOT NULL DEFAULT 'allocation',
+    held_room_id UUID REFERENCES public.hostel_rooms(id) ON DELETE SET NULL,
+    held_bed_id UUID REFERENCES public.hostel_beds(id) ON DELETE SET NULL,
+    hold_expires_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- hostel_categories upgrade-threshold config (20260611150000): min % of the learner's
+-- current-academic-year academic bills paid for an instant upgrade into the category
+-- (NULL = no gate), and how many days a below-threshold reservation is held.
+ALTER TABLE public.hostel_categories
+  ADD COLUMN IF NOT EXISTS upgrade_threshold_pct numeric
+    CHECK (upgrade_threshold_pct >= 0 AND upgrade_threshold_pct <= 100),
+  ADD COLUMN IF NOT EXISTS upgrade_hold_days integer NOT NULL DEFAULT 5
+    CHECK (upgrade_hold_days BETWEEN 1 AND 60);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_hostel_waitlist_active_upgrade
   ON public.hostel_waitlist (learner_id, target_hostel_category_id)
