@@ -72,6 +72,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Explicit role gate — placement PII export. "Logged in" is not enough;
+    // require the NAAC-evidence permission (super-admin bypass is in the RPC).
+    const { data: canExport } = await (supabase as any).rpc('user_has_permission', {
+      user_id: user.id,
+      permission_key: 'aiPulse:naac.evidence_export',
+    });
+    if (!canExport) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     // Parse query params + apply defaults.
     const url = new URL(request.url);
     const defaults = defaultLastQuarter();
