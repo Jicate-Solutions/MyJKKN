@@ -2259,6 +2259,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/campus-living/my-hostel/my-meals",
+            "label": "My Meals",
+            "iconName": "UtensilsCrossed",
+            "children": []
+          },
+          {
             "path": "/campus-living/my-hostel/premium",
             "label": "Premium Stay — Opt-in",
             "iconName": "Sparkles",
