@@ -45,6 +45,31 @@ async function igniteCalProvision(
   }
 }
 
+/**
+ * Schedule the ignition so its cross-DB provisioning write SURVIVES the response.
+ *
+ * A bare `void igniteCalProvision()` before NextResponse.redirect() is NOT safe on
+ * Vercel Node.js serverless: the instance can be reclaimed once the response flushes,
+ * truncating the in-flight two-phase write (Cal.com users/ApiKey CTE → MyJKKN vault.set)
+ * and orphaning an unrecoverable key. We register the promise with the platform via
+ * `waitUntil` (the same idiom the webhook routes use) so the instance stays alive until
+ * provisioning finishes. Awaiting only the (cached) module import adds ~0ms to login.
+ * Non-Vercel/local: the import throws → run unregistered (no instance-reclaim there).
+ */
+async function scheduleCalProvision(
+  userId: string,
+  email: string | null | undefined,
+  name?: string | null
+): Promise<void> {
+  const work = igniteCalProvision(userId, email, name);
+  try {
+    const { waitUntil } = await import('@vercel/functions');
+    waitUntil(work);
+  } catch {
+    void work;
+  }
+}
+
 
 export async function GET(request: NextRequest) {
   await connection();
@@ -455,7 +480,7 @@ export async function GET(request: NextRequest) {
 
         // Path W: auto-provision invisible Cal.com identity (fire-and-forget, never blocks).
         // New-learner profile has no full_name yet → name falls back to email local-part.
-        void igniteCalProvision(user.id, newProfile.email ?? user.email);
+        await scheduleCalProvision(user.id, newProfile.email ?? user.email);
 
         // Create session tracking record
         try {
@@ -496,7 +521,7 @@ export async function GET(request: NextRequest) {
 
       // Path W: auto-provision invisible Cal.com identity (fire-and-forget, never blocks).
       // user.email is the authenticated email (always present); full_name from the profile.
-      void igniteCalProvision(user.id, user.email, actualProfile?.full_name);
+      await scheduleCalProvision(user.id, user.email, actualProfile?.full_name);
 
       // Create session tracking record for engagement analytics
       console.log('[Auth Callback] 🎯 Attempting to create analytics session...');
