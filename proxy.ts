@@ -36,6 +36,7 @@ const PUBLIC_PATHS_SET = new Set([
 // Public path prefixes (for dynamic routes like /apply/[slug])
 const PUBLIC_PATH_PREFIXES = [
   '/apply/', // Public admission form builder pages — no login
+  '/book/', // Public routed-booking pages (/book/[slug]) — no login (Path W #10)
   '/c/', // Public campaign link shortener pages — no login
   '/student-form/', // Student self-fill form via QR (token-validated server-side) — no login
 ];
