@@ -84,6 +84,10 @@ const DEFAULT_BASE_URL =
  */
 const API_VERSION_DEFAULT = '2024-08-13';
 const API_VERSION_SCHEDULES = '2024-06-11';
+// Event-types endpoints are version-gated: the default 2024-08-13 returns 404 on
+// /v2/event-types; Cal.com mounts them under 2024-06-14 (the UpdateEventTypeInput_2024_06_14
+// DTO). Verified live against jicate-booking-api: 2024-08-13→404, 2024-06-14→200.
+const API_VERSION_EVENT_TYPES = '2024-06-14';
 
 const LOG_PREFIX = '[cal-com-api]';
 
@@ -294,7 +298,7 @@ export class CalComApiClient {
    * declared by the orchestrating agents but is NOT forwarded to the API.
    */
   async listEventTypes(_userId?: number): Promise<CalComEventType[]> {
-    return this.get<CalComEventType[]>('/v2/event-types');
+    return this.get<CalComEventType[]>('/v2/event-types', API_VERSION_EVENT_TYPES);
   }
 
   /**
@@ -303,7 +307,7 @@ export class CalComApiClient {
    * or belongs to a different user (Cal.com returns 404 in both cases).
    */
   async getEventType(eventTypeId: number): Promise<CalComEventType> {
-    return this.get<CalComEventType>(`/v2/event-types/${eventTypeId}`);
+    return this.get<CalComEventType>(`/v2/event-types/${eventTypeId}`, API_VERSION_EVENT_TYPES);
   }
 
   /**
@@ -312,7 +316,7 @@ export class CalComApiClient {
    * Required fields: title, slug, lengthInMinutes.
    */
   async createEventType(input: CalComEventTypeCreateInput): Promise<CalComEventType> {
-    return this.post<CalComEventType>('/v2/event-types', input);
+    return this.post<CalComEventType>('/v2/event-types', input, API_VERSION_EVENT_TYPES);
   }
 
   /**
@@ -325,7 +329,7 @@ export class CalComApiClient {
     eventTypeId: number,
     input: Partial<CalComEventTypeCreateInput>,
   ): Promise<CalComEventType> {
-    return this.patch<CalComEventType>(`/v2/event-types/${eventTypeId}`, input);
+    return this.patch<CalComEventType>(`/v2/event-types/${eventTypeId}`, input, API_VERSION_EVENT_TYPES);
   }
 
   /**
@@ -334,7 +338,7 @@ export class CalComApiClient {
    * webhooks linked to this EventType, removes hashed-link rows.
    */
   async deleteEventType(eventTypeId: number): Promise<void> {
-    return this.delete(`/v2/event-types/${eventTypeId}`);
+    return this.delete(`/v2/event-types/${eventTypeId}`, API_VERSION_EVENT_TYPES);
   }
 
   // ──────────────────────────────────────────────────────────────────────────
