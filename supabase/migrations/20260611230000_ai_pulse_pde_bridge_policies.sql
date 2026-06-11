@@ -29,7 +29,7 @@ VALUES
   (
     'pde_bridge_signal_map',
     'AI Pulse → PDE signal mapping',
-    'Which PDE category each AI Pulse achievement counts toward, and what it is called on the learner profile. Edit to re-map without a code change.',
+    'Which PDE category each AI Pulse achievement counts toward, and what it is called on the learner profile. Edit to re-map without a code change. Live keys: category_key, skill_name, status, evidence_type, min_polls_responded. (score_source is informational in v1 — scoring rules are fixed per signal.)',
     '{
       "engaged_live_session": {
         "category_key": "embodied",
