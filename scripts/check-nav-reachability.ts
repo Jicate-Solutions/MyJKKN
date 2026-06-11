@@ -123,6 +123,22 @@ const NAV_EXCLUDE = new Set<string>([
   '/organizations/departments/hod-assignment',
 
   // ────────────────────────────────────────────────────────────
+  // 2026-06-11 baseline repair — three orphans that landed via
+  // direct-to-main commits (no PR, so the PR-time gate never ran)
+  // and pushed the count to 53 > 50, breaking `npm run build` at
+  // deploy time for everyone. All three are button-invoked pages
+  // with a verified in-page link from a chip-reachable parent:
+  //  - group-dashboard actions + setup: linked from the Pace tab
+  //    (arps-pace-overview.tsx, "Phase 2E nav buttons", 2026-06-07).
+  //  - school-defaults/audit: linked from the School Defaults page
+  //    header "Audit log" button (added in this same PR — it was a
+  //    true orphan with zero inbound links until now).
+  // ────────────────────────────────────────────────────────────
+  '/admission/group-dashboard/actions',
+  '/admission/group-dashboard/setup',
+  '/organizations/school-defaults/audit',
+
+  // ────────────────────────────────────────────────────────────
   // Form pages invoked from list-page "+ New" / "Add" / "Create"
   // buttons. Not tier-strip destinations — the user clicks a row
   // action on the parent list, lands here, submits, returns to list.
