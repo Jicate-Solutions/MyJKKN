@@ -43,6 +43,13 @@ const nextConfig: NextConfig = {
     // the PDF call letter. Keep externalised — never remove.
     '@sparticuz/chromium',
     'puppeteer-core',
+    // `pg` (node-postgres) does dynamic require()s for optional native bindings +
+    // connection internals that webpack/turbopack cannot bundle. Without this it
+    // fails to bundle (dev: "can't resolve 'pg'") and can fail at runtime in prod.
+    // Used by the jicate-booking provision service (Path W) via the auth callback
+    // (PR #1321, already deployed) and the native /meetings/manage + /availability
+    // pages. Same class as @sparticuz/chromium above. Keep externalised.
+    'pg',
   ],
 
   // Force Vercel's file tracer to copy the Chromium binary into each PDF
