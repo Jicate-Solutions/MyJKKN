@@ -19,6 +19,7 @@
 
 import crypto from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { MeetingBookingEmailService } from '@/lib/services/email/meeting-booking-email-service';
 import {
   computeSlots,
   groupSlotsByDate,
@@ -280,20 +281,27 @@ export class NativeSchedulingService {
     const endIso = new Date(startDate.getTime() + mt.duration_min * 60_000).toISOString();
     const uid = crypto.randomBytes(16).toString('base64url');
 
-    const { error } = await supabase.from('meeting_bookings').insert({
-      uid,
-      meeting_type_id: mt.id,
-      host_profile_id: mt.host_profile_id,
-      institution_id: mt.institution_id,
-      attendee_name: input.attendeeName,
-      attendee_email: input.attendeeEmail,
-      attendee_phone: input.attendeePhone ?? null,
-      answers: input.answers ?? {},
-      start_time: startIso,
-      end_time: endIso,
-      status: 'confirmed',
-      source: input.source ?? 'direct',
-    });
+    // .select() reads back the DB-generated cancel_token for the attendee's
+    // self-service cancel link (Phase N3a) — service-role only; the token
+    // never reaches host-facing reads.
+    const { data: inserted, error } = await supabase
+      .from('meeting_bookings')
+      .insert({
+        uid,
+        meeting_type_id: mt.id,
+        host_profile_id: mt.host_profile_id,
+        institution_id: mt.institution_id,
+        attendee_name: input.attendeeName,
+        attendee_email: input.attendeeEmail,
+        attendee_phone: input.attendeePhone ?? null,
+        answers: input.answers ?? {},
+        start_time: startIso,
+        end_time: endIso,
+        status: 'confirmed',
+        source: input.source ?? 'direct',
+      })
+      .select('cancel_token')
+      .single();
 
     if (error) {
       // 23P01 = exclusion_violation: a concurrent booking won the slot.
@@ -307,6 +315,29 @@ export class NativeSchedulingService {
       .select('full_name, email')
       .eq('id', mt.host_profile_id)
       .maybeSingle();
+
+    // Phase N3a: confirmation emails to attendee + host. The booking is
+    // already committed — the email service is non-throwing and skips when
+    // RESEND_API_KEY is unset, so notification failure never fails a booking.
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+    const cancelToken = (inserted as { cancel_token?: string } | null)?.cancel_token;
+    await MeetingBookingEmailService.sendBookingConfirmedEmails({
+      uid,
+      meetingTitle: mt.title,
+      durationMin: mt.duration_min,
+      timezone: sched.timezone,
+      startTime: startIso,
+      hostName:
+        (host?.full_name as string | undefined) ?? (host?.email as string | undefined) ?? '',
+      hostEmail: (host?.email as string | undefined) ?? '',
+      attendeeName: input.attendeeName,
+      attendeeEmail: input.attendeeEmail,
+      attendeePhone: input.attendeePhone ?? null,
+      cancelUrl:
+        appUrl && cancelToken
+          ? `${appUrl}/book/cancel/${uid}?token=${cancelToken}`
+          : undefined,
+    });
 
     return {
       success: true,
@@ -329,7 +360,9 @@ export class NativeSchedulingService {
   ): Promise<{ success: boolean; error?: string }> {
     const { data: booking, error } = await supabase
       .from('meeting_bookings')
-      .select('id, host_profile_id, cancel_token, status')
+      .select(
+        'id, host_profile_id, cancel_token, status, attendee_name, attendee_email, start_time, end_time, meeting_type_id',
+      )
       .eq('uid', uid)
       .maybeSingle();
     if (error || !booking) return { success: false, error: 'NOT_FOUND' };
@@ -353,6 +386,52 @@ export class NativeSchedulingService {
       console.error(`${LOG_PREFIX} cancel failed:`, upErr.message);
       return { success: false, error: 'INTERNAL' };
     }
+
+    // Phase N3a: cancellation notices to both parties. The cancel is already
+    // committed — the email service is non-throwing, so this can't undo it.
+    const [{ data: mtRow }, { data: host }] = await Promise.all([
+      supabase
+        .from('meeting_types')
+        .select('title, schedule_id')
+        .eq('id', booking.meeting_type_id)
+        .maybeSingle(),
+      supabase
+        .from('profiles')
+        .select('full_name, email')
+        .eq('id', booking.host_profile_id)
+        .maybeSingle(),
+    ]);
+    let timezone = 'Asia/Kolkata';
+    if (mtRow?.schedule_id) {
+      const { data: schedRow } = await supabase
+        .from('meeting_host_schedules')
+        .select('timezone')
+        .eq('id', mtRow.schedule_id)
+        .maybeSingle();
+      if (schedRow?.timezone) timezone = schedRow.timezone;
+    }
+    const durationMin = Math.max(
+      1,
+      Math.round(
+        (new Date(booking.end_time).getTime() - new Date(booking.start_time).getTime()) / 60_000,
+      ),
+    );
+    await MeetingBookingEmailService.sendBookingCancelledEmails({
+      uid,
+      meetingTitle: (mtRow?.title as string | undefined) ?? 'Meeting',
+      durationMin,
+      timezone,
+      startTime: booking.start_time,
+      hostName:
+        (host?.full_name as string | undefined) ?? (host?.email as string | undefined) ?? '',
+      hostEmail: (host?.email as string | undefined) ?? '',
+      attendeeName: booking.attendee_name ?? '',
+      attendeeEmail: booking.attendee_email ?? '',
+      attendeePhone: null,
+      cancelledBy: byToken ? 'attendee' : 'host',
+      reason: reason ?? null,
+    });
+
     return { success: true };
   }
 }
