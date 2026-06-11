@@ -64,8 +64,10 @@ export function QuickActionsCard({
       href: `/ai-pulse/submit/publication?cycle=${cycleSegment}`,
       icon: Megaphone,
       label: 'Submit Publication',
-      hint: 'IG / GitHub Top-2 publication entry',
-      enabled: canSubmitPublication && hasTeam && !!cycleId,
+      hint: hasTeam
+        ? 'IG post on your department account + GitHub — reach is verified automatically'
+        : 'Open to see this cycle\'s publication deadline (you\'ll need a team to submit)',
+      enabled: canSubmitPublication && !!cycleId,
       variant: 'secondary',
     },
   ];
