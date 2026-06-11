@@ -716,6 +716,33 @@ export interface HostelAttendance {
   remarks: string | null;
   created_at: string | null;
   updated_at: string | null;
+  /** Joined relations (HostelAttendanceService.getAttendance only). */
+  learner?: { id: string; full_name: string | null; email: string | null } | null;
+  block?: { id: string; name: string | null; code: string | null } | null;
+  marker?: { id: string; full_name: string | null; email: string | null } | null;
+}
+
+// Resident row for the Mark Attendance page — hostel_residents merged with
+// the learner's active hostel_allocations row (block/room/bed context).
+export interface MarkableResidentAllocation {
+  learner_id: string;
+  block_id: string;
+  room_id: string | null;
+  bed_id: string | null;
+  block: { id: string; name: string | null; code: string | null } | null;
+  room: { id: string; room_number: string | null; floor: number | null } | null;
+  bed: { id: string; bed_number: string | null } | null;
+  /** Joined learner profile — used to synthesise rows for allocated
+   *  learners that have no hostel_residents record yet. */
+  learner?: { id: string; full_name: string | null; email: string | null } | null;
+}
+
+export interface MarkableResident {
+  id: string;
+  profile_id: string;
+  id_proof_number: string | null;
+  profile: { id: string; full_name: string | null; email: string | null } | null;
+  allocation: MarkableResidentAllocation | null;
 }
 
 export interface CreateHostelAttendanceDTO {
