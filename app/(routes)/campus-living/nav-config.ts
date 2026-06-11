@@ -27,7 +27,6 @@ const config: ModuleNavConfig = {
       matchPaths: ['/campus-living/my-hostel', '/campus-living/my-hostel/premium'],
       children: [
         { label: 'My Hostel', icon: 'Home', href: '/campus-living/my-hostel', matchPaths: ['/campus-living/my-hostel'] },
-        { label: 'Request Room', icon: 'BedDouble', href: '/campus-living/my-hostel/request-room', matchPaths: ['/campus-living/my-hostel/request-room'] },
         { label: 'Room Cleaning', icon: 'Brush', href: '/campus-living/my-hostel/housekeeping', matchPaths: ['/campus-living/my-hostel/housekeeping'] },
         { label: 'Premium Stay', icon: 'Sparkles', href: '/campus-living/my-hostel/premium', matchPaths: ['/campus-living/my-hostel/premium'] },
         { label: 'Pick Room', icon: 'BedDouble', href: '/campus-living/my-hostel/premium/pick-room', matchPaths: ['/campus-living/my-hostel/premium/pick-room'] },

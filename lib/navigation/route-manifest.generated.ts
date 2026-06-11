@@ -2229,12 +2229,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           },
           {
-            "path": "/campus-living/my-hostel/request-room",
-            "label": "Request Room",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
             "path": "/campus-living/my-hostel/vacate-request",
             "label": "Vacate Request",
             "iconName": "LogOut",
