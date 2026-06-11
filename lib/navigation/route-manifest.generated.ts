@@ -1372,6 +1372,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "My Pulse",
         "iconName": "FileText",
         "children": []
+      },
+      {
+        "path": "/ai-pulse/submit",
+        "label": "Submit",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/ai-pulse/submit/domain-sync",
+            "label": "Domain Sync",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/ai-pulse/submit/publication",
+            "label": "Publication",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
       }
     ]
   },
