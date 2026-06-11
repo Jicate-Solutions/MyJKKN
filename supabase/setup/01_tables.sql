@@ -5047,3 +5047,9 @@ CREATE INDEX IF NOT EXISTS idx_upgrade_fee_room ON public.hostel_category_upgrad
   (hostel_year_id, from_hostel_category_id, to_hostel_category_id) WHERE is_active;
 CREATE INDEX IF NOT EXISTS idx_upgrade_fee_mess ON public.hostel_category_upgrade_fees
   (hostel_year_id, from_mess_category_id, to_mess_category_id) WHERE is_active;
+
+-- 20260611180000: idempotency for housekeeping task generation — one task per
+-- schedule per day (cron + creation trigger both upsert through this).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cleaning_task_schedule_date
+  ON public.hostel_cleaning_tasks (schedule_id, date)
+  WHERE schedule_id IS NOT NULL;

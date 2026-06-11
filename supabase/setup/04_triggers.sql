@@ -1287,3 +1287,8 @@ CREATE TRIGGER trg_sync_lead_referral_to_learner_profile
 AFTER INSERT OR UPDATE OF referral_type, referred_by_id, referred_by_name, learner_profile_id
 ON public.admission_leads
 FOR EACH ROW EXECUTE FUNCTION public.sync_lead_referral_to_learner_profile();
+
+-- 20260611180000: seed today's hostel_cleaning_tasks row when a due cleaning
+-- schedule is created (daily plans appear on the Tasks page immediately).
+CREATE TRIGGER trg_cleaning_schedule_seed_task AFTER INSERT ON hostel_cleaning_schedules
+    FOR EACH ROW EXECUTE FUNCTION _on_cleaning_schedule_seed_task();

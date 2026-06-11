@@ -15769,3 +15769,97 @@ END $$;
 REVOKE EXECUTE ON FUNCTION public.fn_cl_expire_upgrade_holds() FROM anon, authenticated, PUBLIC;
 
 NOTIFY pgrst, 'reload schema';
+
+-- 20260611180000: housekeeping schedule -> task generation ---------------------
+-- Dueness rule anchored on the schedule's creation date (IST). daily: every
+-- day; weekly/biweekly: every 7/14 days; monthly/quarterly/half_yearly/yearly:
+-- same day-of-month (clamped to month end) every 1/3/6/12 months.
+CREATE OR REPLACE FUNCTION public.fn_housekeeping_schedule_due(
+  p_frequency text, p_anchor date, p_date date
+)
+RETURNS boolean
+LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE
+  v_months_apart int;
+  v_dom int;
+BEGIN
+  IF p_date < p_anchor THEN RETURN false; END IF;
+  CASE p_frequency
+    WHEN 'daily' THEN RETURN true;
+    WHEN 'weekly' THEN RETURN (p_date - p_anchor) % 7 = 0;
+    WHEN 'biweekly' THEN RETURN (p_date - p_anchor) % 14 = 0;
+    WHEN 'monthly', 'quarterly', 'half_yearly', 'yearly' THEN
+      v_months_apart := (EXTRACT(YEAR FROM p_date)::int * 12 + EXTRACT(MONTH FROM p_date)::int)
+                      - (EXTRACT(YEAR FROM p_anchor)::int * 12 + EXTRACT(MONTH FROM p_anchor)::int);
+      IF v_months_apart % (CASE p_frequency
+                             WHEN 'monthly' THEN 1
+                             WHEN 'quarterly' THEN 3
+                             WHEN 'half_yearly' THEN 6
+                             ELSE 12 END) <> 0 THEN
+        RETURN false;
+      END IF;
+      v_dom := LEAST(
+        EXTRACT(DAY FROM p_anchor)::int,
+        EXTRACT(DAY FROM (date_trunc('month', p_date) + interval '1 month - 1 day'))::int
+      );
+      RETURN EXTRACT(DAY FROM p_date)::int = v_dom;
+    ELSE
+      RETURN false;
+  END CASE;
+END $$;
+
+-- Idempotent day generator (cron /api/cron/campus-living/housekeeping-task-generator,
+-- daily 00:05 IST). Backed by uq_cleaning_task_schedule_date.
+CREATE OR REPLACE FUNCTION public.fn_housekeeping_generate_tasks(p_date date DEFAULT NULL)
+RETURNS integer
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_date date := COALESCE(p_date, (now() AT TIME ZONE 'Asia/Kolkata')::date);
+  v_count int;
+BEGIN
+  INSERT INTO hostel_cleaning_tasks (
+    institution_id, schedule_id, block_id, floor_number, date,
+    cleaning_type, assigned_staff, status
+  )
+  SELECT s.institution_id, s.id, s.block_id, s.floor_number, v_date,
+         s.cleaning_type, s.assigned_staff, 'scheduled'
+  FROM hostel_cleaning_schedules s
+  WHERE s.is_active
+    AND fn_housekeeping_schedule_due(
+          s.frequency::text,
+          (s.created_at AT TIME ZONE 'Asia/Kolkata')::date,
+          v_date)
+  ON CONFLICT (schedule_id, date) WHERE schedule_id IS NOT NULL DO NOTHING;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_housekeeping_generate_tasks(date) FROM anon, authenticated, PUBLIC;
+
+-- Seed today's task immediately when a due schedule is created
+-- (trigger trg_cleaning_schedule_seed_task in 04_triggers.sql).
+CREATE OR REPLACE FUNCTION public._on_cleaning_schedule_seed_task()
+RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_today date := (now() AT TIME ZONE 'Asia/Kolkata')::date;
+BEGIN
+  BEGIN
+    IF NEW.is_active AND fn_housekeeping_schedule_due(
+         NEW.frequency::text,
+         (NEW.created_at AT TIME ZONE 'Asia/Kolkata')::date,
+         v_today) THEN
+      INSERT INTO hostel_cleaning_tasks (
+        institution_id, schedule_id, block_id, floor_number, date,
+        cleaning_type, assigned_staff, status
+      ) VALUES (
+        NEW.institution_id, NEW.id, NEW.block_id, NEW.floor_number, v_today,
+        NEW.cleaning_type, NEW.assigned_staff, 'scheduled'
+      )
+      ON CONFLICT (schedule_id, date) WHERE schedule_id IS NOT NULL DO NOTHING;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '_on_cleaning_schedule_seed_task: %', SQLERRM;
+  END;
+  RETURN NEW;
+END $$;

@@ -44,14 +44,18 @@ import {
   ChevronRight,
   Loader2,
   ShieldAlert,
+  Sparkles,
   UserX,
   XCircle,
 } from 'lucide-react';
+import Link from 'next/link';
 import { BlockSelector } from '@/components/campus-living/block-selector';
 import {
   useBookingBoard,
   useMarkBooking,
 } from '@/hooks/campus-living/use-housekeeping-bookings';
+import { useCleaningTasks } from '@/hooks/campus-living/use-hostel-housekeeping';
+import { useHostelBlocks } from '@/hooks/campus-living/use-hostel-blocks';
 import type {
   BookingBoardRow,
   MarkableBookingStatus,
@@ -122,6 +126,25 @@ export function BookingDayBoard({ institutionId }: { institutionId: string }) {
 
   const board = useBookingBoard(institutionId || undefined, date);
   const markMut = useMarkBooking();
+
+  // The day's scheduled-cleaning tasks (generated from recurring schedules by
+  // fn_housekeeping_generate_tasks) — shown alongside resident bookings so the
+  // board is the complete picture of the day's cleaning work.
+  const tasksQuery = useCleaningTasks(institutionId || undefined, {
+    date_from: date,
+    date_to: date,
+  });
+  const { data: blocksData } = useHostelBlocks(institutionId);
+  const blockNames = useMemo(() => {
+    const m = new Map<string, string>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ((blocksData as any)?.data ?? []).forEach((b: any) => m.set(b.id, b.name));
+    return m;
+  }, [blocksData]);
+  const dayTasks = useMemo(() => {
+    const all = tasksQuery.data?.data ?? [];
+    return blockFilter === 'all' ? all : all.filter((t) => t.block_id === blockFilter);
+  }, [tasksQuery.data?.data, blockFilter]);
 
   const rows = useMemo(() => {
     const all = board.data ?? [];
@@ -231,7 +254,75 @@ export function BookingDayBoard({ institutionId }: { institutionId: string }) {
         </Card>
       </div>
 
-      {/* Board table */}
+      {/* Scheduled cleaning for the day (from recurring schedules) */}
+      <Card>
+        <CardContent className="p-0">
+          <div className="flex items-center justify-between px-4 pt-4">
+            <h2 className="font-medium flex items-center gap-2 text-sm">
+              <Sparkles className="h-4 w-4 text-primary" />
+              Scheduled cleaning · {dayTasks.length}
+            </h2>
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/campus-living/housekeeping/tasks">Manage on Tasks page</Link>
+            </Button>
+          </div>
+          {tasksQuery.isLoading ? (
+            <div className="space-y-2 p-6">
+              <Skeleton className="h-8 w-full" />
+            </div>
+          ) : dayTasks.length === 0 ? (
+            <p className="px-4 pb-4 pt-2 text-sm text-muted-foreground">
+              No scheduled cleaning due on {date}. Recurring plans created on the{' '}
+              <Link href="/campus-living/housekeeping" className="underline">
+                Housekeeping page
+              </Link>{' '}
+              appear here on their due days.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Cleaning Type</TableHead>
+                  <TableHead>Block</TableHead>
+                  <TableHead>Floor</TableHead>
+                  <TableHead>Assigned Staff</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {dayTasks.map((t) => (
+                  <TableRow key={t.id}>
+                    <TableCell className="font-medium capitalize">
+                      {String(t.cleaning_type ?? '—').replace(/_/g, ' ')}
+                    </TableCell>
+                    <TableCell>
+                      {t.block_id ? blockNames.get(t.block_id) ?? '—' : 'Common area'}
+                    </TableCell>
+                    <TableCell>{t.floor_number ?? '—'}</TableCell>
+                    <TableCell>{t.assigned_staff ?? '—'}</TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={
+                          t.status === 'completed'
+                            ? 'border-green-400 text-green-700'
+                            : t.status === 'missed'
+                              ? 'border-red-400 text-red-700'
+                              : ''
+                        }
+                      >
+                        {String(t.status ?? '—').replace(/_/g, ' ')}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Resident slot bookings table */}
       <Card>
         <CardContent className="p-0">
           {!institutionId ? (

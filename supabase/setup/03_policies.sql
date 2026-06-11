@@ -6825,3 +6825,68 @@ CREATE POLICY platform_policies_social_attr_update ON public.platform_policies
     policy_key = 'ig.attribution_window_days'
     AND user_has_permission('social.attribution.edit')
   );
+
+-- ─── Housekeeping (hostel_cleaning_schedules / hostel_cleaning_tasks) ────────
+-- 20260611170000: RLS aligned to the permission CATALOG keys
+-- (campus_living.housekeeping.view / .schedule / .mark_done). The original
+-- policies checked .create/.edit/.delete — keys no role holds and that aren't
+-- in lib/constants/permissions.ts, so only super_admin/admin could ever write.
+-- SELECT policies (unchanged) gate on campus_living.housekeeping.view.
+
+ALTER POLICY hostel_cleaning_schedules_insert_permission ON public.hostel_cleaning_schedules
+  WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('campus_living.housekeeping.schedule')
+        AND role_has_institution_access(institution_id)
+        AND role_has_block_access(block_id))
+  );
+
+ALTER POLICY hostel_cleaning_schedules_update_permission ON public.hostel_cleaning_schedules
+  USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('campus_living.housekeeping.schedule')
+        AND role_has_institution_access(institution_id)
+        AND role_has_block_access(block_id))
+  )
+  WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('campus_living.housekeeping.schedule')
+        AND role_has_institution_access(institution_id)
+        AND role_has_block_access(block_id))
+  );
+
+ALTER POLICY hostel_cleaning_schedules_delete_permission ON public.hostel_cleaning_schedules
+  USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('campus_living.housekeeping.schedule')
+        AND role_has_institution_access(institution_id)
+        AND role_has_block_access(block_id))
+  );
+
+ALTER POLICY hostel_cleaning_tasks_insert_permission ON public.hostel_cleaning_tasks
+  WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('campus_living.housekeeping.schedule')
+        AND role_has_institution_access(institution_id))
+  );
+
+ALTER POLICY hostel_cleaning_tasks_update_permission ON public.hostel_cleaning_tasks
+  USING (
+    is_super_admin() OR is_admin()
+    OR ((user_has_permission('campus_living.housekeeping.mark_done')
+         OR user_has_permission('campus_living.housekeeping.schedule'))
+        AND role_has_institution_access(institution_id))
+  )
+  WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR ((user_has_permission('campus_living.housekeeping.mark_done')
+         OR user_has_permission('campus_living.housekeeping.schedule'))
+        AND role_has_institution_access(institution_id))
+  );
+
+ALTER POLICY hostel_cleaning_tasks_delete_permission ON public.hostel_cleaning_tasks
+  USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('campus_living.housekeeping.schedule')
+        AND role_has_institution_access(institution_id))
+  );

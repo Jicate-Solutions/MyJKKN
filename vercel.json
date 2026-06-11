@@ -92,6 +92,10 @@
       "schedule": "45 * * * *"
     },
     {
+      "path": "/api/cron/campus-living/housekeeping-task-generator?secret=${CRON_SECRET}",
+      "schedule": "35 18 * * *"
+    },
+    {
       "path": "/api/cron/grievance-sla-breach-check?secret=${CRON_SECRET}",
       "schedule": "23 * * * *"
     },
