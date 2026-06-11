@@ -53,14 +53,6 @@ export function useMyVotes(learnerId: string | null, enabled = true) {
   });
 }
 
-export function useMyRecognition(learnerId: string | null, enabled = true) {
-  return useQuery({
-    queryKey: ['mess', 'choose', 'my-recognition', learnerId],
-    queryFn: () => ChooseYourMenuService.getMyRecognition(learnerId!),
-    enabled: enabled && !!learnerId,
-  });
-}
-
 export function useLiveVoteCounts(enabled = true) {
   return useQuery({
     queryKey: ['mess', 'choose', 'live-votes'],

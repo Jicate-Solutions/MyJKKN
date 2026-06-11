@@ -15,8 +15,9 @@
  *     (no tier row = 'standard'), profiles.learner_id bridge, and
  *     learners_profiles.gender (MALE/FEMALE) → menu gender (boys/girls).
  *     Same identity chain as housekeeping getMyEntitlement.
- *   • my activity      — own rows from mess_meal_choices / mess_dish_votes /
- *     mess_choose_recognition (RLS: owner via profiles.learner_id chain).
+ *   • my activity      — own rows from mess_meal_choices / mess_dish_votes
+ *     (RLS: owner via profiles.learner_id chain). Recognition reads moved to
+ *     recognition-service.ts (cross-module stream, CARE keystone).
  *   • live counts      — fn_mess_choose_live_counts (SECURITY DEFINER,
  *     aggregate-only — per-resident rows never leak into the public tally).
  *
@@ -73,14 +74,6 @@ export interface MyDishVote {
   vote: 1 | -1;
   dish: string;
   updated_at: string;
-}
-
-export interface MyRecognitionEvent {
-  id: string;
-  event_type: 'vote_landed' | 'proposal_approved' | 'choice_served';
-  dish_name: string | null;
-  menu_week: string | null;
-  fired_at: string;
 }
 
 export interface LiveVoteCount {
@@ -278,23 +271,6 @@ export class ChooseYourMenuService {
       dish: libName(r.item),
       updated_at: r.updated_at,
     }));
-  }
-
-  static async getMyRecognition(learnerId: string, limit = 10): Promise<MyRecognitionEvent[]> {
-    if (!learnerId) return [];
-    const supabase = createClientSupabaseClient();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any)
-      .from('mess_choose_recognition')
-      .select('id, event_type, dish_name, menu_week, fired_at')
-      .eq('learner_id', learnerId)
-      .order('fired_at', { ascending: false })
-      .limit(limit);
-    if (error) {
-      logger.error(MODULE, 'getMyRecognition failed', error);
-      throw error;
-    }
-    return (data ?? []) as MyRecognitionEvent[];
   }
 
   // ── Live counts (aggregate-only RPC — the public return-arc tally) ───

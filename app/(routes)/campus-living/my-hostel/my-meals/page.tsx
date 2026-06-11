@@ -48,10 +48,10 @@ import {
   useLiveVoteCounts,
   useMyMealsContext,
   useMyMenuWeek,
-  useMyRecognition,
   useMyVotes,
   useMyWeekChoices,
 } from '@/hooks/campus-living/use-choose-your-menu';
+import { useMyRecognition } from '@/hooks/campus-living/use-recognition';
 import { WeekMenuStrip } from './_components/week-menu-strip';
 import { LiveCountsBoard } from './_components/live-counts-board';
 import { RecognitionFeed } from './_components/recognition-feed';
@@ -104,6 +104,7 @@ export default function MyMealsPage() {
   );
   const { data: recognition, isLoading: recognitionLoading } = useMyRecognition(
     learnerId,
+    'mess',
     masterOn && !!policies?.feedbackRecognition
   );
 
