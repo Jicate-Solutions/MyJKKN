@@ -2470,6 +2470,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/campus-living/settings/choose-your-menu",
+            "label": "Choose Your Menu",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/campus-living/settings/curfew",
             "label": "Curfew",
             "iconName": "FileText",
