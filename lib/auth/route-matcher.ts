@@ -1,4 +1,4 @@
-// CI smoke test 2026-06-11: validates the Claude Risk Review deep-tier panel (PR will be closed, not merged).
+// CI smoke test 2026-06-11 (rerun 2): validates the Claude Risk Review deep-tier panel (PR will be closed, not merged).
 /**
  * Route Matcher - Optimized route matching with trie data structure
  * Provides O(1) lookup for protected route configurations
