@@ -319,15 +319,22 @@ export class MessMenuService {
     institutionId: string,
     weekStartDate: string,
     tierKey: TierKey,
+    catererId?: string,
   ): Promise<MessMenu[]> {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      let query = supabase
         .from('mess_menus')
         .select('*')
         .eq('institution_id', institutionId)
         .eq('week_start_date', weekStartDate)
-        .eq('tier_key', tierKey)
+        .eq('tier_key', tierKey);
+
+      // Gender dimension: when a caterer is supplied, scope to its rows only so
+      // Boys and Girls menus for the same (week, tier) don't bleed together.
+      if (catererId) query = query.eq('caterer_id', catererId);
+
+      const { data, error } = await query
         .order('day_of_week')
         .order('meal_type');
 
@@ -422,6 +429,9 @@ export class MessMenuService {
       const supabase = createClientSupabaseClient();
 
       // 2) Look up existing row (no unique constraint — we identify by tuple).
+      //    caterer_id is part of the identity: Boys and Girls cells for the same
+      //    (institution, week, day, meal, tier) are DISTINCT rows, so without
+      //    this filter a Girls edit would overwrite the Boys row (or vice versa).
       const { data: existingRows, error: lookupError } = await supabase
         .from('mess_menus')
         .select('id')
@@ -430,6 +440,7 @@ export class MessMenuService {
         .eq('day_of_week', payload.day_of_week)
         .eq('meal_type', payload.meal_type)
         .eq('tier_key', payload.tier_key)
+        .eq('caterer_id', payload.caterer_id)
         .limit(1);
 
       if (lookupError) {
