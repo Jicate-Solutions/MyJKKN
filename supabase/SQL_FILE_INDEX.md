@@ -1540,3 +1540,9 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Tables: `admission_form_templates`, `admission_forms`, `admission_form_sections`, `admission_form_fields`, `admission_form_submissions`, `admission_form_events`
 - Location: `supabase/setup/01_tables.sql` (appended)
 - Purpose: Dynamic public admission form builder with submissions flowing to leads
+
+### Meeting Routing Substrate (2026-06-11)
+- Tables: `meeting_routing_config` (repo-sync of live table), `meeting_routing_log` (round-robin pick audit + visitor answers per routed booking)
+- Column: `jicate_booking_meeting_types.host_profile_id` (links per-counselor Cal.com EventTypes to MyJKKN profiles)
+- Location: `supabase/migrations/20260611170000_meeting_routing_substrate.sql` (applied live via exec_sql 2026-06-11)
+- Purpose: Public routed-booking form at /book/[slug] — MyJKKN-side round-robin (least_loaded on admission_counselors.current_leads) over a headless Cal.com. Writes via service-role only; staff read via RLS.
