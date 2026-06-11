@@ -61,14 +61,30 @@ export async function getEvidenceForReview(
 
   const review = reviewRow as BosCourseReview;
 
-  // Pull demonstrations for the same institution. When a course_id FK is added
-  // to pde_demonstrations later, tighten this with `.eq('course_id', review.course_id)`.
-  const { data: demoRows, error: demoErr } = await (supabase as any)
+  // Latest syllabus for this course_code in this institution — fetched FIRST so
+  // the demonstration query can use the direct FK when available.
+  const { data: syllabusRow } = await (supabase as any)
+    .from('bos_course_syllabi')
+    .select('id, course_code, course_name, po_mappings, is_latest')
+    .eq('institutions_id', review.institution_id)
+    .eq('course_code', review.course_code)
+    .eq('is_latest', true)
+    .maybeSingle();
+
+  // Curriculum connector (2026-06-11): pde_demonstrations.bos_syllabus_id is
+  // live — when this review's course has a syllabus, surface only the demos
+  // actually linked to it. Fallback to the original institution-wide read when
+  // no syllabus exists (public shape unchanged, per the T4.3 design note).
+  let demoQuery = (supabase as any)
     .from('pde_demonstrations')
     .select('id, category_key, skill_name, status, weighted_score, created_at')
-    .eq('institution_id', review.institution_id)
     .order('created_at', { ascending: false })
     .limit(500);
+  demoQuery = syllabusRow
+    ? demoQuery.eq('bos_syllabus_id', syllabusRow.id)
+    : demoQuery.eq('institution_id', review.institution_id);
+
+  const { data: demoRows, error: demoErr } = await demoQuery;
 
   if (demoErr) throw demoErr;
 
@@ -91,15 +107,8 @@ export async function getEvidenceForReview(
     {} as Partial<Record<PDECategoryKey, number>>,
   );
 
-  // Latest syllabus for this course_code in this institution.
-  const { data: syllabusRow } = await (supabase as any)
-    .from('bos_course_syllabi')
-    .select('id, course_code, course_name, po_mappings, is_latest')
-    .eq('institutions_id', review.institution_id)
-    .eq('course_code', review.course_code)
-    .eq('is_latest', true)
-    .maybeSingle();
-
+  // syllabusRow was fetched above (before the demo query) so the FK filter
+  // could use it — here we only shape the public link object.
   const syllabus_link: BosSyllabusLink | null = syllabusRow
     ? {
         id: syllabusRow.id,

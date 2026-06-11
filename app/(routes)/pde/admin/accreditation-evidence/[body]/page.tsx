@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import type { AccreditationBodyCode } from '@/lib/services/solutions/types';
 import type { AccreditationEvidencePacket } from '@/lib/services/pde-accreditation-evidence-service';
+import type { CurriculumAttainmentResult } from '@/lib/types/pde-curriculum';
 
 const SUPPORTED_BODIES: AccreditationBodyCode[] = [
   'NAAC','NIRF','NBA','QS','DCI','PCI','INC','AICTE','NCTE','UGC',
@@ -171,6 +172,23 @@ function useNAACInnovation() {
   });
 }
 
+// Curriculum connector — CLO/PO attainment computed from validated
+// demonstrations (spec: specs/pde-bos-outcome-connector-2026-06-11.md §7).
+function useCurriculumAttainment() {
+  return useQuery<CurriculumAttainmentResult>({
+    queryKey: ['pde', 'curriculum', 'attainment'],
+    queryFn: async () => {
+      const res = await fetch('/api/pde/curriculum/attainment', { cache: 'no-store' });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`attainment fetch failed: ${res.status} ${txt}`);
+      }
+      const json = await res.json();
+      return json.data as CurriculumAttainmentResult;
+    },
+  });
+}
+
 // T4.5 — PDE demonstrations packet (per-body aggregator over pde_demonstrations).
 function usePDEDemonstrationsEvidence(body: AccreditationBodyCode) {
   return useQuery<AccreditationEvidencePacket>({
@@ -194,8 +212,10 @@ const FINKS_LABELS: Record<string, string> = {
   foundational_knowledge: 'Foundational Knowledge', application: 'Application', integration: 'Integration',
   human_dimension: 'Human Dimension', caring: 'Caring', learning_how_to_learn: 'Learning How to Learn',
 };
+// Agency levels are the OPERATING MODE a learner is currently working in,
+// not an identity (Dweck / CARE-Recognition copy rule — connector spec §4.7).
 const AGENCY_LABELS: Record<string, string> = {
-  dependent: 'Dependent', directed: 'Directed', independent: 'Independent', self_directed: 'Self-Directed', principal: 'Principal',
+  dependent: 'Dependent mode', directed: 'Directed mode', independent: 'Independent mode', self_directed: 'Self-Directed mode', principal: 'Principal mode',
 };
 
 function MetricCard({ label, value }: { label: string; value: string | number }) {
@@ -386,6 +406,134 @@ function PDEDemonstrationsEvidenceSection({
   );
 }
 
+// Curriculum connector — "CLO/PO attainment from PDE evidence" (every body).
+// Denominator is PARTICIPATING learners (≥1 demo on the syllabus) — labeled,
+// per the locked spec §4.2. Sections by syllabus VERSION (version pinning).
+function CLOPOAttainmentSection() {
+  const attainment = useCurriculumAttainment();
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <GraduationCap className="w-5 h-5 text-[#0b6d41]" />
+          CLO/PO Attainment from PDE Evidence
+        </CardTitle>
+        <Link href="/academic/obe/co-po-mapping" className="text-xs underline text-muted-foreground">
+          Exam-based OBE (CO–PO mapping) →
+        </Link>
+      </CardHeader>
+      <CardContent>
+        {attainment.isLoading ? (
+          <Skeleton className="h-32 w-full" />
+        ) : attainment.isError ? (
+          <p className="text-sm text-red-600">
+            Failed to load attainment: {String((attainment.error as any)?.message ?? 'unknown error')}
+          </p>
+        ) : attainment.data && attainment.data.syllabi.length > 0 ? (
+          <div className="space-y-5">
+            <p className="text-sm text-muted-foreground">
+              Evidence-based attainment from validated demonstrations linked to BoS syllabi.
+              Percentages are <span className="font-medium">of participating learners</span>{' '}
+              (learners with ≥1 demonstration on that syllabus) and count only
+              validator-confirmed outcomes on passed demonstrations.
+            </p>
+
+            {/* PO / PSO roll-up */}
+            {(attainment.data.po.length > 0 || attainment.data.pso.length > 0) && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {[
+                  { title: 'Programme Outcomes', rows: attainment.data.po },
+                  { title: 'Programme Specific Outcomes', rows: attainment.data.pso },
+                ]
+                  .filter((g) => g.rows.length > 0)
+                  .map((group) => (
+                    <div key={group.title} className="border rounded-md p-3">
+                      <h3 className="text-sm font-semibold mb-2">{group.title}</h3>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Outcome</TableHead>
+                            <TableHead className="text-right">Attainment</TableHead>
+                            <TableHead className="text-right">CLOs</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {group.rows.map((row) => (
+                            <TableRow key={row.outcome_key}>
+                              <TableCell className="font-medium">{row.outcome_key}</TableCell>
+                              <TableCell className="text-right font-semibold">
+                                {row.attainment_pct !== null ? `${row.attainment_pct}%` : '—'}
+                              </TableCell>
+                              <TableCell className="text-right text-xs text-muted-foreground">
+                                {row.contributing_clos}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ))}
+              </div>
+            )}
+
+            {/* Per-syllabus-version CLO sections */}
+            <div className="space-y-3">
+              {attainment.data.syllabi.map((syl) => (
+                <div key={syl.syllabus_id} className="border rounded-md p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm font-medium">
+                      {syl.course_name}{' '}
+                      <span className="text-xs text-muted-foreground font-mono">
+                        {syl.course_code} · v{syl.version_number}
+                      </span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {syl.participating_learners} participating learner
+                      {syl.participating_learners === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>CLO</TableHead>
+                        <TableHead>Description</TableHead>
+                        <TableHead className="text-right">Attained</TableHead>
+                        <TableHead className="text-right">Attainment</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {syl.clos.map((clo) => (
+                        <TableRow key={clo.clo_number}>
+                          <TableCell className="font-medium">CLO {clo.clo_number}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground max-w-md">
+                            {clo.description}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {clo.attained_learners}/{clo.participating_learners}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold">
+                            {clo.attainment_pct !== null ? `${clo.attainment_pct}%` : '—'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500 italic">
+            No demonstrations linked to BoS syllabi yet. Attainment appears here once
+            learners tag course outcomes and validators confirm them.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function AccreditationEvidencePage({
   params,
 }: {
@@ -434,6 +582,9 @@ export default function AccreditationEvidencePage({
 
         {/* T4.5 — PDE demonstrations evidence (every body). */}
         <PDEDemonstrationsEvidenceSection body={body} />
+
+        {/* Curriculum connector — CLO/PO attainment from validated evidence. */}
+        <CLOPOAttainmentSection />
 
         {/* Legacy NAAC-only content: engagement / OBE / Fink's / agency / innovation. */}
         {renderLegacyNAAC && <NAACEvidenceContent />}

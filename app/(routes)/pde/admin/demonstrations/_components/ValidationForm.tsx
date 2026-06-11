@@ -26,8 +26,10 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
-import { CheckCircle2, Calculator, AlertCircle } from 'lucide-react';
+import { CheckCircle2, Calculator, AlertCircle, BookOpenCheck } from 'lucide-react';
+import type { SyllabusCLO } from '@/lib/types/pde-curriculum';
 
 interface ValidationFormProps {
   demonstrationId: string;
@@ -35,6 +37,13 @@ interface ValidationFormProps {
   rubric: Record<string, any> | null;
   rubricKey: string | null;
   existingRawScore: number | null;
+  /** Curriculum connector — present only when the demo links a BoS syllabus. */
+  syllabusLabel?: string | null;
+  syllabusClos?: SyllabusCLO[] | null;
+  /** Learner-PROPOSED CLO numbers (pre-checked; validator can uncheck/add). */
+  cloProposals?: number[] | null;
+  /** Previously confirmed set (re-opening a validated row). */
+  existingConfirmed?: number[] | null;
 }
 
 interface ScoreResult {
@@ -51,6 +60,10 @@ export function ValidationForm({
   rubric,
   rubricKey,
   existingRawScore,
+  syllabusLabel,
+  syllabusClos,
+  cloProposals,
+  existingConfirmed,
 }: ValidationFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -60,6 +73,21 @@ export function ValidationForm({
   );
   const [busy, setBusy] = useState<'validate' | 'score' | null>(null);
   const [lastResult, setLastResult] = useState<ScoreResult | null>(null);
+
+  // CLO confirmation (spec §4.8 "learner tags, validator confirms"): start
+  // from the previously confirmed set if re-opening, else pre-check the
+  // learner's proposals. Attainment reads the confirmed set only.
+  const hasCloPanel = Array.isArray(syllabusClos) && syllabusClos.length > 0;
+  const [confirmedClos, setConfirmedClos] = useState<number[]>(
+    existingConfirmed ?? cloProposals ?? []
+  );
+  const proposalSet = new Set(cloProposals ?? []);
+
+  const toggleConfirmedClo = (n: number) => {
+    setConfirmedClos((prev) =>
+      prev.includes(n) ? prev.filter((x) => x !== n) : [...prev, n].sort((a, b) => a - b)
+    );
+  };
 
   const passThreshold =
     rubric &&
@@ -90,7 +118,13 @@ export function ValidationForm({
       const res = await fetch(`/api/pde/demonstrations/${demonstrationId}/validate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notes, raw_score: scoreNum }),
+        body: JSON.stringify({
+          notes,
+          raw_score: scoreNum,
+          // Only send the confirmed set when this demo has a CLO panel —
+          // omitting the key leaves clo_refs_confirmed untouched server-side.
+          ...(hasCloPanel ? { clo_refs_confirmed: confirmedClos } : {}),
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -226,6 +260,51 @@ export function ValidationForm({
             </p>
           </div>
 
+          {/* CLO confirmation (curriculum connector) */}
+          {hasCloPanel ? (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1.5">
+                <BookOpenCheck className="h-4 w-4" />
+                Confirm course outcomes{syllabusLabel ? ` — ${syllabusLabel}` : ''}
+              </Label>
+              <div className="rounded-md border border-border/60 p-3 space-y-2">
+                <ul className="space-y-2">
+                  {(syllabusClos ?? []).map((clo) => {
+                    const checked = confirmedClos.includes(clo.clo_number);
+                    const proposed = proposalSet.has(clo.clo_number);
+                    return (
+                      <li key={clo.clo_number} className="flex items-start gap-2">
+                        <Checkbox
+                          id={`confirm-clo-${clo.clo_number}`}
+                          checked={checked}
+                          disabled={alreadyScored}
+                          onCheckedChange={() => toggleConfirmedClo(clo.clo_number)}
+                          className="mt-0.5"
+                        />
+                        <label
+                          htmlFor={`confirm-clo-${clo.clo_number}`}
+                          className="text-xs leading-snug cursor-pointer text-muted-foreground"
+                        >
+                          <span className="font-medium text-foreground">CLO {clo.clo_number}.</span>{' '}
+                          {clo.description}
+                          {proposed ? (
+                            <Badge variant="outline" className="ml-1.5 text-[10px] px-1 py-0 align-middle">
+                              learner-proposed
+                            </Badge>
+                          ) : null}
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <p className="text-xs text-muted-foreground">
+                  Only outcomes you confirm here count toward CLO/PO attainment — uncheck
+                  anything this evidence doesn&apos;t actually demonstrate.
+                </p>
+              </div>
+            </div>
+          ) : null}
+
           <div className="space-y-2">
             <Label htmlFor="notes">Validation notes</Label>
             <Textarea
@@ -234,8 +313,11 @@ export function ValidationForm({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               disabled={alreadyScored}
-              placeholder="What did the learner demonstrate well? What was missing? Any rubric-criterion-by-criterion observations."
+              placeholder="The learner reads this. Process praise lands best: name the specific strategy or effort that worked ('Your step-by-step history-taking was systematic…'), then one concrete next step."
             />
+            <p className="text-xs text-muted-foreground">
+              Your note is shown to the learner on their demonstrations page.
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3 pt-2">
