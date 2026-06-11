@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
 import { useMyHostelSummary, useMyRoommates } from '@/hooks/campus-living/use-my-hostel';
+import { WinsFeedCard } from './wins-feed-card';
 import { HostelAllocationService } from '@/lib/services/campus-living/hostel-allocation-service';
 import {
   BedDouble,
@@ -252,6 +253,9 @@ export function OverviewTab() {
           </CardContent>
         </Card>
       )}
+
+      {/* Public recognition feed — renders only when wins exist (CARE keystone) */}
+      <WinsFeedCard />
     </div>
   );
 }
