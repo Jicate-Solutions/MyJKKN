@@ -10,7 +10,7 @@
 //   1. Active counselors of the config's institution, not emergency-off today,
 //      ordered by current_leads ASC.
 //   2. Filtered to counselors who are Path-W provisioned AND have a bookable
-//      per-counselor EventType (jicate_booking_meeting_types.host_profile_id
+//      per-counselor EventType (native meeting_types.host_profile_id
 //      = counselor.user_id, internal_kind = 'admission_call', is_active).
 //   3. First survivor wins. Pool size + load are snapshotted to
 //      meeting_routing_log at booking time for Director accountability.
@@ -19,7 +19,7 @@
 // are public, unauthenticated API routes — RLS would return nothing). Routes
 // must validate inputs BEFORE calling in, and must re-validate the event type
 // against the pool at /book time (validateEventTypeInPool) so a malicious
-// client cannot substitute an arbitrary eventTypeId.
+// client cannot substitute an arbitrary meetingTypeId.
 //
 // Pattern: mirrors lib/services/integrations/jicate-booking-mirror-service.ts
 
@@ -58,7 +58,8 @@ export interface PickedCounselor {
   userId: string;
   name: string;
   currentLeads: number;
-  calEventTypeId: number;
+  /** Native meeting_types.id (uuid) the booking is made against. */
+  meetingTypeId: string;
   /** How many counselors were eligible at pick time (audit). */
   poolSize: number;
 }
@@ -119,7 +120,7 @@ export class MeetingRoutingService {
     userId: string;
     name: string;
     currentLeads: number;
-    calEventTypeId: number;
+    meetingTypeId: string;
   }>> {
     const { data: counselors, error: cErr } = await supabase
       .from('admission_counselors')
@@ -138,11 +139,14 @@ export class MeetingRoutingService {
     const userIds = counselors.map((c) => c.user_id).filter(Boolean);
     if (!userIds.length) return [];
 
+    // Phase N2: bookable types now come from the NATIVE engine
+    // (meeting_types, migration 20260611190000) instead of the Cal.com
+    // mapping table. Counselors are provisioned with slug 'admission-counseling'.
     const { data: mappings, error: mErr } = await supabase
-      .from('jicate_booking_meeting_types')
-      .select('cal_event_type_id, host_profile_id')
+      .from('meeting_types')
+      .select('id, host_profile_id')
       .in('host_profile_id', userIds)
-      .eq('internal_kind', 'admission_call')
+      .eq('slug', 'admission-counseling')
       .eq('is_active', true);
 
     if (mErr) {
@@ -150,22 +154,22 @@ export class MeetingRoutingService {
       return [];
     }
 
-    const eventTypeByUser = new Map<string, number>();
+    const typeByUser = new Map<string, string>();
     for (const m of mappings ?? []) {
-      if (m.host_profile_id && !eventTypeByUser.has(m.host_profile_id)) {
-        eventTypeByUser.set(m.host_profile_id, m.cal_event_type_id);
+      if (m.host_profile_id && !typeByUser.has(m.host_profile_id)) {
+        typeByUser.set(m.host_profile_id, m.id);
       }
     }
 
     // Preserve current_leads ASC order from the counselor query.
     return counselors
-      .filter((c) => eventTypeByUser.has(c.user_id))
+      .filter((c) => typeByUser.has(c.user_id))
       .map((c) => ({
         counselorId: c.id,
         userId: c.user_id,
         name: c.name,
         currentLeads: c.current_leads ?? 0,
-        calEventTypeId: eventTypeByUser.get(c.user_id)!,
+        meetingTypeId: typeByUser.get(c.user_id)!,
       }));
   }
 
@@ -194,17 +198,17 @@ export class MeetingRoutingService {
   }
 
   /**
-   * Re-validate at /book time that the client-supplied eventTypeId belongs to
-   * the config's eligible pool. Prevents eventTypeId substitution between the
+   * Re-validate at /book time that the client-supplied meetingTypeId belongs to
+   * the config's eligible pool. Prevents meetingTypeId substitution between the
    * slots step and the confirm step. Returns the pool entry or null.
    */
-  static async validateEventTypeInPool(
+  static async validateMeetingTypeInPool(
     supabase: SupabaseClient,
     config: RoutingConfig,
-    calEventTypeId: number,
+    meetingTypeId: string,
   ): Promise<PickedCounselor | null> {
     const pool = await this.eligiblePool(supabase, config);
-    const match = pool.find((p) => p.calEventTypeId === calEventTypeId);
+    const match = pool.find((p) => p.meetingTypeId === meetingTypeId);
     if (!match) return null;
     return { ...match, poolSize: pool.length };
   }
@@ -227,7 +231,8 @@ export class MeetingRoutingService {
       pick_strategy: input.config.round_robin_strategy,
       pick_load: input.pick.currentLeads,
       pool_size: input.pick.poolSize,
-      cal_event_type_id: input.pick.calEventTypeId,
+      meeting_type_id: input.pick.meetingTypeId,
+      // column name is historic; stores the NATIVE booking uid post-N2
       cal_booking_uid: input.calBookingUid,
       start_time: input.startTime,
       attendee_name: input.attendeeName,
