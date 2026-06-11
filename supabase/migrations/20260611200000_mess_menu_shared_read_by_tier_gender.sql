@@ -36,10 +36,38 @@ SET search_path = public
 AS $$
 DECLARE
   v_cells jsonb;
+  v_effective_week date;
 BEGIN
   -- Validate inputs (cheap guard; keeps the function honest).
   IF p_gender NOT IN ('boys', 'girls') THEN
     RETURN jsonb_build_object('error', 'invalid_gender');
+  END IF;
+
+  -- The printed menu is a DEFAULT weekly cycle, stored against one week. If
+  -- the requested week has no cells, fall back to the most recent week
+  -- (on or before the requested one) that does — so the default menu shows
+  -- every week until a newer week is entered.
+  SELECT m.week_start_date INTO v_effective_week
+  FROM public.mess_menus m
+  JOIN public.mess_caterers cat ON cat.id = m.caterer_id
+  WHERE m.tier_key = p_tier_key
+    AND cat.gender_served = p_gender
+    AND (m.items_tamil IS NOT NULL OR m.items_english IS NOT NULL OR m.items IS NOT NULL)
+    AND m.week_start_date <= p_week_start
+  ORDER BY m.week_start_date DESC
+  LIMIT 1;
+
+  -- If nothing on/before the requested week, take the earliest available
+  -- (so a future-dated default still surfaces rather than showing empty).
+  IF v_effective_week IS NULL THEN
+    SELECT m.week_start_date INTO v_effective_week
+    FROM public.mess_menus m
+    JOIN public.mess_caterers cat ON cat.id = m.caterer_id
+    WHERE m.tier_key = p_tier_key
+      AND cat.gender_served = p_gender
+      AND (m.items_tamil IS NOT NULL OR m.items_english IS NOT NULL OR m.items IS NOT NULL)
+    ORDER BY m.week_start_date ASC
+    LIMIT 1;
   END IF;
 
   SELECT COALESCE(jsonb_agg(c ORDER BY (c->>'day_of_week')::int, c->>'meal_type'), '[]'::jsonb)
@@ -49,16 +77,18 @@ BEGIN
       jsonb_build_object(
         'day_of_week',   m.day_of_week,
         'meal_type',     m.meal_type,
-        'items',         COALESCE(m.items, '[]'::jsonb),
-        'items_tamil',   COALESCE(m.items_tamil, '[]'::jsonb),
-        'items_english', COALESCE(m.items_english, '[]'::jsonb),
+        -- items / items_tamil / items_english are text[] (PR1 schema), so wrap
+        -- in to_jsonb to emit JSON arrays.
+        'items',         to_jsonb(COALESCE(m.items, ARRAY[]::text[])),
+        'items_tamil',   to_jsonb(COALESCE(m.items_tamil, ARRAY[]::text[])),
+        'items_english', to_jsonb(COALESCE(m.items_english, ARRAY[]::text[])),
         'status',        m.status,
         'is_special_day', COALESCE(m.is_special_day, false),
         'special_day_name', m.special_day_name
       ) AS c
     FROM public.mess_menus m
     JOIN public.mess_caterers cat ON cat.id = m.caterer_id
-    WHERE m.week_start_date = p_week_start
+    WHERE m.week_start_date = v_effective_week
       AND m.tier_key        = p_tier_key
       AND cat.gender_served = p_gender
     ORDER BY m.day_of_week, m.meal_type, m.updated_at DESC
@@ -66,6 +96,7 @@ BEGIN
 
   RETURN jsonb_build_object(
     'week_start', p_week_start,
+    'effective_week', v_effective_week,
     'tier_key',   p_tier_key,
     'gender',     p_gender,
     'cells',      v_cells
