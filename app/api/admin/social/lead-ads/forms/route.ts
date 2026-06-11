@@ -17,17 +17,18 @@ export const dynamic = 'force-dynamic';
  * standard env chain: META_LEAD_ADS_PAGE_ACCESS_TOKEN →
  * META_IG_SYSTEM_USER_TOKEN → MESSENGER_PAGE_ACCESS_TOKEN →
  * META_PAGE_ACCESS_TOKEN. Mirrors app/api/cron/meta-facebook-poll. Graph
- * version pinned to v25.0 explicitly (lib default is still v21.0).
+ * version pinned to v25.0 explicitly.
  *
  * Role: super_admin / administrator only. The webhook + cron run as
- * service_role so they bypass these endpoints entirely. Note: fb_pages RLS
- * scopes the per-page token lookup to the caller's institution unless
- * profiles.role = 'super_admin' — when RLS returns no rows the env
- * fallback chain still applies.
+ * service_role so they bypass these endpoints entirely. Note:
+ * fb_pages.access_token is service_role-only (column-level grant — see
+ * migration 20260611090000_fb_pages_access_token_lockdown), so the per-page
+ * token lookup uses the service-role client AFTER the admin gate passes —
+ * same pattern as the facebook accounts sync/discover routes.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { listForms } from '@/lib/meta/lead-ads-client';
 
 async function requireAdmin() {
@@ -52,6 +53,43 @@ async function requireAdmin() {
   if (!allowed) return { ok: false as const, status: 403 };
 
   return { ok: true as const, userId: user.id, supabase };
+}
+
+// ---------------------------------------------------------------------------
+// Row types
+//
+// meta_lead_forms / meta_lead_field_mappings / fb_pages are not in the
+// generated types/supabase.ts, so the client can't infer row shapes (the
+// typed-client failure mode is GenericStringError). Cast the result arrays
+// once to these explicit row types — same pattern as the b2a routes.
+// ---------------------------------------------------------------------------
+
+interface MetaLeadFormRow {
+  id: string;
+  fb_form_id: string;
+  fb_page_id: string;
+  name: string;
+  status: string;
+  locale: string | null;
+  leads_count: number;
+  institution_id: string | null;
+  questions: unknown;
+  is_active: boolean;
+  fb_created_time: string | null;
+  last_synced_at: string | null;
+  last_backfilled_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface MetaLeadFieldMappingRow {
+  form_id: string;
+  fb_field_key: string;
+}
+
+interface FbPageTokenRow {
+  fb_page_id: string;
+  access_token: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -87,15 +125,16 @@ export async function GET() {
     .from('meta_lead_field_mappings')
     .select('form_id, fb_field_key');
 
+  const mappingRows = (mappings ?? []) as unknown as MetaLeadFieldMappingRow[];
   const counts = new Map<string, number>();
-  for (const m of mappings ?? []) {
-    const fid = (m as { form_id: string }).form_id;
-    counts.set(fid, (counts.get(fid) ?? 0) + 1);
+  for (const m of mappingRows) {
+    counts.set(m.form_id, (counts.get(m.form_id) ?? 0) + 1);
   }
 
-  const enriched = (forms ?? []).map((f) => ({
+  const formRows = (forms ?? []) as unknown as MetaLeadFormRow[];
+  const enriched = formRows.map((f) => ({
     ...f,
-    mapping_count: counts.get(f.id as string) ?? 0,
+    mapping_count: counts.get(f.id) ?? 0,
   }));
 
   return NextResponse.json({ ok: true, data: enriched });
@@ -142,20 +181,23 @@ export async function POST(request: NextRequest) {
   }
 
   // Per-page tokens, seeded from /me/accounts by the facebook poll cron.
-  // RLS scopes this to the caller's institution unless role='super_admin';
-  // when no rows come back the env fallback below still covers every page.
+  // fb_pages.access_token is locked to service_role via column-level grants
+  // (migration 20260611090000), so this read MUST use the service client —
+  // safe here because requireAdmin() has already passed (same
+  // service-role-after-admin-check pattern as the facebook sync route).
   // 'dormant' is included deliberately: dormancy means "no recent posts",
   // not "disconnected" — lead forms on a dormant page are still live. The
   // 2026-06-10 first-run synced only 2 of 9 pages because the other 7 were
   // (falsely, pre-#1286) marked dormant and this filter excluded them.
-  const { data: fbPageRows } = await supabase
+  const serviceClient = createServiceRoleClient();
+  const { data: fbPageData } = await serviceClient
     .from('fb_pages')
     .select('fb_page_id, access_token')
     .in('status', ['active', 'dormant']);
+  const fbPageRows = (fbPageData ?? []) as unknown as FbPageTokenRow[];
 
   const pageTokens = new Map<string, string>();
-  for (const r of fbPageRows ?? []) {
-    const row = r as { fb_page_id: string; access_token: string | null };
+  for (const row of fbPageRows) {
     if (row.access_token) pageTokens.set(row.fb_page_id, row.access_token);
   }
 
@@ -164,13 +206,12 @@ export async function POST(request: NextRequest) {
     const { data: rows } = await supabase
       .from('meta_lead_forms')
       .select('fb_page_id');
-    pageIds = Array.from(new Set((rows ?? []).map((r) => (r as { fb_page_id: string }).fb_page_id)));
+    const formPageRows = (rows ?? []) as unknown as Array<Pick<MetaLeadFormRow, 'fb_page_id'>>;
+    pageIds = Array.from(new Set(formPageRows.map((r) => r.fb_page_id)));
   }
   if (!pageIds.length) {
     // First-time sync: no forms yet — derive the page set from fb_pages.
-    pageIds = Array.from(
-      new Set((fbPageRows ?? []).map((r) => (r as { fb_page_id: string }).fb_page_id))
-    );
+    pageIds = Array.from(new Set(fbPageRows.map((r) => r.fb_page_id)));
   }
 
   if (!pageIds.length) {

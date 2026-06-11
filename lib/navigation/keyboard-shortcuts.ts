@@ -20,7 +20,7 @@ export const DEFAULT_KEYBOARD_SHORTCUTS: Record<string, KeyboardShortcut> = {
   'alt+s': { path: '/learners/profiles', label: 'Students', permission: 'learners.profiles.view' },
   'alt+b': { path: '/billing/invoices', label: 'Invoices', permission: 'billing.invoices.view' },
   'alt+r': { path: '/billing/receipts', label: 'Receipts', permission: 'billing.receipts.view' },
-  'alt+n': { path: '/admin/notifications', label: 'Notifications', permission: 'notifications.view' },
+  'alt+n': { path: '/notifications/admin', label: 'Notifications', permission: 'notifications.view' },
   'alt+l': { path: '/admission/leads', label: 'Leads', permission: 'admission.leads.view' },
   'alt+w': { path: '/work-pulse', label: 'Work Pulse', permission: 'work_pulse.view' },
   'alt+p': { path: '/profile', label: 'Profile', permission: 'view_profile' },

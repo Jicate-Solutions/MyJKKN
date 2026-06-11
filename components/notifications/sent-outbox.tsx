@@ -254,7 +254,7 @@ export function SentOutbox() {
             return (
               <Link
                 key={row.id}
-                href={`/admin/notifications/${row.id}`}
+                href={`/notifications/admin/${row.id}`}
                 className="group grid gap-3 px-6 py-4 border-b last:border-b-0 transition-colors hover:bg-stone-100/40 dark:hover:bg-stone-900/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset"
                 style={{
                   borderBottomColor: 'rgba(13,13,13,0.08)',

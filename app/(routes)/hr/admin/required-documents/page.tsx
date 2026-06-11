@@ -7,7 +7,9 @@
 // and which `employment_type` values each requirement applies to.
 //
 // Pattern: extends `lib/admin/policy-shell` (Shape C — LookupConfig). Cloned
-// from `app/(routes)/admin/departments/page.tsx`. Substrate is PR #757.
+// from `app/(routes)/organizations/departments/hod-assignment/page.tsx`
+// (formerly app/(routes)/admin/departments — relocated 2026-06-11, wave-2).
+// Substrate is PR #757.
 //
 // Standing rule (2026-04-29 Director): every policy decision = config-table
 // row + super_admin UI that READS/WRITES the table. SQL functions read the

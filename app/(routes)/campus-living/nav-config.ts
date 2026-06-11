@@ -28,6 +28,7 @@ const config: ModuleNavConfig = {
       children: [
         { label: 'My Hostel', icon: 'Home', href: '/campus-living/my-hostel', matchPaths: ['/campus-living/my-hostel'] },
         { label: 'Request Room', icon: 'BedDouble', href: '/campus-living/my-hostel/request-room', matchPaths: ['/campus-living/my-hostel/request-room'] },
+        { label: 'Room Cleaning', icon: 'Brush', href: '/campus-living/my-hostel/housekeeping', matchPaths: ['/campus-living/my-hostel/housekeeping'] },
         { label: 'Premium Stay', icon: 'Sparkles', href: '/campus-living/my-hostel/premium', matchPaths: ['/campus-living/my-hostel/premium'] },
         { label: 'Pick Room', icon: 'BedDouble', href: '/campus-living/my-hostel/premium/pick-room', matchPaths: ['/campus-living/my-hostel/premium/pick-room'] },
         { label: 'Invite Roommate', icon: 'UserPlus', href: '/campus-living/my-hostel/premium/invite-roommate', matchPaths: ['/campus-living/my-hostel/premium/invite-roommate'] },
@@ -320,6 +321,12 @@ const config: ModuleNavConfig = {
           href: '/campus-living/housekeeping/schedules',
           matchPaths: ['/campus-living/housekeeping/schedules'],
         },
+        {
+          label: 'Housekeeping Bookings',
+          icon: 'CalendarCheck',
+          href: '/campus-living/housekeeping/bookings',
+          matchPaths: ['/campus-living/housekeeping/bookings'],
+        },
       ],
     },
     {
@@ -611,6 +618,12 @@ const config: ModuleNavConfig = {
           icon: 'Package',
           href: '/campus-living/settings/packages',
           matchPaths: ['/campus-living/settings/packages'],
+        },
+        {
+          label: 'Housekeeping Booking',
+          icon: 'Brush',
+          href: '/campus-living/settings/housekeeping',
+          matchPaths: ['/campus-living/settings/housekeeping'],
         },
         {
           label: 'Fee Config',

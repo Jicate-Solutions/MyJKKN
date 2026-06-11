@@ -99,5 +99,5 @@ caller chooses where to fire it.
  FROM meta_capi_events
  ORDER BY sent_at DESC LIMIT 50;`
 
-Or visit `/admin/integrations/meta-pixel` (this PR) which surfaces the same
+Or visit `/admission/social/meta-pixel` (this PR) which surfaces the same
 view via the admin UI.

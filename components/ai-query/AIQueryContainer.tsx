@@ -137,7 +137,7 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
                     asChild
                     className="gap-1 h-8 px-2 sm:px-3"
                   >
-                    <Link href="/admin/ai-query-tools">
+                    <Link href="/ai-query/admin">
                       <Settings2 className="h-4 w-4" />
                       <span className="hidden md:inline">Tools</span>
                     </Link>

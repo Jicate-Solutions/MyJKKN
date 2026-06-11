@@ -26,6 +26,9 @@ const PUBLIC_PATHS_SET = new Set([
   '/browserconfig.xml',
   '/pwa-test.html',
   '/refer', // Agent referral form — public, no login
+  '/privacy', // Privacy Policy — public, required for Meta App Review
+  '/terms', // Terms of Use — public, required for Meta App Review
+  '/data-deletion', // Data Deletion instructions — public, required for Meta App Review
   '/api/admission/leads/refer', // Agent referral API
   '/api/admission/leads/inbound' // Inbound webhook API
 ]);

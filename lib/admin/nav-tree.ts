@@ -38,7 +38,7 @@ import {
 /* ────────────────────────────────────────────────────────────────────────── */
 
 export interface AdminPageNode {
-  /** Full route, e.g. '/admin/notifications/audiences'. */
+  /** Full route, e.g. '/admin/<category>/<page>'. */
   href: string;
   /** Humanized label (from filesystem name; can be overridden via `navMeta`). */
   label: string;
@@ -264,8 +264,8 @@ export function getAdminNavTree(): AdminCategoryNode[] {
  *
  * Matching rules:
  *  - Real category: pathname must start with `/admin/<key>` (so dynamic
- *    children like `/admin/notifications/[id]` correctly highlight the
- *    Notifications tab).
+ *    children like `/admin/<category>/[id]` correctly highlight the
+ *    category's tab).
  *  - 'system' category: pathname must match one of the synthetic system
  *    pages exactly (no nesting expected).
  *  - Active page within a category: longest-prefix match (so a deep route

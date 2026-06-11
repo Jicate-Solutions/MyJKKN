@@ -111,6 +111,18 @@ const NAV_EXCLUDE = new Set<string>([
   '/admission/settings/telephony-policies',
 
   // ────────────────────────────────────────────────────────────
+  // 2026-06-11 admin-cluster relocation wave-2 — departments
+  // (HoD assignment). Moved out of /admin/departments (auto-chip-
+  // reachable via the filesystem-derived admin tree) into the
+  // organizations namespace. Deliberately NOT wired as a nav-config
+  // chip: admin_or_super_admin policy surface (PolicyPageShell) —
+  // a chip would surface it to every organizations user (sidebar-
+  // shows/page-denies anti-pattern). 307 redirects cover old
+  // bookmarks. Same pattern as the 2026-06-10 admission block above.
+  // ────────────────────────────────────────────────────────────
+  '/organizations/departments/hod-assignment',
+
+  // ────────────────────────────────────────────────────────────
   // Form pages invoked from list-page "+ New" / "Add" / "Create"
   // buttons. Not tier-strip destinations — the user clicks a row
   // action on the parent list, lands here, submits, returns to list.
@@ -131,7 +143,7 @@ const NAV_EXCLUDE = new Set<string>([
   '/accreditation/naac/grievance/new',
 
   // Admin /new forms
-  '/admin/notifications/audiences/new',
+  '/notifications/admin/audiences/new',
   '/pde/admin/assessments/create',
   '/pde/admin/quests/create',
 
@@ -311,6 +323,17 @@ const NAV_EXCLUDE = new Set<string>([
   '/admission/consultants/admin/commission-triggers',
   '/admission/consultants/admin/portal-access',
   '/admission/consultants/admin/tier-policy',
+
+  // 2026-06-11 admin-cluster relocation wave-2 — ai-pulse config. The
+  // platform_policies editor relocated from /admin/config/ai-pulse (where
+  // the /admin tree made it auto-chip-reachable) to /ai-pulse/admin/policies.
+  // The ai-pulse module has no sidebar entry yet (its other admin pages —
+  // cycles/quiz/anomalies — sit in the unreachable baseline for the same
+  // reason), so the relocated page has no chip surface. Super-admin config
+  // surface reached by direct URL / the 307 redirect from the old path.
+  // Follow-up: when ai-pulse gets a sidebar entry + nav-config, wire this
+  // in and drop the exclusion. Same pattern as the consultants block above.
+  '/ai-pulse/admin/policies',
 ]);
 
 /** Walk app/(routes)/ collecting {url} for every static page.tsx. */
