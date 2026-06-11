@@ -1546,3 +1546,8 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Column: `jicate_booking_meeting_types.host_profile_id` (links per-counselor Cal.com EventTypes to MyJKKN profiles)
 - Location: `supabase/migrations/20260611170000_meeting_routing_substrate.sql` (applied live via exec_sql 2026-06-11)
 - Purpose: Public routed-booking form at /book/[slug] — MyJKKN-side round-robin (least_loaded on admission_counselors.current_leads) over a headless Cal.com. Writes via service-role only; staff read via RLS.
+
+### Native Scheduling Engine — Phase N1 (2026-06-11)
+- Tables: `meeting_host_schedules`, `meeting_schedule_windows`, `meeting_schedule_overrides`, `meeting_types`, `meeting_bookings`
+- Location: `supabase/migrations/20260611190000_native_scheduling_engine.sql` (applied live via exec_sql 2026-06-11)
+- Purpose: In-house scheduling engine replacing Cal.com (jicate-booking). Times stored as minutes-since-midnight in schedule TZ; gist EXCLUSION constraint `mb_no_double_booking` makes double-booking impossible for confirmed rows (verified live: overlap → 23P01; cancelled rows don't block). Multi-tenant via institution_id. Requires btree_gist extension.
