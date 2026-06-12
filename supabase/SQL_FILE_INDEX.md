@@ -1586,3 +1586,9 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Policy row: `pde.scoring.validation_sla_days` = 7 (global, number, system, tunable without deploy)
 - Location: `supabase/migrations/20260612190000_pde_validation_sla_policy.sql` (applied live via Management API 2026-06-12)
 - Purpose: Connector PR 2 — bounds time-to-first-acknowledgment for PDE demonstrations (aging badge + latency/coverage KPIs on /pde/admin/demonstrations). CARE audit corrective move A (A3 scored 1).
+
+### Family Moments Engine (2026-06-12)
+- Tables: `family_moments_campaigns` (occasion per institution) + `family_moments` (tokenized card per child per campaign) + storage bucket `family-moments` (public read, permission-gated write)
+- Location: `supabase/migrations/20260711000000_family_moments_engine.sql`
+- RLS: NO anon policies by design — public gift page reads server-side via service role keyed on unguessable token. Teacher writes via `moments.submissions.create`; dashboards via `moments.campaigns.view`.
+- Seed: `scripts/moments/seed-fathers-day.ts` (2 campaigns + 456 pre-seeded auto-cards, NV CBSE + Matric HSS)

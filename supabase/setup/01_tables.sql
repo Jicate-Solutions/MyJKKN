@@ -1278,6 +1278,7 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
         WHEN page_url ~ '/admin/'     THEN 'admin'
         WHEN page_url ~ '/resource-management/' THEN 'resource-management'
         WHEN page_url ~ '/startup-studio/' THEN 'startup-studio'
+        WHEN page_url ~ '/moments/' THEN 'moments'  -- Added: 2026-06-12 Family Moments
         WHEN page_url ~ '/settings/' THEN 'settings'
         ELSE 'other'
       END
@@ -1307,6 +1308,8 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
           THEN substring(page_url FROM '/resource-management/([^/?#]+)')
         WHEN page_url ~ '/startup-studio/'
           THEN substring(page_url FROM '/startup-studio/([^/?#]+)')
+        WHEN page_url ~ '/moments/'  -- Added: 2026-06-12 Family Moments
+          THEN substring(page_url FROM '/moments/([^/?#]+)')
         WHEN page_url ~ '/settings/'
           THEN substring(page_url FROM '/settings/([^/?#]+)')
         WHEN page_url ~ '/service-requests/'
@@ -4922,6 +4925,7 @@ CREATE TABLE IF NOT EXISTS public.hostel_program_eligibility (
   fee_max numeric(12,2),                                              -- exclusive upper (rupees), NULL = unbounded
   room_category_id uuid REFERENCES public.hostel_categories(id) ON DELETE CASCADE,
   mess_category_id uuid REFERENCES public.mess_categories(id)  ON DELETE CASCADE,
+  hostel_type text NOT NULL DEFAULT 'both' CHECK (hostel_type IN ('boys','girls','both')), -- which gender(s) the band applies to
   is_monthly_mess_allowed boolean NOT NULL DEFAULT false,
   is_active boolean NOT NULL DEFAULT true,
   effective_from date,
@@ -5053,3 +5057,16 @@ CREATE INDEX IF NOT EXISTS idx_upgrade_fee_mess ON public.hostel_category_upgrad
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cleaning_task_schedule_date
   ON public.hostel_cleaning_tasks (schedule_id, date)
   WHERE schedule_id IS NOT NULL;
+
+-- =====================================================
+-- 20260711000000: Family Moments engine (2026-06-12)
+-- Campaign-based parent engagement — Father's Day 2026
+-- (NV CBSE + Matric HSS). Tokenized public gift cards.
+-- Full DDL + RLS + storage bucket in the migration file:
+-- supabase/migrations/20260711000000_family_moments_engine.sql
+-- =====================================================
+-- family_moments_campaigns: one row per occasion per institution
+--   (slug UNIQUE, recipient_type father|mother|both, status lifecycle)
+-- family_moments: one row per child per campaign
+--   (token UNIQUE unguessable, content_type auto|text|image,
+--    recipient snapshots, opened/install/push tracking columns)

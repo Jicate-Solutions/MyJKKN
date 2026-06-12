@@ -182,6 +182,18 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    // Added 2026-06-12 — Family Moments engine (Father's Day 2026 rollout,
+    // NV CBSE + Matric HSS). Campaign-based parent engagement: teachers
+    // collect child messages, parents receive tokenized public gift cards.
+    name: 'Family Moments',
+    key: 'moments',
+    permissions: [
+      { key: 'moments.submissions.create', label: 'Submit Child Messages (Teachers)' },
+      { key: 'moments.campaigns.view', label: 'View Campaign Dashboards' },
+      { key: 'moments.campaigns.manage', label: 'Create & Manage Campaigns' }
+    ]
+  },
+  {
     name: 'Organizations',
     key: 'organizations',
     permissions: [

@@ -74,6 +74,12 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
   const roomType = getJoined(alloc, 'hostel_rooms', 'room_type');
   const bedNumber = getJoined(alloc, 'hostel_beds', 'bed_number');
   const bedType = getJoined(alloc, 'hostel_beds', 'bed_type');
+  const learnerName = getJoined(alloc, 'learner', 'full_name');
+  const learnerEmail = getJoined(alloc, 'learner', 'email');
+  const allocatedByName = getJoined(alloc, 'allocated_by_profile', 'full_name');
+  // Academic record: hostel_allocations → profiles → learners_profiles (all
+  // left joins — any level can be null, e.g. a profile without a learner row).
+  const academic = alloc?.learner?.academic ?? null;
   const sCfg = statusConfig[allocation.status] ?? { label: allocation.status, variant: 'outline' as const };
 
   return (
@@ -102,7 +108,7 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
                 <Badge variant={sCfg.variant}>{sCfg.label}</Badge>
               </div>
               <p className="text-sm text-muted-foreground">
-                Learner: {allocation.learner_id}
+                Learner: {learnerName || '—'}
               </p>
             </div>
           </div>
@@ -129,6 +135,55 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Info */}
           <div className="lg:col-span-2 space-y-6">
+            {/* Student Information */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <User className="h-5 w-5" />
+                  Student Information
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Name</p>
+                    <p className="font-medium">{learnerName || '—'}</p>
+                    {learnerEmail && (
+                      <p className="text-xs text-muted-foreground">{learnerEmail}</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Institution</p>
+                    <p className="font-medium">{academic?.institution?.name ?? '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Degree</p>
+                    <p className="font-medium">{academic?.degree?.degree_name ?? '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Department</p>
+                    <p className="font-medium">{academic?.department?.department_name ?? '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Program</p>
+                    <p className="font-medium">{academic?.program?.program_name ?? '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Semester</p>
+                    <p className="font-medium">{academic?.semester?.semester_name ?? '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Room Category</p>
+                    <p className="font-medium">{academic?.room_category?.name ?? '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Mess Category</p>
+                    <p className="font-medium">{academic?.mess_category?.name ?? '—'}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* Room Assignment */}
             <Card>
               <CardHeader>
@@ -179,7 +234,7 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
                     <User className="h-4 w-4 text-muted-foreground" />
                     <div>
                       <p className="text-muted-foreground">Allocated By</p>
-                      <p className="font-medium">{allocation.allocated_by ?? 'N/A'}</p>
+                      <p className="font-medium">{allocatedByName || 'N/A'}</p>
                     </div>
                   </div>
                 </div>
@@ -196,10 +251,6 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="text-muted-foreground">Learner ID</p>
-                    <p className="font-medium">{allocation.learner_id}</p>
-                  </div>
                   <div>
                     <p className="text-muted-foreground">Food Preference</p>
                     <p className="font-medium capitalize">{(allocation.food_preference ?? '').replace('_', ' ') || 'N/A'}</p>

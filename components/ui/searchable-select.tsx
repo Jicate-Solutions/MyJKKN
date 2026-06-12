@@ -63,6 +63,7 @@ export function SearchableSelect({
 }: SearchableSelectProps) {
   const [open, setOpen] = React.useState(false);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const contentRef = React.useRef<HTMLDivElement>(null);
 
   // When opened inside a Radix Dialog (modal), portal the popover INTO the
   // dialog instead of document.body. Otherwise the Dialog's focus-trap eats
@@ -112,10 +113,21 @@ export function SearchableSelect({
         </Button>
       </PopoverTrigger>
       <PopoverContent
+        ref={contentRef}
         container={modal ? dialogContainer : undefined}
         className='p-0 w-full'
         style={{ width: 'var(--radix-popover-trigger-width)', minWidth: '250px' }}
         align='start'
+        onOpenAutoFocus={(e) => {
+          // When portaled INTO a scrollable DialogContent (modal), the
+          // popover's DOM sits at the end of the container, so the default
+          // focus scrolls the dialog to the bottom and the dropdown appears
+          // to jump. Focus the search input without scrolling instead.
+          e.preventDefault();
+          contentRef.current
+            ?.querySelector<HTMLInputElement>('[cmdk-input]')
+            ?.focus({ preventScroll: true });
+        }}
       >
         <Command
           filter={(cmdValue, search) =>

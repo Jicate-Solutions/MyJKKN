@@ -268,12 +268,18 @@ async function fetchTotalValueMetrics(
   return out;
 }
 
-const ENGAGEMENT_TOTAL_VALUE_METRICS = ['accounts_engaged', 'total_interactions'];
+// All three are total_value-only. `views` (the v22+ replacement for the
+// removed account-level `impressions`) rides the same grouped call.
+const ENGAGEMENT_TOTAL_VALUE_METRICS = [
+  'accounts_engaged',
+  'total_interactions',
+  'views',
+];
 
 /**
- * accounts_engaged + total_interactions (both total_value-only). Grouped call
- * first; on failure retries per metric so one unsupported metric can't drop
- * the other. Failures are logged and tolerated.
+ * accounts_engaged + total_interactions + views (all total_value-only).
+ * Grouped call first; on failure retries per metric so one unsupported
+ * metric can't drop the others. Failures are logged and tolerated.
  */
 async function fetchEngagementTotals(
   supabase: SupabaseClient,
@@ -464,12 +470,16 @@ function entryValue(
 // (one bad metric must not kill the whole account poll).
 // ---------------------------------------------------------------------------
 
+// v22+ pruned the account-insights catalog: `impressions` and `email_contacts`
+// are no longer valid metric names (confirmed live 2026-06-12 — every request
+// logged "(#100) metric[0] must be one of the following values: …" per tick).
+// `impressions` is replaced by `views` (total_value-only — rides the grouped
+// engagement call below and is surfaced on the impressions column);
+// `email_contacts` had no consumer (raw-only) and is dropped outright.
 const ACCOUNT_INSIGHT_METRICS: IgAccountMetric[] = [
   'reach',
-  'impressions',
   'profile_views',
   'website_clicks',
-  'email_contacts',
 ];
 
 async function fetchAccountInsights(
@@ -540,6 +550,13 @@ async function fetchAccountInsights(
   if (typeof engagement.total_interactions === 'number') {
     raw.total_interactions = engagement.total_interactions;
   }
+  // v22+ removed account-level `impressions`; `views` is its designated
+  // replacement — surface it on the impressions column so the series keeps
+  // flowing (same precedent as the media-level plays→views mapping).
+  if (typeof engagement.views === 'number') {
+    flat.impressions = engagement.views;
+    raw.views = engagement.views;
+  }
 
   // Hourly when-is-my-audience-online map (lifetime metric, latest entry).
   const onlineFollowers = await fetchOnlineFollowers(
@@ -600,13 +617,21 @@ async function fetchRecentMedia(
 // REELS media are handled route-locally (see REEL_METRICS) because their
 // metric names are volatile across Graph versions and several fall outside
 // the shared IgMediaMetric union.
+//
+// v25 hygiene (2026-06-12): `engagement` was removed from media insights —
+// its allowed-list replacement `total_interactions` feeds the same
+// ig_post_metrics.engagement column via fetchPostInsights' existing
+// `flat.engagement ?? flat.total_interactions` fallback. `impressions` is
+// deprecated for v22+ media and is fetched separately with a `views`
+// fallback (fetchImpressionsWithViewsFallback) so the grouped call never
+// carries a known-deprecated metric.
 function metricsForProductType(productType?: string): IgMediaMetric[] {
   if (productType === 'STORY') {
-    return ['impressions', 'reach', 'replies'];
+    return ['reach', 'replies'];
   }
   // FEED (IMAGE / VIDEO / CAROUSEL_ALBUM) + unknown product types.
   // 'likes' added 2026-06-10 so ig_post_metrics.likes populates for all media.
-  return ['impressions', 'reach', 'engagement', 'saved', 'likes'];
+  return ['reach', 'saved', 'likes', 'total_interactions'];
 }
 
 // Reels metric catalog. Each is requested INDIVIDUALLY-ISOLATED: names are
@@ -676,6 +701,57 @@ async function fetchReelInsights(
   return { flat, raw };
 }
 
+/**
+ * impressions for non-reel media. v22+ removed `impressions` for newer media
+ * ("(#100) Starting from version v22.0 and above, the impressions metric is
+ * no longer supported for the queried media") — on that failure retry
+ * `views`, its v22+ replacement, and surface it as impressions (same
+ * precedent as the REEL plays→views fallback). Isolated from the grouped
+ * insights call so a deprecated metric can never 400 the whole request, and
+ * the known deprecation never logs recurring (#100) noise. Real failures
+ * are still logged and tolerated.
+ */
+async function fetchImpressionsWithViewsFallback(
+  supabase: SupabaseClient,
+  accountId: string,
+  accessToken: string,
+  mediaId: string
+): Promise<{ value: number | undefined; raw: Record<string, unknown> }> {
+  const raw: Record<string, unknown> = {};
+  try {
+    const entry = await fetchMediaInsightEntry(accessToken, mediaId, 'impressions');
+    if (entry) raw.impressions = entry;
+    return { value: entryValue(entry), raw };
+  } catch (e) {
+    if (e instanceof MetaGraphError && e.code === 100) {
+      try {
+        const entry = await fetchMediaInsightEntry(accessToken, mediaId, 'views');
+        if (entry) raw.views = entry;
+        return { value: entryValue(entry), raw };
+      } catch (e2) {
+        const msg2 = e2 instanceof Error ? e2.message : 'unknown';
+        await logApiCall(supabase, {
+          account_id: accountId,
+          event_type: 'post_insight_metric',
+          status: 'error',
+          payload: { ig_media_id: mediaId, metric: 'views' },
+          error_message: msg2,
+        });
+        return { value: undefined, raw };
+      }
+    }
+    const msg = e instanceof Error ? e.message : 'unknown';
+    await logApiCall(supabase, {
+      account_id: accountId,
+      event_type: 'post_insight_metric',
+      status: 'error',
+      payload: { ig_media_id: mediaId, metric: 'impressions' },
+      error_message: msg,
+    });
+    return { value: undefined, raw };
+  }
+}
+
 async function fetchPostInsights(
   supabase: SupabaseClient,
   accountId: string,
@@ -722,6 +798,17 @@ async function fetchPostInsights(
       flat[entry.name] = flattenInsightValue(entry.values?.[0]?.value);
       raw[entry.name] = entry;
     }
+
+    // impressions: deprecated for v22+ media — isolated request with a
+    // `views` fallback so the deprecation never logs recurring (#100) noise.
+    const impressions = await fetchImpressionsWithViewsFallback(
+      supabase,
+      accountId,
+      accessToken,
+      media.id
+    );
+    if (impressions.value !== undefined) flat.impressions = impressions.value;
+    Object.assign(raw, impressions.raw);
   }
 
   return {
