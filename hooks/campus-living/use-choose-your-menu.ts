@@ -10,7 +10,7 @@
  * on their next focus/refetch without a deploy.
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import {
   ChooseYourMenuService,
@@ -60,6 +60,44 @@ export function useLiveVoteCounts(enabled = true) {
     enabled,
     // The live tally is the return-arc — keep it fresh-ish without hammering.
     staleTime: 30_000,
+  });
+}
+
+// ── Mode A: pick your meal ──────────────────────────────────────────────────
+
+export function useSwapOptions(
+  weekStart: string,
+  dayOfWeek: number | null,
+  mealType: string | null,
+  gender: MenuGender | null,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: ['mess', 'choose', 'swap-options', weekStart, dayOfWeek, mealType, gender],
+    queryFn: () =>
+      ChooseYourMenuService.getSwapOptions(weekStart, dayOfWeek!, mealType!, gender!),
+    enabled: enabled && !!weekStart && !!dayOfWeek && !!mealType && !!gender,
+    staleTime: 60_000,
+  });
+}
+
+/** Set/clear a meal pick. Invalidates the ['mess','choose'] family so "my
+ *  activity" and the live tally (the return-arc) move immediately. */
+export function useSetChoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { weekStart: string; dayOfWeek: number; mealType: string; itemId: string }) =>
+      ChooseYourMenuService.setChoice(vars.weekStart, vars.dayOfWeek, vars.mealType, vars.itemId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['mess', 'choose'] }),
+  });
+}
+
+export function useClearChoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { weekStart: string; dayOfWeek: number; mealType: string }) =>
+      ChooseYourMenuService.clearChoice(vars.weekStart, vars.dayOfWeek, vars.mealType),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['mess', 'choose'] }),
   });
 }
 

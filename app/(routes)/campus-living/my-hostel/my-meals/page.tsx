@@ -1,5 +1,7 @@
 'use client';
 
+import { useMemo, useState } from 'react';
+
 // ============================================================================
 // MY MEALS — resident menu + Choose Your Menu return-arc surface (P0c)
 // ============================================================================
@@ -53,6 +55,7 @@ import {
 } from '@/hooks/campus-living/use-choose-your-menu';
 import { useMyRecognition } from '@/hooks/campus-living/use-recognition';
 import { WeekMenuStrip } from './_components/week-menu-strip';
+import { MealChoiceDialog } from './_components/meal-choice-dialog';
 import { LiveCountsBoard } from './_components/live-counts-board';
 import { RecognitionFeed } from './_components/recognition-feed';
 
@@ -107,6 +110,25 @@ export default function MyMealsPage() {
     'mess',
     masterOn && !!policies?.feedbackRecognition
   );
+
+  // Mode A gate: master ON + my plan is personalization-enabled. The RPCs
+  // re-check everything server-side; this only controls whether the Choose
+  // buttons render. Dark today on all three layers.
+  const canChoose =
+    masterOn && !!context?.tierKey && !!policies?.personalizationTiers?.includes(context.tierKey);
+
+  const chosenByMeal = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const c of myChoices ?? []) m[`${c.day_of_week}-${c.meal_type}`] = c.dish;
+    return m;
+  }, [myChoices]);
+
+  const [choiceDialog, setChoiceDialog] = useState<{
+    open: boolean;
+    day: number | null;
+    meal: string | null;
+    label: string;
+  }>({ open: false, day: null, meal: null, label: '' });
 
   const breadcrumb = (
     <PageBreadcrumb
@@ -171,7 +193,33 @@ export default function MyMealsPage() {
         </div>
 
         {/* Layer 1 — always: this week's menu for my tier × gender */}
-        <WeekMenuStrip menu={menu} isLoading={menuLoading} tierKey={context.tierKey} />
+        <WeekMenuStrip
+          menu={menu}
+          isLoading={menuLoading}
+          tierKey={context.tierKey}
+          canChoose={canChoose}
+          chosenByMeal={chosenByMeal}
+          onChoose={(day, meal, label) =>
+            setChoiceDialog({ open: true, day, meal, label })
+          }
+        />
+
+        {canChoose && context.gender && (
+          <MealChoiceDialog
+            open={choiceDialog.open}
+            onOpenChange={(v) => setChoiceDialog((d) => ({ ...d, open: v }))}
+            weekStart={weekStart}
+            dayOfWeek={choiceDialog.day}
+            mealType={choiceDialog.meal}
+            mealLabel={choiceDialog.label}
+            gender={context.gender}
+            currentChoiceDish={
+              choiceDialog.day && choiceDialog.meal
+                ? chosenByMeal[`${choiceDialog.day}-${choiceDialog.meal}`] ?? null
+                : null
+            }
+          />
+        )}
 
         {/* Layer 2 — engagement (only when the super-admin flips the master switch) */}
         {masterOn && (

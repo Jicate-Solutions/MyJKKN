@@ -13,6 +13,7 @@
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { CalendarRange, ChefHat, Sparkles } from 'lucide-react';
@@ -40,10 +41,18 @@ export function WeekMenuStrip({
   menu,
   isLoading,
   tierKey,
+  canChoose = false,
+  chosenByMeal = {},
+  onChoose,
 }: {
   menu: MenuWeekResult | undefined;
   isLoading: boolean;
   tierKey: string;
+  /** Mode A gate, computed by the page (master ON + plan enabled). */
+  canChoose?: boolean;
+  /** `${day}-${meal}` → picked dish, for the "Your pick" badge. */
+  chosenByMeal?: Record<string, string>;
+  onChoose?: (dayOfWeek: number, mealType: string, mealLabel: string) => void;
 }) {
   const [selectedDay, setSelectedDay] = useState(todayIsoDow());
   const { options: planOptions } = useMessPlanOptions();
@@ -123,17 +132,35 @@ export function WeekMenuStrip({
                 cell && cell.items_english.length > 0
                   ? cell.items_english
                   : cell?.items ?? [];
+              const myPick = chosenByMeal[`${selectedDay}-${meal}`];
               return (
                 <div key={meal} className="rounded-lg border p-3">
                   <div className="flex items-center justify-between gap-2 mb-1.5">
                     <p className="text-sm font-semibold">{MEAL_LABELS[meal]}</p>
-                    {cell?.is_special_day && (
-                      <Badge variant="secondary" className="text-[10px]">
-                        <Sparkles className="mr-1 h-3 w-3" />
-                        {cell.special_day_name ?? 'Special day'}
-                      </Badge>
-                    )}
+                    <span className="flex items-center gap-1.5">
+                      {cell?.is_special_day && (
+                        <Badge variant="secondary" className="text-[10px]">
+                          <Sparkles className="mr-1 h-3 w-3" />
+                          {cell.special_day_name ?? 'Special day'}
+                        </Badge>
+                      )}
+                      {canChoose && onChoose && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 px-2 text-xs"
+                          onClick={() => onChoose(selectedDay, meal, MEAL_LABELS[meal])}
+                        >
+                          {myPick ? 'Change' : 'Choose'}
+                        </Button>
+                      )}
+                    </span>
                   </div>
+                  {myPick && (
+                    <Badge className="mb-1.5 text-[10px]" variant="secondary">
+                      Your pick: {myPick}
+                    </Badge>
+                  )}
                   {items.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Not set</p>
                   ) : (

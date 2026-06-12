@@ -92,6 +92,32 @@ export interface LiveVoteCount {
   voters: number;
 }
 
+/** One pickable dish for a meal cell (Mode A). */
+export interface SwapOption {
+  item_id: string;
+  dish: string;
+  /** Plan line the dish came from, or 'curated'. */
+  source_plan: string;
+}
+
+/** Error codes fn_mess_choose_set_choice / clear_choice return. */
+export type ChooseChoiceError =
+  | 'not_authenticated'
+  | 'feature_disabled'
+  | 'no_learner_profile'
+  | 'no_mess_plan'
+  | 'plan_not_enabled'
+  | 'invalid_meal'
+  | 'invalid_day'
+  | 'cutoff_passed'
+  | 'invalid_option';
+
+export interface ChoiceResult {
+  ok: boolean;
+  error?: ChooseChoiceError;
+  dish?: string;
+}
+
 /** Seeded defaults (post vocab-fix migration) — used only when a read fails. */
 const POLICY_DEFAULTS: ChooseMenuPolicySnapshot = {
   masterEnabled: false, // fail-dark: a broken read must never light the feature
@@ -299,6 +325,72 @@ export class ChooseYourMenuService {
       dish: libName(r.item),
       updated_at: r.updated_at,
     }));
+  }
+
+  // ── Mode A: pick your meal (RPCs guard master/plan/cutoff server-side) ──
+
+  static async getSwapOptions(
+    weekStart: string,
+    dayOfWeek: number,
+    mealType: string,
+    gender: MenuGender
+  ): Promise<SwapOption[]> {
+    try {
+      const supabase = createClientSupabaseClient();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc('fn_mess_choose_swap_options', {
+        p_week_start: weekStart,
+        p_day_of_week: dayOfWeek,
+        p_meal_type: mealType,
+        p_gender: gender,
+      });
+      if (error) throw error;
+      const options = (data as { options?: unknown })?.options;
+      return Array.isArray(options) ? (options as SwapOption[]) : [];
+    } catch (e) {
+      logger.warn(MODULE, 'getSwapOptions failed — rendering empty', e);
+      return [];
+    }
+  }
+
+  static async setChoice(
+    weekStart: string,
+    dayOfWeek: number,
+    mealType: string,
+    itemId: string
+  ): Promise<ChoiceResult> {
+    const supabase = createClientSupabaseClient();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc('fn_mess_choose_set_choice', {
+      p_week_start: weekStart,
+      p_day_of_week: dayOfWeek,
+      p_meal_type: mealType,
+      p_item_id: itemId,
+    });
+    if (error) {
+      logger.error(MODULE, 'setChoice failed', error);
+      throw error;
+    }
+    return (data ?? { ok: false }) as ChoiceResult;
+  }
+
+  static async clearChoice(
+    weekStart: string,
+    dayOfWeek: number,
+    mealType: string
+  ): Promise<ChoiceResult> {
+    const supabase = createClientSupabaseClient();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc('fn_mess_choose_clear_choice', {
+      p_week_start: weekStart,
+      p_day_of_week: dayOfWeek,
+      p_meal_type: mealType,
+    });
+    if (error) {
+      logger.error(MODULE, 'clearChoice failed', error);
+      throw error;
+    }
+    return (data ?? { ok: false }) as ChoiceResult;
   }
 
   // ── Live counts (aggregate-only RPC — the public return-arc tally) ───
