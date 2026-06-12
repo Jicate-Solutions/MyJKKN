@@ -889,7 +889,7 @@ function HierarchyFilterPanel({
   useEffect(() => {
     let cancelled = false;
     setLoading((l) => ({ ...l, institutions: true }));
-    OrganizationService.getInstitutionNames(true)
+    OrganizationService.getInstitutionNames(true, undefined, 'all')
       .then((rows) => {
         if (!cancelled) {
           setOptions((o) => ({ ...o, institutions: normalize(rows) }));

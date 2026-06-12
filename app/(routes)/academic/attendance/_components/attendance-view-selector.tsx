@@ -394,8 +394,14 @@ export function AttendanceViewSelector({
     );
   }
 
-  // For faculty members, show tabbed interface
+  // For faculty members, show tabbed interface.
+  // Updated: 2026-06-11 - "My Classes" shows ALL of the faculty's attendance for
+  // the day in one place: period cards for period_wise classes they teach, AND
+  // the Day-wise (FN/AN) marker for any session_wise class they're incharge of.
+  // session_wise periods are excluded from the period cards (they're not marked
+  // per-period), so a pure school incharge sees only the day-wise marker here.
   if (staffId) {
+    const facultyIsIncharge = isClassIncharge && !!inchargeStaffId;
     return (
       <Tabs
         value={activeTab}
@@ -483,6 +489,26 @@ export function AttendanceViewSelector({
             onPeriodSelect={handleQuickPeriodSelect}
             selectedDate={searchContext.attendance_date || undefined}
           />
+
+          {/* Day-wise (FN/AN) marking shown right here in "My Classes" for
+              faculty who are also class incharges of a session_wise class —
+              their school class isn't markable per-period, so it appears as the
+              day-wise marker alongside any period classes they teach. */}
+          {facultyIsIncharge && (
+            <div className='space-y-4 pt-2'>
+              <Alert className='flex items-center gap-2 border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800'>
+                <AlertDescription className='flex items-center gap-2'>
+                  <Info className='h-4 w-4' />
+                  As class incharge, mark day-wise (FN &amp; AN) attendance for
+                  your class. Both sessions present = full day, one = half day.
+                </AlertDescription>
+              </Alert>
+              <DaySessionAttendance
+                staffId={inchargeStaffId}
+                initialDate={searchContext.attendance_date || undefined}
+              />
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value='search' className='space-y-4'>

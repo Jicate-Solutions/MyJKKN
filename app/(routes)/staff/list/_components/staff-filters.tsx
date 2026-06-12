@@ -40,7 +40,7 @@ const StaffFiltersComponent = ({ filters, onFilterChange }: StaffFiltersProps) =
     async function loadData() {
       try {
         const [institutionsData, categoriesData, rolesData] = await Promise.all([
-          OrganizationService.getInstitutionNames(true),
+          OrganizationService.getInstitutionNames(true, undefined, 'all'),
           // CategoryService.getCategories defaults to limit=10 — without passing
           // limit:100 here, the filter dropdown silently truncates once active
           // categories grow past 10 (same fix already applied in staff-form.tsx,

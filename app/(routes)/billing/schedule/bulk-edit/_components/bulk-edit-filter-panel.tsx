@@ -40,7 +40,7 @@ export function BulkEditFilterPanel({
 
   // Load institutions + categories once.
   useEffect(() => {
-    OrganizationService.getInstitutionNames(true)
+    OrganizationService.getInstitutionNames(true, undefined, 'all')
       .then((rows: any[]) => setInstitutions(rows.map((r) => ({ id: r.id, name: r.name }))))
       .catch(() => {});
     BillingCategoryService.getActiveBillingCategories()

@@ -326,7 +326,9 @@ export function StudentBillForm({
     try {
       setIsLoadingInstitutions(true);
       const institutionNames = await OrganizationService.getInstitutionNames(
-        true
+        true,
+        undefined,
+        'all'
       );
       setInstitutions(institutionNames as Institution[]);
     } catch (error) {
