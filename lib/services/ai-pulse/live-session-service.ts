@@ -60,6 +60,8 @@ export interface EngagementSignals {
   quiz_score?: number; // 0–100
   quiz_passed?: boolean;
   quiz_async_makeup?: boolean;
+  /** CARE E-move: optional "what should change next week?" free text. */
+  feedback_text?: string;
 }
 
 export interface LivePoll {
@@ -572,12 +574,15 @@ export class LiveSessionService {
   /**
    * Submit the post-session quiz. Writes quiz_score + quiz_passed into
    * engagement_signals, plus a quiz_async_makeup flag if submitted in the
-   * 60min–48h window.
+   * 60min–48h window. Optional `feedback` ("what should change next week?")
+   * rides the same write — the CARE E-move voice channel; surfaced to the
+   * Champion on the admin cycle page, anonymously.
    */
   static async submitQuiz(
     cycleId: string,
     score: number,
     asyncMakeup: boolean,
+    feedback?: string,
   ): Promise<EngagementSignals> {
     // Cast to any: this service touches ai_pulse_live_attendance (+ the deferred
     // ai_pulse_polls/poll_responses), which are not yet in the generated
@@ -611,11 +616,13 @@ export class LiveSessionService {
       : policyNumber(policies, 'quiz_pass_threshold_live', 40);
 
     const prevSignals = (existing?.engagement_signals ?? {}) as EngagementSignals;
+    const trimmedFeedback = feedback?.trim();
     const nextSignals: EngagementSignals = {
       ...prevSignals,
       quiz_score: score,
       quiz_passed: score >= passThreshold,
       quiz_async_makeup: asyncMakeup,
+      ...(trimmedFeedback ? { feedback_text: trimmedFeedback } : {}),
     };
 
     // Always write to the learner's live_session row (async make-up is a flag
@@ -794,16 +801,16 @@ export function useSubmitQuiz(
 ): UseMutationResult<
   EngagementSignals,
   Error,
-  { score: number; asyncMakeup: boolean }
+  { score: number; asyncMakeup: boolean; feedback?: string }
 > {
   const queryClient = useQueryClient();
   return useMutation<
     EngagementSignals,
     Error,
-    { score: number; asyncMakeup: boolean }
+    { score: number; asyncMakeup: boolean; feedback?: string }
   >({
-    mutationFn: ({ score, asyncMakeup }) =>
-      LiveSessionService.submitQuiz(cycleId, score, asyncMakeup),
+    mutationFn: ({ score, asyncMakeup, feedback }) =>
+      LiveSessionService.submitQuiz(cycleId, score, asyncMakeup, feedback),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: liveSessionKey(cycleId) });
     },

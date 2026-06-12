@@ -66,6 +66,8 @@ interface FormState {
   meet_url: string;
   recording_url: string;
   external_judge_cycle: boolean;
+  challenge_text: string;
+  you_said_we_changed: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -76,6 +78,8 @@ const EMPTY_FORM: FormState = {
   meet_url: '',
   recording_url: '',
   external_judge_cycle: false,
+  challenge_text: '',
+  you_said_we_changed: '',
 };
 
 function isValidHttpUrl(s: string): boolean {
@@ -112,6 +116,8 @@ export function CycleEditForm({ cycleId }: CycleEditFormProps) {
       meet_url: cycle.ai_pulse.meet_url || '',
       recording_url: cycle.ai_pulse.recording_url || '',
       external_judge_cycle: cycle.ai_pulse.external_judge_cycle === true,
+      challenge_text: cycle.ai_pulse.challenge_text || '',
+      you_said_we_changed: cycle.ai_pulse.you_said_we_changed || '',
     });
     setDirty(false);
   }, [cycle]);
@@ -194,6 +200,8 @@ export function CycleEditForm({ cycleId }: CycleEditFormProps) {
       meet_url: form.meet_url.trim() || null,
       recording_url: form.recording_url.trim() || null,
       external_judge_cycle: form.external_judge_cycle,
+      challenge_text: form.challenge_text.trim() || null,
+      you_said_we_changed: form.you_said_we_changed.trim() || null,
     };
 
     const res = await update.mutateAsync(patch);
@@ -346,9 +354,47 @@ export function CycleEditForm({ cycleId }: CycleEditFormProps) {
               type="url"
               value={form.meet_url}
               onChange={(e) => setField('meet_url', e.target.value)}
-              placeholder="https://meet.google.com/abc-defg-hij"
+              placeholder="https://teams.microsoft.com/l/meetup-join/…"
               disabled={isCancelled}
             />
+          </div>
+
+          {/* Weekly challenge (CARE C-move) */}
+          <div className="space-y-2">
+            <Label htmlFor="challenge-text">This week&apos;s challenge</Label>
+            <Textarea
+              id="challenge-text"
+              value={form.challenge_text}
+              onChange={(e) => setField('challenge_text', e.target.value)}
+              placeholder="e.g. Use Lovable to build a one-page tool your department would actually use — patient intake, lab log, attendance helper…"
+              rows={2}
+              maxLength={400}
+              disabled={isCancelled}
+            />
+            <p className="text-xs text-muted-foreground">
+              What teams must build and submit this week. Shown to every
+              learner on My Pulse and judged by faculty on Monday — without it,
+              Gold has no stated brief.
+            </p>
+          </div>
+
+          {/* You said, we changed (CARE E-move) */}
+          <div className="space-y-2">
+            <Label htmlFor="you-said-we-changed">You said, we changed</Label>
+            <Textarea
+              id="you-said-we-changed"
+              value={form.you_said_we_changed}
+              onChange={(e) => setField('you_said_we_changed', e.target.value)}
+              placeholder="e.g. You asked for slower Tamil segments — this week each demo runs twice, once per language."
+              rows={2}
+              maxLength={300}
+              disabled={isCancelled}
+            />
+            <p className="text-xs text-muted-foreground">
+              One line answering last week&apos;s learner feedback (collected
+              with the quiz). Shown on My Pulse — proof that feedback changes
+              the program.
+            </p>
           </div>
 
           {/* Recording URL */}
