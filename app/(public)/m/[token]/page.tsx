@@ -12,6 +12,7 @@
 // robots noindex, force-dynamic, service-role read scoped to a narrow column set).
 
 import type { Metadata } from 'next';
+import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { GiftCard } from './_components/gift-card';
@@ -19,6 +20,13 @@ import { GiftCard } from './_components/gift-card';
 export const dynamic = 'force-dynamic';
 
 const TOKEN_RE = /^[A-Za-z0-9_-]{8,64}$/;
+
+// Link-preview crawlers GET every URL the moment the WhatsApp message is
+// delivered — without this filter, all 456 opened_at stamps would land at
+// SEND time, not when fathers actually tap. Bots still get the page (the
+// preview card benefits); they just don't count as opens.
+const BOT_UA_RE =
+  /whatsapp|facebookexternalhit|telegrambot|twitterbot|linkedinbot|slackbot|discordbot|bot|crawler|spider|preview/i;
 
 interface MomentPageProps {
   params: Promise<{ token: string }>;
