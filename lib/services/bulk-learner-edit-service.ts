@@ -526,7 +526,7 @@ export class BulkLearnerEditService {
           academic_year:academic_years(id, academic_year_name),
           regulation:regulations(id, regulation_year, regulation_code),
           batch:batches(id, batch_name),
-          admission_year_obj:admission_years!admission_year_id(program_start_year),
+          admission_year_obj:admission_years!admission_year_id(year),
           quota_ref:quotas!quota_id(name),
           community_ref:community_categories!community_category_id(code),
           caste_ref:castes!caste_id(name),

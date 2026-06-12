@@ -26,6 +26,7 @@ export type FeeStructureRow = AdmissionFeeStructure & {
   department_name: string | null;
   programme_name: string | null;
   quota_name: string | null;
+  accommodation_name: string | null;
   community_name: string | null;
   admission_year_name: string | null;
   item_count: number;
@@ -118,8 +119,15 @@ export const columns: ColumnDef<FeeStructureRow>[] = [
     cell: ({ row }) => row.original.gender ?? 'Any',
     size: 90,
   },
-  
-  
+  {
+    id: 'accommodation',
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Accommodation" />,
+    cell: ({ row }) => {
+      const name = row.original.accommodation_name;
+      return <Badge variant={name ? 'outline' : 'secondary'}>{name ?? 'Any'}</Badge>;
+    },
+    size: 130,
+  },
   {
     accessorKey: 'status',
     header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,

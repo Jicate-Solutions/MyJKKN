@@ -55,7 +55,7 @@ export default function ComplianceDashboardPage() {
   useEffect(() => {
     async function loadInstitutions() {
       try {
-        const data = await OrganizationService.getInstitutionNames(true);
+        const data = await OrganizationService.getInstitutionNames(true, undefined, 'all');
         setInstitutions(data);
       } catch (err) {
         console.error('[solutions/compliance] Error loading institutions:', err);

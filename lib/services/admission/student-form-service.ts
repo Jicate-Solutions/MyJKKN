@@ -164,29 +164,36 @@ export class StudentFormService {
 
     // accommodation_type TEXT is retired. The form still sends the HOSTEL/DAY
     // SCHOLAR choice as `accommodation_type` (not whitelisted anymore), so
-    // resolve it to the institution-scoped accommodation_types FK here and write
-    // that. Read the raw `fields` (the text was filtered out of allowedFields).
+    // resolve it to the global accommodation_types FK here and write that.
+    // Read the raw `fields` (the text was filtered out of allowedFields).
     if (
       section === 'accommodation' &&
       typeof fields.accommodation_type === 'string' &&
       fields.accommodation_type.trim() !== ''
     ) {
-      const { data: lp } = await (svc as any)
-        .from('learners_profiles')
-        .select('institution_id')
-        .eq('id', ctx.learner_profile_id)
-        .maybeSingle();
-      if (lp?.institution_id) {
-        const resolveAccommodation = await buildAccommodationTypeResolver(svc, lp.institution_id);
-        allowedFields.accommodation_type_id =
-          resolveAccommodation(fields.accommodation_type as string) ?? null;
-      }
+      const resolveAccommodation = await buildAccommodationTypeResolver(svc);
+      allowedFields.accommodation_type_id =
+        resolveAccommodation(fields.accommodation_type as string) ?? null;
     }
 
     // Nullable UUID FKs must never reach the UPDATE as '' — Postgres rejects an
     // empty string cast to uuid with 22P02. Coerce blank → null for every
     // uuid-typed writable column the student form can submit.
-    for (const uuidCol of ['hostel_category_id', 'mess_category_id', 'community_category_id', 'caste_id', 'quota_id', 'accommodation_type_id']) {
+    //
+    // 2026-06-10: list extended to ALL uuid columns across every section.
+    // department_id was the painful one — it's prefilled as `?? ''` in
+    // step-course-selection, is NOT wizard-required, and only gets set when
+    // the student re-picks a Program. Legacy leads with a null department
+    // sent department_id='' → 22P02 aborted the whole course UPDATE → the
+    // step silently refused to advance. transport_route_id/transport_stop_id
+    // had the same gap on the accommodation step.
+    for (const uuidCol of [
+      'hostel_category_id', 'mess_category_id', 'community_category_id',
+      'caste_id', 'quota_id', 'accommodation_type_id',
+      'institution_id', 'degree_id', 'department_id', 'program_id',
+      'semester_id', 'admission_year_id',
+      'transport_route_id', 'transport_stop_id',
+    ]) {
       if (allowedFields[uuidCol] === '') allowedFields[uuidCol] = null;
     }
 
@@ -201,7 +208,6 @@ export class StudentFormService {
     // later — same recovery flow the convert route uses on initial conversion.
     if (section === 'course') {
       const newInst = (allowedFields.institution_id ?? null) as string | null;
-      const newProg = (allowedFields.program_id ?? null) as string | null;
 
       const { data: current } = await (svc as any)
         .from('learners_profiles')
@@ -214,19 +220,18 @@ export class StudentFormService {
         // institution/program columns — those might already be stale.
         const { data: ay } = await (svc as any)
           .from('admission_years')
-          .select('institution_id, program_id')
+          .select('institution_id')
           .eq('id', current.admission_year_id)
           .maybeSingle();
 
-        // Effective values after this UPDATE: incoming fields override
-        // existing row values.
+        // admission_years is now institution-wide (program dimension dropped),
+        // so the scope check is institution-only — mirrors the
+        // validate_learner_admission_year_scope trigger.
         const effInst = newInst ?? current.institution_id;
-        const effProg = newProg ?? current.program_id;
 
         const instMismatch = ay && ay.institution_id !== effInst;
-        const progMismatch = ay && effProg && ay.program_id && ay.program_id !== effProg;
 
-        if (instMismatch || progMismatch) {
+        if (instMismatch) {
           (allowedFields as Record<string, unknown>).admission_year_id = null;
         }
       }

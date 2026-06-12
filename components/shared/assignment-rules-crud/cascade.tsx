@@ -183,7 +183,7 @@ function buildFormSchema(
       kind: 'enum',
       englishLabel: 'Strategy',
       englishHint:
-        'How counselors get picked when this rule matches. The list comes from /admin/counselors/rule-types.',
+        'How counselors get picked when this rule matches. The list comes from /admission/counselors/admin/rule-types.',
       options: ruleTypeOptions,
       required: true,
     },

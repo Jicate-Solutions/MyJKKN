@@ -32,6 +32,7 @@ import { GeographyAnalyticsTab } from './_components/geography-analytics-tab';
 import { InstitutionComparisonAdvanced } from './_components/institution-comparison-advanced';
 import { NAACReportGenerator } from './_components/naac-report-generator';
 import { GroupAdmissionYearSelect } from './_components/group-admission-year-select';
+import { ArpsPaceOverview } from './_components/arps-pace-overview';
 // 2026-05-20: SeatFilledCard removed from the top strip. The new "Admitted"
 // KPI (lifecycle_status IN admitted+active) now covers the seat-filled signal.
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -60,7 +61,7 @@ export const navMeta = {
   invokedFrom: '/admission/analytics',
 } as const;
 
-const VALID_TABS = ['overview', 'seats', 'sources', 'geography', 'comparison'] as const;
+const VALID_TABS = ['overview', 'seats', 'pace', 'sources', 'geography', 'comparison'] as const;
 type DashboardTab = (typeof VALID_TABS)[number];
 
 /**
@@ -610,6 +611,7 @@ export default function GroupDashboardPage() {
             <TabsList className="h-9 flex-wrap">
               <TabsTrigger value="overview" className="text-xs">Overview</TabsTrigger>
               <TabsTrigger value="seats" className="text-xs">Seat Analytics</TabsTrigger>
+              <TabsTrigger value="pace" className="text-xs">Pace</TabsTrigger>
               <TabsTrigger value="sources" className="text-xs">Source Analytics</TabsTrigger>
               <TabsTrigger value="geography" className="text-xs">Geography</TabsTrigger>
               <TabsTrigger value="comparison" className="text-xs">Comparison</TabsTrigger>
@@ -662,6 +664,14 @@ export default function GroupDashboardPage() {
                 institutionIds={scopedInstitutionIds}
                 programStartYear={selectedYear}
               />
+            </TabsContent>
+
+            {/* Tab: Pace (ARPS Phase 1 — Director-locked 2026-06-07) */}
+            <TabsContent value="pace" className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Admission Revenue Pace</span> — actual fill % vs the average of 2024 and 2025 same-day pace, per institution family. Alerts fire when the gap exceeds the stage threshold (10pp early, 15pp mid, 20pp late).
+              </p>
+              <ArpsPaceOverview />
             </TabsContent>
 
             {/* Tab: Source Analytics */}

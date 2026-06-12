@@ -18,7 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { RazorpayCheckoutLauncher } from './razorpay-checkout-launcher';
+import { RazorpayHostedRedirect } from './razorpay-hosted-redirect';
 import type { CreatePaymentSessionDto } from '@/types/payment-gateway';
 
 export interface RazorpayLaunchProps {
@@ -43,8 +43,8 @@ interface OnlinePaymentButtonProps {
   onSuccess?: () => void;  // Optional: Callback after successful payment initiation
   // When provided, a Razorpay session is handed to the parent to launch the
   // checkout OUTSIDE this (closable) subtree. Required when this button lives
-  // inside a dialog that closes on success — otherwise the launcher unmounts
-  // before the Razorpay modal can open.
+  // inside a dialog that closes on success — otherwise the redirect component
+  // unmounts before it can POST the form to Razorpay's hosted page.
   onRazorpaySession?: (props: RazorpayLaunchProps) => void;
 }
 
@@ -100,9 +100,9 @@ export function OnlinePaymentButton({
       }
 
       // IMPORTANT: do NOT call onSuccess() on the Razorpay path. When this button
-      // is inside a dialog, onSuccess closes it — which would unmount the launcher
-      // before checkout.js opens the modal. The Razorpay flow navigates away on
-      // success (callback POST) or dismiss (failed page).
+      // is inside a dialog, onSuccess closes it — which would unmount the redirect
+      // component before it can POST the form to Razorpay. The hosted flow fully
+      // navigates the browser to Razorpay, then back to success/failed.
       return;
     }
 
@@ -150,7 +150,8 @@ export function OnlinePaymentButton({
                   for {billIds.length} {billIds.length === 1 ? 'bill' : 'bills'}
                 </p>
                 <p className="text-sm">
-                  A secure payment window will open to complete your payment.
+                  You will be redirected to a secure Razorpay payment page to
+                  complete your payment.
                 </p>
               </div>
             </AlertDialogDescription>
@@ -165,7 +166,7 @@ export function OnlinePaymentButton({
       </AlertDialog>
 
       {razorpayLaunchProps && (
-        <RazorpayCheckoutLauncher
+        <RazorpayHostedRedirect
           {...razorpayLaunchProps}
           onClose={() => setRazorpayLaunchProps(null)}
         />

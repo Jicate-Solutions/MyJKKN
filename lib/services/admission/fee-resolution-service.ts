@@ -85,13 +85,14 @@ export class FeeResolutionService {
    */
   static async previewMatchByDimensions(
     dims: FeeStructureMatrixDimensions,
+    yearOfStudy: number = 1,
   ): Promise<AdmissionFeeStructureWithItems | null> {
     if (!isValidDimensions(dims)) {
       // Silently return null — the UI's no-match empty state will render,
       // which is the correct UX while the user finishes filling dims.
       return null;
     }
-    return FeeStructureService.findByDimensions(dims, dims.community_category_id);
+    return FeeStructureService.findByDimensions(dims, dims.community_category_id, yearOfStudy);
   }
 
   /**

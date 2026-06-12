@@ -159,6 +159,13 @@ export function AutoTabNav({
     .slice(sliceStart, sliceEnd)
     .map((chips, tierIdx) =>
       chips.filter((c) => {
+        // My Marks has its own richer in-page switcher (MarksViewTabs with
+        // descriptions), so suppress the auto Internal/Result sub-tabs. The
+        // trailing slash keeps the "My Marks" parent chip (/learners/my-marks)
+        // in the section tier — only its children are dropped.
+        if (normalizeRoute(c.href).startsWith('/learners/my-marks/')) {
+          return false;
+        }
         if (
           residentOnlyCampusLiving &&
           tierIdx === 0 &&

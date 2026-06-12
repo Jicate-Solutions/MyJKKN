@@ -148,13 +148,13 @@ export default function DepartmentDetailsPage({
           <CardContent className='grid gap-6'>
             <div className='grid gap-4 md:grid-cols-2'>
               <div>
-                <p className='font-medium'>Department Code</p>
+                <p className='font-medium'>{adapt('Department')} Code</p>
                 <p className='text-base text-muted-foreground'>
                   {department.department_code}
                 </p>
               </div>
               <div>
-                <p className='font-medium'>Department Name</p>
+                <p className='font-medium'>{adapt('Department')} Name</p>
                 <p className='text-base text-muted-foreground'>
                   {department.department_name}
                 </p>
@@ -178,7 +178,7 @@ export default function DepartmentDetailsPage({
                 </Badge>
               </div>
               <div>
-                <p className='font-medium'>Degree</p>
+                <p className='font-medium'>{adapt('Degree')}</p>
                 <p className='text-base text-muted-foreground'>
                   {department.degree?.degree_name}
                 </p>

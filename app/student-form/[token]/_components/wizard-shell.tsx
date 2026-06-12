@@ -158,16 +158,39 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
   ) {
     setSubmitting(true);
     try {
+      // 30s timeout — without it a dead mobile connection leaves the fetch
+      // pending forever, `submitting` stays true and both buttons stay
+      // disabled with no feedback (the "form is stuck" report, 2026-06-10).
       const res = await fetch(`/api/student-form/${encodeURIComponent(token)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ section, fields, final }),
+        signal: AbortSignal.timeout(30_000),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? 'save failed');
+        const code = body.error ?? 'save failed';
+        // Token died mid-fill (expired / consumed / superseded) — no retry
+        // can succeed, so route to the expired page instead of toasting.
+        if (['expired', 'consumed', 'superseded', 'invalid_token'].includes(code)) {
+          window.location.href = `/student-form/${encodeURIComponent(token)}/expired?reason=${code}`;
+          return;
+        }
+        // server_error & friends — students shouldn't see raw codes.
+        throw new Error(
+          'Could not save — please check your connection and tap Save & Continue again.',
+        );
       }
       setData((prev) => ({ ...prev, ...fields }));
+    } catch (e) {
+      if (e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+        throw new Error('Network is slow — the save timed out. Please try again.');
+      }
+      if (e instanceof TypeError) {
+        // fetch network failure (offline, DNS, connection reset)
+        throw new Error('No connection — please check your internet and try again.');
+      }
+      throw e;
     } finally {
       setSubmitting(false);
     }

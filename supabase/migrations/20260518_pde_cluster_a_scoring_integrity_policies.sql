@@ -8,7 +8,7 @@
 -- audited, and how AI-built deliverables are credited.
 --
 -- Pattern: every governance decision = row in platform_policies. Director
--- edits via /admin/pde/policies/scoring UI → behavior changes on next
+-- edits via /pde/admin/policies/scoring UI → behavior changes on next
 -- demonstration submission. Zero deploys, zero developer round-trips.
 --
 -- Read at runtime via fn_get_policy('pde.scoring.<key>', institution_id).

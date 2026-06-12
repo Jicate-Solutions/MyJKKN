@@ -519,7 +519,6 @@ export async function POST(request: NextRequest) {
           {
             year: yearInput,
             institutionId: sanitizedData.institution_id,
-            programId: sanitizedData.program_id,
           }
         );
       }

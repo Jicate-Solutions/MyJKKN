@@ -92,7 +92,18 @@ export async function POST(request: NextRequest) {
     const isInstitutionAdmin =
       profile?.role === 'institution_admin' && profile?.institution_id === institutionId;
 
-    if (!isSuperAdmin && !isInstitutionAdmin) {
+    // 2026-06-11 granular-permission retrofit: roles granted
+    // social.facebook.manage via Role Management pass too, restricted to
+    // their own institution like institution_admin.
+    let hasManagePerm = false;
+    if (!isSuperAdmin && !isInstitutionAdmin && profile?.institution_id === institutionId) {
+      const { data: perm } = await supabase.rpc('user_has_permission', {
+        permission_name: 'social.facebook.manage',
+      });
+      hasManagePerm = !!perm;
+    }
+
+    if (!isSuperAdmin && !isInstitutionAdmin && !hasManagePerm) {
       return NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 });
     }
 

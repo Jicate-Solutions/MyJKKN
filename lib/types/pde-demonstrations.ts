@@ -54,6 +54,14 @@ export interface PDEDemonstration {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  // Curriculum connector (migration 20260611230000_pde_bos_clo_connector):
+  // BoS lane pins a syllabus VERSION at submission; VAC lane is course-level.
+  bos_syllabus_id?: string | null;
+  vac_course_id?: string | null;
+  /** Learner-PROPOSED CLO numbers (capped by pde.obe.clo_tag_cap). */
+  clo_refs?: number[] | null;
+  /** Validator-CONFIRMED subset — attainment reads this only. */
+  clo_refs_confirmed?: number[] | null;
 }
 
 export interface CreatePDEDemonstrationInput {
@@ -64,4 +72,7 @@ export interface CreatePDEDemonstrationInput {
   skill_name?: string;
   evidence?: PDEDemonstrationEvidence;
   evidence_type?: string;
+  bos_syllabus_id?: string | null;
+  vac_course_id?: string | null;
+  clo_refs?: number[] | null;
 }

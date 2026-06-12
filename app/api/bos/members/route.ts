@@ -145,15 +145,19 @@ export async function POST(request: NextRequest) {
     }
 
     // Reject duplicates: the same staff or expert cannot be on the same
-    // composition twice. The DB enforces this via partial unique indexes
-    // (20260516_bos_members_no_duplicates.sql), but checking here lets us
-    // return a friendly 409 Conflict instead of a raw 23505 error.
+    // committee of a composition twice (the same person MAY sit on two
+    // different committees). The DB enforces this via partial unique indexes
+    // (re-scoped per committee in 20260610_bos_committees.sql), but checking
+    // here lets us return a friendly 409 Conflict instead of a raw 23505.
     if (body.staff_id || body.expert_id) {
-      const dupQuery = supabase
+      let dupQuery = supabase
         .from('bos_members')
         .select('id, display_name')
         .eq('composition_id', body.composition_id)
         .limit(1);
+      dupQuery = body.committee_id
+        ? dupQuery.eq('committee_id', body.committee_id)
+        : dupQuery.is('committee_id', null);
       if (body.staff_id) {
         dupQuery.eq('staff_id', body.staff_id);
       } else if (body.expert_id) {
@@ -163,7 +167,7 @@ export async function POST(request: NextRequest) {
       if (existingDup) {
         const who = (existingDup as { display_name?: string | null }).display_name ?? 'This person';
         return NextResponse.json(
-          { error: `${who} is already a member of this composition.` },
+          { error: `${who} is already a member of this committee.` },
           { status: 409 }
         );
       }
@@ -209,7 +213,7 @@ export async function POST(request: NextRequest) {
     // raced past it.
     if (pgErr.code === '23505') {
       return NextResponse.json(
-        { error: 'This person is already a member of this composition.' },
+        { error: 'This person is already a member of this committee.' },
         { status: 409 }
       );
     }

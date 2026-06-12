@@ -34,6 +34,7 @@ import {
   useEligibilityRooms,
 } from '@/hooks/campus-living/use-room-eligibility';
 import { useEligibilityInstitutions } from '@/hooks/campus-living/use-program-eligibility';
+import { useBlockInstitutions } from '@/hooks/campus-living/use-hostel-blocks';
 import type { RoomEligibilityRuleRow } from '@/types/room-eligibility';
 
 type Scope = 'block' | 'floor' | 'rooms';
@@ -74,11 +75,12 @@ export function RoomEligibilityFormDialog({
 
   const isEdit = mode === 'edit';
 
-  // Blocks are physical targets (global), but the cohort predicate (degree
-  // cascade) is institution-scoped — both follow the picked institution.
-  const { options: blocks, loading: blocksLoading } = useEligibilityBlocks(
-    open ? selectedInstitution || null : null
-  );
+  // Block-first flow: blocks (global physical targets) load on open. The cohort
+  // predicate (degree cascade) is institution-scoped, and the institution itself
+  // is constrained to the block's served colleges (hostel_block_institutions).
+  const { options: blocks, loading: blocksLoading } = useEligibilityBlocks(open);
+  const { data: blockInstitutions = [], isLoading: blockInstLoading } =
+    useBlockInstitutions(blockId);
   const { options: degrees } = useEligibilityDegrees(
     open ? selectedInstitution || null : null
   );
@@ -129,6 +131,53 @@ export function RoomEligibilityFormDialog({
     setSemesterId('');
   };
 
+  // Block drives BOTH the rooms that exist and which colleges are offered
+  // (served-only). Changing it clears the physical sub-target and the cohort
+  // selection so a now-unserved institution can't survive a block change.
+  const onBlockChange = (value: string) => {
+    setBlockId(value);
+    setScope('block');
+    setFloor('');
+    setRoomIds([]);
+    setSelectedInstitution('');
+    setDegreeId('');
+    setDepartmentId('');
+    setProgramId('');
+    setSemesterId('');
+  };
+
+  // Institution options = ONLY the colleges this block serves
+  // (hostel_block_institutions), primary first then by name. A rule for an
+  // unserved college could never allocate (fn_room_serves_institution), so it
+  // isn't offered. Edit-mode keeps the rule's own institution visible even if
+  // the block↔college link changed after the rule was created.
+  const institutionOptions = useMemo(() => {
+    const nameById = new Map(institutions.map((i) => [i.id, i.name] as const));
+    const opts = [...blockInstitutions]
+      .sort((a, b) =>
+        a.is_primary === b.is_primary
+          ? (a.institution_name ?? nameById.get(a.institution_id) ?? '').localeCompare(
+              b.institution_name ?? nameById.get(b.institution_id) ?? ''
+            )
+          : a.is_primary
+            ? -1
+            : 1
+      )
+      .map((bi) => ({
+        value: bi.institution_id,
+        label: `${bi.institution_name ?? nameById.get(bi.institution_id) ?? 'Unknown'}${
+          bi.is_primary ? ' (primary)' : ''
+        }`,
+      }));
+    if (isEdit && selectedInstitution && !opts.some((o) => o.value === selectedInstitution)) {
+      opts.unshift({
+        value: selectedInstitution,
+        label: `${rule?.institution_name ?? nameById.get(selectedInstitution) ?? 'Unknown'} (not linked to block)`,
+      });
+    }
+    return opts;
+  }, [blockInstitutions, institutions, isEdit, selectedInstitution, rule]);
+
   // Distinct floors in the chosen block (for the 'floor' scope dropdown).
   const floorsInBlock = useMemo(
     () => Array.from(new Set(rooms.map((r) => r.floor))).sort((a, b) => a - b),
@@ -175,6 +224,18 @@ export function RoomEligibilityFormDialog({
         ? prev.filter((id) => !groupRoomIds.includes(id))
         : Array.from(new Set([...prev, ...groupRoomIds]))
     );
+
+  // Summary of the current selection: room count + total beds (capacity) +
+  // filled (occupied) beds across the chosen rooms, so the operator sees how
+  // much they're actually reserving — not just the room count.
+  const selectedSummary = useMemo(() => {
+    const chosen = rooms.filter((r) => roomIds.includes(r.id));
+    return {
+      count: roomIds.length,
+      capacity: chosen.reduce((s, r) => s + (r.capacity ?? 0), 0),
+      filled: chosen.reduce((s, r) => s + (r.occupied ?? 0), 0),
+    };
+  }, [rooms, roomIds]);
 
   const canSave =
     !!selectedInstitution &&
@@ -225,25 +286,13 @@ export function RoomEligibilityFormDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Institution — the rule belongs to one institution; it scopes the cohort. */}
-          <div className="space-y-2">
-            <Label>Institution</Label>
-            <SearchableSelect
-              value={selectedInstitution}
-              onValueChange={onInstitutionChange}
-              options={institutions.map((i) => ({ value: i.id, label: i.name }))}
-              placeholder="Select an institution"
-              loading={instLoading}
-              disabled={isEdit}
-              modal
-            />
-          </div>
-
-          {/* Physical target */}
+          {/* Block first — it's the physical target AND it constrains which
+              colleges (and rooms) the rule can use. Then the institution, limited
+              to the colleges this block serves. */}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Block</Label>
-              <Select value={blockId} onValueChange={(v) => { setBlockId(v); setRoomIds([]); setFloor(''); }} disabled={isEdit || !selectedInstitution}>
+              <Select value={blockId} onValueChange={onBlockChange} disabled={isEdit}>
                 <SelectTrigger>
                   <SelectValue placeholder={blocksLoading ? 'Loading…' : 'Select block'} />
                 </SelectTrigger>
@@ -255,6 +304,29 @@ export function RoomEligibilityFormDialog({
               </Select>
             </div>
 
+            <div className="space-y-2">
+              <Label>Institution</Label>
+              <SearchableSelect
+                value={selectedInstitution}
+                onValueChange={onInstitutionChange}
+                options={institutionOptions}
+                placeholder={blockId ? 'Select an institution' : 'Select a block first'}
+                emptyMessage="No colleges linked to this block."
+                loading={instLoading || blockInstLoading}
+                disabled={isEdit || !blockId}
+                modal
+              />
+              {blockId && !blockInstLoading && institutionOptions.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  This block has no linked colleges. Add one in the block&rsquo;s
+                  Colleges card before reserving rooms for a cohort.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Scope within the block */}
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Scope</Label>
               <Select value={scope} onValueChange={(v) => setScope(v as Scope)} disabled={!blockId}>
@@ -268,29 +340,38 @@ export function RoomEligibilityFormDialog({
                 </SelectContent>
               </Select>
             </div>
-          </div>
 
-          {scope === 'floor' && (
-            <div className="space-y-2 max-w-[200px]">
-              <Label>Floor</Label>
-              <Select value={floor} onValueChange={setFloor}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select floor" />
-                </SelectTrigger>
-                <SelectContent>
-                  {floorsInBlock.map((f) => (
-                    <SelectItem key={f} value={String(f)}>
-                      {f === 0 ? 'Ground floor' : `Floor ${f}`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+            {scope === 'floor' && (
+              <div className="space-y-2">
+                <Label>Floor</Label>
+                <Select value={floor} onValueChange={setFloor}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select floor" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {floorsInBlock.map((f) => (
+                      <SelectItem key={f} value={String(f)}>
+                        {f === 0 ? 'Ground floor' : `Floor ${f}`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
 
           {scope === 'rooms' && (
             <div className="space-y-2">
-              <Label>Rooms {roomIds.length > 0 && <span className="text-muted-foreground font-normal">({roomIds.length} selected)</span>}</Label>
+              <Label>
+                Rooms{' '}
+                {selectedSummary.count > 0 && (
+                  <span className="text-muted-foreground font-normal">
+                    ({selectedSummary.count} {selectedSummary.count === 1 ? 'room' : 'rooms'} ·{' '}
+                    {selectedSummary.capacity} {selectedSummary.capacity === 1 ? 'bed' : 'beds'} ·{' '}
+                    {selectedSummary.filled} filled)
+                  </span>
+                )}
+              </Label>
               {roomsLoading ? (
                 <div className="flex items-center text-sm text-muted-foreground">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading rooms…
@@ -302,6 +383,10 @@ export function RoomEligibilityFormDialog({
                   {roomsByCategory.map((cat) => {
                     const catIds = cat.rooms.map((r) => r.id);
                     const catAllSelected = catIds.every((id) => roomIds.includes(id));
+                    // Per-category bed totals (planned capacity vs live free beds)
+                    // so the operator sees how much they're reserving at a glance.
+                    const catCap = cat.rooms.reduce((s, r) => s + (r.capacity ?? 0), 0);
+                    const catFree = cat.rooms.reduce((s, r) => s + (r.available ?? 0), 0);
                     return (
                       <div key={cat.key} className="space-y-2">
                         {/* Category header — select-all across every floor in this category */}
@@ -309,7 +394,7 @@ export function RoomEligibilityFormDialog({
                           <span className="text-sm font-semibold text-foreground">
                             {cat.name}{' '}
                             <span className="font-normal text-muted-foreground">
-                              ({cat.rooms.length})
+                              ({cat.rooms.length} {cat.rooms.length === 1 ? 'room' : 'rooms'} · {catFree}/{catCap} beds free)
                             </span>
                           </span>
                           <button
@@ -333,11 +418,22 @@ export function RoomEligibilityFormDialog({
                               >
                                 {f === 0 ? 'Ground floor' : `Floor ${f}`} — {fAllSelected ? 'clear' : 'select all'}
                               </button>
-                              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                                 {frooms.map((r) => (
-                                  <label key={r.id} className="flex items-center gap-1.5 text-sm cursor-pointer">
-                                    <Checkbox checked={roomIds.includes(r.id)} onCheckedChange={() => toggleRoom(r.id)} />
-                                    {r.room_number}
+                                  <label key={r.id} className="flex items-start gap-1.5 text-sm cursor-pointer">
+                                    <Checkbox
+                                      className="mt-0.5"
+                                      checked={roomIds.includes(r.id)}
+                                      onCheckedChange={() => toggleRoom(r.id)}
+                                    />
+                                    <span className="leading-tight">
+                                      {r.room_number}
+                                      <span
+                                        className={`block text-[10px] ${r.available === 0 ? 'text-destructive' : 'text-muted-foreground'}`}
+                                      >
+                                        {r.available}/{r.capacity} free
+                                      </span>
+                                    </span>
                                   </label>
                                 ))}
                               </div>

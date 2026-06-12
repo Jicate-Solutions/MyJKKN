@@ -48,6 +48,7 @@ import {
 } from '@/components/ui/command';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { AdmissionYearSelect } from '@/components/admission/admission-year-select';
 
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -75,6 +76,7 @@ interface FormData {
   last_name: string;
   phone: string;
   program_id: string; // '' or 'undecided' or actual UUID
+  admission_year_id: string; // '' or actual UUID — auto-filled to current year, editable
   source: 'walk_in' | 'referral';
   // Referral sub-type. Empty when source='walk_in' or before user picks.
   // Mirrors the leads/new form so gate guards see the same UX as the
@@ -89,6 +91,7 @@ const INITIAL_FORM: FormData = {
   last_name: '',
   phone: '',
   program_id: '',
+  admission_year_id: '',
   source: 'walk_in',
   referral_type: '',
   referred_by_id: '',
@@ -190,6 +193,10 @@ function GateEntryForm() {
     // a super_admin switching institutions could submit a program_id from the
     // previous campus, which the capture RPC would reject.
     setDraftField('program_id', '');
+    // Same for admission year — it's institution-scoped, so clear it to let
+    // <AdmissionYearSelect autoSelectCurrent> re-pick the new institution's
+    // current year.
+    setDraftField('admission_year_id', '');
     if (!institutionId) {
       setPrograms([]);
       return;
@@ -344,6 +351,7 @@ function GateEntryForm() {
         institution_id:    institutionId,
         program_id:        form.program_id && form.program_id !== PROGRAM_UNDECIDED
                              ? form.program_id : null,
+        admission_year_id: form.admission_year_id || null,
         source:            form.source,
         // Persist the user-chosen referral_type when a referrer was identified
         // (either via picker or free-text); null otherwise so the RPC stores
@@ -577,6 +585,23 @@ function GateEntryForm() {
               ))}
             </SelectContent>
           </Select>
+        </div>
+
+        {/* Admission Year — auto-filled to the institution's current year, editable */}
+        <div className="space-y-1.5">
+          <Label htmlFor="admission_year_id">
+            Admission year
+            <span className="text-xs text-muted-foreground ml-1">/ சேர்க்கை ஆண்டு</span>
+          </Label>
+          <AdmissionYearSelect
+            id="admission_year_id"
+            label={null}
+            institutionId={institutionId}
+            value={form.admission_year_id}
+            onChange={(v) => setDraftField('admission_year_id', v)}
+            disabled={submitting}
+            autoSelectCurrent
+          />
         </div>
 
         {/* Source type */}

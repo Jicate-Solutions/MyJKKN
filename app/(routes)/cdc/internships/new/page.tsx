@@ -40,6 +40,7 @@ import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useCdcInternshipCreate } from '@/hooks/cdc/use-cdc-internships';
 import { CdcInternshipService } from '@/lib/services/cdc/internship-service';
 import { useLearnersForPicker, useStaffForPicker } from '@/hooks/cdc/use-cdc-pickers';
+import { useAuth } from '@/hooks/use-auth';
 
 interface Cycle { id: string; cycle_name: string; start_date: string; end_date: string; }
 interface Site  { id: string; site_name: string; city: string | null; state: string | null; }
@@ -55,6 +56,7 @@ export default function NewCdcInternshipPage() {
   const { createInternship, loading } = useCdcInternshipCreate();
   const { data: learnerOptions = [], isLoading: learnersLoading } = useLearnersForPicker();
   const { data: staffOptions = [], isLoading: staffLoading } = useStaffForPicker();
+  const { profile } = useAuth();
 
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
@@ -68,37 +70,46 @@ export default function NewCdcInternshipPage() {
     required_attendance_pct: DEFAULT_REQUIRED_ATTENDANCE_PCT,
     department_rotation: '',
   });
-  const [institutionId, setInstitutionId] = useState<string>('');
+  // Institution comes from the logged-in user's session profile (useAuth),
+  // NOT a network fetch. This REPLACES a previous fetch('/api/users/profile')
+  // call to a route that does not exist: it 404'd, the failure was swallowed by
+  // an empty catch{}, institutionId stayed '', and the required Cycle/Site
+  // pickers rendered permanently empty — so a coordinator could never create a
+  // corporate internship.
+  const institutionId = profile?.institution_id ?? '';
+  const [loadError, setLoadError] = useState<string | null>(null);
 
+  // Seed the required-attendance default from the policy (global row) once.
   useEffect(() => {
-    // Load institution from user profile and fetch cycles/sites
-    const init = async () => {
-      try {
-        // Seed the required-attendance default from the policy (global row),
-        // so the form's initial value matches what the service would apply.
-        const policyDefault = await CdcInternshipService.getDefaultRequiredAttendancePct();
-        setFormData(p => ({ ...p, required_attendance_pct: policyDefault }));
-
-        // For now, fetch user profile to get institution_id
-        const res = await fetch('/api/users/profile');
-        const json = await res.json();
-        const iid = json?.data?.institution_id ?? json?.institution_id ?? '';
-        setInstitutionId(iid);
-
-        if (iid) {
-          const [c, s] = await Promise.all([
-            CdcInternshipService.getInternshipCycles(iid),
-            CdcInternshipService.getCorporateSites(iid),
-          ]);
-          setCycles(c);
-          setSites(s);
-        }
-      } catch {
-        // silent — user can still type values
-      }
-    };
-    init();
+    CdcInternshipService.getDefaultRequiredAttendancePct()
+      .then(pct => setFormData(p => ({ ...p, required_attendance_pct: pct })))
+      .catch(() => { /* DEFAULT_REQUIRED_ATTENDANCE_PCT literal is already seeded */ });
   }, []);
+
+  // Load cycles + sites once the session profile resolves an institution.
+  // Failures are surfaced (no longer silent) so an empty picker is never
+  // mistaken for "nothing configured".
+  useEffect(() => {
+    if (!profile) return; // auth still resolving — wait for it
+    if (!institutionId) {
+      setLoadError(
+        'Could not determine your institution. Ask your administrator to set your institution before creating an internship.'
+      );
+      return;
+    }
+    setLoadError(null);
+    Promise.all([
+      CdcInternshipService.getInternshipCycles(institutionId),
+      CdcInternshipService.getCorporateSites(institutionId),
+    ])
+      .then(([c, s]) => {
+        setCycles(c);
+        setSites(s);
+      })
+      .catch(e =>
+        setLoadError(e instanceof Error ? e.message : 'Failed to load internship cycles and sites.')
+      );
+  }, [profile, institutionId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -208,6 +219,12 @@ export default function NewCdcInternshipPage() {
           </Link>
           <h1 className="text-2xl font-bold text-gray-900">New Corporate Internship</h1>
         </div>
+
+        {loadError && (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {loadError}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit}>
           <Card>

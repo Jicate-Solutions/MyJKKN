@@ -9,6 +9,10 @@ import type {
   BulkBillScheduleDto,
   BulkOperationResult
 } from '@/types/billing-schedule';
+import type {
+  BulkEditDownloadFilters,
+  BillForBulkEdit
+} from '@/lib/utils/mappings/student-bill-bulk-edit-mappings';
 
 export class StudentBillService {
   private static supabase = createClientSupabaseClient();
@@ -34,6 +38,7 @@ export class StudentBillService {
           balance_amount: finalAmount,
           quantity: billData.quantity || 1,
           tax_amount: billData.tax_amount || 0,
+          academic_year_id: billData.academic_year_id || null,
           created_by: currentUserId
         })
         .select(
@@ -399,13 +404,35 @@ export class StudentBillService {
     return results;
   }
 
+  /**
+   * Resolve an accommodation-type catalog code (e.g. 'hostel') to the matching
+   * accommodation_type_id(s). The catalog is global (one row per code).
+   * Returns [] on error (caller forces a no-match).
+   */
+  private static async resolveAccommodationTypeIds(
+    code: string
+  ): Promise<string[]> {
+    try {
+      const query = (this.supabase as any)
+        .from('accommodation_types')
+        .select('id')
+        .eq('code', code);
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data || []).map((row: { id: string }) => row.id);
+    } catch (error) {
+      console.error('Error resolving accommodation type ids:', error);
+      return [];
+    }
+  }
+
   static async getStudentBills(
     filters: StudentBillFilters = {}
   ): Promise<StudentBillListResponse> {
     try {
       // Check if any academic hierarchy filters are provided
       const hasAcademicFilters = !!(
-        filters.academic_year_id ||
         filters.degree_id ||
         filters.department_id ||
         filters.program_id ||
@@ -413,9 +440,27 @@ export class StudentBillService {
         filters.section_id
       );
 
+      // Accommodation-type filter. The UI sends a catalog *code* (e.g. 'hostel');
+      // resolve it to the matching accommodation_type_id(s) so we can filter the
+      // embedded learner. Like the academic filters, this needs the !inner join
+      // (otherwise PostgREST returns the bill with student: null instead of
+      // excluding it). null = filter inactive; [] = code matched nothing.
+      const accommodationTypeIds: string[] | null = filters.accommodation_type
+        ? await this.resolveAccommodationTypeIds(filters.accommodation_type)
+        : null;
+
+      // Any filter that targets a column on the embedded learner requires the
+      // INNER-join variant of the select. lifecycle_status lives on
+      // learners_profiles, so it joins the same club as the academic +
+      // accommodation filters.
+      const hasStudentFilters =
+        hasAcademicFilters ||
+        accommodationTypeIds !== null ||
+        !!filters.lifecycle_status;
+
       let query;
 
-      if (hasAcademicFilters) {
+      if (hasStudentFilters) {
         // !inner turns the student embed into an INNER JOIN so that
         // .eq('student.column', value) filters actually exclude parent
         // rows where the student doesn't match (without !inner, PostgREST
@@ -443,16 +488,20 @@ export class StudentBillService {
             created_by,
             created_at,
             updated_at,
+            academic_year_id,
+            academic_year:academic_years(id, academic_year_name),
             student:learners_profiles!inner(
               first_name,
               last_name,
               roll_number,
+              lifecycle_status,
               academic_year_id,
               degree_id,
               department_id,
               program_id,
               semester_id,
               section_id,
+              accommodation_type_id,
               department:departments(id, department_name),
               semester:semesters(id, semester_name)
             ),
@@ -495,10 +544,13 @@ export class StudentBillService {
             created_by,
             created_at,
             updated_at,
+            academic_year_id,
+            academic_year:academic_years(id, academic_year_name),
             student:learners_profiles(
               first_name,
               last_name,
               roll_number,
+              lifecycle_status,
               department:departments(id, department_name),
               semester:semesters(id, semester_name)
             ),
@@ -559,6 +611,22 @@ export class StudentBillService {
 
       if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id);
+      } else {
+        // Perf (2026-06-05): scope unfiltered lists to the caller's accessible
+        // institutions so Postgres uses the institution_id index instead of a
+        // full-table RLS scan. Without this, institution-scoped (non-admin) users
+        // hit a 57014 "canceling statement due to statement timeout" — the SELECT
+        // RLS evaluates role_has_institution_access() per row across EVERY
+        // institution's bills (~5.8s over ~5.7k rows; with an institution filter
+        // it's an index scan, ~12ms). _user_accessible_institutions() mirrors the
+        // RLS institution scope exactly, so the set of visible rows is unchanged.
+        // Falls back to the prior (unscoped) behavior if the RPC is unavailable.
+        const { data: accessibleIds, error: accessErr } = await (this.supabase as any).rpc(
+          '_user_accessible_institutions'
+        );
+        if (!accessErr && Array.isArray(accessibleIds) && accessibleIds.length > 0) {
+          query = query.in('institution_id', accessibleIds);
+        }
       }
 
       if (filters.item_category_id) {
@@ -567,6 +635,14 @@ export class StudentBillService {
 
       if (filters.status) {
         query = query.eq('status', filters.status);
+      }
+
+      // Academic year now lives ON the bill (not the student's current year),
+      // so filter the bill's own column. 'unspecified' → bills with no year.
+      if (filters.academic_year_id === 'unspecified') {
+        query = query.is('academic_year_id', null);
+      } else if (filters.academic_year_id) {
+        query = query.eq('academic_year_id', filters.academic_year_id);
       }
 
       if (filters.due_date_from) {
@@ -589,15 +665,8 @@ export class StudentBillService {
         query = query.eq('is_recurring', filters.is_recurring);
       }
 
-      // Apply academic hierarchy filters (only when using the joined query)
-      if (hasAcademicFilters) {
-        if (filters.academic_year_id) {
-          query = query.eq(
-            'student.academic_year_id',
-            filters.academic_year_id
-          );
-        }
-
+      // Apply learner-embedded filters (only when using the !inner joined query)
+      if (hasStudentFilters) {
         if (filters.degree_id) {
           query = query.eq('student.degree_id', filters.degree_id);
         }
@@ -616,6 +685,21 @@ export class StudentBillService {
 
         if (filters.section_id) {
           query = query.eq('student.section_id', filters.section_id);
+        }
+
+        if (filters.lifecycle_status) {
+          query = query.eq('student.lifecycle_status', filters.lifecycle_status);
+        }
+
+        // Accommodation-type code resolved to id(s) above. Empty array means the
+        // code matched no catalog row → force a no-match instead of all rows.
+        if (accommodationTypeIds !== null) {
+          query = query.in(
+            'student.accommodation_type_id',
+            accommodationTypeIds.length > 0
+              ? accommodationTypeIds
+              : ['00000000-0000-0000-0000-000000000000']
+          );
         }
       }
 
@@ -677,7 +761,8 @@ export class StudentBillService {
           number_of_recurrences: bill.number_of_recurrences,
           created_by: bill.created_by,
           created_at: bill.created_at,
-          updated_at: bill.updated_at
+          updated_at: bill.updated_at,
+          academic_year_id: bill.academic_year_id
         };
 
         // Since we're now using the same query structure for both cases,
@@ -691,6 +776,9 @@ export class StudentBillService {
         const itemCategoryData = Array.isArray(bill.item_category)
           ? bill.item_category[0]
           : bill.item_category;
+        const academicYearData = Array.isArray(bill.academic_year)
+          ? bill.academic_year[0]
+          : bill.academic_year;
 
         return {
           ...baseBill,
@@ -701,6 +789,7 @@ export class StudentBillService {
             roll_number: studentData?.roll_number || '',
             college_email: '', // Not queried to keep it light
             student_mobile: '', // Not queried to keep it light
+            lifecycle_status: studentData?.lifecycle_status || undefined,
             department: studentData?.department || undefined,
             semester: studentData?.semester || undefined
           },
@@ -712,7 +801,13 @@ export class StudentBillService {
           item_category: {
             id: bill.item_category_id,
             category_name: itemCategoryData?.category_name || ''
-          }
+          },
+          academic_year: academicYearData
+            ? {
+                id: academicYearData.id,
+                academic_year_name: academicYearData.academic_year_name
+              }
+            : undefined
         };
       });
 
@@ -760,6 +855,7 @@ export class StudentBillService {
             amount,
             frequency
           ),
+          academic_year:academic_years(id, academic_year_name),
           discounts:billing_discounts(
             *,
             authorizer:profiles!fk_billing_discounts_authorizer(id, full_name)
@@ -806,6 +902,7 @@ export class StudentBillService {
             amount,
             frequency
           ),
+          academic_year:academic_years(id, academic_year_name),
           discounts:billing_discounts(*),
           receipt_items:billing_receipt_items(
             *,
@@ -1106,5 +1203,114 @@ export class StudentBillService {
       console.error('Error calculating total refund amount:', error);
       return 0;
     }
+  }
+
+  /** Cap mirrored by the bulk-edit template route + filter-panel warning. */
+  static readonly BULK_EDIT_DOWNLOAD_CAP = 5000;
+
+  /**
+   * Apply the bulk-edit download filters to a billing_student_bills query.
+   * Shared by getBillsForBulkEdit + countBillsForBulkEdit so the count never
+   * drifts from the exported set.
+   */
+  private static applyBulkEditFilters(query: any, filters: BulkEditDownloadFilters) {
+    if (filters.institution_id) {
+      query = query.eq('institution_id', filters.institution_id);
+    }
+    if (filters.item_category_id) {
+      query = query.eq('item_category_id', filters.item_category_id);
+    }
+    if (filters.status) {
+      query = query.eq('status', filters.status);
+    }
+    if (filters.academic_year_id === 'unspecified') {
+      query = query.is('academic_year_id', null);
+    } else if (filters.academic_year_id) {
+      query = query.eq('academic_year_id', filters.academic_year_id);
+    }
+    if (filters.due_date_from) {
+      query = query.gte('due_date', filters.due_date_from);
+    }
+    if (filters.due_date_to) {
+      query = query.lte('due_date', filters.due_date_to);
+    }
+    return query;
+  }
+
+  /**
+   * Existing bills (current values) for the bulk-edit export, capped.
+   * RLS (via the injected client) scopes rows to the caller.
+   */
+  static async getBillsForBulkEdit(
+    filters: BulkEditDownloadFilters,
+    client: any
+  ): Promise<BillForBulkEdit[]> {
+    let query = client
+      .from('billing_student_bills')
+      .select(
+        `
+        id,
+        institution_id,
+        status,
+        final_amount,
+        bill_description,
+        due_date,
+        remarks,
+        student:learners_profiles(first_name, last_name, roll_number),
+        institution:institutions(name),
+        academic_year:academic_years(academic_year_name),
+        item_category:billing_categories(category_name)
+      `
+      )
+      .order('created_at', { ascending: false })
+      .limit(StudentBillService.BULK_EDIT_DOWNLOAD_CAP);
+
+    query = StudentBillService.applyBulkEditFilters(query, filters);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    return (data || []).map((b: any): BillForBulkEdit => {
+      const student = Array.isArray(b.student) ? b.student[0] : b.student;
+      const institution = Array.isArray(b.institution)
+        ? b.institution[0]
+        : b.institution;
+      const ay = Array.isArray(b.academic_year)
+        ? b.academic_year[0]
+        : b.academic_year;
+      const cat = Array.isArray(b.item_category)
+        ? b.item_category[0]
+        : b.item_category;
+      return {
+        bill_id: b.id,
+        institution_id: b.institution_id,
+        institution_name: institution?.name || '',
+        roll_number: student?.roll_number || '',
+        student_name:
+          `${student?.first_name || ''} ${student?.last_name || ''}`.trim() ||
+          'Unknown',
+        status: b.status,
+        final_amount: b.final_amount ?? 0,
+        academic_year_name: ay?.academic_year_name ?? null,
+        category_name: cat?.category_name || '',
+        bill_description: b.bill_description ?? null,
+        due_date: b.due_date,
+        remarks: b.remarks ?? null
+      };
+    });
+  }
+
+  /** Count of bills matching the bulk-edit filters (live preview). */
+  static async countBillsForBulkEdit(
+    filters: BulkEditDownloadFilters,
+    client: any
+  ): Promise<number> {
+    let query = client
+      .from('billing_student_bills')
+      .select('id', { count: 'exact', head: true });
+    query = StudentBillService.applyBulkEditFilters(query, filters);
+    const { count, error } = await query;
+    if (error) throw error;
+    return count || 0;
   }
 }

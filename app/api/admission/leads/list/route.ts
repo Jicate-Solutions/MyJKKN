@@ -255,11 +255,20 @@ export async function GET(request: NextRequest) {
         }
       }
 
+      // Date-wise filter on created_at. The DataTable toolbar sends date-only
+      // strings (YYYY-MM-DD); Postgres would cast those to midnight UTC, which
+      // (a) excludes leads created during the end date and (b) shifts the day
+      // boundary 5h30m off what IST users see in the UI. So date-only values
+      // are anchored to IST day boundaries; full ISO timestamps (other API
+      // callers) pass through unchanged.
+      const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
       if (dateFrom) {
-        query = query.gte('created_at', dateFrom);
+        const from = DATE_ONLY.test(dateFrom) ? `${dateFrom}T00:00:00+05:30` : dateFrom;
+        query = query.gte('created_at', from);
       }
       if (dateTo) {
-        query = query.lte('created_at', dateTo);
+        const to = DATE_ONLY.test(dateTo) ? `${dateTo}T23:59:59.999+05:30` : dateTo;
+        query = query.lte('created_at', to);
       }
 
       // Stale filter — leads with no contact in N+ days. PostgREST has no direct

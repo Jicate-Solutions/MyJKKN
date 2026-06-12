@@ -64,6 +64,7 @@ import { SemesterService } from '@/lib/services/organization/semester-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { useStudentsForBulkOperations } from '@/hooks/billing/use-student-search';
 import { useBulkCreateStudentBills } from '@/hooks/billing/use-student-bills';
+import { useAcademicYears } from '@/hooks/use-academic-years';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { ImportBillsDialog } from './_components/import-bills-dialog';
@@ -88,6 +89,7 @@ const bulkBillSchema = z.object({
   program_id: z.string().optional(),
   semester_id: z.string().optional(),
   item_category_id: z.string().min(1, 'Item category is required'),
+  academic_year_id: z.string().min(1, 'Academic year is required'),
   bill_description: z.string().optional(),
   due_date: z.date({ required_error: 'Due date is required' }),
   quantity: z.number().min(1, 'Quantity must be at least 1').default(1),
@@ -149,11 +151,16 @@ export default function BulkCreateBillsPage() {
       // Defaulting to 0 silently passed validation when the user submitted
       // without touching the input.
       tax_amount: 0,
-      is_recurring: false
+      is_recurring: false,
+      academic_year_id: ''
     }
   });
 
   const watchedValues = form.watch();
+  const { data: academicYearsData } = useAcademicYears(
+    watchedValues.institution_id || undefined
+  );
+  const academicYears = academicYearsData?.data || [];
   const totalAmount =
     (watchedValues.quantity || 0) * (watchedValues.unit_amount || 0);
   const finalAmount = totalAmount + (watchedValues.tax_amount || 0);
@@ -239,7 +246,9 @@ export default function BulkCreateBillsPage() {
     try {
       setIsLoadingInstitutions(true);
       const institutionNames = await OrganizationService.getInstitutionNames(
-        true
+        true,
+        undefined,
+        'all'
       );
       setInstitutions(institutionNames as Institution[]);
     } catch (error) {
@@ -535,6 +544,7 @@ export default function BulkCreateBillsPage() {
                               form.setValue('program_id', undefined);
                               form.setValue('semester_id', undefined);
                               form.setValue('item_category_id', '');
+                              form.setValue('academic_year_id', '');
                               setSelectedStudents([]);
                             }}
                             value={field.value}
@@ -784,6 +794,41 @@ export default function BulkCreateBillsPage() {
                                   value={category.id}
                                 >
                                   {category.category_name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='academic_year_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Academic Year</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value}
+                            disabled={!watchedValues.institution_id}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={
+                                    !watchedValues.institution_id
+                                      ? 'Select institution first'
+                                      : 'Select academic year'
+                                  }
+                                />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {academicYears.map((ay: any) => (
+                                <SelectItem key={ay.id} value={ay.id}>
+                                  {ay.academic_year_name}
                                 </SelectItem>
                               ))}
                             </SelectContent>

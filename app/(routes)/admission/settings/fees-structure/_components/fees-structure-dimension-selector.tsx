@@ -54,6 +54,7 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
   const [programmes, setProgrammes] = useState<Option[]>([]);
   const [years, setYears] = useState<Option[]>([]);
   const [quotas, setQuotas] = useState<Option[]>([]);
+  const [accommodations, setAccommodations] = useState<Option[]>([]);
 
   // Global lookups load once
   useEffect(() => {
@@ -105,16 +106,25 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
       .catch(() => setProgrammes([]));
   }, [selectedDims.department_id]);
 
-  // Programme change → load admission years (filtered by program — fixed in commit 7b9774120)
+  // Institution change → load admission years (institution-wide now)
   useEffect(() => {
-    if (!selectedDims.programme_id) {
+    if (!selectedDims.institution_id) {
       setYears([]);
       return;
     }
-    AdmissionYearService.getAdmissionYearsByProgram(selectedDims.programme_id)
+    AdmissionYearService.getAdmissionYearsByInstitution(selectedDims.institution_id)
       .then((rows) => setYears(rows.map((y) => ({ id: y.id, name: y.admission_year_name }))))
       .catch(() => setYears([]));
-  }, [selectedDims.programme_id]);
+  }, [selectedDims.institution_id]);
+
+  // Accommodation types are a global lookup — load once on mount
+  useEffect(() => {
+    LookupService.listAccommodationTypes(true)
+      .then((rows) =>
+        setAccommodations(rows.map((r) => ({ id: r.id, name: r.name }))),
+      )
+      .catch(() => setAccommodations([]));
+  }, []);
 
   // Cascading change handlers — picking a parent resets the affected descendants
   const setInstitution = (id: string) =>
@@ -124,6 +134,7 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
       department_id: undefined,
       programme_id: undefined,
       admission_year_id: undefined,
+      accommodation_type_id: undefined,
       quota_id: selectedDims.quota_id,
     });
 
@@ -157,6 +168,11 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
     onChange({ ...selectedDims, quota_id: id });
   const setGender = (val: string) =>
     onChange({ ...selectedDims, gender: val === '__any__' ? undefined : val });
+  const setAccommodation = (val: string) =>
+    onChange({
+      ...selectedDims,
+      accommodation_type_id: val === '__any__' ? undefined : val,
+    });
 
   const handleReset = () => onChange({});
 
@@ -185,8 +201,9 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
           <h2 className="text-sm font-medium">Select Fee Structure Dimensions</h2>
           <p className="text-xs text-muted-foreground">
             Pick the 6 required dimensions to view, edit, or create the fee
-            structure. Gender is optional — leave as &quot;Any&quot; if fees
-            don&apos;t vary by gender. Communities are selected in the form below.
+            structure. Gender and Accommodation are optional — leave as
+            &quot;Any&quot; if fees don&apos;t vary by them. Communities are
+            selected in the form below.
           </p>
         </div>
         <Button variant="ghost" size="sm" onClick={handleReset}>
@@ -299,21 +316,21 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
           </Select>
         </div>
 
-        {/* 5. Admission Year (filtered by programme) */}
+        {/* 5. Admission Year (institution-wide) */}
         <div className="space-y-1">
           <Label className="text-xs">5. Admission Year</Label>
           <Select
             value={selectedDims.admission_year_id ?? ''}
             onValueChange={setYear}
-            disabled={!selectedDims.programme_id}
+            disabled={!selectedDims.institution_id}
           >
             <SelectTrigger className="w-full">
               <SelectValue
                 placeholder={
-                  !selectedDims.programme_id
-                    ? 'Pick programme first'
+                  !selectedDims.institution_id
+                    ? 'Pick institution first'
                     : years.length === 0
-                    ? 'No admission years for this programme'
+                    ? 'No admission years for this institution'
                     : 'Select admission year'
                 }
               />
@@ -359,12 +376,34 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
             </SelectContent>
           </Select>
         </div>
+
+        {/* 8. Accommodation (optional) */}
+        <div className="space-y-1">
+          <Label className="text-xs">8. Accommodation <span className="text-muted-foreground">(optional)</span></Label>
+          <Select
+            value={selectedDims.accommodation_type_id ?? ''}
+            onValueChange={setAccommodation}
+            disabled={!selectedDims.institution_id}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Any Accommodation" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__any__">Any Accommodation</SelectItem>
+              {accommodations.map((a) => (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {allDimsSelected ? (
         <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded p-2">
           <CheckCircle2 className="h-4 w-4 shrink-0" />
-          <span>All dimensions selected{selectedDims.gender ? ` (${selectedDims.gender})` : ''} — fee structure form loaded below.</span>
+          <span>All required dimensions selected{selectedDims.gender ? ` · ${selectedDims.gender}` : ''}{selectedDims.accommodation_type_id ? ' · accommodation-specific' : ''} — fee structure form loaded below.</span>
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">

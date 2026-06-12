@@ -49,7 +49,11 @@ const DEFAULT_PROFILE_FIELDS = [
   'followers_count',
   'follows_count',
   'media_count',
-  'account_type',
+  // 'account_type' removed 2026-06-10: Meta dropped the field from the
+  // page-linked IG User node — requesting it returns
+  // "(#100) Tried accessing nonexisting field (account_type)" and fails
+  // the whole profile fetch. Live receipt: 9/9 metrics-poller profile
+  // calls failed on first prod tick. Callers default to 'BUSINESS'.
 ].join(',');
 
 const DEFAULT_MEDIA_FIELDS = [
@@ -105,6 +109,12 @@ export async function discoverAccounts(
 
   return payload.data;
 }
+
+// NOTE: a `client_instagram_accounts` edge was attempted (PR #1300) for
+// partner-shared accounts but that Graph field does not exist (#100). The
+// working approach for accounts owned by OTHER portfolios is one token per
+// portfolio, each queried via the proven `owned_instagram_accounts` edge above
+// (discoverAccounts) — see lib/instagram/extra-portfolios.ts.
 
 // ---------------------------------------------------------------------------
 // 2. getAccountProfile(igUserId)

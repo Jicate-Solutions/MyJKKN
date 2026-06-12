@@ -80,6 +80,10 @@ export class PDEValidatorService {
    * - Sets validator_notes[validatorId] = notes
    * - Writes raw_score
    * - Flips status → 'validated'
+   * - Optionally writes clo_refs_confirmed (curriculum connector, spec §4.8):
+   *   the validator-CONFIRMED CLO set. Attainment math reads ONLY this column
+   *   — learner proposals (clo_refs) are never trusted directly. Pass
+   *   undefined to leave the column untouched (non-curriculum validations).
    *
    * Throws if the row doesn't exist or raw_score is out of [0, 100].
    */
@@ -87,7 +91,8 @@ export class PDEValidatorService {
     id: string,
     validatorId: string,
     notes: string,
-    rawScore: number
+    rawScore: number,
+    cloRefsConfirmed?: number[] | null
   ): Promise<PdeDemonstrationRow> {
     if (typeof rawScore !== 'number' || Number.isNaN(rawScore) || rawScore < 0 || rawScore > 100) {
       throw new Error(
@@ -126,14 +131,20 @@ export class PDEValidatorService {
         : {};
     const nextNotes = { ...currentNotes, [validatorId]: notes };
 
+    const patch: Record<string, unknown> = {
+      validator_ids: nextIds,
+      validator_notes: nextNotes,
+      raw_score: rawScore,
+      status: 'validated',
+    };
+    if (cloRefsConfirmed !== undefined) {
+      patch.clo_refs_confirmed =
+        cloRefsConfirmed && cloRefsConfirmed.length > 0 ? cloRefsConfirmed : null;
+    }
+
     const { data, error } = await (supabase as any)
       .from('pde_demonstrations')
-      .update({
-        validator_ids: nextIds,
-        validator_notes: nextNotes,
-        raw_score: rawScore,
-        status: 'validated',
-      })
+      .update(patch)
       .eq('id', id)
       .select()
       .single();
@@ -144,5 +155,111 @@ export class PDEValidatorService {
       );
     }
     return data as PdeDemonstrationRow;
+  }
+
+  /**
+   * Validation-loop visibility for the inbox header (connector PR 2 +
+   * CARE audit 2026-06-12 corrective move A — A3/A4 scored 1/0):
+   *
+   * - slaDays: `pde.scoring.validation_sla_days` policy (default 7)
+   * - pendingOverSla: submitted rows older than the SLA
+   * - medianLatencyDays: median submission → first-acknowledgment time over
+   *   validated/scored rows. pde_demonstrations has no validated_at column
+   *   (and is read-only by standing constraint), so the proxy is
+   *   COALESCE(scored_at, updated_at) — scoring follows validation within
+   *   the same flow; labeled as approximate in the UI.
+   * - ackCoveragePct: % of learners with ≥1 submitted demonstration who have
+   *   received ≥1 validator acknowledgment (A4 — coverage of the median).
+   *
+   * RLS scopes everything to the caller's institution, same as listPending.
+   */
+  static async validationVisibilityStats(): Promise<{
+    slaDays: number;
+    pendingCount: number;
+    pendingOverSla: number;
+    medianLatencyDays: number | null;
+    ackCoveragePct: number | null;
+  }> {
+    const supabase = await createServerSupabaseClient();
+
+    const { data: slaRaw } = await supabase.rpc('fn_get_policy_json', {
+      p_key: 'pde.scoring.validation_sla_days',
+      p_default: 7,
+      p_scope_id: null,
+    });
+    const slaDays =
+      typeof slaRaw === 'number' && Number.isFinite(slaRaw) && slaRaw > 0
+        ? slaRaw
+        : 7;
+
+    const { data, error } = await (supabase as any)
+      .from('pde_demonstrations')
+      .select('learner_id, status, submitted_at, scored_at, updated_at, validator_notes')
+      .in('status', ['submitted', 'validated', 'scored']);
+
+    if (error) {
+      throw new Error(`[pde-validator] visibilityStats failed: ${error.message}`);
+    }
+
+    const rows = (data ?? []) as Array<
+      Pick<
+        PdeDemonstrationRow,
+        'learner_id' | 'status' | 'submitted_at' | 'scored_at' | 'updated_at' | 'validator_notes'
+      >
+    >;
+
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    let pendingCount = 0;
+    let pendingOverSla = 0;
+    const latencies: number[] = [];
+    const submittedLearners = new Set<string>();
+    const acknowledgedLearners = new Set<string>();
+
+    for (const row of rows) {
+      if (!row.submitted_at) continue;
+      submittedLearners.add(row.learner_id);
+      const submittedMs = new Date(row.submitted_at).getTime();
+
+      if (row.status === 'submitted') {
+        pendingCount += 1;
+        if (now - submittedMs > slaDays * dayMs) pendingOverSla += 1;
+        continue;
+      }
+
+      // validated / scored — acknowledgment happened
+      const hasNote =
+        row.validator_notes &&
+        typeof row.validator_notes === 'object' &&
+        Object.values(row.validator_notes).some(
+          (n) => typeof n === 'string' && n.trim().length > 0
+        );
+      if (hasNote || row.status === 'validated' || row.status === 'scored') {
+        acknowledgedLearners.add(row.learner_id);
+      }
+      const ackMs = new Date(row.scored_at ?? row.updated_at).getTime();
+      if (Number.isFinite(ackMs) && ackMs >= submittedMs) {
+        latencies.push((ackMs - submittedMs) / dayMs);
+      }
+    }
+
+    let medianLatencyDays: number | null = null;
+    if (latencies.length > 0) {
+      latencies.sort((a, b) => a - b);
+      const mid = Math.floor(latencies.length / 2);
+      medianLatencyDays =
+        latencies.length % 2 === 1
+          ? latencies[mid]
+          : (latencies[mid - 1] + latencies[mid]) / 2;
+      medianLatencyDays = Math.round(medianLatencyDays * 10) / 10;
+    }
+
+    const ackCoveragePct =
+      submittedLearners.size === 0
+        ? null
+        : Math.round((acknowledgedLearners.size / submittedLearners.size) * 100);
+
+    return { slaDays, pendingCount, pendingOverSla, medianLatencyDays, ackCoveragePct };
   }
 }

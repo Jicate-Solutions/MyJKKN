@@ -146,7 +146,7 @@ export default function SemesterDetailsPage({
           <CardContent className='grid gap-6'>
             <div className='grid gap-4 md:grid-cols-2'>
               <div>
-                <p className='font-medium'>Semester Code</p>
+                <p className='font-medium'>{adapt('Semester')} Code</p>
                 <p className='text-base text-muted-foreground'>
                   {semester.semester_code}
                 </p>
@@ -181,19 +181,19 @@ export default function SemesterDetailsPage({
               </p>
             </div>
             <div>
-              <p className='font-medium'>Degree</p>
+              <p className='font-medium'>{adapt('Degree')}</p>
               <p className='text-base text-muted-foreground'>
                 {semester.degree?.degree_name || 'N/A'}
               </p>
             </div>
             <div>
-              <p className='font-medium'>Department</p>
+              <p className='font-medium'>{adapt('Department')}</p>
               <p className='text-base text-muted-foreground'>
                 {semester.department?.department_name || 'N/A'}
               </p>
             </div>
             <div>
-              <p className='font-medium'>Program</p>
+              <p className='font-medium'>{adapt('Program')}</p>
               <p className='text-base text-muted-foreground'>
                 {semester.program?.program_name || 'N/A'}
               </p>

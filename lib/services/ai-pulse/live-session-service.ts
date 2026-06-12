@@ -13,7 +13,10 @@
  *   - Each AI Pulse cycle is a row in `startup_events` with
  *     config->>'kind' = 'ai_pulse'.
  *   - Per-learner engagement signals live in
- *     `event_team_attendance.engagement_signals` JSONB (added in PR #644).
+ *     `ai_pulse_live_attendance.engagement_signals` JSONB — one row per
+ *     (event_id, profile_id, day_type). This is the per-LEARNER attendance
+ *     table; the events module's `event_team_attendance` is per-TEAM
+ *     (registration_id) and cannot represent an individual's 4-AND gate.
  *
  *   engagement_signals shape:
  *     {
@@ -57,6 +60,8 @@ export interface EngagementSignals {
   quiz_score?: number; // 0–100
   quiz_passed?: boolean;
   quiz_async_makeup?: boolean;
+  /** CARE E-move: optional "what should change next week?" free text. */
+  feedback_text?: string;
 }
 
 export interface LivePoll {
@@ -93,6 +98,14 @@ export interface LiveSessionData {
   polls: LivePoll[];
   quiz_open: boolean;
   quiz_async_window_open: boolean; // 48h async make-up window
+  /**
+   * Join button window. Cycles appear on My Pulse up to a week early —
+   * join_open gates the button so an early click can't farm the on-time
+   * gate. Opens `join_doors_open_minutes` (policy, seeded 15) before
+   * starts_at, closes at ends_at.
+   */
+  join_open: boolean;
+  join_opens_at: string | null; // ISO — when the button unlocks
 }
 
 // ---------------------------------------------------------------------------
@@ -104,13 +117,64 @@ function diffMinutes(a: string, b: string): number {
   return Math.abs(new Date(a).getTime() - new Date(b).getTime()) / 60_000;
 }
 
-/** Compute joined_within_5min relative to cycle.starts_at. */
-function withinFiveMin(joinedAt: string, startsAt: string | null): boolean {
+/**
+ * Compute the on-time-join signal relative to cycle.starts_at.
+ *
+ * The window is policy-driven (`late_threshold_minutes`, seeded 10) — NOT the
+ * old hardcoded 5 minutes. The JSONB signal key stays `joined_within_5min`
+ * for backward compatibility (6 files read it); semantically it now means
+ * "joined within the configured late threshold".
+ */
+function withinJoinWindow(
+  joinedAt: string,
+  startsAt: string | null,
+  windowMinutes: number,
+): boolean {
   if (!startsAt) return true; // no start time → assume in-window
   const joined = new Date(joinedAt).getTime();
   const start = new Date(startsAt).getTime();
-  // joined must be no later than start + 5 min
-  return joined <= start + 5 * 60_000;
+  return joined <= start + windowMinutes * 60_000;
+}
+
+// ---------------------------------------------------------------------------
+// Policy reads (config mandate — every threshold is an ai_pulse_policies row)
+// ---------------------------------------------------------------------------
+
+type PolicyMap = Record<string, unknown>;
+
+let policyCache: { fetchedAt: number; map: PolicyMap } | null = null;
+const POLICY_CACHE_TTL_MS = 60_000;
+
+/**
+ * Fetch active ai_pulse_policies rows as a config_key→value map. Cached at
+ * module level for 60s so the per-action helpers (recordJoin, submitQuiz,
+ * getLiveSession) don't refetch on every call. RLS: active rows are readable
+ * by any authenticated user (PR #644/#715).
+ */
+async function readPolicies(supabase: any): Promise<PolicyMap> {
+  if (policyCache && Date.now() - policyCache.fetchedAt < POLICY_CACHE_TTL_MS) {
+    return policyCache.map;
+  }
+  const { data, error } = await supabase
+    .from('ai_pulse_policies')
+    .select('config_key, value_jsonb')
+    .eq('is_active', true);
+  if (error) {
+    logger.warn('ai-pulse/live-session', 'policy fetch failed — using fallbacks', error);
+    return policyCache?.map ?? {};
+  }
+  const map: PolicyMap = {};
+  for (const row of (data ?? []) as Array<{ config_key: string; value_jsonb: unknown }>) {
+    map[row.config_key] = row.value_jsonb;
+  }
+  policyCache = { fetchedAt: Date.now(), map };
+  return map;
+}
+
+/** Coerce a policy value to a finite number, else the fallback. */
+function policyNumber(map: PolicyMap, key: string, fallback: number): number {
+  const v = Number(map[key]);
+  return Number.isFinite(v) ? v : fallback;
 }
 
 /** "HH:MM" of an ISO timestamp in IST (Asia/Kolkata). */
@@ -124,11 +188,71 @@ function isoToIstHHMM(iso: string): string {
   });
 }
 
+/**
+ * Derive ISO starts_at/ends_at for an AI Pulse cycle.
+ *
+ * `startup_events` has no starts_at/ends_at columns — the cycle's calendar
+ * date lives in `demo_date` (fallback `start_date`) and the session window
+ * (HH:MM, IST) lives in `config.ai_pulse.session_start_time` /
+ * `session_end_time` (seeded defaults 18:55–19:30). We compose them into IST
+ * timestamps the 4-AND gate can compare against.
+ */
+export function deriveCycleTimes(row: {
+  demo_date?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  config?: unknown;
+}): { starts_at: string | null; ends_at: string | null } {
+  const config = (row.config ?? {}) as Record<string, unknown>;
+  const aiPulse = (config.ai_pulse ?? {}) as Record<string, unknown>;
+  // demo_date/start_date are timestamptz — take the DATE part only, else the
+  // template below produces "…T00:00:00+00:00T18:55…" → Invalid Date (B7).
+  const rawDate = (row.demo_date ?? row.start_date ?? null) as string | null;
+  const date = rawDate ? rawDate.slice(0, 10) : null;
+  const startHHMM =
+    typeof aiPulse.session_start_time === 'string' ? aiPulse.session_start_time : '18:55';
+  const endHHMM =
+    typeof aiPulse.session_end_time === 'string' ? aiPulse.session_end_time : '19:30';
+  const starts_at = date
+    ? `${date}T${startHHMM}:00+05:30`
+    : ((row.start_date ?? null) as string | null);
+  const ends_at = date
+    ? `${date}T${endHHMM}:00+05:30`
+    : ((row.end_date ?? null) as string | null);
+  return { starts_at, ends_at };
+}
+
+/**
+ * Effective cycle status, derived from the session window.
+ *
+ * Nothing in the platform transitions a cycle out of 'draft' (cycles-service
+ * only ever writes 'draft' on create and 'cancelled' on cancel), so the
+ * heartbeat gate ("only while live") and the quiz gate ("opens post_event")
+ * were unreachable — cycle #1 (2026-06-11) recorded zero engagement because
+ * of it. Instead of adding status-flipping machinery someone must remember
+ * to run, derive the status from the clock: a draft cycle inside its session
+ * window IS live, and past its window IS post_event. Explicit non-draft
+ * statuses (cancelled, or anything set by hand) always win.
+ */
+export function deriveEffectiveStatus(
+  rawStatus: string,
+  startsAt: string | null,
+  endsAt: string | null,
+  nowMs: number = Date.now(),
+): string {
+  if (rawStatus !== 'draft') return rawStatus;
+  if (!startsAt || !endsAt) return rawStatus;
+  const start = new Date(startsAt).getTime();
+  const end = new Date(endsAt).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return rawStatus;
+  if (nowMs >= start && nowMs <= end) return 'live';
+  if (nowMs > end) return 'post_event';
+  return rawStatus;
+}
+
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
-
-const DEFAULT_PASS_THRESHOLD = 60;
 
 export class LiveSessionService {
   /**
@@ -139,17 +263,21 @@ export class LiveSessionService {
    *   - quiz availability flags (live window vs 48h async)
    */
   static async getLiveSession(cycleId: string): Promise<LiveSessionData> {
-    const supabase = createClientSupabaseClient();
+    // Cast to any: this service touches ai_pulse_live_attendance (+ the deferred
+    // ai_pulse_polls/poll_responses), which are not yet in the generated
+    // Database types. Matches the per-call cast pattern in cycles-service.
+    const supabase = createClientSupabaseClient() as any;
 
     const {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
-    // Cycle row
+    // Cycle row (startup_events has no title/starts_at/ends_at columns —
+    // the real columns are name + demo_date/start_date/end_date + config).
     const { data: cycleRow, error: cycleErr } = await supabase
       .from('startup_events')
-      .select('id, title, status, starts_at, ends_at, config')
+      .select('id, name, status, demo_date, start_date, end_date, config')
       .eq('id', cycleId)
       .maybeSingle();
 
@@ -162,23 +290,24 @@ export class LiveSessionService {
     const config = (cycleRow.config ?? {}) as Record<string, unknown>;
     const aiPulse = (config.ai_pulse ?? {}) as Record<string, unknown>;
 
-    // Existing attendance row for this learner (if any)
+    // Existing per-learner attendance row (if any)
     const { data: attRow } = await supabase
-      .from('event_team_attendance')
+      .from('ai_pulse_live_attendance')
       .select('id, joined_at, left_at, engagement_signals, day_type')
       .eq('event_id', cycleId)
-      .eq('learner_id', user.id)
+      .eq('profile_id', user.id)
       .eq('day_type', 'live_session')
       .maybeSingle();
 
-    // Open polls for this cycle (best-effort — table may not exist on all branches)
+    // ALL polls for this cycle, open and closed (best-effort — table may not
+    // exist on all branches). The gate needs the full issued count so closing
+    // a poll doesn't shrink the requirement; the panel filters to open ones.
     let polls: LivePoll[] = [];
     try {
       const { data: pollRows } = await supabase
         .from('ai_pulse_polls')
         .select('id, cycle_id, question, options, issued_at, closed_at')
         .eq('cycle_id', cycleId)
-        .is('closed_at', null)
         .order('issued_at', { ascending: true });
       polls = (pollRows ?? []) as unknown as LivePoll[];
     } catch (e) {
@@ -186,22 +315,43 @@ export class LiveSessionService {
       polls = [];
     }
 
-    const status = (cycleRow.status ?? 'draft') as string;
-    const endsAt = cycleRow.ends_at as string | null;
+    const { starts_at: startsAt, ends_at: endsAt } = deriveCycleTimes(cycleRow);
     const now = Date.now();
+    const status = deriveEffectiveStatus(
+      (cycleRow.status ?? 'draft') as string,
+      startsAt,
+      endsAt,
+      now,
+    );
+
+    // Async make-up window is policy-driven (async_makeup_window_hours, seeded 48).
+    const policies = await readPolicies(supabase);
+    const asyncWindowHours = policyNumber(policies, 'async_makeup_window_hours', 48);
 
     const quiz_open = status === 'post_event' &&
       (!endsAt || diffMinutes(new Date(now).toISOString(), endsAt) <= 60);
 
     const quiz_async_window_open = status === 'post_event' && !!endsAt &&
-      diffMinutes(new Date(now).toISOString(), endsAt) <= 48 * 60;
+      diffMinutes(new Date(now).toISOString(), endsAt) <= asyncWindowHours * 60;
+
+    // Join window — doors open `join_doors_open_minutes` before start
+    // (Director decision 2026-06-12; policy-seeded 15), close at session end.
+    const doorsOpenMinutes = policyNumber(policies, 'join_doors_open_minutes', 15);
+    let join_open = true; // no derivable window → don't block (legacy cycles)
+    let join_opens_at: string | null = null;
+    if (startsAt) {
+      const opensMs = new Date(startsAt).getTime() - doorsOpenMinutes * 60_000;
+      join_opens_at = new Date(opensMs).toISOString();
+      const endMs = endsAt ? new Date(endsAt).getTime() : Number.POSITIVE_INFINITY;
+      join_open = now >= opensMs && now <= endMs;
+    }
 
     return {
       cycle: {
         id: cycleRow.id as string,
-        title: (cycleRow.title ?? 'AI Pulse Cycle') as string,
+        title: (cycleRow.name ?? 'AI Pulse Cycle') as string,
         status,
-        starts_at: (cycleRow.starts_at ?? null) as string | null,
+        starts_at: startsAt,
         ends_at: endsAt,
         meet_url: (aiPulse.meet_url ?? null) as string | null,
         primary_language: ((aiPulse.primary_language ?? 'en') as string),
@@ -216,42 +366,49 @@ export class LiveSessionService {
       polls,
       quiz_open,
       quiz_async_window_open,
+      join_open,
+      join_opens_at,
     };
   }
 
   /**
    * Record the learner pressing the Join button.
    *
-   * Upserts an `event_team_attendance` row keyed by (event_id, learner_id,
+   * Upserts an `ai_pulse_live_attendance` row keyed by (event_id, profile_id,
    * day_type='live_session'). Stamps joined_at + computes joined_within_5min.
    */
   static async recordJoin(cycleId: string): Promise<EngagementSignals> {
-    const supabase = createClientSupabaseClient();
+    // Cast to any: this service touches ai_pulse_live_attendance (+ the deferred
+    // ai_pulse_polls/poll_responses), which are not yet in the generated
+    // Database types. Matches the per-call cast pattern in cycles-service.
+    const supabase = createClientSupabaseClient() as any;
 
     const {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
-    // Read cycle starts_at to compute joined_within_5min
+    // Read cycle date + config to derive starts_at for joined_within_5min
     const { data: cycleRow } = await supabase
       .from('startup_events')
-      .select('starts_at')
+      .select('demo_date, start_date, end_date, config')
       .eq('id', cycleId)
       .maybeSingle();
 
     const nowIso = new Date().toISOString();
-    const joinedWithinFive = withinFiveMin(
-      nowIso,
-      (cycleRow?.starts_at ?? null) as string | null,
-    );
+    const { starts_at: startsAt } = deriveCycleTimes(cycleRow ?? {});
+    // On-time window is the late_threshold_minutes policy row (seeded 10) —
+    // replaces the old hardcoded 5 minutes.
+    const policies = await readPolicies(supabase);
+    const lateThresholdMinutes = policyNumber(policies, 'late_threshold_minutes', 10);
+    const joinedWithinWindow = withinJoinWindow(nowIso, startsAt, lateThresholdMinutes);
 
-    // Read existing row (preserve other agents' JSONB keys)
+    // Read existing row (preserve other writers' JSONB keys)
     const { data: existing } = await supabase
-      .from('event_team_attendance')
+      .from('ai_pulse_live_attendance')
       .select('id, engagement_signals')
       .eq('event_id', cycleId)
-      .eq('learner_id', user.id)
+      .eq('profile_id', user.id)
       .eq('day_type', 'live_session')
       .maybeSingle();
 
@@ -259,22 +416,21 @@ export class LiveSessionService {
     const nextSignals: EngagementSignals = {
       ...prevSignals,
       joined_at: nowIso,
-      joined_within_5min: joinedWithinFive,
+      joined_within_5min: joinedWithinWindow,
     };
 
     const { error } = await supabase
-      .from('event_team_attendance')
+      .from('ai_pulse_live_attendance')
       .upsert(
         {
-          id: existing?.id,
           event_id: cycleId,
-          learner_id: user.id,
+          profile_id: user.id,
           day_type: 'live_session',
           joined_at: nowIso,
           engagement_signals: nextSignals,
           updated_at: nowIso,
         },
-        { onConflict: 'id' },
+        { onConflict: 'event_id,profile_id,day_type' },
       );
 
     if (error) {
@@ -296,31 +452,34 @@ export class LiveSessionService {
     pollId: string,
     optionId: string,
   ): Promise<EngagementSignals> {
-    const supabase = createClientSupabaseClient();
+    // Cast to any: this service touches ai_pulse_live_attendance (+ the deferred
+    // ai_pulse_polls/poll_responses), which are not yet in the generated
+    // Database types. Matches the per-call cast pattern in cycles-service.
+    const supabase = createClientSupabaseClient() as any;
 
     const {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
-    // Best-effort: insert audit row if table exists
-    try {
-      await supabase.from('ai_pulse_poll_responses').insert({
-        poll_id: pollId,
-        learner_id: user.id,
-        option_id: optionId,
-        responded_at: new Date().toISOString(),
-      });
-    } catch (e) {
-      // Audit row optional in v1
-    }
+    // Best-effort audit row — the ai_pulse_poll_responses substrate is
+    // deferred (polls feature not yet activated). supabase-js resolves with
+    // an { error } rather than throwing when the table is absent, so this is
+    // a no-op until the polls tables ship; the engagement counter below is
+    // the load-bearing signal.
+    await supabase.from('ai_pulse_poll_responses').insert({
+      poll_id: pollId,
+      profile_id: user.id,
+      option_id: optionId,
+      responded_at: new Date().toISOString(),
+    });
 
     // Increment polls_responded on engagement_signals
     const { data: existing } = await supabase
-      .from('event_team_attendance')
+      .from('ai_pulse_live_attendance')
       .select('id, engagement_signals')
       .eq('event_id', cycleId)
-      .eq('learner_id', user.id)
+      .eq('profile_id', user.id)
       .eq('day_type', 'live_session')
       .maybeSingle();
 
@@ -332,17 +491,16 @@ export class LiveSessionService {
 
     const nowIso = new Date().toISOString();
     const { error } = await supabase
-      .from('event_team_attendance')
+      .from('ai_pulse_live_attendance')
       .upsert(
         {
-          id: existing?.id,
           event_id: cycleId,
-          learner_id: user.id,
+          profile_id: user.id,
           day_type: 'live_session',
           engagement_signals: nextSignals,
           updated_at: nowIso,
         },
-        { onConflict: 'id' },
+        { onConflict: 'event_id,profile_id,day_type' },
       );
 
     if (error) {
@@ -363,7 +521,10 @@ export class LiveSessionService {
    * which the 4-AND gate consumes as "stayed_until_end".
    */
   static async recordHeartbeat(cycleId: string): Promise<EngagementSignals> {
-    const supabase = createClientSupabaseClient();
+    // Cast to any: this service touches ai_pulse_live_attendance (+ the deferred
+    // ai_pulse_polls/poll_responses), which are not yet in the generated
+    // Database types. Matches the per-call cast pattern in cycles-service.
+    const supabase = createClientSupabaseClient() as any;
 
     const {
       data: { user },
@@ -371,10 +532,10 @@ export class LiveSessionService {
     if (!user) throw new Error('Not authenticated');
 
     const { data: existing } = await supabase
-      .from('event_team_attendance')
+      .from('ai_pulse_live_attendance')
       .select('id, engagement_signals')
       .eq('event_id', cycleId)
-      .eq('learner_id', user.id)
+      .eq('profile_id', user.id)
       .eq('day_type', 'live_session')
       .maybeSingle();
 
@@ -392,7 +553,7 @@ export class LiveSessionService {
     };
 
     const { error } = await supabase
-      .from('event_team_attendance')
+      .from('ai_pulse_live_attendance')
       .update({
         engagement_signals: nextSignals,
         updated_at: nowIso,
@@ -413,14 +574,20 @@ export class LiveSessionService {
   /**
    * Submit the post-session quiz. Writes quiz_score + quiz_passed into
    * engagement_signals, plus a quiz_async_makeup flag if submitted in the
-   * 60min–48h window.
+   * 60min–48h window. Optional `feedback` ("what should change next week?")
+   * rides the same write — the CARE E-move voice channel; surfaced to the
+   * Champion on the admin cycle page, anonymously.
    */
   static async submitQuiz(
     cycleId: string,
     score: number,
     asyncMakeup: boolean,
+    feedback?: string,
   ): Promise<EngagementSignals> {
-    const supabase = createClientSupabaseClient();
+    // Cast to any: this service touches ai_pulse_live_attendance (+ the deferred
+    // ai_pulse_polls/poll_responses), which are not yet in the generated
+    // Database types. Matches the per-call cast pattern in cycles-service.
+    const supabase = createClientSupabaseClient() as any;
 
     const {
       data: { user },
@@ -432,34 +599,47 @@ export class LiveSessionService {
     }
 
     const { data: existing } = await supabase
-      .from('event_team_attendance')
+      .from('ai_pulse_live_attendance')
       .select('id, engagement_signals')
       .eq('event_id', cycleId)
-      .eq('learner_id', user.id)
+      .eq('profile_id', user.id)
       .eq('day_type', 'live_session')
       .maybeSingle();
 
+    // Pass threshold is policy-driven per submission type:
+    //   live submission  → quiz_pass_threshold_live  (seeded 40)
+    //   async make-up    → quiz_pass_threshold_async (seeded 60)
+    // Replaces the old hardcoded DEFAULT_PASS_THRESHOLD = 60.
+    const policies = await readPolicies(supabase);
+    const passThreshold = asyncMakeup
+      ? policyNumber(policies, 'quiz_pass_threshold_async', 60)
+      : policyNumber(policies, 'quiz_pass_threshold_live', 40);
+
     const prevSignals = (existing?.engagement_signals ?? {}) as EngagementSignals;
+    const trimmedFeedback = feedback?.trim();
     const nextSignals: EngagementSignals = {
       ...prevSignals,
       quiz_score: score,
-      quiz_passed: score >= DEFAULT_PASS_THRESHOLD,
+      quiz_passed: score >= passThreshold,
       quiz_async_makeup: asyncMakeup,
+      ...(trimmedFeedback ? { feedback_text: trimmedFeedback } : {}),
     };
 
+    // Always write to the learner's live_session row (async make-up is a flag
+    // on the signals, not a separate row) so the 4-AND gate — which reads the
+    // live_session row — sees the quiz score regardless of submission window.
     const nowIso = new Date().toISOString();
     const { error } = await supabase
-      .from('event_team_attendance')
+      .from('ai_pulse_live_attendance')
       .upsert(
         {
-          id: existing?.id,
           event_id: cycleId,
-          learner_id: user.id,
-          day_type: asyncMakeup ? 'async_makeup' : 'live_session',
+          profile_id: user.id,
+          day_type: 'live_session',
           engagement_signals: nextSignals,
           updated_at: nowIso,
         },
-        { onConflict: 'id' },
+        { onConflict: 'event_id,profile_id,day_type' },
       );
 
     if (error) {
@@ -479,25 +659,47 @@ export interface GateStatus {
   polls_responded_ok: boolean;
   stayed_until_end: boolean;
   quiz_passed: boolean;
+  /** How many polls the Champion issued this cycle (0 = polls gate auto-passes). */
+  polls_issued: number;
+  /** How many poll responses this learner needs (min(3, polls_issued)). */
+  polls_required: number;
   passed_count: number; // 0..4
   total: 4;
   is_engaged: boolean;
 }
 
 /**
+ * The last heartbeat can land up to one interval (60s) before ends_at, and
+ * isoToIstHHMM truncates seconds — so requiring stayed_until >= the exact end
+ * HH:MM fails learners who genuinely stayed. Accept heartbeats within this
+ * many minutes of the end.
+ */
+const STAY_TOLERANCE_MINUTES = 5;
+
+/**
  * Evaluate the 4-AND gate from raw signals + cycle end time.
  * Pure function, used by both the progress bar and the engagement card.
+ *
+ * `pollsIssued` is how many polls exist for the cycle: the polls requirement
+ * is min(3, pollsIssued), so a cycle with no polls (the polls feature has no
+ * authoring surface yet) doesn't make engagement unattainable.
  */
 export function evaluateGates(
   signals: EngagementSignals,
   endsAt: string | null,
+  pollsIssued: number = 0,
 ): GateStatus {
   const joined_within_5min = !!signals.joined_within_5min;
-  const polls_responded_ok = (signals.polls_responded ?? 0) >= 3;
+  const polls_required = Math.min(3, Math.max(0, pollsIssued));
+  const polls_responded_ok =
+    polls_required === 0 || (signals.polls_responded ?? 0) >= polls_required;
 
   let stayed_until_end = false;
   if (signals.stayed_until && endsAt) {
-    const endHHMM = isoToIstHHMM(endsAt);
+    const endWithTolerance = new Date(
+      new Date(endsAt).getTime() - STAY_TOLERANCE_MINUTES * 60_000,
+    ).toISOString();
+    const endHHMM = isoToIstHHMM(endWithTolerance);
     // Compare HH:MM strings — works for same-day sessions.
     stayed_until_end = signals.stayed_until >= endHHMM;
   }
@@ -515,6 +717,8 @@ export function evaluateGates(
     polls_responded_ok,
     stayed_until_end,
     quiz_passed,
+    polls_issued: Math.max(0, pollsIssued),
+    polls_required,
     passed_count,
     total: 4,
     is_engaged: passed_count === 4,
@@ -536,6 +740,10 @@ export function useLiveSession(
     queryFn: () => LiveSessionService.getLiveSession(cycleId),
     enabled: !!cycleId,
     staleTime: 15 * 1000, // 15s — live session, signals change fast
+    // Effective status is clock-derived server-side at fetch time; poll so the
+    // page crosses draft → live → post_event (heartbeat start, quiz opening)
+    // without the learner having to reload.
+    refetchInterval: 60 * 1000,
     refetchOnWindowFocus: true,
   });
 }
@@ -593,16 +801,16 @@ export function useSubmitQuiz(
 ): UseMutationResult<
   EngagementSignals,
   Error,
-  { score: number; asyncMakeup: boolean }
+  { score: number; asyncMakeup: boolean; feedback?: string }
 > {
   const queryClient = useQueryClient();
   return useMutation<
     EngagementSignals,
     Error,
-    { score: number; asyncMakeup: boolean }
+    { score: number; asyncMakeup: boolean; feedback?: string }
   >({
-    mutationFn: ({ score, asyncMakeup }) =>
-      LiveSessionService.submitQuiz(cycleId, score, asyncMakeup),
+    mutationFn: ({ score, asyncMakeup, feedback }) =>
+      LiveSessionService.submitQuiz(cycleId, score, asyncMakeup, feedback),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: liveSessionKey(cycleId) });
     },

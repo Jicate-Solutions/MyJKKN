@@ -8,8 +8,7 @@ export const admissionYearsSearchParamsSchema = z.object({
   sortOrder: z.enum(['asc', 'desc']).optional(),
 
   institution_id: z.string().optional(),
-  program_id: z.string().optional(),
-  program_start_year: z.coerce.number().optional(),
+  year: z.coerce.number().optional(),
   status: z.enum(['active', 'inactive']).optional()
 });
 

@@ -6,7 +6,14 @@ import Link from 'next/link';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
-import { Save, ArrowLeft, CalendarIcon, AlertCircle } from 'lucide-react';
+import {
+  Save,
+  ArrowLeft,
+  CalendarIcon,
+  AlertCircle,
+  Check,
+  ChevronsUpDown
+} from 'lucide-react';
 import { format } from 'date-fns';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -43,6 +50,15 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList
+} from '@/components/ui/command';
+import { useStaffForSelection } from '@/hooks/staff/use-staff';
 import { useTimetables } from '@/hooks/academic/use-timetables';
 import { useAcademicYears } from '@/hooks/academic/use-academic-years';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
@@ -106,7 +122,16 @@ const timetableFormSchema = z
     selected_template_id: z.string().optional(),
     timetable_format: z.enum(['regular', 'batch', 'cycle']).default('regular'),
     // Updated: 2026-03-22 - Required when timetable_format='cycle'
-    num_cycles: z.coerce.number().int().min(1).max(52).optional()
+    num_cycles: z.coerce.number().int().min(1).max(52).optional(),
+    // Updated: 2026-06-10 - School day-wise attendance support.
+    // attendance_mode defaults from entity_type but is editable; class_incharge_id
+    // is required (refine below) when mode = session_wise.
+    attendance_mode: z
+      .enum(['period_wise', 'session_wise'])
+      .default('period_wise'),
+    class_incharge_id: z.string().min(1, {
+      message: 'Please select a class incharge.'
+    })
   })
   .refine(
     (data) => {
@@ -173,7 +198,9 @@ export default function NewTimetablePage() {
       template_name: '',
       selected_template_id: 'no-template',
       start_date: undefined,
-      end_date: undefined
+      end_date: undefined,
+      attendance_mode: 'period_wise',
+      class_incharge_id: ''
     }
   });
 
@@ -185,6 +212,7 @@ export default function NewTimetablePage() {
   const watchDepartmentId = form.watch('department_id');
   const watchSemesterId = form.watch('semester_id');
   const watchTimetableType = form.watch('timetable_type'); // New watch
+  const watchAttendanceMode = form.watch('attendance_mode');
   const watchSectionId = form.watch('section_id');
   const watchStartDate = form.watch('start_date');
   const watchEndDate = form.watch('end_date');
@@ -297,6 +325,31 @@ export default function NewTimetablePage() {
     (section, index, self) =>
       index === self.findIndex((s) => s.section_name === section.section_name)
   );
+
+  // Staff list for the Class Incharge picker (session_wise timetables only).
+  // Scoped to the selected institution; empty/disabled until one is chosen.
+  const { data: inchargeStaff = [], isLoading: loadingInchargeStaff } =
+    useStaffForSelection({
+      institution_id: watchInstitutionId || undefined,
+      isActive: true
+    });
+
+  const [inchargeComboOpen, setInchargeComboOpen] = useState(false);
+
+  // Resolve the selected institution's entity_type to drive the default
+  // attendance mode (school => day-wise/session_wise, otherwise period_wise).
+  const selectedInstitution = institutions.find(
+    (i) => i.id === watchInstitutionId
+  );
+  const isSchool = (selectedInstitution as any)?.entity_type === 'school';
+
+  // Default attendance_mode from entity_type whenever the institution changes.
+  // This is a smart default, not a lock — the user can still switch it below.
+  useEffect(() => {
+    if (!watchInstitutionId) return;
+    form.setValue('attendance_mode', isSchool ? 'session_wise' : 'period_wise');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchInstitutionId, isSchool]);
 
   // Auto-select the user's own institution for non-super-admins on create.
   // The institution dropdown is access-scoped (useInstitutionsWithAccess), so a
@@ -482,7 +535,9 @@ export default function NewTimetablePage() {
             timetable_type: formattedValues.timetable_type,
             start_date: formattedValues.start_date,
             end_date: formattedValues.end_date,
-            is_active: formattedValues.is_active
+            is_active: formattedValues.is_active,
+            attendance_mode: formattedValues.attendance_mode,
+            class_incharge_id: formattedValues.class_incharge_id || null
           }
         });
       } else {
@@ -1006,7 +1061,7 @@ export default function NewTimetablePage() {
                       name='section_id'
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Section</FormLabel>
+                          <FormLabel>{adapt('Section')}</FormLabel>
                           <Select
                             onValueChange={field.onChange}
                             value={field.value}
@@ -1018,7 +1073,7 @@ export default function NewTimetablePage() {
                           >
                             <FormControl>
                               <SelectTrigger>
-                                <SelectValue placeholder='Select section' />
+                                <SelectValue placeholder={`Select ${adapt('section')}`} />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent className='max-h-60 overflow-y-auto'>
@@ -1110,6 +1165,161 @@ export default function NewTimetablePage() {
                             How many cycles to rotate through (1–52). Each
                             working day advances to the next cycle. After the
                             last cycle, it wraps back to Cycle 1.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                </div>
+
+                {/* Attendance Mode + Class Incharge (school day-wise support) */}
+                <div className='grid grid-cols-1 gap-6 md:grid-cols-2'>
+                  <FormField
+                    control={form.control}
+                    name='attendance_mode'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Attendance Mode</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder='Select attendance mode' />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value='period_wise'>
+                              Period-wise (every period)
+                            </SelectItem>
+                            <SelectItem value='session_wise'>
+                              Day-wise (FN &amp; AN sessions)
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          {watchAttendanceMode === 'session_wise' ? (
+                            <span>
+                              Attendance is collected only at the first forenoon
+                              and first afternoon period; both present = full
+                              day, one = half day. Marked by the class incharge.
+                            </span>
+                          ) : (
+                            <span>
+                              Attendance is marked for every period in the
+                              timetable.
+                            </span>
+                          )}
+                          {isSchool && (
+                            <span className='block text-green-600 dark:text-green-400'>
+                              Defaulted to Day-wise because this is a school.
+                            </span>
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* Class Incharge — always shown and required (independent of attendance mode) */}
+                  {(
+                    <FormField
+                      control={form.control}
+                      name='class_incharge_id'
+                      render={({ field }) => (
+                        <FormItem className='flex flex-col'>
+                          <FormLabel>Class Incharge</FormLabel>
+                          <Popover
+                            open={inchargeComboOpen}
+                            onOpenChange={setInchargeComboOpen}
+                          >
+                            <PopoverTrigger asChild>
+                              <FormControl>
+                                <Button
+                                  variant='outline'
+                                  role='combobox'
+                                  aria-expanded={inchargeComboOpen}
+                                  disabled={
+                                    loadingInchargeStaff || !watchInstitutionId
+                                  }
+                                  className={cn(
+                                    'w-full justify-between font-normal',
+                                    !field.value && 'text-muted-foreground'
+                                  )}
+                                >
+                                  {field.value
+                                    ? (() => {
+                                        const s = inchargeStaff.find(
+                                          (st: any) => st.id === field.value
+                                        );
+                                        return s
+                                          ? `${s.first_name} ${s.last_name}${
+                                              s.staff_id
+                                                ? ` (${s.staff_id})`
+                                                : ''
+                                            }`
+                                          : 'Select staff...';
+                                      })()
+                                    : loadingInchargeStaff
+                                    ? 'Loading staff...'
+                                    : 'Select class incharge'}
+                                  <ChevronsUpDown className='ml-2 h-4 w-4 shrink-0 opacity-50' />
+                                </Button>
+                              </FormControl>
+                            </PopoverTrigger>
+                            <PopoverContent
+                              className='w-[--radix-popover-trigger-width] p-0'
+                              align='start'
+                            >
+                              <Command>
+                                <CommandInput placeholder='Search by name or staff ID...' />
+                                <CommandList>
+                                  <CommandEmpty>No staff found.</CommandEmpty>
+                                  <CommandGroup>
+                                    {inchargeStaff.map((s: any) => (
+                                      <CommandItem
+                                        key={s.id}
+                                        value={`${s.first_name} ${s.last_name} ${
+                                          s.staff_id || ''
+                                        } ${s.email || ''}`}
+                                        onSelect={() => {
+                                          field.onChange(
+                                            s.id === field.value ? '' : s.id
+                                          );
+                                          setInchargeComboOpen(false);
+                                        }}
+                                      >
+                                        <Check
+                                          className={cn(
+                                            'mr-2 h-4 w-4',
+                                            field.value === s.id
+                                              ? 'opacity-100'
+                                              : 'opacity-0'
+                                          )}
+                                        />
+                                        <div className='flex flex-col'>
+                                          <span>
+                                            {s.first_name} {s.last_name}
+                                            {s.staff_id ? ` (${s.staff_id})` : ''}
+                                          </span>
+                                          {s.email && (
+                                            <span className='text-xs text-muted-foreground'>
+                                              {s.email}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                          <FormDescription>
+                            The staff responsible for marking this
+                            timetable&apos;s daily attendance.
                           </FormDescription>
                           <FormMessage />
                         </FormItem>

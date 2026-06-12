@@ -649,13 +649,73 @@ export interface BosCompositionFilters {
   sortOrder?: 'asc' | 'desc';
 }
 
+// ── Committee ─────────────────────────────────────────────────────────────────
+// Institution-wise committees (Academic, Exam, …). A composition's members are
+// grouped by committee via bos_members.committee_id. Managed on /bos/committees.
+
+export interface BosCommittee {
+  id: string;
+  institutions_id: string;
+  name: string;
+  short_code?: string | null;
+  /** Display order within the institution (committees list + member grouping). */
+  sort_order: number;
+  is_active: boolean;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type CreateBosCommitteeDto = Omit<
+  BosCommittee,
+  'id' | 'created_at' | 'updated_at' | 'created_by'
+>;
+export type UpdateBosCommitteeDto = Partial<CreateBosCommitteeDto>;
+
+// ── Member Type (institution-wise, table-driven) ─────────────────────────────
+// Replaces the hardcoded BOS_MEMBER_TYPE_LABELS dropdown in the Add Member
+// dialog. base_type maps each row to the legacy BosMemberType enum, which
+// stays the behaviour key (chairman authorization, staff-vs-expert picker).
+// Managed on /bos/member-types.
+
+export interface BosMemberTypeRecord {
+  id: string;
+  institutions_id: string;
+  name: string;
+  /** Legacy behaviour key — written to bos_members.member_type on insert. */
+  base_type: BosMemberType;
+  /** Display order within the institution (dropdown + member grouping). */
+  sort_order: number;
+  is_active: boolean;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type CreateBosMemberTypeDto = Omit<
+  BosMemberTypeRecord,
+  'id' | 'created_at' | 'updated_at' | 'created_by'
+>;
+export type UpdateBosMemberTypeDto = Partial<CreateBosMemberTypeDto>;
+
 // ── Member ───────────────────────────────────────────────────────────────────
 
 export interface BosMember {
   id: string;
   institutions_id: string;
   composition_id: string;
+  /**
+   * Which committee (within the composition) this member sits on. NULL for
+   * rows created before committees existed — rendered as the "General" group.
+   */
+  committee_id?: string | null;
   member_type: BosMemberType;
+  /**
+   * FK to bos_member_types (institution-wise, table-driven). member_type
+   * stays as the behaviour key — it equals the type's base_type at insert
+   * time. NULL on rows created before the table existed and not backfilled.
+   */
+  member_type_id?: string | null;
   staff_id?: string;
   staff_name?: string;
   staff_designation?: string;

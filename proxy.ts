@@ -15,6 +15,7 @@ const PUBLIC_PATHS_SET = new Set([
   '/auth/complete-profile',
   '/auth/test-login', // Dev-only test login page for role permission testing
   '/auth/lti-login', // Feature-flagged email+password login for MathWorks LTI integration testing
+  '/auth/audit-login', // Feature-flagged email+password login for the Razorpay payment-gateway audit
   '/auth/dev-login', // Dev-only magic-link exchange (gated by NEXT_PUBLIC_ENABLE_DEV_LOGIN)
   '/unauthorized',
   '/students/onboarding', // Add onboarding path for pending students
@@ -25,6 +26,10 @@ const PUBLIC_PATHS_SET = new Set([
   '/browserconfig.xml',
   '/pwa-test.html',
   '/refer', // Agent referral form — public, no login
+  '/privacy', // Privacy Policy — public, required for Meta App Review
+  '/terms', // Terms of Use — public, required for Meta App Review
+  '/data-deletion', // Data Deletion instructions — public, required for Meta App Review
+  '/meet', // Universal Booking directory — public, no login (U4)
   '/api/admission/leads/refer', // Agent referral API
   '/api/admission/leads/inbound' // Inbound webhook API
 ]);
@@ -32,8 +37,14 @@ const PUBLIC_PATHS_SET = new Set([
 // Public path prefixes (for dynamic routes like /apply/[slug])
 const PUBLIC_PATH_PREFIXES = [
   '/apply/', // Public admission form builder pages — no login
+  '/book/', // Public routed-booking pages (/book/[slug]) — no login (Path W #10)
+  '/meet/', // Universal Booking personal pages (/meet/[handle]) — no login (U4)
   '/c/', // Public campaign link shortener pages — no login
   '/student-form/', // Student self-fill form via QR (token-validated server-side) — no login
+  '/m/', // Family Moments gift cards (/m/[token]) — parent-facing, no login (Father's Day 2026).
+  //        NOTE: deliberately NOT '/moments/' — that prefix is the AUTHENTICATED
+  //        teacher/admin module (submit, campaigns) and must stay behind login.
+  '/api/public/moments/', // Family Moments engagement tracking — token-keyed, no login
 ];
 
 // Regex for static assets - single check instead of multiple endsWith
@@ -452,6 +463,6 @@ export const config = {
     '/guest/:path*',
     '/driver/:path*',
     // Match all paths except public ones
-    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|auth/test-login|auth/lti-login|auth/dev-login|icons|pwa-test.html).*)'
+    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|auth/test-login|auth/lti-login|auth/audit-login|auth/dev-login|icons|pwa-test.html).*)'
   ]
 };

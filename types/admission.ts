@@ -36,6 +36,8 @@ export interface GateEntryInput {
   institution_id: string;
   last_name?: string | null;
   program_id?: string | null;
+  /** FK to admission_years — the institution's current cohort, pre-filled but editable. */
+  admission_year_id?: string | null;
   /** UI radio: 'walk_in' = direct, 'referral' = show consultant picker. */
   source: 'walk_in' | 'referral';
   /** Only when source='referral' and a referrer was picked. */
@@ -164,8 +166,7 @@ export interface AdmissionLead {
   admission_year?: {
     id: string;
     admission_year_name: string;
-    program_start_year: number;
-    program_end_year: number;
+    year: number;
   } | null;
 
   // Application fields (merged from admission_applications)
@@ -1394,45 +1395,28 @@ export interface FormDeviceBreakdown {
 export interface AdmissionYear {
   id: string;
   institution_id: string;
-  program_id: string;
   admission_year_name: string;
-  program_start_year: number;
-  program_end_year: number;
-  sanctioned_intake: number;
+  year: number;
   is_active: boolean;
   created_by?: string | null;
   created_at: string;
   updated_at: string;
-  institution?: {
-    id: string;
-    name: string;
-    counselling_code: string;
-  };
-  program?: {
-    id: string;
-    program_id: string;
-    program_name: string;
-    program_duration_yrs?: number | null;
-  };
+  institution?: { id: string; name: string; counselling_code: string } | null;
 }
 
 export interface CreateAdmissionYearDto {
   institution_id: string;
-  program_id: string;
   admission_year_name: string;
-  program_start_year: number;
-  program_end_year: number;
-  sanctioned_intake?: number;
+  year: number;
   is_active?: boolean;
 }
 
-export interface UpdateAdmissionYearDto extends Partial<CreateAdmissionYearDto> {}
+export type UpdateAdmissionYearDto = Partial<Omit<CreateAdmissionYearDto, 'institution_id'>>;
 
 export interface AdmissionYearFilters {
   search?: string;
   institution_id?: string;
-  program_id?: string;
-  program_start_year?: number;
+  year?: number;
   isActive?: boolean;
   page?: number;
   limit?: number;
@@ -1549,9 +1533,9 @@ export type CreateAdmissionFeeCommunityCategoryInput = Pick<AdmissionFeeCommunit
   Partial<Pick<AdmissionFeeCommunityCategory, 'sort_order' | 'is_active'>>;
 export type UpdateAdmissionFeeCommunityCategoryInput = Partial<Pick<AdmissionFeeCommunityCategory, 'code' | 'name' | 'sort_order' | 'is_active'>>;
 
+// Global lookup (institution-agnostic since migration 20260610100000)
 export interface AdmissionFeeAccommodationType {
   id: string;
-  institution_id: string;
   code: string;
   name: string;
   sort_order: number;
@@ -1562,7 +1546,7 @@ export interface AdmissionFeeAccommodationType {
   updated_by: string | null;
 }
 
-export type CreateAdmissionFeeAccommodationTypeInput = Pick<AdmissionFeeAccommodationType, 'institution_id' | 'code' | 'name'> &
+export type CreateAdmissionFeeAccommodationTypeInput = Pick<AdmissionFeeAccommodationType, 'code' | 'name'> &
   Partial<Pick<AdmissionFeeAccommodationType, 'sort_order' | 'is_active'>>;
 export type UpdateAdmissionFeeAccommodationTypeInput = Partial<
   Pick<AdmissionFeeAccommodationType, 'code' | 'name' | 'sort_order' | 'is_active'>
@@ -1609,14 +1593,13 @@ export interface AdmissionFeeStructure {
   department_id: string;
   programme_id: string;
   quota_id: string;
-  // Vestigial: accommodation is NO LONGER a fee-matching dimension (hostel
-  // fees moved to campus-living). The DB column remains for back-compat and is
-  // still referenced by the fee change-event subsystem + learner shadow-FK
-  // sync, but the admission fee-structure UI no longer reads or writes it.
-  // New structures leave it NULL. Communities live in the
+  // Optional matching dimension (NULL = "Any accommodation"). Parallel to
+  // `gender`: resolution prefers an accommodation-specific structure, then
+  // falls back to a NULL one. Hostel ROOM/MESS fees stay in campus-living, so
+  // this only varies academic/common fees. Communities live in the
   // admission_fee_structure_communities junction (migration 20260507120001) —
   // surfaced on read shapes via `community_category_ids`.
-  accommodation_type_id: string;
+  accommodation_type_id: string | null;
   admission_year_id: string;
   /** Optional gender filter. null = any gender. 'MALE'/'FEMALE' = gender-specific. */
   gender: string | null;
@@ -1641,6 +1624,14 @@ export interface AdmissionFeeStructure {
   community_category_ids: string[];
 }
 
+/**
+ * Per-year applicability of a fee line item. Hostel fees moved to campus-living,
+ * so admission fee structures cover only academic fees — but some fees are
+ * one-time at admission (first_year_only) while most recur annually
+ * (every_year), and a few apply only in a specific year of study.
+ */
+export type FeeItemAppliesTo = 'first_year_only' | 'every_year' | 'specific_year';
+
 export interface AdmissionFeeStructureItem {
   id: string;
   fee_structure_id: string;
@@ -1648,6 +1639,10 @@ export interface AdmissionFeeStructureItem {
   amount: number;
   is_optional: boolean;
   sort_order: number;
+  /** When this fee item is charged across the years of study. */
+  applies_to: FeeItemAppliesTo;
+  /** Required (1..10) only when applies_to === 'specific_year', else null. */
+  applies_year_of_study: number | null;
 }
 
 export interface AdmissionFeeStructureWithItems extends AdmissionFeeStructure {
@@ -1665,11 +1660,11 @@ export type CreateAdmissionFeeStructureInput =
     | 'admission_year_id'
     | 'name'
   > &
-  Partial<Pick<AdmissionFeeStructure, 'status' | 'notes' | 'effective_from' | 'effective_to' | 'gender'>> & {
+  Partial<Pick<AdmissionFeeStructure, 'status' | 'notes' | 'effective_from' | 'effective_to' | 'gender' | 'accommodation_type_id'>> & {
     /** N communities this structure applies to. Must contain at least one. */
     community_category_ids: string[];
     items: Array<Pick<AdmissionFeeStructureItem, 'billing_category_id' | 'amount'> &
-      Partial<Pick<AdmissionFeeStructureItem, 'is_optional' | 'sort_order'>>>;
+      Partial<Pick<AdmissionFeeStructureItem, 'is_optional' | 'sort_order' | 'applies_to' | 'applies_year_of_study'>>>;
   };
 
 export type UpdateAdmissionFeeStructureInput =
@@ -1681,7 +1676,7 @@ export type UpdateAdmissionFeeStructureInput =
     // moves; the UI layer warns the admin before submit.
     | 'institution_id' | 'degree_id' | 'department_id' | 'programme_id'
     | 'quota_id' | 'admission_year_id'
-    | 'gender'
+    | 'gender' | 'accommodation_type_id'
   >> & {
     /** When provided, replaces the community set for this structure. */
     community_category_ids?: string[];
@@ -1699,8 +1694,8 @@ export interface FeeStructureMatrixDimensions {
   department_id: string;
   programme_id: string;
   quota_id: string;
-  /** No longer a fee-matching dimension — hostel fees moved to campus-living.
-   *  Kept optional for back-compat; ignored by resolution. */
+  /** Optional matching dimension (NULL/undefined = "Any"). Resolution prefers
+   *  an accommodation-specific structure, then falls back to an "Any" one. */
   accommodation_type_id?: string;
   admission_year_id: string;
   /** Optional. When set, fee resolution prefers gender-specific structures. */

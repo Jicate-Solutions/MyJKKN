@@ -61,11 +61,18 @@ export interface StudentBill {
   created_by?: string;
   created_at: string;
   updated_at: string;
+  // Academic year this bill applies to (academic_years.id). Nullable: legacy
+  // and automated bills may be NULL ("Unspecified"); manual/bulk-create require it.
+  academic_year_id?: string | null;
 
   // Related data
   creator?: {
     id: string;
     full_name: string;
+  };
+  academic_year?: {
+    id: string;
+    academic_year_name: string;
   };
   student?: {
     id: string;
@@ -74,6 +81,9 @@ export interface StudentBill {
     roll_number?: string;
     college_email: string;
     student_mobile: string;
+    // Learner lifecycle state off learners_profiles (account → reserved →
+    // admitted → active …). Surfaced as the "Learner Status" table column.
+    lifecycle_status?: string;
     degree?: {
       id: string;
       degree_name: string;
@@ -118,6 +128,14 @@ export interface CreateStudentBillDto {
   is_recurring?: boolean;
   recurrence_pattern?: RecurrencePattern;
   number_of_recurrences?: number;
+  // Hostel-billing provenance (columns on billing_student_bills). 'ad_hoc'
+  // bills are exempt from the hostel-year generation dedup indexes.
+  fee_source?: string;
+  hostel_year_id?: string | null;
+  applies_year_of_study?: number | null;
+  // Academic year (academic_years.id) this bill applies to. Required by the
+  // manual create + bulk-create forms; flows straight into the insert.
+  academic_year_id?: string | null;
 }
 
 export interface UpdateStudentBillDto extends Partial<CreateStudentBillDto> {
@@ -133,6 +151,9 @@ export interface StudentBillFilters {
   institution_id?: string;
   item_category_id?: string;
   status?: BillStatus;
+  // learners_profiles.lifecycle_status — filters bills by the learner's
+  // lifecycle state (routes the query through the !inner learner join).
+  lifecycle_status?: string;
   due_date_from?: string;
   due_date_to?: string;
   amount_from?: number;
@@ -145,6 +166,8 @@ export interface StudentBillFilters {
   program_id?: string;
   semester_id?: string;
   section_id?: string;
+  // accommodation_types.code (hostel | dayscholar | pg | not_applicable)
+  accommodation_type?: string;
   page?: number;
   limit?: number;
   sortBy?: string;
@@ -524,6 +547,34 @@ export interface InvoiceListResponse {
   };
 }
 
+// Accommodation-type filter options. The `value` is an `accommodation_types.code`
+// (identical across every institution's catalog), so the dropdown works without
+// first picking an institution. The service layer resolves the code to that
+// institution's actual `accommodation_type_id`(s) at query time.
+export const ACCOMMODATION_TYPE_OPTIONS = [
+  { value: 'hostel', label: 'Hostel' },
+  { value: 'dayscholar', label: 'Day Scholar' },
+  { value: 'pg', label: 'Paying Guest' },
+  { value: 'not_applicable', label: 'Not Applicable' }
+] as const;
+
+// Learner lifecycle-status filter options for the billing schedule list.
+// Scoped to the states a learner can be in once bills exist (the 'account'
+// step onward — that's when bills are generated). `value` is the
+// learners_profiles.lifecycle_status enum code; labels mirror
+// components/learners/lifecycle-status-badge.tsx. Ordered by lifecycle
+// progression so the dropdown reads top-to-bottom like the funnel.
+export const LIFECYCLE_STATUS_FILTER_OPTIONS = [
+  { value: 'account', label: 'Account' },
+  { value: 'reserved', label: 'Reserved' },
+  { value: 'admitted', label: 'Admitted' },
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive' },
+  { value: 'graduated', label: 'Graduated' },
+  { value: 'alumni', label: 'Alumni' },
+  { value: 'exited', label: 'Exited' }
+] as const;
+
 // Student Search and List Interfaces
 export interface StudentSearchFilters {
   institution_id?: string;
@@ -533,6 +584,8 @@ export interface StudentSearchFilters {
   program_id?: string;
   semester_id?: string;
   section_id?: string;
+  // accommodation_types.code (hostel | dayscholar | pg | not_applicable)
+  accommodation_type?: string;
   first_name?: string;
   last_name?: string;
   roll_number?: string;
@@ -557,6 +610,10 @@ export interface StudentForBilling {
   program_id?: string;
   semester_id?: string;
   section_id?: string;
+  // Accommodation type off learners_profiles. Surfaced on the
+  // /billing/schedule/students/[id] detail page (Accommodation card) and used by
+  // the accommodation-type filter on the list pages.
+  accommodation_type_id?: string;
   // 2026-05-21: shown on /billing/schedule/students/[id] header so the
   // accounts team sees the learner's current state (account → reserved →
   // admitted → active) at a glance.
@@ -591,6 +648,11 @@ export interface StudentForBilling {
   section?: {
     id: string;
     section_name: string;
+  };
+  accommodation_type?: {
+    id: string;
+    code: string;
+    name: string;
   };
 }
 

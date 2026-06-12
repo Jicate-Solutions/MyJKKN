@@ -21,7 +21,6 @@ import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categori
 import { useCurrentHostelYear } from '@/hooks/campus-living/use-hostel-years';
 import { usePackageForLearner } from '@/hooks/campus-living/use-admission-packages';
 import {
-  useLearnerProgramId,
   useEffectiveRoomCategories,
   useEffectiveMessCategories,
   useFeeQuote,
@@ -86,15 +85,11 @@ export default function NewAllocationPage() {
   // Resolve the chosen learner's program, then ask β's resolver which room /
   // mess categories that program may pick. Empty set ⇒ no eligibility
   // configured ⇒ fail OPEN (show everything + a subtle hint), never block.
-  const institutionId = profile?.institution_id ?? undefined;
-  const { data: learnerProgramId } = useLearnerProgramId(formData.learner_id || null);
   const { data: eligibleRoomCategoryIds } = useEffectiveRoomCategories(
-    institutionId,
-    learnerProgramId ?? null,
+    formData.learner_id || null,
   );
   const { data: eligibleMessCategoryIds } = useEffectiveMessCategories(
-    institutionId,
-    learnerProgramId ?? null,
+    formData.learner_id || null,
   );
   const { messCategories } = useActiveMessCategories();
   const { currentYear } = useCurrentHostelYear();

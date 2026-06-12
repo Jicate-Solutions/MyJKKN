@@ -195,7 +195,7 @@ export async function GET(request: NextRequest) {
                   title: `Escalation: ${notif.title}`,
                   body: `${escalationUsers.length} user(s) have not acknowledged this mandatory notification past the deadline.`,
                   icon: '/icons/icon-192x192.png',
-                  url: '/admin/notifications',
+                  url: '/notifications/admin',
                   data: { notification_id: notif.id, type: 'escalation' },
                 }
               );

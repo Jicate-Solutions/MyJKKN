@@ -54,7 +54,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // extra query.
   const { data: lead, error: leadError } = await (svc as any)
     .from('admission_leads')
-    .select('*, admission_year:admission_years(id, institution_id, program_id, program_start_year, program_end_year, admission_year_name)')
+    .select('*, admission_year:admission_years(id, institution_id, year, admission_year_name)')
     .eq('id', leadId)
     .eq('institution_id', institutionId)
     .single();
@@ -75,32 +75,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   // ── 5a. Resolve a valid admission_year_id for the new learner ───────────────
   // Why this exists:
-  //   The DB trigger `validate_learner_admission_year_scope` rejects any FK
-  //   attach where the admission_years row's (institution_id, program_id) does
-  //   not match the learner's. We've seen leads carry an admission_year_id
-  //   that belongs to a *duplicate* program (same name+institution, different
-  //   id) — a data-quality bug, but the user-facing conversion shouldn't fail
-  //   on it. If the lead's stored AY does not match this lead's program, we
-  //   re-resolve by (institution_id, program_id, program_start_year). If
-  //   nothing matches, we drop the FK to NULL (legacy integer column still
-  //   propagates so B2A / MCP back-compat keeps working).
+  //   admission_years is now institution-wide (program_id dropped; cohort key is
+  //   `year`). The validation trigger rejects an FK attach whose admission_years
+  //   row belongs to a different institution than the learner. If the lead's
+  //   stored AY does not match this lead's institution, we re-resolve by
+  //   (institution_id, year). If nothing matches, we drop the FK to NULL (legacy
+  //   integer column still propagates so B2A / MCP back-compat keeps working).
   let resolvedAdmissionYearId: string | null = lead.admission_year_id || null;
-  if (resolvedAdmissionYearId && lead.program_id) {
+  if (resolvedAdmissionYearId) {
     const ay = lead.admission_year;
-    const ayProgramMismatch =
-      !ay || (ay.program_id && ay.program_id !== lead.program_id);
     const ayInstitutionMismatch =
       !ay || (ay.institution_id && ay.institution_id !== lead.institution_id);
 
-    if (ayProgramMismatch || ayInstitutionMismatch) {
-      // Try to find the correct admission_year for this lead's actual program.
-      const startYear = ay?.program_start_year;
+    if (ayInstitutionMismatch) {
+      // Try to find the correct admission_year for this lead's institution.
+      const cohortYear = ay?.year;
       let lookup = (svc as any)
         .from('admission_years')
         .select('id')
-        .eq('institution_id', lead.institution_id)
-        .eq('program_id', lead.program_id);
-      if (startYear) lookup = lookup.eq('program_start_year', startYear);
+        .eq('institution_id', lead.institution_id);
+      if (cohortYear) lookup = lookup.eq('year', cohortYear);
       const { data: matchAy } = await lookup.limit(1).maybeSingle();
 
       if (matchAy?.id) {
@@ -113,7 +107,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         resolvedAdmissionYearId = matchAy.id;
       } else {
         console.warn(
-          '[bridge/convert] No matching admission_year for program; dropping FK'
+          '[bridge/convert] No matching admission_year for institution; dropping FK'
         );
         resolvedAdmissionYearId = null;
       }
@@ -121,17 +115,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   // accommodation_type TEXT is retired — convert defaults a lead to day-scholar,
-  // so resolve the institution's 'dayscholar' accommodation_types FK to persist.
-  let accommodationTypeId: string | null = null;
-  if (lead.institution_id) {
-    const { data: accRow } = await (svc as any)
-      .from('accommodation_types')
-      .select('id')
-      .eq('institution_id', lead.institution_id)
-      .eq('code', 'dayscholar')
-      .maybeSingle();
-    accommodationTypeId = accRow?.id ?? null;
-  }
+  // so resolve the global 'dayscholar' accommodation_types FK to persist.
+  const { data: accRow } = await (svc as any)
+    .from('accommodation_types')
+    .select('id')
+    .eq('code', 'dayscholar')
+    .maybeSingle();
+  const accommodationTypeId: string | null = accRow?.id ?? null;
 
   // ── 5. Map fields ────────────────────────────────────────────────────────────
   const profileData = {

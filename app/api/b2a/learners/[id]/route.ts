@@ -142,7 +142,7 @@ export async function GET(
         'academic_year_id, regulation_id, batch_id, roll_number, register_number, ' +
         'college_email, student_photo_url, is_profile_complete, ' +
         'admission_year_id, community_category_id, caste_id, ' +
-        'admission_year_obj:admission_years!admission_year_id(program_start_year), ' +
+        'admission_year_obj:admission_years!admission_year_id(year), ' +
         'community_obj:community_categories!community_category_id(code), caste_obj:castes!caste_id(name), accommodation_obj:accommodation_types!accommodation_type_id(name), ' +
         'blood_group, scholarship_type, industry_readiness_score, portfolio_url, ' +
         'created_at, updated_at'
@@ -173,7 +173,7 @@ export async function GET(
     } else {
       // Derive legacy admission_year integer from FK join for back-compat.
       const raw = data as unknown as Record<string, any>;
-      const ayObj = raw.admission_year_obj as { program_start_year?: number } | null;
+      const ayObj = raw.admission_year_obj as { year?: number } | null;
       const communityObj = raw.community_obj as { code?: string } | null;
       const casteObj = raw.caste_obj as { name?: string } | null;
       const accommodationObj = raw.accommodation_obj as { name?: string } | null;
@@ -183,7 +183,7 @@ export async function GET(
       delete raw.accommodation_obj;
       record = {
         ...raw,
-        admission_year: ayObj?.program_start_year ?? null,
+        admission_year: ayObj?.year ?? null,
         community: communityObj?.code ?? null,
         caste: casteObj?.name ?? null,
         accommodation_type: accommodationObj?.name ?? null,

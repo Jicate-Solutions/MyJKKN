@@ -152,6 +152,7 @@ export class FacultyAttendanceService {
           selected_dates,
           section_id,
           semester_id,
+          attendance_mode,
           timetable_data,
           periods,
           sections(id, section_name),
@@ -189,6 +190,12 @@ export class FacultyAttendanceService {
         );
 
         if (!isDateValid) continue;
+
+        // Updated: 2026-06-11 - Day-wise (session_wise) timetables are NOT marked
+        // per-period; their attendance is FN/AN day-wise (shown separately as the
+        // day marker in "My Classes"). Skip them here so they never surface as
+        // period cards for the incharge/faculty.
+        if ((timetable as any).attendance_mode === 'session_wise') continue;
 
         const timetableData = timetable.timetable_data as TimetableDataStructure | null;
         const periodsRaw = timetable.periods as any;

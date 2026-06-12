@@ -8,7 +8,9 @@ import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { DataTableRowActions } from './row-actions';
 
-export const columns: ColumnDef<StaffPlan>[] = [
+export const getColumns = (adaptLabel?: (label: string) => string): ColumnDef<StaffPlan>[] => {
+  const adapt = adaptLabel || ((label) => label);
+  return [
   {
     id: 'select',
     header: ({ table }) => (
@@ -54,7 +56,7 @@ export const columns: ColumnDef<StaffPlan>[] = [
   {
     accessorKey: 'program.program_name',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Program & Semester' />
+      <DataTableColumnHeader column={column} title={`${adapt('Program')} & ${adapt('Semester')}`} />
     ),
     cell: ({ row }) => {
       const staffPlan = row.original;
@@ -95,7 +97,7 @@ export const columns: ColumnDef<StaffPlan>[] = [
         <div className='text-center'>
           <div className='font-medium text-lg'>{courseCount}</div>
           <div className='text-xs text-muted-foreground'>
-            {courseCount === 1 ? 'course' : 'courses'}
+            {courseCount === 1 ? adapt('course') : adapt('courses')}
           </div>
           {duplicateCount > 1 && (
             <div className='text-xs text-orange-600 mt-1'>
@@ -161,4 +163,5 @@ export const columns: ColumnDef<StaffPlan>[] = [
     minSize: 60,
     maxSize: 80
   }
-];
+  ];
+};

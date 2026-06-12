@@ -61,8 +61,7 @@ interface DepartmentRow {
 interface AdmissionYearRow {
   id: string;
   admission_year_name: string;
-  program_start_year: number;
-  program_end_year: number;
+  year: number;
 }
 
 function Req() {

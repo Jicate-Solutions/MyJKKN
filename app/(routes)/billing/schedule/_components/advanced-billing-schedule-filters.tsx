@@ -20,6 +20,10 @@ import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { BillingScheduleSearchParams } from './data-table-schema';
+import {
+  ACCOMMODATION_TYPE_OPTIONS,
+  LIFECYCLE_STATUS_FILTER_OPTIONS
+} from '@/types/billing-schedule';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { DatePickerWithRange } from '@/components/ui/date-range-picker';
@@ -414,11 +418,33 @@ export function AdvancedBillingScheduleFilters({
       });
     }
 
+    if (searchParams.lifecycle_status) {
+      const opt = LIFECYCLE_STATUS_FILTER_OPTIONS.find(
+        (o) => o.value === searchParams.lifecycle_status
+      );
+      filters.push({
+        key: 'lifecycle_status',
+        value: searchParams.lifecycle_status,
+        label: `Learner Status: ${opt?.label || searchParams.lifecycle_status}`
+      });
+    }
+
     if (searchParams.is_recurring) {
       filters.push({
         key: 'is_recurring',
         value: searchParams.is_recurring,
         label: `Type: ${searchParams.is_recurring === 'true' ? 'Recurring' : 'One-time'}`
+      });
+    }
+
+    if (searchParams.accommodation_type) {
+      const opt = ACCOMMODATION_TYPE_OPTIONS.find(
+        (o) => o.value === searchParams.accommodation_type
+      );
+      filters.push({
+        key: 'accommodation_type',
+        value: searchParams.accommodation_type,
+        label: `Accommodation: ${opt?.label || searchParams.accommodation_type}`
       });
     }
 
@@ -537,6 +563,7 @@ export function AdvancedBillingScheduleFilters({
                 </SelectTrigger>
                 <SelectContent className='max-h-60 overflow-y-auto'>
                   <SelectItem value='all'>All Academic Years</SelectItem>
+                  <SelectItem value='unspecified'>Unspecified</SelectItem>
                   {filterState.academicYears.map((year) => (
                     <SelectItem key={year.id} value={year.id}>
                       {year.name}
@@ -683,6 +710,31 @@ export function AdvancedBillingScheduleFilters({
                 </SelectContent>
               </Select>
             </div>
+
+            <div className='space-y-2'>
+              <Label>Accommodation Type</Label>
+              <Select
+                value={searchParams.accommodation_type || 'all'}
+                onValueChange={(value) =>
+                  handleSmartFilterChange(
+                    'accommodation_type',
+                    value === 'all' ? undefined : value
+                  )
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder='Select accommodation type' />
+                </SelectTrigger>
+                <SelectContent className='max-h-60 overflow-y-auto'>
+                  <SelectItem value='all'>All Accommodation</SelectItem>
+                  {ACCOMMODATION_TYPE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* Bill-specific Filters */}
@@ -706,6 +758,28 @@ export function AdvancedBillingScheduleFilters({
                   <SelectItem value='overdue'>Overdue</SelectItem>
                   <SelectItem value='cancelled'>Cancelled</SelectItem>
                   <SelectItem value='refunded'>Refunded</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className='space-y-2'>
+              <Label>Learner Status</Label>
+              <Select
+                value={searchParams.lifecycle_status || 'all'}
+                onValueChange={(value) =>
+                  handleSmartFilterChange('lifecycle_status', value === 'all' ? undefined : value)
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder='Filter by learner status' />
+                </SelectTrigger>
+                <SelectContent className='max-h-60 overflow-y-auto'>
+                  <SelectItem value='all'>All Learner Status</SelectItem>
+                  {LIFECYCLE_STATUS_FILTER_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

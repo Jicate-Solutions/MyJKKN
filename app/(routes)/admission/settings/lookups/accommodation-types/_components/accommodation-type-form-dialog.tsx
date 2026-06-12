@@ -1,7 +1,7 @@
 'use client';
 
 // accommodation-type-form-dialog.tsx
-// Create/Edit dialog for institution-scoped accommodation_types.
+// Create/Edit dialog for the global accommodation_types catalog.
 
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
@@ -60,7 +60,6 @@ interface AccommodationTypeFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   mode: 'create' | 'edit';
-  institutionId: string;
   initialValues: AdmissionFeeAccommodationType | null;
   onSuccess?: () => void;
 }
@@ -69,7 +68,6 @@ export function AccommodationTypeFormDialog({
   open,
   onOpenChange,
   mode,
-  institutionId,
   initialValues,
   onSuccess,
 }: AccommodationTypeFormDialogProps) {
@@ -108,7 +106,7 @@ export function AccommodationTypeFormDialog({
   const handleSubmit = async (values: FormValues) => {
     try {
       if (isEditing && initialValues) {
-        // Code AND institution_id are immutable in edit mode
+        // Code is immutable in edit mode
         await LookupService.updateAccommodationType(initialValues.id, {
           name: values.name,
           sort_order: values.sort_order,
@@ -117,7 +115,6 @@ export function AccommodationTypeFormDialog({
         toast.success(`Updated accommodation type "${values.name}"`);
       } else {
         await LookupService.createAccommodationType({
-          institution_id: institutionId,
           code: values.code,
           name: values.name,
           sort_order: values.sort_order,
@@ -141,8 +138,8 @@ export function AccommodationTypeFormDialog({
           <DialogTitle>{isEditing ? 'Edit Accommodation Type' : 'New Accommodation Type'}</DialogTitle>
           <DialogDescription>
             {isEditing
-              ? 'Update the accommodation type details. The code and institution cannot be changed.'
-              : 'Add a new accommodation type for the selected institution.'}
+              ? 'Update the accommodation type details. The code cannot be changed.'
+              : 'Add a new accommodation type. It is shared by all institutions.'}
           </DialogDescription>
         </DialogHeader>
 

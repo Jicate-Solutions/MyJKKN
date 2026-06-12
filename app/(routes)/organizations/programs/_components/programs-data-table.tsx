@@ -126,10 +126,10 @@ export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success('Programs exported successfully');
+      toast.success(`${adapt('Programs')} exported successfully`);
     } catch (error) {
       console.error('Export error:', error);
-      toast.error('Failed to export programs');
+      toast.error(`Failed to export ${adapt('programs')}`);
     }
   };
 
@@ -145,10 +145,10 @@ export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success('Programs exported successfully');
+      toast.success(`${adapt('Programs')} exported successfully`);
     } catch (error) {
       console.error('Export error:', error);
-      toast.error('Failed to export programs');
+      toast.error(`Failed to export ${adapt('programs')}`);
     }
   };
 
@@ -164,10 +164,10 @@ export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success('Programs exported successfully');
+      toast.success(`${adapt('Programs')} exported successfully`);
     } catch (error) {
       console.error('Export error:', error);
-      toast.error('Failed to export programs');
+      toast.error(`Failed to export ${adapt('programs')}`);
     }
   };
 
@@ -198,7 +198,7 @@ export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
 
       if (successful > 0) {
         toast.success(
-          `Successfully deleted ${successful} program${
+          `Successfully deleted ${successful} ${adapt('program')}${
             successful > 1 ? 's' : ''
           }`
         );
@@ -206,7 +206,7 @@ export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
 
       if (failed > 0) {
         toast.error(
-          `Failed to delete ${failed} program${failed > 1 ? 's' : ''}`
+          `Failed to delete ${failed} ${adapt('program')}${failed > 1 ? 's' : ''}`
         );
       }
 
@@ -223,7 +223,7 @@ export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
       setDeleteResetFn(null);
     } catch (error) {
       console.error('Error deleting programs:', error);
-      toast.error('An error occurred while deleting programs');
+      toast.error(`An error occurred while deleting ${adapt('programs')}`);
     } finally {
       setIsDeleting(false);
     }
@@ -244,7 +244,7 @@ export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
             className='h-8'
           >
             <Plus className='mr-2 h-4 w-4' />
-            Add Program
+            Add {adapt('Program')}
           </Button>
 
           <Button
@@ -338,12 +338,12 @@ export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>
               {selectedForDelete.length > 1
-                ? `Delete ${selectedForDelete.length} Programs`
-                : `Delete Program: ${selectedForDelete[0]?.program_name}`}
+                ? `Delete ${selectedForDelete.length} ${adapt('Programs')}`
+                : `Delete ${adapt('Program')}: ${selectedForDelete[0]?.program_name}`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
-              program{selectedForDelete.length > 1 ? 's' : ''} and all related
+              {adapt('program')}{selectedForDelete.length > 1 ? 's' : ''} and all related
               data.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -352,7 +352,7 @@ export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
           {selectedForDelete.length > 0 && (
             <div className='my-4 p-3 bg-muted rounded-lg'>
               <div className='text-sm font-medium mb-2'>
-                Program{selectedForDelete.length > 1 ? 's' : ''} to be deleted:
+                {adapt('Program')}{selectedForDelete.length > 1 ? 's' : ''} to be deleted:
               </div>
               <div className='space-y-1 max-h-32 overflow-y-auto'>
                 {selectedForDelete.map((program) => (
@@ -379,8 +379,8 @@ export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
               ) : (
                 `Delete ${
                   selectedForDelete.length > 1
-                    ? `${selectedForDelete.length} Programs`
-                    : 'Program'
+                    ? `${selectedForDelete.length} ${adapt('Programs')}`
+                    : adapt('Program')
                 }`
               )}
             </AlertDialogAction>

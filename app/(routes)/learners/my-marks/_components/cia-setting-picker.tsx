@@ -1,9 +1,9 @@
 'use client';
 
 /**
- * CIA Setting picker — a Select that lists the student's CIA Settings
- * for the active (session, program). Auto-selected on first render to
- * the most recently updated active setting; the student can override.
+ * CIA Setting picker — a Select that lists the session's CIA settings (e.g.
+ * "PG Theory CIA" vs "Lab CIA"). Auto-selected to the first; the student can
+ * override. Fed from the aggregate cia-view payload (session.settings[]).
  */
 
 import {
@@ -14,10 +14,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Settings2 } from 'lucide-react';
-import type { MyMarksCiaSetting } from '@/types/my-marks';
+import type { CiaViewSetting } from '@/types/my-marks';
 
 interface Props {
-  settings: MyMarksCiaSetting[];
+  settings: CiaViewSetting[];
   selectedId?: string;
   onChange: (id: string) => void;
 }
@@ -35,15 +35,10 @@ export function CiaSettingPicker({ settings, selectedId, onChange }: Props) {
         </SelectTrigger>
         <SelectContent>
           {settings.map((s) => (
-            <SelectItem key={s.id} value={s.id}>
-              <div className="flex flex-col">
-                <span className="font-medium">{s.setting_name}</span>
-                {s.exam_session_name && (
-                  <span className="text-xs text-muted-foreground">
-                    {s.exam_session_name}
-                  </span>
-                )}
-              </div>
+            <SelectItem key={s.setting_id} value={s.setting_id}>
+              <span className="font-medium">
+                {s.setting_name ?? 'CIA Assessment'}
+              </span>
             </SelectItem>
           ))}
         </SelectContent>

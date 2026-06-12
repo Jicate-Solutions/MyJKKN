@@ -200,7 +200,6 @@ export type Database = {
           created_at: string
           created_by: string | null
           id: string
-          institution_id: string
           is_active: boolean
           name: string
           sort_order: number
@@ -212,7 +211,6 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           id?: string
-          institution_id: string
           is_active?: boolean
           name: string
           sort_order?: number
@@ -224,7 +222,6 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           id?: string
-          institution_id?: string
           is_active?: boolean
           name?: string
           sort_order?: number
@@ -259,41 +256,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "users_profiles"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "accommodation_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "case_graduation_readiness"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "accommodation_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "institutions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "accommodation_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_colleges"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "accommodation_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "semester_hierarchy_health"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "accommodation_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_institutions_needing_admission_counselors"
-            referencedColumns: ["institution_id"]
           },
           {
             foreignKeyName: "accommodation_types_updated_by_fkey"
@@ -4971,6 +4933,8 @@ export type Database = {
       admission_fee_structure_items: {
         Row: {
           amount: number
+          applies_to: string
+          applies_year_of_study: number | null
           billing_category_id: string
           fee_structure_id: string
           id: string
@@ -4979,6 +4943,8 @@ export type Database = {
         }
         Insert: {
           amount: number
+          applies_to?: string
+          applies_year_of_study?: number | null
           billing_category_id: string
           fee_structure_id: string
           id?: string
@@ -4987,6 +4953,8 @@ export type Database = {
         }
         Update: {
           amount?: number
+          applies_to?: string
+          applies_year_of_study?: number | null
           billing_category_id?: string
           fee_structure_id?: string
           id?: string
@@ -8927,113 +8895,6 @@ export type Database = {
           },
         ]
       }
-      admission_year_quota_seats: {
-        Row: {
-          admission_year_id: string
-          created_at: string
-          created_by: string | null
-          id: string
-          notes: string | null
-          quota_id: string
-          sanctioned_intake: number
-          updated_at: string
-          updated_by: string | null
-        }
-        Insert: {
-          admission_year_id: string
-          created_at?: string
-          created_by?: string | null
-          id?: string
-          notes?: string | null
-          quota_id: string
-          sanctioned_intake?: number
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Update: {
-          admission_year_id?: string
-          created_at?: string
-          created_by?: string | null
-          id?: string
-          notes?: string | null
-          quota_id?: string
-          sanctioned_intake?: number
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "admission_year_quota_seats_admission_year_id_fkey"
-            columns: ["admission_year_id"]
-            isOneToOne: false
-            referencedRelation: "admission_years"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "admission_year_quota_seats_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "bug_reporters_leaderboard"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "admission_year_quota_seats_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_hods"
-            referencedColumns: ["hod_user_id"]
-          },
-          {
-            foreignKeyName: "admission_year_quota_seats_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "admission_year_quota_seats_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "users_profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "admission_year_quota_seats_quota_id_fkey"
-            columns: ["quota_id"]
-            isOneToOne: false
-            referencedRelation: "quotas"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "admission_year_quota_seats_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "bug_reporters_leaderboard"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "admission_year_quota_seats_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_hods"
-            referencedColumns: ["hod_user_id"]
-          },
-          {
-            foreignKeyName: "admission_year_quota_seats_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "admission_year_quota_seats_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "users_profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       admission_years: {
         Row: {
           admission_year_name: string
@@ -9042,11 +8903,8 @@ export type Database = {
           id: string
           institution_id: string
           is_active: boolean
-          program_end_year: number
-          program_id: string
-          program_start_year: number
-          sanctioned_intake: number
           updated_at: string
+          year: number
         }
         Insert: {
           admission_year_name: string
@@ -9055,11 +8913,8 @@ export type Database = {
           id?: string
           institution_id: string
           is_active?: boolean
-          program_end_year: number
-          program_id: string
-          program_start_year: number
-          sanctioned_intake?: number
           updated_at?: string
+          year: number
         }
         Update: {
           admission_year_name?: string
@@ -9068,11 +8923,8 @@ export type Database = {
           id?: string
           institution_id?: string
           is_active?: boolean
-          program_end_year?: number
-          program_id?: string
-          program_start_year?: number
-          sanctioned_intake?: number
           updated_at?: string
+          year?: number
         }
         Relationships: [
           {
@@ -9109,20 +8961,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_institutions_needing_admission_counselors"
             referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "admission_years_program_id_fkey"
-            columns: ["program_id"]
-            isOneToOne: false
-            referencedRelation: "case_graduation_readiness"
-            referencedColumns: ["programme_id"]
-          },
-          {
-            foreignKeyName: "admission_years_program_id_fkey"
-            columns: ["program_id"]
-            isOneToOne: false
-            referencedRelation: "programs"
-            referencedColumns: ["id"]
           },
         ]
       }
@@ -12991,17 +12829,22 @@ export type Database = {
       }
       billing_student_bills: {
         Row: {
+          academic_year_id: string | null
+          applies_year_of_study: number | null
           balance_amount: number | null
           bill_description: string | null
           created_at: string | null
           created_by: string | null
           due_date: string
+          fee_source: string
           final_amount: number
+          hostel_year_id: string | null
           id: string
           institution_id: string
           is_recurring: boolean | null
           item_category_id: string | null
           number_of_recurrences: number | null
+          package_id: string | null
           payment_date: string | null
           quantity: number | null
           recurrence_pattern: string | null
@@ -13015,17 +12858,22 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          academic_year_id?: string | null
+          applies_year_of_study?: number | null
           balance_amount?: number | null
           bill_description?: string | null
           created_at?: string | null
           created_by?: string | null
           due_date: string
+          fee_source?: string
           final_amount: number
+          hostel_year_id?: string | null
           id?: string
           institution_id: string
           is_recurring?: boolean | null
           item_category_id?: string | null
           number_of_recurrences?: number | null
+          package_id?: string | null
           payment_date?: string | null
           quantity?: number | null
           recurrence_pattern?: string | null
@@ -13039,17 +12887,22 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          academic_year_id?: string | null
+          applies_year_of_study?: number | null
           balance_amount?: number | null
           bill_description?: string | null
           created_at?: string | null
           created_by?: string | null
           due_date?: string
+          fee_source?: string
           final_amount?: number
+          hostel_year_id?: string | null
           id?: string
           institution_id?: string
           is_recurring?: boolean | null
           item_category_id?: string | null
           number_of_recurrences?: number | null
+          package_id?: string | null
           payment_date?: string | null
           quantity?: number | null
           recurrence_pattern?: string | null
@@ -13180,6 +13033,13 @@ export type Database = {
             columns: ["item_category_id"]
             isOneToOne: false
             referencedRelation: "billing_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_student_bills_academic_year_id_fkey"
+            columns: ["academic_year_id"]
+            isOneToOne: false
+            referencedRelation: "academic_years"
             referencedColumns: ["id"]
           },
         ]
@@ -31741,6 +31601,8 @@ export type Database = {
           sort_order: number
           type: string
           updated_at: string
+          upgrade_hold_days: number
+          upgrade_threshold_pct: number | null
         }
         Insert: {
           allocation_mode?: string
@@ -31752,6 +31614,8 @@ export type Database = {
           sort_order?: number
           type: string
           updated_at?: string
+          upgrade_hold_days?: number
+          upgrade_threshold_pct?: number | null
         }
         Update: {
           allocation_mode?: string
@@ -31763,6 +31627,53 @@ export type Database = {
           sort_order?: number
           type?: string
           updated_at?: string
+          upgrade_hold_days?: number
+          upgrade_threshold_pct?: number | null
+        }
+        Relationships: []
+      }
+      hostel_category_upgrade_fees: {
+        Row: {
+          amount: number
+          created_at: string
+          created_by: string | null
+          from_hostel_category_id: string | null
+          from_mess_category_id: string | null
+          hostel_year_id: string
+          id: string
+          is_active: boolean
+          to_hostel_category_id: string | null
+          to_mess_category_id: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          created_by?: string | null
+          from_hostel_category_id?: string | null
+          from_mess_category_id?: string | null
+          hostel_year_id: string
+          id?: string
+          is_active?: boolean
+          to_hostel_category_id?: string | null
+          to_mess_category_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          created_by?: string | null
+          from_hostel_category_id?: string | null
+          from_mess_category_id?: string | null
+          hostel_year_id?: string
+          id?: string
+          is_active?: boolean
+          to_hostel_category_id?: string | null
+          to_mess_category_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
         }
         Relationships: []
       }
@@ -38130,6 +38041,10 @@ export type Database = {
           academic_year_id: string
           allocated_allocation_id: string | null
           created_at: string | null
+          entry_kind: string
+          held_bed_id: string | null
+          held_room_id: string | null
+          hold_expires_at: string | null
           id: string
           institution_id: string
           learner_id: string
@@ -38145,12 +38060,17 @@ export type Database = {
             | null
           priority_score: number | null
           status: Database["public"]["Enums"]["waitlist_status_enum"]
+          target_hostel_category_id: string | null
           updated_at: string | null
         }
         Insert: {
           academic_year_id: string
           allocated_allocation_id?: string | null
           created_at?: string | null
+          entry_kind?: string
+          held_bed_id?: string | null
+          held_room_id?: string | null
+          hold_expires_at?: string | null
           id?: string
           institution_id: string
           learner_id: string
@@ -38166,12 +38086,17 @@ export type Database = {
             | null
           priority_score?: number | null
           status?: Database["public"]["Enums"]["waitlist_status_enum"]
+          target_hostel_category_id?: string | null
           updated_at?: string | null
         }
         Update: {
           academic_year_id?: string
           allocated_allocation_id?: string | null
           created_at?: string | null
+          entry_kind?: string
+          held_bed_id?: string | null
+          held_room_id?: string | null
+          hold_expires_at?: string | null
           id?: string
           institution_id?: string
           learner_id?: string
@@ -38187,6 +38112,7 @@ export type Database = {
             | null
           priority_score?: number | null
           status?: Database["public"]["Enums"]["waitlist_status_enum"]
+          target_hostel_category_id?: string | null
           updated_at?: string | null
         }
         Relationships: [
@@ -69650,6 +69576,7 @@ export type Database = {
           institution_id: string | null
           is_break: boolean | null
           period_name: string
+          session: string | null
           start_time: string
           updated_at: string | null
         }
@@ -69660,6 +69587,7 @@ export type Database = {
           institution_id?: string | null
           is_break?: boolean | null
           period_name: string
+          session?: string | null
           start_time: string
           updated_at?: string | null
         }
@@ -69670,6 +69598,7 @@ export type Database = {
           institution_id?: string | null
           is_break?: boolean | null
           period_name?: string
+          session?: string | null
           start_time?: string
           updated_at?: string | null
         }
@@ -92596,6 +92525,8 @@ export type Database = {
           migrated_from_old_structure: boolean | null
           migration_timestamp: string | null
           num_cycles: number | null
+          attendance_mode: string
+          class_incharge_id: string | null
           periods: Json
           program_id: string | null
           section_id: string | null
@@ -92630,6 +92561,8 @@ export type Database = {
           migrated_from_old_structure?: boolean | null
           migration_timestamp?: string | null
           num_cycles?: number | null
+          attendance_mode?: string
+          class_incharge_id?: string | null
           periods?: Json
           program_id?: string | null
           section_id?: string | null
@@ -92664,6 +92597,8 @@ export type Database = {
           migrated_from_old_structure?: boolean | null
           migration_timestamp?: string | null
           num_cycles?: number | null
+          attendance_mode?: string
+          class_incharge_id?: string | null
           periods?: Json
           program_id?: string | null
           section_id?: string | null
@@ -101179,6 +101114,14 @@ export type Database = {
         Returns: boolean
       }
       can_user_manage_staff: { Args: never; Returns: boolean }
+      campus_living_generate_hostel_year_bills: {
+        Args: { p_hostel_year_id: string; p_learner_ids: string[]; p_dry_run?: boolean }
+        Returns: Json
+      }
+      campus_living_resolve_hostel_fee: {
+        Args: { p_learner_id: string; p_hostel_year_id: string }
+        Returns: Json
+      }
       capture_admission_lead: {
         Args: { p_capture: Json; p_lead: Json }
         Returns: Json

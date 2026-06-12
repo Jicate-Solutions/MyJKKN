@@ -15,6 +15,9 @@ export const billingScheduleSearchParamsSchema = z.object({
   student_id: z.string().optional(),
   item_category_id: z.string().optional(),
   status: z.enum(['paid', 'unpaid', 'partially_paid', 'cancelled', 'overdue', 'refunded']).optional(),
+  // Learner lifecycle status (learners_profiles.lifecycle_status). Free-form
+  // string — the service eq()'s it against the embedded learner.
+  lifecycle_status: z.string().optional(),
   is_recurring: z.enum(['true', 'false']).optional(),
   amount_from: z.coerce.number().optional(),
   amount_to: z.coerce.number().optional(),
@@ -26,6 +29,9 @@ export const billingScheduleSearchParamsSchema = z.object({
   program_id: z.string().optional(),
   semester_id: z.string().optional(),
   section_id: z.string().optional(),
+
+  // Accommodation-type filter (accommodation_types.code)
+  accommodation_type: z.string().optional(),
 
   // Date range filter for due_date
   dueDateRange: z

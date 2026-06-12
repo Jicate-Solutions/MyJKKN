@@ -1,11 +1,50 @@
 export const dynamic = 'force-dynamic';
 // app/api/admission/fees-structure/import/route.ts
+//
+// Two-phase bulk endpoint shared by the Bulk Import / Export-for-Edit flow:
+//   mode=validate (dry-run) — resolve + validate every row, return a per-row
+//     preview, write NOTHING. Drives the dialog's Preview step.
+//   mode=apply               — re-resolve every row; if ANY row has a
+//     spreadsheet-level error the whole batch is REJECTED (422) and nothing is
+//     written ("block until all clear"). Only when all rows are clean do we
+//     commit; RPC-level failures (e.g. duplicate dimension combos) are still
+//     reported per-row.
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import * as XLSX from 'xlsx';
-import { FEE_STRUCTURE_SHEET_NAME, resolveRow } from '@/lib/utils/mappings/fee-structure-excel-mappings';
+import {
+  FEE_STRUCTURE_SHEET_NAME,
+  resolveRow,
+  type RowResolution,
+} from '@/lib/utils/mappings/fee-structure-excel-mappings';
 import { loadBulkResolveLookups } from '@/lib/services/admission/fee-structure-bulk-lookups';
+
+type PreviewAction = 'create' | 'update' | 'error';
+
+interface PreviewRow {
+  row: number;
+  name: string;
+  action: PreviewAction;
+  errors: string[];
+}
+
+function buildPreview(resolutions: RowResolution[]) {
+  const rows: PreviewRow[] = resolutions.map((r) => ({
+    row: r.rowNumber,
+    name: r.name,
+    action: r.errors.length > 0 ? 'error' : r.payload!.structure_id ? 'update' : 'create',
+    errors: r.errors,
+  }));
+  const errorRows = rows.filter((r) => r.action === 'error').length;
+  const toCreate = rows.filter((r) => r.action === 'create').length;
+  const toUpdate = rows.filter((r) => r.action === 'update').length;
+  return {
+    summary: { total: rows.length, toCreate, toUpdate, errorRows, valid: rows.length - errorRows },
+    rows,
+    canApply: rows.length > 0 && errorRows === 0,
+  };
+}
 
 export async function POST(req: NextRequest) {
   await connection();
@@ -21,31 +60,58 @@ export async function POST(req: NextRequest) {
     const form = await req.formData();
     const file = form.get('file') as File | null;
     if (!file) return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
+    const mode = String(form.get('mode') ?? 'apply') === 'validate' ? 'validate' : 'apply';
 
-    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    // cellDates:true → Excel date cells arrive as JS Date objects instead of
+    // numeric serials. Without it, any date the user (or Excel) saved as a real
+    // date came through as e.g. 46184 and every row failed the date check.
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
     // Pick the data sheet BY NAME (not SheetNames[0] — Instructions may be first).
     const ws = wb.Sheets[FEE_STRUCTURE_SHEET_NAME];
     if (!ws) return NextResponse.json({ error: `Sheet "${FEE_STRUCTURE_SHEET_NAME}" not found` }, { status: 400 });
-    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
+    const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
 
     const lookups = await loadBulkResolveLookups(supabase);
 
+    // Resolve every non-blank row up front (no DB writes yet).
+    const resolutions: RowResolution[] = [];
+    for (let i = 0; i < rawRows.length; i++) {
+      const raw = rawRows[i];
+      if (Object.values(raw).every((v) => String(v ?? '').trim() === '')) continue; // skip blank rows
+      resolutions.push(resolveRow(raw, i + 2, lookups)); // header = row 1
+    }
+
+    if (resolutions.length === 0) {
+      return NextResponse.json({ error: 'No data rows found in the sheet' }, { status: 400 });
+    }
+
+    const preview = buildPreview(resolutions);
+
+    // ---- Validate (dry-run): return the preview, write nothing. ----
+    if (mode === 'validate') {
+      return NextResponse.json({ mode: 'validate', ...preview });
+    }
+
+    // ---- Apply: block-until-all-clear. Refuse the whole batch on any error. ----
+    if (!preview.canApply) {
+      return NextResponse.json(
+        {
+          mode: 'apply-blocked',
+          error: `${preview.summary.errorRows} row(s) still have errors. Fix them and re-upload — nothing was changed.`,
+          ...preview,
+        },
+        { status: 422 },
+      );
+    }
+
     let created = 0, updated = 0;
     const failed: Array<{ row: number; name: string; error: string }> = [];
-
-    for (let i = 0; i < rows.length; i++) {
-      const excelRow = i + 2; // header = row 1
-      const raw = rows[i];
-      // Skip fully-blank rows.
-      if (Object.values(raw).every((v) => String(v ?? '').trim() === '')) continue;
-      const res = resolveRow(raw, excelRow, lookups);
-      if (res.errors.length > 0) { failed.push({ row: excelRow, name: res.name, error: res.errors.join('; ') }); continue; }
-
+    for (const res of resolutions) {
       const isUpdate = !!res.payload!.structure_id;
       const { data, error } = await supabase.rpc('admission_bulk_upsert_fee_structure', { p_payload: res.payload });
-      if (error) { failed.push({ row: excelRow, name: res.name, error: error.message }); continue; }
+      if (error) { failed.push({ row: res.rowNumber, name: res.name, error: error.message }); continue; }
       const result = data as { ok: boolean; error?: string };
-      if (!result?.ok) { failed.push({ row: excelRow, name: res.name, error: humanize(result?.error ?? 'Unknown error') }); continue; }
+      if (!result?.ok) { failed.push({ row: res.rowNumber, name: res.name, error: humanize(result?.error ?? 'Unknown error') }); continue; }
       if (isUpdate) updated++; else created++;
     }
 

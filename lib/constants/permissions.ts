@@ -182,6 +182,18 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    // Added 2026-06-12 — Family Moments engine (Father's Day 2026 rollout,
+    // NV CBSE + Matric HSS). Campaign-based parent engagement: teachers
+    // collect child messages, parents receive tokenized public gift cards.
+    name: 'Family Moments',
+    key: 'moments',
+    permissions: [
+      { key: 'moments.submissions.create', label: 'Submit Child Messages (Teachers)' },
+      { key: 'moments.campaigns.view', label: 'View Campaign Dashboards' },
+      { key: 'moments.campaigns.manage', label: 'Create & Manage Campaigns' }
+    ]
+  },
+  {
     name: 'Organizations',
     key: 'organizations',
     permissions: [
@@ -1507,7 +1519,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'pde.profile.view', label: 'View Learner Profile' },
       { key: 'pde.leaderboard.view', label: 'View Leaderboard' },
       // Added 2026-04-27 — menu-coverage baseline cleanup. Admin + Faculty
-      // PDE surfaces (under /admin/pde/* and /faculty/pde/*) had no
+      // PDE surfaces (under /pde/admin/* and /pde/faculty/*) had no
       // MENU_PERMISSIONS entries and were hidden for every non-super-admin.
       // PDE Admin (Super Admin / IQAC / Lifecycle leads)
       { key: 'pde.admin.view', label: 'View PDE Admin Dashboard' },
@@ -1625,6 +1637,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'academic.bos-ta-da.edit', label: 'Edit BoS TA/DA Claims' },
       { key: 'academic.bos-ta-da.delete', label: 'Delete BoS TA/DA Claims' },
       { key: 'academic.bos-ta-da.approve', label: 'Approve BoS TA/DA Claims' },
+      // Added 2026-06-10 — granted to faculty/school_faculty by DEFAULT_ROLE_PERMISSIONS
+      // but missing here; uncataloged keys get mangled to underscore format by the
+      // edit-role-dialog round-trip and rejected by trg_validate_custom_roles_permissions_format.
+      { key: 'academic.bos-ta-da.submit', label: 'Submit BoS TA/DA Claims' },
       { key: 'academic.bos-members.view', label: 'View BoS Members' },
       { key: 'academic.bos-members.create', label: 'Create BoS Members' },
       { key: 'academic.bos-members.edit', label: 'Edit BoS Members' },
@@ -1649,6 +1665,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'academic.bos-syllabus.delete', label: 'Delete BoS Syllabi' },
       { key: 'academic.bos-syllabus.approve', label: 'Approve BoS Syllabi' },
       { key: 'academic.bos-syllabus.export', label: 'Export BoS Syllabi' },
+      // Added 2026-06-10 — granted to hod via migrations but missing here (same
+      // mangling risk as academic.bos-ta-da.submit above).
+      { key: 'academic.bos-syllabus.revise', label: 'Revise BoS Syllabi' },
+      { key: 'academic.bos-syllabus.duplicate', label: 'Duplicate BoS Syllabi' },
       // Added 2026-05-08 — SOP (Standard Operating Procedure) document editor.
       // 'approve' is a separate gate so a chair/dean can approve without owning
       // edit rights, matching the meetings module's split (view/edit/approve).
@@ -2045,6 +2065,39 @@ export const PERMISSION_CATEGORIES = [
       // Certificates (completion certificates issued at end of internship)
       { key: 'internship.certificates.view', label: 'View Internship Certificates' },
       { key: 'internship.certificates.generate', label: 'Generate Internship Certificate' }
+    ]
+  },
+  {
+    // Social Media module (/admission/social/* + /admission/inbox/* surfaces).
+    // Added 2026-06-11 — retrofit from SuperAdminOnly to granular keys.
+    // Top-level `social.*` namespace ON PURPOSE (not `admission.social.*`):
+    // PermissionGuard gives counselor / admission-global users a blanket
+    // bypass for `admission.*` module keys, which would silently open
+    // Dept Accounts (API keys), Meta Pixel and Audiences to every counselor.
+    // RLS policies and API routes gate on these same keys.
+    name: 'Social Media',
+    key: 'social',
+    permissions: [
+      { key: 'social.view', label: 'View Social Hub Overview' },
+      { key: 'social.insights.view', label: 'View Social Insights' },
+      { key: 'social.instagram.view', label: 'View Instagram Analytics' },
+      { key: 'social.instagram.manage', label: 'Manage Instagram Accounts (connect / discover / sync)' },
+      { key: 'social.facebook.view', label: 'View Facebook Analytics' },
+      { key: 'social.facebook.manage', label: 'Manage Facebook Pages (discover / sync)' },
+      { key: 'social.lead_ads.view', label: 'View Lead Ads' },
+      { key: 'social.lead_ads.manage', label: 'Manage Lead Ads (sync forms / field mappings / test)' },
+      { key: 'social.ads.view', label: 'View Ads Insights' },
+      { key: 'social.ads.manage', label: 'Manage Ad Accounts (discover / sync)' },
+      { key: 'social.departments.view', label: 'View Department Social Accounts' },
+      { key: 'social.departments.manage', label: 'Manage Department Social Accounts' },
+      { key: 'social.attribution.view', label: 'View Attribution Reports' },
+      { key: 'social.attribution.edit', label: 'Edit Attribution Window Policy' },
+      { key: 'social.meta_pixel.view', label: 'View Meta Pixel Events' },
+      { key: 'social.meta_pixel.manage', label: 'Manage Meta Pixel Configuration' },
+      { key: 'social.meta_audiences.view', label: 'View Meta Audiences' },
+      { key: 'social.meta_audiences.manage', label: 'Manage Meta Audiences' },
+      { key: 'social.messenger.view', label: 'View Messenger / Instagram Inbox' },
+      { key: 'social.messenger.send', label: 'Send Messenger / Instagram Replies' }
     ]
   }
 ];

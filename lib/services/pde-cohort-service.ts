@@ -9,9 +9,9 @@
 // 20260518_pde_demonstrations_table.sql) into two consumer-friendly shapes:
 //
 //   1. CohortHeatmapData — institution × category matrix for admin overview
-//      at /admin/pde/cohort.
+//      at /pde/admin/cohort.
 //   2. LearnerPeerData   — single learner's score per category vs cohort avg
-//      (with percentile) for the learner peer-relative view at /learn/pde/cohort.
+//      (with percentile) for the learner peer-relative view at /pde/learn/cohort.
 //
 // Policy enforcement
 // ------------------

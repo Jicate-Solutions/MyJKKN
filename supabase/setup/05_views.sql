@@ -932,77 +932,96 @@ WHERE (leave_types.scope)::text = 'staff'::text;
 -- LEFT JOINs only — no hostelite row may be dropped by a null FK or missing
 -- active allocation.
 --
+-- Recreated 2026-06-05 (migration 20260605150020_admission_year_schema_ddl.sql):
+-- admission_years lost program_id / program_end_year and renamed
+-- program_start_year → year. The OUTPUT columns program_start_year and
+-- program_end_year are UNCHANGED for consumers — they are now DERIVED:
+-- program_start_year = ay.year, program_end_year = ay.year + pr.program_duration_yrs.
+--
 -- The applied migration uses DROP VIEW + CREATE VIEW (the new cascade FK columns
 -- are inserted before existing columns, and Postgres forbids reordering an
 -- existing view's columns via CREATE OR REPLACE — 42P16). This reference mirror
 -- preserves that form. The default anon/authenticated/service_role SELECT grants
 -- are re-applied below to match Supabase's defaults.
+--
+-- Lifecycle filter (migrations 20260608130000 -> 20260608150000, revised
+-- 2026-06-08): residents = hostel AND lifecycle_status = 'active' ONLY. All
+-- non-active statuses (reserved/admitted/account/enquiry_submitted/graduated/
+-- inactive/rejected) are excluded from the Residents list AND the Generate-bills
+-- surface. lifecycle_status column exposed by migration 20260608140000.
+--
+-- academic_year_name appended 2026-06-09 (migration
+-- 20260609120000_add_academic_year_name_to_v_learner_hostelites.sql) as the LAST
+-- column for the Learners table's Academic Year display column — LEFT JOIN to
+-- academic_years (alias 'acy'; 'ay' is admission_years). Mirror kept as
+-- DROP+CREATE; the live migration uses CREATE OR REPLACE since the new column is
+-- appended at the end.
 DROP VIEW IF EXISTS public.v_learner_hostelites;
 
-CREATE VIEW public.v_learner_hostelites AS
-SELECT
-  lp.id,
-  lp.first_name,
-  lp.last_name,
-  lp.roll_number,
-  lp.student_email,
-  lp.college_email,
-  lp.gender,
-  lp.institution_id,
-  lp.accommodation_type,
-  lp.hostel_fee,
-  lp.dayscholar_fee,
-  lp.father_name,
-  lp.mother_name,
-  lp.admission_year_id,
-  -- NEW: cascade FKs for filter pushdown
-  lp.degree_id,
-  lp.department_id,
-  lp.program_id,
-  lp.semester_id,
-  lp.section_id,
-  lp.academic_year_id,
-  -- NEW: display name
-  pr.program_name,
-  ay.program_start_year,
-  ay.program_end_year,
-  CASE
-    WHEN lp.admission_year_id IS NOT NULL AND ay.program_start_year IS NOT NULL
-      THEN GREATEST(1, LEAST(EXTRACT(year FROM CURRENT_DATE)::integer - ay.program_start_year + 1, ay.program_end_year - ay.program_start_year + 1))
-    WHEN lp.batch_id IS NOT NULL AND b.start_date IS NOT NULL
-      THEN GREATEST(1, LEAST(EXTRACT(year FROM CURRENT_DATE)::integer - EXTRACT(year FROM b.start_date)::integer + 1, EXTRACT(year FROM b.end_date)::integer - EXTRACT(year FROM b.start_date)::integer + 1))
-    WHEN lp.enquiry_date IS NOT NULL
-      THEN GREATEST(1, EXTRACT(year FROM CURRENT_DATE)::integer - EXTRACT(year FROM lp.enquiry_date)::integer + 1)
-    ELSE NULL::integer
-  END AS year_of_study,
-  ha.block_id AS current_block_id,
-  ha.room_id AS current_room_id,
-  ha.bed_id AS current_bed_id,
-  ha.id AS current_allocation_id,
-  -- NEW: display names for the current active allocation's block
-  hb.name AS current_block_name,
-  hb.code AS current_block_code,
-  CASE
-    WHEN lp.admission_year_id IS NOT NULL AND ay.program_start_year IS NOT NULL THEN 'admission_year'::text
-    WHEN lp.batch_id IS NOT NULL AND b.start_date IS NOT NULL THEN 'batch'::text
-    WHEN lp.enquiry_date IS NOT NULL THEN 'enquiry'::text
-    ELSE NULL::text
-  END AS year_source,
-  -- NEW (2026-05-29): display names for the Degree + Semester columns
-  dg.degree_name,
-  sm.semester_name
-FROM learners_profiles lp
-  LEFT JOIN admission_years ay ON ay.id = lp.admission_year_id
-  LEFT JOIN batches b ON b.id = lp.batch_id
-  LEFT JOIN programs pr ON pr.id = lp.program_id
-  LEFT JOIN hostel_allocations ha ON ha.learner_id = lp.id
-    AND ha.status = 'active'::allocation_status_enum
-  LEFT JOIN hostel_blocks hb ON hb.id = ha.block_id
-  LEFT JOIN degrees dg ON dg.id = lp.degree_id
-  LEFT JOIN semesters sm ON sm.id = lp.semester_id
-WHERE lp.accommodation_type = 'HOSTEL'::text;
+CREATE VIEW v_learner_hostelites AS
+ SELECT lp.id,
+    lp.first_name,
+    lp.last_name,
+    lp.roll_number,
+    lp.student_email,
+    lp.college_email,
+    lp.gender,
+    lp.institution_id,
+    acc.code AS accommodation_type,
+    lp.hostel_fee,
+    lp.dayscholar_fee,
+    lp.father_name,
+    lp.mother_name,
+    lp.admission_year_id,
+    lp.degree_id,
+    lp.department_id,
+    lp.program_id,
+    lp.semester_id,
+    lp.section_id,
+    lp.academic_year_id,
+    pr.program_name,
+    ay.year AS program_start_year,
+    (ay.year + pr.program_duration_yrs)::integer AS program_end_year,
+        CASE
+            WHEN lp.admission_year_id IS NOT NULL AND ay.year IS NOT NULL THEN GREATEST(1, LEAST(EXTRACT(year FROM CURRENT_DATE)::integer - ay.year + 1, pr.program_duration_yrs::integer + 1))
+            WHEN lp.batch_id IS NOT NULL AND b.start_date IS NOT NULL THEN GREATEST(1, LEAST(EXTRACT(year FROM CURRENT_DATE)::integer - EXTRACT(year FROM b.start_date)::integer + 1, EXTRACT(year FROM b.end_date)::integer - EXTRACT(year FROM b.start_date)::integer + 1))
+            WHEN lp.enquiry_date IS NOT NULL THEN GREATEST(1, EXTRACT(year FROM CURRENT_DATE)::integer - EXTRACT(year FROM lp.enquiry_date)::integer + 1)
+            ELSE NULL::integer
+        END AS year_of_study,
+    ha.block_id AS current_block_id,
+    ha.room_id AS current_room_id,
+    ha.bed_id AS current_bed_id,
+    ha.id AS current_allocation_id,
+    hb.name AS current_block_name,
+    hb.code AS current_block_code,
+        CASE
+            WHEN lp.admission_year_id IS NOT NULL AND ay.year IS NOT NULL THEN 'admission_year'::text
+            WHEN lp.batch_id IS NOT NULL AND b.start_date IS NOT NULL THEN 'batch'::text
+            WHEN lp.enquiry_date IS NOT NULL THEN 'enquiry'::text
+            ELSE NULL::text
+        END AS year_source,
+    dg.degree_name,
+    sm.semester_name,
+    lp.lifecycle_status,
+    acy.academic_year_name
+   FROM learners_profiles lp
+     LEFT JOIN accommodation_types acc ON acc.id = lp.accommodation_type_id
+     LEFT JOIN admission_years ay ON ay.id = lp.admission_year_id
+     LEFT JOIN batches b ON b.id = lp.batch_id
+     LEFT JOIN programs pr ON pr.id = lp.program_id
+     -- Bridge: hostel_allocations.learner_id is an FK to profiles.id, NOT
+     -- learners_profiles.id. profiles.learner_id = learners_profiles.id is 1:1.
+     -- (migration 20260609140000_fix_v_learner_hostelites_alloc_profiles_bridge.sql)
+     LEFT JOIN profiles palloc ON palloc.learner_id = lp.id
+     LEFT JOIN hostel_allocations ha ON ha.learner_id = palloc.id AND ha.status = 'active'::allocation_status_enum
+     LEFT JOIN hostel_blocks hb ON hb.id = ha.block_id
+     LEFT JOIN degrees dg ON dg.id = lp.degree_id
+     LEFT JOIN semesters sm ON sm.id = lp.semester_id
+     LEFT JOIN academic_years acy ON acy.id = lp.academic_year_id
+  WHERE acc.code = 'hostel'::text
+    AND lp.lifecycle_status::text = 'active';
 
-GRANT SELECT ON public.v_learner_hostelites TO anon, authenticated, service_role;
+GRANT ALL ON v_learner_hostelites TO anon, authenticated, service_role;
 
 -- =============================================================================
 -- IMS Department Stock — added 2026-04-28

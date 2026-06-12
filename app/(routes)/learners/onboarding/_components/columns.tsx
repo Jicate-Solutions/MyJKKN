@@ -175,7 +175,7 @@ export const onboardingColumns: ColumnDef<OnboardingProfileRow>[] = [
   {
     id: 'admission_year',
     accessorFn: (row) =>
-      (row as any).admission_year_obj?.program_start_year ?? (row as any).admission_year ?? null,
+      (row as any).admission_year_obj?.year ?? (row as any).admission_year ?? null,
     header: ({ column }) => <DataTableColumnHeader column={column} title="Admission Year" />,
     cell: ({ row }) => (
       <div className="text-sm">{formatAdmissionYear(row.original as any) || '—'}</div>

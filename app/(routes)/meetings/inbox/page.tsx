@@ -68,12 +68,14 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
     | 'all';
   const filter = STATUS_FILTERS.find((f) => f.key === filterKey)!;
 
-  const supabase = await createClient();
+  // Phase N2: bookings now live in the NATIVE meeting_bookings table (the
+  // in-house engine, migration 20260611190000) — not the Cal.com webhook
+  // mirror. RLS (mb_host_select) scopes rows to host_profile_id = auth.uid().
+  // The table isn't in generated types yet → untyped client (TS2589 class).
+  const supabase = (await createClient()) as unknown as import('@supabase/supabase-js').SupabaseClient;
 
-  // Use select('*') so Supabase returns the fully typed Row.
-  // Long select strings degrade to GenericStringError on the typed client.
   let query = supabase
-    .from('jicate_booking_mirror')
+    .from('meeting_bookings')
     .select('*')
     .order('start_time', { ascending: filterKey === 'upcoming' });
 
@@ -95,7 +97,7 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
       <div className="space-y-4 mt-4">
         <PageHeader
           title="My Meetings"
-          description="Bookings hosted by you on jicate-booking. Source of truth lives on Cal.com — actions open the booking page there."
+          description="Bookings hosted by you — managed entirely inside MyJKKN."
         />
 
       <div className="flex flex-wrap gap-2">
@@ -135,7 +137,7 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
           {rows.map((row) => (
             <Link
               key={row.id}
-              href={`/meetings/${row.cal_booking_uid}`}
+              href={`/meetings/${row.uid}`}
               className="block focus:outline-none"
             >
               <Card className="transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring">
@@ -152,7 +154,7 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
                     <div className="flex items-center gap-3 text-xs text-muted-foreground">
                       <span className="inline-flex items-center gap-1">
                         <Calendar className="h-3 w-3" aria-hidden />
-                        {formatBookingTime(row.start_time, row.timezone)}
+                        {formatBookingTime(row.start_time)}
                       </span>
                       <span className="inline-flex items-center gap-1">
                         <User className="h-3 w-3" aria-hidden />

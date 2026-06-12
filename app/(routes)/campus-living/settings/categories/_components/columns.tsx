@@ -5,7 +5,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import type { HostelCategory } from '@/types/hostel-categories';
 import { HOSTEL_CATEGORY_TYPE_LABELS, ALLOCATION_MODE_LABELS } from '@/types/hostel-categories';
-import { HostelCategoryRowActions } from './row-actions';
+import { HostelCategoryRowActions, HostelCategoryNameCell } from './row-actions';
 
 const TYPE_VARIANT: Record<string, 'default' | 'secondary' | 'outline'> = {
   boys: 'default',
@@ -44,18 +44,7 @@ export const createColumns = (): ColumnDef<HostelCategory>[] => [
   {
     accessorKey: 'name',
     header: 'Category Name',
-    cell: ({ row }) => (
-      <span className='font-medium'>{row.original.name}</span>
-    ),
-  },
-  {
-    accessorKey: 'description',
-    header: 'Description',
-    cell: ({ row }) => (
-      <span className='text-muted-foreground text-sm line-clamp-1'>
-        {row.original.description || '—'}
-      </span>
-    ),
+    cell: ({ row }) => <HostelCategoryNameCell category={row.original} />,
   },
   {
     accessorKey: 'type',
@@ -73,6 +62,28 @@ export const createColumns = (): ColumnDef<HostelCategory>[] => [
       <Badge variant={row.original.allocation_mode === 'auto' ? 'default' : 'outline'}>
         {ALLOCATION_MODE_LABELS[row.original.allocation_mode] ?? row.original.allocation_mode}
       </Badge>
+    ),
+  },
+  {
+    accessorKey: 'upgrade_threshold_pct',
+    header: 'Upgrade Threshold',
+    cell: ({ row }) => (
+      <span className='text-sm'>
+        {row.original.upgrade_threshold_pct != null
+          ? `${row.original.upgrade_threshold_pct}%`
+          : '—'}
+      </span>
+    ),
+  },
+  {
+    accessorKey: 'upgrade_hold_days',
+    header: 'Waitlist Days',
+    cell: ({ row }) => (
+      <span className='text-sm'>
+        {row.original.upgrade_hold_days != null
+          ? `${row.original.upgrade_hold_days} ${row.original.upgrade_hold_days === 1 ? 'day' : 'days'}`
+          : '—'}
+      </span>
     ),
   },
   {

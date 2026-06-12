@@ -28,9 +28,15 @@ import { useSections } from '@/hooks/organization/use-sections';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import type { AttendanceSearchContext } from '@/types/attendance';
+import type { EntityType } from '@/types/organizations';
 import { cn } from '@/lib/utils';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+
+// Institution dropdown must list both colleges and schools (not admin_office/company).
+// Module-level constant → stable reference, so it doesn't re-trigger the hook's fetch each render.
+const INSTITUTION_ENTITY_TYPES: EntityType[] = ['institution', 'school'];
 
 interface AttendanceFiltersProps {
   searchContext: AttendanceSearchContext;
@@ -48,6 +54,7 @@ export function AttendanceFilters({
 }: AttendanceFiltersProps) {
   const { isSuperAdmin } = usePermissions();
   const { profile } = useAuth();
+  const label = useAdaptiveLabels();
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [isClient, setIsClient] = useState(false);
   // Updated: 2025-10-09 - Track timetable type to conditionally require section field
@@ -61,7 +68,7 @@ export function AttendanceFilters({
 
   // Fetch data hooks
   const { institutions, refetch: fetchInstitutions } =
-    useInstitutionsWithAccess({});
+    useInstitutionsWithAccess({ entityType: INSTITUTION_ENTITY_TYPES });
 
   const { academicYears } = useAcademicYearsByInstitution(
     searchContext.institution_id || undefined
@@ -375,7 +382,7 @@ export function AttendanceFilters({
 
             {/* Degree */}
             <div className='space-y-2'>
-              <Label htmlFor='degree'>Degree</Label>
+              <Label htmlFor='degree'>{label('Degree')}</Label>
               <Select
                 value={searchContext.degree_id || undefined}
                 onValueChange={(value) => {
@@ -390,7 +397,7 @@ export function AttendanceFilters({
                 disabled={!searchContext.institution_id}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder='Select degree' />
+                  <SelectValue placeholder={`Select ${label('degree')}`} />
                 </SelectTrigger>
                 <SelectContent>
                   {degrees.map(
@@ -409,7 +416,7 @@ export function AttendanceFilters({
 
             {/* Department */}
             <div className='space-y-2'>
-              <Label htmlFor='department'>Department</Label>
+              <Label htmlFor='department'>{label('Department')}</Label>
               <Select
                 value={searchContext.department_id || undefined}
                 onValueChange={(value) => {
@@ -426,8 +433,8 @@ export function AttendanceFilters({
                   <SelectValue
                     placeholder={
                       isHodDepartmentInCurrentDegree
-                        ? 'Your department (auto-selected)'
-                        : 'Select department'
+                        ? `Your ${label('department')} (auto-selected)`
+                        : `Select ${label('department')}`
                     }
                   />
                 </SelectTrigger>
@@ -458,7 +465,7 @@ export function AttendanceFilters({
 
             {/* Program */}
             <div className='space-y-2'>
-              <Label htmlFor='program'>Program</Label>
+              <Label htmlFor='program'>{label('Program')}</Label>
               <Select
                 value={searchContext.program_id || undefined}
                 onValueChange={(value) => {
@@ -471,7 +478,7 @@ export function AttendanceFilters({
                 disabled={!searchContext.department_id}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder='Select program' />
+                  <SelectValue placeholder={`Select ${label('program')}`} />
                 </SelectTrigger>
                 <SelectContent>
                   {/* Remove duplicates by program name for super admin */}
@@ -500,7 +507,7 @@ export function AttendanceFilters({
 
             {/* Semester */}
             <div className='space-y-2'>
-              <Label htmlFor='semester'>Semester</Label>
+              <Label htmlFor='semester'>{label('Semester')}</Label>
               <Select
                 value={searchContext.semester_id || undefined}
                 onValueChange={(value) => {
@@ -512,7 +519,7 @@ export function AttendanceFilters({
                 disabled={!searchContext.department_id}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder='Select semester' />
+                  <SelectValue placeholder={`Select ${label('semester')}`} />
                 </SelectTrigger>
                 <SelectContent>
                   {/* Remove duplicates by semester name */}
@@ -542,7 +549,7 @@ export function AttendanceFilters({
             {/* Section */}
             <div className='space-y-2'>
               <Label htmlFor='section'>
-                Section
+                {label('Section')}
                 {isSectionRequired && (
                   <span className='text-red-500 ml-1'>*</span>
                 )}
@@ -561,14 +568,14 @@ export function AttendanceFilters({
                 )}>
                   <SelectValue placeholder={
                     isSectionRequired
-                      ? 'Select section (required)'
-                      : 'Select section'
+                      ? `Select ${label('section')} (required)`
+                      : `Select ${label('section')}`
                   } />
                 </SelectTrigger>
                 <SelectContent>
                   {/* Updated: 2025-10-09 - Only show "All Sections" for semester-level timetables */}
                   {!isSectionRequired && (
-                    <SelectItem value='all_sections'>All Sections</SelectItem>
+                    <SelectItem value='all_sections'>{label('All Sections')}</SelectItem>
                   )}
                   {/* Remove duplicates by section name */}
                   {Array.from(

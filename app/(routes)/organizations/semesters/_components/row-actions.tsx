@@ -26,6 +26,7 @@ import { SemesterService } from '@/lib/services/organization/semester-service';
 import { toast } from 'react-hot-toast';
 import { Semester } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
@@ -42,6 +43,7 @@ export function DataTableRowActions<TData>({
   const [isDeleting, setIsDeleting] = useState(false);
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const adapt = useAdaptiveLabels();
   const semester = row.original as Semester;
 
   const canView = isSuperAdmin || canAccess('organizations.semesters', 'view');
@@ -53,14 +55,14 @@ export function DataTableRowActions<TData>({
     setIsDeleting(true);
     try {
       await SemesterService.deleteSemester(semester.id);
-      toast.success('Semester deleted successfully');
+      toast.success(`${adapt('Semester')} deleted successfully`);
       router.refresh();
       if (onDelete) {
         onDelete(semester.id);
       }
     } catch (error) {
       console.error('Error deleting semester:', error);
-      toast.error('Failed to delete semester');
+      toast.error(`Failed to delete ${adapt('semester')}`);
     } finally {
       setIsDeleting(false);
       setShowDeleteAlert(false);
@@ -127,7 +129,7 @@ export function DataTableRowActions<TData>({
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
-              semester &quot;{semester.semester_name}&quot;.
+              {adapt('semester')} &quot;{semester.semester_name}&quot;.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -18,24 +18,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { Eye, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import {
-  useRoomEligibility,
-  useMessEligibility,
-} from '@/hooks/campus-living/use-program-eligibility';
+import { useEligibility } from '@/hooks/campus-living/use-program-eligibility';
 import { ProgramEligibilityFormDialog } from './form-dialog';
-import type {
-  ProgramRoomEligibilityRow,
-  ProgramMessEligibilityRow,
-} from '@/types/program-eligibility';
+import { EligibilityDetailDialog } from './eligibility-detail-dialog';
+import type { ProgramEligibilityRow } from '@/types/program-eligibility';
 
-export function RoomEligibilityRowActions({
-  row,
-}: {
-  row: ProgramRoomEligibilityRow;
-}) {
-  const { deleteRoomEligibility } = useRoomEligibility(null);
+export function EligibilityRowActions({ row }: { row: ProgramEligibilityRow }) {
+  const { deleteEligibility } = useEligibility(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -43,8 +35,8 @@ export function RoomEligibilityRowActions({
   const onDelete = async () => {
     try {
       setDeleting(true);
-      await deleteRoomEligibility(row.id);
-      toast.success('Room eligibility removed');
+      await deleteEligibility(row.id);
+      toast.success('Eligibility removed');
       setConfirmOpen(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to delete');
@@ -62,6 +54,9 @@ export function RoomEligibilityRowActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align='end'>
+          <DropdownMenuItem onClick={() => setDetailOpen(true)}>
+            <Eye className='h-4 w-4 mr-2' /> View details
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setEditOpen(true)}>
             <Pencil className='h-4 w-4 mr-2' /> Edit
           </DropdownMenuItem>
@@ -74,102 +69,27 @@ export function RoomEligibilityRowActions({
         </DropdownMenuContent>
       </DropdownMenu>
 
+      <EligibilityDetailDialog
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        row={row}
+      />
+
       <ProgramEligibilityFormDialog
         open={editOpen}
         onOpenChange={setEditOpen}
-        kind='room'
         institutionId={row.institution_id}
-        roomRow={row}
+        row={row}
       />
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove room eligibility?</AlertDialogTitle>
+            <AlertDialogTitle>Remove eligibility rule?</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the{' '}
-              {row.program_name ?? 'institution default'} entry for{' '}
-              {row.room_category_name ?? 'this category'}.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                onDelete();
-              }}
-              disabled={deleting}
-            >
-              Remove
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
-  );
-}
-
-export function MessEligibilityRowActions({
-  row,
-}: {
-  row: ProgramMessEligibilityRow;
-}) {
-  const { deleteMessEligibility } = useMessEligibility(null);
-  const [editOpen, setEditOpen] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-
-  const onDelete = async () => {
-    try {
-      setDeleting(true);
-      await deleteMessEligibility(row.id);
-      toast.success('Mess eligibility removed');
-      setConfirmOpen(false);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to delete');
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant='ghost' className='h-8 w-8 p-0'>
-            <MoreHorizontal className='h-4 w-4' />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align='end'>
-          <DropdownMenuItem onClick={() => setEditOpen(true)}>
-            <Pencil className='h-4 w-4 mr-2' /> Edit
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            className='text-destructive focus:text-destructive'
-            onClick={() => setConfirmOpen(true)}
-          >
-            <Trash2 className='h-4 w-4 mr-2' /> Delete
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <ProgramEligibilityFormDialog
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        kind='mess'
-        institutionId={row.institution_id}
-        messRow={row}
-      />
-
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove mess eligibility?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes the{' '}
-              {row.program_name ?? 'institution default'} entry for{' '}
-              {row.mess_category_name ?? 'this category'}.
+              This removes the {row.program_name ?? 'institution default'} rule
+              {row.quota_name ? ` (${row.quota_name})` : ''} for{' '}
+              {row.room_category_name ?? row.mess_category_name ?? 'this band'}.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

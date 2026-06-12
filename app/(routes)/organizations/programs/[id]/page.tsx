@@ -144,7 +144,7 @@ export default function ProgramDetailsPage({
           <CardContent className='grid gap-6'>
             <div className='grid gap-4 md:grid-cols-2'>
               <div>
-                <p className='font-medium'>Program ID</p>
+                <p className='font-medium'>{adapt('Program ID')}</p>
                 <p className='text-base text-muted-foreground'>
                   {program.program_id}
                 </p>
@@ -156,13 +156,13 @@ export default function ProgramDetailsPage({
                 </Badge>
               </div>
               <div>
-                <p className='font-medium'>Degree</p>
+                <p className='font-medium'>{adapt('Degree')}</p>
                 <p className='text-base text-muted-foreground'>
                   {program.degree?.degree_name || 'N/A'}
                 </p>
               </div>
               <div>
-                <p className='font-medium'>Department</p>
+                <p className='font-medium'>{adapt('Department')}</p>
                 <p className='text-base text-muted-foreground'>
                   {program.department?.department_name || 'N/A'}
                 </p>

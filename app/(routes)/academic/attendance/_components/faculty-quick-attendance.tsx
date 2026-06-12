@@ -21,6 +21,7 @@ import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { AttendancePeriodOption } from '@/types/attendance';
 import { cn } from '@/lib/utils';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface FacultyQuickAttendanceProps {
   staffId: string;
@@ -36,6 +37,7 @@ export function FacultyQuickAttendance({
   selectedDate
 }: FacultyQuickAttendanceProps) {
   const router = useRouter();
+  const label = useAdaptiveLabels();
   const [loading, setLoading] = useState(true);
   const [periods, setPeriods] = useState<AttendancePeriodOption[]>([]);
   const [searchContext, setSearchContext] = useState<any>({});
@@ -336,7 +338,7 @@ export function FacultyQuickAttendance({
                       {period.section_name && (
                         <div className='bg-blue-50 dark:bg-blue-900/30 px-3 py-2 rounded-md text-center flex items-center justify-center gap-1.5 font-medium text-blue-700 dark:text-blue-300 col-span-1 xs:col-span-2 sm:col-span-1'>
                           <Users className='h-3 w-3 flex-shrink-0' />
-                          <span>Section {period.section_name}</span>
+                          <span>{label('Section')} {period.section_name}</span>
                         </div>
                       )}
                     </div>

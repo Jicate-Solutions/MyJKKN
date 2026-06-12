@@ -248,10 +248,15 @@ export class HostelBlockService {
   // is auto-written with is_primary=true. Without it, the new block is
   // RLS-invisible until something grants access — which is fine for the
   // super-admin "create-then-grant" flow.
+  //
+  // Optional `secondaryInstitutionIds` — additional colleges to link at
+  // creation (is_primary=false), so the create form can grant several colleges
+  // up front instead of forcing a trip to the edit page's Colleges card.
   static async createBlock(
     payload: CreateHostelBlockDTO,
     primaryInstitutionId?: string,
     amenityTagIds?: string[],
+    secondaryInstitutionIds?: string[],
   ) {
     try {
       const supabase = createClientSupabaseClient();
@@ -284,6 +289,28 @@ export class HostelBlockService {
             { blockId: block.id, error: m2mError },
           );
           throw m2mError;
+        }
+      }
+
+      // Additional colleges (non-primary). Dedupe and drop the primary if it
+      // was repeated; upsert so a duplicate selection can't 23505.
+      const extraIds = Array.from(
+        new Set((secondaryInstitutionIds ?? []).filter((id) => id && id !== primaryInstitutionId)),
+      );
+      if (extraIds.length > 0) {
+        const { error: extrasError } = await supabase
+          .from('hostel_block_institutions')
+          .upsert(
+            extraIds.map((id) => ({ block_id: block.id, institution_id: id, is_primary: false })),
+            { onConflict: 'block_id,institution_id' },
+          );
+        if (extrasError) {
+          logger.error(
+            'campus-living/blocks',
+            'Block created but secondary college link(s) failed',
+            { blockId: block.id, error: extrasError },
+          );
+          throw extrasError;
         }
       }
 

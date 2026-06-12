@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { X, Edit2 } from 'lucide-react';
 import type { Period } from '@/types/academics';
 
@@ -37,6 +38,7 @@ export const BatchTimetableGrid = React.forwardRef<
     },
     ref
   ) => {
+    const adapt = useAdaptiveLabels();
     // Parse date ranges from the selectedDates array
     const groupDatesIntoRanges = (dates: string[]) => {
       if (dates.length === 0) return [];
@@ -436,7 +438,7 @@ export const BatchTimetableGrid = React.forwardRef<
                                           <div className='flex flex-col'>
                                             <div className='font-medium text-xs leading-tight mb-0.5'>
                                               {subSlot.course?.course_code ||
-                                                'Course'}
+                                                adapt('Course')}
                                             </div>
                                             {subSlot.staff_members &&
                                               subSlot.staff_members.length >
@@ -511,7 +513,7 @@ export const BatchTimetableGrid = React.forwardRef<
                             ) : (
                               <div className='text-blue-700 min-h-[50px] flex flex-col justify-center text-center'>
                                 <div className='font-semibold text-xs mb-0.5 leading-tight'>
-                                  {existingSlot.course?.course_code || 'Course'}
+                                  {existingSlot.course?.course_code || adapt('Course')}
                                 </div>
                                 {existingSlot.staff_members &&
                                   existingSlot.staff_members.length > 0 && (

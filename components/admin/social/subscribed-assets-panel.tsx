@@ -55,6 +55,17 @@ interface PageRow {
   ig: IgChild | null;
 }
 
+interface AuditSummary {
+  last_check_at: string | null;
+  latest_run_id: string | null;
+  drifts_in_last_7d: number;
+  latest_run_verdict_counts: {
+    healthy: number;
+    drift: number;
+    empty: number;
+  } | null;
+}
+
 interface SubscribedAppsResponse {
   pages: PageRow[];
   fetched_at: string;
@@ -62,6 +73,7 @@ interface SubscribedAppsResponse {
     jkkn_institutions: string;
     myjkkn: string;
   };
+  audit_summary?: AuditSummary | null;
   error?: string;
 }
 
@@ -194,6 +206,33 @@ export function SubscribedAssetsPanel({ filter }: SubscribedAssetsPanelProps) {
             {data?.fetched_at && (
               <span className="block text-[10px] mt-1 text-muted-foreground/80">
                 Fetched {new Date(data.fetched_at).toLocaleString()}
+              </span>
+            )}
+            {data?.audit_summary?.last_check_at && (
+              <span className="block text-[10px] mt-1 text-muted-foreground/80">
+                Last drift check:{' '}
+                {new Date(data.audit_summary.last_check_at).toLocaleString()}
+                {data.audit_summary.latest_run_verdict_counts && (
+                  <>
+                    {' '}
+                    —{' '}
+                    {data.audit_summary.latest_run_verdict_counts.healthy}{' '}
+                    healthy,{' '}
+                    <span
+                      className={
+                        data.audit_summary.latest_run_verdict_counts.drift > 0
+                          ? 'text-red-600 font-semibold'
+                          : ''
+                      }
+                    >
+                      {data.audit_summary.latest_run_verdict_counts.drift}{' '}
+                      drift
+                    </span>
+                  </>
+                )}
+                {data.audit_summary.drifts_in_last_7d > 0 && (
+                  <> · {data.audit_summary.drifts_in_last_7d} drift events in 7d</>
+                )}
               </span>
             )}
           </CardDescription>

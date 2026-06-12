@@ -8,7 +8,7 @@ import type { EntityType } from '@/types/organizations';
 interface UseInstitutionsWithAccessOptions {
   isActive?: boolean;
   autoFetch?: boolean;
-  entityType?: EntityType | 'all'; // Defaults to 'institution' — only shows educational institutions in dropdowns
+  entityType?: EntityType | 'all' | EntityType[]; // Defaults to 'institution'. Pass an array (e.g. ['institution','school']) to include multiple kinds
 }
 
 export function useInstitutionsWithAccess(
@@ -42,6 +42,12 @@ export function useInstitutionsWithAccess(
 
       let institutionNames;
 
+      // Super admins get every entity type (institutions AND schools) regardless
+      // of what the calling page asked for — they have global access, so the
+      // default entityType='institution' would otherwise hide schools from them.
+      // Non-super-admin users keep the page-specified entityType untouched.
+      const effectiveEntityType = isSuperAdmin ? 'all' : entityType;
+
       if (isSuperAdmin || isAdmissionGlobalUser) {
         // Super admins and admission global users see all institutions —
         // admission role users are cross-institution (no institution_id on their profile)
@@ -49,14 +55,14 @@ export function useInstitutionsWithAccess(
         institutionNames = await OrganizationService.getInstitutionNames(
           isActive,
           undefined,
-          entityType
+          effectiveEntityType
         );
       } else {
         // Regular users see only accessible institutions - pass userId for filtering
         institutionNames = await OrganizationService.getInstitutionNames(
           isActive,
           profile.id,
-          entityType
+          effectiveEntityType
         );
       }
 

@@ -129,6 +129,18 @@ const NESTED_TO_FLAT_MAP: Map<string, string> = (() => {
   return map;
 })();
 
+// Runtime companion to NESTED_TO_FLAT_MAP, seeded from the actual flat keys a
+// role carries in the DB. Migrations can grant dot-format keys the static
+// catalog doesn't list (e.g. "academic.bos-ta-da.submit" on faculty) — without
+// this, flattenPermissions falls back to `${module}.${action}` and mangles
+// them into underscore format ("academic.bos-ta-da_submit"), which the
+// trg_validate_custom_roles_permissions_format DB trigger rejects, blocking
+// the entire role save. Only 3+-part keys are registered: 2-part keys
+// round-trip losslessly through the fallback, and registering them would let a
+// stale underscore key (e.g. "academic.bos-courses_view") shadow its canonical
+// catalog form instead of being healed by the catalog-first lookup.
+const RUNTIME_NESTED_TO_FLAT_MAP = new Map<string, string>();
+
 // Helper to convert flat permissions to nested for the form
 const nestPermissions = (
   flat: Record<string, boolean> | undefined
@@ -148,6 +160,9 @@ const nestPermissions = (
         // Complex case: academic.attendance.view -> "attendance_view"
         const remainingParts = parts.slice(1);
         actionKey = remainingParts.join('_');
+        // Lossy conversion — remember the original so flattenPermissions can
+        // restore it even when the key is absent from the static catalog.
+        RUNTIME_NESTED_TO_FLAT_MAP.set(`${moduleKey}::${actionKey}`, key);
       }
     } else {
       actionKey = '_'; // Default for keys without dots
@@ -176,11 +191,14 @@ const flattenPermissions = (
         if (actionKey === '_') {
           finalKey = moduleKey;
         } else {
-          // Look up the original flat key from the pre-built map
+          // Look up the original flat key: static catalog first (canonical —
+          // also heals stale underscore keys that nest to the same path), then
+          // the runtime map (uncataloged keys seen on this role), then fall
+          // back to simple concatenation (correct for 2-level keys).
           const lookupKey = `${moduleKey}::${actionKey}`;
-          const mappedKey = NESTED_TO_FLAT_MAP.get(lookupKey);
-          // Use the mapped key if found, otherwise fall back to simple concatenation
-          // (which preserves underscores correctly for 2-level keys)
+          const mappedKey =
+            NESTED_TO_FLAT_MAP.get(lookupKey) ??
+            RUNTIME_NESTED_TO_FLAT_MAP.get(lookupKey);
           finalKey = mappedKey || `${moduleKey}.${actionKey}`;
         }
         flat[finalKey] = Boolean(value);
