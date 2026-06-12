@@ -54,10 +54,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { CHOOSE_MENU_POLICY_KEYS } from '@/lib/services/campus-living/choose-your-menu-policy-keys';
 import {
-  CHOOSE_MENU_POLICY_KEYS,
-  CHOOSE_MENU_TIERS,
-} from '@/lib/services/campus-living/choose-your-menu-policy-keys';
+  useMessPlanOptions,
+  type MessPlanOption,
+} from '@/lib/services/campus-living/mess-plan-options';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -100,9 +101,11 @@ const FIELD_LABELS: Record<string, string> = {
   [K.FEEDBACK_RECOGNITION]: 'Recognition',
 };
 
-const TIER_LABEL: Record<string, string> = Object.fromEntries(
-  CHOOSE_MENU_TIERS.map((t) => [t.key, t.label])
-);
+/** Ladder = the LIVE mess plans (auto-follow, 2026-06-12); the hook falls
+ *  back to the Classic/Premium pair while loading or on read failure. */
+function ladderLabel(ladder: MessPlanOption[], key: string): string {
+  return ladder.find((t) => t.key === key)?.label ?? key;
+}
 
 // ── Value parsing (jsonb → form) ───────────────────────────────────────────
 
@@ -122,20 +125,25 @@ function asStringArray(v: PolicyValue): string[] {
   return [];
 }
 
-/** Keep tiers in the canonical ladder order so dirty-detection is stable. */
-function orderTiers(tiers: string[]): string[] {
-  return CHOOSE_MENU_TIERS.map((t) => t.key).filter((k) => tiers.includes(k));
+/** Keep tiers in the canonical ladder order so dirty-detection is stable.
+ *  Keys not in the ladder (e.g. a category deactivated later) are preserved
+ *  at the end so saving never silently drops them. */
+function orderTiers(tiers: string[], ladder: MessPlanOption[]): string[] {
+  const known = ladder.map((t) => t.key).filter((k) => tiers.includes(k));
+  const unknown = tiers.filter((k) => !ladder.some((t) => t.key === k));
+  return [...known, ...unknown];
 }
 
-function rowsToForm(rows: Record<string, PolicyRow>): FormState {
+function rowsToForm(rows: Record<string, PolicyRow>, ladder: MessPlanOption[]): FormState {
   return {
     masterEnabled: asBoolean(rows[K.MASTER_ENABLED]?.value, false),
     personalizationTiers: orderTiers(
-      asStringArray(rows[K.PERSONALIZATION_ENABLED_TIERS]?.value)
+      asStringArray(rows[K.PERSONALIZATION_ENABLED_TIERS]?.value),
+      ladder
     ),
     optionsPerMeal: asNumber(rows[K.PERSONALIZATION_OPTIONS_PER_MEAL]?.value, 3),
     cutoffHours: asNumber(rows[K.PERSONALIZATION_CUTOFF_HOURS]?.value, 12),
-    votingTiers: orderTiers(asStringArray(rows[K.VOTING_ENABLED_TIERS]?.value)),
+    votingTiers: orderTiers(asStringArray(rows[K.VOTING_ENABLED_TIERS]?.value), ladder),
     specialDayEnabled: asBoolean(rows[K.SPECIAL_DAY_ENABLED]?.value, true),
     proposerRoles: asStringArray(rows[K.SPECIAL_DAY_PROPOSER_ROLES]?.value),
     feedbackLiveCounts: asBoolean(rows[K.FEEDBACK_LIVE_COUNTS]?.value, true),
@@ -144,13 +152,13 @@ function rowsToForm(rows: Record<string, PolicyRow>): FormState {
 }
 
 /** form → the per-key jsonb values the save writes. */
-function formToValues(form: FormState): Record<string, PolicyValue> {
+function formToValues(form: FormState, ladder: MessPlanOption[]): Record<string, PolicyValue> {
   return {
     [K.MASTER_ENABLED]: form.masterEnabled,
-    [K.PERSONALIZATION_ENABLED_TIERS]: orderTiers(form.personalizationTiers),
+    [K.PERSONALIZATION_ENABLED_TIERS]: orderTiers(form.personalizationTiers, ladder),
     [K.PERSONALIZATION_OPTIONS_PER_MEAL]: form.optionsPerMeal,
     [K.PERSONALIZATION_CUTOFF_HOURS]: form.cutoffHours,
-    [K.VOTING_ENABLED_TIERS]: orderTiers(form.votingTiers),
+    [K.VOTING_ENABLED_TIERS]: orderTiers(form.votingTiers, ladder),
     [K.SPECIAL_DAY_ENABLED]: form.specialDayEnabled,
     // proposerRoles is read-only in P0b — written back unchanged so its row
     // never appears dirty.
@@ -167,32 +175,32 @@ function valueEquals(a: PolicyValue, b: PolicyValue): boolean {
 
 // ── Plain-English helpers (pure, client-side) ──────────────────────────────
 
-/** Join tier labels into prose: "Premium, Premium Plus" / "all tiers". */
-function tierPhrase(tiers: string[]): string {
-  const ordered = orderTiers(tiers);
+/** Join plan labels into prose: "Classic, Premium" / "all tiers". */
+function tierPhrase(tiers: string[], ladder: MessPlanOption[]): string {
+  const ordered = orderTiers(tiers, ladder);
   if (ordered.length === 0) return 'no tiers';
-  if (ordered.length === CHOOSE_MENU_TIERS.length) return 'all tiers';
-  return ordered.map((k) => TIER_LABEL[k] ?? k).join(', ');
+  if (ladder.every((t) => ordered.includes(t.key))) return 'all tiers';
+  return ordered.map((k) => ladderLabel(ladder, k)).join(', ');
 }
 
-/** Tier keys NOT in the given set (for "the rest see the fixed menu"). */
-function excludedTierLabels(tiers: string[]): string {
-  const ordered = orderTiers(tiers);
-  const rest = CHOOSE_MENU_TIERS.map((t) => t.key).filter(
-    (k) => !ordered.includes(k)
-  );
-  return rest.map((k) => TIER_LABEL[k] ?? k).join(', ');
+/** Plan keys NOT in the given set (for "the rest see the fixed menu"). */
+function excludedTierLabels(tiers: string[], ladder: MessPlanOption[]): string {
+  const ordered = orderTiers(tiers, ladder);
+  const rest = ladder.map((t) => t.key).filter((k) => !ordered.includes(k));
+  return rest.map((k) => ladderLabel(ladder, k)).join(', ');
 }
 
 // ── Tier segmented control (no Radix Tabs — CFT click-flake) ────────────────
 
 function TierMatrix({
   legend,
+  options,
   selected,
   onToggle,
   disabled,
 }: {
   legend: string;
+  options: MessPlanOption[];
   selected: string[];
   onToggle: (tierKey: string) => void;
   disabled?: boolean;
@@ -201,7 +209,7 @@ function TierMatrix({
     <div className="space-y-1.5">
       <Label className="text-sm">{legend}</Label>
       <div className="flex flex-wrap gap-2">
-        {CHOOSE_MENU_TIERS.map((tier) => {
+        {options.map((tier) => {
           const on = selected.includes(tier.key);
           return (
             <button
@@ -314,6 +322,10 @@ function ToggleRow({
 
 export function ChooseYourMenuPolicyForm() {
   const queryClient = useQueryClient();
+  const { options: planOptions } = useMessPlanOptions();
+  // Re-encode the baseline when the live ladder settles (keys signature) so
+  // dirty-detection always compares like-with-like orderings.
+  const ladderSig = planOptions.map((t) => t.key).join(',');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [missingKeys, setMissingKeys] = useState<string[]>([]);
@@ -347,12 +359,12 @@ export function ChooseYourMenuPolicyForm() {
         }
         const missing = Object.values(K).filter((key) => !(key in map));
         setMissingKeys(missing);
-        const initialForm = rowsToForm(map);
+        const initialForm = rowsToForm(map, planOptions);
         setForm(initialForm);
         // Baseline = the form's canonical encoding of what's in the DB, so
         // dirty-detection compares like with like.
         const baseline: Record<string, PolicyValue> = {};
-        const encoded = formToValues(initialForm);
+        const encoded = formToValues(initialForm, planOptions);
         for (const key of Object.values(K)) {
           if (key in map) baseline[key] = encoded[key];
         }
@@ -366,7 +378,8 @@ export function ChooseYourMenuPolicyForm() {
     return () => {
       cancelled = true;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ladderSig]);
 
   function patch(p: Partial<FormState>) {
     setForm((f) => (f ? { ...f, ...p } : f));
@@ -378,7 +391,7 @@ export function ChooseYourMenuPolicyForm() {
       const current = f[field];
       const next = current.includes(tierKey)
         ? current.filter((k) => k !== tierKey)
-        : orderTiers([...current, tierKey]);
+        : orderTiers([...current, tierKey], planOptions);
       return { ...f, [field]: next };
     });
   }
@@ -387,11 +400,11 @@ export function ChooseYourMenuPolicyForm() {
   // Keys whose rows are missing are never saved (update would match 0 rows).
   const dirtyKeys = useMemo(() => {
     if (!form) return [] as string[];
-    const encoded = formToValues(form);
+    const encoded = formToValues(form, planOptions);
     return Object.values(K).filter(
       (key) => key in savedValues && !valueEquals(encoded[key], savedValues[key])
     );
-  }, [form, savedValues]);
+  }, [form, savedValues, planOptions]);
 
   const hasBlankNumber =
     !!form && [form.optionsPerMeal, form.cutoffHours].some((v) => v === '');
@@ -406,7 +419,7 @@ export function ChooseYourMenuPolicyForm() {
     for (const [key, value] of Object.entries(savedValues)) {
       rows[key] = { policy_key: key, value };
     }
-    setForm(rowsToForm(rows));
+    setForm(rowsToForm(rows, planOptions));
   }
 
   async function save() {
@@ -418,7 +431,7 @@ export function ChooseYourMenuPolicyForm() {
         data: { user },
       } = await supabase.auth.getUser();
       const updatedAt = new Date().toISOString();
-      const encoded = formToValues(form);
+      const encoded = formToValues(form, planOptions);
 
       // Fire all dirty-row updates concurrently; per-row failure isolation
       // (one failure never hides which others saved) — housekeeping save().
@@ -575,6 +588,7 @@ export function ChooseYourMenuPolicyForm() {
             <CardContent className="space-y-4">
               <TierMatrix
                 legend="Enabled for tiers"
+                options={planOptions}
                 selected={form.personalizationTiers}
                 onToggle={(k) => toggleTier('personalizationTiers', k)}
               />
@@ -616,6 +630,7 @@ export function ChooseYourMenuPolicyForm() {
             <CardContent>
               <TierMatrix
                 legend="Enabled for tiers"
+                options={planOptions}
                 selected={form.votingTiers}
                 onToggle={(k) => toggleTier('votingTiers', k)}
               />
@@ -735,7 +750,7 @@ export function ChooseYourMenuPolicyForm() {
                         <span className="font-medium">Personalization is ON</span>{' '}
                         for{' '}
                         <span className="font-semibold">
-                          {tierPhrase(form.personalizationTiers)}
+                          {tierPhrase(form.personalizationTiers, planOptions)}
                         </span>{' '}
                         — those residents can swap up to{' '}
                         <span className="font-semibold">
@@ -759,10 +774,10 @@ export function ChooseYourMenuPolicyForm() {
                           </>
                         )}
                         .
-                        {excludedTierLabels(form.personalizationTiers) && (
+                        {excludedTierLabels(form.personalizationTiers, planOptions) && (
                           <span className="text-muted-foreground">
                             {' '}
-                            {excludedTierLabels(form.personalizationTiers)}{' '}
+                            {excludedTierLabels(form.personalizationTiers, planOptions)}{' '}
                             residents see the fixed menu.
                           </span>
                         )}
@@ -783,7 +798,7 @@ export function ChooseYourMenuPolicyForm() {
                       <>
                         <span className="font-medium">Voting is ON</span> for{' '}
                         <span className="font-semibold">
-                          {tierPhrase(form.votingTiers)}
+                          {tierPhrase(form.votingTiers, planOptions)}
                         </span>{' '}
                         — those residents can vote dishes up or down.
                       </>

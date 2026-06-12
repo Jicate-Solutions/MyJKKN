@@ -55,9 +55,16 @@ export interface ChooseMenuPolicySnapshot {
 /** Who am I, menu-wise: mess plan + gender + the learners_profiles own-rows key. */
 export interface MyMealsContext {
   hasActiveAllocation: boolean;
+  /** Has a mess plan assigned (mess_category_id) — day scholars included. */
+  hasMessPlan: boolean;
+  /**
+   * Page gate (Director 2026-06-12, interview Q1): allocation OR mess plan —
+   * a day scholar who pays for mess sees My Meals too.
+   */
+  hasMessAccess: boolean;
   /** learners_profiles.id — the key mess_* engagement rows are owned by. */
   learnerId: string | null;
-  /** Mess-plan key from mess_categories ('classic' | 'premium'), NOT room tier. */
+  /** Mess-plan key (mess_categories.menu_tier_key), NOT room tier. */
   tierKey: ChooseMenuTierKey | string;
   gender: MenuGender | null;
 }
@@ -153,6 +160,8 @@ export class ChooseYourMenuService {
     const supabase = createClientSupabaseClient();
     const none: MyMealsContext = {
       hasActiveAllocation: false,
+      hasMessPlan: false,
+      hasMessAccess: false,
       learnerId: null,
       tierKey: 'classic',
       gender: null,
@@ -165,8 +174,8 @@ export class ChooseYourMenuService {
     if (authError || !user) return none;
 
     // 1. Active allocation EXISTENCE (hostel_allocations.learner_id FKs
-    //    profiles = auth uid). Allocation = "you're a hosteller"; it no longer
-    //    decides which menu you see — the mess plan does (Director 2026-06-12).
+    //    profiles = auth uid). Allocation = "you're a hosteller". Access is
+    //    allocation OR mess plan (Q1: paying day scholars see My Meals too).
     const { data: allocation, error: allocError } = await supabase
       .from('hostel_allocations')
       .select('id')
@@ -179,10 +188,9 @@ export class ChooseYourMenuService {
       logger.error(MODULE, 'Failed to fetch active allocation', allocError);
       throw allocError;
     }
-    if (!allocation) return none;
 
     // 2. profiles.learner_id bridge → learners_profiles: the MESS PLAN
-    //    (mess_category_id → mess_categories.name/type) + learner gender.
+    //    (mess_category_id → mess_categories) + learner gender.
     const { data: profileRow, error: profileError } = await supabase
       .from('profiles')
       .select('learner_id')
@@ -198,10 +206,11 @@ export class ChooseYourMenuService {
     // No mess plan assigned yet → 'classic' (the base menu everyone gets).
     let tierKey = 'classic';
     let gender: MenuGender | null = null;
+    let hasMessPlan = false;
     if (learnerId) {
       const { data: learner, error: learnerError } = await supabase
         .from('learners_profiles')
-        .select('gender, messCategory:mess_category_id(name, type)')
+        .select('gender, messCategory:mess_category_id(name, type, menu_tier_key)')
         .eq('id', learnerId)
         .maybeSingle();
       if (learnerError) {
@@ -209,9 +218,16 @@ export class ChooseYourMenuService {
         throw learnerError;
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cat = (learner as any)?.messCategory as { name?: string; type?: string } | null;
-      const catKey = (cat?.name ?? '').toLowerCase();
-      if (catKey === 'classic' || catKey === 'premium') tierKey = catKey;
+      const cat = (learner as any)?.messCategory as
+        | { name?: string; type?: string; menu_tier_key?: string | null }
+        | null;
+      hasMessPlan = !!cat;
+      // Stable slug first (rename-safe); name-derived fallback for any row
+      // predating the freeze trigger.
+      const catKey =
+        cat?.menu_tier_key ??
+        (cat?.name ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+      if (catKey) tierKey = catKey;
       // Gender: the mess the plan belongs to wins (you eat where you're
       // enrolled); learner profile gender is the fallback.
       if (cat?.type === 'boys' || cat?.type === 'girls') {
@@ -225,7 +241,15 @@ export class ChooseYourMenuService {
       }
     }
 
-    return { hasActiveAllocation: true, learnerId, tierKey, gender };
+    const hasActiveAllocation = !!allocation;
+    return {
+      hasActiveAllocation,
+      hasMessPlan,
+      hasMessAccess: hasActiveAllocation || hasMessPlan,
+      learnerId,
+      tierKey,
+      gender,
+    };
   }
 
   // ── My activity (own rows — RLS enforces ownership server-side) ──────

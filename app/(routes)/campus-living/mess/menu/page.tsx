@@ -20,6 +20,7 @@ import { ChevronLeft, ChevronRight, ChefHat, CalendarRange } from 'lucide-react'
 import { usePermissions } from '@/hooks/use-permissions';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { MealType, TierKey } from '@/types/campus-living';
+import { useMessPlanOptions } from '@/lib/services/campus-living/mess-plan-options';
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MEAL_ROWS = ['breakfast', 'lunch', 'tea', 'dinner'] as const satisfies readonly MealType[];
@@ -30,10 +31,8 @@ const MEAL_LABELS: Record<(typeof MEAL_ROWS)[number], string> = {
   dinner: 'Dinner',
 };
 
-const TIER_OPTIONS: { key: TierKey; label: string }[] = [
-  { key: 'classic', label: 'Classic' },
-  { key: 'premium', label: 'Premium' },
-];
+// Plan options come LIVE from mess_categories (auto-follow, 2026-06-12) —
+// see useMessPlanOptions; the hook falls back to Classic/Premium.
 type Gender = 'boys' | 'girls';
 const GENDER_OPTIONS: { key: Gender; label: string }[] = [
   { key: 'boys', label: 'Boys' },
@@ -100,6 +99,7 @@ function useMenuWeek(weekStart: string, tier: TierKey, gender: Gender) {
 
 export default function WeeklyMessMenuPage() {
   const { isSuperAdmin } = usePermissions();
+  const { options: planOptions } = useMessPlanOptions();
   const [weekOffset, setWeekOffset] = useState(0);
   const [tier, setTier] = useState<TierKey>('classic');
   const [gender, setGender] = useState<Gender>('boys');
@@ -189,7 +189,7 @@ export default function WeeklyMessMenuPage() {
               </div>
               {/* Tier toggle — segmented buttons */}
               <div className="inline-flex rounded-md border border-border p-0.5">
-                {TIER_OPTIONS.map((t) => (
+                {planOptions.map((t) => (
                   <Button
                     key={t.key}
                     size="sm"
