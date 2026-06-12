@@ -94,13 +94,70 @@ export function normalizeStatus(cell: unknown): 'draft' | 'active' | 'archived' 
   return 'INVALID';
 }
 
-/** yyyy-mm-dd string, null for blank, 'INVALID' otherwise. Accepts Date cells. */
+const pad2 = (n: number): string => String(n).padStart(2, '0');
+const fmtYMD = (y: number, m: number, d: number): string => `${y}-${pad2(m)}-${pad2(d)}`;
+
+/** Validates a calendar date and returns it as yyyy-mm-dd, or 'INVALID'.
+ *  Round-trips through Date.UTC so impossible dates (e.g. 2026-02-30) are rejected. */
+function validYMD(y: number, m: number, d: number): string | 'INVALID' {
+  if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) return 'INVALID';
+  if (m < 1 || m > 12 || d < 1 || d > 31) return 'INVALID';
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return 'INVALID';
+  return fmtYMD(y, m, d);
+}
+
+/**
+ * Parses a spreadsheet date cell to a yyyy-mm-dd string (null for blank,
+ * 'INVALID' otherwise). Tolerant of every shape a date can arrive in:
+ *
+ *  - A real `Date` object (XLSX read with `cellDates: true`). SheetJS aligns
+ *    the serial to LOCAL time, so we read LOCAL Y/M/D — using `toISOString()`
+ *    here would shift the day by the server's UTC offset (an off-by-one bug
+ *    on any non-UTC host).
+ *  - A bare Excel serial `number` (date cell read WITHOUT cellDates) — Excel
+ *    silently converts exported date text into serials the moment the file is
+ *    opened and saved, which is the exact path that broke bulk-edit re-uploads.
+ *  - `yyyy-mm-dd`, an ISO datetime (`yyyy-mm-ddThh:mm…`), `yyyy/mm/dd`, and the
+ *    human formats `dd-mm-yyyy` / `dd/mm/yyyy` / `dd.mm.yyyy` (day-first, the
+ *    Indian convention; only swapped to month-first when the day field is > 12).
+ */
 export function parseDateCell(cell: unknown): string | null | 'INVALID' {
-  if (cell instanceof Date && !isNaN(cell.getTime())) return cell.toISOString().slice(0, 10);
+  if (cell instanceof Date) {
+    return isNaN(cell.getTime())
+      ? 'INVALID'
+      : fmtYMD(cell.getFullYear(), cell.getMonth() + 1, cell.getDate());
+  }
+  if (typeof cell === 'number' && Number.isFinite(cell)) {
+    // Excel serial → Unix ms. 25569 = days between Excel's 1899-12-30 epoch
+    // (which already absorbs the 1900 leap-year bug) and 1970-01-01.
+    const d = new Date((Math.floor(cell) - 25569) * 86400000);
+    return isNaN(d.getTime())
+      ? 'INVALID'
+      : validYMD(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+  }
+
   const s = norm(cell);
   if (s === '') return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return 'INVALID';
-  return isNaN(new Date(s + 'T00:00:00Z').getTime()) ? 'INVALID' : s;
+
+  // ISO datetime (date portion only) — e.g. timestamptz strings.
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ]\d{2}:\d{2}/);
+  if (iso) return validYMD(+iso[1], +iso[2], +iso[3]);
+
+  // Year-first: yyyy-mm-dd or yyyy/mm/dd
+  let m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (m) return validYMD(+m[1], +m[2], +m[3]);
+
+  // Day-first: dd-mm-yyyy, dd/mm/yyyy, dd.mm.yyyy
+  m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (m) {
+    let day = +m[1];
+    let mon = +m[2];
+    if (day <= 12 && mon > 12) [day, mon] = [mon, day]; // unambiguous mm/dd/yyyy
+    return validYMD(+m[3], mon, day);
+  }
+
+  return 'INVALID';
 }
 
 export function resolveRow(
@@ -161,8 +218,8 @@ export function resolveRow(
 
   const effFrom = parseDateCell(raw['Effective From']);
   const effTo = parseDateCell(raw['Effective To']);
-  if (effFrom === 'INVALID') errors.push('Effective From must be yyyy-mm-dd');
-  if (effTo === 'INVALID') errors.push('Effective To must be yyyy-mm-dd');
+  if (effFrom === 'INVALID') errors.push('Effective From is not a valid date (use e.g. 2026-06-11 or 11/06/2026)');
+  if (effTo === 'INVALID') errors.push('Effective To is not a valid date (use e.g. 2026-06-11 or 11/06/2026)');
   if (typeof effFrom === 'string' && typeof effTo === 'string' && effTo < effFrom) {
     errors.push('Effective To must be on/after Effective From');
   }

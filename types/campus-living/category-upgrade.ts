@@ -58,9 +58,10 @@ export interface UpgradeBillResult {
 
 export interface RoomUpgradeResult {
   success: boolean;
-  /** 'upgraded' = instant move + bill; 'waitlisted' = below threshold, bed
+  /** 'booked' = first allocation (no prior allocation), instant + no bill;
+   *  'upgraded' = instant move + bill; 'waitlisted' = below threshold, bed
    *  hard-reserved until paid or hold_expires_at (no move, no bill yet). */
-  state: 'upgraded' | 'waitlisted';
+  state: 'booked' | 'upgraded' | 'waitlisted';
   threshold_pct: number | null;
   paid_pct: number | null;
   old_category_id: string | null;

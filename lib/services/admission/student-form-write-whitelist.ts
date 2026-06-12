@@ -58,9 +58,10 @@ export const STUDENT_WRITABLE_COLUMNS = {
     // HOSTEL/DAY SCHOLAR choice as `accommodation_type`, but saveSection resolves
     // it to this institution-scoped FK before the write (see student-form-service).
     'accommodation_type_id',
-    // Gender-scoped campus-living category FKs (added 2026-05-29). Options are
-    // filtered by the gender the student picked on the Basic Details step.
-    'hostel_category_id', 'mess_category_id',
+    // hostel_category_id / mess_category_id REMOVED (20260611190000): the
+    // learner's room/mess categories are allocation-derived only — set by
+    // trg_allocation_sync_learner_categories when a hostel room allocation
+    // becomes active, never picked at admission time.
     // Day-Scholar bus transport (added 2026-05-29). bus_required gates the
     // route + boarding-point selection; routes/stops come from the TMS tables.
     'bus_required', 'transport_route_id', 'transport_stop_id',

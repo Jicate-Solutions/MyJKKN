@@ -20,6 +20,7 @@ import { ProgramEligibilityFormDialog } from './_components/form-dialog';
 import { createEligibilityColumns } from './_components/columns';
 import { RoomRulesTable } from './_components/room-rules-table';
 import { RoomEligibilityFormDialog } from './_components/room-eligibility-form-dialog';
+import { SyncCategoriesButton } from './_components/sync-categories-button';
 
 export default function ProgramEligibilityPage() {
   const [addOpen, setAddOpen] = useState(false);
@@ -73,7 +74,8 @@ export default function ProgramEligibilityPage() {
               </TabsList>
 
               <TabsContent value='category' className='space-y-4 pt-4'>
-                <div className='flex justify-end'>
+                <div className='flex justify-end gap-2'>
+                  <SyncCategoriesButton />
                   <Button onClick={() => setAddOpen(true)}>
                     <Plus className='h-4 w-4 mr-2' /> Add Rule
                   </Button>

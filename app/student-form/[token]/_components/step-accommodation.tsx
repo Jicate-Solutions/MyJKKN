@@ -13,10 +13,6 @@ import {
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Loader2, Home, Bus } from 'lucide-react';
 import type { Language } from './language-toggle';
-import {
-  useHostelCategoriesForGender,
-  useMessCategoriesForGender,
-} from '@/hooks/campus-living/use-gender-categories';
 
 interface Props {
   lang: Language;
@@ -85,10 +81,11 @@ export function StepAccommodation({
   // The convert route hardcodes 'DAY SCHOLAR' as the default accommodation_type
   // on new learners, so the field is virtually never empty on first render.
   // Falling back to '' covers the legacy-import edge case.
+  // hostel_category_id / mess_category_id pickers removed (20260611190000):
+  // room & mess categories are allocation-derived — set automatically when a
+  // hostel room is allocated, never chosen on the admission form.
   const [v, setV] = useState({
     accommodation_type: data.accommodation_type ?? '',
-    hostel_category_id: data.hostel_category_id ?? '',
-    mess_category_id: data.mess_category_id ?? '',
     bus_required: (data.bus_required ?? null) as boolean | null,
     transport_route_id: data.transport_route_id ?? '',
     transport_stop_id: data.transport_stop_id ?? '',
@@ -120,27 +117,9 @@ export function StepAccommodation({
 
   const isDayScholar = v.accommodation_type === 'DAY SCHOLAR';
 
-  // Gender (picked on the Basic Details step) decides which hostel room / mess
-  // categories are offered — boys vs girls (+ mixed).
-  const gender = data.gender as string | undefined;
-  const { categories: hostelCategories, loading: loadingHostelCategories } =
-    useHostelCategoriesForGender(gender);
-  const { categories: messCategories, loading: loadingMessCategories } =
-    useMessCategoriesForGender(gender);
-
-  // When the user flips Accommodation Type, the hostel sub-fields become
-  // either required (HOSTEL) or stale (DAY SCHOLAR). Reset them when
-  // switching to DAY SCHOLAR so the saved data matches the choice.
+  // When the user flips Accommodation Type away from DAY SCHOLAR the bus
+  // sub-fields go stale — reset so the saved data matches the choice.
   useEffect(() => {
-    if (v.accommodation_type !== 'HOSTEL') {
-      if (v.hostel_category_id || v.mess_category_id) {
-        setV((p) => ({
-          ...p,
-          hostel_category_id: '',
-          mess_category_id: '',
-        }));
-      }
-    }
     if (v.accommodation_type !== 'DAY SCHOLAR') {
       if (v.bus_required !== null || v.transport_route_id || v.transport_stop_id) {
         setV((p) => ({
@@ -194,23 +173,6 @@ export function StepAccommodation({
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v.transport_route_id]);
-
-  // Clear a chosen category that's no longer valid for the current gender.
-  useEffect(() => {
-    if (loadingHostelCategories) return;
-    if (v.hostel_category_id && !hostelCategories.some((c) => c.id === v.hostel_category_id)) {
-      setV((p) => ({ ...p, hostel_category_id: '' }));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gender, hostelCategories, loadingHostelCategories]);
-
-  useEffect(() => {
-    if (loadingMessCategories) return;
-    if (v.mess_category_id && !messCategories.some((c) => c.id === v.mess_category_id)) {
-      setV((p) => ({ ...p, mess_category_id: '' }));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gender, messCategories, loadingMessCategories]);
 
   const isHostel = v.accommodation_type === 'HOSTEL';
 
@@ -294,65 +256,14 @@ export function StepAccommodation({
 
       {isHostel && (
         <Section title={{ en: 'Hostel Details', ta: 'விடுதி விவரங்கள்' }}>
-          <Field
-            label="Hostel Room Category / விடுதி அறை வகை"
-            helper="Room category for your stay (varies by gender)."
-          >
-            <Select
-              value={v.hostel_category_id}
-              onValueChange={(s) => set('hostel_category_id', s)}
-              disabled={loadingHostelCategories || hostelCategories.length === 0}
-            >
-              <SelectTrigger className="h-12">
-                <SelectValue
-                  placeholder={
-                    loadingHostelCategories
-                      ? 'Loading...'
-                      : hostelCategories.length === 0
-                      ? 'No categories available'
-                      : 'Select room category / அறை வகை தேர்வு செய்க'
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {hostelCategories.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-
-          <Field
-            label="Mess Category / உணவக வகை"
-            helper="Mess plan for your stay (varies by gender)."
-          >
-            <Select
-              value={v.mess_category_id}
-              onValueChange={(s) => set('mess_category_id', s)}
-              disabled={loadingMessCategories || messCategories.length === 0}
-            >
-              <SelectTrigger className="h-12">
-                <SelectValue
-                  placeholder={
-                    loadingMessCategories
-                      ? 'Loading...'
-                      : messCategories.length === 0
-                      ? 'No categories available'
-                      : 'Select mess category / உணவக வகை தேர்வு செய்க'
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {messCategories.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
+          <p className="text-sm text-muted-foreground rounded-md border bg-muted/30 p-3">
+            Your room and mess category will be assigned by the hostel office
+            when a room is allocated to you.{' '}
+            <span className="text-xs">
+              / உங்களுக்கு அறை ஒதுக்கப்படும் போது அறை மற்றும் உணவக வகை
+              நிர்ணயிக்கப்படும்.
+            </span>
+          </p>
         </Section>
       )}
 

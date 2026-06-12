@@ -1,7 +1,7 @@
 // lib/utils/mappings/__tests__/fee-structure-excel-mappings.test.ts
 // Run with: npx tsx lib/utils/mappings/__tests__/fee-structure-excel-mappings.test.ts
 import assert from 'node:assert';
-import { resolveRow, parseAmountCell, normalizeGender, type BulkResolveLookups } from '../fee-structure-excel-mappings';
+import { resolveRow, parseAmountCell, parseDateCell, normalizeGender, type BulkResolveLookups } from '../fee-structure-excel-mappings';
 
 const lookups: BulkResolveLookups = {
   institutions: new Map([['jkkn cas', 'inst-1']]),
@@ -43,5 +43,24 @@ assert.strictEqual(parseAmountCell(''), null);
 assert.ok(Number.isNaN(parseAmountCell('abc')));
 assert.strictEqual(normalizeGender('male'), 'MALE');
 assert.strictEqual(normalizeGender('x'), 'INVALID');
+
+// ---- parseDateCell: must tolerate every shape a spreadsheet date arrives in ----
+assert.strictEqual(parseDateCell(''), null, 'blank → null');
+assert.strictEqual(parseDateCell('2026-06-11'), '2026-06-11', 'canonical yyyy-mm-dd');
+assert.strictEqual(parseDateCell('2026/06/11'), '2026-06-11', 'yyyy/mm/dd');
+// Excel serial 46184 = 2026-06-11 (the value the import used to choke on).
+assert.strictEqual(parseDateCell(46184), '2026-06-11', 'Excel serial number');
+// Real Date object (XLSX cellDates:true) — local components, no off-by-one.
+assert.strictEqual(parseDateCell(new Date(2026, 5, 11)), '2026-06-11', 'Date object (local)');
+assert.strictEqual(parseDateCell('2026-06-11T00:00:00.000Z'), '2026-06-11', 'ISO datetime');
+assert.strictEqual(parseDateCell('11/06/2026'), '2026-06-11', 'dd/mm/yyyy (day-first)');
+assert.strictEqual(parseDateCell('11-06-2026'), '2026-06-11', 'dd-mm-yyyy');
+assert.strictEqual(parseDateCell('11.06.2026'), '2026-06-11', 'dd.mm.yyyy');
+// Unambiguous month-first (day field > 12) is swapped.
+assert.strictEqual(parseDateCell('06/25/2026'), '2026-06-25', 'mm/dd/yyyy when day>12');
+// Impossible / unparseable dates are rejected.
+assert.strictEqual(parseDateCell('2026-02-30'), 'INVALID', 'Feb 30 rejected');
+assert.strictEqual(parseDateCell('not a date'), 'INVALID', 'garbage rejected');
+assert.strictEqual(parseDateCell('2026-13-01'), 'INVALID', 'month 13 rejected');
 
 console.log('✓ fee-structure-excel-mappings resolver tests passed');
