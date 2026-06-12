@@ -1581,3 +1581,11 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Function: `fn_pde_list_vac_courses()` — now own-institution OR universal (institution_id IS NULL)
 - Index: `vac_courses_code_key` UNIQUE(code) — staging parity + double-run guard
 - Location: `supabase/migrations/20260612084500_vac_universal_picker_and_code_unique.sql` (applied live 2026-06-12)
+
+### CARE Audit Framework v1.0 (2026-06-12)
+- Data: 20 system rows in `audit_parameter_catalog` — codes `CARE-C1`…`CARE-E5`, parameter_group 1–4 = pillar C/A/R/E, framework_mapping `{"care":"C1"}` (existing body→criterion shape), evidence_required from the framework doc
+- Tables: `care_audit_scores` (cycle_id → audit_cycles CASCADE, scorer_role owner/participant, score 0–4 CHECK, UNIQUE(cycle,code,scorer)), `care_scorer_invites` (token UNIQUE default gen_random_bytes(24) hex, accepted_by claims, 14-day expiry)
+- Functions: `fn_care_create_audit`, `fn_care_list_audits`, `fn_care_get_audit`, `fn_care_upsert_score`, `fn_care_create_invite`, `fn_care_get_invite_context`, `fn_care_submit_participant_scores`, `fn_care_is_cycle_owner` — all SECURITY DEFINER, REVOKE anon/PUBLIC + GRANT authenticated. ALL writes flow through RPCs (audit_cycles INSERT RLS needs audit.cycle.manage but any staff opens a CARE audit; learner second-scorer passes via token, not staff RLS)
+- RLS: both tables SELECT-only direct policies (leadership + own rows); no direct write policies
+- Location: `supabase/migrations/20260612180000_care_audit_framework.sql` (applied live via Management API 2026-06-12)
+- Purpose: Digitize the JKKN CARE Audit Framework v1.0 inside /audit — 20-item 0–4 scoring, two-scorer blind variance, pillar/index/gap-rule math, corrective moves as findings. Spec: specs/care-audit-module-spec-2026-06-12.md

@@ -1482,6 +1482,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "ClipboardCheck",
     "children": [
       {
+        "path": "/audit/care",
+        "label": "Care",
+        "iconName": "ClipboardCheck",
+        "children": [
+          {
+            "path": "/audit/care/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/audit/cycles",
         "label": "Cycles",
         "iconName": "RotateCw",
