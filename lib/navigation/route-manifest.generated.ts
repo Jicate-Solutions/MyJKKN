@@ -4410,6 +4410,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/moments",
+    "label": "Moments",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/moments/campaigns",
+        "label": "Campaigns",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/moments/submit",
+        "label": "Submit",
+        "iconName": "FileText",
+        "children": []
+      }
+    ]
+  },
+  {
     "path": "/my-bug-reports",
     "label": "My Bug Reports",
     "iconName": "FileText",

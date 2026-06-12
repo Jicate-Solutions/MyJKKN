@@ -41,6 +41,10 @@ const PUBLIC_PATH_PREFIXES = [
   '/meet/', // Universal Booking personal pages (/meet/[handle]) — no login (U4)
   '/c/', // Public campaign link shortener pages — no login
   '/student-form/', // Student self-fill form via QR (token-validated server-side) — no login
+  '/m/', // Family Moments gift cards (/m/[token]) — parent-facing, no login (Father's Day 2026).
+  //        NOTE: deliberately NOT '/moments/' — that prefix is the AUTHENTICATED
+  //        teacher/admin module (submit, campaigns) and must stay behind login.
+  '/api/public/moments/', // Family Moments engagement tracking — token-keyed, no login
 ];
 
 // Regex for static assets - single check instead of multiple endsWith
