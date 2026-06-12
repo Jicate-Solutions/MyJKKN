@@ -16,9 +16,12 @@ import type { UpgradeRoomCategoryOption } from '@/types/campus-living/category-u
 
 interface Props {
   currentCategoryName: string | null;
+  /** 'book' = learner has no allocation yet (first booking); 'upgrade' = move. */
+  mode?: 'book' | 'upgrade';
 }
 
-export function RoomCategoryUpgradeCard({ currentCategoryName }: Props) {
+export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' }: Props) {
+  const isBook = mode === 'book';
   const { data: options = [], isLoading } = useUpgradeRoomCategories();
   const { data: myWaitlist = [] } = useMyUpgradeWaitlist();
   const joinWaitlist = useJoinUpgradeWaitlist();
@@ -32,25 +35,28 @@ export function RoomCategoryUpgradeCard({ currentCategoryName }: Props) {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
-          <Building2 className="h-5 w-5 text-primary" /> Upgrade Room Category
+          <Building2 className="h-5 w-5 text-primary" /> {isBook ? 'Book a Room' : 'Upgrade Room Category'}
         </CardTitle>
         <CardDescription>
-          Move up to a higher room category. If a room is free you move instantly and a new bill is
-          generated; otherwise you can join the waitlist (your current stay & bill stay as-is).
+          {isBook
+            ? 'Pick a room to move into. Confirming books it instantly and it leaves everyone else’s options.'
+            : 'Move up to a higher room category. If a room is free you move instantly and a new bill is generated; otherwise you can join the waitlist (your current stay & bill stay as-is).'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {isLoading ? (
           <div className="flex items-center text-sm text-muted-foreground py-4">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading upgrade options…
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading {isBook ? 'rooms' : 'upgrade options'}…
           </div>
         ) : options.length === 0 ? (
           <p className="text-sm text-muted-foreground py-2">
-            No higher room categories available to you right now.
+            {isBook
+              ? 'No rooms available to you right now — please contact the hostel office.'
+              : 'No higher room categories available to you right now.'}
           </p>
         ) : (
           options.map((opt) => {
-            const waitlisted = waitlistFor(opt.category_id);
+            const waitlisted = isBook ? null : waitlistFor(opt.category_id);
             // A below-threshold reservation: bed is hard-held until paid or expiry.
             const held = waitlisted?.held_room_number ? waitlisted : null;
             const hasRooms = opt.available_beds > 0;
@@ -68,10 +74,18 @@ export function RoomCategoryUpgradeCard({ currentCategoryName }: Props) {
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="font-medium truncate">
-                      {currentCategoryName ? `${currentCategoryName} → ` : ''}{opt.name}
+                      {!isBook && currentCategoryName ? `${currentCategoryName} → ` : ''}{opt.name}
                     </p>
                   </div>
-                  {held ? (
+                  {isBook ? (
+                    hasRooms ? (
+                      <Button size="sm" onClick={() => setPicked(opt)}>
+                        <ArrowUpCircle className="mr-1.5 h-4 w-4" /> Book now
+                      </Button>
+                    ) : (
+                      <Badge variant="outline">No room free</Badge>
+                    )
+                  ) : held ? (
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-400">
                         <CalendarClock className="mr-1 h-3 w-3" /> Room reserved
@@ -133,7 +147,7 @@ export function RoomCategoryUpgradeCard({ currentCategoryName }: Props) {
                     deadline.
                   </p>
                 )}
-                {!held && hasRooms && !opt.meets_threshold && (
+                {!isBook && !held && hasRooms && !opt.meets_threshold && (
                   <p className="text-xs text-muted-foreground">
                     You&apos;ve paid {opt.paid_pct ?? 0}% of this year&apos;s fees; {opt.threshold_pct}% is
                     needed for an instant upgrade — you can still reserve a room for {opt.hold_days} day
@@ -170,6 +184,7 @@ export function RoomCategoryUpgradeCard({ currentCategoryName }: Props) {
           paidPct={picked.paid_pct}
           meetsThreshold={picked.meets_threshold}
           holdDays={picked.hold_days}
+          mode={mode}
         />
       )}
     </Card>

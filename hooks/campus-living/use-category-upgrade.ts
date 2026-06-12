@@ -62,7 +62,9 @@ export function useUpgradeRoom() {
       CategoryUpgradeService.upgradeRoom(categoryId, roomId),
     onSuccess: (res) => {
       invalidate();
-      if (res.state === 'waitlisted') {
+      if (res.state === 'booked') {
+        toast.success('Room booked — it is now assigned to you');
+      } else if (res.state === 'waitlisted') {
         toast.success('Room reserved — it confirms automatically once your fee payment reaches the required level');
       } else {
         toast.success(`Upgraded · new bill ₹${(res.bill?.billed ?? 0).toLocaleString('en-IN')} generated`);

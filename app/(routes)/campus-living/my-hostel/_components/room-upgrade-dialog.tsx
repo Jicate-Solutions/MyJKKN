@@ -21,6 +21,8 @@ interface Props {
   paidPct: number | null;
   meetsThreshold: boolean;
   holdDays: number;
+  /** 'book' = first allocation (no prior room): instant, no fee/threshold. */
+  mode?: 'book' | 'upgrade';
 }
 
 const inr = (n: number) => `₹${n.toLocaleString('en-IN')}`;
@@ -28,8 +30,9 @@ const floorLabel = (floor: number) => (floor === 0 ? 'Ground floor' : `Floor ${f
 
 export function RoomUpgradeDialog({
   open, onOpenChange, categoryId, categoryName, currentCategoryName, upgradeFee,
-  thresholdPct, paidPct, meetsThreshold, holdDays,
+  thresholdPct, paidPct, meetsThreshold, holdDays, mode = 'upgrade',
 }: Props) {
+  const isBook = mode === 'book';
   const { data: rooms = [], isLoading } = useUpgradeRooms(open ? categoryId : null);
   const upgrade = useUpgradeRoom();
   const [roomId, setRoomId] = useState('');
@@ -62,7 +65,7 @@ export function RoomUpgradeDialog({
         {step === 'pick' ? (
           <>
             <DialogHeader>
-              <DialogTitle>Upgrade to {categoryName}</DialogTitle>
+              <DialogTitle>{isBook ? `Book a ${categoryName} room` : `Upgrade to ${categoryName}`}</DialogTitle>
               <DialogDescription>
                 Only {categoryName} rooms with a free bed are shown. Pick a room to continue.
               </DialogDescription>
@@ -74,8 +77,7 @@ export function RoomUpgradeDialog({
               </div>
             ) : rooms.length === 0 ? (
               <p className="text-sm text-muted-foreground py-6">
-                No available rooms right now. Close this and choose &quot;Join waitlist&quot; instead —
-                you&apos;ll see the rooms here once one frees up.
+                No available rooms right now{isBook ? '' : ' — close this and choose “Join waitlist” instead'}.
               </p>
             ) : (
               <div className="space-y-4 max-h-[360px] overflow-y-auto">
@@ -119,11 +121,15 @@ export function RoomUpgradeDialog({
         ) : (
           <>
             <DialogHeader>
-              <DialogTitle>{meetsThreshold ? 'Confirm your upgrade' : 'Reserve this room'}</DialogTitle>
+              <DialogTitle>
+                {isBook ? 'Confirm your booking' : meetsThreshold ? 'Confirm your upgrade' : 'Reserve this room'}
+              </DialogTitle>
               <DialogDescription>
-                {meetsThreshold
-                  ? 'Please review the details below — this happens instantly on confirm.'
-                  : 'Please review the details below — the room will be held for you while you complete your fee payment.'}
+                {isBook
+                  ? 'Please review the details below — the room is booked instantly on confirm.'
+                  : meetsThreshold
+                    ? 'Please review the details below — this happens instantly on confirm.'
+                    : 'Please review the details below — the room will be held for you while you complete your fee payment.'}
               </DialogDescription>
             </DialogHeader>
 
@@ -133,7 +139,7 @@ export function RoomUpgradeDialog({
                   <div className="flex items-center justify-between gap-3 px-3 py-2">
                     <span className="text-muted-foreground">Category</span>
                     <span className="font-medium text-right">
-                      {currentCategoryName ? `${currentCategoryName} → ` : ''}{categoryName}
+                      {!isBook && currentCategoryName ? `${currentCategoryName} → ` : ''}{categoryName}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-3 px-3 py-2">
@@ -149,12 +155,19 @@ export function RoomUpgradeDialog({
                       {selected.capacity} beds · {selected.available_beds} free
                     </span>
                   </div>
-                  <div className="flex items-center justify-between gap-3 px-3 py-2">
-                    <span className="text-muted-foreground">Upgrade fee</span>
-                    <span className="font-semibold">{inr(upgradeFee)}</span>
-                  </div>
+                  {!isBook && (
+                    <div className="flex items-center justify-between gap-3 px-3 py-2">
+                      <span className="text-muted-foreground">Upgrade fee</span>
+                      <span className="font-semibold">{inr(upgradeFee)}</span>
+                    </div>
+                  )}
                 </div>
-                {meetsThreshold ? (
+                {isBook ? (
+                  <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+                    On confirm, this room is booked and assigned to you. Your hostel fee is
+                    raised by the hostel office.
+                  </div>
+                ) : meetsThreshold ? (
                   <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
                     On confirm, a bed in this room is assigned to you and the upgrade bill is
                     generated automatically.
@@ -184,9 +197,11 @@ export function RoomUpgradeDialog({
               </Button>
               <Button onClick={confirm} disabled={!selected || upgrade.isPending}>
                 {upgrade.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {meetsThreshold
-                  ? 'Confirm upgrade'
-                  : <>Reserve room for {holdDays} day{holdDays === 1 ? '' : 's'}</>}
+                {isBook
+                  ? 'Book now'
+                  : meetsThreshold
+                    ? 'Confirm upgrade'
+                    : <>Reserve room for {holdDays} day{holdDays === 1 ? '' : 's'}</>}
               </Button>
             </DialogFooter>
           </>

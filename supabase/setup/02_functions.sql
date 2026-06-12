@@ -15062,6 +15062,9 @@ GRANT EXECUTE ON FUNCTION public.fn_my_upgrade_mess_categories() TO authenticate
 -- _cl_execute_room_upgrade) when the learner's current-AY academic paid % meets
 -- the target category's upgrade_threshold_pct; otherwise the chosen bed is
 -- hard-reserved and a waitlist hold is recorded (state='waitlisted').
+-- 20260612140000: when the learner has NO active allocation, the same action
+-- performs a FIRST BOOKING — instant 'active' allocation, UNGATED (no
+-- threshold), NO bill (base fee billed later by the operator's generation run).
 CREATE OR REPLACE FUNCTION public.fn_self_upgrade_room_category(
   p_new_category_id uuid, p_room_id uuid, p_bed_id uuid DEFAULT NULL
 ) RETURNS jsonb
@@ -15071,10 +15074,11 @@ DECLARE
   v_profile uuid := auth.uid();
   v_year uuid; v_cur_cat uuid; v_cur_fee numeric := 0; v_new_fee numeric;
   v_gate jsonb; v_hold_days int; v_bed_status text; v_existing uuid;
-  v_inst uuid; v_ay uuid; v_expires timestamptz; v_result jsonb;
+  v_inst uuid; v_ay uuid; v_sem uuid; v_tier uuid; v_block uuid; v_new_alloc uuid;
+  v_expires timestamptz; v_result jsonb; v_has_alloc boolean;
 BEGIN
   IF v_lp IS NULL OR v_profile IS NULL OR NOT user_is_hosteler() THEN
-    RAISE EXCEPTION 'Only a hostel resident can upgrade';
+    RAISE EXCEPTION 'Only a hostel resident can book or upgrade a room';
   END IF;
   SELECT id INTO v_year FROM hostel_years WHERE is_current LIMIT 1;
   IF v_year IS NULL THEN RAISE EXCEPTION 'No current hostel year configured'; END IF;
@@ -15086,11 +15090,11 @@ BEGIN
   SELECT hostel_category_id INTO v_cur_cat FROM learners_profiles WHERE id = v_lp;
   SELECT COALESCE(amount,0) INTO v_cur_fee FROM hostel_fees
     WHERE hostel_category_id = v_cur_cat AND hostel_year_id = v_year AND mess_category_id IS NULL AND is_active LIMIT 1;
-  IF v_new_fee < v_cur_fee THEN RAISE EXCEPTION 'Downgrades are not allowed (new fee < current fee)'; END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM hostel_allocations WHERE learner_id = v_profile AND status = 'active') THEN
-    RAISE EXCEPTION 'You have no active allocation to upgrade from';
+  IF v_cur_cat IS NOT NULL AND v_new_fee < v_cur_fee THEN
+    RAISE EXCEPTION 'Downgrades are not allowed (new fee < current fee)';
   END IF;
+
+  v_has_alloc := EXISTS (SELECT 1 FROM hostel_allocations WHERE learner_id = v_profile AND status = 'active');
 
   -- 20260611100000: room-level flow — auto-assign the lowest-numbered available bed
   IF p_bed_id IS NULL THEN
@@ -15108,6 +15112,42 @@ BEGIN
     WHERE o.bed_id = p_bed_id AND o.room_id = p_room_id
   ) THEN
     RAISE EXCEPTION 'That room/bed is not an available option for you';
+  END IF;
+
+  -- 20260612140000: FIRST BOOKING (no active allocation) — instant, ungated, no bill
+  IF NOT v_has_alloc THEN
+    IF NOT pg_try_advisory_xact_lock(hashtext(p_bed_id::text)) THEN
+      RAISE EXCEPTION 'Another resident is claiming this bed. Try again.';
+    END IF;
+    SELECT status INTO v_bed_status FROM hostel_beds WHERE id = p_bed_id AND room_id = p_room_id;
+    IF v_bed_status IS DISTINCT FROM 'available' THEN RAISE EXCEPTION 'That bed is no longer available'; END IF;
+
+    SELECT institution_id, semester_id, academic_year_id INTO v_inst, v_sem, v_ay
+      FROM learners_profiles WHERE id = v_lp;
+    v_ay := COALESCE(v_ay, (SELECT id FROM academic_years WHERE institution_id=v_inst AND is_active ORDER BY start_date DESC LIMIT 1));
+    IF v_ay IS NULL THEN RAISE EXCEPTION 'No academic year configured'; END IF;
+    SELECT block_id INTO v_block FROM hostel_rooms WHERE id = p_room_id;
+    SELECT id INTO v_tier FROM hostel_tier_policy WHERE tier_key='standard' AND is_active
+      ORDER BY institution_id NULLS LAST LIMIT 1;
+    IF v_tier IS NULL THEN RAISE EXCEPTION 'No standard tier policy found'; END IF;
+
+    INSERT INTO hostel_allocations (
+      institution_id, learner_id, block_id, room_id, bed_id, academic_year_id, semester_id,
+      allocation_type, allocation_date, status,
+      emergency_contact_name, emergency_contact_phone, emergency_contact_relation,
+      tier_id, allocated_by, warden_id
+    ) VALUES (
+      v_inst, v_profile, v_block, p_room_id, p_bed_id, v_ay, v_sem,
+      'fresh', CURRENT_DATE, 'active', '', '', '',
+      v_tier, v_profile,
+      (SELECT user_id FROM user_block_access WHERE block_id=v_block AND revoked_at IS NULL LIMIT 1)
+    ) RETURNING id INTO v_new_alloc;
+    UPDATE hostel_beds SET status='occupied', current_occupant_id=v_profile WHERE id = p_bed_id;
+    -- categories set by trg_allocation_sync_learner_categories; no bill on first booking.
+
+    RETURN jsonb_build_object('success', true, 'state', 'booked',
+      'new_allocation_id', v_new_alloc, 'new_bed_id', p_bed_id,
+      'new_category_id', p_new_category_id, 'new_fee', v_new_fee);
   END IF;
 
   v_gate := public._cl_upgrade_threshold_check(v_lp, p_new_category_id);

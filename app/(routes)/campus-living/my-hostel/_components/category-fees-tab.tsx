@@ -1,8 +1,11 @@
 'use client';
 
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { useAuth } from '@/hooks/use-auth';
 import { useMyHostelSummary } from '@/hooks/campus-living/use-my-hostel';
-import { Building2, UtensilsCrossed, Info, Loader2 } from 'lucide-react';
+import { HostelAllocationService } from '@/lib/services/campus-living/hostel-allocation-service';
+import { Building2, UtensilsCrossed, Loader2 } from 'lucide-react';
 import { RoomCategoryUpgradeCard } from './room-category-upgrade-card';
 import { MessCategoryUpgradeCard } from './mess-category-upgrade-card';
 
@@ -10,9 +13,19 @@ import { MessCategoryUpgradeCard } from './mess-category-upgrade-card';
 // CategoryFeesTab
 // ---------------------------------------------------------------------------
 export function CategoryFeesTab() {
+  const { profile } = useAuth();
+  const profileId = profile?.id ?? '';
   const { data: summary, isLoading } = useMyHostelSummary();
 
-  if (isLoading) {
+  // Same key the page/overview use — React Query dedupes. Drives book vs upgrade.
+  const { data: allocations, isLoading: allocLoading } = useQuery({
+    queryKey: ['hostel-allocations', 'by-learner', profileId],
+    queryFn: () => HostelAllocationService.getAllocationByLearner(profileId, true),
+    enabled: !!profileId,
+  });
+  const hasAllocation = ((allocations ?? []) as unknown[]).length > 0;
+
+  if (isLoading || allocLoading) {
     return (
       <div className='flex items-center justify-center min-h-[200px]'>
         <Loader2 className='h-6 w-6 animate-spin text-primary' />
@@ -20,16 +33,20 @@ export function CategoryFeesTab() {
     );
   }
 
-  if (!summary?.hostelCategory) {
+  // No active allocation → first-booking flow (book a room). Works even when the
+  // learner has no category assigned yet (the card lists all eligible categories).
+  if (!hasAllocation) {
     return (
-      <Card>
-        <CardContent className='p-8 text-center'>
-          <Info className='h-10 w-10 mx-auto text-muted-foreground mb-2' />
-          <p className='text-muted-foreground'>
-            No hostel category assigned to your profile yet — contact the hostel office.
+      <div className='space-y-6'>
+        <div>
+          <h2 className='text-lg font-semibold'>Book Your Room</h2>
+          <p className='text-sm text-muted-foreground'>
+            You don&apos;t have a hostel room yet. Pick one below to book it instantly — your room
+            and mess category are set automatically once booked.
           </p>
-        </CardContent>
-      </Card>
+        </div>
+        <RoomCategoryUpgradeCard currentCategoryName={null} mode='book' />
+      </div>
     );
   }
 
@@ -51,7 +68,7 @@ export function CategoryFeesTab() {
                 <Building2 className='h-4 w-4' />
                 Room Category
               </div>
-              <p className='font-medium'>{summary.hostelCategory.name}</p>
+              <p className='font-medium'>{summary?.hostelCategory?.name ?? '—'}</p>
             </div>
 
             <div className='p-3 bg-muted/50 rounded-lg'>
@@ -59,7 +76,7 @@ export function CategoryFeesTab() {
                 <UtensilsCrossed className='h-4 w-4' />
                 Mess Category
               </div>
-              <p className='font-medium'>{summary.messCategory?.name ?? '—'}</p>
+              <p className='font-medium'>{summary?.messCategory?.name ?? '—'}</p>
             </div>
 
             <div className='p-3 bg-muted/50 rounded-lg'>
@@ -68,7 +85,7 @@ export function CategoryFeesTab() {
                 Hostel Type
               </div>
               <p className='font-medium capitalize'>
-                {summary.hostelCategory.type ?? '—'}
+                {summary?.hostelCategory?.type ?? '—'}
               </p>
             </div>
           </div>
@@ -77,7 +94,8 @@ export function CategoryFeesTab() {
 
       {/* Self-service upgrades */}
       <RoomCategoryUpgradeCard
-        currentCategoryName={summary.hostelCategory?.name ?? null}
+        currentCategoryName={summary?.hostelCategory?.name ?? null}
+        mode='upgrade'
       />
       <MessCategoryUpgradeCard
         currentMessName={summary.messCategory?.name ?? null}
