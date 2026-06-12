@@ -1581,3 +1581,9 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Function: `fn_pde_list_vac_courses()` — now own-institution OR universal (institution_id IS NULL)
 - Index: `vac_courses_code_key` UNIQUE(code) — staging parity + double-run guard
 - Location: `supabase/migrations/20260612084500_vac_universal_picker_and_code_unique.sql` (applied live 2026-06-12)
+
+### Family Moments Engine (2026-06-12)
+- Tables: `family_moments_campaigns` (occasion per institution) + `family_moments` (tokenized card per child per campaign) + storage bucket `family-moments` (public read, permission-gated write)
+- Location: `supabase/migrations/20260711000000_family_moments_engine.sql`
+- RLS: NO anon policies by design — public gift page reads server-side via service role keyed on unguessable token. Teacher writes via `moments.submissions.create`; dashboards via `moments.campaigns.view`.
+- Seed: `scripts/moments/seed-fathers-day.ts` (2 campaigns + 456 pre-seeded auto-cards, NV CBSE + Matric HSS)
