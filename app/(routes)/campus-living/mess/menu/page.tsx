@@ -9,7 +9,7 @@
 // regardless of the institution-scoped RLS on mess_menus.
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
@@ -77,6 +77,31 @@ function weekRangeLabel(mondayIso: string): string {
   return `${fmt(start)} – ${fmt(end)}`;
 }
 
+/**
+ * Which (tiers, genders) actually have menu cells authored — powers the
+ * data-aware default below. fn_mess_menu_facets shipped with #1339 for the
+ * viewer's selectors but was never consumed; today all menus are girls',
+ * so a hardcoded 'boys' default opened the page on an empty dataset
+ * (Director screenshot, 2026-06-12).
+ */
+function useMenuFacets() {
+  return useQuery({
+    queryKey: ['mess-menu-facets'],
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<{ tiers: string[]; genders: string[] }> => {
+      const supabase = createClientSupabaseClient();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc('fn_mess_menu_facets');
+      if (error) throw error;
+      const d = (data ?? {}) as { tiers?: unknown; genders?: unknown };
+      return {
+        tiers: Array.isArray(d.tiers) ? (d.tiers as string[]) : [],
+        genders: Array.isArray(d.genders) ? (d.genders as string[]) : [],
+      };
+    },
+  });
+}
+
 function useMenuWeek(weekStart: string, tier: TierKey, gender: Gender) {
   return useQuery({
     queryKey: ['mess-menu-week', weekStart, tier, gender],
@@ -103,6 +128,23 @@ export default function WeeklyMessMenuPage() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [tier, setTier] = useState<TierKey>('classic');
   const [gender, setGender] = useState<Gender>('boys');
+
+  // Data-aware initial selection: once facets load, snap any selection with
+  // ZERO authored menus anywhere onto one that has data (e.g. all menus are
+  // girls' today → land on Girls, not an empty Boys page). Runs once; the
+  // user's own taps afterwards always win.
+  const { data: facets } = useMenuFacets();
+  const snappedToData = useRef(false);
+  useEffect(() => {
+    if (snappedToData.current || !facets) return;
+    snappedToData.current = true;
+    if (facets.genders.length > 0 && !facets.genders.includes(gender)) {
+      setGender(facets.genders[0] as Gender);
+    }
+    if (facets.tiers.length > 0 && !facets.tiers.includes(tier)) {
+      setTier(facets.tiers[0]);
+    }
+  }, [facets, gender, tier]);
 
   const weekStart = useMemo(() => mondayOf(new Date(), weekOffset), [weekOffset]);
   const { data, isLoading } = useMenuWeek(weekStart, tier, gender);
