@@ -45,11 +45,20 @@ export interface BookingEmailParams {
   videoUrl?: string | null;
   /** Attendee self-service cancel link (omit to hide the button). */
   cancelUrl?: string;
+  /** Attendee self-service reschedule link (U5, D16; omit to hide). */
+  rescheduleUrl?: string;
 }
 
-export interface CancellationEmailParams extends Omit<BookingEmailParams, 'cancelUrl'> {
+export interface CancellationEmailParams
+  extends Omit<BookingEmailParams, 'cancelUrl' | 'rescheduleUrl'> {
   cancelledBy: 'attendee' | 'host' | 'system';
   reason?: string | null;
+}
+
+export interface RescheduleEmailParams
+  extends Omit<BookingEmailParams, 'cancelUrl' | 'rescheduleUrl'> {
+  previousStartTime: string; // ISO instant
+  rescheduledBy: 'attendee' | 'host';
 }
 
 // ---------------------------------------------------------------------------
@@ -284,9 +293,10 @@ export class MeetingBookingEmailService {
         { label: 'Reference', value: params.uid },
       ])}
       ${params.videoUrl ? actionButton(params.videoUrl, 'Join Google Meet') : ''}
+      ${params.rescheduleUrl ? actionButton(params.rescheduleUrl, 'Reschedule') : ''}
       ${params.cancelUrl ? actionButton(params.cancelUrl, 'Cancel Booking') : ''}
       <p style="margin:0;color:#6b7280;font-size:13px;line-height:1.65;">
-        Need to change the time? Cancel this booking and book a new slot.
+        Plans changed? Use the buttons above to pick a new time or cancel.
       </p>`;
 
     const hostBookingUrl = APP_URL ? `${APP_URL}/meetings/${params.uid}` : '';
@@ -383,6 +393,68 @@ export class MeetingBookingEmailService {
         `Booking Cancelled – ${params.attendeeName} (${params.meetingTitle})`,
         emailShell('#dc2626', '&#10007;&nbsp; A booking with you was cancelled', hostBody),
         `meeting-cancelled-host-${params.uid}`
+      )
+    );
+  }
+
+  /**
+   * Booking rescheduled (U5, D16): old → new time to both parties, naming
+   * who moved it. The Google event patch separately re-invites the attendee;
+   * this email carries the explicit before/after.
+   */
+  static async sendBookingRescheduledEmails(params: RescheduleEmailParams): Promise<MeetingEmailPair> {
+    const newWhen = fmtWhen(params.startTime, params.timezone);
+    const oldWhen = fmtWhen(params.previousStartTime, params.timezone);
+    const hostName = esc(params.hostName || 'the host');
+    const attendeeName = esc(params.attendeeName || 'the attendee');
+    const title = esc(params.meetingTitle);
+    const byLabel = params.rescheduledBy === 'attendee' ? attendeeName : hostName;
+
+    const card = detailsCard([
+      { label: 'Meeting', value: title },
+      { label: 'New time', value: `<strong>${newWhen}</strong>` },
+      { label: 'Was', value: oldWhen },
+      { label: 'Duration', value: `${params.durationMin} minutes` },
+      { label: 'Moved by', value: byLabel },
+      { label: 'Reference', value: params.uid },
+    ]);
+
+    const attendeeBody = `
+      <p style="margin:0 0 20px;color:#374151;font-size:15px;line-height:1.65;">
+        Hi ${attendeeName},
+      </p>
+      <p style="margin:0 0 28px;color:#374151;font-size:15px;line-height:1.65;">
+        Your meeting with <strong>${hostName}</strong> has been <strong>moved to a new time</strong>.
+      </p>
+      ${card}
+      <p style="margin:0;color:#6b7280;font-size:13px;line-height:1.65;">
+        The cancel and reschedule links from your confirmation email keep working.
+      </p>`;
+
+    const hostBody = `
+      <p style="margin:0 0 20px;color:#374151;font-size:15px;line-height:1.65;">
+        Hi ${hostName},
+      </p>
+      <p style="margin:0 0 28px;color:#374151;font-size:15px;line-height:1.65;">
+        The meeting with <strong>${attendeeName}</strong> has been <strong>moved to a new time</strong>.
+        The old slot is open again.
+      </p>
+      ${card}`;
+
+    // Idempotency key includes the new start — each distinct move sends once.
+    const moveKey = params.startTime.replace(/[^0-9]/g, '').slice(0, 12);
+    return sendPair(
+      send(
+        params.attendeeEmail,
+        `Meeting Rescheduled – ${params.meetingTitle}`,
+        emailShell('#d97706', '&#128260;&nbsp; Your meeting has a new time', attendeeBody),
+        `meeting-rescheduled-attendee-${params.uid}-${moveKey}`
+      ),
+      send(
+        params.hostEmail,
+        `Booking Rescheduled – ${params.attendeeName} (${params.meetingTitle})`,
+        emailShell('#d97706', '&#128260;&nbsp; A booking with you was rescheduled', hostBody),
+        `meeting-rescheduled-host-${params.uid}-${moveKey}`
       )
     );
   }
