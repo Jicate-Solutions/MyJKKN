@@ -20,6 +20,7 @@
 import crypto from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { MeetingBookingEmailService } from '@/lib/services/email/meeting-booking-email-service';
+import { GoogleCalendarService } from '@/lib/services/integrations/google-calendar-service';
 import {
   computeSlots,
   groupSlotsByDate,
@@ -49,6 +50,9 @@ export interface NativeMeetingType {
   buffer_before_min: number;
   buffer_after_min: number;
   max_days_ahead: number;
+  /** U1 (D4): where the meeting happens. */
+  location_mode: 'in_person' | 'phone' | 'online';
+  location_text: string | null;
 }
 
 export interface NativeBookingInput {
@@ -158,7 +162,12 @@ export class NativeSchedulingService {
     };
   }
 
-  /** Host's confirmed bookings overlapping a UTC range (engine conflict input). */
+  /**
+   * Host's busy ranges over a UTC range (engine conflict input):
+   * confirmed native bookings UNIONED with the host's real Google Calendar
+   * (U2, D12) when a connection exists. Google 'failed' = fail CLOSED (D19) —
+   * a host whose protection broke must not look free.
+   */
   private static async loadBusy(
     supabase: SupabaseClient,
     hostProfileId: string,
@@ -177,7 +186,16 @@ export class NativeSchedulingService {
       // fail CLOSED: pretend fully busy rather than offering unverifiable slots
       return [{ start: fromIso, end: toIso }];
     }
-    return (data ?? []).map((b) => ({ start: b.start_time, end: b.end_time }));
+    const busy = (data ?? []).map((b) => ({ start: b.start_time, end: b.end_time }));
+
+    const google = await GoogleCalendarService.busyForHost(supabase, hostProfileId, fromIso, toIso);
+    if (google.status === 'failed') {
+      // markConnectionBroken has been (or will be) handled inside the service;
+      // here we just refuse to serve slots we cannot verify.
+      return [{ start: fromIso, end: toIso }];
+    }
+    if (google.status === 'ok') busy.push(...google.busy);
+    return busy;
   }
 
   /**
@@ -316,6 +334,35 @@ export class NativeSchedulingService {
       .eq('id', mt.host_profile_id)
       .maybeSingle();
 
+    // U2 (D12): Google Calendar event BEFORE the emails so the Meet link can
+    // ride the confirmation. Best effort — a Google failure never fails the
+    // committed booking; the event also makes Google invite the attendee.
+    let videoUrl: string | null = null;
+    let googleEventId: string | null = null;
+    const conn = await GoogleCalendarService.getConnection(supabase, mt.host_profile_id);
+    if (conn?.status === 'active') {
+      const event = await GoogleCalendarService.createEvent(supabase, mt.host_profile_id, {
+        summary: `${mt.title} — ${input.attendeeName}`,
+        description: [
+          `Booked via JKKN (${input.source ?? 'direct'}). Reference: ${uid}`,
+          input.attendeePhone ? `Attendee phone: ${input.attendeePhone}` : '',
+        ].filter(Boolean).join('\n'),
+        startIso,
+        endIso,
+        timezone: sched.timezone,
+        attendees: [{ email: input.attendeeEmail, displayName: input.attendeeName }],
+        withMeet: mt.location_mode === 'online',
+      });
+      if (event) {
+        videoUrl = event.meetUrl;
+        googleEventId = event.eventId;
+        await supabase
+          .from('meeting_bookings')
+          .update({ video_url: videoUrl, google_event_id: googleEventId })
+          .eq('uid', uid);
+      }
+    }
+
     // Phase N3a: confirmation emails to attendee + host. The booking is
     // already committed — the email service is non-throwing and skips when
     // RESEND_API_KEY is unset, so notification failure never fails a booking.
@@ -333,6 +380,9 @@ export class NativeSchedulingService {
       attendeeName: input.attendeeName,
       attendeeEmail: input.attendeeEmail,
       attendeePhone: input.attendeePhone ?? null,
+      locationMode: mt.location_mode,
+      locationText: mt.location_text,
+      videoUrl,
       cancelUrl:
         appUrl && cancelToken
           ? `${appUrl}/book/cancel/${uid}?token=${cancelToken}`
@@ -361,7 +411,7 @@ export class NativeSchedulingService {
     const { data: booking, error } = await supabase
       .from('meeting_bookings')
       .select(
-        'id, host_profile_id, cancel_token, status, attendee_name, attendee_email, start_time, end_time, meeting_type_id',
+        'id, host_profile_id, cancel_token, status, attendee_name, attendee_email, start_time, end_time, meeting_type_id, google_event_id',
       )
       .eq('uid', uid)
       .maybeSingle();
@@ -416,6 +466,16 @@ export class NativeSchedulingService {
         (new Date(booking.end_time).getTime() - new Date(booking.start_time).getTime()) / 60_000,
       ),
     );
+    // U2 (D12): remove the Google Calendar event (best effort — Google also
+    // notifies the attendee via sendUpdates=all on the delete).
+    if (booking.google_event_id) {
+      await GoogleCalendarService.deleteEvent(
+        supabase,
+        booking.host_profile_id,
+        booking.google_event_id as string,
+      );
+    }
+
     await MeetingBookingEmailService.sendBookingCancelledEmails({
       uid,
       meetingTitle: (mtRow?.title as string | undefined) ?? 'Meeting',

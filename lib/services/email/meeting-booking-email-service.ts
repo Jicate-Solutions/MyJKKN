@@ -38,6 +38,11 @@ export interface BookingEmailParams {
   attendeeName: string;
   attendeeEmail: string;
   attendeePhone?: string | null;
+  /** U2 (D4): where the meeting happens. Omitted = legacy copy without a location row. */
+  locationMode?: 'in_person' | 'phone' | 'online' | null;
+  locationText?: string | null;
+  /** U2 (D12): Google Meet link when the host's calendar created one. */
+  videoUrl?: string | null;
   /** Attendee self-service cancel link (omit to hide the button). */
   cancelUrl?: string;
 }
@@ -177,6 +182,32 @@ function fmtWhen(iso: string, timezone: string): string {
   }
 }
 
+/**
+ * Human "Where" row for details cards (U2, D4). The videoUrl anchor is the
+ * one place we intentionally inject HTML — everything else stays esc()'d.
+ */
+function locationRow(params: {
+  locationMode?: 'in_person' | 'phone' | 'online' | null;
+  locationText?: string | null;
+  videoUrl?: string | null;
+}): { label: string; value: string } {
+  switch (params.locationMode) {
+    case 'online':
+      return {
+        label: 'Where',
+        value: params.videoUrl
+          ? `<a href="${params.videoUrl}" style="color:#2563eb;">Google Meet — join link</a>`
+          : 'Online (link will be shared)',
+      };
+    case 'phone':
+      return { label: 'Where', value: 'Phone call — the host will call you' };
+    case 'in_person':
+      return { label: 'Where', value: params.locationText ? esc(params.locationText) : 'In person' };
+    default:
+      return { label: 'Where', value: '' }; // empty values are filtered by detailsCard
+  }
+}
+
 function isConfigured(): boolean {
   return !!process.env.RESEND_API_KEY;
 }
@@ -249,8 +280,10 @@ export class MeetingBookingEmailService {
         { label: 'With', value: hostName },
         { label: 'Date & Time', value: when },
         { label: 'Duration', value: `${params.durationMin} minutes` },
+        locationRow(params),
         { label: 'Reference', value: params.uid },
       ])}
+      ${params.videoUrl ? actionButton(params.videoUrl, 'Join Google Meet') : ''}
       ${params.cancelUrl ? actionButton(params.cancelUrl, 'Cancel Booking') : ''}
       <p style="margin:0;color:#6b7280;font-size:13px;line-height:1.65;">
         Need to change the time? Cancel this booking and book a new slot.
@@ -271,6 +304,7 @@ export class MeetingBookingEmailService {
         { label: 'Phone', value: params.attendeePhone ? esc(params.attendeePhone) : '' },
         { label: 'Date & Time', value: when },
         { label: 'Duration', value: `${params.durationMin} minutes` },
+        locationRow(params),
       ])}
       ${actionButton(hostBookingUrl, 'View Booking')}
       <p style="margin:0;color:#6b7280;font-size:13px;line-height:1.65;">
@@ -350,6 +384,47 @@ export class MeetingBookingEmailService {
         emailShell('#dc2626', '&#10007;&nbsp; A booking with you was cancelled', hostBody),
         `meeting-cancelled-host-${params.uid}`
       )
+    );
+  }
+
+  /**
+   * U2 (D19): the host's Google Calendar connection broke — their public
+   * booking page was auto-hidden. One email per break (transition-gated by
+   * GoogleCalendarService.markConnectionBroken).
+   */
+  static async sendGoogleConnectionBrokenEmail(params: {
+    to: string;
+    hostName: string;
+    reason: string;
+    /** false when the host had no public page to hide (availability-only host). */
+    pageWasHidden: boolean;
+  }): Promise<MeetingEmailResult> {
+    const reconnectUrl = APP_URL ? `${APP_URL}/meetings/availability` : '';
+    const body = `
+      <p style="margin:0 0 20px;color:#374151;font-size:15px;line-height:1.65;">
+        Hi ${esc(params.hostName)},
+      </p>
+      <p style="margin:0 0 20px;color:#374151;font-size:15px;line-height:1.65;">
+        Your Google Calendar connection has stopped working
+        (${esc(params.reason)}), so your real calendar can no longer protect
+        your booking slots from double-booking.
+      </p>
+      <p style="margin:0 0 28px;color:#374151;font-size:15px;line-height:1.65;">
+        ${params.pageWasHidden
+          ? '<strong>Your public booking page has been hidden</strong> until you reconnect — visitors cannot book you in the meantime.'
+          : 'Reconnect to keep your availability protected.'}
+      </p>
+      ${actionButton(reconnectUrl, 'Reconnect Google Calendar')}
+      <p style="margin:0;color:#6b7280;font-size:13px;line-height:1.65;">
+        Reconnecting takes under a minute and restores your page exactly as it was.
+      </p>`;
+
+    return send(
+      params.to,
+      'Action needed – reconnect your Google Calendar',
+      emailShell('#dc2626', '&#9888;&#65039;&nbsp; Your booking page needs attention', body),
+      // One break-email per day per host at most, even across repeat flips.
+      `google-broken-${params.to}-${new Date().toISOString().slice(0, 10)}`
     );
   }
 }
