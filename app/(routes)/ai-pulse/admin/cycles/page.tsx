@@ -15,7 +15,7 @@ import { CycleList } from './_components/cycle-list';
 export const metadata: Metadata = {
   title: 'AI Pulse — Champion Console',
   description:
-    'Manage weekly AI Pulse cycles: featured tool, briefing topic, host, Meet URL, recording.',
+    'Manage weekly AI Pulse cycles: featured tool, briefing topic, host, meeting link, recording.',
 };
 
 export default function AIPulseCyclesAdminPage() {
