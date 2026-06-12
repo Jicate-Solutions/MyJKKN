@@ -5,6 +5,8 @@ import type {
   CreateHostelAttendanceDTO,
   AttendanceFilters,
   HostelAttendanceStatus,
+  MarkableResident,
+  MarkableResidentAllocation,
 } from '@/types/campus-living';
 
 export class HostelAttendanceService {
@@ -29,7 +31,7 @@ export class HostelAttendanceService {
       let query = supabase
         .from('hostel_attendance')
         .select(
-          '*, learner:profiles!hostel_attendance_learner_id_fkey(id, full_name, email), block:hostel_blocks!block_id(id, name, code)',
+          '*, learner:profiles!hostel_attendance_learner_id_fkey(id, full_name, email), block:hostel_blocks!block_id(id, name, code), marker:profiles!hostel_attendance_marked_by_fkey(id, full_name, email)',
           { count: 'exact' }
         );
 
@@ -62,6 +64,117 @@ export class HostelAttendanceService {
       return { data: data as HostelAttendance[], count: count ?? 0 };
     } catch (error) {
       logger.error('campus-living/attendance', 'Unexpected error in getAttendance', error);
+      throw error;
+    }
+  }
+
+  // ── Current user's block grants (warden scoping) ──────────────────
+  // user_block_access is self-readable under RLS and is auto-synced from
+  // hostel_wardens by trg_hostel_wardens_block_access, so an active warden's
+  // assigned blocks land here. A non-empty result means the user is
+  // block-scoped: the Mark Attendance UI restricts blocks/residents to these
+  // (RLS on hostel_attendance/hostel_allocations enforces the same
+  // role_has_block_access(block_id) server-side).
+  static async getMyBlockGrants(): Promise<string[]> {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+      const { data, error } = await supabase
+        .from('user_block_access')
+        .select('block_id')
+        .eq('user_id', user.id)
+        .is('revoked_at', null);
+      if (error) {
+        logger.error('campus-living/attendance', 'Failed to fetch own block grants', error);
+        throw error;
+      }
+      return (data ?? []).map((r) => r.block_id).filter(Boolean);
+    } catch (error) {
+      logger.error('campus-living/attendance', 'Unexpected error in getMyBlockGrants', error);
+      throw error;
+    }
+  }
+
+  // ── Residents to mark, with live allocation context ───────────────
+  // The Mark Attendance page needs each active resident's block/room/bed so
+  // staff can filter by block and recognise who they're marking.
+  // hostel_residents has no FK to hostel_allocations — the learner's active
+  // allocation (keyed on profiles.id == hostel_residents.profile_id) is
+  // merged in here. Residents without an active allocation still appear
+  // (so they remain markable) but only under "All blocks".
+  static async getMarkableResidents(institutionId?: string, blockId?: string) {
+    try {
+      const supabase = createClientSupabaseClient();
+
+      let residentsQ = supabase
+        .from('hostel_residents')
+        .select(
+          'id, profile_id, id_proof_number, profile:profiles!hostel_residents_profile_id_fkey(id, full_name, email)'
+        )
+        .eq('is_active', true)
+        .limit(1000);
+      if (institutionId) residentsQ = residentsQ.eq('institution_id', institutionId);
+
+      let allocQ = supabase
+        .from('hostel_allocations')
+        .select(
+          'learner_id, block_id, room_id, bed_id, block:hostel_blocks!hostel_allocations_block_id_fkey(id, name, code), room:hostel_rooms!hostel_allocations_room_id_fkey(id, room_number, floor), bed:hostel_beds!hostel_allocations_bed_id_fkey(id, bed_number), learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email)'
+        )
+        .eq('status', 'active')
+        .limit(1000);
+      if (institutionId) allocQ = allocQ.eq('institution_id', institutionId);
+
+      const [residents, allocs] = await Promise.all([residentsQ, allocQ]);
+      if (residents.error) {
+        logger.error('campus-living/attendance', 'Failed to fetch markable residents', residents.error);
+        throw residents.error;
+      }
+      if (allocs.error) {
+        logger.error('campus-living/attendance', 'Failed to fetch resident allocations', allocs.error);
+        throw allocs.error;
+      }
+
+      const allocRows = (allocs.data ?? []) as unknown as MarkableResidentAllocation[];
+      const byLearner = new Map(allocRows.map((a) => [a.learner_id, a]));
+      const merged: MarkableResident[] = ((residents.data ?? []) as unknown as Array<
+        Omit<MarkableResident, 'allocation'>
+      >).map((r) => ({
+        ...r,
+        allocation: byLearner.get(r.profile_id) ?? null,
+      }));
+
+      // Allocated learners with no hostel_residents row (e.g. auto-allocated
+      // before the residents sync) must still be markable — synthesise a row
+      // from the allocation. learner_id doubles as the stable row id.
+      const residentProfileIds = new Set(merged.map((m) => m.profile_id));
+      for (const a of allocRows) {
+        if (!residentProfileIds.has(a.learner_id)) {
+          merged.push({
+            id: a.learner_id,
+            profile_id: a.learner_id,
+            id_proof_number: null,
+            profile: a.learner ?? null,
+            allocation: a,
+          });
+        }
+      }
+
+      const list = blockId
+        ? merged.filter((m) => m.allocation?.block_id === blockId)
+        : merged;
+      // Roll-call order: block, then room, then name; unallocated last.
+      return list.sort((x, y) => {
+        const bx = x.allocation?.block?.name ?? '￿';
+        const by = y.allocation?.block?.name ?? '￿';
+        if (bx !== by) return bx.localeCompare(by);
+        const rx = x.allocation?.room?.room_number ?? '￿';
+        const ry = y.allocation?.room?.room_number ?? '￿';
+        if (rx !== ry) return rx.localeCompare(ry, undefined, { numeric: true });
+        return (x.profile?.full_name ?? '').localeCompare(y.profile?.full_name ?? '');
+      });
+    } catch (error) {
+      logger.error('campus-living/attendance', 'Unexpected error in getMarkableResidents', error);
       throw error;
     }
   }

@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ProgramEligibilityService } from '@/lib/services/campus-living/program-eligibility-service';
 import type {
   CreateProgramEligibilityDto,
@@ -62,6 +62,41 @@ export function useEligibility(institutionId: string | null) {
     updateEligibility,
     deleteEligibility,
   };
+}
+
+// ─── Dry-run preview of the category sync (per-learner conditions) ──────────
+// enabled gates the fetch to while the preview dialog is open; no staleTime so
+// re-opening the dialog always re-evaluates against current rules/bills.
+export function useCategorySyncPreview(enabled: boolean, institutionId?: string | null) {
+  const query = useQuery({
+    queryKey: [...ELIG_KEY, 'sync-preview', institutionId ?? 'all'],
+    queryFn: () =>
+      ProgramEligibilityService.previewLearnerCategorySync(institutionId ?? undefined),
+    enabled,
+    staleTime: 0,
+  });
+  return {
+    rows: query.data ?? [],
+    loading: query.isLoading,
+    error: query.error ? (query.error as Error).message : null,
+  };
+}
+
+// ─── Write-back: apply fee-condition categories to learner profiles ─────────
+// Pass an institutionId to scope the sync, or null/undefined for every
+// institution. Invalidates eligibility + hostel resident caches so any open
+// table reflects the new categories without a reload.
+export function useSyncLearnerCategories() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (institutionId?: string | null) =>
+      ProgramEligibilityService.syncLearnerCategories(institutionId ?? undefined),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...ELIG_KEY] });
+      queryClient.invalidateQueries({ queryKey: ['campus-living', 'residents'] });
+      queryClient.invalidateQueries({ queryKey: ['campus-living', 'hostelites'] });
+    },
+  });
 }
 
 // ─── Dropdown option loaders ───────────────────────────────────────────────

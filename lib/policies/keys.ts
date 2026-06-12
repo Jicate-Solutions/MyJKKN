@@ -50,7 +50,7 @@ export const POLICY_KEYS = {
   // Object policy: { tasks: string[], categories: string[] }.
   // Consumed by lib/services/telephony/call-pipeline-service.ts (server-only,
   // pipeline runs in API routes / cron, never client). Director can edit via
-  // /admin/telephony-policies — no deploy needed.
+  // /admission/settings/telephony-policies — no deploy needed.
   TELEPHONY_EXOVOICE_CONFIG: 'telephony.exovoice.config',
 
   // Telephony — CDR sync windowing (object: {default_lookback_days, chunk_max_days})
@@ -87,7 +87,7 @@ export const POLICY_KEYS = {
   WA_BYOW_SYNTHETIC_AUDIT_ENABLED: 'wa_byow.synthetic_audit_enabled',
 
   // Voice Memo Monitor (2026-05-10) — runtime-tunable thresholds for
-  // /admission/counselors/voice-memos. Director-tweakable via /admin/voice-memo-monitor.
+  // /admission/counselors/voice-memos. Director-tweakable via /admission/settings/voice-memo-monitor.
   VOICE_MEMO_MONITOR_WINDOW_HOURS: 'voice_memo_monitor.window_hours',
   VOICE_MEMO_MONITOR_STUCK_THRESHOLD_MINUTES: 'voice_memo_monitor.stuck_threshold_minutes',
   VOICE_MEMO_MONITOR_FAILURE_RATE_RED_PCT: 'voice_memo_monitor.failure_rate_red_pct',
@@ -157,7 +157,7 @@ export const POLICY_KEYS = {
 
   // T4.2 deduction-engine knobs (Director-locked spec 2026-05-15).
   // Seeded as global rows by 20260626000000_hr_pay_components_and_payslip_line_items.sql.
-  // Editable via /admin/hr/policies/payroll-* UIs (ships in a later T-sprint).
+  // Editable via /hr/admin/policies/payroll-* UIs (ships in a later T-sprint).
   // Consumer: lib/services/hr/payroll/deduction-engine.ts.
   //
   // tds_slabs: { regime, fiscal_year, slabs:[{upto_inr,rate_pct}], rebate_87a_*, surcharge_thresholds, cess_pct }
@@ -206,14 +206,14 @@ export const POLICY_KEYS = {
   // HR Recruitment approvals — viewer-scope enforcement.
   // Consumed by lib/services/hr/recruitment-service.ts (resolveViewerScope).
   // Master toggle (boolean) + per-role scope_rules (JSONB object).
-  // Editable via /admin/hr/recruitment-approvals-scope (super-admin UI).
+  // Editable via /hr/admin/recruitment-approvals-scope (super-admin UI).
   HR_RECRUITMENT_APPROVALS_ENFORCE_SCOPING: 'hr.recruitment.approvals.enforce_scoping',
   HR_RECRUITMENT_APPROVALS_SCOPE_RULES: 'hr.recruitment.approvals.scope_rules',
 
   // HR Recruitment approvals — role-match enforcement on Approve action.
   // Consumed by lib/services/hr/recruitment-service.ts (approveCandidate).
   // Seeded by 20260516120000_seed_recruitment_role_enforcement_policies.sql.
-  // Editable via /admin/hr/recruitment-approvals-scope (super-admin UI).
+  // Editable via /hr/admin/recruitment-approvals-scope (super-admin UI).
   // When enforce_role_match=true, the caller's role_keys must include
   // approval_chain[current_step].approver_role OR overlap with override_roles
   // OR the caller must be super_admin. When false (default), today's behavior

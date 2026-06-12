@@ -51,11 +51,11 @@ export function ResultTable({ rows }: Props) {
   return (
     <>
       {/* Desktop table */}
-      <div className="hidden md:block rounded-lg border overflow-hidden">
+      <div className="hidden md:block rounded-xl border bg-card shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
-              <TableRow className="bg-muted/50">
+              <TableRow className="bg-gradient-to-b from-muted/60 to-muted/20 hover:bg-transparent [&>th]:h-11 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:uppercase [&>th]:tracking-wider">
                 <TableHead className="w-[50px]">#</TableHead>
                 <TableHead className="whitespace-nowrap">Course Code</TableHead>
                 <TableHead className="min-w-[220px]">Course Name</TableHead>
@@ -69,8 +69,11 @@ export function ResultTable({ rows }: Props) {
             </TableHeader>
             <TableBody>
               {rows.map((row, idx) => (
-                <TableRow key={row.key}>
-                  <TableCell className="text-muted-foreground text-sm">
+                <TableRow
+                  key={row.key}
+                  className="border-border/50 transition-colors hover:bg-muted/40"
+                >
+                  <TableCell className="text-muted-foreground text-sm tabular-nums">
                     {idx + 1}
                   </TableCell>
                   <TableCell className="whitespace-nowrap font-medium tabular-nums">
@@ -125,11 +128,11 @@ function SubjectCardMobile({ row }: { row: ResultRowItem }) {
   const [open, setOpen] = useState(false);
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden rounded-xl border shadow-sm transition-shadow hover:shadow-md">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full text-left flex items-center justify-between gap-3 p-4 min-h-[60px] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="w-full text-left flex items-center justify-between gap-3 p-4 min-h-[60px] transition-colors hover:bg-muted/30 active:bg-muted/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <div className="flex flex-col min-w-0">
           <span className="font-medium truncate flex items-center gap-2">

@@ -200,7 +200,6 @@ export type Database = {
           created_at: string
           created_by: string | null
           id: string
-          institution_id: string
           is_active: boolean
           name: string
           sort_order: number
@@ -212,7 +211,6 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           id?: string
-          institution_id: string
           is_active?: boolean
           name: string
           sort_order?: number
@@ -224,7 +222,6 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           id?: string
-          institution_id?: string
           is_active?: boolean
           name?: string
           sort_order?: number
@@ -259,41 +256,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "users_profiles"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "accommodation_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "case_graduation_readiness"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "accommodation_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "institutions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "accommodation_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_colleges"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "accommodation_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "semester_hierarchy_health"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "accommodation_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_institutions_needing_admission_counselors"
-            referencedColumns: ["institution_id"]
           },
           {
             foreignKeyName: "accommodation_types_updated_by_fkey"
@@ -31639,6 +31601,8 @@ export type Database = {
           sort_order: number
           type: string
           updated_at: string
+          upgrade_hold_days: number
+          upgrade_threshold_pct: number | null
         }
         Insert: {
           allocation_mode?: string
@@ -31650,6 +31614,8 @@ export type Database = {
           sort_order?: number
           type: string
           updated_at?: string
+          upgrade_hold_days?: number
+          upgrade_threshold_pct?: number | null
         }
         Update: {
           allocation_mode?: string
@@ -31661,6 +31627,53 @@ export type Database = {
           sort_order?: number
           type?: string
           updated_at?: string
+          upgrade_hold_days?: number
+          upgrade_threshold_pct?: number | null
+        }
+        Relationships: []
+      }
+      hostel_category_upgrade_fees: {
+        Row: {
+          amount: number
+          created_at: string
+          created_by: string | null
+          from_hostel_category_id: string | null
+          from_mess_category_id: string | null
+          hostel_year_id: string
+          id: string
+          is_active: boolean
+          to_hostel_category_id: string | null
+          to_mess_category_id: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          created_by?: string | null
+          from_hostel_category_id?: string | null
+          from_mess_category_id?: string | null
+          hostel_year_id: string
+          id?: string
+          is_active?: boolean
+          to_hostel_category_id?: string | null
+          to_mess_category_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          created_by?: string | null
+          from_hostel_category_id?: string | null
+          from_mess_category_id?: string | null
+          hostel_year_id?: string
+          id?: string
+          is_active?: boolean
+          to_hostel_category_id?: string | null
+          to_mess_category_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
         }
         Relationships: []
       }
@@ -38029,6 +38042,9 @@ export type Database = {
           allocated_allocation_id: string | null
           created_at: string | null
           entry_kind: string
+          held_bed_id: string | null
+          held_room_id: string | null
+          hold_expires_at: string | null
           id: string
           institution_id: string
           learner_id: string
@@ -38052,6 +38068,9 @@ export type Database = {
           allocated_allocation_id?: string | null
           created_at?: string | null
           entry_kind?: string
+          held_bed_id?: string | null
+          held_room_id?: string | null
+          hold_expires_at?: string | null
           id?: string
           institution_id: string
           learner_id: string
@@ -38075,6 +38094,9 @@ export type Database = {
           allocated_allocation_id?: string | null
           created_at?: string | null
           entry_kind?: string
+          held_bed_id?: string | null
+          held_room_id?: string | null
+          hold_expires_at?: string | null
           id?: string
           institution_id?: string
           learner_id?: string
@@ -69554,6 +69576,7 @@ export type Database = {
           institution_id: string | null
           is_break: boolean | null
           period_name: string
+          session: string | null
           start_time: string
           updated_at: string | null
         }
@@ -69564,6 +69587,7 @@ export type Database = {
           institution_id?: string | null
           is_break?: boolean | null
           period_name: string
+          session?: string | null
           start_time: string
           updated_at?: string | null
         }
@@ -69574,6 +69598,7 @@ export type Database = {
           institution_id?: string | null
           is_break?: boolean | null
           period_name?: string
+          session?: string | null
           start_time?: string
           updated_at?: string | null
         }
@@ -92500,6 +92525,8 @@ export type Database = {
           migrated_from_old_structure: boolean | null
           migration_timestamp: string | null
           num_cycles: number | null
+          attendance_mode: string
+          class_incharge_id: string | null
           periods: Json
           program_id: string | null
           section_id: string | null
@@ -92534,6 +92561,8 @@ export type Database = {
           migrated_from_old_structure?: boolean | null
           migration_timestamp?: string | null
           num_cycles?: number | null
+          attendance_mode?: string
+          class_incharge_id?: string | null
           periods?: Json
           program_id?: string | null
           section_id?: string | null
@@ -92568,6 +92597,8 @@ export type Database = {
           migrated_from_old_structure?: boolean | null
           migration_timestamp?: string | null
           num_cycles?: number | null
+          attendance_mode?: string
+          class_incharge_id?: string | null
           periods?: Json
           program_id?: string | null
           section_id?: string | null

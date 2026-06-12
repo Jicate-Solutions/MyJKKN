@@ -36,6 +36,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { useCreateConsolidationReport } from '@/hooks/academic/use-attendance-consolidation';
 import type { GroupByType, ReportFormat } from '@/types/attendance';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 // Form schema
 const formSchema = z.object({
@@ -74,6 +75,7 @@ export function ReportGenerationForm({
   const [fromDateOpen, setFromDateOpen] = useState(false);
   const [toDateOpen, setToDateOpen] = useState(false);
   const createReport = useCreateConsolidationReport();
+  const label = useAdaptiveLabels();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -289,9 +291,9 @@ export function ReportGenerationForm({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="program">Program</SelectItem>
-                      <SelectItem value="semester">Semester</SelectItem>
-                      <SelectItem value="section">Section</SelectItem>
+                      <SelectItem value="program">{label('Program')}</SelectItem>
+                      <SelectItem value="semester">{label('Semester')}</SelectItem>
+                      <SelectItem value="section">{label('Section')}</SelectItem>
                       <SelectItem value="student">Student</SelectItem>
                     </SelectContent>
                   </Select>

@@ -31,22 +31,27 @@ async function writeLog(
     error_message: string | null;
   }
 ) {
-  await supabase
-    .from('social_facebook_logs')
-    .insert({
+  // Best-effort log write — never let a logging failure break the response.
+  // (PostgrestBuilder is a PromiseLike without .catch; await in try/catch.)
+  try {
+    const { error } = await supabase.from('social_facebook_logs').insert({
       page_id: params.page_id,
       event_type: params.event_type,
       status: params.status,
       payload: params.payload,
       error_message: params.error_message,
-    })
-    .then(() => {})
-    .catch((err: unknown) => {
-      console.warn('[fb-health] Log write failed:', err);
     });
+    if (error) console.warn('[fb-health] Log write failed:', error.message);
+  } catch (err) {
+    console.warn('[fb-health] Log write failed:', err);
+  }
 }
 
 interface PageHealth {
+  /** Internal fb_pages.id (UUID) — lets consumers cross-link to fb_posts /
+   *  fb_page_metrics / social_facebook_logs rows, which key on this UUID
+   *  rather than the Meta-side fb_page_id. */
+  id: string;
   fb_page_id: string;
   name: string;
   status: string;
@@ -96,12 +101,23 @@ export async function GET(request: NextRequest) {
     const isSuperAdmin = profile?.role === 'super_admin';
     const isInstitutionAdmin = profile?.role === 'institution_admin';
 
+    // 2026-06-11 granular-permission retrofit: roles granted
+    // social.facebook.view via Role Management pass too (scoped to their
+    // own institution below, same as institution_admin).
+    let hasViewPerm = false;
     if (!isSuperAdmin && !isInstitutionAdmin) {
+      const { data: perm } = await supabase.rpc('user_has_permission', {
+        permission_name: 'social.facebook.view',
+      });
+      hasViewPerm = !!perm;
+    }
+
+    if (!isSuperAdmin && !isInstitutionAdmin && !hasViewPerm) {
       return NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 });
     }
 
-    // institution_admin must have matching institution
-    if (isInstitutionAdmin && institutionId && profile?.institution_id !== institutionId) {
+    // non-super-admins must have matching institution when one is requested
+    if (!isSuperAdmin && institutionId && profile?.institution_id !== institutionId) {
       return NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 });
     }
 
@@ -115,7 +131,7 @@ export async function GET(request: NextRequest) {
     let query = serviceClient
       .from('fb_pages')
       .select(
-        'fb_page_id, name, status, last_polled_at, last_post_at, fan_count, followers_count, institution_id'
+        'id, fb_page_id, name, status, last_polled_at, last_post_at, fan_count, followers_count, institution_id'
       );
 
     if (effectiveInstitutionId) {
@@ -160,6 +176,7 @@ export async function GET(request: NextRequest) {
 
     const pageHealthList: PageHealth[] = (
       pages as Array<{
+        id: string;
         fb_page_id: string;
         name: string;
         status: string;
@@ -191,6 +208,7 @@ export async function GET(request: NextRequest) {
       }
 
       return {
+        id: pg.id,
         fb_page_id: pg.fb_page_id,
         name: pg.name,
         status: pg.status,

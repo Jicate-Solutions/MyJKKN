@@ -117,6 +117,13 @@ CREATE TRIGGER trigger_update_bill_status_on_payment AFTER INSERT ON billing_rec
 CREATE TRIGGER trigger_update_bill_status_on_delete AFTER DELETE ON billing_receipt_items
     FOR EACH ROW EXECUTE FUNCTION update_bill_status_on_delete();
 
+-- 20260611150000: re-check hostel upgrade payment-threshold holds on every payment
+-- (gateway callbacks and office receipts both insert receipt items). The function
+-- computes paid % from receipt items, so its order relative to
+-- trigger_update_bill_status_on_payment does not matter.
+CREATE TRIGGER trg_cl_upgrade_holds_after_payment AFTER INSERT ON billing_receipt_items
+    FOR EACH ROW EXECUTE FUNCTION _on_receipt_item_process_upgrade_holds();
+
 CREATE TRIGGER trigger_update_bill_balance_on_amount_change AFTER UPDATE OF bill_amount ON billing_student_bills
     FOR EACH ROW EXECUTE FUNCTION update_bill_balance_on_amount_change();
 
@@ -1239,3 +1246,73 @@ DROP TRIGGER IF EXISTS trigger_razorpay_accounts_updated_at ON public.razorpay_a
 CREATE TRIGGER trigger_razorpay_accounts_updated_at
 BEFORE UPDATE ON public.razorpay_accounts
 FOR EACH ROW EXECUTE FUNCTION public.update_razorpay_accounts_updated_at();
+
+-- ============================================================================
+-- trg_sync_lead_referral_to_learner_profile (migration 20260610160000)
+-- ============================================================================
+-- Mirrors admission_leads referral attribution (referral_type, referred_by_id,
+-- referred_by_name) onto the linked learners_profiles row so referral edits
+-- made AFTER lead→learner conversion stay visible on the Enquiries page.
+-- The leads module is the single edit surface for referral attribution
+-- (enquiry-form Reference Information block removed 2026-05-21).
+-- SECURITY DEFINER: lead editors don't necessarily hold learners_profiles
+-- UPDATE rights. The nested learners_profiles UPDATE fires
+-- trg_sync_learner_referral_to_attribution, whose NOT EXISTS guard finds the
+-- already-updated lead row and skips — no duplicate attribution rows.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.sync_lead_referral_to_learner_profile()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+BEGIN
+  IF NEW.learner_profile_id IS NOT NULL THEN
+    UPDATE learners_profiles lp
+    SET referral_type    = NEW.referral_type,
+        referred_by_id   = NEW.referred_by_id,
+        referred_by_name = NEW.referred_by_name,
+        updated_at       = now()
+    WHERE lp.id = NEW.learner_profile_id
+      AND (lp.referral_type    IS DISTINCT FROM NEW.referral_type
+        OR lp.referred_by_id   IS DISTINCT FROM NEW.referred_by_id
+        OR lp.referred_by_name IS DISTINCT FROM NEW.referred_by_name);
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+DROP TRIGGER IF EXISTS trg_sync_lead_referral_to_learner_profile ON public.admission_leads;
+CREATE TRIGGER trg_sync_lead_referral_to_learner_profile
+AFTER INSERT OR UPDATE OF referral_type, referred_by_id, referred_by_name, learner_profile_id
+ON public.admission_leads
+FOR EACH ROW EXECUTE FUNCTION public.sync_lead_referral_to_learner_profile();
+
+-- 20260611180000: seed today's hostel_cleaning_tasks row when a due cleaning
+-- schedule is created (daily plans appear on the Tasks page immediately).
+CREATE TRIGGER trg_cleaning_schedule_seed_task AFTER INSERT ON hostel_cleaning_schedules
+    FOR EACH ROW EXECUTE FUNCTION _on_cleaning_schedule_seed_task();
+
+-- 20260611190000: sync learners_profiles room/mess categories from the room
+-- whenever an allocation becomes active (single enforcement point for manual,
+-- batch-approval, auto-allocate and upgrade allocation paths).
+CREATE TRIGGER trg_allocation_sync_learner_categories
+AFTER INSERT OR UPDATE OF status ON hostel_allocations
+FOR EACH ROW WHEN (NEW.status = 'active')
+EXECUTE FUNCTION _on_allocation_sync_learner_categories();
+
+-- Auto-apply fee-condition room/mess categories on academic bill writes
+-- (mig 20260612130000). Transition tables can't span events => one per event.
+DROP TRIGGER IF EXISTS trg_bill_apply_hostel_fee_categories_ins ON billing_student_bills;
+CREATE TRIGGER trg_bill_apply_hostel_fee_categories_ins
+AFTER INSERT ON billing_student_bills
+REFERENCING NEW TABLE AS new_rows
+FOR EACH STATEMENT
+EXECUTE FUNCTION trg_bill_apply_hostel_fee_categories();
+
+DROP TRIGGER IF EXISTS trg_bill_apply_hostel_fee_categories_upd ON billing_student_bills;
+CREATE TRIGGER trg_bill_apply_hostel_fee_categories_upd
+AFTER UPDATE ON billing_student_bills
+REFERENCING NEW TABLE AS new_rows
+FOR EACH STATEMENT
+EXECUTE FUNCTION trg_bill_apply_hostel_fee_categories();

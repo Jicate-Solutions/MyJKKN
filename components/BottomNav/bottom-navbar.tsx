@@ -32,6 +32,7 @@ import { useAuth } from '@/providers/auth-provider';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionType } from '@/hooks/use-institution-type';
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
+import { useIsHosteler } from '@/hooks/campus-living/use-is-hosteler';
 import { usePageFavorites } from '@/hooks/use-page-favorites';
 import { ICON_MAP } from '@/lib/navigation/page-registry';
 import { MODULES, getModulesBySection } from '@/lib/navigation/modules';
@@ -174,6 +175,12 @@ export function BottomNavbar() {
   // Check if user is an expo team member (for dynamic sidebar visibility)
   const { data: isExpoTeamMember } = useUserExpoTeamStatus();
 
+  // Students: the My Hostel entry is shown only for actual hostel residents
+  // (learners_profiles accommodation = hostel). Mirrors menu.tsx so desktop
+  // sidebar and mobile bottom-nav stay in lock-step.
+  const isStudentRole = userProfile?.role === 'student';
+  const { data: isHosteler } = useIsHosteler(isStudentRole);
+
   // Build RolePermissionData from usePermissions (multi-role merged)
   const roleData = useMemo((): RolePermissionData | null => {
     if (!userProfile) return null;
@@ -198,15 +205,24 @@ export function BottomNavbar() {
       'staff_counselor',
     ]);
     const skipExpoEnrichment = EXPO_ENRICHMENT_SKIP_ROLES.has(userProfile.role || '');
-    const enrichedPermissions = isExpoTeamMember && !skipExpoEnrichment
-      ? { ...permissions, 'admission.marketing.expos.view': true }
-      : permissions;
+    const enrichedPermissions: Record<string, boolean> = { ...permissions };
+    if (isExpoTeamMember && !skipExpoEnrichment) {
+      enrichedPermissions['admission.marketing.expos.view'] = true;
+    }
+
+    // Students: gate the My Hostel entry on live hostel residency. The role-wide
+    // campus_living.my_hostel.view grant covers every student; overwrite it with
+    // user_is_hosteler() so dayscholars don't get a dead-end menu.
+    if (isStudentRole) {
+      enrichedPermissions['campus_living.my_hostel.view'] =
+        permissions['campus_living.my_hostel.view'] === true && isHosteler === true;
+    }
 
     return {
       role_key: userProfile.role || '',
       permissions: enrichedPermissions
     };
-  }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember]);
+  }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember, isStudentRole, isHosteler]);
 
   // Get filtered pages based on merged permissions and institution type
   const filteredPages = useMemo(() => {

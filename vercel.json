@@ -56,6 +56,10 @@
       "schedule": "30 10 * * 5"
     },
     {
+      "path": "/api/cron/ai-pulse-tick?secret=${CRON_SECRET}",
+      "schedule": "23 1 * * *"
+    },
+    {
       "path": "/api/cron/dashboard-work-items?secret=${CRON_SECRET}",
       "schedule": "7 * * * *"
     },
@@ -82,6 +86,14 @@
     {
       "path": "/api/cron/campus-living/occupancy-snapshot?secret=${CRON_SECRET}",
       "schedule": "30 1 * * *"
+    },
+    {
+      "path": "/api/cron/campus-living/upgrade-hold-expiry?secret=${CRON_SECRET}",
+      "schedule": "45 * * * *"
+    },
+    {
+      "path": "/api/cron/campus-living/housekeeping-task-generator?secret=${CRON_SECRET}",
+      "schedule": "35 18 * * *"
     },
     {
       "path": "/api/cron/grievance-sla-breach-check?secret=${CRON_SECRET}",
@@ -164,6 +176,18 @@
       "schedule": "0 * * * *"
     },
     {
+      "path": "/api/cron/ig-business-discovery-poll?secret=${CRON_SECRET}",
+      "schedule": "17 * * * *"
+    },
+    {
+      "path": "/api/cron/ig-login-insights-poll?secret=${CRON_SECRET}",
+      "schedule": "37 * * * *"
+    },
+    {
+      "path": "/api/cron/ig-login-token-refresh?secret=${CRON_SECRET}",
+      "schedule": "43 2 * * *"
+    },
+    {
       "path": "/api/cron/instagram-monthly-audit?secret=${CRON_SECRET}",
       "schedule": "0 6 1 * *"
     },
@@ -186,6 +210,22 @@
     {
       "path": "/api/cron/ig-stories-poll?secret=${CRON_SECRET}",
       "schedule": "30 */2 * * *"
+    },
+    {
+      "path": "/api/cron/ai-pulse-rotation-tick?secret=${CRON_SECRET}",
+      "schedule": "37 2 * * *"
+    },
+    {
+      "path": "/api/cron/ai-pulse-anomaly-scan?secret=${CRON_SECRET}",
+      "schedule": "43 3 * * *"
+    },
+    {
+      "path": "/api/cron/ai-pulse-pde-bridge?secret=${CRON_SECRET}",
+      "schedule": "53 4 * * *"
+    },
+    {
+      "path": "/api/cron/google-calendar-connection-check",
+      "schedule": "19 1 * * *"
     }
   ]
 }

@@ -310,9 +310,9 @@ ${appLevelBlock}
 </table>
 
 <p style="margin-top:16px">
-  <a href="${APP_URL}/admin/social/facebook" style="background:#2563eb;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Open Facebook panel</a>
+  <a href="${APP_URL}/admission/social/facebook" style="background:#2563eb;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Open Facebook panel</a>
   &nbsp;
-  <a href="${APP_URL}/admin/social/instagram" style="background:#2563eb;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Open Instagram panel</a>
+  <a href="${APP_URL}/admission/social/instagram" style="background:#2563eb;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Open Instagram panel</a>
 </p>
 
 <p style="color:#6b7280;font-size:12px;margin-top:24px">

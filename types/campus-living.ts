@@ -716,6 +716,33 @@ export interface HostelAttendance {
   remarks: string | null;
   created_at: string | null;
   updated_at: string | null;
+  /** Joined relations (HostelAttendanceService.getAttendance only). */
+  learner?: { id: string; full_name: string | null; email: string | null } | null;
+  block?: { id: string; name: string | null; code: string | null } | null;
+  marker?: { id: string; full_name: string | null; email: string | null } | null;
+}
+
+// Resident row for the Mark Attendance page — hostel_residents merged with
+// the learner's active hostel_allocations row (block/room/bed context).
+export interface MarkableResidentAllocation {
+  learner_id: string;
+  block_id: string;
+  room_id: string | null;
+  bed_id: string | null;
+  block: { id: string; name: string | null; code: string | null } | null;
+  room: { id: string; room_number: string | null; floor: number | null } | null;
+  bed: { id: string; bed_number: string | null } | null;
+  /** Joined learner profile — used to synthesise rows for allocated
+   *  learners that have no hostel_residents record yet. */
+  learner?: { id: string; full_name: string | null; email: string | null } | null;
+}
+
+export interface MarkableResident {
+  id: string;
+  profile_id: string;
+  id_proof_number: string | null;
+  profile: { id: string; full_name: string | null; email: string | null } | null;
+  allocation: MarkableResidentAllocation | null;
 }
 
 export interface CreateHostelAttendanceDTO {
@@ -1573,12 +1600,21 @@ export type MealType = 'breakfast' | 'lunch' | 'snacks' | 'tea' | 'dinner';
 export type MenuStatus = 'planned' | 'confirmed' | 'served' | 'cancelled';
 
 /**
- * Tier vocabulary. Single source of truth across hostel + mess (Director
- * D2 lock, 2026-05-25): reuse the existing `hostel_tier_policy.tier_key`
- * ladder instead of inventing a parallel CLASSIC/PREMIUM enum.
- *   CLASSIC → 'standard', PREMIUM → 'premium', PREMIUM++ → 'premium_plus'
+ * MESS MENU tier vocabulary = the mess_categories names (Classic | Premium),
+ * lowercased. Director decision 2026-06-12, superseding the D2 lock of
+ * 2026-05-25 (which aliased CLASSIC→'standard' onto the hostel room-tier
+ * ladder — but mess_categories was created 2026-05-28, AFTER D2, and became
+ * the canonical mess vocabulary; the alias left a phantom 'premium_plus'
+ * menu tier with zero menus and resolved residents' menus from their ROOM
+ * tier instead of the mess plan they pay for).
+ * Room tiers live separately: `HostelTierKey` in types/campus-living/premium.ts.
+ *
+ * OPEN vocabulary (Director 2026-06-12, auto-follow): keys come from
+ * mess_categories.menu_tier_key at runtime — adding a category on the
+ * categories page adds a menu tier with no code change. 'classic' and
+ * 'premium' are today's known values, not a closed set.
  */
-export type TierKey = 'standard' | 'premium' | 'premium_plus';
+export type TierKey = string;
 
 export interface MessMenu {
   id: string;

@@ -8,13 +8,19 @@
 
 /**
  * Default Graph API version. Pinning here avoids accidental drift when Meta
- * releases new versions. Existing in-repo callers (whatsapp-numbers/sync,
- * whatsapp-numbers/discover, whatsapp-health) all use v21.0 as of 2026-05-30.
+ * releases new versions.
+ *
+ * Bumped v21.0 → v25.0 on 2026-06-11 (#1282 follow-up): every route touched
+ * in the 2026-06 social sprint already pins v25.0 explicitly; this aligns the
+ * remaining default-version callers (ads sync/discover, CAPI/pixel, IG DM,
+ * stories sync, messenger send, leadgen webhook + backfill, facebook
+ * accounts sync/discover) with the same version. The WhatsApp admission
+ * routes use their own hardcoded v21.0 fetch URLs and are unaffected.
  *
  * NOTE: Meta supports a published version for ~2 years. Bump deliberately;
  * don't track latest.
  */
-export const DEFAULT_GRAPH_API_VERSION = 'v21.0';
+export const DEFAULT_GRAPH_API_VERSION = 'v25.0';
 
 export const DEFAULT_GRAPH_API_BASE = 'https://graph.facebook.com';
 

@@ -31,6 +31,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -38,12 +39,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeft, FileText, Save, Send, Sparkles } from 'lucide-react';
+import { ArrowLeft, BookOpenCheck, FileText, Save, Send, Sparkles } from 'lucide-react';
 import type {
   CreatePDEDemonstrationInput,
   PDECategoryKey,
   PDEDemonstration,
 } from '@/lib/types/pde-demonstrations';
+import type {
+  BosSyllabusOption,
+  SyllabusCLO,
+  VacCourseOption,
+} from '@/lib/types/pde-curriculum';
 
 // ---------------------------------------------------------------------------
 // Static dropdown content
@@ -73,6 +79,14 @@ interface RubricChoice {
   value: Record<string, unknown>;
 }
 
+/** Dual-lane curriculum link (spec §3): BoS for autonomous colleges, VAC for all. */
+type CurriculumLane = '' | 'bos' | 'vac';
+
+const LANE_OPTIONS: Array<{ value: CurriculumLane; label: string; hint: string }> = [
+  { value: 'bos', label: 'BoS-approved syllabus', hint: 'Autonomous colleges — tag CLOs this evidence demonstrates' },
+  { value: 'vac', label: 'Value-Added Course', hint: 'Any college — course-level link' },
+];
+
 interface FormState {
   category_key: PDECategoryKey | '';
   rubric_policy_key: string;
@@ -80,6 +94,10 @@ interface FormState {
   evidence_type: string;
   evidence_url: string;
   notes: string;
+  curriculum_lane: CurriculumLane;
+  bos_syllabus_id: string;
+  vac_course_id: string;
+  clo_refs: number[];
 }
 
 const INITIAL: FormState = {
@@ -89,7 +107,28 @@ const INITIAL: FormState = {
   evidence_type: '',
   evidence_url: '',
   notes: '',
+  curriculum_lane: '',
+  bos_syllabus_id: '',
+  vac_course_id: '',
+  clo_refs: [],
 };
+
+/** Rubric criterion shape inside pde.rubrics.* policy rows (probed live):
+ *  { rubric: [{ skill, evidence_required, passing_threshold, validator_role }] } */
+interface RubricCriterion {
+  skill?: string;
+  evidence_required?: string;
+  passing_threshold?: number;
+  validator_role?: string;
+}
+
+function rubricCriteria(choice: RubricChoice | undefined): RubricCriterion[] {
+  if (!choice) return [];
+  const raw = (choice.value as Record<string, unknown>).rubric;
+  return Array.isArray(raw)
+    ? raw.filter((c): c is RubricCriterion => !!c && typeof c === 'object')
+    : [];
+}
 
 // Helper: pull a sensible label out of a rubric JSONB object. The shape varies
 // across the three namespaces, so we probe a few common fields before falling
@@ -117,6 +156,108 @@ export function DemonstrationForm() {
   const [rubrics, setRubrics] = useState<RubricChoice[]>([]);
   const [loadingRubrics, setLoadingRubrics] = useState(false);
   const [saving, setSaving] = useState<'draft' | 'submit' | null>(null);
+
+  // ---- Curriculum link state (dual-lane picker) ----
+  const [syllabi, setSyllabi] = useState<BosSyllabusOption[] | null>(null);
+  const [vacCourses, setVacCourses] = useState<VacCourseOption[] | null>(null);
+  const [clos, setClos] = useState<SyllabusCLO[]>([]);
+  const [cloTagCap, setCloTagCap] = useState(2);
+  const [loadingCurriculum, setLoadingCurriculum] = useState(false);
+  const [loadingClos, setLoadingClos] = useState(false);
+
+  // ---- Lazy-fetch the lane's option list the first time it's opened ----
+  useEffect(() => {
+    if (form.curriculum_lane === 'bos' && syllabi === null) {
+      setLoadingCurriculum(true);
+      fetch('/api/pde/curriculum/syllabi')
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`Failed to load syllabi (${res.status})`);
+          const json = (await res.json()) as { data: BosSyllabusOption[]; clo_tag_cap: number };
+          setSyllabi(json.data || []);
+          if (Number.isInteger(json.clo_tag_cap) && json.clo_tag_cap >= 1) {
+            setCloTagCap(json.clo_tag_cap);
+          }
+        })
+        .catch((err) => {
+          console.warn('[DemonstrationForm] syllabi fetch error', err);
+          setSyllabi([]);
+        })
+        .finally(() => setLoadingCurriculum(false));
+    }
+    if (form.curriculum_lane === 'vac' && vacCourses === null) {
+      setLoadingCurriculum(true);
+      fetch('/api/pde/curriculum/vac-courses')
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`Failed to load VAC courses (${res.status})`);
+          const json = (await res.json()) as { data: VacCourseOption[] };
+          setVacCourses(json.data || []);
+        })
+        .catch((err) => {
+          console.warn('[DemonstrationForm] vac-courses fetch error', err);
+          setVacCourses([]);
+        })
+        .finally(() => setLoadingCurriculum(false));
+    }
+  }, [form.curriculum_lane, syllabi, vacCourses]);
+
+  // ---- Fetch CLOs whenever the selected syllabus changes ----
+  useEffect(() => {
+    if (!form.bos_syllabus_id) {
+      setClos([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingClos(true);
+    fetch(`/api/pde/curriculum/clos?syllabus_id=${form.bos_syllabus_id}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Failed to load CLOs (${res.status})`);
+        const json = (await res.json()) as {
+          data: { clos: SyllabusCLO[] };
+          clo_tag_cap: number;
+        };
+        if (cancelled) return;
+        setClos(json.data?.clos || []);
+        if (Number.isInteger(json.clo_tag_cap) && json.clo_tag_cap >= 1) {
+          setCloTagCap(json.clo_tag_cap);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn('[DemonstrationForm] CLO fetch error', err);
+        setClos([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingClos(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [form.bos_syllabus_id]);
+
+  const setLane = (lane: CurriculumLane) => {
+    // Switching lanes clears the other lane's selection + CLO proposals.
+    setForm((prev) => ({
+      ...prev,
+      curriculum_lane: lane,
+      bos_syllabus_id: '',
+      vac_course_id: '',
+      clo_refs: [],
+    }));
+    setClos([]);
+  };
+
+  const toggleClo = (n: number) => {
+    setForm((prev) => {
+      if (prev.clo_refs.includes(n)) {
+        return { ...prev, clo_refs: prev.clo_refs.filter((x) => x !== n) };
+      }
+      if (prev.clo_refs.length >= cloTagCap) {
+        toast.error(`You can tag at most ${cloTagCap} CLO${cloTagCap === 1 ? '' : 's'}.`);
+        return prev;
+      }
+      return { ...prev, clo_refs: [...prev.clo_refs, n].sort((a, b) => a - b) };
+    });
+  };
 
   // ---- Fetch rubrics whenever the category changes ----
   useEffect(() => {
@@ -165,6 +306,12 @@ export function DemonstrationForm() {
       skill_name: form.skill_name.trim() || undefined,
       evidence_type: form.evidence_type || undefined,
       evidence,
+      bos_syllabus_id: form.curriculum_lane === 'bos' && form.bos_syllabus_id ? form.bos_syllabus_id : undefined,
+      vac_course_id: form.curriculum_lane === 'vac' && form.vac_course_id ? form.vac_course_id : undefined,
+      clo_refs:
+        form.curriculum_lane === 'bos' && form.bos_syllabus_id && form.clo_refs.length > 0
+          ? form.clo_refs
+          : undefined,
       submit,
     };
   };
@@ -267,8 +414,192 @@ export function DemonstrationForm() {
             <p className="text-xs text-muted-foreground">
               Anchoring to a rubric lets the scoring engine apply the right thresholds at review time.
             </p>
+
+            {/* Inline rubric criteria (CARE-Clarity): show the bar the learner
+                is aiming at WHILE they describe the evidence, not after. */}
+            {form.rubric_policy_key && (() => {
+              const criteria = rubricCriteria(rubrics.find((r) => r.key === form.rubric_policy_key));
+              if (criteria.length === 0) return null;
+              return (
+                <div className="rounded-md border border-border/60 bg-muted/30 p-3 space-y-2">
+                  <p className="text-xs font-medium">What validators look for under this rubric:</p>
+                  <ul className="space-y-1.5">
+                    {criteria.map((c, i) => (
+                      <li key={i} className="text-xs text-muted-foreground flex items-start gap-2">
+                        <span className="mt-0.5 h-1.5 w-1.5 rounded-full bg-[#0b6d41] shrink-0" />
+                        <span>
+                          <span className="font-medium text-foreground">{c.skill || `Criterion ${i + 1}`}</span>
+                          {c.evidence_required ? <> — {c.evidence_required}</> : null}
+                          {typeof c.passing_threshold === 'number' ? (
+                            <span className="ml-1 text-[#0b6d41] font-medium">(pass ≥ {c.passing_threshold})</span>
+                          ) : null}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })()}
           </div>
         )}
+
+        {/* --- Curriculum link (dual-lane, optional) --- */}
+        <div className="space-y-2">
+          <Label htmlFor="curriculum_lane" className="flex items-center gap-1.5">
+            <BookOpenCheck className="h-4 w-4 text-[#0b6d41]" />
+            Link to curriculum (optional)
+          </Label>
+          <Select
+            value={form.curriculum_lane || undefined}
+            onValueChange={(v) => setLane(v === 'none' ? '' : (v as CurriculumLane))}
+          >
+            <SelectTrigger id="curriculum_lane">
+              <SelectValue placeholder="Tie this evidence to a course outcome (helps your college's attainment record)" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">
+                <span className="text-muted-foreground">Not linked</span>
+              </SelectItem>
+              {LANE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  <span className="flex flex-col items-start">
+                    <span className="font-medium">{opt.label}</span>
+                    <span className="text-xs text-muted-foreground">{opt.hint}</span>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* BoS lane: syllabus picker (own institution) */}
+          {form.curriculum_lane === 'bos' && (
+            <div className="space-y-2 pt-1">
+              <Select
+                value={form.bos_syllabus_id || undefined}
+                onValueChange={(v) =>
+                  setForm((prev) => ({ ...prev, bos_syllabus_id: v, clo_refs: [] }))
+                }
+              >
+                <SelectTrigger id="bos_syllabus">
+                  <SelectValue
+                    placeholder={
+                      loadingCurriculum
+                        ? 'Loading syllabi…'
+                        : 'Pick the BoS-approved course this evidence belongs to'
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {(syllabi ?? []).map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      <span className="flex flex-col items-start">
+                        <span className="font-medium">{s.course_name}</span>
+                        <span className="text-xs text-muted-foreground font-mono">
+                          {s.course_code} · v{s.version_number}
+                        </span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {syllabi !== null && syllabi.length === 0 && !loadingCurriculum && (
+                <p className="text-xs text-muted-foreground italic">
+                  No BoS-approved syllabi found for your institution yet. If your college is
+                  not autonomous, use the Value-Added Course lane instead.
+                </p>
+              )}
+
+              {/* CLO checklist — learner PROPOSES (validator confirms at review) */}
+              {form.bos_syllabus_id && (
+                <div className="rounded-md border border-border/60 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium">
+                      Which course outcomes does this evidence demonstrate?
+                    </p>
+                    <span className="text-xs text-muted-foreground">
+                      {form.clo_refs.length}/{cloTagCap} tagged
+                    </span>
+                  </div>
+                  {loadingClos ? (
+                    <p className="text-xs text-muted-foreground">Loading outcomes…</p>
+                  ) : clos.length === 0 ? (
+                    <p className="text-xs text-muted-foreground italic">
+                      This syllabus has no structured CLOs yet — the course link still counts.
+                    </p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {clos.map((clo) => {
+                        const checked = form.clo_refs.includes(clo.clo_number);
+                        const capReached = !checked && form.clo_refs.length >= cloTagCap;
+                        return (
+                          <li key={clo.clo_number} className="flex items-start gap-2">
+                            <Checkbox
+                              id={`clo-${clo.clo_number}`}
+                              checked={checked}
+                              disabled={capReached}
+                              onCheckedChange={() => toggleClo(clo.clo_number)}
+                              className="mt-0.5"
+                            />
+                            <label
+                              htmlFor={`clo-${clo.clo_number}`}
+                              className={`text-xs leading-snug cursor-pointer ${
+                                capReached ? 'text-muted-foreground/60' : 'text-muted-foreground'
+                              }`}
+                            >
+                              <span className="font-medium text-foreground">CLO {clo.clo_number}.</span>{' '}
+                              {clo.description}
+                            </label>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    You propose, your validator confirms — only validator-confirmed outcomes
+                    count toward attainment.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* VAC lane: course picker (course-level link, all colleges) */}
+          {form.curriculum_lane === 'vac' && (
+            <div className="space-y-2 pt-1">
+              <Select
+                value={form.vac_course_id || undefined}
+                onValueChange={(v) => setForm((prev) => ({ ...prev, vac_course_id: v }))}
+              >
+                <SelectTrigger id="vac_course">
+                  <SelectValue
+                    placeholder={
+                      loadingCurriculum
+                        ? 'Loading courses…'
+                        : 'Pick the Value-Added Course this evidence belongs to'
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {(vacCourses ?? []).map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      <span className="flex flex-col items-start">
+                        <span className="font-medium">{c.name}</span>
+                        <span className="text-xs text-muted-foreground font-mono">
+                          {[c.code, c.track].filter(Boolean).join(' · ')}
+                        </span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {vacCourses !== null && vacCourses.length === 0 && !loadingCurriculum && (
+                <p className="text-xs text-muted-foreground italic">
+                  No active Value-Added Courses for your institution yet.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
 
         {showRubricHint && (
           <p className="text-xs text-muted-foreground italic">
@@ -373,7 +704,11 @@ export function DemonstrationForm() {
           <p>
             Drafts stay private. Once submitted, a faculty / peer / AI validator from your
             institution can review under the rubric you anchored to (or free-form if none).
-            The scoring engine writes the final weighted score back onto this row.
+            The scoring engine writes the final weighted score back onto this row.{' '}
+            <span className="font-medium text-foreground">
+              Every validated demonstration becomes part of your verified skill
+              transcript — the record employers and accreditors see.
+            </span>
           </p>
         </div>
       </CardContent>

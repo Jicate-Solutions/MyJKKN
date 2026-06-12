@@ -1278,6 +1278,7 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
         WHEN page_url ~ '/admin/'     THEN 'admin'
         WHEN page_url ~ '/resource-management/' THEN 'resource-management'
         WHEN page_url ~ '/startup-studio/' THEN 'startup-studio'
+        WHEN page_url ~ '/moments/' THEN 'moments'  -- Added: 2026-06-12 Family Moments
         WHEN page_url ~ '/settings/' THEN 'settings'
         ELSE 'other'
       END
@@ -1307,6 +1308,8 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
           THEN substring(page_url FROM '/resource-management/([^/?#]+)')
         WHEN page_url ~ '/startup-studio/'
           THEN substring(page_url FROM '/startup-studio/([^/?#]+)')
+        WHEN page_url ~ '/moments/'  -- Added: 2026-06-12 Family Moments
+          THEN substring(page_url FROM '/moments/([^/?#]+)')
         WHEN page_url ~ '/settings/'
           THEN substring(page_url FROM '/settings/([^/?#]+)')
         WHEN page_url ~ '/service-requests/'
@@ -4922,6 +4925,7 @@ CREATE TABLE IF NOT EXISTS public.hostel_program_eligibility (
   fee_max numeric(12,2),                                              -- exclusive upper (rupees), NULL = unbounded
   room_category_id uuid REFERENCES public.hostel_categories(id) ON DELETE CASCADE,
   mess_category_id uuid REFERENCES public.mess_categories(id)  ON DELETE CASCADE,
+  hostel_type text NOT NULL DEFAULT 'both' CHECK (hostel_type IN ('boys','girls','both')), -- which gender(s) the band applies to
   is_monthly_mess_allowed boolean NOT NULL DEFAULT false,
   is_active boolean NOT NULL DEFAULT true,
   effective_from date,
@@ -4947,6 +4951,9 @@ CREATE INDEX IF NOT EXISTS idx_prog_elig_resolve
 -- hostel_waitlist: waitlist for hostel room allocation and self-service category-upgrade intent.
 -- Originally created in migration 20260222000015_campus_living_enums_and_tables.sql.
 -- Columns target_hostel_category_id and entry_kind added in 20260609160000_hostel_waitlist_upgrade_columns.sql.
+-- Columns held_room_id/held_bed_id/hold_expires_at added in
+-- 20260611150000_upgrade_payment_threshold_and_holds.sql: a below-threshold upgrade
+-- hard-reserves the chosen bed (bed status 'reserved') until paid or expired.
 CREATE TABLE IF NOT EXISTS public.hostel_waitlist (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES public.institutions(id),
@@ -4963,12 +4970,103 @@ CREATE TABLE IF NOT EXISTS public.hostel_waitlist (
     notes TEXT,
     target_hostel_category_id UUID REFERENCES public.hostel_categories(id),
     entry_kind TEXT NOT NULL DEFAULT 'allocation',
+    held_room_id UUID REFERENCES public.hostel_rooms(id) ON DELETE SET NULL,
+    held_bed_id UUID REFERENCES public.hostel_beds(id) ON DELETE SET NULL,
+    hold_expires_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- hostel_categories upgrade-threshold config (20260611150000): min % of the learner's
+-- current-academic-year academic bills paid for an instant upgrade into the category
+-- (NULL = no gate), and how many days a below-threshold reservation is held.
+ALTER TABLE public.hostel_categories
+  ADD COLUMN IF NOT EXISTS upgrade_threshold_pct numeric
+    CHECK (upgrade_threshold_pct >= 0 AND upgrade_threshold_pct <= 100),
+  ADD COLUMN IF NOT EXISTS upgrade_hold_days integer NOT NULL DEFAULT 5
+    CHECK (upgrade_hold_days BETWEEN 1 AND 60);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_hostel_waitlist_active_upgrade
   ON public.hostel_waitlist (learner_id, target_hostel_category_id)
   WHERE entry_kind = 'upgrade' AND status = 'waiting';
 
 ALTER TABLE public.razorpay_webhook_events ENABLE ROW LEVEL SECURITY;
+
+-- accommodation_types: GLOBAL lookup (institution-agnostic).
+-- Originally created institution-scoped in 20260505100001; deduped to one row
+-- per code and institution_id dropped in 20260610100000_accommodation_types_global.sql.
+CREATE TABLE IF NOT EXISTS public.accommodation_types (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_accommodation_types_active
+  ON public.accommodation_types (is_active, sort_order);
+
+-- ============================================================================
+-- hostel_category_upgrade_fees (migration 20260610210000)
+-- Explicit from→to upgrade pricing (room OR mess), per hostel year. Drives the
+-- My Hostel upgrade options + flat-fee upgrade billing.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.hostel_category_upgrade_fees (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  hostel_year_id uuid NOT NULL REFERENCES public.hostel_years(id) ON DELETE CASCADE,
+  from_hostel_category_id uuid REFERENCES public.hostel_categories(id) ON DELETE CASCADE,
+  to_hostel_category_id   uuid REFERENCES public.hostel_categories(id) ON DELETE CASCADE,
+  from_mess_category_id   uuid REFERENCES public.mess_categories(id)  ON DELETE CASCADE,
+  to_mess_category_id     uuid REFERENCES public.mess_categories(id)  ON DELETE CASCADE,
+  amount numeric(12,2) NOT NULL CHECK (amount >= 0),
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  created_by uuid REFERENCES public.profiles(id),
+  updated_by uuid REFERENCES public.profiles(id),
+  CONSTRAINT chk_upgrade_one_kind CHECK (
+    (from_hostel_category_id IS NOT NULL AND to_hostel_category_id IS NOT NULL
+       AND from_mess_category_id IS NULL AND to_mess_category_id IS NULL)
+    OR
+    (from_mess_category_id IS NOT NULL AND to_mess_category_id IS NOT NULL
+       AND from_hostel_category_id IS NULL AND to_hostel_category_id IS NULL)
+  ),
+  CONSTRAINT chk_upgrade_distinct CHECK (
+    (from_hostel_category_id IS NULL OR from_hostel_category_id <> to_hostel_category_id)
+    AND (from_mess_category_id IS NULL OR from_mess_category_id <> to_mess_category_id)
+  )
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_upgrade_fee_pair ON public.hostel_category_upgrade_fees (
+  hostel_year_id,
+  COALESCE(from_hostel_category_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(to_hostel_category_id,   '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(from_mess_category_id,   '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(to_mess_category_id,     '00000000-0000-0000-0000-000000000000'::uuid)
+);
+CREATE INDEX IF NOT EXISTS idx_upgrade_fee_room ON public.hostel_category_upgrade_fees
+  (hostel_year_id, from_hostel_category_id, to_hostel_category_id) WHERE is_active;
+CREATE INDEX IF NOT EXISTS idx_upgrade_fee_mess ON public.hostel_category_upgrade_fees
+  (hostel_year_id, from_mess_category_id, to_mess_category_id) WHERE is_active;
+
+-- 20260611180000: idempotency for housekeeping task generation — one task per
+-- schedule per day (cron + creation trigger both upsert through this).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cleaning_task_schedule_date
+  ON public.hostel_cleaning_tasks (schedule_id, date)
+  WHERE schedule_id IS NOT NULL;
+
+-- =====================================================
+-- 20260711000000: Family Moments engine (2026-06-12)
+-- Campaign-based parent engagement — Father's Day 2026
+-- (NV CBSE + Matric HSS). Tokenized public gift cards.
+-- Full DDL + RLS + storage bucket in the migration file:
+-- supabase/migrations/20260711000000_family_moments_engine.sql
+-- =====================================================
+-- family_moments_campaigns: one row per occasion per institution
+--   (slug UNIQUE, recipient_type father|mother|both, status lifecycle)
+-- family_moments: one row per child per campaign
+--   (token UNIQUE unguessable, content_type auto|text|image,
+--    recipient snapshots, opened/install/push tracking columns)

@@ -19,29 +19,41 @@ const ONE_HOUR_MS = 60 * 60 * 1000;
 
 export const messMenuWeekKeys = {
   all: ['mess-menus', 'week-tier'] as const,
-  week: (institutionId: string, weekStartDate: string, tierKey: TierKey) =>
-    ['mess-menus', 'week-tier', institutionId, weekStartDate, tierKey] as const,
+  // catererId is appended (defaulting to 'any') so Boys and Girls grids — which
+  // share an (institution, week, tier) but differ by caterer — cache separately.
+  week: (institutionId: string, weekStartDate: string, tierKey: TierKey, catererId?: string) =>
+    ['mess-menus', 'week-tier', institutionId, weekStartDate, tierKey, catererId ?? 'any'] as const,
   tiers: (institutionId: string) => ['mess-menus', 'active-tiers', institutionId] as const,
 };
 
 /**
  * 28 rows (7 days × 4 meal slots) for a single tier in a week.
+ * When `catererId` is supplied the fetch is scoped to that caterer (gender),
+ * so Boys and Girls menus stay separate. Omitting it preserves the legacy
+ * tier-only fetch used by the resident menu view.
  */
 export function useMessMenuWeek(
   institutionId: string | undefined,
   weekStartDate: string,
   tierKey: TierKey | undefined,
+  catererId?: string,
 ) {
   const { isSuperAdmin } = usePermissions();
   const enabled = !!institutionId && !!weekStartDate && !!tierKey;
   return useQuery({
-    queryKey: messMenuWeekKeys.week(institutionId ?? 'all', weekStartDate, (tierKey ?? 'standard') as TierKey),
+    queryKey: messMenuWeekKeys.week(
+      institutionId ?? 'all',
+      weekStartDate,
+      (tierKey ?? 'classic') as TierKey,
+      catererId,
+    ),
     queryFn: () =>
       MessMenuService.getMenuForWeek(
         // Scoped fetch — super_admin still passes through but service requires an institution_id.
         institutionId!,
         weekStartDate,
         tierKey!,
+        catererId,
       ),
     enabled: enabled && (isSuperAdmin || !!institutionId),
     staleTime: ONE_HOUR_MS,
@@ -94,8 +106,16 @@ export function useUpsertMessMenuCell() {
     mutationFn: (input: UpsertMenuCellInput) => MessMenuService.upsertMenuCell(input),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: messMenuWeekKeys.week(variables.institution_id, variables.week_start_date, variables.tier_key),
+        queryKey: messMenuWeekKeys.week(
+          variables.institution_id,
+          variables.week_start_date,
+          variables.tier_key,
+          variables.caterer_id,
+        ),
       });
+      // Also invalidate the whole week-tier family so any non-caterer-scoped
+      // grids (legacy resident view) refresh too.
+      queryClient.invalidateQueries({ queryKey: messMenuWeekKeys.all });
       queryClient.invalidateQueries({ queryKey: messMenuKeys.all });
       toast.success('Menu cell saved');
     },

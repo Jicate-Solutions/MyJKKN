@@ -4,7 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
-import { useMyHostelSummary } from '@/hooks/campus-living/use-my-hostel';
+import { useMyHostelSummary, useMyRoommates } from '@/hooks/campus-living/use-my-hostel';
+import { WinsFeedCard } from './wins-feed-card';
 import { HostelAllocationService } from '@/lib/services/campus-living/hostel-allocation-service';
 import {
   BedDouble,
@@ -13,7 +14,7 @@ import {
   Home,
   UtensilsCrossed,
   Loader2,
-  Info,
+  Users,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -71,6 +72,11 @@ export function OverviewTab() {
   const activeAllocation = (allocations ?? [])[0] as any;
   const isPendingApproval = activeAllocation?.status === 'pending_approval';
 
+  // Co-residents of the assigned room (own-room scoped RPC). Only meaningful once
+  // the student has an allocation, so gate the query on it.
+  const hasAllocation = !!activeAllocation;
+  const { data: roommates, isLoading: roommatesLoading } = useMyRoommates(hasAllocation);
+
   if (summaryLoading || allocLoading) {
     return (
       <div className='flex items-center justify-center min-h-[200px]'>
@@ -88,7 +94,7 @@ export function OverviewTab() {
             <Home className='h-5 w-5 text-primary' />
             Your Hostel Details
           </CardTitle>
-          <CardDescription>Category and fee information from your profile.</CardDescription>
+          <CardDescription>Accommodation and category information from your profile.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className='grid grid-cols-2 sm:grid-cols-4 gap-3'>
@@ -99,9 +105,8 @@ export function OverviewTab() {
             />
             <InfoTile
               icon={<Building2 className='h-4 w-4' />}
-              label='Hostel Category'
+              label='Room Category'
               value={summary?.hostelCategory?.name ?? '—'}
-              sub={summary?.hostelCategory?.type}
             />
             <InfoTile
               icon={<UtensilsCrossed className='h-4 w-4' />}
@@ -109,11 +114,12 @@ export function OverviewTab() {
               value={summary?.messCategory?.name ?? '—'}
             />
             <InfoTile
-              icon={<Info className='h-4 w-4' />}
-              label='Hostel Fee'
+              icon={<Users className='h-4 w-4' />}
+              label='Hostel Type'
               value={
-                summary?.hostelFee != null
-                  ? `₹${summary.hostelFee.toLocaleString()}`
+                summary?.hostelCategory?.type
+                  ? summary.hostelCategory.type.charAt(0).toUpperCase() +
+                    summary.hostelCategory.type.slice(1)
                   : '—'
               }
             />
@@ -152,7 +158,11 @@ export function OverviewTab() {
               <InfoTile
                 icon={<BedDouble className='h-4 w-4' />}
                 label='Bed'
-                value={`Bed ${getJoined(activeAllocation, 'hostel_beds', 'bed_number')}`}
+                value={
+                  getJoined(activeAllocation, 'hostel_beds', 'bed_number')
+                    ? `Bed ${getJoined(activeAllocation, 'hostel_beds', 'bed_number')}`
+                    : ''
+                }
                 sub={getJoined(activeAllocation, 'hostel_beds', 'bed_type')}
               />
               <InfoTile
@@ -190,6 +200,61 @@ export function OverviewTab() {
           </CardContent>
         </Card>
       )}
+
+      {/* Roommates — co-residents of the assigned room */}
+      {hasAllocation && (
+        <Card>
+          <CardHeader>
+            <CardTitle className='flex items-center gap-2'>
+              <Users className='h-5 w-5 text-primary' />
+              Roommates
+            </CardTitle>
+            <CardDescription>
+              Others sharing {activeAllocation.hostel_rooms?.room_number
+                ? `Room ${activeAllocation.hostel_rooms.room_number}`
+                : 'your room'}
+              {isPendingApproval ? ' (proposed — pending approval)' : ''}.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {roommatesLoading ? (
+              <div className='flex items-center text-sm text-muted-foreground'>
+                <Loader2 className='mr-2 h-4 w-4 animate-spin' /> Loading roommates…
+              </div>
+            ) : (roommates ?? []).length === 0 ? (
+              <p className='text-sm text-muted-foreground'>
+                No roommates yet — you&apos;re currently the only resident in this room.
+              </p>
+            ) : (
+              <div className='divide-y'>
+                {(roommates ?? []).map((rm, i) => (
+                  <div key={i} className='flex items-center justify-between gap-3 py-2'>
+                    <div className='min-w-0'>
+                      <p className='truncate font-medium'>{rm.full_name}</p>
+                      <p className='truncate text-xs text-muted-foreground'>
+                        {[rm.program_name, rm.semester_name].filter(Boolean).join(' · ') || '—'}
+                      </p>
+                    </div>
+                    <div className='flex shrink-0 items-center gap-2'>
+                      {rm.bed_number && (
+                        <Badge variant='outline' className='gap-1'>
+                          <BedDouble className='h-3 w-3' /> Bed {rm.bed_number}
+                        </Badge>
+                      )}
+                      {rm.status === 'pending_approval' && (
+                        <Badge variant='secondary'>Pending</Badge>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Public recognition feed — renders only when wins exist (CARE keystone) */}
+      <WinsFeedCard />
     </div>
   );
 }

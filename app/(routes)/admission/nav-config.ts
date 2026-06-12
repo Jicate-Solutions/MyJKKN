@@ -22,6 +22,69 @@ const config: ModuleNavConfig = {
       matchPaths: ['/admission/dashboard', '/admission'],
     },
     {
+      // Social-media monitoring + lead-gen surfaces. Relocated from
+      // /admin/social/* 2026-06-10 (Director: "social can be moved to top of
+      // admission crm module") — admin-cluster relocation program, one module
+      // = one URL prefix. 2026-06-11: pages gated by granular social.*
+      // permission keys (PermissionGuard + MENU_PERMISSIONS), grantable per
+      // role via Role Management. Users without the key who click the tab
+      // see the restriction card, not a silent redirect.
+      label: 'Social',
+      icon: 'Share2',
+      href: '/admission/social',
+      matchPaths: ['/admission/social'],
+      children: [
+        {
+          label: 'Overview',
+          icon: 'Share2',
+          href: '/admission/social',
+          exact: true,
+        },
+        {
+          label: 'Insights',
+          icon: 'LineChart',
+          href: '/admission/social/insights',
+        },
+        {
+          label: 'Instagram',
+          icon: 'Instagram',
+          href: '/admission/social/instagram',
+        },
+        {
+          label: 'Facebook',
+          icon: 'Facebook',
+          href: '/admission/social/facebook',
+        },
+        {
+          label: 'Lead Ads',
+          icon: 'Megaphone',
+          href: '/admission/social/lead-ads',
+        },
+        {
+          label: 'Dept Accounts',
+          icon: 'KeyRound',
+          href: '/admission/social/departments',
+        },
+        // Relocated from /admin/* 2026-06-11 (admin-cluster relocation
+        // wave-2 — attribution + Meta integrations join Social).
+        {
+          label: 'Attribution',
+          icon: 'TrendingUp',
+          href: '/admission/social/attribution',
+        },
+        {
+          label: 'Meta Pixel',
+          icon: 'Target',
+          href: '/admission/social/meta-pixel',
+        },
+        {
+          label: 'Audiences',
+          icon: 'UsersRound',
+          href: '/admission/social/meta-audiences',
+        },
+      ],
+    },
+    {
       label: 'Analytics',
       icon: 'LineChart',
       href: '/admission/analytics',
@@ -474,6 +537,22 @@ const config: ModuleNavConfig = {
           icon: 'MessageSquare',
           href: '/admission/settings/whatsapp-numbers',
           matchPaths: ['/admission/settings/whatsapp-numbers'],
+        },
+        // Telephony config surfaces relocated from /admin/* 2026-06-11
+        // (admin-cluster relocation wave-2). Both pages are super-admin
+        // gated with explicit restriction fallbacks (no silent redirect),
+        // matching the Social group's chip-with-restriction-card pattern.
+        {
+          label: 'Voice Memos',
+          icon: 'Mic',
+          href: '/admission/settings/voice-memo-monitor',
+          matchPaths: ['/admission/settings/voice-memo-monitor'],
+        },
+        {
+          label: 'Exophone Map',
+          icon: 'PhoneIncoming',
+          href: '/admission/settings/exophone-mapping',
+          matchPaths: ['/admission/settings/exophone-mapping'],
         },
         {
           label: 'Workflow Config',

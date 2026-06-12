@@ -4,7 +4,7 @@ import { ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { Users, ClipboardList, CalendarDays, Receipt, BarChart3, BookOpen, Layers, BookText, ListTree, FileText } from 'lucide-react';
+import { Users, UsersRound, UserCog, ClipboardList, CalendarDays, Receipt, BarChart3, BookOpen, Layers, BookText, ListTree, FileText } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -21,6 +21,8 @@ const BOS_NAV_TABS = [
   { href: '/bos/courses',       label: 'Courses',          icon: BookText },
   { href: '/bos/course-scheme', label: 'Course Scheme',    icon: ListTree },
   { href: '/bos/experts',       label: 'External Experts', icon: Users },
+  { href: '/bos/committees',    label: 'Committees',       icon: UsersRound },
+  { href: '/bos/member-types',  label: 'Member Types',     icon: UserCog },
   { href: '/bos/compositions',  label: 'Compositions',     icon: ClipboardList },
   { href: '/bos/syllabus',      label: 'Syllabus',         icon: BookOpen },
   { href: '/bos/meetings',      label: 'Meetings',         icon: CalendarDays },

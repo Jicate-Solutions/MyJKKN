@@ -930,7 +930,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             {/* Course Assignments */}
             <div className='space-y-4'>
               <div className='flex justify-between items-center'>
-                <h3 className='text-lg font-semibold'>Course Assignments</h3>
+                <h3 className='text-lg font-semibold'>{adapt('Course')} Assignments</h3>
                 <Button
                   type='button'
                   onClick={() => {
@@ -942,7 +942,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                   }}
                 >
                   <Plus className='mr-2 h-4 w-4' />
-                  Add Course
+                  Add {adapt('Course')}
                 </Button>
               </div>
 
@@ -967,21 +967,21 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                             name={`courses.${index}.course_id`}
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>Course</FormLabel>
+                                <FormLabel>{adapt('Course')}</FormLabel>
                                 <Select
                                   value={field.value}
                                   onValueChange={field.onChange}
                                 >
                                   <FormControl>
                                     <SelectTrigger>
-                                      <SelectValue placeholder='Select course' />
+                                      <SelectValue placeholder={`Select ${adapt('course')}`} />
                                     </SelectTrigger>
                                   </FormControl>
                                   <SelectContent className='max-h-60 overflow-y-auto'>
                                     {courses.length === 0 ? (
                                       <div className='p-2 text-center text-sm text-muted-foreground'>
-                                        No courses available for this
-                                        program/semester
+                                        No {adapt('courses')} available for this
+                                        {adapt('program')}/{adapt('semester')}
                                       </div>
                                     ) : (
                                       courses.map((course) => (
@@ -1039,7 +1039,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
 
                       {!courseAssignment?.course_id && (
                         <div className='text-center py-8 text-muted-foreground'>
-                          Select a course to assign staff members
+                          Select a {adapt('course')} to assign staff members
                         </div>
                       )}
                     </div>
@@ -1049,7 +1049,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
 
               {fields.length === 0 && (
                 <div className='text-center py-8 text-muted-foreground border border-dashed border-border rounded-lg'>
-                  No courses added yet. Click &quot;Add Course&quot; to get
+                  No {adapt('courses')} added yet. Click &quot;Add {adapt('Course')}&quot; to get
                   started.
                 </div>
               )}
@@ -1112,7 +1112,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             <AlertDialogTitle>Staff Plan Already Exists</AlertDialogTitle>
             <AlertDialogDescription className='space-y-3'>
               <p>
-                A staff plan already exists for this semester
+                A staff plan already exists for this {adapt('semester')}
                 {duplicateDialog.existingPlan && (
                   <span className='font-medium'>
                     {' '}({duplicateDialog.existingPlan.institution?.name} -{' '}

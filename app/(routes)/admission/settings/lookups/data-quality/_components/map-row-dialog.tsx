@@ -112,14 +112,9 @@ export function MapRowDialog({
             await LookupService.listCommunityCategories(true);
           opts = items.map((c) => ({ id: c.id, code: c.code, name: c.name }));
         } else if (ctx.catalogue === 'accommodation') {
-          if (!institutionId) {
-            // Best-effort: load nothing — admin must pick institution context first.
-            opts = [];
-          } else {
-            const items: AdmissionFeeAccommodationType[] =
-              await LookupService.listAccommodationTypes(institutionId, true);
-            opts = items.map((a) => ({ id: a.id, code: a.code, name: a.name }));
-          }
+          const items: AdmissionFeeAccommodationType[] =
+            await LookupService.listAccommodationTypes(true);
+          opts = items.map((a) => ({ id: a.id, code: a.code, name: a.name }));
         }
         if (!cancelled) setOptions(opts);
       } catch (err) {

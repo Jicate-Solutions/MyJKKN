@@ -1,5 +1,9 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import {
+  deriveDailyStatus,
+  dailyStatusToDays,
+} from '@/lib/utils/academic/attendance-sessions';
 import type {
   AttendanceConsolidationReport,
   CreateConsolidationReportDto,
@@ -195,7 +199,8 @@ export class AttendanceConsolidationService {
           section:sections(id, section_name),
           program:programs(id, program_name),
           semester:semesters(id, semester_name),
-          department:departments(id, department_name)
+          department:departments(id, department_name),
+          timetable:timetables(attendance_mode)
         `)
         .eq('institution_id', institutionId)
         .gte('attendance_date', dateFrom)
@@ -311,6 +316,10 @@ export class AttendanceConsolidationService {
               presentPeriodsCount: 0,
               absentPeriodsCount: 0,
               absentDates: new Set<string>(), // Still track dates for absent details feature
+              // Updated: 2026-06-10 - Per-date session tallies for session_wise
+              // day-level full/half/absent derivation.
+              isSessionWise: false,
+              sessionDays: new Map<string, { present: number; total: number }>(),
             });
           }
 
@@ -324,16 +333,36 @@ export class AttendanceConsolidationService {
             studentData.absentDates.add(record.attendance_date); // Track date for absent details
           }
 
+          // Updated: 2026-06-10 - For session_wise (school day-wise) timetables,
+          // tally per-date session presence so we can derive a full/half/absent
+          // daily status (both present = full, one = half, none = absent).
+          const recordSessionWise =
+            (record.timetable as any)?.attendance_mode === 'session_wise';
+          if (recordSessionWise) {
+            studentData.isSessionWise = true;
+            const date = record.attendance_date;
+            const day =
+              studentData.sessionDays.get(date) || { present: 0, total: 0 };
+            day.total++;
+            if (student.status === 'Present') day.present++;
+            studentData.sessionDays.set(date, day);
+          }
+
           // Track working days at group level
           group.dates.add(record.attendance_date);
         }
       }
     }
 
+    // Day-wise (session_wise) attendance now lives in student_attendance too
+    // (attendance_data keyed 'FN'/'AN'), so it is already counted by the loop
+    // above — the per-date session tally branch derives full/half/absent. No
+    // separate merge is needed.
+
     logger.info('academic/attendance-consolidation', 'Attendance records processed', {
       totalGroups: groups.size,
       totalRecords: attendanceRecords.length,
-      note: 'Period-wise attendance tracking enabled'
+      note: 'Period-wise + day-wise attendance tracking enabled'
     });
 
     // Enrich student data (fetch names, roll numbers)
@@ -353,10 +382,39 @@ export class AttendanceConsolidationService {
         const totalPresent = studentData.presentPeriodsCount;
         const totalAbsent = studentData.absentPeriodsCount;
         const totalPeriods = totalPresent + totalAbsent;
-        const attendancePercentage =
+        let attendancePercentage =
           totalPeriods > 0
             ? (totalPresent / totalPeriods) * 100
             : 0;
+
+        // Updated: 2026-06-10 - For session_wise students, classify each day as
+        // full / half / absent and weight half as 0.5 of a day. This is robust
+        // even when only one of the two sessions was recorded on a given day.
+        let fullDays: number | undefined;
+        let halfDays: number | undefined;
+        let absentDays: number | undefined;
+        if (studentData.isSessionWise && studentData.sessionDays.size > 0) {
+          fullDays = 0;
+          halfDays = 0;
+          absentDays = 0;
+          let weightedDays = 0;
+          for (const [, day] of studentData.sessionDays as Map<
+            string,
+            { present: number; total: number }
+          >) {
+            const status = deriveDailyStatus({
+              fnPresent: day.present >= 1,
+              anPresent: day.present >= 2,
+            });
+            if (status === 'full') fullDays++;
+            else if (status === 'half') halfDays++;
+            else absentDays++;
+            weightedDays += dailyStatusToDays(status);
+          }
+          const daysCounted = fullDays + halfDays + absentDays;
+          attendancePercentage =
+            daysCounted > 0 ? (weightedDays / daysCounted) * 100 : 0;
+        }
 
         const studentSummary: StudentAttendanceSummary = {
           studentId,
@@ -378,6 +436,11 @@ export class AttendanceConsolidationService {
           totalPresent,
           totalAbsent,
           attendancePercentage: Math.round(attendancePercentage * 100) / 100,
+          // Session_wise day-level breakdown (undefined for period_wise students)
+          isSessionWise: studentData.isSessionWise || undefined,
+          fullDays,
+          halfDays,
+          absentDays,
         };
 
         // Include absent details if requested

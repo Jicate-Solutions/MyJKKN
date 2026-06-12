@@ -51,7 +51,7 @@ export function GradeSystemLegend({ bands, gradeSystemCode }: Props) {
   if (sorted.length === 0) return null;
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden rounded-xl border shadow-sm">
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2 text-sm">
           <ListChecks className="h-4 w-4 text-muted-foreground" />
@@ -67,7 +67,7 @@ export function GradeSystemLegend({ bands, gradeSystemCode }: Props) {
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
-              <TableRow className="bg-muted/50">
+              <TableRow className="bg-gradient-to-b from-muted/60 to-muted/20 hover:bg-transparent [&>th]:h-11 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:uppercase [&>th]:tracking-wider">
                 <TableHead className="whitespace-nowrap">Grade</TableHead>
                 <TableHead className="text-center whitespace-nowrap">Grade Point</TableHead>
                 <TableHead className="text-center whitespace-nowrap">Min Mark</TableHead>
@@ -77,7 +77,10 @@ export function GradeSystemLegend({ bands, gradeSystemCode }: Props) {
             </TableHeader>
             <TableBody>
               {sorted.map((b, idx) => (
-                <TableRow key={`${b.grade ?? 'band'}-${idx}`}>
+                <TableRow
+                  key={`${b.grade ?? 'band'}-${idx}`}
+                  className="border-border/50 transition-colors hover:bg-muted/40"
+                >
                   <TableCell className="font-bold">{b.grade ?? '—'}</TableCell>
                   <TableCell className="text-center tabular-nums">
                     {b.grade_point ?? '—'}

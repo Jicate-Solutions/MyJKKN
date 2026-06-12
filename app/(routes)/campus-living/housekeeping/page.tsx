@@ -36,15 +36,18 @@ import {
   Search,
   Loader2,
   CalendarDays,
+  CalendarClock,
   CheckCircle2,
   XCircle,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import {
   useCleaningSchedules,
   useCreateCleaningSchedule,
 } from '@/hooks/campus-living/use-hostel-housekeeping';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { BlockSelector } from '@/components/campus-living/block-selector';
 
 
@@ -101,7 +104,7 @@ export default function HousekeepingPage() {
   }, [blockFilter, activeFilter]);
 
   const { data, isLoading } = useCleaningSchedules(institutionId, filters);
-  const schedules = data?.data ?? [];
+  const schedules = useMemo(() => data?.data ?? [], [data?.data]);
 
   const filteredSchedules = schedules.filter((s) => {
     if (!searchQuery) return true;
@@ -146,10 +149,20 @@ export default function HousekeepingPage() {
               Recurring cleaning plans across blocks and common areas.
             </p>
           </div>
-          <Button onClick={() => setCreateOpen(true)} disabled={!institutionId}>
-            <Plus className="mr-2 h-4 w-4" />
-            New Schedule
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" asChild>
+              <Link href="/campus-living/housekeeping/bookings">
+                <CalendarClock className="mr-2 h-4 w-4" />
+                Bookings
+              </Link>
+            </Button>
+            {/* Not gated on profile.institution_id — super admins / multi-
+                institution users have none; the dialog asks for one instead. */}
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Schedule
+            </Button>
+          </div>
         </div>
 
         {/* Stats */}
@@ -227,7 +240,7 @@ export default function HousekeepingPage() {
                   <TableRow>
                     <TableHead>Type</TableHead>
                     <TableHead>Frequency</TableHead>
-                    <TableHead>Next Due</TableHead>
+                    <TableHead>Scheduled Time</TableHead>
                     <TableHead>Assigned Staff</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
@@ -242,10 +255,10 @@ export default function HousekeepingPage() {
                         {String(s.frequency ?? s.cadence ?? '—').replace(/_/g, ' ')}
                       </TableCell>
                       <TableCell>
-                        {s.next_due_at ? (
+                        {s.scheduled_time ? (
                           <span className="flex items-center gap-1 text-sm">
                             <CalendarDays className="h-3 w-3 text-muted-foreground" />
-                            {new Date(s.next_due_at as string).toLocaleDateString()}
+                            {String(s.scheduled_time).slice(0, 5)}
                           </span>
                         ) : (
                           '—'
@@ -293,21 +306,33 @@ interface CreateScheduleDialogProps {
 
 function CreateScheduleDialog({ open, onOpenChange, institutionId }: CreateScheduleDialogProps) {
   const createMut = useCreateCleaningSchedule();
+  // ROOT-CAUSE FIX: profile.institution_id is NULL for super admins and
+  // multi-institution users, which used to dead-end creation entirely (the
+  // page button was disabled and handleSubmit early-returned). When the
+  // profile carries no institution, ask for one here — hostel_cleaning_
+  // schedules.institution_id is NOT NULL, so a real id is always required.
+  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
+  const [pickedInstitution, setPickedInstitution] = useState<string>('');
+  const effectiveInstitutionId =
+    institutionId || pickedInstitution || (institutions.length === 1 ? institutions[0].id : '');
+
   const [blockId, setBlockId] = useState<string>('all');
   const [cleaningType, setCleaningType] = useState<string>('daily_sweep');
   const [frequency, setFrequency] = useState<string>('daily');
+  const [scheduledTime, setScheduledTime] = useState<string>('06:00');
   const [assignedStaff, setAssignedStaff] = useState<string>('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!institutionId) return;
+    if (!effectiveInstitutionId) return;
     // Payload uses real prod column names. Service DTO has index signature so
     // extra/unknown keys flow through to the insert untouched.
     const payload = {
-      institution_id: institutionId,
+      institution_id: effectiveInstitutionId,
       block_id: blockId !== 'all' ? blockId : null,
       cleaning_type: cleaningType,
       frequency,
+      scheduled_time: scheduledTime || null,
       assigned_staff: assignedStaff || null,
       is_active: true,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -315,9 +340,11 @@ function CreateScheduleDialog({ open, onOpenChange, institutionId }: CreateSched
     createMut.mutate(payload, {
       onSuccess: () => {
         onOpenChange(false);
+        setPickedInstitution('');
         setBlockId('all');
         setCleaningType('daily_sweep');
         setFrequency('daily');
+        setScheduledTime('06:00');
         setAssignedStaff('');
       },
     });
@@ -334,10 +361,30 @@ function CreateScheduleDialog({ open, onOpenChange, institutionId }: CreateSched
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            {!institutionId && (
+              <div className="space-y-2">
+                <Label htmlFor="institution">Institution</Label>
+                <Select
+                  value={pickedInstitution || (institutions.length === 1 ? institutions[0].id : '')}
+                  onValueChange={setPickedInstitution}
+                >
+                  <SelectTrigger id="institution">
+                    <SelectValue
+                      placeholder={institutionsLoading ? 'Loading institutions…' : 'Select institution'}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {institutions.map((i) => (
+                      <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="block">Block (optional)</Label>
               <BlockSelector
-                institutionId={institutionId}
+                institutionId={effectiveInstitutionId}
                 value={blockId}
                 onValueChange={setBlockId}
                 className="w-full"
@@ -370,6 +417,15 @@ function CreateScheduleDialog({ open, onOpenChange, institutionId }: CreateSched
               </Select>
             </div>
             <div className="space-y-2">
+              <Label htmlFor="scheduled-time">Scheduled time</Label>
+              <Input
+                id="scheduled-time"
+                type="time"
+                value={scheduledTime}
+                onChange={(e) => setScheduledTime(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="assigned-staff">Assigned staff (optional)</Label>
               <Input
                 id="assigned-staff"
@@ -383,7 +439,7 @@ function CreateScheduleDialog({ open, onOpenChange, institutionId }: CreateSched
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={createMut.isPending || !institutionId}>
+            <Button type="submit" disabled={createMut.isPending || !effectiveInstitutionId}>
               {createMut.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Create schedule
             </Button>

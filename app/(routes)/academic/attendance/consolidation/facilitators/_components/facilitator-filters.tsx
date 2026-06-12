@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import type { FacilitatorReportFilters } from '@/types/attendance';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface Department { id: string; name: string; }
 
@@ -38,6 +39,7 @@ export function FacilitatorFilters({
   onFacilitatorSearch,
   facilitatorSearchQuery,
 }: Props) {
+  const label = useAdaptiveLabels();
   const setFilter = <K extends keyof FacilitatorReportFilters>(
     key: K,
     value: FacilitatorReportFilters[K]
@@ -111,17 +113,17 @@ export function FacilitatorFilters({
       {/* Department */}
       <div className="space-y-1">
         <Label className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Department
+          {label('Department')}
         </Label>
         <Select
           value={filters.departmentId ?? 'all'}
           onValueChange={(v) => setFilter('departmentId', v === 'all' ? undefined : v)}
         >
           <SelectTrigger className="w-full h-9 text-xs sm:text-sm">
-            <SelectValue placeholder="All Departments" />
+            <SelectValue placeholder={label('All Departments')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Departments</SelectItem>
+            <SelectItem value="all">{label('All Departments')}</SelectItem>
             {departments.map((d) => (
               <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
             ))}

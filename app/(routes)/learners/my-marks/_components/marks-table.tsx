@@ -41,11 +41,11 @@ export function MarksTable({ courses, round }: Props) {
   return (
     <>
       {/* Desktop table */}
-      <div className="hidden md:block rounded-lg border overflow-hidden">
+      <div className="hidden md:block rounded-xl border bg-card shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
-              <TableRow className="bg-muted/50">
+              <TableRow className="bg-gradient-to-b from-muted/60 to-muted/20 hover:bg-transparent [&>th]:h-11 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:uppercase [&>th]:tracking-wider">
                 <TableHead className="w-[50px]">#</TableHead>
                 <TableHead className="min-w-[260px]">Subject</TableHead>
                 {components.map((c) => (
@@ -65,8 +65,11 @@ export function MarksTable({ courses, round }: Props) {
               {courses.map((course, idx) => {
                 const cr = courseRoundOf(course, round.round);
                 return (
-                  <TableRow key={`${course.course_code ?? 'c'}-${course.semester_index ?? ''}-${idx}`}>
-                    <TableCell className="text-muted-foreground text-sm">{idx + 1}</TableCell>
+                  <TableRow
+                    key={`${course.course_code ?? 'c'}-${course.semester_index ?? ''}-${idx}`}
+                    className="border-border/50 transition-colors hover:bg-muted/40"
+                  >
+                    <TableCell className="text-muted-foreground text-sm tabular-nums">{idx + 1}</TableCell>
                     <TableCell>
                       <div className="flex flex-col">
                         <span className="font-medium flex items-center gap-2">
@@ -129,11 +132,11 @@ function SubjectCardMobile({
   const cr = courseRoundOf(course, round.round);
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden rounded-xl border shadow-sm transition-shadow hover:shadow-md">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full text-left flex items-center justify-between gap-3 p-4 min-h-[60px] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="w-full text-left flex items-center justify-between gap-3 p-4 min-h-[60px] transition-colors hover:bg-muted/30 active:bg-muted/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <div className="flex flex-col min-w-0">
           <span className="font-medium truncate flex items-center gap-2">

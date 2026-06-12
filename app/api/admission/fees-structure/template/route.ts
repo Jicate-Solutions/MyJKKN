@@ -28,10 +28,11 @@ export async function GET(_req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const [cats, insts, quotas, comms] = await Promise.all([
+    const [cats, insts, quotas, accs, comms] = await Promise.all([
       loadActiveFeeCategories(supabase),
       supabase.from('institutions').select('name').order('name'),
       supabase.from('quotas').select('name').order('name'),
+      supabase.from('accommodation_types').select('name').eq('is_active', true).order('sort_order'),
       supabase.from('community_categories').select('name').order('name'),
     ]);
     const amountHeaders = cats.map((c) => c.category_name);
@@ -53,7 +54,8 @@ export async function GET(_req: NextRequest) {
       Institution: insts.data?.[0]?.name ?? 'JKKN College',
       Degree: 'Undergraduate', Department: 'Sample Department', Programme: 'Sample Programme',
       'Admission Year': '2026 - 2027', Quota: quotas.data?.[0]?.name ?? 'Management Quota',
-      Gender: '', Communities: comms.data?.slice(0, 2).map((c) => c.name).join(', ') ?? 'BC, MBC',
+      Gender: '', Accommodation: '',
+      Communities: comms.data?.slice(0, 2).map((c) => c.name).join(', ') ?? 'BC, MBC',
       Name: 'BE CSE — General — 2026', Status: 'draft', 'Effective From': '', 'Effective To': '', Notes: '',
     };
     if (amountHeaders[0]) sample[amountHeaders[0]] = 1000;
@@ -66,6 +68,7 @@ export async function GET(_req: NextRequest) {
     lists.state = 'hidden';
     const instNames = (insts.data ?? []).map((r) => r.name);
     const quotaNames = (quotas.data ?? []).map((r) => r.name);
+    const accNames = (accs.data ?? []).map((r) => r.name);
     const commNames = (comms.data ?? []).map((r) => r.name);
     lists.columns = [
       { header: 'Institution', key: 'inst', width: 30 },
@@ -73,22 +76,25 @@ export async function GET(_req: NextRequest) {
       { header: 'Gender', key: 'gender', width: 12 },
       { header: 'Status', key: 'status', width: 12 },
       { header: 'Community', key: 'comm', width: 30 },
+      { header: 'Accommodation', key: 'acc', width: 18 },
     ];
-    const maxLen = Math.max(instNames.length, quotaNames.length, commNames.length, 3);
+    const maxLen = Math.max(instNames.length, quotaNames.length, commNames.length, accNames.length, 3);
     for (let i = 0; i < maxLen; i++) {
       lists.addRow({
         inst: instNames[i] ?? null, quota: quotaNames[i] ?? null,
         gender: ['Male', 'Female'][i] ?? null, status: ['draft', 'active', 'archived'][i] ?? null,
-        comm: commNames[i] ?? null,
+        comm: commNames[i] ?? null, acc: accNames[i] ?? null,
       });
     }
-    // Dropdowns on first 200 data rows. Columns: B=Institution, G=Quota, H=Gender, K=Status.
+    // Dropdowns on first 200 data rows.
+    // Columns: B=Institution, G=Quota, H=Gender, I=Accommodation, L=Status.
     const colRange = (letter: string, n: number) => `Lists!$${letter}$2:$${letter}$${n + 1}`;
     for (let r = 2; r <= 201; r++) {
       if (instNames.length) sheet.getCell(`B${r}`).dataValidation = { type: 'list', allowBlank: false, formulae: [colRange('A', instNames.length)] };
       if (quotaNames.length) sheet.getCell(`G${r}`).dataValidation = { type: 'list', allowBlank: false, formulae: [colRange('B', quotaNames.length)] };
       sheet.getCell(`H${r}`).dataValidation = { type: 'list', allowBlank: true, formulae: ['Lists!$C$2:$C$3'] };
-      sheet.getCell(`K${r}`).dataValidation = { type: 'list', allowBlank: true, formulae: ['Lists!$D$2:$D$4'] };
+      if (accNames.length) sheet.getCell(`I${r}`).dataValidation = { type: 'list', allowBlank: true, formulae: [colRange('F', accNames.length)] };
+      sheet.getCell(`L${r}`).dataValidation = { type: 'list', allowBlank: true, formulae: ['Lists!$D$2:$D$4'] };
     }
 
     // ---- Sheet 3: Instructions ----
@@ -103,6 +109,7 @@ export async function GET(_req: NextRequest) {
       '   Degree/Department/Programme/Admission Year must be valid WITHIN the chosen parent.',
       '4. Communities: comma-separated names, e.g. "BC, MBC, OBC".',
       '5. Gender: Male, Female, or blank (= applies to any gender).',
+      '   Accommodation: Hostel, Day Scholar, etc., or blank (= applies to any accommodation).',
       '6. Fee amount columns: enter a number for each fee that applies; leave blank where it does not.',
       '   Transport and Hostel fees are intentionally NOT here (managed in their own modules).',
       '7. Status: draft (default), active, or archived. Dates: yyyy-mm-dd.',

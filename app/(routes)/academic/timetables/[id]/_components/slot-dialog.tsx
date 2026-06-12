@@ -38,6 +38,7 @@ import { logger } from '@/lib/utils/enhanced-logger';
 import { format } from 'date-fns';
 import { PracticalPeriodConfigForm } from './practical-period-config-form';
 import { AlertCircle } from 'lucide-react';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 function isSemesterIdObject(value: unknown): value is { id: string } {
   return value !== null && value !== undefined && typeof value === 'object' && 'id' in value;
@@ -131,6 +132,7 @@ export function SlotDialog({
     [key: number]: boolean;
   }>({});
 
+  const adapt = useAdaptiveLabels();
   const isBatchMode = timetable?.timetable_format === 'batch';
 
   // NEW: Check if the selected period is a break period (Added: 2025-10-27)
@@ -1163,7 +1165,7 @@ export function SlotDialog({
                     <div className='flex items-center justify-between'>
                       <div className='flex items-center gap-2'>
                         <Label>
-                          Course <span className='text-red-500'>*</span>
+                          {adapt('Course')} <span className='text-red-500'>*</span>
                         </Label>
                         <Badge variant='secondary' className='text-xs'>
                           {displayCourses?.length || 0} available
@@ -1182,7 +1184,7 @@ export function SlotDialog({
                             variant='outline'
                             className='text-xs bg-amber-50 text-amber-700 border-amber-300'
                           >
-                            All Courses
+                            {adapt('All Courses')}
                           </Badge>
                         )}
                       </div>
@@ -1200,7 +1202,7 @@ export function SlotDialog({
                         }
                         disabled={readOnly}
                       >
-                        <SelectValue placeholder='Select a course (required)' />
+                        <SelectValue placeholder={`Select a ${adapt('course')} (required)`} />
                       </SelectTrigger>
                       <SelectContent>
                         {/* Updated: 2025-12-01 - Use displayCourses to include existing slot course */}
@@ -1361,7 +1363,7 @@ export function SlotDialog({
                     <div className='space-y-2'>
                       <div className='flex items-center justify-between'>
                         <Label>
-                          Sections <span className='text-red-500'>*</span>
+                          {adapt('Sections')} <span className='text-red-500'>*</span>
                         </Label>
                         <Badge variant='secondary' className='text-xs'>
                           Semester ({filteredSections?.length || 0})
@@ -1435,7 +1437,7 @@ export function SlotDialog({
                     // Section-level timetable: Show info message only
                     <div className='space-y-2'>
                       <div className='flex items-center justify-between'>
-                        <Label>Section</Label>
+                        <Label>{adapt('Section')}</Label>
                         <Badge
                           variant='secondary'
                           className='text-xs bg-blue-100 text-blue-800 border-blue-300'
@@ -1527,7 +1529,7 @@ export function SlotDialog({
                           <div className='space-y-2'>
                             <div className='flex items-center gap-2'>
                               <Label>
-                                Course <span className='text-red-500'>*</span>
+                                {adapt('Course')} <span className='text-red-500'>*</span>
                               </Label>
                               <Badge variant='secondary' className='text-xs'>
                                 {courses?.length || 0} available
@@ -1555,7 +1557,7 @@ export function SlotDialog({
                                     : ''
                                 }
                               >
-                                <SelectValue placeholder='Select a course (required)' />
+                                <SelectValue placeholder={`Select a ${adapt('course')} (required)`} />
                               </SelectTrigger>
                               <SelectContent>
                                 {courses?.map((course: any) => (
@@ -1697,7 +1699,7 @@ export function SlotDialog({
                             <div className='space-y-2'>
                               <div className='flex items-center justify-between'>
                                 <Label>
-                                  Sections{' '}
+                                  {adapt('Sections')}{' '}
                                   <span className='text-red-500'>*</span>
                                 </Label>
                                 <Badge variant='secondary' className='text-xs'>
@@ -1781,7 +1783,7 @@ export function SlotDialog({
                             // Section-level timetable: Show info message only
                             <div className='space-y-2'>
                               <div className='flex items-center justify-between'>
-                                <Label>Section</Label>
+                                <Label>{adapt('Section')}</Label>
                                 <Badge
                                   variant='secondary'
                                   className='text-xs bg-blue-100 text-blue-800 border-blue-300'

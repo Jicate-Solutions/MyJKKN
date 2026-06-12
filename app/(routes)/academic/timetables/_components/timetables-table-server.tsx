@@ -9,7 +9,8 @@
 
 import { useState, useCallback } from 'react';
 import { DataTable } from '@/components/data-table/data-table';
-import { columns } from './columns';
+import { getColumns } from './columns';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import type { Timetable } from '@/types/academics';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon } from 'lucide-react';
@@ -51,6 +52,7 @@ export function TimetablesTableServer({
   timetables,
   metadata
 }: TimetablesTableServerProps) {
+  const adapt = useAdaptiveLabels();
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const [timetablesToDelete, setTimetablesToDelete] = useState<Timetable[]>([]);
   const [resetSelectionFn, setResetSelectionFn] = useState<(() => void) | null>(null);
@@ -185,7 +187,7 @@ export function TimetablesTableServer({
     <>
       <DataTable
         fetchDataFn={fetchData}
-        getColumns={() => columns as any}
+        getColumns={() => getColumns(adapt) as any}
         exportConfig={{
           entityName: 'timetables',
           columnMapping: {},

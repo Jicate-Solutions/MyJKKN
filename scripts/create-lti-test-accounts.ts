@@ -297,7 +297,6 @@ async function upsertLearnerProfile(
   const { data: accommodationRow } = await supabase
     .from('accommodation_types')
     .select('id')
-    .eq('institution_id', institutionId)
     .eq('code', 'dayscholar')
     .maybeSingle();
 

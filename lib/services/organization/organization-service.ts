@@ -403,7 +403,9 @@ export class OrganizationService {
       }
 
       // Apply entity type filter (default: show all in getInstitutions for the management page)
-      if (filters.entityType && filters.entityType !== 'all') {
+      if (Array.isArray(filters.entityType)) {
+        query = query.in('entity_type', filters.entityType);
+      } else if (filters.entityType && filters.entityType !== 'all') {
         query = query.eq('entity_type', filters.entityType);
       }
 
@@ -558,7 +560,7 @@ export class OrganizationService {
   static async getInstitutionNames(
     isActive?: boolean,
     userId?: string,
-    entityType: EntityType | 'all' = 'institution'
+    entityType: EntityType | 'all' | EntityType[] = 'institution'
   ): Promise<
     { id: string; name: string; counselling_code: string; entity_type: EntityType }[]
   > {
@@ -593,8 +595,11 @@ export class OrganizationService {
         query = query.eq('is_active', isActive);
       }
 
-      // Default: only return institutions (not offices/companies) for dropdown usage
-      if (entityType && entityType !== 'all') {
+      // Default: only return institutions (not offices/companies) for dropdown usage.
+      // An array (e.g. ['institution','school']) is matched with IN.
+      if (Array.isArray(entityType)) {
+        query = query.in('entity_type', entityType);
+      } else if (entityType && entityType !== 'all') {
         query = query.eq('entity_type', entityType);
       }
 

@@ -5,6 +5,7 @@
 // the eager-render gotcha (Radix TabsContent renders all children regardless
 // of visibility). Each tab's body is only mounted when active.
 
+import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -23,6 +24,8 @@ import { RequestsTab } from './_components/requests-tab';
 import {
   Loader2,
   AlertCircle,
+  Brush,
+  ChevronRight,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -105,6 +108,22 @@ export default function MyHostelPage() {
             Your hostel details, fees, and requests — all in one place.
           </p>
         </div>
+
+        {/* Room Cleaning — housekeeping slot-booking entry (Agent C, 2026-06-10) */}
+        <Link href='/campus-living/my-hostel/housekeeping' className='block'>
+          <Card className='hover:bg-muted/50 transition-colors'>
+            <CardContent className='p-4 flex items-center gap-3'>
+              <Brush className='h-5 w-5 text-primary shrink-0' />
+              <div className='min-w-0 flex-1'>
+                <p className='font-medium'>Room Cleaning</p>
+                <p className='text-sm text-muted-foreground'>
+                  Book a 10-minute housekeeping slot for your room.
+                </p>
+              </div>
+              <ChevronRight className='h-4 w-4 text-muted-foreground shrink-0' />
+            </CardContent>
+          </Card>
+        </Link>
 
         {/* URL-driven tabs — only the active tab body is mounted */}
         <Tabs

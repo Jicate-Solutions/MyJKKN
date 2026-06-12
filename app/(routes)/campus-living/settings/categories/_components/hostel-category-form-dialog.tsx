@@ -48,6 +48,19 @@ const formSchema = z.object({
   allocation_mode: z.enum(['auto', 'manual']),
   sort_order: z.coerce.number().int().min(0, 'Must be 0 or greater'),
   is_active: z.boolean(),
+  // Kept as string so an empty input maps to NULL (= no payment gate).
+  upgrade_threshold_pct: z
+    .string()
+    .optional()
+    .refine(
+      (v) => !v?.trim() || (!Number.isNaN(Number(v)) && Number(v) >= 0 && Number(v) <= 100),
+      'Must be between 0 and 100'
+    ),
+  upgrade_hold_days: z.coerce
+    .number()
+    .int()
+    .min(1, 'Must be 1–60 days')
+    .max(60, 'Must be 1–60 days'),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -77,6 +90,8 @@ export function HostelCategoryFormDialog({
       allocation_mode: 'manual',
       sort_order: 0,
       is_active: true,
+      upgrade_threshold_pct: '',
+      upgrade_hold_days: 5,
     },
   });
 
@@ -90,6 +105,11 @@ export function HostelCategoryFormDialog({
         allocation_mode: category.allocation_mode,
         sort_order: category.sort_order,
         is_active: category.is_active,
+        upgrade_threshold_pct:
+          category.upgrade_threshold_pct === null || category.upgrade_threshold_pct === undefined
+            ? ''
+            : String(category.upgrade_threshold_pct),
+        upgrade_hold_days: category.upgrade_hold_days ?? 5,
       });
     } else {
       form.reset({
@@ -99,6 +119,8 @@ export function HostelCategoryFormDialog({
         allocation_mode: 'manual',
         sort_order: 0,
         is_active: true,
+        upgrade_threshold_pct: '',
+        upgrade_hold_days: 5,
       });
     }
   }, [open, mode, category, form]);
@@ -106,7 +128,13 @@ export function HostelCategoryFormDialog({
   const onSubmit = async (data: FormValues) => {
     try {
       setSubmitting(true);
-      const payload = { ...data, description: data.description?.trim() || null };
+      const payload = {
+        ...data,
+        description: data.description?.trim() || null,
+        upgrade_threshold_pct: data.upgrade_threshold_pct?.trim()
+          ? Number(data.upgrade_threshold_pct)
+          : null,
+      };
       if (mode === 'create') {
         await createHostelCategory(payload);
         toast.success('Hostel category created');
@@ -244,6 +272,44 @@ export function HostelCategoryFormDialog({
                 </FormItem>
               )}
             />
+
+            <div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
+              <FormField
+                control={form.control}
+                name='upgrade_threshold_pct'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Upgrade Payment Threshold %{' '}
+                      <span className='text-muted-foreground font-normal'>(Optional)</span>
+                    </FormLabel>
+                    <FormControl>
+                      <Input type='number' min={0} max={100} placeholder='e.g., 30' {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='upgrade_hold_days'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Waitlist Hold Days</FormLabel>
+                    <FormControl>
+                      <Input type='number' min={1} max={60} {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+            <p className='text-xs text-muted-foreground -mt-2'>
+              A learner must have paid this % of their current academic year&apos;s fees to
+              upgrade into this category instantly. Below it, the chosen room is reserved on
+              the waitlist for the hold days, auto-confirming once the payment reaches the
+              threshold. Leave the % empty for no payment gate.
+            </p>
 
             <FormField
               control={form.control}

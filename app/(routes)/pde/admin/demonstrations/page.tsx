@@ -41,12 +41,38 @@ function formatDate(iso: string | null): string {
   }
 }
 
+/** Aging badge — green inside half the SLA, amber approaching, red breached. */
+function agingBadge(submittedAt: string | null, slaDays: number) {
+  if (!submittedAt) return null;
+  const days = Math.floor(
+    (Date.now() - new Date(submittedAt).getTime()) / (24 * 60 * 60 * 1000),
+  );
+  const breached = days >= slaDays;
+  const warning = !breached && days >= slaDays / 2;
+  return (
+    <Badge
+      variant="outline"
+      className={
+        breached
+          ? 'text-xs border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200'
+          : warning
+            ? 'text-xs border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200'
+            : 'text-xs border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
+      }
+    >
+      {days}d{breached ? ' — SLA breached' : ''}
+    </Badge>
+  );
+}
+
 export default async function PdeDemonstrationsInboxPage() {
   let pending: Awaited<ReturnType<typeof PDEValidatorService.listPending>> = [];
+  let stats: Awaited<ReturnType<typeof PDEValidatorService.validationVisibilityStats>> | null = null;
   let errorMessage: string | null = null;
 
   try {
     pending = await PDEValidatorService.listPending();
+    stats = await PDEValidatorService.validationVisibilityStats();
   } catch (err: any) {
     errorMessage = err?.message || 'Failed to load pending demonstrations';
   }
@@ -71,6 +97,55 @@ export default async function PdeDemonstrationsInboxPage() {
             the weighted score.
           </p>
         </div>
+
+        {/* Validation-loop visibility (CARE corrective move A — A3/A4):
+            SLA from policy pde.scoring.validation_sla_days, tunable live. */}
+        {stats && (
+          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <div className="text-xs text-muted-foreground">Awaiting validation</div>
+                <div className="text-2xl font-semibold tabular-nums">{stats.pendingCount}</div>
+                <div className="text-[11px] text-muted-foreground">oldest first below</div>
+              </CardContent>
+            </Card>
+            <Card className={stats.pendingOverSla > 0 ? 'border-red-300' : undefined}>
+              <CardContent className="pt-4 pb-3">
+                <div className="text-xs text-muted-foreground">
+                  Over {stats.slaDays}-day SLA
+                </div>
+                <div className="text-2xl font-semibold tabular-nums">
+                  {stats.pendingOverSla}
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                  target: every submission acknowledged in {stats.slaDays} days
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <div className="text-xs text-muted-foreground">Median time to validation</div>
+                <div className="text-2xl font-semibold tabular-nums">
+                  {stats.medianLatencyDays === null ? '—' : `${stats.medianLatencyDays}d`}
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                  approx. — submission → validation/score
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <div className="text-xs text-muted-foreground">Learners acknowledged</div>
+                <div className="text-2xl font-semibold tabular-nums">
+                  {stats.ackCoveragePct === null ? '—' : `${stats.ackCoveragePct}%`}
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                  of learners with a submission (coverage of the median)
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {errorMessage ? (
           <Card>
@@ -98,6 +173,7 @@ export default async function PdeDemonstrationsInboxPage() {
                     <TableHead>Skill</TableHead>
                     <TableHead>Evidence</TableHead>
                     <TableHead>Submitted</TableHead>
+                    <TableHead>Waiting</TableHead>
                     <TableHead className="text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -118,6 +194,9 @@ export default async function PdeDemonstrationsInboxPage() {
                       </TableCell>
                       <TableCell className="text-xs">
                         {formatDate(row.submitted_at)}
+                      </TableCell>
+                      <TableCell>
+                        {agingBadge(row.submitted_at, stats?.slaDays ?? 7)}
                       </TableCell>
                       <TableCell className="text-right">
                         <Link

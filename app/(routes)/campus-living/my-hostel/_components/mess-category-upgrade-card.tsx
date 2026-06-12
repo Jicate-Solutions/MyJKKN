@@ -11,14 +11,11 @@ import { UtensilsCrossed, Loader2, ArrowUpCircle } from 'lucide-react';
 import { useUpgradeMessCategories, useUpgradeMess } from '@/hooks/campus-living/use-category-upgrade';
 import type { UpgradeMessCategoryOption } from '@/types/campus-living/category-upgrade';
 
-const inr = (n: number) => `₹${n.toLocaleString('en-IN')}`;
-
 interface Props {
   currentMessName: string | null;
-  currentFee: number;
 }
 
-export function MessCategoryUpgradeCard({ currentMessName, currentFee }: Props) {
+export function MessCategoryUpgradeCard({ currentMessName }: Props) {
   const { data: options = [], isLoading } = useUpgradeMessCategories();
   const upgrade = useUpgradeMess();
   const [picked, setPicked] = useState<UpgradeMessCategoryOption | null>(null);
@@ -53,10 +50,8 @@ export function MessCategoryUpgradeCard({ currentMessName, currentFee }: Props) 
           options.map((opt) => (
             <div key={opt.mess_category_id} className="flex items-center justify-between gap-3 rounded-md border p-3">
               <div className="min-w-0">
-                <p className="font-medium truncate">{opt.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {inr(opt.current_year_fee)}
-                  {currentMessName ? ` · from ${currentMessName} (${inr(currentFee)})` : ''}
+                <p className="font-medium truncate">
+                  {currentMessName ? `${currentMessName} → ` : ''}{opt.name}
                 </p>
               </div>
               <Button size="sm" onClick={() => setPicked(opt)}>
@@ -72,8 +67,9 @@ export function MessCategoryUpgradeCard({ currentMessName, currentFee }: Props) 
           <AlertDialogHeader>
             <AlertDialogTitle>Upgrade mess to {picked?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              Your mess bill will be re-issued: {inr(currentFee)} → {inr(picked?.current_year_fee ?? 0)}.
-              This applies immediately.
+              Your mess category changes to{' '}
+              <span className="font-medium text-foreground">{picked?.name}</span> immediately and a
+              new mess bill is issued.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -113,12 +113,13 @@ import type {
 import type { BillingCategory, BillingCategoryKind } from '@/types/billing';
 
 // Billing-category kinds the admission fee structure does NOT manage. Transport
-// fees are owned by the transport module and hostel fees by campus-living
-// (hostel_category_fees), so neither should be selectable as an admission
-// fee-structure line item. Exported so the clone page applies the same filter.
+// fees are owned by the transport module, so they are not selectable as an
+// admission fee-structure line item. Hostel categories ARE selectable here —
+// beware that campus-living (hostel_category_fees) also bills hostel fees, so
+// avoid configuring the same hostel charge in both places (double-billing).
+// Exported so the clone page applies the same filter.
 export const FEE_STRUCTURE_EXCLUDED_CATEGORY_KINDS: BillingCategoryKind[] = [
   'transport',
-  'hostel',
 ];
 
 export function filterFeeStructureCategories(

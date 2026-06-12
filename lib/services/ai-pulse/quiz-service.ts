@@ -148,9 +148,11 @@ export class QuizService {
    * Falls back to DEFAULT_QUIZ when the cycle has no quiz authored yet.
    */
   static async getQuiz(cycleId: string): Promise<CycleQuizContext | null> {
+    // startup_events has no title/end_time/session_end_time columns — the cycle
+    // name is `name` and the session-end time lives in config.ai_pulse.
     const { data, error } = await (this.supabase as any)
       .from('startup_events')
-      .select('id, title, config, end_date, end_time, session_end_time')
+      .select('id, name, config')
       .eq('id', cycleId)
       .maybeSingle();
 
@@ -166,11 +168,10 @@ export class QuizService {
 
     return {
       cycleId: data.id,
-      title: data.title ?? null,
+      title: data.name ?? null,
       recordingUrl: typeof aiPulse.recording_url === 'string' ? aiPulse.recording_url : null,
       sessionEndTime:
-        (typeof data.session_end_time === 'string' ? data.session_end_time : null) ||
-        (typeof aiPulse.session_end_time === 'string' ? (aiPulse.session_end_time as string) : null),
+        typeof aiPulse.session_end_time === 'string' ? (aiPulse.session_end_time as string) : null,
       primaryLanguage: typeof aiPulse.primary_language === 'string' ? aiPulse.primary_language : 'en',
       secondaryLanguage: typeof aiPulse.secondary_language === 'string' ? aiPulse.secondary_language : 'ta',
       quiz,

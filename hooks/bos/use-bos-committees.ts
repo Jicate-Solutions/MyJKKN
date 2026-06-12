@@ -1,0 +1,149 @@
+import { useQuery, useMutation, useQueryClient, QueryClient } from '@tanstack/react-query';
+import {
+  BosCommittee,
+  CreateBosCommitteeDto,
+  UpdateBosCommitteeDto,
+} from '@/types/bos';
+import { QUERY_CONFIG } from '@/lib/config/query-config';
+
+export const bosCommitteeKeys = {
+  all: ['bos-committees'] as const,
+  byInstitutions: (csv: string) =>
+    [...bosCommitteeKeys.all, 'institutions', csv] as const,
+};
+
+async function parseError(res: Response, fallback: string): Promise<never> {
+  const json = await res.json().catch(() => null);
+  throw new Error(json?.error ?? fallback);
+}
+
+// ── Cache reconciliation ──────────────────────────────────────────────────────
+// Mutations write the server-authoritative row straight into every cached
+// committee list instead of calling invalidateQueries. A follow-up GET right
+// after a write has been observed (in this codebase — see useAddBosMember) to
+// return a stale snapshot missing the new row, which would make the just-saved
+// committee vanish until a manual refresh. Caches still refresh naturally on
+// remount via SEMI_STABLE_DATA's refetch behaviour / staleTime expiry.
+
+const committeeSort = (a: BosCommittee, b: BosCommittee) =>
+  a.sort_order - b.sort_order || a.name.localeCompare(b.name);
+
+/** Does the row belong in the list cached under this query key? */
+function rowMatchesListKey(key: readonly unknown[], row: BosCommittee): boolean {
+  // Key shape: ['bos-committees', 'institutions', <csv>, <isActive|'all'>]
+  const csv = key[2];
+  const isActive = key[3];
+  if (typeof csv === 'string' && csv !== '' && !csv.split(',').includes(row.institutions_id)) {
+    return false;
+  }
+  if (typeof isActive === 'boolean' && isActive !== row.is_active) {
+    return false;
+  }
+  return true;
+}
+
+function upsertCommitteeInCaches(queryClient: QueryClient, row: BosCommittee) {
+  const entries = queryClient.getQueriesData<BosCommittee[]>({
+    queryKey: bosCommitteeKeys.all,
+  });
+  for (const [key, data] of entries) {
+    if (!data) continue;
+    const without = data.filter((c) => c.id !== row.id);
+    const next = rowMatchesListKey(key, row) ? [...without, row].sort(committeeSort) : without;
+    queryClient.setQueryData(key, next);
+  }
+}
+
+function removeCommitteeFromCaches(queryClient: QueryClient, id: string) {
+  const entries = queryClient.getQueriesData<BosCommittee[]>({
+    queryKey: bosCommitteeKeys.all,
+  });
+  for (const [key, data] of entries) {
+    if (!data) continue;
+    queryClient.setQueryData(key, data.filter((c) => c.id !== id));
+  }
+}
+
+/**
+ * Committees for one logical institution. Pass the CAS-expanded csv from
+ * useBosInstitutionScope (or null/undefined while it resolves — the query
+ * stays disabled). Super-admins may pass '' to list across all institutions.
+ */
+export function useBosCommittees(
+  institutionsIdsCsv: string | null | undefined,
+  options?: { isActive?: boolean; enabled?: boolean }
+) {
+  return useQuery<BosCommittee[], Error>({
+    queryKey: [
+      ...bosCommitteeKeys.byInstitutions(institutionsIdsCsv ?? ''),
+      options?.isActive ?? 'all',
+    ],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (institutionsIdsCsv) params.set('institutionsIds', institutionsIdsCsv);
+      if (options?.isActive !== undefined) params.set('isActive', String(options.isActive));
+      const res = await fetch(`/api/bos/committees?${params.toString()}`);
+      if (!res.ok) await parseError(res, 'Failed to fetch committees');
+      const json = await res.json();
+      return json.data ?? [];
+    },
+    enabled: options?.enabled ?? institutionsIdsCsv != null,
+    ...QUERY_CONFIG.SEMI_STABLE_DATA,
+  });
+}
+
+export function useCreateBosCommittee() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: CreateBosCommitteeDto): Promise<BosCommittee> => {
+      const res = await fetch('/api/bos/committees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) await parseError(res, 'Failed to create committee');
+      return res.json();
+    },
+    onSuccess: (created: BosCommittee) => {
+      upsertCommitteeInCaches(queryClient, created);
+    },
+  });
+}
+
+export function useUpdateBosCommittee() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: UpdateBosCommitteeDto;
+    }): Promise<BosCommittee> => {
+      const res = await fetch(`/api/bos/committees/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) await parseError(res, 'Failed to update committee');
+      return res.json();
+    },
+    onSuccess: (updated: BosCommittee) => {
+      upsertCommitteeInCaches(queryClient, updated);
+    },
+  });
+}
+
+export function useDeleteBosCommittee() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/bos/committees/${id}`, { method: 'DELETE' });
+      if (!res.ok) await parseError(res, 'Failed to delete committee');
+      return res.json();
+    },
+    onSuccess: (_data, id) => {
+      removeCommitteeFromCaches(queryClient, id);
+    },
+  });
+}

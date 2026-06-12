@@ -29,9 +29,9 @@
  * Spec: hr-module-decomposition-2026-05-09.md (T6.3)
  * Companions:
  *   - supabase/migrations/20260624_hr_termination_workflow.sql
- *   - app/(routes)/admin/hr/terminations/page.tsx
- *   - app/(routes)/admin/hr/terminations/[id]/initiate/page.tsx
- *   - app/(routes)/admin/hr/terminations/[id]/review/page.tsx
+ *   - app/(routes)/hr/admin/terminations/page.tsx
+ *   - app/(routes)/hr/admin/terminations/[id]/initiate/page.tsx
+ *   - app/(routes)/hr/admin/terminations/[id]/review/page.tsx
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';

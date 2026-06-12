@@ -14,6 +14,7 @@ import {
 } from '@/components/data-table/data-table';
 import { createColumns } from '@/app/(routes)/academic/attendance/dashboard/_components/pending-attendance-columns';
 import { AttendanceDashboardService } from '@/lib/services/academic/attendance-dashboard-service';
+import { AttendanceEscalationService } from '@/lib/services/academic/attendance-escalation-service';
 import { usePendingAttendanceDateRange } from '@/hooks/academic/use-pending-attendance-date-range';
 import { useTimetablesForPending } from '@/hooks/academic/use-timetables-for-pending';
 import { PendingStatsCards } from './pending-stats-cards';
@@ -146,18 +147,80 @@ export function PendingAttendanceClient({
     [router]
   );
 
-  const handleSendReminder = useCallback(
-    (_period: PendingAttendancePeriod) => {
-      toast.error('Reminder feature coming soon');
+  // Escalate unmarked day-wise (session) attendance to the institution's
+  // Principal & Director as an in-app notification. Period-wise periods have no
+  // session escalation (yet) and report nothing to notify.
+  const escalateForPeriods = useCallback(
+    async (periods: PendingAttendancePeriod[]) => {
+      // One escalation pass per unique (institution, date); the service handles
+      // grouping and recipient lookup internally.
+      const seen = new Set<string>();
+      const targets = periods
+        .map((p) => ({
+          institutionId: p.institution_id,
+          date: p.attendance_date,
+        }))
+        .filter((t) => {
+          if (!t.institutionId) return false;
+          const key = `${t.institutionId}_${t.date}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+
+      if (targets.length === 0) {
+        toast.error('No institution found for the selected pending attendance.');
+        return;
+      }
+
+      try {
+        const results = await Promise.all(
+          targets.map((t) =>
+            AttendanceEscalationService.escalatePendingSessions({
+              institutionId: t.institutionId,
+              date: t.date,
+              ignoreCutoff: true, // manual reminder — do not wait for cutoff
+            })
+          )
+        );
+        const notified = results.reduce((sum, r) => sum + r.notified, 0);
+        const sessions = results.reduce(
+          (sum, r) => sum + r.escalatedSessions,
+          0
+        );
+
+        if (notified > 0) {
+          toast.success(
+            `Notified Principal & Director about ${sessions} pending session${
+              sessions === 1 ? '' : 's'
+            }.`
+          );
+        } else {
+          toast.error(
+            'Nothing to escalate — either no day-wise sessions are pending or no Principal/Director is configured.'
+          );
+        }
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : 'Failed to send reminder.'
+        );
+      }
     },
     []
   );
 
-  const handleBulkSendReminder = useCallback(
-    (_selectedRows: PendingAttendancePeriod[]) => {
-      toast.error('Reminder feature coming soon');
+  const handleSendReminder = useCallback(
+    (period: PendingAttendancePeriod) => {
+      void escalateForPeriods([period]);
     },
-    []
+    [escalateForPeriods]
+  );
+
+  const handleBulkSendReminder = useCallback(
+    (selectedRows: PendingAttendancePeriod[]) => {
+      void escalateForPeriods(selectedRows);
+    },
+    [escalateForPeriods]
   );
 
   // ─── Columns ──────────────────────────────────────────────────────────────────

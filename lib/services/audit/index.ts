@@ -12,6 +12,16 @@ export type {
   DiscoveryQueryResult,
   RunQueryOptions,
 } from './audit-discovery-service';
+export { CareAuditService } from './care-audit-service';
+export type {
+  CareAuditDetail,
+  CareAuditListItem,
+  CareInviteContext,
+  CareRpcDenial,
+  CareScoreRow,
+  CareSnapshot,
+  CareSnapshotParameter,
+} from './care-audit-service';
 export { AuditReportService } from './audit-report-service';
 export type {
   AuditReportFormat,

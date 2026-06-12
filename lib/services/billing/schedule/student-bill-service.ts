@@ -406,23 +406,17 @@ export class StudentBillService {
 
   /**
    * Resolve an accommodation-type catalog code (e.g. 'hostel') to the matching
-   * accommodation_type_id(s). Codes repeat across each institution's catalog, so
-   * we resolve across all institutions unless an institution filter narrows it.
+   * accommodation_type_id(s). The catalog is global (one row per code).
    * Returns [] on error (caller forces a no-match).
    */
   private static async resolveAccommodationTypeIds(
-    code: string,
-    institutionId?: string
+    code: string
   ): Promise<string[]> {
     try {
-      let query = (this.supabase as any)
+      const query = (this.supabase as any)
         .from('accommodation_types')
         .select('id')
         .eq('code', code);
-
-      if (institutionId) {
-        query = query.eq('institution_id', institutionId);
-      }
 
       const { data, error } = await query;
       if (error) throw error;
@@ -452,10 +446,7 @@ export class StudentBillService {
       // (otherwise PostgREST returns the bill with student: null instead of
       // excluding it). null = filter inactive; [] = code matched nothing.
       const accommodationTypeIds: string[] | null = filters.accommodation_type
-        ? await this.resolveAccommodationTypeIds(
-            filters.accommodation_type,
-            filters.institution_id
-          )
+        ? await this.resolveAccommodationTypeIds(filters.accommodation_type)
         : null;
 
       // Any filter that targets a column on the embedded learner requires the

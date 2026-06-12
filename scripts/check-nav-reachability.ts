@@ -91,6 +91,54 @@ const NAV_EXCLUDE = new Set<string>([
   '/okr/admin',
 
   // ────────────────────────────────────────────────────────────
+  // 2026-06-10 admin-cluster relocation — admission (counselors +
+  // policies). These super-admin config pages moved out of /admin/*
+  // (where the filesystem-derived admin tree made them auto-chip-
+  // reachable) into the admission namespace. Deliberately NOT wired
+  // as nav-config chips: they're SuperAdminOnly/config surfaces and
+  // chips would surface them to every admission user (sidebar-shows/
+  // page-denies anti-pattern). The counselors/admin hub page links
+  // its 5 sub-pages via cards; 307 redirects cover old bookmarks.
+  // Same pattern as '/okr/admin' and '/pde/admin/compliance/per-college'.
+  // ────────────────────────────────────────────────────────────
+  '/admission/counselors/admin',
+  '/admission/counselors/admin/alert-thresholds',
+  '/admission/counselors/admin/routing-config',
+  '/admission/counselors/admin/routing-errors',
+  '/admission/counselors/admin/rule-types',
+  '/admission/counselors/admin/tier-policy',
+  '/admission/settings/lead-stages-policy',
+  '/admission/settings/telephony-policies',
+
+  // ────────────────────────────────────────────────────────────
+  // 2026-06-11 admin-cluster relocation wave-2 — departments
+  // (HoD assignment). Moved out of /admin/departments (auto-chip-
+  // reachable via the filesystem-derived admin tree) into the
+  // organizations namespace. Deliberately NOT wired as a nav-config
+  // chip: admin_or_super_admin policy surface (PolicyPageShell) —
+  // a chip would surface it to every organizations user (sidebar-
+  // shows/page-denies anti-pattern). 307 redirects cover old
+  // bookmarks. Same pattern as the 2026-06-10 admission block above.
+  // ────────────────────────────────────────────────────────────
+  '/organizations/departments/hod-assignment',
+
+  // ────────────────────────────────────────────────────────────
+  // 2026-06-11 baseline repair — three orphans that landed via
+  // direct-to-main commits (no PR, so the PR-time gate never ran)
+  // and pushed the count to 53 > 50, breaking `npm run build` at
+  // deploy time for everyone. All three are button-invoked pages
+  // with a verified in-page link from a chip-reachable parent:
+  //  - group-dashboard actions + setup: linked from the Pace tab
+  //    (arps-pace-overview.tsx, "Phase 2E nav buttons", 2026-06-07).
+  //  - school-defaults/audit: linked from the School Defaults page
+  //    header "Audit log" button (added in this same PR — it was a
+  //    true orphan with zero inbound links until now).
+  // ────────────────────────────────────────────────────────────
+  '/admission/group-dashboard/actions',
+  '/admission/group-dashboard/setup',
+  '/organizations/school-defaults/audit',
+
+  // ────────────────────────────────────────────────────────────
   // Form pages invoked from list-page "+ New" / "Add" / "Create"
   // buttons. Not tier-strip destinations — the user clicks a row
   // action on the parent list, lands here, submits, returns to list.
@@ -111,7 +159,7 @@ const NAV_EXCLUDE = new Set<string>([
   '/accreditation/naac/grievance/new',
 
   // Admin /new forms
-  '/admin/notifications/audiences/new',
+  '/notifications/admin/audiences/new',
   '/pde/admin/assessments/create',
   '/pde/admin/quests/create',
 
@@ -227,12 +275,16 @@ const NAV_EXCLUDE = new Set<string>([
   // ════════════════════════════════════════════════════════════
 
   // Admin HR /new forms (button-invoked from the reachable list page)
-  '/admin/hr/disciplinary/new',
-  '/admin/hr/payroll/periods/new',
-  '/admin/hr/training/new',
+  '/hr/admin/disciplinary/new',
+  '/hr/admin/payroll/periods/new',
+  '/hr/admin/training/new',
   // Admin button-invoked sub-views (linked from the reachable parent page)
-  '/admin/hr/forms/submissions', // ← /admin/hr/forms "View submissions"
-  '/admin/hr/performance-reviews/cycles', // ← /admin/hr/performance-reviews
+  '/hr/admin/forms/submissions', // ← /hr/admin/forms "View submissions"
+  '/hr/admin/performance-reviews/cycles', // ← /hr/admin/performance-reviews
+  // Tier-singleton: lone child of /hr/admin/offboarding — the min-2-chip rule
+  // hides single-chip tiers. Was auto-surfaced only by the old /admin
+  // fallback nav pre-relocation (2026-06-10); no page links to it either.
+  '/hr/admin/offboarding/retirements',
   '/pde/admin/compliance/per-college', // ← /pde/admin/compliance drill-down
 
   // Board of Studies /new forms
@@ -266,13 +318,28 @@ const NAV_EXCLUDE = new Set<string>([
 
   // External education-consultant persona portal — reached via the
   // consultant's own login, NOT the staff sidebar. No staff chip surface
-  // by design (managed from /admin/consultants/portal-access).
+  // by design (managed from /admission/consultants/admin/portal-access).
   '/consultant-portal',
   '/consultant-portal/commissions',
   '/consultant-portal/leads',
   '/consultant-portal/leads/submit',
   '/consultant-portal/profile',
   '/consultant-portal/rewards',
+
+  // 2026-06-10 admin-cluster relocation — consultants. Super-admin policy
+  // pages relocated from /admin/consultants/* ("one module = one URL
+  // prefix"). Under /admin they were chip-reachable only via manifest
+  // auto-render (no nav-config there); the admission module HAS a
+  // nav-config, which suppresses auto-render, so the new paths have no
+  // chip surface yet. Reached by direct URL / the 307 redirects from the
+  // old paths. Follow-up: wire literal hrefs into admission nav-config.
+  // The bare /admission/consultants/admin hub (card links to the 3 pages
+  // below) exists so the cluster root + old-URL redirect don't 404.
+  '/admission/consultants/admin',
+  '/admission/consultants/admin/commission-triggers',
+  '/admission/consultants/admin/portal-access',
+  '/admission/consultants/admin/tier-policy',
+
 ]);
 
 /** Walk app/(routes)/ collecting {url} for every static page.tsx. */

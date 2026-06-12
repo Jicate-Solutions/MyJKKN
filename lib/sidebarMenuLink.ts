@@ -332,11 +332,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/batches/new': 'academic.batches.create',
   '/academic/batches/[id]/edit': 'academic.batches.edit',
 
-  // Notification Management
-  '/admin/notifications': 'notifications.view',
-  '/admin/notifications/new': 'notifications.create',
-  '/admin/notifications/compliance': 'notifications.view',
-  '/admin/notifications/audiences': 'notifications.view',
+  // Notification Management (relocated /admin/notifications → /notifications/admin, 2026-06-11 wave-2)
+  '/notifications/admin': 'notifications.view',
+  '/notifications/admin/new': 'notifications.create',
+  '/notifications/admin/compliance': 'notifications.view',
+  '/notifications/admin/audiences': 'notifications.view',
 
   // System Management
   // Work Pulse
@@ -344,6 +344,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/work-pulse/all': 'work_pulse.all.view',
   '/work-pulse/agents': 'work_pulse.agents.view',
   '/work-pulse/impact': 'work_pulse.impact.view',
+
+  // AI Pulse Module (events-extension — weekly Pulse-to-Practice cycle)
+  '/ai-pulse': 'ai_pulse.view',
+  '/ai-pulse/my-pulse': 'aiPulse:view.self',
+  '/ai-pulse/admin/cycles': 'aiPulse:cycles.manage',
+  '/ai-pulse/admin/anomalies': 'aiPulse:anomaly.review',
+  '/ai-pulse/admin/policies': 'aiPulse:policies.manage',
+  '/ai-pulse/evidence/naac': 'aiPulse:naac.evidence_export',
 
   // VAC (Value-Added Courses) Module
   '/vac': 'vac.courses.view',
@@ -364,19 +372,23 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/system/api-management': 'system.api.view',
   '/system/lti-tools': 'lti.tools.view',
   '/admin/bug-reports': 'system.bugs.view',
-  '/admin/ai-query-tools': 'super_admin', // Super admin only - AI Query Tools Registry
+  '/ai-query/admin': 'super_admin', // Super admin only - AI Query Tools Registry
   '/admin/ai-models': 'super_admin', // Super admin only - AI Model Config (provider/model picker + spend caps + usage)
   '/admin/page-metadata': 'super_admin', // Super admin only - Page Search Metadata
 
-  // Meta admin pages (added 2026-05-31 for Meta integration nav-bar wiring).
-  '/admin/social/facebook': 'super_admin',
-  '/admin/social/instagram': 'super_admin',
-  '/admin/social/insights': 'super_admin',
-  '/admin/social/lead-ads': 'super_admin',
-  '/admin/social/departments': 'super_admin',
-  '/admin/instagram-attribution': 'super_admin',
-  '/admin/integrations/meta-pixel': 'super_admin',
-  '/admin/integrations/meta-audiences': 'super_admin',
+  // Social Media module (added 2026-05-31 for Meta integration nav-bar
+  // wiring; 2026-06-11 retrofit from hardcoded 'super_admin' to granular
+  // social.* keys — grantable per-role via Role Management. Super admins
+  // still see everything via the isSuperAdmin bypass in the nav filter).
+  '/admission/social': 'social.view',
+  '/admission/social/facebook': 'social.facebook.view',
+  '/admission/social/instagram': 'social.instagram.view',
+  '/admission/social/insights': 'social.insights.view',
+  '/admission/social/lead-ads': 'social.lead_ads.view',
+  '/admission/social/departments': 'social.departments.view',
+  '/admission/social/attribution': 'social.attribution.view',
+  '/admission/social/meta-pixel': 'social.meta_pixel.view',
+  '/admission/social/meta-audiences': 'social.meta_audiences.view',
 
   // Internship Module — Policy Admin (super_admin only)
   '/internships/policy': 'super_admin',
@@ -402,7 +414,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/internships/vehicles/[id]': 'internship.vehicles.view',
 
   // Lifecycle Analytics
-  '/admin/lifecycle': 'admin.lifecycle.view',
+  '/learners/lifecycle': 'admin.lifecycle.view',
 
   // LTI Monitoring
   '/admin/lti/analytics': 'lti.analytics.view',
@@ -624,6 +636,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   '/staff': 'staff.view',
   '/hr': 'hr.view',
+
+  // Family Moments (2026-06-12 — Father's Day 2026, NV CBSE + Matric HSS)
+  '/moments/submit': 'moments.submissions.create',
+  '/moments/campaigns': 'moments.campaigns.view',
 
   // Solution Hub
   '/solutions': 'solutions.dashboard.view',
@@ -1557,6 +1573,22 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
+      // Family Moments — campaign-based parent engagement (Father's Day 2026).
+      groupLabel: 'Family Moments',
+      menus: [
+        {
+          href: '/moments/submit',
+          label: 'Family Moments',
+          active: pathname.startsWith('/moments'),
+          icon: Heart,
+          submenus: [
+            { href: '/moments/submit', label: 'Collect Messages', active: pathname === '/moments/submit' },
+            { href: '/moments/campaigns', label: 'Campaigns', active: pathname === '/moments/campaigns' },
+          ]
+        }
+      ]
+    },
+    {
       groupLabel: 'Learners',
       menus: [
         {
@@ -1741,11 +1773,11 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/admin' || pathname.startsWith('/admin/'),
           icon: Shield,
           submenus: [
-            // Notifications
-            { href: '/admin/notifications', label: 'Notifications · All', active: pathname === '/admin/notifications' },
-            { href: '/admin/notifications/new', label: 'Notifications · Send', active: pathname === '/admin/notifications/new' },
-            { href: '/admin/notifications/compliance', label: 'Notifications · Compliance', active: pathname === '/admin/notifications/compliance' },
-            { href: '/admin/notifications/audiences', label: 'Notifications · Audiences', active: pathname.startsWith('/admin/notifications/audiences') },
+            // Notifications (relocated /admin/notifications → /notifications/admin, 2026-06-11 wave-2)
+            { href: '/notifications/admin', label: 'Notifications · All', active: pathname === '/notifications/admin' },
+            { href: '/notifications/admin/new', label: 'Notifications · Send', active: pathname === '/notifications/admin/new' },
+            { href: '/notifications/admin/compliance', label: 'Notifications · Compliance', active: pathname === '/notifications/admin/compliance' },
+            { href: '/notifications/admin/audiences', label: 'Notifications · Audiences', active: pathname.startsWith('/notifications/admin/audiences') },
             // LTI
             { href: '/admin/lti', label: 'LTI · Dashboard', active: pathname === '/admin/lti' },
             { href: '/admin/lti/analytics', label: 'LTI · Analytics', active: pathname === '/admin/lti/analytics' },
@@ -1755,16 +1787,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             // sidebar-unify, 2026-06-09). See groupLabel: 'PDE' below.
             // Other
             { href: '/audit-trail', label: 'Audit Trail', active: pathname.startsWith('/audit-trail') },
-            { href: '/admin/lifecycle', label: 'Lifecycle Analytics', active: pathname.startsWith('/admin/lifecycle') },
+            { href: '/learners/lifecycle', label: 'Lifecycle Analytics', active: pathname.startsWith('/learners/lifecycle') },
             { href: '/admin/page-metadata', label: 'Page Metadata', active: pathname.startsWith('/admin/page-metadata') },
-            { href: '/admin/social/facebook', label: 'Social · Facebook', active: pathname.startsWith('/admin/social/facebook') },
-            { href: '/admin/social/instagram', label: 'Social · Instagram', active: pathname.startsWith('/admin/social/instagram') },
-            { href: '/admin/social/insights', label: 'Social · Insights', active: pathname.startsWith('/admin/social/insights') },
-            { href: '/admin/social/lead-ads', label: 'Social · Lead Ads', active: pathname.startsWith('/admin/social/lead-ads') },
-            { href: '/admin/social/departments', label: 'Social · Dept Accounts', active: pathname.startsWith('/admin/social/departments') },
-            { href: '/admin/instagram-attribution', label: 'Social · IG Attribution', active: pathname.startsWith('/admin/instagram-attribution') },
-            { href: '/admin/integrations/meta-pixel', label: 'Meta · Pixel / CAPI', active: pathname.startsWith('/admin/integrations/meta-pixel') },
-            { href: '/admin/integrations/meta-audiences', label: 'Meta · Custom Audiences', active: pathname.startsWith('/admin/integrations/meta-audiences') },
             { href: '/admin/ai-models', label: 'AI Models', active: pathname.startsWith('/admin/ai-models') },
           ]
         }
@@ -1816,6 +1840,26 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/vac/admin/analytics', label: 'Admin · Analytics', active: pathname.startsWith('/vac/admin/analytics') },
             { href: '/vac/admin/case', label: 'Admin · CASE', active: pathname.startsWith('/vac/admin/case') },
             { href: '/vac/admin/settings', label: 'Admin · Settings', active: pathname.startsWith('/vac/admin/settings') },
+          ]
+        },
+        {
+          // AI Pulse — JKKN's weekly Pulse-to-Practice AI-learning cycle.
+          // Events-module extension (cycles = startup_events rows, config.kind
+          // = 'ai_pulse'). Re-added to the sidebar after the 2026-06-09
+          // sidebar-unify wave dropped the May entry. Each submenu is gated by
+          // its MENU_PERMISSIONS key, so learners see My Pulse, the Champion
+          // sees the admin consoles, IQAC sees NAAC evidence.
+          href: '/ai-pulse',
+          label: 'AI Pulse',
+          active: pathname === '/ai-pulse' || pathname.startsWith('/ai-pulse/'),
+          icon: Sparkles,
+          submenus: [
+            { href: '/ai-pulse', label: 'Home', active: pathname === '/ai-pulse' },
+            { href: '/ai-pulse/my-pulse', label: 'My Pulse', active: pathname.startsWith('/ai-pulse/my-pulse') },
+            { href: '/ai-pulse/admin/cycles', label: 'Champion · Cycles', active: pathname.startsWith('/ai-pulse/admin/cycles') },
+            { href: '/ai-pulse/admin/anomalies', label: 'Champion · Anomalies', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
+            { href: '/ai-pulse/admin/policies', label: 'Admin · Policies', active: pathname.startsWith('/ai-pulse/admin/policies') },
+            { href: '/ai-pulse/evidence/naac', label: 'NAAC Evidence', active: pathname.startsWith('/ai-pulse/evidence/naac') },
           ]
         }
       ]
@@ -2161,7 +2205,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             pathname === '/system' ||
             pathname.startsWith('/system/') ||
             pathname.startsWith('/admin/bug-reports') ||
-            pathname.startsWith('/admin/ai-query-tools'),
+            pathname.startsWith('/ai-query/admin'),
           icon: Settings,
           submenus: [
             { href: '/system/api-management', label: 'API Management', active: pathname === '/system/api-management' },
@@ -2169,7 +2213,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/my-bug-reports', label: 'My Bug Reports', active: pathname === '/my-bug-reports' },
             { href: '/bug-leaderboard', label: 'Bug Leaderboard', active: pathname === '/bug-leaderboard' },
             { href: '/admin/bug-reports', label: 'All Bug Reports', active: pathname === '/admin/bug-reports' },
-            { href: '/admin/ai-query-tools', label: 'AI Query Tools', active: pathname.startsWith('/admin/ai-query-tools') },
+            { href: '/ai-query/admin', label: 'AI Query Tools', active: pathname.startsWith('/ai-query/admin') },
           ]
         }
       ]
@@ -2199,10 +2243,20 @@ export function GetRoleBasedPages(
   // manifest ungated and would otherwise leak the full admin list). Everyone
   // else (super admin, wardens, staff) gets the full auto-discovered
   // accordion. Set here because GetPages() has no role context.
+  //
+  // Students never hold the staff gate (campus_living.dashboard.view), so the
+  // entry is rewritten to the My Hostel hub and gated on
+  // campus_living.my_hostel.view instead. The nav surfaces (menu.tsx +
+  // bottom-navbar.tsx) overwrite that key with live user_is_hosteler() status,
+  // so only students with hostel accommodation see it.
   if (userRole?.role_key === 'student') {
     for (const group of allMenus) {
       for (const menu of group.menus) {
-        if (menu.href === '/campus-living') menu.noSubmenus = true;
+        if (menu.href === '/campus-living') {
+          menu.noSubmenus = true;
+          menu.href = '/campus-living/my-hostel';
+          menu.label = 'My Hostel';
+        }
       }
     }
   }

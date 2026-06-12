@@ -284,7 +284,7 @@ export const formBuilderService = {
     if (firstStep) {
       const submitterName = await getProfileName(supabase, submitterId);
       const submissionUrl =
-        (options?.submissionUrlBase ?? '/admin/hr/forms/submissions') +
+        (options?.submissionUrlBase ?? '/hr/admin/forms/submissions') +
         '/' +
         submission.id;
       try {
@@ -462,7 +462,7 @@ export const formBuilderService = {
 
     // 6. Fire notifications — submitter first, then next approver if any.
     const submissionUrl =
-      (options?.submissionUrlBase ?? '/admin/hr/forms/submissions') + '/' + submission.id;
+      (options?.submissionUrlBase ?? '/hr/admin/forms/submissions') + '/' + submission.id;
 
     try {
       await notifySubmitterOfAction(

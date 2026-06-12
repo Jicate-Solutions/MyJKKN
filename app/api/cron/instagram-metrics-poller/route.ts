@@ -13,6 +13,12 @@ export const dynamic = 'force-dynamic';
 //   3. Fetch per-post insights → write ig_post_metrics rows
 //      (real columns incl. likes for all media; plays / avg_watch_time_ms /
 //       total_watch_time_ms for reels, with v22+ plays→views fallback)
+//   3.5 Re-poll recent posts' metrics (ContentStudio parity, added 2026-06-11):
+//      media older than last_polled_at never re-enter steps 2-3, so their
+//      metrics froze at discovery time. Append fresh ig_post_metrics snapshots
+//      for posts within ig.post_repoll_window_days (default 7), capped at
+//      ig.post_repoll_limit per account (default 10), skipping media already
+//      snapshotted in the current tick.
 //   4. Update ig_accounts.last_polled_at (and last_post_at if new posts)
 //   5. Mark accounts dormant if no post in ig.dormancy_threshold_days
 //
@@ -178,6 +184,36 @@ async function getDormancyThresholdDays(
   return 30;
 }
 
+/** Policy: how far back (days) re-polled posts are eligible. Default 7. */
+async function getRepollWindowDays(supabase: SupabaseClient): Promise<number> {
+  const { data } = await supabase
+    .from('platform_policies')
+    .select('value')
+    .eq('policy_key', 'ig.post_repoll_window_days')
+    .eq('scope_type', 'global')
+    .maybeSingle();
+  if (data?.value !== undefined && data?.value !== null) {
+    const n = Number(data.value);
+    if (!isNaN(n) && n > 0) return n;
+  }
+  return 7;
+}
+
+/** Policy: max posts re-polled per account per tick (bounds Graph calls). Default 10. */
+async function getRepollLimit(supabase: SupabaseClient): Promise<number> {
+  const { data } = await supabase
+    .from('platform_policies')
+    .select('value')
+    .eq('policy_key', 'ig.post_repoll_limit')
+    .eq('scope_type', 'global')
+    .maybeSingle();
+  if (data?.value !== undefined && data?.value !== null) {
+    const n = Number(data.value);
+    if (!isNaN(n) && n > 0) return n;
+  }
+  return 10;
+}
+
 // ---------------------------------------------------------------------------
 // Route-local Graph helpers for metrics the shared IG client cannot express
 // (metric_type=total_value, online_followers, follower_demographics, reels
@@ -232,12 +268,18 @@ async function fetchTotalValueMetrics(
   return out;
 }
 
-const ENGAGEMENT_TOTAL_VALUE_METRICS = ['accounts_engaged', 'total_interactions'];
+// All three are total_value-only. `views` (the v22+ replacement for the
+// removed account-level `impressions`) rides the same grouped call.
+const ENGAGEMENT_TOTAL_VALUE_METRICS = [
+  'accounts_engaged',
+  'total_interactions',
+  'views',
+];
 
 /**
- * accounts_engaged + total_interactions (both total_value-only). Grouped call
- * first; on failure retries per metric so one unsupported metric can't drop
- * the other. Failures are logged and tolerated.
+ * accounts_engaged + total_interactions + views (all total_value-only).
+ * Grouped call first; on failure retries per metric so one unsupported
+ * metric can't drop the others. Failures are logged and tolerated.
  */
 async function fetchEngagementTotals(
   supabase: SupabaseClient,
@@ -428,12 +470,16 @@ function entryValue(
 // (one bad metric must not kill the whole account poll).
 // ---------------------------------------------------------------------------
 
+// v22+ pruned the account-insights catalog: `impressions` and `email_contacts`
+// are no longer valid metric names (confirmed live 2026-06-12 — every request
+// logged "(#100) metric[0] must be one of the following values: …" per tick).
+// `impressions` is replaced by `views` (total_value-only — rides the grouped
+// engagement call below and is surfaced on the impressions column);
+// `email_contacts` had no consumer (raw-only) and is dropped outright.
 const ACCOUNT_INSIGHT_METRICS: IgAccountMetric[] = [
   'reach',
-  'impressions',
   'profile_views',
   'website_clicks',
-  'email_contacts',
 ];
 
 async function fetchAccountInsights(
@@ -504,6 +550,13 @@ async function fetchAccountInsights(
   if (typeof engagement.total_interactions === 'number') {
     raw.total_interactions = engagement.total_interactions;
   }
+  // v22+ removed account-level `impressions`; `views` is its designated
+  // replacement — surface it on the impressions column so the series keeps
+  // flowing (same precedent as the media-level plays→views mapping).
+  if (typeof engagement.views === 'number') {
+    flat.impressions = engagement.views;
+    raw.views = engagement.views;
+  }
 
   // Hourly when-is-my-audience-online map (lifetime metric, latest entry).
   const onlineFollowers = await fetchOnlineFollowers(
@@ -564,13 +617,21 @@ async function fetchRecentMedia(
 // REELS media are handled route-locally (see REEL_METRICS) because their
 // metric names are volatile across Graph versions and several fall outside
 // the shared IgMediaMetric union.
+//
+// v25 hygiene (2026-06-12): `engagement` was removed from media insights —
+// its allowed-list replacement `total_interactions` feeds the same
+// ig_post_metrics.engagement column via fetchPostInsights' existing
+// `flat.engagement ?? flat.total_interactions` fallback. `impressions` is
+// deprecated for v22+ media and is fetched separately with a `views`
+// fallback (fetchImpressionsWithViewsFallback) so the grouped call never
+// carries a known-deprecated metric.
 function metricsForProductType(productType?: string): IgMediaMetric[] {
   if (productType === 'STORY') {
-    return ['impressions', 'reach', 'replies'];
+    return ['reach', 'replies'];
   }
   // FEED (IMAGE / VIDEO / CAROUSEL_ALBUM) + unknown product types.
   // 'likes' added 2026-06-10 so ig_post_metrics.likes populates for all media.
-  return ['impressions', 'reach', 'engagement', 'saved', 'likes'];
+  return ['reach', 'saved', 'likes', 'total_interactions'];
 }
 
 // Reels metric catalog. Each is requested INDIVIDUALLY-ISOLATED: names are
@@ -640,6 +701,57 @@ async function fetchReelInsights(
   return { flat, raw };
 }
 
+/**
+ * impressions for non-reel media. v22+ removed `impressions` for newer media
+ * ("(#100) Starting from version v22.0 and above, the impressions metric is
+ * no longer supported for the queried media") — on that failure retry
+ * `views`, its v22+ replacement, and surface it as impressions (same
+ * precedent as the REEL plays→views fallback). Isolated from the grouped
+ * insights call so a deprecated metric can never 400 the whole request, and
+ * the known deprecation never logs recurring (#100) noise. Real failures
+ * are still logged and tolerated.
+ */
+async function fetchImpressionsWithViewsFallback(
+  supabase: SupabaseClient,
+  accountId: string,
+  accessToken: string,
+  mediaId: string
+): Promise<{ value: number | undefined; raw: Record<string, unknown> }> {
+  const raw: Record<string, unknown> = {};
+  try {
+    const entry = await fetchMediaInsightEntry(accessToken, mediaId, 'impressions');
+    if (entry) raw.impressions = entry;
+    return { value: entryValue(entry), raw };
+  } catch (e) {
+    if (e instanceof MetaGraphError && e.code === 100) {
+      try {
+        const entry = await fetchMediaInsightEntry(accessToken, mediaId, 'views');
+        if (entry) raw.views = entry;
+        return { value: entryValue(entry), raw };
+      } catch (e2) {
+        const msg2 = e2 instanceof Error ? e2.message : 'unknown';
+        await logApiCall(supabase, {
+          account_id: accountId,
+          event_type: 'post_insight_metric',
+          status: 'error',
+          payload: { ig_media_id: mediaId, metric: 'views' },
+          error_message: msg2,
+        });
+        return { value: undefined, raw };
+      }
+    }
+    const msg = e instanceof Error ? e.message : 'unknown';
+    await logApiCall(supabase, {
+      account_id: accountId,
+      event_type: 'post_insight_metric',
+      status: 'error',
+      payload: { ig_media_id: mediaId, metric: 'impressions' },
+      error_message: msg,
+    });
+    return { value: undefined, raw };
+  }
+}
+
 async function fetchPostInsights(
   supabase: SupabaseClient,
   accountId: string,
@@ -686,6 +798,17 @@ async function fetchPostInsights(
       flat[entry.name] = flattenInsightValue(entry.values?.[0]?.value);
       raw[entry.name] = entry;
     }
+
+    // impressions: deprecated for v22+ media — isolated request with a
+    // `views` fallback so the deprecation never logs recurring (#100) noise.
+    const impressions = await fetchImpressionsWithViewsFallback(
+      supabase,
+      accountId,
+      accessToken,
+      media.id
+    );
+    if (impressions.value !== undefined) flat.impressions = impressions.value;
+    Object.assign(raw, impressions.raw);
   }
 
   return {
@@ -708,6 +831,184 @@ async function fetchPostInsights(
         : undefined,
     raw,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Re-poll pass (ContentStudio parity, 2026-06-11): the since-gated media fetch
+// (step 2) never revisits media older than last_polled_at, so post metrics
+// froze as discovery-time snapshots (96/97 graph posts had exactly one
+// ig_post_metrics row ever). The helpers below append FRESH snapshots for
+// recent ig_posts rows so likes/plays/watch-time keep moving after discovery.
+// ---------------------------------------------------------------------------
+
+interface RepollPostRow {
+  id: string;
+  ig_media_id: string;
+  media_type: string | null;
+  posted_at: string | null;
+}
+
+/**
+ * Lightweight media-node counters for re-polled posts. The new-media path gets
+ * like_count/comments_count from getMedia's field list; re-polled posts need a
+ * per-node fetch so fetchPostInsights' fallback chain (`flat.likes ??
+ * media.like_count`, `flat.comments ?? media.comments_count`) stays intact —
+ * FEED insight requests carry no `comments` metric, so without this the
+ * re-poll snapshot would regress comments to 0. Failures return {} (insights'
+ * own values still apply where present).
+ */
+async function fetchMediaCounters(
+  accessToken: string,
+  mediaId: string
+): Promise<{ like_count?: number; comments_count?: number }> {
+  try {
+    const node = await graphRequestData<{
+      like_count?: number;
+      comments_count?: number;
+    }>({
+      endpoint: `/${mediaId}`,
+      accessToken,
+      apiVersion: GRAPH_VERSION,
+      query: { fields: 'like_count,comments_count' },
+      sentryOp: 'meta.instagram',
+      sentrySpanName: 'getMediaCounters',
+    });
+    return {
+      like_count:
+        typeof node.like_count === 'number' ? node.like_count : undefined,
+      comments_count:
+        typeof node.comments_count === 'number' ? node.comments_count : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Append fresh ig_post_metrics snapshots for the account's recent posts.
+ * Selects up to `limit` ig_posts rows with posted_at inside `windowDays`
+ * (newest first), skips media already snapshotted in the current tick
+ * (`skipMediaIds`) and STORY rows (insights vanish when the story expires
+ * after 24h — re-polling them is guaranteed-failure noise), then re-fetches
+ * per-post insights via the SAME fetchPostInsights path the new-media loop
+ * uses. One bad post must not kill the account poll: every failure is logged
+ * (event_type 'post_repoll') and counted, never thrown.
+ */
+async function repollRecentPostMetrics(
+  supabase: SupabaseClient,
+  account: PollAccount,
+  windowDays: number,
+  limit: number,
+  skipMediaIds: Set<string>
+): Promise<{ repolled: number; errors: number }> {
+  let repolled = 0;
+  let errors = 0;
+
+  const windowStart = new Date(
+    Date.now() - windowDays * 24 * 60 * 60 * 1000
+  ).toISOString();
+
+  const { data: posts, error: postsErr } = await supabase
+    .from('ig_posts')
+    .select('id, ig_media_id, media_type, posted_at')
+    .eq('account_id', account.id)
+    .gte('posted_at', windowStart)
+    .neq('media_type', 'STORY')
+    .order('posted_at', { ascending: false })
+    .limit(limit);
+
+  if (postsErr) {
+    await logApiCall(supabase, {
+      account_id: account.id,
+      event_type: 'post_repoll',
+      status: 'error',
+      payload: { ig_user_id: account.ig_user_id, stage: 'select_posts' },
+      error_message: postsErr.message,
+    });
+    return { repolled: 0, errors: 1 };
+  }
+
+  const candidates = ((posts ?? []) as RepollPostRow[]).filter(
+    (p) => Boolean(p.ig_media_id) && !skipMediaIds.has(p.ig_media_id)
+  );
+
+  for (const post of candidates) {
+    try {
+      const mediaType = post.media_type ?? 'IMAGE';
+      const counters = await fetchMediaCounters(
+        account.access_token,
+        post.ig_media_id
+      );
+
+      // Reconstruct the minimal IgMedia shape fetchPostInsights consumes
+      // (id + type for the REEL/FEED branch + node counters as fallbacks).
+      const postInsights = await fetchPostInsights(
+        supabase,
+        account.id,
+        account.access_token,
+        {
+          id: post.ig_media_id,
+          media_type: mediaType,
+          media_product_type: mediaType === 'REEL' ? 'REELS' : undefined,
+          permalink: '',
+          timestamp: post.posted_at ?? '',
+          like_count: counters.like_count,
+          comments_count: counters.comments_count,
+        }
+      );
+
+      // Same column shape as the new-media insert; raw.source tags the
+      // snapshot as a re-poll so analysts can tell refreshes from discovery.
+      const { error: insertErr } = await supabase.from('ig_post_metrics').insert({
+        post_id: post.id,
+        reach: postInsights.reach ?? 0,
+        impressions: postInsights.impressions ?? 0,
+        engagement: postInsights.engagement ?? 0,
+        saves: postInsights.saved ?? 0,
+        shares: postInsights.shares ?? 0,
+        comments: postInsights.comments_count ?? 0,
+        likes: postInsights.like_count ?? null,
+        plays: postInsights.plays ?? null,
+        avg_watch_time_ms: postInsights.avg_watch_time_ms ?? null,
+        total_watch_time_ms: postInsights.total_watch_time_ms ?? null,
+        raw: {
+          ...postInsights.raw,
+          source: 'repoll',
+          like_count: postInsights.like_count ?? null,
+          plays: postInsights.plays ?? null,
+        },
+        snapshot_at: new Date().toISOString(),
+      });
+      if (insertErr) throw insertErr;
+      repolled++;
+    } catch (e) {
+      errors++;
+      const msg = e instanceof Error ? e.message : 'unknown';
+      await logApiCall(supabase, {
+        account_id: account.id,
+        event_type: 'post_repoll',
+        status: 'error',
+        payload: { ig_media_id: post.ig_media_id },
+        error_message: msg,
+      });
+    }
+  }
+
+  await logApiCall(supabase, {
+    account_id: account.id,
+    event_type: 'post_repoll',
+    status: 'success',
+    payload: {
+      ig_user_id: account.ig_user_id,
+      window_days: windowDays,
+      repoll_limit: limit,
+      candidates: candidates.length,
+      repolled,
+      errors,
+    },
+  });
+
+  return { repolled, errors };
 }
 
 // ---------------------------------------------------------------------------
@@ -924,6 +1225,7 @@ interface PollAccount {
   access_token: string;
   last_polled_at: string | null;
   last_post_at: string | null;
+  status: string | null;
 }
 
 interface PollAccountRow {
@@ -932,6 +1234,7 @@ interface PollAccountRow {
   access_token: string | null;
   last_polled_at: string | null;
   last_post_at: string | null;
+  status: string | null;
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -944,6 +1247,7 @@ export async function GET(request: Request): Promise<Response> {
   let accountsPolled = 0;
   let accountsDiscovered = 0;
   let accountsSeeded = 0;
+  let postsRepolled = 0;
   let errorsCount = 0;
   const perAccountErrors: Array<{ id: string; error: string }> = [];
   const discoveryErrors: Array<{ ig_user_id?: string; name?: string; error: string }> = [];
@@ -968,9 +1272,16 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   try {
-    const [pollIntervalHours, dormancyThresholdDays] = await Promise.all([
+    const [
+      pollIntervalHours,
+      dormancyThresholdDays,
+      repollWindowDays,
+      repollLimit,
+    ] = await Promise.all([
       getPollIntervalHours(supabase),
       getDormancyThresholdDays(supabase),
+      getRepollWindowDays(supabase),
+      getRepollLimit(supabase),
     ]);
 
     // ----------------------------------------------------------------
@@ -991,15 +1302,32 @@ export async function GET(request: Request): Promise<Response> {
       }
     }
 
-    // Only poll accounts whose last_polled_at is older than pollIntervalHours
+    // Only poll accounts whose last_polled_at is older than pollIntervalHours,
+    // minus a 5-minute grace margin. Without the margin the cadence halves:
+    // each poll stamps last_polled_at SECONDS after the hour, while the next
+    // hourly cron computes its cutoff AT :00:0x — the stamp is a few seconds
+    // "too new", the account is skipped, and effective cadence becomes
+    // 2-hourly (verified against prod snapshots 2026-06-11: hours 06, 08, 11,
+    // 13, 16, 18 had zero writes; the only consecutive-hour writes happened
+    // when the cron itself started late).
     const pollCutoff = new Date(
-      Date.now() - pollIntervalHours * 60 * 60 * 1000
+      Date.now() - (pollIntervalHours * 60 - 5) * 60 * 1000
     ).toISOString();
 
     const { data: accounts, error: acctErr } = await supabase
       .from('ig_accounts')
-      .select('id, ig_user_id, access_token, last_polled_at, last_post_at')
-      .eq('status', 'active')
+      .select('id, ig_user_id, access_token, last_polled_at, last_post_at, status')
+      // Dormant accounts stay in the poll set: 'dormant' is a posting-activity
+      // LABEL, not an off-switch — account-level metrics (followers, reach,
+      // demographics) must keep flowing for accounts that simply haven't
+      // posted lately, and a new post must reactivate them (step 4). The old
+      // .eq('status','active') filter was a one-way trap door: 8 of the 9
+      // college accounts were marked dormant on 2026-06-10 and never polled
+      // again (verified in prod — their metrics stopped at 04:00 that day).
+      .in('status', ['active', 'dormant'])
+      // Skip business_discovery accounts (no Facebook Page → full insights
+      // 33-error here). They are handled by ig-business-discovery-poll.
+      .eq('metrics_source', 'graph')
       .or(`last_polled_at.is.null,last_polled_at.lt.${pollCutoff}`);
 
     if (acctErr) throw acctErr;
@@ -1019,6 +1347,7 @@ export async function GET(request: Request): Promise<Response> {
         access_token: a.access_token || systemToken,
         last_polled_at: a.last_polled_at,
         last_post_at: a.last_post_at,
+        status: a.status,
       })
     );
 
@@ -1215,6 +1544,25 @@ export async function GET(request: Request): Promise<Response> {
         }
 
         // ----------------------------------------------------------------
+        // 3.5 Re-poll recent posts' metrics (ContentStudio parity): media
+        //     older than last_polled_at never re-enter steps 2-3, so their
+        //     metrics froze at discovery time. Append fresh snapshots for
+        //     posts inside the policy window, skipping media just processed
+        //     in this tick (avoids double rows for brand-new media).
+        //     Internally error-tolerant — never throws.
+        // ----------------------------------------------------------------
+        const processedMediaIds = new Set(mediaList.map((m) => m.id));
+        const repollResult = await repollRecentPostMetrics(
+          supabase,
+          account,
+          repollWindowDays,
+          repollLimit,
+          processedMediaIds
+        );
+        postsRepolled += repollResult.repolled;
+        errorsCount += repollResult.errors;
+
+        // ----------------------------------------------------------------
         // 4. Update last_polled_at (and last_post_at if new posts found)
         // ----------------------------------------------------------------
         const accountUpdate: Record<string, unknown> = {
@@ -1243,6 +1591,10 @@ export async function GET(request: Request): Promise<Response> {
               dormancy_threshold_days: dormancyThresholdDays,
             },
           });
+        } else if (account.status === 'dormant') {
+          // Reactivation path: a post inside the threshold flips the label
+          // back — dormancy must never be a permanent state.
+          accountUpdate.status = 'active';
         }
 
         const { error: updateErr } = await supabase
@@ -1276,6 +1628,7 @@ export async function GET(request: Request): Promise<Response> {
         accounts_total: accountList.length,
         accounts_discovered: accountsDiscovered,
         accounts_seeded: accountsSeeded,
+        posts_repolled: postsRepolled,
         errors_count: errorsCount,
         duration_ms: durationMs,
       },
@@ -1286,6 +1639,7 @@ export async function GET(request: Request): Promise<Response> {
       accounts_polled: accountsPolled,
       accounts_discovered: accountsDiscovered,
       accounts_seeded: accountsSeeded,
+      posts_repolled: postsRepolled,
       errors_count: errorsCount,
       duration_ms: durationMs,
       errors: perAccountErrors,

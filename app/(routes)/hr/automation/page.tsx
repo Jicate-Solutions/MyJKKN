@@ -3,7 +3,7 @@
 // =====================================================================
 // /hr/automation — HR-officer view of automation rule firings
 // =====================================================================
-// Operational page (NOT the editor — that lives at /admin/hr/automation-rules).
+// Operational page (NOT the editor — that lives at /hr/admin/automation-rules).
 // Shows recent rule firings from hr_automation_rule_fires, RLS-filtered to
 // the HR officer's institutions. Staff see their own firings via the same
 // page (RLS policy permits staff.profile_id ↔ auth.uid()).
@@ -280,11 +280,11 @@ function EmptyState({ totalRows }: { totalRows: number }) {
           <p className="text-xs">
             Director can configure rules at{' '}
             <Link
-              href="/admin/hr/automation-rules"
+              href="/hr/admin/automation-rules"
               className="underline underline-offset-2 inline-flex items-center gap-1"
             >
               <Settings2 className="h-3 w-3" />
-              /admin/hr/automation-rules
+              /hr/admin/automation-rules
             </Link>
             .
           </p>

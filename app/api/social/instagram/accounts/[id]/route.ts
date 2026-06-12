@@ -54,7 +54,7 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'Account not found' }, { status: 404 });
     }
 
-    const [{ data: snapshots }, { data: posts }, { data: logs }] = await Promise.all([
+    const [{ data: snapshots }, { data: posts }, { data: logs }, { data: auditRows }] = await Promise.all([
       supabase
         .from('ig_account_metrics')
         .select('id, account_id, snapshot_at, followers, follows, media_count')
@@ -73,33 +73,53 @@ export async function GET(
         .eq('account_id', id)
         .order('occurred_at', { ascending: false })
         .limit(LOGS_LIMIT),
+      supabase
+        .from('ig_monthly_audit')
+        .select('health_score, audit_month')
+        .eq('ig_account_id', id)
+        .order('audit_month', { ascending: false })
+        .limit(1),
     ]);
 
     // Latest post-metric snapshot per post (batched, newest-first dedupe).
+    // Posts can have MANY snapshots since the 2026-06-11 hourly re-poll
+    // feature; pre-fix snapshots carry likes NULL, so likes falls back to
+    // the newest NON-NULL value when the latest snapshot lacks it.
     const postIds = (posts ?? []).map((p) => p.id);
     const latestPostMetrics = new Map<
       string,
-      { reach: number; impressions: number; engagement: number; comments: number }
+      { reach: number; impressions: number; engagement: number; comments: number; likes: number | null }
     >();
     if (postIds.length > 0) {
       const { data: pmRows } = await supabase
         .from('ig_post_metrics')
-        .select('post_id, reach, impressions, engagement, comments, snapshot_at')
+        .select('post_id, reach, impressions, engagement, comments, likes, snapshot_at')
         .in('post_id', postIds)
         .order('snapshot_at', { ascending: false });
       for (const pm of pmRows ?? []) {
-        if (!latestPostMetrics.has(pm.post_id)) {
+        const existing = latestPostMetrics.get(pm.post_id);
+        if (!existing) {
           latestPostMetrics.set(pm.post_id, {
             reach: pm.reach ?? 0,
             impressions: pm.impressions ?? 0,
             engagement: pm.engagement ?? 0,
             comments: pm.comments ?? 0,
+            likes: pm.likes ?? null,
           });
+        } else if (existing.likes === null && pm.likes !== null && pm.likes !== undefined) {
+          // Newest snapshot had likes NULL — backfill from the newest
+          // older snapshot that recorded likes.
+          existing.likes = pm.likes;
         }
       }
     }
 
     const latest = (snapshots ?? [])[0];
+
+    // Latest ig_monthly_audit health score (computed by the monthly audit
+    // cron); NUMERIC(6,2) — coerce defensively. 0 until first audit row.
+    const auditScore = Number((auditRows ?? [])[0]?.health_score);
+    const healthScore = isNaN(auditScore) ? 0 : auditScore;
 
     const detail = {
       id: account.id,
@@ -118,7 +138,7 @@ export async function GET(
       followers_count: latest?.followers ?? 0,
       following_count: latest?.follows ?? 0,
       media_count: latest?.media_count ?? 0,
-      health_score: 0,
+      health_score: healthScore,
       status: account.status === 'orphaned' ? 'error' : account.status,
       last_post_at: (posts ?? [])[0]?.posted_at ?? null,
       last_polled_at: account.last_polled_at,
@@ -146,7 +166,7 @@ export async function GET(
           caption: p.caption,
           media_url: null,
           permalink: p.permalink ?? '',
-          like_count: 0,
+          like_count: pm?.likes ?? 0,
           comments_count: pm?.comments ?? 0,
           reach: pm?.reach ?? null,
           impressions: pm?.impressions ?? null,

@@ -275,9 +275,21 @@ export interface Timetable {
   timetable_format: 'regular' | 'batch' | 'cycle';
   // Updated: 2026-03-22 - Added cycle-based timetable support
   num_cycles?: number | null; // Only set when timetable_format = 'cycle' (1-52)
+  // Updated: 2026-06-10 - Attendance behaviour is driven explicitly by the
+  // timetable row (default by entity_type at creation, then authoritative here).
+  attendance_mode?: AttendanceMode; // 'period_wise' (default) | 'session_wise'
+  class_incharge_id?: string | null; // staff who marks a session_wise timetable
   timetable_data?: any;
   periods?: any;
 }
+
+/**
+ * How attendance is collected for a timetable.
+ *   period_wise  — every period is marked (default; college flow).
+ *   session_wise — school day-wise: only the morning-first + afternoon-first
+ *                  periods are collected, deriving a full/half/absent daily status.
+ */
+export type AttendanceMode = 'period_wise' | 'session_wise';
 
 export interface CreateTimetableDto {
   institution_id: string;
@@ -302,6 +314,9 @@ export interface CreateTimetableDto {
   timetable_format?: 'regular' | 'batch' | 'cycle';
   // Updated: 2026-03-22 - Required when timetable_format='cycle', ignored otherwise
   num_cycles?: number; // 1-52 cycles for cycle-format timetables
+  // Updated: 2026-06-10 - School day-wise attendance support
+  attendance_mode?: AttendanceMode; // defaults to 'period_wise' server-side
+  class_incharge_id?: string | null; // required (UI) when attendance_mode='session_wise'
   timetable_data?: any;
   periods?: any;
 }

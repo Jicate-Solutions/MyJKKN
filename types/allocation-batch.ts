@@ -18,10 +18,19 @@ export interface AllocationBatch {
   updated_at: string;
 }
 
+/** Rooms used + beds filled for one room category within a batch. */
+export interface BatchCategoryBreakdown {
+  category: string;
+  rooms: number;
+  beds: number;
+}
+
 export interface AllocationBatchRow extends AllocationBatch {
   category_name: string | null;
   institution_name: string | null;
   block_name: string | null;
+  // Populated by getBatches (list) only — per-room-category rooms/beds in the batch.
+  category_breakdown?: BatchCategoryBreakdown[];
   // Populated by getBatch (detail) only; the list (getBatches) omits them.
   block_total_capacity?: number | null;
   block_current_occupancy?: number | null;
@@ -111,6 +120,22 @@ export interface AllocationEligibilityExplain {
     is_rule_covered: boolean;
     rule_matched: boolean;
     open_room: boolean;
+    /** Cohort matches a reservation rule in another block — pinned to those rooms. */
+    pinned_elsewhere?: boolean;
+    pinned_blocks?: string | null;
+    /** The cohort's own reservation rule(s) (any block) — the configured condition. */
+    pinned_rules?: Array<{
+      block: string;
+      rule_name: string;
+      floor: number | null;
+      rooms: number;
+      institution: string | null;
+      degree: string | null;
+      department: string | null;
+      program: string | null;
+      semester: string | null;
+      covers_allocated_room: boolean;
+    }>;
     access_ok: boolean;
     covering_rules: Array<{
       rule_name: string;
@@ -157,7 +182,9 @@ export interface AllocationCandidate {
   learner_id: string;
   full_name: string;
   email: string | null;
+  institution_name: string | null;
   program_name: string | null;
+  semester_name: string | null;
   gender: string | null;
   has_profile: boolean;
   gender_ok: boolean;

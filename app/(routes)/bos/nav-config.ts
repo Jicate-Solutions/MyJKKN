@@ -40,6 +40,18 @@ const config: ModuleNavConfig = {
       matchPaths: ['/bos/experts'],
     },
     {
+      label: 'Committees',
+      icon: 'UsersRound',
+      href: '/bos/committees',
+      matchPaths: ['/bos/committees'],
+    },
+    {
+      label: 'Member Types',
+      icon: 'UserCog',
+      href: '/bos/member-types',
+      matchPaths: ['/bos/member-types'],
+    },
+    {
       label: 'Compositions',
       icon: 'ClipboardList',
       href: '/bos/compositions',

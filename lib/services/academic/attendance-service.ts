@@ -898,6 +898,7 @@ export class AttendanceService {
         .from('timetables')
         .select(
           `id, timetable_format, timetable_type, start_date, end_date, selected_dates, section_id, semester_id, timetable_data,
+           attendance_mode, class_incharge_id,
            degrees(degree_name),
            programs(program_name),
            departments(department_name),
@@ -1509,6 +1510,12 @@ export class AttendanceService {
             start_time: periodData?.start_time || '',
             end_time: periodData?.end_time || '',
             is_break: periodData?.is_break || false,
+            // Updated: 2026-06-10 - Carry FN/AN tag + attendance mode so the
+            // session_wise collapse (below) and the marking page can branch.
+            session: periodData?.session || null,
+            attendance_mode:
+              (timetableData as any)?.attendance_mode || 'period_wise',
+            class_incharge_id: (timetableData as any)?.class_incharge_id || null,
             // Add the hierarchy names from timetable relations
             degree_name: Array.isArray((timetableData as any)?.degrees)
               ? (timetableData as any).degrees[0]?.degree_name || ''
@@ -1672,12 +1679,30 @@ export class AttendanceService {
         return cleanPeriod;
       });
 
+      // Updated: 2026-06-10 - For session_wise (school) timetables, collapse the
+      // full period list down to just the first forenoon + first afternoon
+      // period, relabelled as Morning / Afternoon sessions.
+      const sessionAdjusted = this.collapseSessionWisePeriods(cleanedPeriods);
+
       // Final validation to ensure we always return an array
-      return Array.isArray(cleanedPeriods) ? cleanedPeriods : [];
+      return Array.isArray(sessionAdjusted) ? sessionAdjusted : [];
     } catch (error) {
       logger.error('academic/attendance', 'Error in getAvailablePeriodsForDate', error);
       return [];
     }
+  }
+
+  /**
+   * Updated: 2026-06-10
+   * Exclude period options that belong to session_wise (school day-wise)
+   * timetables from the period-based attendance flow. Day-wise attendance is a
+   * separate, date+session subsystem (see DailySessionAttendanceService and the
+   * "Day Attendance" tab) and must NOT appear in the period/course search/marking
+   * UI. period_wise (college) timetables pass through untouched.
+   */
+  private static collapseSessionWisePeriods(periods: any[]): any[] {
+    if (!Array.isArray(periods) || periods.length === 0) return periods;
+    return periods.filter((p) => p?.attendance_mode !== 'session_wise');
   }
 
   /**
@@ -1722,6 +1747,83 @@ export class AttendanceService {
       return timetableType;
     } catch (error) {
       logger.error('academic/attendance', 'Error in getTimetableTypeForSemester', error);
+      return null;
+    }
+  }
+
+  /**
+   * Added: 2026-06-11 - Resolve the Day-wise (session_wise) class for a set of
+   * attendance search criteria, so the overview can DECIDE the attendance type
+   * automatically instead of asking the user to pick a tab. Returns the matched
+   * session_wise class (timetable + section + labels) or null when the criteria
+   * point at a period_wise (college) timetable / no day-wise class exists.
+   *
+   * Only the provided criteria are filtered on, so it works whether the admin
+   * narrowed down to a section or stopped at the semester. A section_id is
+   * required on the matched timetable because day-wise marking is section-keyed.
+   */
+  static async getSessionWiseClassForCriteria(ctx: {
+    institution_id?: string | null;
+    academic_year_id?: string | null;
+    degree_id?: string | null;
+    program_id?: string | null;
+    department_id?: string | null;
+    semester_id?: string | null;
+    section_id?: string | null;
+  }): Promise<{
+    timetable_id: string;
+    section_id: string;
+    institution_id: string;
+    institution_name?: string;
+    section_name: string;
+    class_label: string;
+  } | null> {
+    try {
+      let query = this.supabase
+        .from('timetables')
+        .select(
+          `id, institution_id, section_id, timetable_name,
+           sections:section_id(section_name),
+           institutions:institution_id(name)`
+        )
+        .eq('attendance_mode', 'session_wise')
+        .eq('is_active', true)
+        .not('section_id', 'is', null);
+
+      // Filter only on the criteria the user actually provided.
+      if (ctx.institution_id) query = query.eq('institution_id', ctx.institution_id);
+      if (ctx.academic_year_id) query = query.eq('academic_year_id', ctx.academic_year_id);
+      if (ctx.degree_id) query = query.eq('degree_id', ctx.degree_id);
+      if (ctx.program_id) query = query.eq('program_id', ctx.program_id);
+      if (ctx.department_id) query = query.eq('department_id', ctx.department_id);
+      if (ctx.semester_id) query = query.eq('semester_id', ctx.semester_id);
+      if (ctx.section_id) query = query.eq('section_id', ctx.section_id);
+
+      const { data, error } = await query.limit(1).maybeSingle();
+      if (error) {
+        logger.error('academic/attendance', 'Error resolving session_wise class for criteria', error);
+        return null;
+      }
+      if (!data) return null;
+
+      const t = data as any;
+      const sectionName = Array.isArray(t.sections)
+        ? t.sections[0]?.section_name
+        : t.sections?.section_name;
+      const institutionName = Array.isArray(t.institutions)
+        ? t.institutions[0]?.name
+        : t.institutions?.name;
+      const base = t.timetable_name || sectionName || 'Class';
+      return {
+        timetable_id: t.id,
+        section_id: t.section_id,
+        institution_id: t.institution_id,
+        institution_name: institutionName || undefined,
+        section_name: sectionName || '',
+        class_label: institutionName ? `${institutionName} — ${base}` : base
+      };
+    } catch (error) {
+      logger.error('academic/attendance', 'Error in getSessionWiseClassForCriteria', error);
       return null;
     }
   }
