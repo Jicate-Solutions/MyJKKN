@@ -1608,8 +1608,13 @@ export type MenuStatus = 'planned' | 'confirmed' | 'served' | 'cancelled';
  * menu tier with zero menus and resolved residents' menus from their ROOM
  * tier instead of the mess plan they pay for).
  * Room tiers live separately: `HostelTierKey` in types/campus-living/premium.ts.
+ *
+ * OPEN vocabulary (Director 2026-06-12, auto-follow): keys come from
+ * mess_categories.menu_tier_key at runtime — adding a category on the
+ * categories page adds a menu tier with no code change. 'classic' and
+ * 'premium' are today's known values, not a closed set.
  */
-export type TierKey = 'classic' | 'premium';
+export type TierKey = string;
 
 export interface MessMenu {
   id: string;

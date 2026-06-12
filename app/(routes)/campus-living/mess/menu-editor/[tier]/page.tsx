@@ -39,15 +39,13 @@ import { useMessCaterers } from '@/hooks/campus-living/use-mess-caterers';
 import type { GenderServed, TierKey } from '@/types/campus-living';
 
 import { MenuGrid } from '../_components/menu-grid';
+import { useMessPlanOptions, planLabel } from '@/lib/services/campus-living/mess-plan-options';
 
 export const navMeta = { label: 'Mess Menu Editor', icon: 'CalendarRange' } as const;
 
-const VALID_TIERS: TierKey[] = ['classic', 'premium'];
-
-const TIER_LABELS: Record<TierKey, string> = {
-  classic: 'CLASSIC',
-  premium: 'PREMIUM',
-};
+// Plan tiers come LIVE from mess_categories (auto-follow, 2026-06-12):
+// adding a category on the categories page adds an editor tier with no code
+// change. useMessPlanOptions falls back to Classic/Premium on load/failure.
 
 // Gender = the caterer's `gender_served`. The menu is a tier × gender matrix.
 type EditorGender = Extract<GenderServed, 'boys' | 'girls'>;
@@ -85,8 +83,12 @@ function computeWeekOptions(): { value: string; label: string }[] {
 export default function MessMenuEditorPage() {
   const params = useParams<{ tier: string }>();
   const tierParam = params?.tier as string | undefined;
+  const { options: planOptions, isFetched: plansFetched } = useMessPlanOptions();
 
-  if (!tierParam || !VALID_TIERS.includes(tierParam as TierKey)) {
+  // Validate the URL tier against the LIVE plan list — but only once the
+  // live list has resolved, so a just-added category isn't 404'd by the
+  // fallback pair.
+  if (!tierParam || (plansFetched && !planOptions.some((o) => o.key === tierParam))) {
     notFound();
   }
   const tierKey = tierParam as TierKey;
@@ -131,7 +133,7 @@ export default function MessMenuEditorPage() {
             <CalendarRange className="h-6 w-6 text-muted-foreground" />
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">
-                Mess Menu — {TIER_LABELS[tierKey]}
+                Mess Menu — {planLabel(planOptions, tierKey).toUpperCase()}
               </h1>
               <p className="text-sm text-muted-foreground">
                 7 days × 4 meal slots. Tamil items are source-of-truth; English is optional.
@@ -178,13 +180,13 @@ export default function MessMenuEditorPage() {
 
         {/* Tier toggle */}
         <nav aria-label="Tier picker" className="mb-4 flex flex-wrap gap-2">
-          {VALID_TIERS.map((t) => (
-            <Link key={t} href={`/campus-living/mess/menu-editor/${t}`}>
+          {planOptions.map((t) => (
+            <Link key={t.key} href={`/campus-living/mess/menu-editor/${t.key}`}>
               <Badge
-                variant={t === tierKey ? 'default' : 'outline'}
+                variant={t.key === tierKey ? 'default' : 'outline'}
                 className="cursor-pointer text-sm px-3 py-1"
               >
-                {TIER_LABELS[t]}
+                {t.label.toUpperCase()}
               </Badge>
             </Link>
           ))}

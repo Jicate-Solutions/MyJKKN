@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { CalendarRange, ChefHat, Sparkles } from 'lucide-react';
+import { useMessPlanOptions, planLabel } from '@/lib/services/campus-living/mess-plan-options';
 import type { MenuWeekResult } from '@/hooks/campus-living/use-choose-your-menu';
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -33,10 +34,7 @@ function todayIsoDow(): number {
   return d === 0 ? 7 : d;
 }
 
-const TIER_LABEL: Record<string, string> = {
-  classic: 'Classic',
-  premium: 'Premium',
-};
+// Plan label resolves from the LIVE categories page (auto-follow).
 
 export function WeekMenuStrip({
   menu,
@@ -48,6 +46,7 @@ export function WeekMenuStrip({
   tierKey: string;
 }) {
   const [selectedDay, setSelectedDay] = useState(todayIsoDow());
+  const { options: planOptions } = useMessPlanOptions();
 
   if (isLoading) {
     return (
@@ -78,7 +77,7 @@ export function WeekMenuStrip({
         <CardDescription className="flex items-center gap-2 flex-wrap">
           <CalendarRange className="h-3.5 w-3.5" />
           Week of {menu?.week_start ?? '—'}
-          <Badge variant="outline">{TIER_LABEL[tierKey] ?? tierKey}</Badge>
+          <Badge variant="outline">{planLabel(planOptions, tierKey)}</Badge>
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

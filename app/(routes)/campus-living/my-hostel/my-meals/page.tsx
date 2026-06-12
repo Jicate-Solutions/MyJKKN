@@ -130,9 +130,10 @@ export default function MyMealsPage() {
     );
   }
 
-  // No active allocation — calm non-error state (housekeeping idiom): staff,
-  // day scholars and residents whose allocation is pending all land here.
-  if (!context?.hasActiveAllocation || !context.gender) {
+  // No mess access — calm non-error state. Gate = allocation OR mess plan
+  // (Director 2026-06-12: a day scholar who pays for mess sees My Meals too);
+  // staff and residents whose allocation/plan is still pending land here.
+  if (!context?.hasMessAccess || !context.gender) {
     return (
       <ContentLayout title="My Meals">
         {breadcrumb}
@@ -141,11 +142,11 @@ export default function MyMealsPage() {
             <div className="mx-auto w-12 h-12 rounded-full bg-muted flex items-center justify-center">
               <Hourglass className="h-6 w-6 text-muted-foreground" />
             </div>
-            <h2 className="text-lg font-semibold">No hostel allocation yet</h2>
+            <h2 className="text-lg font-semibold">No mess plan yet</h2>
             <p className="text-sm text-muted-foreground">
-              Your weekly mess menu appears here once you have an active hostel
-              allocation. If you&apos;ve just been allotted, it can take a
-              moment to reflect.
+              Your weekly menu appears here once you have a hostel allocation
+              or a mess plan. If you&apos;ve just been allotted or enrolled,
+              it can take a moment to reflect.
             </p>
           </CardContent>
         </Card>
