@@ -183,6 +183,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/documents', 'Documents'],
   ['/solutions', 'System'],
   ['/learners', 'Learners'],
+  ['/moments', 'Learners'], // Family Moments — parent engagement (Father's Day 2026)
   ['/academic', 'Academic'],
   ['/faculty', 'Academic'],
   ['/billing', 'Billing'],

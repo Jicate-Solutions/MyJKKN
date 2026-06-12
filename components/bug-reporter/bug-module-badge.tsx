@@ -57,6 +57,7 @@ type ModuleName =
   | 'learners-council'
   | 'learners'
   | 'learn'
+  | 'moments'
   | 'my-bug-reports'
   | 'notifications'
   | 'okr'
@@ -108,6 +109,14 @@ export const moduleConfig: Record<
       'bg-violet-100 text-violet-800 hover:bg-violet-200 hover:text-violet-800 border-violet-200 dark:bg-violet-900/40 dark:text-violet-300 dark:border-violet-700',
     subColorClass:
       'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800'
+  },
+  moments: {
+    label: 'Family Moments',
+    icon: HeartPulse,
+    colorClass:
+      'bg-rose-100 text-rose-800 hover:bg-rose-200 hover:text-rose-800 border-rose-200 dark:bg-rose-900/40 dark:text-rose-300 dark:border-rose-700',
+    subColorClass:
+      'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/20 dark:text-rose-400 dark:border-rose-800'
   },
   staff: {
     label: 'Staff',

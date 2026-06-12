@@ -637,6 +637,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/staff': 'staff.view',
   '/hr': 'hr.view',
 
+  // Family Moments (2026-06-12 — Father's Day 2026, NV CBSE + Matric HSS)
+  '/moments/submit': 'moments.submissions.create',
+  '/moments/campaigns': 'moments.campaigns.view',
+
   // Solution Hub
   '/solutions': 'solutions.dashboard.view',
   '/solutions/list': 'solutions.dashboard.view',
@@ -1564,6 +1568,22 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/recruitment/submit', label: 'Recruitment · Submit Candidate', active: pathname === '/hr/recruitment/submit' },
             { href: '/hr/recruitment/my', label: 'Recruitment · My Candidates', active: pathname === '/hr/recruitment/my' },
             { href: '/hr/recruitment/approvals', label: 'Recruitment · Approvals', active: pathname === '/hr/recruitment/approvals' },
+          ]
+        }
+      ]
+    },
+    {
+      // Family Moments — campaign-based parent engagement (Father's Day 2026).
+      groupLabel: 'Family Moments',
+      menus: [
+        {
+          href: '/moments/submit',
+          label: 'Family Moments',
+          active: pathname.startsWith('/moments'),
+          icon: Heart,
+          submenus: [
+            { href: '/moments/submit', label: 'Collect Messages', active: pathname === '/moments/submit' },
+            { href: '/moments/campaigns', label: 'Campaigns', active: pathname === '/moments/campaigns' },
           ]
         }
       ]

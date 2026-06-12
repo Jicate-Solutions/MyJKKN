@@ -39,8 +39,8 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
         </CardTitle>
         <CardDescription>
           {isBook
-            ? 'Pick a room to move into. Confirming books it instantly and it leaves everyone else’s options.'
-            : 'Move up to a higher room category. If a room is free you move instantly and a new bill is generated; otherwise you can join the waitlist (your current stay & bill stay as-is).'}
+            ? 'Pick a room to move into. It books once your academic-year fee payment meets the required level — otherwise the room is reserved for you while you pay.'
+            : 'Move up to a higher room category. The room is reserved and an upgrade bill is generated — the upgrade confirms once the bill is fully paid.'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -56,9 +56,14 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
           </p>
         ) : (
           options.map((opt) => {
-            const waitlisted = isBook ? null : waitlistFor(opt.category_id);
-            // A below-threshold reservation: bed is hard-held until paid or expiry.
+            // Book mode participates too: a below-threshold first booking also
+            // hard-reserves the bed on the waitlist.
+            const waitlisted = waitlistFor(opt.category_id);
+            // A reservation: bed is hard-held until confirmed (paid) or expiry.
             const held = waitlisted?.held_room_number ? waitlisted : null;
+            // Pay-to-confirm: threshold met, upgrade bill generated — show
+            // payment progress instead of the threshold message.
+            const pendingBill = held?.upgrade_bill_id ? held : null;
             const hasRooms = opt.available_beds > 0;
             return (
               <div
@@ -77,7 +82,7 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                       {!isBook && currentCategoryName ? `${currentCategoryName} → ` : ''}{opt.name}
                     </p>
                   </div>
-                  {isBook ? (
+                  {isBook && !held ? (
                     hasRooms ? (
                       <Button size="sm" onClick={() => setPicked(opt)}>
                         <ArrowUpCircle className="mr-1.5 h-4 w-4" /> Book now
@@ -103,7 +108,9 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                   ) : hasRooms ? (
                     <Button size="sm" onClick={() => setPicked(opt)}>
                       <ArrowUpCircle className="mr-1.5 h-4 w-4" />
-                      {opt.meets_threshold ? 'Upgrade now' : 'Reserve room'}
+                      {opt.meets_threshold
+                        ? opt.upgrade_fee > 0 ? 'Reserve & pay' : 'Upgrade now'
+                        : 'Reserve room'}
                     </Button>
                   ) : waitlisted ? (
                     <div className="flex items-center gap-2">
@@ -135,16 +142,34 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                     </div>
                   )}
                 </div>
-                {held && (
+                {pendingBill && (
+                  <p className="text-xs text-amber-800 dark:text-amber-300">
+                    Room {pendingBill.held_room_number}
+                    {pendingBill.held_block_name ? ` (${pendingBill.held_block_name})` : ''} is held for you
+                    {pendingBill.hold_expires_at
+                      ? ` until ${new Date(pendingBill.hold_expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
+                      : ''}
+                    . Pay the upgrade fee of{' '}
+                    <span className="font-semibold">
+                      ₹{(pendingBill.upgrade_fee_amount ?? 0).toLocaleString('en-IN')}
+                    </span>
+                    {(pendingBill.upgrade_fee_paid ?? 0) > 0
+                      ? ` (₹${(pendingBill.upgrade_fee_paid ?? 0).toLocaleString('en-IN')} paid so far)`
+                      : ''}{' '}
+                    to confirm — the reservation is cancelled after the deadline.
+                  </p>
+                )}
+                {held && !pendingBill && (
                   <p className="text-xs text-amber-800 dark:text-amber-300">
                     Room {held.held_room_number}
                     {held.held_block_name ? ` (${held.held_block_name})` : ''} is held for you
                     {held.hold_expires_at
                       ? ` until ${new Date(held.hold_expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
                       : ''}
-                    . You&apos;ve paid {held.paid_pct ?? 0}% of this year&apos;s fees — it confirms
-                    automatically at {held.threshold_pct}%; the reservation is cancelled after the
-                    deadline.
+                    . You&apos;ve paid {held.paid_pct ?? 0}% of this year&apos;s fees — it moves ahead
+                    automatically at {held.threshold_pct}%
+                    {isBook ? '' : ' (the upgrade fee is then billed and must be fully paid to confirm)'};
+                    the reservation is cancelled after the deadline.
                   </p>
                 )}
                 {!isBook && !held && hasRooms && !opt.meets_threshold && (

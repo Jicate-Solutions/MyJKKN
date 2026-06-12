@@ -83,6 +83,8 @@ export const MODULES: Module[] = [
 
   // ── Learners ──────────────────────────────────────────────────────────
   { slug: 'learners', label: 'Learners', icon: 'GraduationCap', section: 'Learners', hasNavConfig: false },
+  // Family Moments — campaign-based parent engagement (Father's Day 2026).
+  { slug: 'moments', label: 'Family Moments', icon: 'Heart', section: 'Learners', hasNavConfig: false },
 
   // ── Billing & Accounts ────────────────────────────────────────────────
   { slug: 'billing', label: 'Billing', icon: 'Wallet', section: 'Billing & Accounts', hasNavConfig: false },

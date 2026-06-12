@@ -1582,6 +1582,12 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Index: `vac_courses_code_key` UNIQUE(code) — staging parity + double-run guard
 - Location: `supabase/migrations/20260612084500_vac_universal_picker_and_code_unique.sql` (applied live 2026-06-12)
 
+### Family Moments Engine (2026-06-12)
+- Tables: `family_moments_campaigns` (occasion per institution) + `family_moments` (tokenized card per child per campaign) + storage bucket `family-moments` (public read, permission-gated write)
+- Location: `supabase/migrations/20260711000000_family_moments_engine.sql`
+- RLS: NO anon policies by design — public gift page reads server-side via service role keyed on unguessable token. Teacher writes via `moments.submissions.create`; dashboards via `moments.campaigns.view`.
+- Seed: `scripts/moments/seed-fathers-day.ts` (2 campaigns + 456 pre-seeded auto-cards, NV CBSE + Matric HSS)
+
 ### CARE Audit Framework v1.0 (2026-06-12)
 - Data: 20 system rows in `audit_parameter_catalog` — codes `CARE-C1`…`CARE-E5`, parameter_group 1–4 = pillar C/A/R/E, framework_mapping `{"care":"C1"}` (existing body→criterion shape), evidence_required from the framework doc
 - Tables: `care_audit_scores` (cycle_id → audit_cycles CASCADE, scorer_role owner/participant, score 0–4 CHECK, UNIQUE(cycle,code,scorer)), `care_scorer_invites` (token UNIQUE default gen_random_bytes(24) hex, accepted_by claims, 14-day expiry)
