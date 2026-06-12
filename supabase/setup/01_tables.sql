@@ -1278,6 +1278,7 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
         WHEN page_url ~ '/admin/'     THEN 'admin'
         WHEN page_url ~ '/resource-management/' THEN 'resource-management'
         WHEN page_url ~ '/startup-studio/' THEN 'startup-studio'
+        WHEN page_url ~ '/moments/' THEN 'moments'  -- Added: 2026-06-12 Family Moments
         WHEN page_url ~ '/settings/' THEN 'settings'
         ELSE 'other'
       END
