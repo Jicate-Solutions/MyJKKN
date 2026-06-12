@@ -1581,3 +1581,8 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Function: `fn_pde_list_vac_courses()` — now own-institution OR universal (institution_id IS NULL)
 - Index: `vac_courses_code_key` UNIQUE(code) — staging parity + double-run guard
 - Location: `supabase/migrations/20260612084500_vac_universal_picker_and_code_unique.sql` (applied live 2026-06-12)
+
+### PDE Validation SLA Policy (2026-06-12)
+- Policy row: `pde.scoring.validation_sla_days` = 7 (global, number, system, tunable without deploy)
+- Location: `supabase/migrations/20260612190000_pde_validation_sla_policy.sql` (applied live via Management API 2026-06-12)
+- Purpose: Connector PR 2 — bounds time-to-first-acknowledgment for PDE demonstrations (aging badge + latency/coverage KPIs on /pde/admin/demonstrations). CARE audit corrective move A (A3 scored 1).

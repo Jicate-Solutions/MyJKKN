@@ -704,7 +704,11 @@ export function DemonstrationForm() {
           <p>
             Drafts stay private. Once submitted, a faculty / peer / AI validator from your
             institution can review under the rubric you anchored to (or free-form if none).
-            The scoring engine writes the final weighted score back onto this row.
+            The scoring engine writes the final weighted score back onto this row.{' '}
+            <span className="font-medium text-foreground">
+              Every validated demonstration becomes part of your verified skill
+              transcript — the record employers and accreditors see.
+            </span>
           </p>
         </div>
       </CardContent>
