@@ -1567,3 +1567,9 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Functions: `fn_pde_list_approved_syllabi()`, `fn_pde_get_syllabus_outcomes(uuid[])`, `fn_pde_list_vac_courses()` — all SECURITY DEFINER, REVOKE anon/PUBLIC + GRANT authenticated
 - Location: `supabase/migrations/20260611233000_pde_curriculum_read_rpcs.sql` (applied live via Management API 2026-06-11)
 - Purpose: Scoped curriculum reads for the PDE connector. Live-discovered gap: bos_course_syllabi RLS requires BoS board membership and vac_courses RLS requires user_institution_access — learners/non-BoS validators can't read either. RPCs expose picker-minimal columns, own-institution scoped (admins also pass on outcomes fn).
+
+### VAC Content Migration + Universal Picker (2026-06-12)
+- Data: staging→prod content copy — vac_courses 1→93 (dark), vac_lessons 1→2,717, vac_course_programmes 0→85; via `scripts/vac-migrate-staging-content.sh` (psql pooler, Director-authorized interview decisions in specs/vac-staging-fk-mapping-audit-2026-06-11.md §8)
+- Function: `fn_pde_list_vac_courses()` — now own-institution OR universal (institution_id IS NULL)
+- Index: `vac_courses_code_key` UNIQUE(code) — staging parity + double-run guard
+- Location: `supabase/migrations/20260612084500_vac_universal_picker_and_code_unique.sql` (applied live 2026-06-12)
