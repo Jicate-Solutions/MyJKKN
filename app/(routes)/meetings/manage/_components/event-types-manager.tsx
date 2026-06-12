@@ -81,9 +81,23 @@ const formSchema = z.object({
     .max(1440, 'Max 24 hours (1440 min)'),
   description: z.string().trim().max(5000).optional().or(z.literal('')),
   hidden: z.boolean(),
+  locationMode: z.enum(['in_person', 'phone', 'online']),
+  locationText: z.string().trim().max(200, 'Keep the location short').optional().or(z.literal('')),
 });
 
 type FormValues = z.infer<typeof formSchema>;
+
+const LOCATION_OPTIONS = [
+  { value: 'in_person', label: 'In person' },
+  { value: 'phone', label: 'Phone call' },
+  { value: 'online', label: 'Online (Google Meet)' },
+] as const;
+
+function locationLabel(et: ManageEventType): string {
+  if (et.locationMode === 'phone') return 'Phone call';
+  if (et.locationMode === 'online') return 'Google Meet';
+  return et.locationText || 'In person';
+}
 
 /** Lowercase-hyphenated slug derived from a title. */
 function slugify(raw: string): string {
@@ -200,6 +214,9 @@ export function EventTypesManager({
                     </div>
                     <p className="truncate font-mono text-xs text-muted-foreground">
                       /{et.slug}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {locationLabel(et)}
                     </p>
                   </div>
                   <Badge variant="outline" className="shrink-0 gap-1">
@@ -322,6 +339,8 @@ function EventTypeDialog({
       lengthInMinutes: editing?.lengthInMinutes ?? 30,
       description: editing?.description ?? '',
       hidden: editing?.hidden ?? false,
+      locationMode: editing?.locationMode ?? 'in_person',
+      locationText: editing?.locationText ?? '',
     },
   });
 
@@ -329,6 +348,8 @@ function EventTypeDialog({
   const slugValue = watch('slug');
   const durationValue = watch('lengthInMinutes');
   const hiddenValue = watch('hidden');
+  const locationModeValue = watch('locationMode');
+  const locationTextValue = watch('locationText');
 
   function onTitleChange(value: string) {
     setValue('title', value, { shouldValidate: true });
@@ -345,6 +366,8 @@ function EventTypeDialog({
       lengthInMinutes: values.lengthInMinutes,
       description: values.description?.trim() || undefined,
       hidden: values.hidden,
+      locationMode: values.locationMode,
+      locationText: values.locationText?.trim() || undefined,
     };
 
     startSave(async () => {
@@ -466,6 +489,47 @@ function EventTypeDialog({
                 <p className="text-xs text-destructive">
                   {errors.lengthInMinutes.message}
                 </p>
+              )}
+            </div>
+
+            {/* Where (U3, D4) — segmented buttons, same pattern as the
+                duration presets (avoids a Radix Select for 3 fixed values). */}
+            <div className="space-y-1.5">
+              <Label>Where does this meeting happen?</Label>
+              <div className="flex flex-wrap gap-1">
+                {LOCATION_OPTIONS.map((opt) => (
+                  <Button
+                    key={opt.value}
+                    type="button"
+                    variant={locationModeValue === opt.value ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setValue('locationMode', opt.value, { shouldValidate: true })}
+                  >
+                    {opt.label}
+                  </Button>
+                ))}
+              </div>
+              {locationModeValue === 'in_person' && (
+                <Input
+                  placeholder="e.g. Pharmacy block, Room 204"
+                  value={locationTextValue ?? ''}
+                  onChange={(e) => setValue('locationText', e.target.value)}
+                  aria-label="Meeting location"
+                />
+              )}
+              {locationModeValue === 'online' && (
+                <p className="text-xs text-muted-foreground">
+                  A Google Meet link is created automatically when your Google
+                  Calendar is connected.
+                </p>
+              )}
+              {locationModeValue === 'phone' && (
+                <p className="text-xs text-muted-foreground">
+                  You call the attendee on the phone number they provide.
+                </p>
+              )}
+              {errors.locationText && (
+                <p className="text-xs text-destructive">{errors.locationText.message}</p>
               )}
             </div>
 

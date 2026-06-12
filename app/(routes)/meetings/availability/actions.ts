@@ -18,6 +18,8 @@
 // scheduleId changed number → string (native uuid).
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { createClient as createServiceClient } from '@supabase/supabase-js';
+import { isGoogleCalConfigured } from '@/lib/services/integrations/google-calendar-service';
 import { createClient } from '@/lib/supabase/server';
 import type {
   CalComDayOfWeek,
@@ -259,6 +261,233 @@ export async function saveMySchedule(
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Failed to save your availability.',
+    };
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// U3 — public booking page + Google connection state (Universal Booking)
+// Spec: specs/universal-booking-module-2026-06-12.md (D1/D5/D19/D20)
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface BookingPageState {
+  /** null = integration env not provisioned yet (connect button disabled). */
+  googleConfigured: boolean;
+  connection: { status: 'active' | 'broken' | 'revoked'; googleEmail: string } | null;
+  page: {
+    handle: string;
+    isPublic: boolean;
+    autoHidden: boolean;
+    autoHiddenReason: string | null;
+    headline: string | null;
+  } | null;
+  /** Collision-free suggestion shown when the host has no page row yet. */
+  suggestedHandle: string;
+  appUrl: string;
+}
+
+/** Mirrors the DB CHECK on meeting_host_pages.handle (friendly errors first). */
+const HANDLE_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const RESERVED_HANDLES = new Set([
+  'admin', 'api', 'app', 'auth', 'book', 'cancel', 'directory', 'help', 'jkkn',
+  'login', 'logout', 'mail', 'meet', 'meetings', 'new', 'privacy', 'reschedule',
+  'settings', 'static', 'support', 'terms', 'www',
+]);
+
+function slugifyName(raw: string): string {
+  return raw
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50);
+}
+
+/**
+ * Suggestion-time collision check needs to see OTHER hosts' handles, which
+ * RLS correctly forbids — service-role read of the handle column only.
+ */
+function serviceClient(): SupabaseClient {
+  return createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  ) as unknown as SupabaseClient;
+}
+
+export async function getBookingPageState(): Promise<ActionResult<BookingPageState>> {
+  try {
+    const supabase = await untypedClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return { success: false, error: 'You are signed out. Please sign in and try again.' };
+    }
+
+    const [{ data: conn }, { data: page }, { data: profile }] = await Promise.all([
+      supabase
+        .from('meeting_host_google_connections')
+        .select('status, google_email')
+        .eq('host_profile_id', user.id)
+        .maybeSingle(),
+      supabase
+        .from('meeting_host_pages')
+        .select('handle, is_public, auto_hidden, auto_hidden_reason, headline')
+        .eq('host_profile_id', user.id)
+        .maybeSingle(),
+      supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle(),
+    ]);
+
+    // Collision-free suggestion only matters before the row exists.
+    let suggestedHandle = page?.handle ?? '';
+    if (!page) {
+      const base = slugifyName((profile?.full_name as string | undefined) ?? '') || 'my-page';
+      const svc = serviceClient();
+      const { data: taken } = await svc
+        .from('meeting_host_pages')
+        .select('handle')
+        .like('handle', `${base}%`);
+      const takenSet = new Set((taken ?? []).map((t: { handle: string }) => t.handle));
+      suggestedHandle = base;
+      for (let i = 2; takenSet.has(suggestedHandle) || RESERVED_HANDLES.has(suggestedHandle); i++) {
+        suggestedHandle = `${base}-${i}`;
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        googleConfigured: isGoogleCalConfigured(),
+        connection: conn
+          ? { status: conn.status, googleEmail: conn.google_email }
+          : null,
+        page: page
+          ? {
+              handle: page.handle,
+              isPublic: Boolean(page.is_public),
+              autoHidden: Boolean(page.auto_hidden),
+              autoHiddenReason: page.auto_hidden_reason ?? null,
+              headline: page.headline ?? null,
+            }
+          : null,
+        suggestedHandle,
+        appUrl: process.env.NEXT_PUBLIC_APP_URL ?? '',
+      },
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Could not load your booking page settings.',
+    };
+  }
+}
+
+export interface SavePublicPageInput {
+  /** Required on first save; immutable afterwards (D5: editable once, at claim). */
+  handle: string;
+  headline?: string;
+  isPublic: boolean;
+}
+
+export async function savePublicPage(
+  input: SavePublicPageInput,
+): Promise<ActionResult<BookingPageState['page']>> {
+  try {
+    const supabase = await untypedClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return { success: false, error: 'You are signed out. Please sign in and try again.' };
+    }
+
+    const handle = (input.handle ?? '').toLowerCase().trim();
+    if (!HANDLE_RE.test(handle) || handle.length < 3 || handle.length > 50) {
+      return {
+        success: false,
+        error: 'Handle must be 3–50 characters: lowercase letters, numbers and single hyphens.',
+      };
+    }
+    if (RESERVED_HANDLES.has(handle)) {
+      return { success: false, error: 'That handle is reserved. Please pick another.' };
+    }
+    const headline = input.headline?.trim().slice(0, 200) || null;
+
+    const { data: existing } = await supabase
+      .from('meeting_host_pages')
+      .select('id, handle, auto_hidden')
+      .eq('host_profile_id', user.id)
+      .maybeSingle();
+
+    // D5: the handle locks at claim time — support changes go through admins.
+    if (existing && existing.handle !== handle) {
+      return {
+        success: false,
+        error: 'Your handle is already set and cannot be changed here. Contact an administrator.',
+      };
+    }
+
+    // D20: a public page requires an ACTIVE Google connection — no exceptions.
+    if (input.isPublic) {
+      const { data: conn } = await supabase
+        .from('meeting_host_google_connections')
+        .select('status')
+        .eq('host_profile_id', user.id)
+        .maybeSingle();
+      if (!conn || conn.status !== 'active') {
+        return {
+          success: false,
+          error:
+            'Connect your Google Calendar first — public pages require it so your real calendar protects you from double-booking.',
+        };
+      }
+    }
+
+    const row = {
+      host_profile_id: user.id,
+      handle,
+      headline,
+      is_public: input.isPublic,
+      // A deliberate save clears a stale auto-hide (reconnect path also does).
+      ...(existing?.auto_hidden && input.isPublic
+        ? { auto_hidden: false, auto_hidden_reason: null }
+        : {}),
+    };
+
+    const { data, error } = existing
+      ? await supabase
+          .from('meeting_host_pages')
+          .update(row)
+          .eq('id', existing.id)
+          .select('handle, is_public, auto_hidden, auto_hidden_reason, headline')
+          .single()
+      : await supabase
+          .from('meeting_host_pages')
+          .insert(row)
+          .select('handle, is_public, auto_hidden, auto_hidden_reason, headline')
+          .single();
+
+    if (error) {
+      if (error.code === '23505') {
+        return { success: false, error: 'That handle is already taken. Please pick another.' };
+      }
+      if (error.code === '23514') {
+        return { success: false, error: 'That handle is not allowed. Please pick another.' };
+      }
+      console.error('[meetings/availability] savePublicPage failed:', error.message);
+      return { success: false, error: 'Could not save your booking page. Please try again.' };
+    }
+
+    return {
+      success: true,
+      data: {
+        handle: data.handle,
+        isPublic: Boolean(data.is_public),
+        autoHidden: Boolean(data.auto_hidden),
+        autoHiddenReason: data.auto_hidden_reason ?? null,
+        headline: data.headline ?? null,
+      },
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Could not save your booking page.',
     };
   }
 }

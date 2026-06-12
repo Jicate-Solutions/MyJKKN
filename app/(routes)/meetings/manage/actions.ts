@@ -24,6 +24,9 @@ export interface ActionResult<T> {
   error?: string;
 }
 
+/** U1 (D4): where a meeting of this type happens. */
+export type MeetingLocationMode = 'in_person' | 'phone' | 'online';
+
 /** Subset of meeting-type fields the manage UI renders / round-trips. */
 export interface ManageEventType {
   id: string;
@@ -32,6 +35,8 @@ export interface ManageEventType {
   lengthInMinutes: number;
   hidden: boolean;
   description: string | null;
+  locationMode: MeetingLocationMode;
+  locationText: string | null;
 }
 
 /** Payload accepted by create / update from the client. */
@@ -42,6 +47,10 @@ export interface EventTypeFormInput {
   description?: string;
   /** Update-only: toggle visibility on the booking page. */
   hidden?: boolean;
+  /** U3 (D4): defaults to in_person when omitted (matches the DB default). */
+  locationMode?: MeetingLocationMode;
+  /** Free-text place for in_person (e.g. "Pharmacy block, Room 204"). */
+  locationText?: string;
 }
 
 // The native tables aren't in generated types yet — untyped client (TS2589 class).
@@ -64,6 +73,8 @@ interface MeetingTypeRow {
   duration_min: number;
   hidden: boolean;
   description: string | null;
+  location_mode: MeetingLocationMode | null;
+  location_text: string | null;
 }
 
 function toManageEventType(row: MeetingTypeRow): ManageEventType {
@@ -74,6 +85,8 @@ function toManageEventType(row: MeetingTypeRow): ManageEventType {
     lengthInMinutes: row.duration_min,
     hidden: Boolean(row.hidden),
     description: row.description ?? null,
+    locationMode: row.location_mode ?? 'in_person',
+    locationText: row.location_text ?? null,
   };
 }
 
@@ -92,7 +105,18 @@ function normaliseSlug(raw: string): string {
 
 function validateForm(
   input: EventTypeFormInput,
-): { ok: boolean; value?: { title: string; slug: string; duration_min: number; description?: string }; error?: string } {
+): {
+  ok: boolean;
+  value?: {
+    title: string;
+    slug: string;
+    duration_min: number;
+    description?: string;
+    location_mode: MeetingLocationMode;
+    location_text: string | null;
+  };
+  error?: string;
+} {
   const title = input.title?.trim() ?? '';
   if (title.length === 0) return { ok: false, error: 'Title is required.' };
   if (title.length > 200) return { ok: false, error: 'Title is too long (max 200 characters).' };
@@ -112,6 +136,12 @@ function validateForm(
 
   const description = input.description?.trim();
 
+  const locationMode = input.locationMode ?? 'in_person';
+  if (!['in_person', 'phone', 'online'].includes(locationMode)) {
+    return { ok: false, error: 'Invalid meeting location type.' };
+  }
+  const locationText = input.locationText?.trim().slice(0, 200);
+
   return {
     ok: true,
     value: {
@@ -119,6 +149,9 @@ function validateForm(
       slug,
       duration_min: Math.round(len),
       ...(description ? { description } : {}),
+      location_mode: locationMode,
+      // Only in-person meetings carry a free-text place; clear it otherwise.
+      location_text: locationMode === 'in_person' && locationText ? locationText : null,
     },
   };
 }
@@ -135,7 +168,7 @@ export async function listMyEventTypes(): Promise<ActionResult<ManageEventType[]
 
     const { data, error } = await supabase
       .from('meeting_types')
-      .select('id, title, slug, duration_min, hidden, description')
+      .select('id, title, slug, duration_min, hidden, description, location_mode, location_text')
       .eq('host_profile_id', userId)
       .eq('is_active', true)
       .order('created_at', { ascending: true });
@@ -166,7 +199,7 @@ export async function createMyEventType(
     const { data, error } = await supabase
       .from('meeting_types')
       .insert({ host_profile_id: userId, ...validated.value })
-      .select('id, title, slug, duration_min, hidden, description')
+      .select('id, title, slug, duration_min, hidden, description, location_mode, location_text')
       .single();
     if (error) {
       if (error.code === '23505') {
@@ -207,7 +240,7 @@ export async function updateMyEventType(
       .update(patch)
       .eq('id', id)
       .eq('host_profile_id', userId)
-      .select('id, title, slug, duration_min, hidden, description')
+      .select('id, title, slug, duration_min, hidden, description, location_mode, location_text')
       .maybeSingle();
     if (error) {
       if (error.code === '23505') {
