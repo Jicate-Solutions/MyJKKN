@@ -47,32 +47,67 @@ jobs:
         with:
           fetch-depth: 0  # base SHA needed for classifier delta
 
+      # Minutes diet (2026-06-12): docs/screenshots/.github-only PRs cannot
+      # change nav configs, MODULES, permissions, or the SQL classifier —
+      # skip the npm install + all checks. Job still reports SUCCESS so the
+      # required-check status stays satisfied.
+      - name: Skip if diff cannot affect module config
+        id: scope
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$BASE_REF" --quiet
+          CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD")
+          NON_DOCS=$(echo "$CHANGED" | grep -vE '\.(md|mdx|txt|png|jpe?g|gif|svg|webp|pdf)$|^\.screenshots/|^docs/|^specs/|^\.github/|^LICENSE$|^\.gitignore$' || true)
+          if [[ -z "$NON_DOCS" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Docs/screenshots/.github-only diff — module config untouched. Install + audits skipped (Actions minutes saved)."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Node.js
+        if: steps.scope.outputs.skip != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
 
+      # node_modules cache: keyed on the lockfile — a hit skips npm ci.
+      - name: Cache node_modules
+        if: steps.scope.outputs.skip != 'true'
+        id: nm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
+
       - name: Install dependencies
+        if: steps.scope.outputs.skip != 'true' && steps.nm.outputs.cache-hit != 'true'
         run: npm ci --no-audit --no-fund
 
       # Sidebar health reads the route manifest; regenerate from the PR's
       # filesystem so the check sees the PR's actual pages.
       - name: Regenerate route manifest
+        if: steps.scope.outputs.skip != 'true'
         run: npm run gen:routes
 
       # Catches sidebar config drift (entries pointing at deleted pages).
       # Passes on main as of 2026-06-11.
       - name: Check sidebar coverage
+        if: steps.scope.outputs.skip != 'true'
         run: npm run check:sidebar
 
       # Catches modules that fail permission-audit-coverage thresholds.
       # Passes on main as of 2026-06-11.
       - name: Check audit coverage
+        if: steps.scope.outputs.skip != 'true'
         run: npm run check:audit-coverage
 
       # Passes on main as of 2026-06-11 (no drift found).
       - name: Check admission-counselor membership contract
+        if: steps.scope.outputs.skip != 'true'
         run: node scripts/check-admission-counselor-membership.mjs
 
       # Verifies bug_reports.module_name CASE in supabase/setup/01_tables.sql
@@ -82,6 +117,7 @@ jobs:
       # only if the PR ADDS missing slugs. 27 legacy missing slugs on main
       # (2026-06-11) are baseline — not this PR's fault, not gated here.
       - name: Check bug-module classifier parity (delta-only)
+        if: steps.scope.outputs.skip != 'true'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
