@@ -254,7 +254,7 @@ const config: ModuleNavConfig = {
         {
           label: 'Menu Editor',
           icon: 'CalendarRange',
-          href: '/campus-living/mess/menu-editor/standard',
+          href: '/campus-living/mess/menu-editor/classic',
           matchPaths: ['/campus-living/mess/menu-editor'],
         },
         {

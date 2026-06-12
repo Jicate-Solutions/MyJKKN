@@ -22,9 +22,9 @@ export const CHOOSE_MENU_POLICY_KEYS = {
   /** Master kill-switch for the whole Choose Your Menu feature (boolean). */
   MASTER_ENABLED: 'mess.choose.master_enabled',
   /**
-   * Tiers whose residents can pre-pick meal alternatives (Mode A
-   * personalization) — jsonb array of tier_key strings, e.g.
-   * ["premium","premium_plus"]. [] = personalization off.
+   * Mess plans whose residents can pre-pick meal alternatives (Mode A
+   * personalization) — jsonb array of plan keys, e.g. ["premium"].
+   * [] = personalization off.
    */
   PERSONALIZATION_ENABLED_TIERS: 'mess.choose.personalization.enabled_tiers',
   /** How many library alternatives offered per swappable meal (number). */
@@ -58,11 +58,15 @@ export const CHOOSE_MENU_POLICY_KEYS = {
 export type ChooseMenuPolicyKey =
   (typeof CHOOSE_MENU_POLICY_KEYS)[keyof typeof CHOOSE_MENU_POLICY_KEYS];
 
-/** The fixed tier ladder (hostel_tier_policy). Hardcoded — it's the stable set. */
+/**
+ * The mess-plan ladder = mess_categories names (Classic | Premium), lowercased.
+ * Director decision 2026-06-12: menu + engagement tiers follow the MESS PLAN a
+ * resident pays for (mess_categories / learners_profiles.mess_category_id),
+ * NOT the hostel room tier — a standard-room resident can buy the Premium mess.
+ */
 export const CHOOSE_MENU_TIERS = [
-  { key: 'standard', label: 'Standard' },
+  { key: 'classic', label: 'Classic' },
   { key: 'premium', label: 'Premium' },
-  { key: 'premium_plus', label: 'Premium Plus' },
 ] as const;
 
 export type ChooseMenuTierKey = (typeof CHOOSE_MENU_TIERS)[number]['key'];

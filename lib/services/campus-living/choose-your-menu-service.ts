@@ -11,10 +11,11 @@
  *     `fn_get_policy*` readers (same family housekeeping-booking-service
  *     uses). Falls soft: master defaults FALSE so a failed read keeps the
  *     feature dark, never accidentally lights it up.
- *   • resident context — active allocation → hostel_tier_policy.tier_key
- *     (no tier row = 'standard'), profiles.learner_id bridge, and
- *     learners_profiles.gender (MALE/FEMALE) → menu gender (boys/girls).
- *     Same identity chain as housekeeping getMyEntitlement.
+ *   • resident context — active allocation = "is a hosteller" (existence
+ *     only); the MENU resolves from the resident's MESS PLAN
+ *     (learners_profiles.mess_category_id → mess_categories.name/type →
+ *     'classic'|'premium' + boys/girls), NOT the room tier (Director
+ *     2026-06-12 — a standard-room resident can buy the Premium mess).
  *   • my activity      — own rows from mess_meal_choices / mess_dish_votes
  *     (RLS: owner via profiles.learner_id chain). Recognition reads moved to
  *     recognition-service.ts (cross-module stream, CARE keystone).
@@ -51,11 +52,12 @@ export interface ChooseMenuPolicySnapshot {
   feedbackRecognition: boolean;
 }
 
-/** Who am I, menu-wise: tier + gender + the learners_profiles id own-rows key. */
+/** Who am I, menu-wise: mess plan + gender + the learners_profiles own-rows key. */
 export interface MyMealsContext {
   hasActiveAllocation: boolean;
   /** learners_profiles.id — the key mess_* engagement rows are owned by. */
   learnerId: string | null;
+  /** Mess-plan key from mess_categories ('classic' | 'premium'), NOT room tier. */
   tierKey: ChooseMenuTierKey | string;
   gender: MenuGender | null;
 }
@@ -83,11 +85,11 @@ export interface LiveVoteCount {
   voters: number;
 }
 
-/** Seeded migration defaults — used only when a policy read fails. */
+/** Seeded defaults (post vocab-fix migration) — used only when a read fails. */
 const POLICY_DEFAULTS: ChooseMenuPolicySnapshot = {
   masterEnabled: false, // fail-dark: a broken read must never light the feature
-  personalizationTiers: ['premium', 'premium_plus'],
-  votingTiers: ['standard', 'premium', 'premium_plus'],
+  personalizationTiers: ['premium'],
+  votingTiers: ['classic', 'premium'],
   feedbackLiveCounts: true,
   feedbackRecognition: true,
 };
@@ -152,7 +154,7 @@ export class ChooseYourMenuService {
     const none: MyMealsContext = {
       hasActiveAllocation: false,
       learnerId: null,
-      tierKey: 'standard',
+      tierKey: 'classic',
       gender: null,
     };
 
@@ -162,10 +164,12 @@ export class ChooseYourMenuService {
     } = await supabase.auth.getUser();
     if (authError || !user) return none;
 
-    // 1. Active allocation (hostel_allocations.learner_id FKs profiles = auth uid).
+    // 1. Active allocation EXISTENCE (hostel_allocations.learner_id FKs
+    //    profiles = auth uid). Allocation = "you're a hosteller"; it no longer
+    //    decides which menu you see — the mess plan does (Director 2026-06-12).
     const { data: allocation, error: allocError } = await supabase
       .from('hostel_allocations')
-      .select('id, tier_id')
+      .select('id')
       .eq('learner_id', user.id)
       .eq('status', 'active')
       .order('allocation_date', { ascending: false })
@@ -177,23 +181,8 @@ export class ChooseYourMenuService {
     }
     if (!allocation) return none;
 
-    // 2. Tier row → tier_key (no tier row = standard) — housekeeping idiom.
-    let tierKey = 'standard';
-    if (allocation.tier_id) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: tier, error: tierError } = await (supabase as any)
-        .from('hostel_tier_policy')
-        .select('tier_key')
-        .eq('id', allocation.tier_id)
-        .maybeSingle();
-      if (tierError) {
-        logger.error(MODULE, 'Failed to fetch tier policy', tierError);
-        throw tierError;
-      }
-      if (tier?.tier_key) tierKey = tier.tier_key as string;
-    }
-
-    // 3. profiles.learner_id bridge → learners_profiles.gender (MALE/FEMALE).
+    // 2. profiles.learner_id bridge → learners_profiles: the MESS PLAN
+    //    (mess_category_id → mess_categories.name/type) + learner gender.
     const { data: profileRow, error: profileError } = await supabase
       .from('profiles')
       .select('learner_id')
@@ -205,20 +194,35 @@ export class ChooseYourMenuService {
     }
     const learnerId = profileRow?.learner_id ?? null;
 
+    // Menu tier = lower(mess_categories.name): 'classic' | 'premium'.
+    // No mess plan assigned yet → 'classic' (the base menu everyone gets).
+    let tierKey = 'classic';
     let gender: MenuGender | null = null;
     if (learnerId) {
       const { data: learner, error: learnerError } = await supabase
         .from('learners_profiles')
-        .select('gender')
+        .select('gender, messCategory:mess_category_id(name, type)')
         .eq('id', learnerId)
         .maybeSingle();
       if (learnerError) {
-        logger.error(MODULE, 'Failed to fetch learner gender', learnerError);
+        logger.error(MODULE, 'Failed to fetch learner mess plan', learnerError);
         throw learnerError;
       }
-      const g = (learner?.gender ?? '').toString().toUpperCase();
-      if (g === 'MALE') gender = 'boys';
-      else if (g === 'FEMALE') gender = 'girls';
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cat = (learner as any)?.messCategory as { name?: string; type?: string } | null;
+      const catKey = (cat?.name ?? '').toLowerCase();
+      if (catKey === 'classic' || catKey === 'premium') tierKey = catKey;
+      // Gender: the mess the plan belongs to wins (you eat where you're
+      // enrolled); learner profile gender is the fallback.
+      if (cat?.type === 'boys' || cat?.type === 'girls') {
+        gender = cat.type;
+      } else {
+        const g = ((learner as { gender?: string } | null)?.gender ?? '')
+          .toString()
+          .toUpperCase();
+        if (g === 'MALE') gender = 'boys';
+        else if (g === 'FEMALE') gender = 'girls';
+      }
     }
 
     return { hasActiveAllocation: true, learnerId, tierKey, gender };

@@ -2,7 +2,7 @@
 
 // Weekly Mess Menu — VIEWER (tier × gender, 2026-06-11 v2).
 // The mess menu is ONE shared set for all JKKN colleges, varying only by
-// TIER (standard/premium/premium_plus) and GENDER (boys/girls). It is NOT
+// TIER (classic/premium — the mess_categories names) and GENDER (boys/girls). It is NOT
 // per-institution — so this page has no institution chooser. Gender lives on
 // the caterer (mess_caterers.gender_served); the read goes through the
 // SECURITY DEFINER fn_mess_menu_week so every college sees the same menu
@@ -31,9 +31,8 @@ const MEAL_LABELS: Record<(typeof MEAL_ROWS)[number], string> = {
 };
 
 const TIER_OPTIONS: { key: TierKey; label: string }[] = [
-  { key: 'standard', label: 'Standard' },
+  { key: 'classic', label: 'Classic' },
   { key: 'premium', label: 'Premium' },
-  { key: 'premium_plus', label: 'Premium Plus' },
 ];
 type Gender = 'boys' | 'girls';
 const GENDER_OPTIONS: { key: Gender; label: string }[] = [
@@ -85,7 +84,10 @@ function useMenuWeek(weekStart: string, tier: TierKey, gender: Gender) {
     staleTime: 5 * 60_000,
     queryFn: async (): Promise<MenuWeekResult> => {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase.rpc('fn_mess_menu_week', {
+      // fn_mess_menu_week isn't in generated types — untyped-client cast
+      // (same idiom as use-choose-your-menu's useMyMenuWeek).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc('fn_mess_menu_week', {
         p_week_start: weekStart,
         p_tier_key: tier,
         p_gender: gender,
@@ -99,7 +101,7 @@ function useMenuWeek(weekStart: string, tier: TierKey, gender: Gender) {
 export default function WeeklyMessMenuPage() {
   const { isSuperAdmin } = usePermissions();
   const [weekOffset, setWeekOffset] = useState(0);
-  const [tier, setTier] = useState<TierKey>('standard');
+  const [tier, setTier] = useState<TierKey>('classic');
   const [gender, setGender] = useState<Gender>('boys');
 
   const weekStart = useMemo(() => mondayOf(new Date(), weekOffset), [weekOffset]);

@@ -3,7 +3,7 @@
 // ============================================================================
 // /campus-living/mess/menu-editor/[tier] — Weekly menu editor for a single tier (relocated from /admin/mess 2026-06-01).
 // ============================================================================
-// URL: /campus-living/mess/menu-editor/standard or /campus-living/mess/menu-editor/premium
+// URL: /campus-living/mess/menu-editor/classic or /campus-living/mess/menu-editor/premium
 // (uses tier_key values from the hostel_tier_policy ladder per Director D2
 // lock 2026-05-25)
 //
@@ -42,12 +42,11 @@ import { MenuGrid } from '../_components/menu-grid';
 
 export const navMeta = { label: 'Mess Menu Editor', icon: 'CalendarRange' } as const;
 
-const VALID_TIERS: TierKey[] = ['standard', 'premium', 'premium_plus'];
+const VALID_TIERS: TierKey[] = ['classic', 'premium'];
 
 const TIER_LABELS: Record<TierKey, string> = {
-  standard: 'CLASSIC (standard)',
-  premium: 'PREMIUM (premium)',
-  premium_plus: 'PREMIUM++ (premium_plus)',
+  classic: 'CLASSIC',
+  premium: 'PREMIUM',
 };
 
 // Gender = the caterer's `gender_served`. The menu is a tier × gender matrix.

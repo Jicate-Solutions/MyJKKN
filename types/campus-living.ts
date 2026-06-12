@@ -1600,12 +1600,16 @@ export type MealType = 'breakfast' | 'lunch' | 'snacks' | 'tea' | 'dinner';
 export type MenuStatus = 'planned' | 'confirmed' | 'served' | 'cancelled';
 
 /**
- * Tier vocabulary. Single source of truth across hostel + mess (Director
- * D2 lock, 2026-05-25): reuse the existing `hostel_tier_policy.tier_key`
- * ladder instead of inventing a parallel CLASSIC/PREMIUM enum.
- *   CLASSIC → 'standard', PREMIUM → 'premium', PREMIUM++ → 'premium_plus'
+ * MESS MENU tier vocabulary = the mess_categories names (Classic | Premium),
+ * lowercased. Director decision 2026-06-12, superseding the D2 lock of
+ * 2026-05-25 (which aliased CLASSIC→'standard' onto the hostel room-tier
+ * ladder — but mess_categories was created 2026-05-28, AFTER D2, and became
+ * the canonical mess vocabulary; the alias left a phantom 'premium_plus'
+ * menu tier with zero menus and resolved residents' menus from their ROOM
+ * tier instead of the mess plan they pay for).
+ * Room tiers live separately: `HostelTierKey` in types/campus-living/premium.ts.
  */
-export type TierKey = 'standard' | 'premium' | 'premium_plus';
+export type TierKey = 'classic' | 'premium';
 
 export interface MessMenu {
   id: string;

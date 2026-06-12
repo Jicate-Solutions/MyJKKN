@@ -372,7 +372,7 @@ export class MessMenuService {
         if (row.tier_key) distinct.add(row.tier_key);
       }
       // Sort by canonical ladder order so UI is deterministic.
-      const order: TierKey[] = ['standard', 'premium', 'premium_plus'];
+      const order: TierKey[] = ['classic', 'premium'];
       return order.filter((t) => distinct.has(t));
     } catch (error) {
       logger.error('campus-living/menu', 'Unexpected error in getActiveTiers', error);

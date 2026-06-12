@@ -44,7 +44,7 @@ export function useMessMenuWeek(
     queryKey: messMenuWeekKeys.week(
       institutionId ?? 'all',
       weekStartDate,
-      (tierKey ?? 'standard') as TierKey,
+      (tierKey ?? 'classic') as TierKey,
       catererId,
     ),
     queryFn: () =>
