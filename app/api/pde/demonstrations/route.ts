@@ -18,10 +18,13 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { PDEDemonstrationService } from '@/lib/services/pde-demonstration-service';
+import { getCloTagCap, normalizeCloRefs } from '@/lib/services/pde-curriculum-service';
 import type {
   CreatePDEDemonstrationInput,
   PDECategoryKey,
 } from '@/lib/types/pde-demonstrations';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const VALID_CATEGORIES: PDECategoryKey[] = [
   'judgment',
@@ -79,6 +82,43 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // --- Curriculum connector validation (dual-lane, spec §4) ---
+    const bosSyllabusId = body.bos_syllabus_id ?? null;
+    const vacCourseId = body.vac_course_id ?? null;
+    if (bosSyllabusId && !UUID_RE.test(bosSyllabusId)) {
+      return NextResponse.json({ error: 'bos_syllabus_id must be a uuid' }, { status: 400 });
+    }
+    if (vacCourseId && !UUID_RE.test(vacCourseId)) {
+      return NextResponse.json({ error: 'vac_course_id must be a uuid' }, { status: 400 });
+    }
+    if (bosSyllabusId && vacCourseId) {
+      return NextResponse.json(
+        { error: 'Link either a BoS syllabus or a VAC course, not both' },
+        { status: 400 }
+      );
+    }
+
+    // CLO proposals ride only on the BoS lane; cap is the zero-deploy policy
+    // row pde.obe.clo_tag_cap (anti blanket-tag gaming, spec §4.10).
+    let cloRefs: number[] | null = null;
+    if (body.clo_refs !== undefined && body.clo_refs !== null) {
+      if (!bosSyllabusId) {
+        return NextResponse.json(
+          { error: 'clo_refs requires bos_syllabus_id' },
+          { status: 400 }
+        );
+      }
+      cloRefs = normalizeCloRefs(body.clo_refs);
+      const cap = await getCloTagCap();
+      if (cloRefs.length > cap) {
+        return NextResponse.json(
+          { error: `You can tag at most ${cap} CLO${cap === 1 ? '' : 's'} per demonstration` },
+          { status: 400 }
+        );
+      }
+      if (cloRefs.length === 0) cloRefs = null;
+    }
+
     const input: CreatePDEDemonstrationInput = {
       learner_id: body.learner_id || user.id,
       institution_id: body.institution_id,
@@ -87,6 +127,9 @@ export async function POST(request: NextRequest) {
       skill_name: body.skill_name || undefined,
       evidence: body.evidence || {},
       evidence_type: body.evidence_type || undefined,
+      bos_syllabus_id: bosSyllabusId,
+      vac_course_id: vacCourseId,
+      clo_refs: cloRefs,
     };
 
     const row = await PDEDemonstrationService.create(input);

@@ -195,7 +195,10 @@ function deriveCycleTimes(row: {
 }): { starts_at: string | null; ends_at: string | null } {
   const config = (row.config ?? {}) as Record<string, unknown>;
   const aiPulse = (config.ai_pulse ?? {}) as Record<string, unknown>;
-  const date = (row.demo_date ?? row.start_date ?? null) as string | null;
+  // demo_date/start_date are timestamptz — take the DATE part only, else the
+  // template below produces "…T00:00:00+00:00T18:55…" → Invalid Date (B7).
+  const rawDate = (row.demo_date ?? row.start_date ?? null) as string | null;
+  const date = rawDate ? rawDate.slice(0, 10) : null;
   const startHHMM =
     typeof aiPulse.session_start_time === 'string' ? aiPulse.session_start_time : '18:55';
   const endHHMM =

@@ -20,6 +20,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { PDEValidatorService } from '@/lib/services/pde-validator-service';
+import { normalizeCloRefs } from '@/lib/services/pde-curriculum-service';
 
 export async function POST(
   request: NextRequest,
@@ -48,7 +49,21 @@ export async function POST(
       );
     }
 
-    const updated = await PDEValidatorService.recordValidation(id, user.id, notes, rawScore);
+    // Curriculum connector: validator-confirmed CLO set (attainment reads only
+    // this). Omitted → column untouched; [] → cleared (validator rejected all
+    // proposals). Validators are not bound by the learner-side tag cap.
+    let cloRefsConfirmed: number[] | null | undefined = undefined;
+    if (body?.clo_refs_confirmed !== undefined) {
+      cloRefsConfirmed = normalizeCloRefs(body.clo_refs_confirmed);
+    }
+
+    const updated = await PDEValidatorService.recordValidation(
+      id,
+      user.id,
+      notes,
+      rawScore,
+      cloRefsConfirmed
+    );
     return NextResponse.json({ data: updated });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || 'Error' }, { status: 500 });

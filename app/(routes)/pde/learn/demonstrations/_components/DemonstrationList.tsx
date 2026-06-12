@@ -36,6 +36,7 @@ import {
   CheckCircle2,
   CircleDashed,
   FileText,
+  MessageSquareHeart,
   PlusCircle,
   ShieldCheck,
   Sparkles,
@@ -106,6 +107,18 @@ const STATUS_CONFIG: Record<
 };
 
 const WITHDRAWABLE_STATUSES: PDEDemonstrationStatus[] = ['draft', 'submitted'];
+
+/**
+ * validator_notes is a { validatorId: note } map (see PDEValidatorService).
+ * Surface the note TEXT to the learner (CARE-Appreciation — feedback was
+ * being written but never received); validator UUIDs stay anonymous.
+ */
+function validatorFeedback(notes: Record<string, unknown> | null | undefined): string[] {
+  if (!notes || typeof notes !== 'object' || Array.isArray(notes)) return [];
+  return Object.values(notes).filter(
+    (n): n is string => typeof n === 'string' && n.trim().length > 0
+  );
+}
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
@@ -280,6 +293,25 @@ export function DemonstrationList({ initialRows, initialError }: DemonstrationLi
                 {typeof row.evidence?.notes === 'string' && row.evidence.notes && (
                   <p className="text-sm text-muted-foreground line-clamp-2">{row.evidence.notes}</p>
                 )}
+
+                {/* Validator feedback (CARE-A): the appreciation loop closes here. */}
+                {(() => {
+                  const feedback = validatorFeedback(row.validator_notes);
+                  if (feedback.length === 0) return null;
+                  return (
+                    <div className="rounded-md bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40 p-3 space-y-1.5">
+                      <p className="text-xs font-medium text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+                        <MessageSquareHeart className="h-3.5 w-3.5" />
+                        Validator feedback
+                      </p>
+                      {feedback.map((note, i) => (
+                        <p key={i} className="text-sm text-emerald-900/90 dark:text-emerald-100/90 whitespace-pre-wrap">
+                          {note}
+                        </p>
+                      ))}
+                    </div>
+                  );
+                })()}
 
                 <Separator />
 

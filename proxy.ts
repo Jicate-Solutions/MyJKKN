@@ -29,6 +29,7 @@ const PUBLIC_PATHS_SET = new Set([
   '/privacy', // Privacy Policy — public, required for Meta App Review
   '/terms', // Terms of Use — public, required for Meta App Review
   '/data-deletion', // Data Deletion instructions — public, required for Meta App Review
+  '/meet', // Universal Booking directory — public, no login (U4)
   '/api/admission/leads/refer', // Agent referral API
   '/api/admission/leads/inbound' // Inbound webhook API
 ]);
@@ -37,6 +38,7 @@ const PUBLIC_PATHS_SET = new Set([
 const PUBLIC_PATH_PREFIXES = [
   '/apply/', // Public admission form builder pages — no login
   '/book/', // Public routed-booking pages (/book/[slug]) — no login (Path W #10)
+  '/meet/', // Universal Booking personal pages (/meet/[handle]) — no login (U4)
   '/c/', // Public campaign link shortener pages — no login
   '/student-form/', // Student self-fill form via QR (token-validated server-side) — no login
 ];

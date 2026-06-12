@@ -2259,6 +2259,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/campus-living/my-hostel/my-meals",
+            "label": "My Meals",
+            "iconName": "UtensilsCrossed",
+            "children": []
+          },
+          {
             "path": "/campus-living/my-hostel/premium",
             "label": "Premium Stay — Opt-in",
             "iconName": "Sparkles",
@@ -2467,6 +2473,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/campus-living/settings/categories",
             "label": "Categories",
             "iconName": "Tags",
+            "children": []
+          },
+          {
+            "path": "/campus-living/settings/choose-your-menu",
+            "label": "Choose Your Menu",
+            "iconName": "FileText",
             "children": []
           },
           {

@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { MeetingRoutingService } from '@/lib/services/integrations/meeting-routing-service';
-import { fetchPublicSlots } from '@/lib/services/integrations/cal-com-api-client';
+import { NativeSchedulingService } from '@/lib/services/meetings/native-scheduling-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,12 +29,6 @@ function checkRateLimit(ip: string): boolean {
   if (entry.count >= RATE_LIMIT) return false;
   entry.count++;
   return true;
-}
-
-/** "YYYY-MM-DD" for a date offset (days) from now, in UTC. */
-function isoDate(offsetDays: number): string {
-  const d = new Date(Date.now() + offsetDays * 24 * 60 * 60 * 1000);
-  return d.toISOString().slice(0, 10);
 }
 
 export async function POST(
@@ -78,13 +72,16 @@ export async function POST(
       );
     }
 
-    const days = await fetchPublicSlots(pick.calEventTypeId, isoDate(0), isoDate(7));
+    // Phase N2: slots come from the NATIVE engine (no Cal.com round-trip).
+    const result = await NativeSchedulingService.listSlots(supabase, pick.meetingTypeId, {
+      days: 7,
+    });
 
     return NextResponse.json({
       counselor: { name: pick.name },
-      eventTypeId: pick.calEventTypeId,
-      durationMin: config.meeting_duration_min,
-      days,
+      meetingTypeId: pick.meetingTypeId,
+      durationMin: result?.durationMin ?? config.meeting_duration_min,
+      days: result?.days ?? {},
     });
   } catch (err) {
     console.error('[public/booking/slots] failed:', err);

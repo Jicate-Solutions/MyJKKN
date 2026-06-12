@@ -233,6 +233,10 @@ export async function GET(req: NextRequest) {
         host_institution_id: inst.id,
         status: 'draft',
         demo_date: sessionDateISO,
+        // start_date is what learner-service's current-week window filters on
+        // (B8): without it, cron-created cycles are invisible on My Pulse.
+        start_date: sessionDateISO,
+        end_date: sessionDateISO,
         config: cycleConfig,
       });
 

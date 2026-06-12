@@ -1546,3 +1546,38 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Column: `jicate_booking_meeting_types.host_profile_id` (links per-counselor Cal.com EventTypes to MyJKKN profiles)
 - Location: `supabase/migrations/20260611170000_meeting_routing_substrate.sql` (applied live via exec_sql 2026-06-11)
 - Purpose: Public routed-booking form at /book/[slug] — MyJKKN-side round-robin (least_loaded on admission_counselors.current_leads) over a headless Cal.com. Writes via service-role only; staff read via RLS.
+
+### Native Scheduling Engine — Phase N1 (2026-06-11)
+- Tables: `meeting_host_schedules`, `meeting_schedule_windows`, `meeting_schedule_overrides`, `meeting_types`, `meeting_bookings`
+- Location: `supabase/migrations/20260611190000_native_scheduling_engine.sql` (applied live via exec_sql 2026-06-11)
+- Purpose: In-house scheduling engine replacing Cal.com (jicate-booking). Times stored as minutes-since-midnight in schedule TZ; gist EXCLUSION constraint `mb_no_double_booking` makes double-booking impossible for confirmed rows (verified live: overlap → 23P01; cancelled rows don't block). Multi-tenant via institution_id. Requires btree_gist extension.
+
+### Meeting Routing Log — native linkage (2026-06-11)
+- Column: `meeting_routing_log.meeting_type_id` (uuid → meeting_types)
+- Location: `supabase/migrations/20260611200000_meeting_routing_log_native_link.sql` (applied live)
+- Purpose: Phase N2 — routed bookings reference native meeting_types; cal_booking_uid column now stores native uids for new rows.
+
+### Universal Booking Substrate — U1 (2026-06-12)
+- Tables: `meeting_host_pages` (public page config: handle UNIQUE + reserved-word CHECK, is_public opt-in, auto_hidden), `meeting_host_google_connections` (per-host Google link, pgp-encrypted refresh token, status active/broken/revoked)
+- Functions: `fn_set_google_cal_token`, `fn_get_google_cal_token`, `fn_clear_google_cal_token` — SECURITY DEFINER, `search_path = public, extensions` (pgcrypto), service_role-ONLY execute (cal-vault pattern)
+- Columns: `meeting_types.location_mode` (in_person/phone/online; admission-counseling set to phone) + `location_text`; `meeting_bookings.video_url`, `google_event_id`, `attendee_profile_id`, `rescheduled_at`, `reschedule_count`, `previous_start_time`
+- Data: `meetings.view` granted to all staff-type roles (exclusion-list: learner/external/vendor/deprecated roles)
+- Location: `supabase/migrations/20260612090000_universal_booking_substrate.sql` (NOT yet applied — ships dark; apply at merge)
+- Purpose: Universal Booking module substrate — anyone books Senior Learners/staff. Spec: specs/universal-booking-module-2026-06-12.md (20 decisions). Public exposure requires opt-in + active Google connection (D20).
+
+### PDE <-> BoS Outcome Connector (2026-06-11)
+- Columns: `pde_demonstrations.bos_syllabus_id` (uuid → bos_course_syllabi, version-pinned at submission), `pde_demonstrations.vac_course_id` (uuid → vac_courses, course-level VAC lane), `pde_demonstrations.clo_refs` (jsonb, learner-proposed CLO numbers), `pde_demonstrations.clo_refs_confirmed` (jsonb, validator-confirmed — attainment reads this only)
+- Policy rows: `pde.obe.po_weight_map` ({"H":1.0,"M":0.5,"L":0.25}), `pde.obe.clo_tag_cap` (2)
+- Location: `supabase/migrations/20260611230000_pde_bos_clo_connector.sql` (applied live via Management API 2026-06-11)
+- Purpose: Link PDE demonstrations to the curriculum outcome they evidence (BoS CLOs for autonomous colleges, VAC courses for all); CLO/PO attainment computed from validated evidence. Spec: specs/pde-bos-outcome-connector-2026-06-11.md
+
+### PDE Curriculum Read RPCs (2026-06-11)
+- Functions: `fn_pde_list_approved_syllabi()`, `fn_pde_get_syllabus_outcomes(uuid[])`, `fn_pde_list_vac_courses()` — all SECURITY DEFINER, REVOKE anon/PUBLIC + GRANT authenticated
+- Location: `supabase/migrations/20260611233000_pde_curriculum_read_rpcs.sql` (applied live via Management API 2026-06-11)
+- Purpose: Scoped curriculum reads for the PDE connector. Live-discovered gap: bos_course_syllabi RLS requires BoS board membership and vac_courses RLS requires user_institution_access — learners/non-BoS validators can't read either. RPCs expose picker-minimal columns, own-institution scoped (admins also pass on outcomes fn).
+
+### VAC Content Migration + Universal Picker (2026-06-12)
+- Data: staging→prod content copy — vac_courses 1→93 (dark), vac_lessons 1→2,717, vac_course_programmes 0→85; via `scripts/vac-migrate-staging-content.sh` (psql pooler, Director-authorized interview decisions in specs/vac-staging-fk-mapping-audit-2026-06-11.md §8)
+- Function: `fn_pde_list_vac_courses()` — now own-institution OR universal (institution_id IS NULL)
+- Index: `vac_courses_code_key` UNIQUE(code) — staging parity + double-run guard
+- Location: `supabase/migrations/20260612084500_vac_universal_picker_and_code_unique.sql` (applied live 2026-06-12)

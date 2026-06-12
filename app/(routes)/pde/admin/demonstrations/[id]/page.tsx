@@ -13,6 +13,8 @@ import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PDEValidatorService } from '@/lib/services/pde-validator-service';
+import { getSyllabusCLOs, normalizeCloRefs } from '@/lib/services/pde-curriculum-service';
+import type { SyllabusCLOResult } from '@/lib/types/pde-curriculum';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { ValidationForm } from '../_components/ValidationForm';
 
@@ -42,6 +44,25 @@ export default async function PdeDemonstrationDetailPage({
     notFound();
   }
   const rubric = await fetchRubric(demonstration.rubric_policy_key);
+
+  // Curriculum connector: when the demo links a BoS syllabus, load its CLOs so
+  // the validator can confirm/adjust the learner's proposals (spec §4.8).
+  const bosSyllabusId = (demonstration as any).bos_syllabus_id as string | null;
+  let syllabusResult: SyllabusCLOResult | null = null;
+  if (bosSyllabusId) {
+    try {
+      syllabusResult = await getSyllabusCLOs(bosSyllabusId);
+    } catch {
+      syllabusResult = null; // fail-soft: validation works without the panel
+    }
+  }
+  const cloProposals = normalizeCloRefs((demonstration as any).clo_refs);
+  const existingConfirmedRaw = (demonstration as any).clo_refs_confirmed;
+  const existingConfirmed =
+    existingConfirmedRaw == null ? null : normalizeCloRefs(existingConfirmedRaw);
+  const syllabusLabel = syllabusResult
+    ? `${syllabusResult.syllabus.course_code} · ${syllabusResult.syllabus.course_name}`
+    : null;
 
   const evidenceUrl =
     demonstration.evidence && typeof demonstration.evidence === 'object'
@@ -116,6 +137,19 @@ export default async function PdeDemonstrationDetailPage({
                   {demonstration.rubric_policy_key || '(no rubric attached)'}
                 </div>
               </div>
+              {syllabusLabel ? (
+                <div className="md:col-span-2">
+                  <div className="text-xs text-muted-foreground">Curriculum link (BoS)</div>
+                  <div className="text-sm">
+                    {syllabusLabel}
+                    {cloProposals.length > 0 ? (
+                      <span className="text-xs text-muted-foreground ml-2">
+                        learner proposed: {cloProposals.map((n) => `CLO ${n}`).join(', ')}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
               {evidenceUrl ? (
                 <div className="md:col-span-2">
                   <div className="text-xs text-muted-foreground">Evidence link</div>
@@ -147,6 +181,10 @@ export default async function PdeDemonstrationDetailPage({
           existingRawScore={
             typeof demonstration.raw_score === 'number' ? demonstration.raw_score : null
           }
+          syllabusLabel={syllabusLabel}
+          syllabusClos={syllabusResult?.clos ?? null}
+          cloProposals={cloProposals}
+          existingConfirmed={existingConfirmed}
         />
       </div>
     </ContentLayout>

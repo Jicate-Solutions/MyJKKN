@@ -10,10 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { MeetingRoutingService } from '@/lib/services/integrations/meeting-routing-service';
-import {
-  createPublicBooking,
-  CalComApiError,
-} from '@/lib/services/integrations/cal-com-api-client';
+import { NativeSchedulingService } from '@/lib/services/meetings/native-scheduling-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,7 +59,7 @@ export async function POST(
     }
 
     // ── Input validation ──────────────────────────────────────────────────
-    const eventTypeId = Number(body.eventTypeId);
+    const meetingTypeId = typeof body.meetingTypeId === 'string' ? body.meetingTypeId : '';
     const start = typeof body.start === 'string' ? body.start : '';
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, 200) : '';
     const email = typeof body.email === 'string' ? body.email.trim().slice(0, 254) : '';
@@ -74,7 +71,7 @@ export async function POST(
       }
     }
 
-    if (!Number.isFinite(eventTypeId) || eventTypeId <= 0) {
+    if (!meetingTypeId) {
       return NextResponse.json({ error: 'Invalid meeting reference' }, { status: 400 });
     }
     const startDate = new Date(start);
@@ -99,11 +96,11 @@ export async function POST(
     }
 
     // Re-derive the pool server-side — the client cannot substitute an
-    // arbitrary eventTypeId (it must belong to this config's institution).
-    const pick = await MeetingRoutingService.validateEventTypeInPool(
+    // arbitrary meetingTypeId (it must belong to this config's institution).
+    const pick = await MeetingRoutingService.validateMeetingTypeInPool(
       supabase,
       config,
-      eventTypeId,
+      meetingTypeId,
     );
     if (!pick) {
       return NextResponse.json(
@@ -112,38 +109,37 @@ export async function POST(
       );
     }
 
-    // ── Create the booking on Cal.com (public endpoint) ──────────────────
-    let booking;
-    try {
-      booking = await createPublicBooking({
-        start,
-        eventTypeId,
-        attendee: {
-          name,
-          email,
-          timeZone: 'Asia/Kolkata',
-          language: 'en',
-        },
-        metadata: {
-          source: 'myjkkn-routing-form',
-          config_slug: slug,
-          ...(phone ? { phone } : {}),
-        },
-      });
-    } catch (err) {
-      if (err instanceof CalComApiError && err.status === 400) {
-        // Verified live shape: "User either already has booking at this time
-        // or is not available" — the slot was taken while the visitor decided.
+    // ── Create the booking on the NATIVE engine (Phase N2) ───────────────
+    // createBooking re-validates the slot against the engine and the gist
+    // exclusion constraint arbitrates concurrent races (23P01 → SLOT_TAKEN).
+    const booking = await NativeSchedulingService.createBooking(supabase, {
+      meetingTypeId,
+      start,
+      attendeeName: name,
+      attendeeEmail: email,
+      attendeePhone: phone || null,
+      answers,
+      source: 'routing-form',
+    });
+    if (!booking.success) {
+      if (booking.error === 'SLOT_TAKEN' || booking.error === 'INVALID_SLOT') {
+        // Taken while the visitor decided (or no longer offered) — same UX.
         return NextResponse.json({ error: 'slot_taken' }, { status: 409 });
       }
-      throw err;
+      if (booking.error === 'NOT_FOUND') {
+        return NextResponse.json({ error: 'Booking page not found' }, { status: 404 });
+      }
+      return NextResponse.json(
+        { error: 'Could not complete the booking. Please try again.' },
+        { status: 500 },
+      );
     }
 
     // ── Audit row (non-fatal on failure — booking already exists) ────────
     await MeetingRoutingService.logRoutedBooking(supabase, {
       config,
       pick,
-      calBookingUid: booking.uid,
+      calBookingUid: booking.uid, // native uid (column name is historic)
       startTime: start,
       attendeeName: name,
       attendeeEmail: email,

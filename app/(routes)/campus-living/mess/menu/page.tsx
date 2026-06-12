@@ -1,39 +1,28 @@
 'use client';
 
-// Weekly Mess Menu — VIEWER (live-wired 2026-06-11).
-// Replaces the hardcoded February mockup that shipped with the original
-// scaffold: every cell, the week label and the "Published" badge were
-// string literals, so real menus (mess_menus, written by the Menu Editor
-// at /campus-living/mess/menu-editor/[tier]) never reflected here.
-// This page reads the SAME mechanism the editor writes:
-//   useMessMenuWeek(institutionId, weekStartDate, tierKey) → mess_menus.
-// Cells render items_tamil (primary) + items_english, matching menu-grid.
+// Weekly Mess Menu — VIEWER (tier × gender, 2026-06-11 v2).
+// The mess menu is ONE shared set for all JKKN colleges, varying only by
+// TIER (classic/premium — the mess_categories names) and GENDER (boys/girls). It is NOT
+// per-institution — so this page has no institution chooser. Gender lives on
+// the caterer (mess_caterers.gender_served); the read goes through the
+// SECURITY DEFINER fn_mess_menu_week so every college sees the same menu
+// regardless of the institution-scoped RLS on mess_menus.
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { ChevronLeft, ChevronRight, ChefHat, CalendarRange } from 'lucide-react';
-import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useMessMenuWeek, useActiveMessTiers } from '@/hooks/campus-living/use-mess-menu-week';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { MessMenu, MealType, TierKey } from '@/types/campus-living';
+import type { MealType, TierKey } from '@/types/campus-living';
+import { useMessPlanOptions } from '@/lib/services/campus-living/mess-plan-options';
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-// The editor's grid uses these 4 slots ('tea' is the snacks slot in
-// mess_menus rows; the MealType union also carries a legacy 'snacks').
 const MEAL_ROWS = ['breakfast', 'lunch', 'tea', 'dinner'] as const satisfies readonly MealType[];
 const MEAL_LABELS: Record<(typeof MEAL_ROWS)[number], string> = {
   breakfast: 'Breakfast',
@@ -42,15 +31,37 @@ const MEAL_LABELS: Record<(typeof MEAL_ROWS)[number], string> = {
   dinner: 'Dinner',
 };
 
-/**
- * Monday (ISO date) of the week containing today, shifted by `weekOffset`
- * weeks. Formats the LOCAL date — `toISOString()` converts to UTC and shifts
- * IST midnight back to the previous day (Monday → Sunday), which is exactly
- * the week-keying drift that made menus unfindable.
- */
+// Plan options come LIVE from mess_categories (auto-follow, 2026-06-12) —
+// see useMessPlanOptions; the hook falls back to Classic/Premium.
+type Gender = 'boys' | 'girls';
+const GENDER_OPTIONS: { key: Gender; label: string }[] = [
+  { key: 'boys', label: 'Boys' },
+  { key: 'girls', label: 'Girls' },
+];
+
+interface MenuCell {
+  day_of_week: number;
+  meal_type: MealType;
+  items: string[];
+  items_tamil: string[];
+  items_english: string[];
+  status: string;
+  is_special_day: boolean;
+  special_day_name: string | null;
+}
+interface MenuWeekResult {
+  week_start: string;
+  tier_key: string;
+  gender: string;
+  cells: MenuCell[];
+}
+
+/** Monday (ISO date) of the week containing today, shifted by `weekOffset`.
+ *  Formats the LOCAL date — toISOString() would shift IST midnight to the
+ *  previous UTC day and mis-key the week (the original "not reflecting" bug). */
 function mondayOf(base: Date, weekOffset: number): string {
   const d = new Date(base);
-  const dow = d.getDay(); // 0=Sun..6=Sat
+  const dow = d.getDay();
   d.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow) + weekOffset * 7);
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
@@ -67,65 +78,88 @@ function weekRangeLabel(mondayIso: string): string {
 }
 
 /**
- * Institution options for super admins. Per
- * feedback_user_institution_access_hook_unreliable_for_pickers: query the
- * institutions table directly (the access hook returns mixed entities and
- * may omit institutions for super admins).
+ * Which (tiers, genders) actually have menu cells authored — powers the
+ * data-aware default below. fn_mess_menu_facets shipped with #1339 for the
+ * viewer's selectors but was never consumed; today all menus are girls',
+ * so a hardcoded 'boys' default opened the page on an empty dataset
+ * (Director screenshot, 2026-06-12).
  */
-function useInstitutionOptions(enabled: boolean) {
+function useMenuFacets() {
   return useQuery({
-    queryKey: ['mess-menu-viewer', 'institutions'],
-    enabled,
+    queryKey: ['mess-menu-facets'],
     staleTime: 5 * 60_000,
-    queryFn: async () => {
+    queryFn: async (): Promise<{ tiers: string[]; genders: string[] }> => {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
-        .from('institutions')
-        .select('id, name')
-        .like('name', 'JKKN%')
-        .order('name');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc('fn_mess_menu_facets');
       if (error) throw error;
-      return (data ?? []) as { id: string; name: string }[];
+      const d = (data ?? {}) as { tiers?: unknown; genders?: unknown };
+      return {
+        tiers: Array.isArray(d.tiers) ? (d.tiers as string[]) : [],
+        genders: Array.isArray(d.genders) ? (d.genders as string[]) : [],
+      };
+    },
+  });
+}
+
+function useMenuWeek(weekStart: string, tier: TierKey, gender: Gender) {
+  return useQuery({
+    queryKey: ['mess-menu-week', weekStart, tier, gender],
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<MenuWeekResult> => {
+      const supabase = createClientSupabaseClient();
+      // fn_mess_menu_week isn't in generated types — untyped-client cast
+      // (same idiom as use-choose-your-menu's useMyMenuWeek).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc('fn_mess_menu_week', {
+        p_week_start: weekStart,
+        p_tier_key: tier,
+        p_gender: gender,
+      });
+      if (error) throw error;
+      return (data ?? { week_start: weekStart, tier_key: tier, gender, cells: [] }) as MenuWeekResult;
     },
   });
 }
 
 export default function WeeklyMessMenuPage() {
-  const { profile } = useAuth();
   const { isSuperAdmin } = usePermissions();
-  const profileInstitutionId = (profile?.institution_id as string | undefined) ?? undefined;
-
+  const { options: planOptions } = useMessPlanOptions();
   const [weekOffset, setWeekOffset] = useState(0);
-  const [tierKey, setTierKey] = useState<TierKey>('standard');
-  const [pickedInstitutionId, setPickedInstitutionId] = useState<string | undefined>(undefined);
+  const [tier, setTier] = useState<TierKey>('classic');
+  const [gender, setGender] = useState<Gender>('boys');
 
-  const { data: institutions } = useInstitutionOptions(isSuperAdmin);
-  const institutionId =
-    pickedInstitutionId ?? profileInstitutionId ?? (isSuperAdmin ? institutions?.[0]?.id : undefined);
+  // Data-aware initial selection: once facets load, snap any selection with
+  // ZERO authored menus anywhere onto one that has data (e.g. all menus are
+  // girls' today → land on Girls, not an empty Boys page). Runs once; the
+  // user's own taps afterwards always win.
+  const { data: facets } = useMenuFacets();
+  const snappedToData = useRef(false);
+  useEffect(() => {
+    if (snappedToData.current || !facets) return;
+    snappedToData.current = true;
+    if (facets.genders.length > 0 && !facets.genders.includes(gender)) {
+      setGender(facets.genders[0] as Gender);
+    }
+    if (facets.tiers.length > 0 && !facets.tiers.includes(tier)) {
+      setTier(facets.tiers[0]);
+    }
+  }, [facets, gender, tier]);
 
-  const weekStartDate = useMemo(() => mondayOf(new Date(), weekOffset), [weekOffset]);
+  const weekStart = useMemo(() => mondayOf(new Date(), weekOffset), [weekOffset]);
+  const { data, isLoading } = useMenuWeek(weekStart, tier, gender);
 
-  const { data: tiers } = useActiveMessTiers(institutionId);
-  const tierOptions: TierKey[] =
-    tiers && tiers.length > 0 ? (tiers as TierKey[]) : (['standard', 'premium'] as TierKey[]);
-
-  const { data: cells, isLoading } = useMessMenuWeek(institutionId, weekStartDate, tierKey);
-
+  const cells = data?.cells ?? [];
   const lookup = useMemo(() => {
-    const m = new Map<string, MessMenu>();
-    for (const row of cells ?? []) m.set(`${row.day_of_week}-${row.meal_type}`, row);
+    const m = new Map<string, MenuCell>();
+    for (const c of cells) m.set(`${c.day_of_week}-${c.meal_type}`, c);
     return m;
   }, [cells]);
 
-  const hasAnyItems = (cells ?? []).some(
-    (c) =>
-      (c.items_tamil?.length ?? 0) > 0 ||
-      (c.items_english?.length ?? 0) > 0 ||
-      ((c.items as string[] | null)?.length ?? 0) > 0,
+  const hasAnyItems = cells.some(
+    (c) => (c.items_tamil?.length ?? 0) > 0 || (c.items_english?.length ?? 0) > 0 || (c.items?.length ?? 0) > 0,
   );
-  // Real MenuStatus lifecycle: planned → confirmed → served (no 'published';
-  // the old mockup's "Published" badge was fictional vocabulary).
-  const weekStatus: 'confirmed' | 'planned' | 'none' = !cells?.length
+  const weekStatus: 'confirmed' | 'planned' | 'none' = !cells.length
     ? 'none'
     : cells.some((c) => c.status === 'confirmed' || c.status === 'served')
       ? 'confirmed'
@@ -134,7 +168,6 @@ export default function WeeklyMessMenuPage() {
   return (
     <ContentLayout title="Menu">
       <div className="space-y-6">
-        {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="flex items-center gap-2 text-2xl font-bold">
@@ -142,12 +175,12 @@ export default function WeeklyMessMenuPage() {
               Weekly Mess Menu
             </h1>
             <p className="text-muted-foreground">
-              What the kitchen serves this week, by tier. Menus are managed in the Menu Editor.
+              The same menu across all colleges — by tier and by hostel (boys / girls).
             </p>
           </div>
           {isSuperAdmin && (
             <Button asChild variant="outline">
-              <Link href={`/campus-living/mess/menu-editor/${tierKey}`}>
+              <Link href={`/campus-living/mess/menu-editor/${tier}`}>
                 <CalendarRange className="mr-2 h-4 w-4" />
                 Open Menu Editor
               </Link>
@@ -155,30 +188,20 @@ export default function WeeklyMessMenuPage() {
           )}
         </div>
 
-        {/* Context bar: week nav · tier toggle · institution (super admin) */}
+        {/* Context bar: week nav · gender toggle · tier toggle (NO institution) */}
         <Card>
           <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                aria-label="Previous week"
-                onClick={() => setWeekOffset((w) => w - 1)}
-              >
+              <Button variant="outline" size="sm" aria-label="Previous week" onClick={() => setWeekOffset((w) => w - 1)}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <div className="min-w-[230px] text-center">
-                <p className="font-semibold">{weekRangeLabel(weekStartDate)}</p>
+                <p className="font-semibold">{weekRangeLabel(weekStart)}</p>
                 <p className="text-xs text-muted-foreground">
-                  {weekOffset === 0 ? 'Current week' : `Week of ${weekStartDate}`}
+                  {weekOffset === 0 ? 'Current week' : `Week of ${weekStart}`}
                 </p>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                aria-label="Next week"
-                onClick={() => setWeekOffset((w) => w + 1)}
-              >
+              <Button variant="outline" size="sm" aria-label="Next week" onClick={() => setWeekOffset((w) => w + 1)}>
                 <ChevronRight className="h-4 w-4" />
               </Button>
               {weekOffset !== 0 && (
@@ -193,47 +216,38 @@ export default function WeeklyMessMenuPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              {/* Tier toggle — segmented buttons (not tabs) */}
+              {/* Gender toggle — segmented buttons */}
               <div className="inline-flex rounded-md border border-border p-0.5">
-                {tierOptions.map((t) => (
+                {GENDER_OPTIONS.map((g) => (
                   <Button
-                    key={t}
+                    key={g.key}
                     size="sm"
-                    variant={tierKey === t ? 'default' : 'ghost'}
-                    className="capitalize"
-                    onClick={() => setTierKey(t)}
+                    variant={gender === g.key ? 'default' : 'ghost'}
+                    onClick={() => setGender(g.key)}
                   >
-                    {t.replace('_', ' ')}
+                    {g.label}
                   </Button>
                 ))}
               </div>
-
-              {isSuperAdmin && (institutions?.length ?? 0) > 0 && (
-                <Select value={institutionId ?? ''} onValueChange={(v) => setPickedInstitutionId(v)}>
-                  <SelectTrigger className="w-[260px]">
-                    <SelectValue placeholder="Select institution" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {institutions!.map((i) => (
-                      <SelectItem key={i.id} value={i.id}>
-                        {i.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
+              {/* Tier toggle — segmented buttons */}
+              <div className="inline-flex rounded-md border border-border p-0.5">
+                {planOptions.map((t) => (
+                  <Button
+                    key={t.key}
+                    size="sm"
+                    variant={tier === t.key ? 'default' : 'ghost'}
+                    onClick={() => setTier(t.key)}
+                  >
+                    {t.label}
+                  </Button>
+                ))}
+              </div>
             </div>
           </CardContent>
         </Card>
 
         {/* Grid / states */}
-        {!institutionId ? (
-          <Card>
-            <CardContent className="p-8 text-center text-sm text-muted-foreground">
-              No institution context loaded — sign in with an institution-scoped account.
-            </CardContent>
-          </Card>
-        ) : isLoading ? (
+        {isLoading ? (
           <Skeleton className="h-72 w-full" />
         ) : !hasAnyItems ? (
           <Card>
@@ -243,12 +257,12 @@ export default function WeeklyMessMenuPage() {
               <p className="max-w-md text-sm text-muted-foreground">
                 {weekStatus === 'planned'
                   ? 'A draft plan exists for this week but its meals are still empty.'
-                  : 'No weekly plan exists for this week.'}{' '}
+                  : 'No weekly plan exists for this tier and hostel yet.'}{' '}
                 {isSuperAdmin ? 'Fill and publish it from the Menu Editor.' : 'Please check back later.'}
               </p>
               {isSuperAdmin && (
                 <Button asChild size="sm" className="mt-2">
-                  <Link href={`/campus-living/mess/menu-editor/${tierKey}`}>Open Menu Editor</Link>
+                  <Link href={`/campus-living/mess/menu-editor/${tier}`}>Open Menu Editor</Link>
                 </Button>
               )}
             </CardContent>
@@ -280,7 +294,7 @@ export default function WeeklyMessMenuPage() {
                         const cell = lookup.get(`${i + 1}-${meal}`) ?? null;
                         const tamil = cell?.items_tamil ?? [];
                         const english = cell?.items_english ?? [];
-                        const legacy = ((cell?.items as string[] | null) ?? []).filter(Boolean);
+                        const legacy = (cell?.items ?? []).filter(Boolean);
                         const empty = tamil.length === 0 && english.length === 0 && legacy.length === 0;
                         return (
                           <td key={i} className="h-24 min-w-[130px] border border-border p-2 align-top">

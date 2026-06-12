@@ -27,6 +27,7 @@ const config: ModuleNavConfig = {
       matchPaths: ['/campus-living/my-hostel', '/campus-living/my-hostel/premium'],
       children: [
         { label: 'My Hostel', icon: 'Home', href: '/campus-living/my-hostel', matchPaths: ['/campus-living/my-hostel'] },
+        { label: 'My Meals', icon: 'UtensilsCrossed', href: '/campus-living/my-hostel/my-meals', matchPaths: ['/campus-living/my-hostel/my-meals'] },
         { label: 'Room Cleaning', icon: 'Brush', href: '/campus-living/my-hostel/housekeeping', matchPaths: ['/campus-living/my-hostel/housekeeping'] },
         { label: 'Premium Stay', icon: 'Sparkles', href: '/campus-living/my-hostel/premium', matchPaths: ['/campus-living/my-hostel/premium'] },
         { label: 'Pick Room', icon: 'BedDouble', href: '/campus-living/my-hostel/premium/pick-room', matchPaths: ['/campus-living/my-hostel/premium/pick-room'] },
@@ -253,7 +254,7 @@ const config: ModuleNavConfig = {
         {
           label: 'Menu Editor',
           icon: 'CalendarRange',
-          href: '/campus-living/mess/menu-editor/standard',
+          href: '/campus-living/mess/menu-editor/classic',
           matchPaths: ['/campus-living/mess/menu-editor'],
         },
         {
@@ -623,6 +624,12 @@ const config: ModuleNavConfig = {
           icon: 'Brush',
           href: '/campus-living/settings/housekeeping',
           matchPaths: ['/campus-living/settings/housekeeping'],
+        },
+        {
+          label: 'Choose Your Menu',
+          icon: 'UtensilsCrossed',
+          href: '/campus-living/settings/choose-your-menu',
+          matchPaths: ['/campus-living/settings/choose-your-menu'],
         },
         {
           label: 'Fee Config',

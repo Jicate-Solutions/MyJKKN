@@ -218,6 +218,14 @@
     {
       "path": "/api/cron/ai-pulse-anomaly-scan?secret=${CRON_SECRET}",
       "schedule": "43 3 * * *"
+    },
+    {
+      "path": "/api/cron/ai-pulse-pde-bridge?secret=${CRON_SECRET}",
+      "schedule": "53 4 * * *"
+    },
+    {
+      "path": "/api/cron/google-calendar-connection-check",
+      "schedule": "19 1 * * *"
     }
   ]
 }
