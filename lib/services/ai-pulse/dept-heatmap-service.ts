@@ -95,10 +95,39 @@ interface RawSignals {
   quiz_passed?: boolean;
 }
 
-function isEngaged(signals: RawSignals, sessionEndHHMM: string): boolean {
+/**
+ * Heartbeats land up to 60s before the session end and HH:MM truncation can
+ * cost another minute — mirror live-session-service's STAY_TOLERANCE_MINUTES
+ * so this grid and the learner's own gate card never disagree.
+ */
+const STAY_TOLERANCE_MINUTES = 5;
+
+function hhmmMinusMinutes(hhmm: string, minutes: number): string {
+  const [h, m] = hhmm.split(':').map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return hhmm;
+  const total = Math.max(0, h * 60 + m - minutes);
+  const hh = String(Math.floor(total / 60)).padStart(2, '0');
+  const mm = String(total % 60).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+/**
+ * `pollsIssued` = polls created for the cycle; the requirement is
+ * min(3, pollsIssued) so cycles without polls (no authoring surface shipped
+ * yet) don't make engagement unattainable. Mirrors evaluateGates in
+ * live-session-service.
+ */
+function isEngaged(
+  signals: RawSignals,
+  sessionEndHHMM: string,
+  pollsIssued: number,
+): boolean {
   const joined = !!signals.joined_within_5min;
-  const polls = (signals.polls_responded ?? 0) >= 3;
-  const stayed = !!signals.stayed_until && signals.stayed_until >= sessionEndHHMM;
+  const pollsRequired = Math.min(3, Math.max(0, pollsIssued));
+  const polls =
+    pollsRequired === 0 || (signals.polls_responded ?? 0) >= pollsRequired;
+  const stayThreshold = hhmmMinusMinutes(sessionEndHHMM, STAY_TOLERANCE_MINUTES);
+  const stayed = !!signals.stayed_until && signals.stayed_until >= stayThreshold;
   const quiz = !!signals.quiz_passed;
   return joined && polls && stayed && quiz;
 }
@@ -205,6 +234,23 @@ export class DeptHeatmapService {
       return { cycles, rows: [], thresholds };
     }
 
+    // 2b. Polls issued per cycle — best-effort (the polls substrate may not
+    //     exist yet; supabase-js returns { error } rather than throwing, so a
+    //     missing table degrades to "0 polls issued" = polls gate auto-passes).
+    const pollsIssuedByCycle = new Map<string, number>();
+    {
+      const { data: pollRows } = await sb
+        .from('ai_pulse_polls')
+        .select('cycle_id')
+        .in('cycle_id', cycleIds);
+      for (const p of (pollRows ?? []) as Array<{ cycle_id: string }>) {
+        pollsIssuedByCycle.set(
+          p.cycle_id,
+          (pollsIssuedByCycle.get(p.cycle_id) ?? 0) + 1,
+        );
+      }
+    }
+
     // 3. Attendance rows for these cycles (live session day only).
     const { data: attRaw, error: attErr } = await sb
       .from('ai_pulse_live_attendance')
@@ -305,7 +351,14 @@ export class DeptHeatmapService {
       if (!a) continue;
       a.attendance_count += 1;
       const endHHMM = endHHMMByCycle.get(row.event_id) ?? '19:30';
-      if (isEngaged((row.engagement_signals ?? {}) as RawSignals, endHHMM)) {
+      const pollsIssued = pollsIssuedByCycle.get(row.event_id) ?? 0;
+      if (
+        isEngaged(
+          (row.engagement_signals ?? {}) as RawSignals,
+          endHHMM,
+          pollsIssued,
+        )
+      ) {
         a.engaged_count += 1;
       }
     }

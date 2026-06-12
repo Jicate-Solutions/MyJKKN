@@ -53,7 +53,9 @@ export function QuickActionsCard({
       enabled: canSubmitDomainSync && !!cycleId,
     },
     {
-      href: `/ai-pulse/quiz/${cycleSegment}`,
+      // The quiz panel lives on the live session page — /ai-pulse/quiz/[cycle]
+      // was never built and 404'd.
+      href: `/ai-pulse/live/${cycleSegment}`,
       icon: ClipboardCheck,
       label: 'Take Quiz',
       hint: 'Complete the post-session quiz to earn engagement',

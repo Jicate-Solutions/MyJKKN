@@ -119,7 +119,7 @@ export function QuizPanel({
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            The quiz unlocks when the Champion ends the session. You&apos;ll
+            The quiz unlocks when the session ends. You&apos;ll
             have 60 minutes for the live window, then 48 hours for the async
             make-up.
           </p>

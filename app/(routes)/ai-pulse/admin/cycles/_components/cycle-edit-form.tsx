@@ -178,7 +178,7 @@ export function CycleEditForm({ cycleId }: CycleEditFormProps) {
   // ---------------------------------------------------------------------------
   const handleSave = async () => {
     if (!isValidHttpUrl(form.meet_url)) {
-      toast.error('Meet URL must be a valid http(s) URL');
+      toast.error('Meeting link must be a valid http(s) URL');
       return;
     }
     if (!isValidHttpUrl(form.recording_url)) {
@@ -340,7 +340,7 @@ export function CycleEditForm({ cycleId }: CycleEditFormProps) {
 
           {/* Meet URL */}
           <div className="space-y-2">
-            <Label htmlFor="meet-url">Google Meet URL</Label>
+            <Label htmlFor="meet-url">Meeting link (Teams preferred — 1000-participant capacity)</Label>
             <Input
               id="meet-url"
               type="url"
