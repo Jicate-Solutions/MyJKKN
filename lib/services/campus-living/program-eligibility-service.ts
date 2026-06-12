@@ -5,6 +5,7 @@ import type {
   ProgramEligibilityRow,
   CreateProgramEligibilityDto,
   UpdateProgramEligibilityDto,
+  CategorySyncPreviewRow,
 } from '@/types/program-eligibility';
 
 const LOG = 'campus-living/program-eligibility';
@@ -61,6 +62,7 @@ export class ProgramEligibilityService {
       const mess = r.mess_category as { name?: string } | null;
       const { institution: _i, program: _p, quota: _q, room_category: _rc, mess_category: _mc, ...rest } = r;
       return {
+        // `...rest` carries the stored `hostel_type` column (boys | girls | both).
         ...(rest as ProgramEligibility),
         institution_name: institution?.name ?? null,
         program_name: program?.program_name ?? null,
@@ -83,6 +85,7 @@ export class ProgramEligibilityService {
         fee_max: dto.fee_max ?? null,
         room_category_id: dto.room_category_id || null,
         mess_category_id: dto.mess_category_id || null,
+        hostel_type: dto.hostel_type ?? 'both',
         is_monthly_mess_allowed: dto.is_monthly_mess_allowed ?? false,
         is_active: dto.is_active ?? true,
         effective_from: dto.effective_from ?? null,
@@ -146,6 +149,23 @@ export class ProgramEligibilityService {
     }
     const result = (data ?? {}) as { scanned?: number; updated?: number };
     return { scanned: result.scanned ?? 0, updated: result.updated ?? 0 };
+  }
+
+  // Dry-run of the sync above: per active hostel learner, the matched condition
+  // and the proposed room/mess categories — nothing is written. Also lists the
+  // no-academic-bill learners the sync skips, so operators see the full picture.
+  static async previewLearnerCategorySync(
+    institutionId?: string
+  ): Promise<CategorySyncPreviewRow[]> {
+    const { data, error } = await (this.supabase.rpc as any)(
+      'fn_preview_hostel_fee_categories',
+      { p_institution: institutionId ?? null }
+    );
+    if (error) {
+      logger.error(LOG, 'Database error previewing learner category sync', error);
+      throw new Error(error.message || 'Failed to preview learner category sync');
+    }
+    return (data ?? []) as CategorySyncPreviewRow[];
   }
 
   // ─── Effective resolution helper (fee-aware, learner-based) ──────────────

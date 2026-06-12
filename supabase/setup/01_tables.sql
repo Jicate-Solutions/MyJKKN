@@ -4922,6 +4922,7 @@ CREATE TABLE IF NOT EXISTS public.hostel_program_eligibility (
   fee_max numeric(12,2),                                              -- exclusive upper (rupees), NULL = unbounded
   room_category_id uuid REFERENCES public.hostel_categories(id) ON DELETE CASCADE,
   mess_category_id uuid REFERENCES public.mess_categories(id)  ON DELETE CASCADE,
+  hostel_type text NOT NULL DEFAULT 'both' CHECK (hostel_type IN ('boys','girls','both')), -- which gender(s) the band applies to
   is_monthly_mess_allowed boolean NOT NULL DEFAULT false,
   is_active boolean NOT NULL DEFAULT true,
   effective_from date,

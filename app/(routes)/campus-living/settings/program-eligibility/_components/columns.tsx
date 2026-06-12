@@ -50,6 +50,20 @@ export const createEligibilityColumns = (): ColumnDef<ProgramEligibilityRow>[] =
     cell: ({ row }) => <FeeBandCell min={row.original.fee_min} max={row.original.fee_max} />,
   },
   {
+    accessorKey: 'hostel_type',
+    header: 'Hostel Type',
+    cell: ({ row }) => {
+      const t = row.original.hostel_type;
+      if (!t) return <span className='text-muted-foreground text-sm'>—</span>;
+      const label = t === 'boys' ? 'Boys' : t === 'girls' ? 'Girls' : t === 'both' ? 'Both' : t;
+      return (
+        <Badge variant={t === 'both' ? 'secondary' : 'outline'} className='font-normal'>
+          {label}
+        </Badge>
+      );
+    },
+  },
+  {
     accessorKey: 'room_category_name',
     header: 'Room Category',
     cell: ({ row }) => (
@@ -63,13 +77,7 @@ export const createEligibilityColumns = (): ColumnDef<ProgramEligibilityRow>[] =
       <span className='text-sm'>{row.original.mess_category_name || '—'}</span>
     ),
   },
-  {
-    accessorKey: 'is_monthly_mess_allowed',
-    header: 'Monthly Mess',
-    cell: ({ row }) => (
-      <Switch checked={row.original.is_monthly_mess_allowed} disabled aria-readonly />
-    ),
-  },
+  
   {
     accessorKey: 'is_active',
     header: 'Status',
@@ -79,15 +87,7 @@ export const createEligibilityColumns = (): ColumnDef<ProgramEligibilityRow>[] =
       </Badge>
     ),
   },
-  {
-    accessorKey: 'effective_from',
-    header: 'Effective From',
-    cell: ({ row }) => (
-      <span className='text-muted-foreground text-sm'>
-        {row.original.effective_from || '—'}
-      </span>
-    ),
-  },
+ 
   {
     id: 'actions',
     header: '',

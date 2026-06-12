@@ -64,6 +64,24 @@ export function useEligibility(institutionId: string | null) {
   };
 }
 
+// ─── Dry-run preview of the category sync (per-learner conditions) ──────────
+// enabled gates the fetch to while the preview dialog is open; no staleTime so
+// re-opening the dialog always re-evaluates against current rules/bills.
+export function useCategorySyncPreview(enabled: boolean, institutionId?: string | null) {
+  const query = useQuery({
+    queryKey: [...ELIG_KEY, 'sync-preview', institutionId ?? 'all'],
+    queryFn: () =>
+      ProgramEligibilityService.previewLearnerCategorySync(institutionId ?? undefined),
+    enabled,
+    staleTime: 0,
+  });
+  return {
+    rows: query.data ?? [],
+    loading: query.isLoading,
+    error: query.error ? (query.error as Error).message : null,
+  };
+}
+
 // ─── Write-back: apply fee-condition categories to learner profiles ─────────
 // Pass an institutionId to scope the sync, or null/undefined for every
 // institution. Invalidates eligibility + hostel resident caches so any open

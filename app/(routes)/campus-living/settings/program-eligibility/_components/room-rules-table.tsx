@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   Table,
@@ -22,10 +23,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Edit, Eye, Trash2, Loader2 } from 'lucide-react';
+import { Edit, Eye, Trash2, Loader2, Search } from 'lucide-react';
 import { useRoomEligibilityRules } from '@/hooks/campus-living/use-room-eligibility';
 import { RoomEligibilityFormDialog } from './room-eligibility-form-dialog';
 import { RoomRuleDetailDialog } from './room-rule-detail-dialog';
+import {
+  RoomRulesFiltersPanel,
+  EMPTY_ROOM_RULE_FILTERS,
+  countActiveRoomRuleFilters,
+  roomRuleMatchesFilters,
+} from './room-rules-filters';
 import type { RoomEligibilityRuleRow } from '@/types/room-eligibility';
 
 const scopeLabel = (r: RoomEligibilityRuleRow) =>
@@ -48,6 +55,8 @@ const floorLabel = (floor: number | null) =>
 export function RoomRulesTable() {
   // null => list rules across ALL institutions; each rule carries its own.
   const { rows, loading, error, deleteRule } = useRoomEligibilityRules(null);
+  const [filters, setFilters] = useState(EMPTY_ROOM_RULE_FILTERS);
+  const [search, setSearch] = useState('');
   const [viewing, setViewing] = useState<RoomEligibilityRuleRow | null>(null);
   const [viewOpen, setViewOpen] = useState(false);
   const [editing, setEditing] = useState<RoomEligibilityRuleRow | null>(null);
@@ -55,6 +64,13 @@ export function RoomRulesTable() {
   const [pendingDelete, setPendingDelete] =
     useState<RoomEligibilityRuleRow | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const filtering =
+    countActiveRoomRuleFilters(filters) > 0 || search.trim().length > 0;
+  const filteredRows = useMemo(
+    () => rows.filter((r) => roomRuleMatchesFilters(r, filters, search)),
+    [rows, filters, search]
+  );
 
   const confirmDelete = async () => {
     if (!pendingDelete || deletingId) return;
@@ -95,6 +111,35 @@ export function RoomRulesTable() {
 
   return (
     <>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search rules…"
+            className="h-9 w-full pl-8 sm:w-64"
+          />
+        </div>
+        <div className="flex items-center gap-3">
+          {filtering && (
+            <span className="text-xs text-muted-foreground">
+              Showing {filteredRows.length} of {rows.length} rules
+            </span>
+          )}
+          <RoomRulesFiltersPanel
+            rows={rows}
+            value={filters}
+            onChange={setFilters}
+          />
+        </div>
+      </div>
+
+      {filteredRows.length === 0 ? (
+        <div className="rounded-md border border-dashed py-12 text-center text-sm text-muted-foreground">
+          No rules match the current search / filters.
+        </div>
+      ) : (
       <Table>
         <TableHeader>
           <TableRow>
@@ -108,7 +153,7 @@ export function RoomRulesTable() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((r) => {
+          {filteredRows.map((r) => {
             const parts = predicateParts(r);
             return (
               <TableRow key={r.id}>
@@ -186,6 +231,7 @@ export function RoomRulesTable() {
           })}
         </TableBody>
       </Table>
+      )}
 
       {viewing && (
         <RoomRuleDetailDialog
