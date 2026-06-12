@@ -32,8 +32,9 @@ import { PageHeader } from '@/components/page-header';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { createClient } from '@/lib/supabase/server';
-import { getMySchedule } from './actions';
+import { getMySchedule, getBookingPageState } from './actions';
 import { AvailabilityEditor } from './_components/availability-editor';
+import { BookingPageCard } from './_components/booking-page-card';
 
 // Cal.com reads/writes are user-specific and mutable — never statically cache.
 export const dynamic = 'force-dynamic';
@@ -71,7 +72,7 @@ function Shell({ children }: { children: React.ReactNode }) {
       <div className="space-y-4 mt-4">
         <PageHeader
           title="My Availability"
-          description="Set the recurring weekly hours you're available for bookings. Changes save to jicate-booking when you click Save."
+          description="Set the weekly hours you're available, connect Google Calendar, and control your public booking page."
         />
         <MeetingsTabBar active="availability" />
         {children}
@@ -80,7 +81,14 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default async function MeetingsAvailabilityPage() {
+export default async function MeetingsAvailabilityPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ google?: string }>;
+}) {
+  // ?google= is set by the OAuth callback redirect (U2) — banner only.
+  const { google: googleFlag } = await searchParams;
+
   // Explicit auth gate — render a clear message, never silently redirect.
   const supabase = await createClient();
   const {
@@ -131,9 +139,17 @@ export default async function MeetingsAvailabilityPage() {
     );
   }
 
+  // U3: Google connection + public-page settings (Universal Booking). A load
+  // failure here degrades to just not rendering the cards — the availability
+  // editor must never be blocked by the newer feature.
+  const pageState = await getBookingPageState();
+
   return (
     <Shell>
       <AvailabilityEditor schedule={result.data} />
+      {pageState.success && pageState.data && (
+        <BookingPageCard initial={pageState.data} googleFlag={googleFlag} />
+      )}
     </Shell>
   );
 }

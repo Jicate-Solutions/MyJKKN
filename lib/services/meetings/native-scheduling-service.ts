@@ -20,6 +20,7 @@
 import crypto from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { MeetingBookingEmailService } from '@/lib/services/email/meeting-booking-email-service';
+import { GoogleCalendarService } from '@/lib/services/integrations/google-calendar-service';
 import {
   computeSlots,
   groupSlotsByDate,
@@ -49,6 +50,9 @@ export interface NativeMeetingType {
   buffer_before_min: number;
   buffer_after_min: number;
   max_days_ahead: number;
+  /** U1 (D4): where the meeting happens. */
+  location_mode: 'in_person' | 'phone' | 'online';
+  location_text: string | null;
 }
 
 export interface NativeBookingInput {
@@ -158,7 +162,12 @@ export class NativeSchedulingService {
     };
   }
 
-  /** Host's confirmed bookings overlapping a UTC range (engine conflict input). */
+  /**
+   * Host's busy ranges over a UTC range (engine conflict input):
+   * confirmed native bookings UNIONED with the host's real Google Calendar
+   * (U2, D12) when a connection exists. Google 'failed' = fail CLOSED (D19) —
+   * a host whose protection broke must not look free.
+   */
   private static async loadBusy(
     supabase: SupabaseClient,
     hostProfileId: string,
@@ -177,7 +186,16 @@ export class NativeSchedulingService {
       // fail CLOSED: pretend fully busy rather than offering unverifiable slots
       return [{ start: fromIso, end: toIso }];
     }
-    return (data ?? []).map((b) => ({ start: b.start_time, end: b.end_time }));
+    const busy = (data ?? []).map((b) => ({ start: b.start_time, end: b.end_time }));
+
+    const google = await GoogleCalendarService.busyForHost(supabase, hostProfileId, fromIso, toIso);
+    if (google.status === 'failed') {
+      // markConnectionBroken has been (or will be) handled inside the service;
+      // here we just refuse to serve slots we cannot verify.
+      return [{ start: fromIso, end: toIso }];
+    }
+    if (google.status === 'ok') busy.push(...google.busy);
+    return busy;
   }
 
   /**
@@ -316,6 +334,35 @@ export class NativeSchedulingService {
       .eq('id', mt.host_profile_id)
       .maybeSingle();
 
+    // U2 (D12): Google Calendar event BEFORE the emails so the Meet link can
+    // ride the confirmation. Best effort — a Google failure never fails the
+    // committed booking; the event also makes Google invite the attendee.
+    let videoUrl: string | null = null;
+    let googleEventId: string | null = null;
+    const conn = await GoogleCalendarService.getConnection(supabase, mt.host_profile_id);
+    if (conn?.status === 'active') {
+      const event = await GoogleCalendarService.createEvent(supabase, mt.host_profile_id, {
+        summary: `${mt.title} — ${input.attendeeName}`,
+        description: [
+          `Booked via JKKN (${input.source ?? 'direct'}). Reference: ${uid}`,
+          input.attendeePhone ? `Attendee phone: ${input.attendeePhone}` : '',
+        ].filter(Boolean).join('\n'),
+        startIso,
+        endIso,
+        timezone: sched.timezone,
+        attendees: [{ email: input.attendeeEmail, displayName: input.attendeeName }],
+        withMeet: mt.location_mode === 'online',
+      });
+      if (event) {
+        videoUrl = event.meetUrl;
+        googleEventId = event.eventId;
+        await supabase
+          .from('meeting_bookings')
+          .update({ video_url: videoUrl, google_event_id: googleEventId })
+          .eq('uid', uid);
+      }
+    }
+
     // Phase N3a: confirmation emails to attendee + host. The booking is
     // already committed — the email service is non-throwing and skips when
     // RESEND_API_KEY is unset, so notification failure never fails a booking.
@@ -333,9 +380,16 @@ export class NativeSchedulingService {
       attendeeName: input.attendeeName,
       attendeeEmail: input.attendeeEmail,
       attendeePhone: input.attendeePhone ?? null,
+      locationMode: mt.location_mode,
+      locationText: mt.location_text,
+      videoUrl,
       cancelUrl:
         appUrl && cancelToken
           ? `${appUrl}/book/cancel/${uid}?token=${cancelToken}`
+          : undefined,
+      rescheduleUrl:
+        appUrl && cancelToken
+          ? `${appUrl}/book/reschedule/${uid}?token=${cancelToken}`
           : undefined,
     });
 
@@ -361,7 +415,7 @@ export class NativeSchedulingService {
     const { data: booking, error } = await supabase
       .from('meeting_bookings')
       .select(
-        'id, host_profile_id, cancel_token, status, attendee_name, attendee_email, start_time, end_time, meeting_type_id',
+        'id, host_profile_id, cancel_token, status, attendee_name, attendee_email, start_time, end_time, meeting_type_id, google_event_id',
       )
       .eq('uid', uid)
       .maybeSingle();
@@ -416,6 +470,16 @@ export class NativeSchedulingService {
         (new Date(booking.end_time).getTime() - new Date(booking.start_time).getTime()) / 60_000,
       ),
     );
+    // U2 (D12): remove the Google Calendar event (best effort — Google also
+    // notifies the attendee via sendUpdates=all on the delete).
+    if (booking.google_event_id) {
+      await GoogleCalendarService.deleteEvent(
+        supabase,
+        booking.host_profile_id,
+        booking.google_event_id as string,
+      );
+    }
+
     await MeetingBookingEmailService.sendBookingCancelledEmails({
       uid,
       meetingTitle: (mtRow?.title as string | undefined) ?? 'Meeting',
@@ -433,5 +497,144 @@ export class NativeSchedulingService {
     });
 
     return { success: true };
+  }
+
+  /**
+   * True reschedule (U5, D16): move a confirmed booking to a new start.
+   * Auth = attendee cancel_token (the same capability that authorises
+   * cancel — one link family per booking) OR the host.
+   *
+   * Race safety, two layers:
+   *   1. Concurrent reschedules of the SAME booking: the UPDATE is guarded
+   *      by status='confirmed' AND start_time=<the start we loaded> — the
+   *      second tab no-ops (NOT_FOUND-ish CONFLICT).
+   *   2. Another booking owning the NEW slot: the UPDATE re-arbitrates
+   *      against mb_no_double_booking → 23P01 → SLOT_TAKEN, original
+   *      booking untouched.
+   */
+  static async rescheduleBooking(
+    supabase: SupabaseClient,
+    uid: string,
+    auth: { cancelToken?: string; actorProfileId?: string },
+    newStart: string,
+    opts: { now?: Date } = {},
+  ): Promise<NativeBookingResult> {
+    const { data: booking, error } = await supabase
+      .from('meeting_bookings')
+      .select(
+        'id, host_profile_id, cancel_token, status, attendee_name, attendee_email, attendee_phone, start_time, end_time, meeting_type_id, google_event_id, reschedule_count',
+      )
+      .eq('uid', uid)
+      .maybeSingle();
+    if (error || !booking) return { success: false, error: 'NOT_FOUND' };
+    if (booking.status !== 'confirmed') return { success: false, error: 'NOT_FOUND' };
+
+    const byToken = !!auth.cancelToken && auth.cancelToken === booking.cancel_token;
+    const byHost = !!auth.actorProfileId && auth.actorProfileId === booking.host_profile_id;
+    if (!byToken && !byHost) return { success: false, error: 'NOT_FOUND' };
+
+    const mt = await this.getMeetingType(supabase, booking.meeting_type_id);
+    if (!mt) return { success: false, error: 'NOT_FOUND' };
+    const sched = await this.loadSchedule(supabase, mt);
+    if (!sched) return { success: false, error: 'INVALID_SLOT' };
+
+    const now = opts.now ?? new Date();
+    const startDate = new Date(newStart);
+    if (Number.isNaN(startDate.getTime())) return { success: false, error: 'INVALID_SLOT' };
+
+    // Engine re-validation of the candidate, with THIS booking excluded from
+    // the busy set (its own current slot must not block the move).
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: sched.timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    });
+    const candidateDate = fmt.format(startDate);
+    const busy = (
+      await this.loadBusy(
+        supabase,
+        mt.host_profile_id,
+        new Date(startDate.getTime() - 86_400_000).toISOString(),
+        new Date(startDate.getTime() + 86_400_000).toISOString(),
+      )
+    ).filter((b) => !(b.start === booking.start_time && b.end === booking.end_time));
+    const offered = computeSlots({
+      timezone: sched.timezone,
+      durationMin: mt.duration_min,
+      windows: sched.windows,
+      overrides: sched.overrides,
+      bookings: busy,
+      bufferBeforeMin: mt.buffer_before_min,
+      bufferAfterMin: mt.buffer_after_min,
+      minNoticeMin: mt.min_notice_min,
+      fromDate: candidateDate,
+      toDate: candidateDate,
+      now,
+    });
+    const startIso = startDate.toISOString();
+    if (!offered.some((s) => s.start === startIso)) {
+      return { success: false, error: 'INVALID_SLOT' };
+    }
+    const endIso = new Date(startDate.getTime() + mt.duration_min * 60_000).toISOString();
+
+    const { data: moved, error: upErr } = await supabase
+      .from('meeting_bookings')
+      .update({
+        start_time: startIso,
+        end_time: endIso,
+        previous_start_time: booking.start_time,
+        rescheduled_at: new Date().toISOString(),
+        reschedule_count: ((booking.reschedule_count as number | null) ?? 0) + 1,
+      })
+      .eq('id', booking.id)
+      .eq('status', 'confirmed')
+      .eq('start_time', booking.start_time) // concurrent-reschedule guard
+      .select('id')
+      .maybeSingle();
+    if (upErr) {
+      if (upErr.code === '23P01') return { success: false, error: 'SLOT_TAKEN' };
+      console.error(`${LOG_PREFIX} reschedule failed:`, upErr.message);
+      return { success: false, error: 'INTERNAL' };
+    }
+    if (!moved) {
+      // Someone else moved/cancelled it between our read and write.
+      return { success: false, error: 'SLOT_TAKEN' };
+    }
+
+    // Google event follows the booking (best effort — Google also re-notifies
+    // the attendee via sendUpdates=all on the patch).
+    if (booking.google_event_id) {
+      await GoogleCalendarService.patchEventTime(
+        supabase,
+        booking.host_profile_id,
+        booking.google_event_id as string,
+        startIso,
+        endIso,
+        sched.timezone,
+      );
+    }
+
+    const { data: host } = await supabase
+      .from('profiles')
+      .select('full_name, email')
+      .eq('id', mt.host_profile_id)
+      .maybeSingle();
+    const hostName =
+      (host?.full_name as string | undefined) ?? (host?.email as string | undefined) ?? '';
+
+    await MeetingBookingEmailService.sendBookingRescheduledEmails({
+      uid,
+      meetingTitle: mt.title,
+      durationMin: mt.duration_min,
+      timezone: sched.timezone,
+      startTime: startIso,
+      previousStartTime: booking.start_time,
+      hostName,
+      hostEmail: (host?.email as string | undefined) ?? '',
+      attendeeName: booking.attendee_name ?? '',
+      attendeeEmail: booking.attendee_email ?? '',
+      attendeePhone: null,
+      rescheduledBy: byToken ? 'attendee' : 'host',
+    });
+
+    return { success: true, uid, start: startIso, end: endIso, hostName: hostName || null };
   }
 }
