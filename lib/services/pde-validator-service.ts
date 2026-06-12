@@ -80,6 +80,10 @@ export class PDEValidatorService {
    * - Sets validator_notes[validatorId] = notes
    * - Writes raw_score
    * - Flips status → 'validated'
+   * - Optionally writes clo_refs_confirmed (curriculum connector, spec §4.8):
+   *   the validator-CONFIRMED CLO set. Attainment math reads ONLY this column
+   *   — learner proposals (clo_refs) are never trusted directly. Pass
+   *   undefined to leave the column untouched (non-curriculum validations).
    *
    * Throws if the row doesn't exist or raw_score is out of [0, 100].
    */
@@ -87,7 +91,8 @@ export class PDEValidatorService {
     id: string,
     validatorId: string,
     notes: string,
-    rawScore: number
+    rawScore: number,
+    cloRefsConfirmed?: number[] | null
   ): Promise<PdeDemonstrationRow> {
     if (typeof rawScore !== 'number' || Number.isNaN(rawScore) || rawScore < 0 || rawScore > 100) {
       throw new Error(
@@ -126,14 +131,20 @@ export class PDEValidatorService {
         : {};
     const nextNotes = { ...currentNotes, [validatorId]: notes };
 
+    const patch: Record<string, unknown> = {
+      validator_ids: nextIds,
+      validator_notes: nextNotes,
+      raw_score: rawScore,
+      status: 'validated',
+    };
+    if (cloRefsConfirmed !== undefined) {
+      patch.clo_refs_confirmed =
+        cloRefsConfirmed && cloRefsConfirmed.length > 0 ? cloRefsConfirmed : null;
+    }
+
     const { data, error } = await (supabase as any)
       .from('pde_demonstrations')
-      .update({
-        validator_ids: nextIds,
-        validator_notes: nextNotes,
-        raw_score: rawScore,
-        status: 'validated',
-      })
+      .update(patch)
       .eq('id', id)
       .select()
       .single();

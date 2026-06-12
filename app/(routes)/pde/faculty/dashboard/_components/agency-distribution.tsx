@@ -14,13 +14,14 @@ import {
   Legend,
 } from 'recharts';
 
-// Agency levels from PDE spec
+// Agency levels from PDE spec. Labels read as the OPERATING MODE a learner is
+// currently working in, not an identity (Dweck / CARE-Recognition copy rule).
 const AGENCY_LEVELS = [
-  { key: 'dependent', label: 'Dependent', color: '#ef4444' },
-  { key: 'guided', label: 'Guided', color: '#f97316' },
-  { key: 'collaborative', label: 'Collaborative', color: '#eab308' },
-  { key: 'self_directed', label: 'Self-Directed', color: '#22c55e' },
-  { key: 'principal', label: 'Principal', color: '#0b6d41' },
+  { key: 'dependent', label: 'Dependent mode', color: '#ef4444' },
+  { key: 'guided', label: 'Guided mode', color: '#f97316' },
+  { key: 'collaborative', label: 'Collaborative mode', color: '#eab308' },
+  { key: 'self_directed', label: 'Self-Directed mode', color: '#22c55e' },
+  { key: 'principal', label: 'Principal mode', color: '#0b6d41' },
 ] as const;
 
 // ---------- Bar Chart: Distribution ----------

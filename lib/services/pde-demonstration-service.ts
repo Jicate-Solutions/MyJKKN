@@ -129,6 +129,12 @@ export class PDEDemonstrationService {
       evidence_type: input.evidence_type ?? null,
       status: 'draft' as const,
       created_by: user.id,
+      // Curriculum connector — dual-lane link (BoS syllabus XOR VAC course).
+      // clo_refs is the learner's PROPOSAL only; the validator-confirmed set
+      // (clo_refs_confirmed) is written at validation time, never here.
+      bos_syllabus_id: input.bos_syllabus_id ?? null,
+      vac_course_id: input.vac_course_id ?? null,
+      clo_refs: input.clo_refs && input.clo_refs.length > 0 ? input.clo_refs : null,
     };
 
     const { data, error } = await supabase
