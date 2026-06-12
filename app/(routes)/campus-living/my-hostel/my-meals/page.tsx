@@ -88,7 +88,7 @@ export default function MyMealsPage() {
   // Menu: always (when we know who the resident is, menu-wise).
   const { data: menu, isLoading: menuLoading } = useMyMenuWeek(
     weekStart,
-    context?.tierKey ?? 'standard',
+    context?.tierKey ?? 'classic',
     context?.gender ?? null
   );
 

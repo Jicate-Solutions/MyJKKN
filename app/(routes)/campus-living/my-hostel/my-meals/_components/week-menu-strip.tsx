@@ -34,9 +34,8 @@ function todayIsoDow(): number {
 }
 
 const TIER_LABEL: Record<string, string> = {
-  standard: 'Standard',
+  classic: 'Classic',
   premium: 'Premium',
-  premium_plus: 'Premium Plus',
 };
 
 export function WeekMenuStrip({
