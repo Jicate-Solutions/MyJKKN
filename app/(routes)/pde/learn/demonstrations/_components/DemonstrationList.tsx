@@ -49,6 +49,7 @@ import type {
   PDEDemonstration,
   PDEDemonstrationStatus,
 } from '@/lib/types/pde-demonstrations';
+import { PDEAppreciationService } from '@/lib/services/pde-appreciation-service';
 import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -146,7 +147,27 @@ export function DemonstrationList({ initialRows, initialError }: DemonstrationLi
   const router = useRouter();
   const [rows, setRows] = useState<PDEDemonstration[]>(initialRows);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [thankedIds, setThankedIds] = useState<Set<string>>(new Set());
   const [, startTransition] = useTransition();
+
+  // Learner → validator thanks (CARE corrective move A — A5: two-way
+  // appreciation channel). One in-app notification per validator on the row.
+  const handleThanks = async (row: PDEDemonstration) => {
+    setPendingId(row.id);
+    try {
+      await PDEAppreciationService.sendThanks({
+        demonstrationId: row.id,
+        validatorIds: row.validator_ids ?? [],
+        skillName: row.skill_name,
+      });
+      setThankedIds((prev) => new Set(prev).add(row.id));
+      toast.success('Thanks sent to your validator.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not send thanks.');
+    } finally {
+      setPendingId(null);
+    }
+  };
 
   const handleWithdraw = async (id: string) => {
     if (pendingId) return;
@@ -309,6 +330,22 @@ export function DemonstrationList({ initialRows, initialError }: DemonstrationLi
                           {note}
                         </p>
                       ))}
+                      {(row.validator_ids?.length ?? 0) > 0 && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs text-emerald-800 hover:text-emerald-900 hover:bg-emerald-100/60 dark:text-emerald-300"
+                          onClick={() => handleThanks(row)}
+                          disabled={thankedIds.has(row.id) || pendingId === row.id}
+                        >
+                          <MessageSquareHeart className="h-3 w-3 mr-1" />
+                          {thankedIds.has(row.id)
+                            ? 'Thanks sent'
+                            : pendingId === row.id
+                              ? 'Sending…'
+                              : 'Thank your validator'}
+                        </Button>
+                      )}
                     </div>
                   );
                 })()}

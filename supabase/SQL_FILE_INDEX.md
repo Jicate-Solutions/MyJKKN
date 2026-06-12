@@ -1582,6 +1582,11 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Index: `vac_courses_code_key` UNIQUE(code) — staging parity + double-run guard
 - Location: `supabase/migrations/20260612084500_vac_universal_picker_and_code_unique.sql` (applied live 2026-06-12)
 
+### PDE Validation SLA Policy (2026-06-12)
+- Policy row: `pde.scoring.validation_sla_days` = 7 (global, number, system, tunable without deploy)
+- Location: `supabase/migrations/20260612190000_pde_validation_sla_policy.sql` (applied live via Management API 2026-06-12)
+- Purpose: Connector PR 2 — bounds time-to-first-acknowledgment for PDE demonstrations (aging badge + latency/coverage KPIs on /pde/admin/demonstrations). CARE audit corrective move A (A3 scored 1).
+
 ### Family Moments Engine (2026-06-12)
 - Tables: `family_moments_campaigns` (occasion per institution) + `family_moments` (tokenized card per child per campaign) + storage bucket `family-moments` (public read, permission-gated write)
 - Location: `supabase/migrations/20260711000000_family_moments_engine.sql`
