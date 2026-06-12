@@ -7,11 +7,15 @@
  *   data: { updated_at: string | null, raw: object | null }
  *
  * `raw` is Meta's follower_demographics payload PASSED THROUGH UNCHANGED, so
- * every access is guarded. Two shapes are handled:
+ * every access is guarded. Three shapes are handled:
  *  (a) Graph API passthrough:
  *      { data: [{ name/title, total_value: { breakdowns: [{ dimension_keys,
  *        results: [{ dimension_values, value }] }] } }] }
- *  (b) Pre-grouped maps: { age: {"18-24": 10, ...}, gender: {...}, city: {...} }
+ *  (b) Poller keyed map (instagram-metrics-poller DEMOGRAPHIC_BREAKDOWNS —
+ *      the shape actually stored in ig_account_metrics.follower_demographics):
+ *      { age_gender: <insight entry>, city: <insight entry> } where each
+ *      entry is one Graph API insight object with total_value.breakdowns.
+ *  (c) Pre-grouped maps: { age: {"18-24": 10, ...}, gender: {...}, city: {...} }
  * Anything unrecognised falls back to a truncated raw JSON dump so the data
  * is still inspectable instead of silently blank.
  *
@@ -56,56 +60,97 @@ function titleCase(key: string): string {
   return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Shape (a): Graph API insights passthrough with total_value.breakdowns. */
-function parseGraphShape(raw: Record<string, unknown>): DemoGroup[] {
+/** Meta's gender dimension codes → readable labels. Unknown codes pass through. */
+const GENDER_LABELS: Record<string, string> = { F: 'Female', M: 'Male', U: 'Unknown' };
+
+/**
+ * Parse ONE Graph API insight entry — { name/title, total_value: { breakdowns:
+ * [{ dimension_keys, results: [{ dimension_values, value }] }] } } — into
+ * DemoGroups. Shared by the passthrough shape (a) and the poller keyed
+ * shape (b).
+ */
+function parseInsightEntry(rec: Record<string, unknown>): DemoGroup[] {
   const groups: DemoGroup[] = [];
-  const dataArr = raw.data;
-  if (!Array.isArray(dataArr)) return groups;
+  const totalValue = rec.total_value;
+  if (typeof totalValue !== 'object' || totalValue === null) return groups;
+  const breakdowns = (totalValue as Record<string, unknown>).breakdowns;
+  if (!Array.isArray(breakdowns)) return groups;
 
-  for (const item of dataArr) {
-    if (typeof item !== 'object' || item === null) continue;
-    const rec = item as Record<string, unknown>;
-    const totalValue = rec.total_value;
-    if (typeof totalValue !== 'object' || totalValue === null) continue;
-    const breakdowns = (totalValue as Record<string, unknown>).breakdowns;
-    if (!Array.isArray(breakdowns)) continue;
+  for (const breakdown of breakdowns) {
+    if (typeof breakdown !== 'object' || breakdown === null) continue;
+    const bd = breakdown as Record<string, unknown>;
+    const dimKeys = Array.isArray(bd.dimension_keys)
+      ? bd.dimension_keys.filter((k): k is string => typeof k === 'string')
+      : [];
+    const results = Array.isArray(bd.results) ? bd.results : [];
+    const entries: { label: string; value: number }[] = [];
 
-    for (const breakdown of breakdowns) {
-      if (typeof breakdown !== 'object' || breakdown === null) continue;
-      const bd = breakdown as Record<string, unknown>;
-      const dimKeys = Array.isArray(bd.dimension_keys)
-        ? bd.dimension_keys.filter((k): k is string => typeof k === 'string')
+    for (const result of results) {
+      if (typeof result !== 'object' || result === null) continue;
+      const r = result as Record<string, unknown>;
+      const dims = Array.isArray(r.dimension_values)
+        ? r.dimension_values.filter((v): v is string => typeof v === 'string')
         : [];
-      const results = Array.isArray(bd.results) ? bd.results : [];
-      const entries: { label: string; value: number }[] = [];
-
-      for (const result of results) {
-        if (typeof result !== 'object' || result === null) continue;
-        const r = result as Record<string, unknown>;
-        const dims = Array.isArray(r.dimension_values)
-          ? r.dimension_values.filter((v): v is string => typeof v === 'string')
-          : [];
-        if (typeof r.value === 'number' && dims.length > 0) {
-          entries.push({ label: dims.join(' · '), value: r.value });
-        }
+      if (typeof r.value === 'number' && dims.length > 0) {
+        const label = dims
+          .map((v, i) => (dimKeys[i] === 'gender' ? GENDER_LABELS[v] ?? v : v))
+          .join(' · ');
+        entries.push({ label, value: r.value });
       }
+    }
 
-      if (entries.length > 0) {
-        const fallbackTitle =
-          (typeof rec.title === 'string' && rec.title) ||
-          (typeof rec.name === 'string' && rec.name) ||
-          'Breakdown';
-        groups.push({
-          title: dimKeys.length > 0 ? dimKeys.map(titleCase).join(' × ') : fallbackTitle,
-          entries,
-        });
-      }
+    if (entries.length > 0) {
+      const fallbackTitle =
+        (typeof rec.title === 'string' && rec.title) ||
+        (typeof rec.name === 'string' && rec.name) ||
+        'Breakdown';
+      groups.push({
+        title: dimKeys.length > 0 ? dimKeys.map(titleCase).join(' × ') : fallbackTitle,
+        entries,
+      });
     }
   }
   return groups;
 }
 
-/** Shape (b): pre-grouped maps like { age: { "18-24": 10 }, city: {...} }. */
+/** Shape (a): Graph API insights passthrough with total_value.breakdowns. */
+function parseGraphShape(raw: Record<string, unknown>): DemoGroup[] {
+  const dataArr = raw.data;
+  if (!Array.isArray(dataArr)) return [];
+
+  const groups: DemoGroup[] = [];
+  for (const item of dataArr) {
+    if (typeof item !== 'object' || item === null) continue;
+    groups.push(...parseInsightEntry(item as Record<string, unknown>));
+  }
+  return groups;
+}
+
+/** Preferred display order for poller keyed-map breakdowns (else alphabetical tail). */
+const KEYED_ORDER = ['age_gender', 'age', 'gender', 'country', 'city'];
+
+/**
+ * Shape (b): poller keyed map — { age_gender: <insight entry>, city: <insight
+ * entry> } as written by instagram-metrics-poller's fetchFollowerDemographics
+ * (DEMOGRAPHIC_BREAKDOWNS). Age/gender renders before city regardless of
+ * JSONB key ordering.
+ */
+function parseKeyedShape(raw: Record<string, unknown>): DemoGroup[] {
+  const rank = (key: string) => {
+    const i = KEYED_ORDER.indexOf(key);
+    return i === -1 ? KEYED_ORDER.length : i;
+  };
+  const groups: DemoGroup[] = [];
+  const keys = Object.keys(raw).sort((a, b) => rank(a) - rank(b));
+  for (const key of keys) {
+    const value = raw[key];
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) continue;
+    groups.push(...parseInsightEntry(value as Record<string, unknown>));
+  }
+  return groups;
+}
+
+/** Shape (c): pre-grouped maps like { age: { "18-24": 10 }, city: {...} }. */
 function parseGroupedShape(raw: Record<string, unknown>): DemoGroup[] {
   const groups: DemoGroup[] = [];
   for (const [key, value] of Object.entries(raw)) {
@@ -122,6 +167,11 @@ function parseGroupedShape(raw: Record<string, unknown>): DemoGroup[] {
 function parseDemographics(raw: Record<string, unknown>): DemoGroup[] {
   const graph = parseGraphShape(raw);
   if (graph.length > 0) return graph;
+  // raw may itself be a single insight entry (defensive passthrough variant).
+  const single = parseInsightEntry(raw);
+  if (single.length > 0) return single;
+  const keyed = parseKeyedShape(raw);
+  if (keyed.length > 0) return keyed;
   return parseGroupedShape(raw);
 }
 
