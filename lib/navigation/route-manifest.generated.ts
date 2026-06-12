@@ -1491,6 +1491,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "New",
             "iconName": "Plus",
             "children": []
+          },
+          {
+            "path": "/audit/care/score",
+            "label": "Score",
+            "iconName": "ClipboardCheck",
+            "children": []
           }
         ]
       },
