@@ -23,6 +23,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { AiPulseLearnerService } from '@/lib/services/ai-pulse/learner-service';
 import { CurrentCycleCard } from '../_components/current-cycle-card';
+import { GoldThisWeekCard } from '../_components/gold-this-week-card';
 import { MyTeamCard } from '../_components/my-team-card';
 import { MyAttendanceCard } from '../_components/my-attendance-card';
 import { QuickActionsCard } from '../_components/quick-actions-card';
@@ -97,6 +98,10 @@ export default async function AiPulseLearnerPage() {
     streak = await AiPulseLearnerService.getMyStreak(profile.id, supabase);
   }
 
+  // CARE R-move: latest faculty-picked Gold (null until the first Monday Lab
+  // scores a cycle — the card hides itself).
+  const gold = await AiPulseLearnerService.getLatestGoldServer();
+
   return (
     <ContentLayout title="My Pulse">
       <PageBreadcrumb
@@ -118,6 +123,12 @@ export default async function AiPulseLearnerPage() {
         <div className="grid gap-4 md:grid-cols-2">
           <CurrentCycleCard cycle={cycle} />
           <MyTeamCard team={team} />
+          {/* Gold Standard — CARE R-move learner-facing recognition (2026-06-12) */}
+          {gold && (
+            <div className="md:col-span-2">
+              <GoldThisWeekCard gold={gold} />
+            </div>
+          )}
           <MyAttendanceCard attendance={attendance} streak={streak} />
           <QuickActionsCard
             cycleId={cycle?.id ?? null}

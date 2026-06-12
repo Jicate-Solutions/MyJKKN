@@ -39,6 +39,10 @@ export interface AIPulseCycleConfig {
   meet_url: string | null;
   recording_url: string | null;
   external_judge_cycle: boolean;
+  /** CARE C-move: what teams must build/submit this week (learner-visible). */
+  challenge_text?: string | null;
+  /** CARE E-move: "you said, we changed" — last cycle's feedback, answered. */
+  you_said_we_changed?: string | null;
   cancellation_reason?: string | null;
   // Optional policy snapshot fields (present on rows seeded by the cron):
   gold_standard_count?: number;
@@ -82,6 +86,8 @@ export interface UpdateCycleConfigInput {
   meet_url: string | null;
   recording_url: string | null;
   external_judge_cycle: boolean;
+  challenge_text: string | null;
+  you_said_we_changed: string | null;
 }
 
 export interface AIPulseFeaturedToolOption {
@@ -150,6 +156,8 @@ const AI_PULSE_CYCLE_KEYS = [
   'meet_url',
   'recording_url',
   'external_judge_cycle',
+  'challenge_text',
+  'you_said_we_changed',
   'cancellation_reason',
   'gold_standard_count',
   'bottom_n_publication_count',
@@ -205,6 +213,8 @@ function normalizeConfig(raw: unknown): AIPulseCycleConfig {
     meet_url: (cfg.meet_url as string | null) ?? null,
     recording_url: (cfg.recording_url as string | null) ?? null,
     external_judge_cycle: Boolean(cfg.external_judge_cycle),
+    challenge_text: (cfg.challenge_text as string | null) ?? null,
+    you_said_we_changed: (cfg.you_said_we_changed as string | null) ?? null,
     cancellation_reason: (cfg.cancellation_reason as string | null) ?? null,
     gold_standard_count: cfg.gold_standard_count as number | undefined,
     bottom_n_publication_count: cfg.bottom_n_publication_count as
@@ -706,6 +716,8 @@ export function useUpdateCycleConfig(cycleId: string) {
             meet_url: input.meet_url,
             recording_url: input.recording_url,
             external_judge_cycle: input.external_judge_cycle,
+            challenge_text: input.challenge_text,
+            you_said_we_changed: input.you_said_we_changed,
           },
         };
 

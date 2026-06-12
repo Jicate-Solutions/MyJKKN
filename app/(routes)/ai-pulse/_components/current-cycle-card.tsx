@@ -109,6 +109,24 @@ export function CurrentCycleCard({ cycle }: CurrentCycleCardProps) {
               : ''}
           </p>
         )}
+        {/* CARE C-move: the week's stated brief — what teams build toward. */}
+        {cfg.challenge_text ? (
+          <div className="rounded-md border bg-muted/40 px-3 py-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              This week&apos;s challenge
+            </p>
+            <p className="text-sm">{cfg.challenge_text as string}</p>
+          </div>
+        ) : null}
+        {/* CARE E-move: visible proof that learner feedback changes things. */}
+        {cfg.you_said_we_changed ? (
+          <p className="text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">
+              You said, we changed:
+            </span>{' '}
+            {cfg.you_said_we_changed as string}
+          </p>
+        ) : null}
         <div className="flex flex-wrap gap-2">
           {/* Always route through the live session page — it records the
               join (engagement credit) and opens the meeting link itself. A
