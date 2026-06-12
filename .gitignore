@@ -118,3 +118,7 @@ razorpay-accounts.seed.json
 *.stackdump
 
 .playwright-mcp/
+
+# Python bytecode
+__pycache__/
+*.pyc
