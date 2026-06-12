@@ -1557,6 +1557,14 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Location: `supabase/migrations/20260611200000_meeting_routing_log_native_link.sql` (applied live)
 - Purpose: Phase N2 — routed bookings reference native meeting_types; cal_booking_uid column now stores native uids for new rows.
 
+### Universal Booking Substrate — U1 (2026-06-12)
+- Tables: `meeting_host_pages` (public page config: handle UNIQUE + reserved-word CHECK, is_public opt-in, auto_hidden), `meeting_host_google_connections` (per-host Google link, pgp-encrypted refresh token, status active/broken/revoked)
+- Functions: `fn_set_google_cal_token`, `fn_get_google_cal_token`, `fn_clear_google_cal_token` — SECURITY DEFINER, `search_path = public, extensions` (pgcrypto), service_role-ONLY execute (cal-vault pattern)
+- Columns: `meeting_types.location_mode` (in_person/phone/online; admission-counseling set to phone) + `location_text`; `meeting_bookings.video_url`, `google_event_id`, `attendee_profile_id`, `rescheduled_at`, `reschedule_count`, `previous_start_time`
+- Data: `meetings.view` granted to all staff-type roles (exclusion-list: learner/external/vendor/deprecated roles)
+- Location: `supabase/migrations/20260612090000_universal_booking_substrate.sql` (NOT yet applied — ships dark; apply at merge)
+- Purpose: Universal Booking module substrate — anyone books Senior Learners/staff. Spec: specs/universal-booking-module-2026-06-12.md (20 decisions). Public exposure requires opt-in + active Google connection (D20).
+
 ### PDE <-> BoS Outcome Connector (2026-06-11)
 - Columns: `pde_demonstrations.bos_syllabus_id` (uuid → bos_course_syllabi, version-pinned at submission), `pde_demonstrations.vac_course_id` (uuid → vac_courses, course-level VAC lane), `pde_demonstrations.clo_refs` (jsonb, learner-proposed CLO numbers), `pde_demonstrations.clo_refs_confirmed` (jsonb, validator-confirmed — attainment reads this only)
 - Policy rows: `pde.obe.po_weight_map` ({"H":1.0,"M":0.5,"L":0.25}), `pde.obe.clo_tag_cap` (2)
