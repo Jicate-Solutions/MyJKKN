@@ -89,13 +89,16 @@ async function loadAndRecordOpen(
   if (moment.campaign && moment.campaign.status === 'archived') return null;
 
   // Record the open in the same request — first open stamps opened_at.
-  await supabase
-    .from('family_moments')
-    .update({
-      opened_at: moment.opened_at ?? new Date().toISOString(),
-      open_count: (moment.open_count ?? 0) + 1,
-    })
-    .eq('id', moment.id);
+  // Skipped for bot/preview user agents (see BOT_UA_RE).
+  if (recordOpen) {
+    await supabase
+      .from('family_moments')
+      .update({
+        opened_at: moment.opened_at ?? new Date().toISOString(),
+        open_count: (moment.open_count ?? 0) + 1,
+      })
+      .eq('id', moment.id);
+  }
 
   return moment;
 }
@@ -104,7 +107,10 @@ export default async function MomentPage({ params }: MomentPageProps) {
   const { token } = await params;
   if (!TOKEN_RE.test(token)) notFound();
 
-  const moment = await loadAndRecordOpen(token);
+  const ua = (await headers()).get('user-agent') ?? '';
+  const isBot = ua === '' || BOT_UA_RE.test(ua);
+
+  const moment = await loadAndRecordOpen(token, !isBot);
   if (!moment) notFound();
 
   return (
