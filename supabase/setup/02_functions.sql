@@ -14767,6 +14767,36 @@ REVOKE ALL ON FUNCTION public._cl_apply_category_bill_change(uuid,uuid,uuid,uuid
 -- configured amount (no supersede of the old category bill — that stays). item_category_id
 -- FKs billing_categories (kind 'hostel'/'mess'), required for hostel_category bills
 -- (bsb_hostel_cat_required_chk), so p_kind resolves the matching billing category.
+-- 20260612130000: dedicated, self-healing upgrade billing category resolver.
+-- category_name is globally UNIQUE — resolve by name, reactivate if toggled
+-- off, else create. Keeps upgrade fees separate from base "Hostel Fee"/"Mess
+-- Fee" and guarantees item_category_id for bsb_hostel_cat_required_chk.
+CREATE OR REPLACE FUNCTION public._cl_ensure_upgrade_billing_category(p_kind text)
+RETURNS uuid
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $$
+DECLARE
+  v_name text; v_id uuid;
+BEGIN
+  v_name := CASE p_kind
+              WHEN 'hostel' THEN 'Hostel Upgrade Fee'
+              WHEN 'mess'   THEN 'Mess Upgrade Fee'
+              ELSE initcap(p_kind) || ' Upgrade Fee'
+            END;
+  SELECT id INTO v_id FROM billing_categories WHERE category_name = v_name LIMIT 1;
+  IF v_id IS NOT NULL THEN
+    UPDATE billing_categories SET is_active = true, updated_at = now()
+     WHERE id = v_id AND NOT is_active;
+    RETURN v_id;
+  END IF;
+  INSERT INTO billing_categories (category_name, kind, frequency, is_active, description)
+  VALUES (v_name, p_kind::billing_category_kind, 'one-time', true,
+          'Auto-created for hostel/mess category upgrade fees')
+  RETURNING id INTO v_id;
+  RETURN v_id;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public._cl_ensure_upgrade_billing_category(text) FROM anon, authenticated, PUBLIC;
+
 CREATE OR REPLACE FUNCTION public._cl_apply_upgrade_fee_bill(
   p_learner_lp uuid, p_hostel_year_id uuid, p_kind text,
   p_upgrade_amount numeric, p_description text
@@ -14780,8 +14810,8 @@ BEGIN
                               'billed',0,'old_bill_id',NULL);
   END IF;
   SELECT institution_id INTO v_inst FROM learners_profiles WHERE id = p_learner_lp;
-  SELECT id INTO v_bcat FROM billing_categories
-    WHERE kind::text = p_kind AND is_active ORDER BY created_at LIMIT 1;
+  -- 20260612130000: dedicated upgrade billing category (created if missing).
+  v_bcat := public._cl_ensure_upgrade_billing_category(p_kind);
   INSERT INTO billing_student_bills (
     student_id, institution_id, item_category_id, hostel_year_id, fee_source,
     bill_description, due_date, quantity, unit_amount, total_amount, final_amount,
@@ -15891,3 +15921,176 @@ BEGIN
   END;
   RETURN NEW;
 END $$;
+
+-- ─── Fee-condition category write-back (migs 20260612120000 + 130000) ────────
+-- Writes hostel_program_eligibility-derived room + mess categories onto
+-- learners_profiles for hostel learners who have an academic bill. Gender-aware
+-- (categories are gender-typed); bill-holders with no gender-matching band fall
+-- back to gender-matched Classic. Allocation wins room; overwrite-never-wipe.
+CREATE OR REPLACE FUNCTION public.fn_apply_hostel_fee_categories(p_learner_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_gender      text;
+  v_gender_type text;
+  v_allocated   boolean;
+  v_has_bill    boolean;
+  v_room        uuid;
+  v_mess        uuid;
+  v_cur_room    uuid;
+  v_cur_mess    uuid;
+  v_new_room    uuid;
+  v_new_mess    uuid;
+BEGIN
+  SELECT lp.gender
+    INTO v_gender
+  FROM learners_profiles lp
+  JOIN accommodation_types acc ON acc.id = lp.accommodation_type_id
+  WHERE lp.id = p_learner_id AND acc.code = 'hostel';
+  IF NOT FOUND THEN
+    RETURN false;
+  END IF;
+
+  v_gender_type := CASE
+                     WHEN lower(v_gender) LIKE 'm%' THEN 'boys'
+                     WHEN lower(v_gender) LIKE 'f%' THEN 'girls'
+                     ELSE NULL
+                   END;
+
+  v_has_bill := EXISTS (
+    SELECT 1 FROM billing_student_bills b
+    WHERE b.student_id = p_learner_id
+      AND b.fee_source = 'academic'
+      AND b.status NOT IN ('cancelled','superseded')
+  );
+
+  v_allocated := EXISTS (
+    SELECT 1
+    FROM hostel_allocations ha
+    JOIN profiles p ON p.id = ha.learner_id
+    WHERE p.learner_id = p_learner_id
+      AND ha.status = 'active'
+  );
+
+  SELECT r.category_id INTO v_room
+  FROM fn_hostel_learner_room_categories(p_learner_id) r
+  JOIN hostel_categories hc ON hc.id = r.category_id
+  WHERE hc.type = v_gender_type
+  LIMIT 1;
+
+  SELECT m.category_id INTO v_mess
+  FROM fn_hostel_learner_mess_categories(p_learner_id) m
+  JOIN mess_categories mc ON mc.id = m.category_id
+  WHERE mc.type = v_gender_type
+  LIMIT 1;
+
+  IF v_room IS NULL AND v_has_bill AND v_gender_type IS NOT NULL THEN
+    SELECT id INTO v_room
+    FROM hostel_categories
+    WHERE name = 'Classic Room' AND type = v_gender_type AND is_active
+    ORDER BY sort_order
+    LIMIT 1;
+  END IF;
+
+  IF v_mess IS NULL AND v_has_bill AND v_gender_type IS NOT NULL THEN
+    SELECT id INTO v_mess
+    FROM mess_categories
+    WHERE name = 'Classic' AND type = v_gender_type AND is_active
+    ORDER BY sort_order
+    LIMIT 1;
+  END IF;
+
+  SELECT hostel_category_id, mess_category_id
+    INTO v_cur_room, v_cur_mess
+  FROM learners_profiles
+  WHERE id = p_learner_id;
+
+  v_new_room := CASE WHEN v_allocated THEN v_cur_room
+                     ELSE COALESCE(v_room, v_cur_room) END;
+  v_new_mess := COALESCE(v_mess, v_cur_mess);
+
+  IF v_new_room IS DISTINCT FROM v_cur_room
+     OR v_new_mess IS DISTINCT FROM v_cur_mess THEN
+    UPDATE learners_profiles
+       SET hostel_category_id = v_new_room,
+           mess_category_id   = v_new_mess,
+           updated_at         = now()
+     WHERE id = p_learner_id;
+    RETURN true;
+  END IF;
+
+  RETURN false;
+END
+$function$;
+
+-- Auto-apply categories whenever academic bills are written (mig 20260612130000).
+CREATE OR REPLACE FUNCTION public.trg_bill_apply_hostel_fee_categories()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  BEGIN
+    PERFORM public.fn_apply_hostel_fee_categories(s.student_id)
+    FROM (
+      SELECT DISTINCT student_id
+      FROM new_rows
+      WHERE fee_source = 'academic'
+        AND student_id IS NOT NULL
+    ) s;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'trg_bill_apply_hostel_fee_categories: %', SQLERRM;
+  END;
+  RETURN NULL;
+END
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_apply_hostel_fee_categories_bulk(p_institution uuid DEFAULT NULL)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_id      uuid;
+  v_scanned int := 0;
+  v_updated int := 0;
+BEGIN
+  IF auth.uid() IS NOT NULL
+     AND NOT user_has_permission('campus_living.settings.edit') THEN
+    RAISE EXCEPTION 'Not authorized to sync learner categories'
+      USING ERRCODE = '42501';
+  END IF;
+
+  FOR v_id IN
+    SELECT lp.id
+    FROM learners_profiles lp
+    JOIN accommodation_types acc ON acc.id = lp.accommodation_type_id
+    WHERE acc.code = 'hostel'
+      AND lp.lifecycle_status = 'active'
+      AND (p_institution IS NULL OR lp.institution_id = p_institution)
+      AND EXISTS (
+        SELECT 1
+        FROM billing_student_bills b
+        WHERE b.student_id = lp.id
+          AND b.fee_source = 'academic'
+          AND b.status NOT IN ('cancelled','superseded')
+      )
+  LOOP
+    v_scanned := v_scanned + 1;
+    IF public.fn_apply_hostel_fee_categories(v_id) THEN
+      v_updated := v_updated + 1;
+    END IF;
+  END LOOP;
+
+  RETURN jsonb_build_object('scanned', v_scanned, 'updated', v_updated);
+END
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_apply_hostel_fee_categories(uuid) FROM anon, authenticated, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_apply_hostel_fee_categories_bulk(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_apply_hostel_fee_categories_bulk(uuid) TO authenticated;

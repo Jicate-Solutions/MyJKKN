@@ -1300,3 +1300,19 @@ CREATE TRIGGER trg_allocation_sync_learner_categories
 AFTER INSERT OR UPDATE OF status ON hostel_allocations
 FOR EACH ROW WHEN (NEW.status = 'active')
 EXECUTE FUNCTION _on_allocation_sync_learner_categories();
+
+-- Auto-apply fee-condition room/mess categories on academic bill writes
+-- (mig 20260612130000). Transition tables can't span events => one per event.
+DROP TRIGGER IF EXISTS trg_bill_apply_hostel_fee_categories_ins ON billing_student_bills;
+CREATE TRIGGER trg_bill_apply_hostel_fee_categories_ins
+AFTER INSERT ON billing_student_bills
+REFERENCING NEW TABLE AS new_rows
+FOR EACH STATEMENT
+EXECUTE FUNCTION trg_bill_apply_hostel_fee_categories();
+
+DROP TRIGGER IF EXISTS trg_bill_apply_hostel_fee_categories_upd ON billing_student_bills;
+CREATE TRIGGER trg_bill_apply_hostel_fee_categories_upd
+AFTER UPDATE ON billing_student_bills
+REFERENCING NEW TABLE AS new_rows
+FOR EACH STATEMENT
+EXECUTE FUNCTION trg_bill_apply_hostel_fee_categories();

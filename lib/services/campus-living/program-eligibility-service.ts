@@ -128,6 +128,26 @@ export class ProgramEligibilityService {
     }
   }
 
+  // ─── Write-back: apply fee-condition categories to learner profiles ──────
+  // Resolves each "existing bill student" (active hosteler with an academic
+  // bill) through the fee bands and writes the derived room + mess category
+  // onto learners_profiles. Allocation wins for room; overwrite-never-wipe.
+  // The bulk RPC self-gates on campus_living.settings.edit.
+  static async syncLearnerCategories(
+    institutionId?: string
+  ): Promise<{ scanned: number; updated: number }> {
+    const { data, error } = await (this.supabase.rpc as any)(
+      'fn_apply_hostel_fee_categories_bulk',
+      { p_institution: institutionId ?? null }
+    );
+    if (error) {
+      logger.error(LOG, 'Database error syncing learner categories', error);
+      throw new Error(error.message || 'Failed to sync learner categories');
+    }
+    const result = (data ?? {}) as { scanned?: number; updated?: number };
+    return { scanned: result.scanned ?? 0, updated: result.updated ?? 0 };
+  }
+
   // ─── Effective resolution helper (fee-aware, learner-based) ──────────────
   // Fee-aware effective categories for a learner — program → quota → fee band.
   // The whole decision lives in the composite SQL function; [] => fail open.
