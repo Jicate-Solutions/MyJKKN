@@ -1308,6 +1308,8 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
           THEN substring(page_url FROM '/resource-management/([^/?#]+)')
         WHEN page_url ~ '/startup-studio/'
           THEN substring(page_url FROM '/startup-studio/([^/?#]+)')
+        WHEN page_url ~ '/moments/'  -- Added: 2026-06-12 Family Moments
+          THEN substring(page_url FROM '/moments/([^/?#]+)')
         WHEN page_url ~ '/settings/'
           THEN substring(page_url FROM '/settings/([^/?#]+)')
         WHEN page_url ~ '/service-requests/'
