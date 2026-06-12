@@ -14,14 +14,11 @@ import {
 import { RoomUpgradeDialog } from './room-upgrade-dialog';
 import type { UpgradeRoomCategoryOption } from '@/types/campus-living/category-upgrade';
 
-const inr = (n: number) => `₹${n.toLocaleString('en-IN')}`;
-
 interface Props {
   currentCategoryName: string | null;
-  currentFee: number;
 }
 
-export function RoomCategoryUpgradeCard({ currentCategoryName, currentFee }: Props) {
+export function RoomCategoryUpgradeCard({ currentCategoryName }: Props) {
   const { data: options = [], isLoading } = useUpgradeRoomCategories();
   const { data: myWaitlist = [] } = useMyUpgradeWaitlist();
   const joinWaitlist = useJoinUpgradeWaitlist();
@@ -72,10 +69,6 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, currentFee }: Pro
                   <div className="min-w-0">
                     <p className="font-medium truncate">
                       {currentCategoryName ? `${currentCategoryName} → ` : ''}{opt.name}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {currentCategoryName ? `${inr(currentFee)} → ` : ''}{inr(opt.current_year_fee)}
-                      {' · '}<span className="font-medium text-foreground">Pay {inr(opt.upgrade_fee)}</span>
                     </p>
                   </div>
                   {held ? (
@@ -172,8 +165,6 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, currentFee }: Pro
           categoryId={picked.category_id}
           categoryName={picked.name}
           currentCategoryName={currentCategoryName}
-          currentFee={currentFee}
-          newFee={picked.current_year_fee}
           upgradeFee={picked.upgrade_fee}
           thresholdPct={picked.threshold_pct}
           paidPct={picked.paid_pct}

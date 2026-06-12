@@ -13,7 +13,6 @@ import {
   Home,
   UtensilsCrossed,
   Loader2,
-  Info,
   Users,
 } from 'lucide-react';
 
@@ -94,7 +93,7 @@ export function OverviewTab() {
             <Home className='h-5 w-5 text-primary' />
             Your Hostel Details
           </CardTitle>
-          <CardDescription>Category and fee information from your profile.</CardDescription>
+          <CardDescription>Accommodation and category information from your profile.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className='grid grid-cols-2 sm:grid-cols-4 gap-3'>
@@ -105,9 +104,8 @@ export function OverviewTab() {
             />
             <InfoTile
               icon={<Building2 className='h-4 w-4' />}
-              label='Hostel Category'
+              label='Room Category'
               value={summary?.hostelCategory?.name ?? '—'}
-              sub={summary?.hostelCategory?.type}
             />
             <InfoTile
               icon={<UtensilsCrossed className='h-4 w-4' />}
@@ -115,11 +113,12 @@ export function OverviewTab() {
               value={summary?.messCategory?.name ?? '—'}
             />
             <InfoTile
-              icon={<Info className='h-4 w-4' />}
-              label='Hostel Fee'
+              icon={<Users className='h-4 w-4' />}
+              label='Hostel Type'
               value={
-                summary?.hostelFee != null
-                  ? `₹${summary.hostelFee.toLocaleString()}`
+                summary?.hostelCategory?.type
+                  ? summary.hostelCategory.type.charAt(0).toUpperCase() +
+                    summary.hostelCategory.type.slice(1)
                   : '—'
               }
             />
