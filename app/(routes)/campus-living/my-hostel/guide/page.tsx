@@ -59,8 +59,26 @@ const PERSONA_HOME: Record<GuidePersona, string> = {
 };
 
 function GuideInner() {
+  // ALL hooks run unconditionally, before any early return — a `useQuery`
+  // after the isLoading guard is a hooks-order violation (React #310).
   const searchParams = useSearchParams();
   const { own, visible, isLoading } = useGuideLane();
+
+  // Active lane: the viewer's own, overridable by a permitted ?persona=.
+  // `own`/`visible` are defined even while permissions load (resident default).
+  const requestedRaw = searchParams.get('persona');
+  const requested = isGuidePersona(requestedRaw) ? requestedRaw : null;
+  const persona: GuidePersona =
+    requested && visible.includes(requested) ? requested : own;
+
+  // Persisted completion for the active lane (server action via React Query).
+  // Deferred until permissions resolve so we query for the settled persona.
+  const { data: completed, isFetched: progressLoaded } = useQuery({
+    queryKey: ['campus-living-guide-progress', persona],
+    queryFn: () => getCompletedSteps(persona),
+    enabled: !isLoading,
+    staleTime: 60_000,
+  });
 
   if (isLoading) {
     return (
@@ -69,21 +87,6 @@ function GuideInner() {
       </ContentLayout>
     );
   }
-
-  // Everyone with a campus-living foothold reaches this page (residents are
-  // routed here by the nav chip; the resident lane is always visible), so there
-  // is no denied state to reach here — `visible` always contains `resident`.
-  const requestedRaw = searchParams.get('persona');
-  const requested = isGuidePersona(requestedRaw) ? requestedRaw : null;
-  const persona: GuidePersona =
-    requested && visible.includes(requested) ? requested : own;
-
-  // Persisted completion for the active lane (server action via React Query).
-  const { data: completed, isFetched: progressLoaded } = useQuery({
-    queryKey: ['campus-living-guide-progress', persona],
-    queryFn: () => getCompletedSteps(persona),
-    staleTime: 60_000,
-  });
 
   return (
     <ContentLayout title="Campus Living — Guide">
