@@ -102646,6 +102646,25 @@ export type Database = {
         Args: { p_account_id: string; p_actor?: string | null }
         Returns: undefined
       }
+      fn_update_razorpay_account_meta: {
+        Args: {
+          p_account_id: string
+          p_label: string | null
+          p_mid: string | null
+          p_tid: string | null
+          p_dba_name: string | null
+          p_mode?: string | null
+          p_institution_id?: string | null
+          p_fee_head?: string | null
+          p_change_slot?: boolean
+          p_actor?: string | null
+        }
+        Returns: undefined
+      }
+      fn_delete_razorpay_account_by_id: {
+        Args: { p_account_id: string; p_actor?: string | null }
+        Returns: undefined
+      }
       fn_set_referral_eligibility: {
         Args: {
           p_category_id: string

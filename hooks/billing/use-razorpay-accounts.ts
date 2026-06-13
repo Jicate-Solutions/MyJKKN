@@ -134,6 +134,50 @@ export function useActivateRazorpayAccount() {
   });
 }
 
+export interface UpdateRazorpayMetaInput {
+  accountId: string;
+  label?: string | null;
+  mid?: string | null;
+  tid?: string | null;
+  dbaName?: string | null;
+  mode?: 'test' | 'live';
+  institutionId?: string | null;
+  feeHead?: string | null;
+  changeSlot?: boolean;
+}
+
+// Edit metadata (label/MID/TID/DBA/mode); slot changes only for drafts with changeSlot.
+export function useUpdateRazorpayAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: UpdateRazorpayMetaInput): Promise<void> => {
+      const res = await fetch('/api/billing/payment-accounts/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      await jsonOrThrow(res);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.razorpayAccounts.all }),
+  });
+}
+
+// Hard-delete an account (blocked server-side when transactions pin it).
+export function useDeleteRazorpayAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (accountId: string): Promise<void> => {
+      const res = await fetch('/api/billing/payment-accounts/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId }),
+      });
+      await jsonOrThrow(res);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.razorpayAccounts.all }),
+  });
+}
+
 export function useDeactivateRazorpayAccount() {
   const qc = useQueryClient();
   return useMutation({

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -12,7 +12,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import {
-  useUpsertRazorpayAccount, useCreateRazorpayDraft, useActivateRazorpayAccount,
+  useUpsertRazorpayAccount, useCreateRazorpayDraft, useActivateRazorpayAccount, useUpdateRazorpayAccount,
   type RazorpayAccountSummary,
 } from '@/hooks/billing/use-razorpay-accounts';
 
@@ -22,8 +22,6 @@ interface InstitutionOption {
 }
 
 // Routing slot. '__default__' = the institution's general account (fee_head NULL).
-// Other values are billing_categories.kind; 'establishment' is included for the
-// HDFC estab-fee MIDs.
 const DEFAULT_HEAD = '__default__';
 const FEE_HEAD_OPTIONS: { value: string; label: string }[] = [
   { value: DEFAULT_HEAD, label: 'Default — all other fees' },
@@ -46,6 +44,7 @@ export function feeHeadLabel(feeHead: string | null): string {
 export type AccountDialogTarget =
   | { mode: 'add' }                                       // create a new ACTIVE account (with keys)
   | { mode: 'draft' }                                     // create a DRAFT (no keys)
+  | { mode: 'edit'; account: RazorpayAccountSummary }     // edit metadata (no keys)
   | { mode: 'rotate'; account: RazorpayAccountSummary }   // new keys for an active slot (old row kept)
   | { mode: 'activate'; account: RazorpayAccountSummary }; // add keys to a draft (in place)
 
@@ -59,6 +58,7 @@ interface AccountFormDialogProps {
 const TITLES: Record<AccountDialogTarget['mode'], string> = {
   add: 'Add Razorpay account',
   draft: 'Add draft account',
+  edit: 'Edit account',
   rotate: 'Rotate Razorpay account',
   activate: 'Activate account — add keys',
 };
@@ -67,6 +67,7 @@ export function AccountFormDialog({ open, onOpenChange, institutions, target }: 
   const upsert = useUpsertRazorpayAccount();
   const createDraft = useCreateRazorpayDraft();
   const activate = useActivateRazorpayAccount();
+  const updateMeta = useUpdateRazorpayAccount();
 
   const [institutionId, setInstitutionId] = useState('');
   const [feeHead, setFeeHead] = useState<string>(DEFAULT_HEAD);
@@ -78,14 +79,6 @@ export function AccountFormDialog({ open, onOpenChange, institutions, target }: 
   const [mid, setMid] = useState('');
   const [tid, setTid] = useState('');
   const [dbaName, setDbaName] = useState('');
-
-  const acct = target.mode === 'rotate' || target.mode === 'activate' ? target.account : null;
-  const isCreate = target.mode === 'add' || target.mode === 'draft';
-  const needsKeys = target.mode !== 'draft';
-  const pending = upsert.isPending || createDraft.isPending || activate.isPending;
-
-  const effInstitutionId = acct?.institutionId ?? institutionId;
-  const effHead = acct ? (acct.feeHead ?? DEFAULT_HEAD) : feeHead;
 
   function reset() {
     setInstitutionId('');
@@ -100,9 +93,37 @@ export function AccountFormDialog({ open, onOpenChange, institutions, target }: 
     setDbaName('');
   }
 
+  // Seed fields when opening in edit mode; clear for create modes.
+  useEffect(() => {
+    if (!open) return;
+    if (target.mode === 'edit') {
+      const a = target.account;
+      setInstitutionId(a.institutionId);
+      setFeeHead(a.feeHead ?? DEFAULT_HEAD);
+      setLabel(a.accountLabel ?? '');
+      setMode(a.mode);
+      setMid(a.mid ?? '');
+      setTid(a.tid ?? '');
+      setDbaName(a.dbaName ?? '');
+      setKeyId(''); setKeySecret(''); setWebhookSecret('');
+    } else if (target.mode === 'add' || target.mode === 'draft') {
+      reset();
+    } else {
+      // rotate / activate — only keys are collected
+      setKeyId(''); setKeySecret(''); setWebhookSecret(''); setMode('live');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, target]);
+
+  const summaryAcct = target.mode === 'rotate' || target.mode === 'activate' ? target.account : null;
+  const showMetaForm = target.mode === 'add' || target.mode === 'draft' || target.mode === 'edit';
+  const slotDisabled = target.mode === 'edit' && target.account.status !== 'draft';
+  const needsKeys = target.mode === 'add' || target.mode === 'rotate' || target.mode === 'activate';
+  const pending = upsert.isPending || createDraft.isPending || activate.isPending || updateMeta.isPending;
+
   async function handleSubmit() {
     if (pending) return;
-    if (isCreate && !effInstitutionId) {
+    if (showMetaForm && !institutionId) {
       toast.error('Select an institution.');
       return;
     }
@@ -115,8 +136,8 @@ export function AccountFormDialog({ open, onOpenChange, institutions, target }: 
 
       if (target.mode === 'draft') {
         await createDraft.mutateAsync({
-          institutionId: effInstitutionId,
-          feeHead: effHead === DEFAULT_HEAD ? null : effHead,
+          institutionId,
+          feeHead: feeHead === DEFAULT_HEAD ? null : feeHead,
           label: label.trim() || undefined,
           mid: mid.trim() || null,
           tid: tid.trim() || null,
@@ -124,6 +145,19 @@ export function AccountFormDialog({ open, onOpenChange, institutions, target }: 
           mode,
         });
         toast.success('Draft saved. Add keys later to activate it.');
+      } else if (target.mode === 'edit') {
+        await updateMeta.mutateAsync({
+          accountId: target.account.id,
+          label: label.trim() || null,
+          mid: mid.trim() || null,
+          tid: tid.trim() || null,
+          dbaName: dbaName.trim() || null,
+          mode,
+          institutionId: institutionId || null,
+          feeHead: feeHead === DEFAULT_HEAD ? null : feeHead,
+          changeSlot: target.account.status === 'draft',
+        });
+        toast.success('Account updated.');
       } else if (target.mode === 'activate') {
         const r = await activate.mutateAsync({
           accountId: target.account.id,
@@ -133,17 +167,17 @@ export function AccountFormDialog({ open, onOpenChange, institutions, target }: 
         });
         webhookRef = r.webhookRef;
       } else {
-        // 'add' or 'rotate' — both create a fresh active row (rotate keeps the old one).
+        // 'add' or 'rotate' — create a fresh active row (rotate keeps the old one).
         const r = await upsert.mutateAsync({
-          institutionId: effInstitutionId,
-          feeHead: effHead === DEFAULT_HEAD ? null : effHead,
+          institutionId: summaryAcct?.institutionId ?? institutionId,
+          feeHead: summaryAcct ? (summaryAcct.feeHead ?? null) : (feeHead === DEFAULT_HEAD ? null : feeHead),
           keyId: keyId.trim(),
           keySecret: keySecret.trim(),
           webhookSecret: webhookSecret.trim(),
-          label: (acct?.accountLabel ?? label.trim()) || undefined,
-          mid: acct?.mid ?? (mid.trim() || null),
-          tid: acct?.tid ?? (tid.trim() || null),
-          dbaName: acct?.dbaName ?? (dbaName.trim() || null),
+          label: (summaryAcct?.accountLabel ?? label.trim()) || undefined,
+          mid: summaryAcct?.mid ?? (mid.trim() || null),
+          tid: summaryAcct?.tid ?? (tid.trim() || null),
+          dbaName: summaryAcct?.dbaName ?? (dbaName.trim() || null),
           mode,
         });
         webhookRef = r.webhookRef;
@@ -171,28 +205,34 @@ export function AccountFormDialog({ open, onOpenChange, institutions, target }: 
           <DialogDescription>
             {target.mode === 'draft'
               ? 'Stage the institution → MID mapping now. The account stays inert (the institution uses the common account) until you add keys to activate it.'
-              : target.mode === 'activate'
-                ? 'Add this account’s keys to activate it. Credentials are encrypted at rest and never shown again.'
-                : target.mode === 'rotate'
-                  ? 'Replace the active keys for this slot. The previous account is kept (deactivated) so in-flight payments still verify.'
-                  : 'Credentials are encrypted at rest. The Key Secret and Webhook Secret are never shown again after saving.'}
+              : target.mode === 'edit'
+                ? slotDisabled
+                  ? 'Edit this account’s label and reconciliation details. Institution and fee head are locked for a live account (changing them would re-route money).'
+                  : 'Edit this draft’s institution, fee head, label and reconciliation details.'
+                : target.mode === 'activate'
+                  ? 'Add this account’s keys to activate it. Credentials are encrypted at rest and never shown again.'
+                  : target.mode === 'rotate'
+                    ? 'Replace the active keys for this slot. The previous account is kept (deactivated) so in-flight payments still verify.'
+                    : 'Credentials are encrypted at rest. The Key Secret and Webhook Secret are never shown again after saving.'}
           </DialogDescription>
         </DialogHeader>
 
         <div className='min-h-0 space-y-4 overflow-y-auto px-1'>
-          {acct ? (
+          {summaryAcct && (
             <div className='rounded-md border bg-muted/40 p-3 text-sm'>
               <div className='grid grid-cols-3 gap-2'>
-                <div><span className='text-muted-foreground text-xs'>Fee head</span><div>{feeHeadLabel(acct.feeHead)}</div></div>
-                <div><span className='text-muted-foreground text-xs'>Label</span><div>{acct.accountLabel || '—'}</div></div>
-                <div><span className='text-muted-foreground text-xs'>MID</span><div className='font-mono text-xs'>{acct.mid || '—'}</div></div>
+                <div><span className='text-muted-foreground text-xs'>Fee head</span><div>{feeHeadLabel(summaryAcct.feeHead)}</div></div>
+                <div><span className='text-muted-foreground text-xs'>Label</span><div>{summaryAcct.accountLabel || '—'}</div></div>
+                <div><span className='text-muted-foreground text-xs'>MID</span><div className='font-mono text-xs'>{summaryAcct.mid || '—'}</div></div>
               </div>
             </div>
-          ) : (
+          )}
+
+          {showMetaForm && (
             <>
               <div className='space-y-1.5'>
                 <Label htmlFor='institution'>Institution</Label>
-                <Select value={institutionId} onValueChange={setInstitutionId}>
+                <Select value={institutionId} onValueChange={setInstitutionId} disabled={slotDisabled}>
                   <SelectTrigger id='institution'><SelectValue placeholder='Select institution' /></SelectTrigger>
                   <SelectContent>
                     {institutions.map((inst) => (
@@ -204,7 +244,7 @@ export function AccountFormDialog({ open, onOpenChange, institutions, target }: 
 
               <div className='space-y-1.5'>
                 <Label htmlFor='feeHead'>Fee head</Label>
-                <Select value={feeHead} onValueChange={setFeeHead}>
+                <Select value={feeHead} onValueChange={setFeeHead} disabled={slotDisabled}>
                   <SelectTrigger id='feeHead'><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {FEE_HEAD_OPTIONS.map((o) => (
@@ -212,9 +252,11 @@ export function AccountFormDialog({ open, onOpenChange, institutions, target }: 
                     ))}
                   </SelectContent>
                 </Select>
-                <p className='text-muted-foreground text-xs'>
-                  Which fee this MID settles. &quot;Default&quot; catches every fee without its own account.
-                </p>
+                {!slotDisabled && (
+                  <p className='text-muted-foreground text-xs'>
+                    Which fee this MID settles. &quot;Default&quot; catches every fee without its own account.
+                  </p>
+                )}
               </div>
 
               <div className='space-y-1.5'>
@@ -230,6 +272,19 @@ export function AccountFormDialog({ open, onOpenChange, institutions, target }: 
                 </div>
                 <Input value={dbaName} onChange={(e) => setDbaName(e.target.value)} placeholder='DBA name (as in the HDFC live kit)' autoComplete='off' />
               </div>
+
+              {!needsKeys && (
+                <div className='space-y-1.5'>
+                  <Label htmlFor='mode'>Mode</Label>
+                  <Select value={mode} onValueChange={(v) => setMode(v as 'test' | 'live')}>
+                    <SelectTrigger id='mode'><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='live'>Live</SelectItem>
+                      <SelectItem value='test'>Test</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </>
           )}
 
@@ -275,11 +330,13 @@ export function AccountFormDialog({ open, onOpenChange, institutions, target }: 
               ? 'Saving…'
               : target.mode === 'draft'
                 ? 'Save draft'
-                : target.mode === 'activate'
-                  ? 'Activate'
-                  : target.mode === 'rotate'
-                    ? 'Rotate keys'
-                    : 'Save account'}
+                : target.mode === 'edit'
+                  ? 'Save changes'
+                  : target.mode === 'activate'
+                    ? 'Activate'
+                    : target.mode === 'rotate'
+                      ? 'Rotate keys'
+                      : 'Save account'}
           </Button>
         </DialogFooter>
       </DialogContent>

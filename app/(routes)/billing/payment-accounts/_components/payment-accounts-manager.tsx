@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, FilePlus2, Copy, RefreshCw, Power, PlugZap, KeyRound, Loader2 } from 'lucide-react';
+import { Plus, FilePlus2, Copy, RefreshCw, Power, PlugZap, KeyRound, Pencil, Trash2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -17,7 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import {
-  useRazorpayAccounts, useDeactivateRazorpayAccount, useTestRazorpayAccount,
+  useRazorpayAccounts, useDeactivateRazorpayAccount, useTestRazorpayAccount, useDeleteRazorpayAccount,
   type RazorpayAccountSummary,
 } from '@/hooks/billing/use-razorpay-accounts';
 import { AccountFormDialog, feeHeadLabel, type AccountDialogTarget } from './account-form-dialog';
@@ -41,9 +41,11 @@ export function PaymentAccountsManager() {
   const { institutions } = useInstitutionsWithAccess();
   const deactivate = useDeactivateRazorpayAccount();
   const test = useTestRazorpayAccount();
+  const del = useDeleteRazorpayAccount();
 
   const [dialog, setDialog] = useState<AccountDialogTarget | null>(null);
   const [deactivateTarget, setDeactivateTarget] = useState<RazorpayAccountSummary | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<RazorpayAccountSummary | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
 
   const instName = useMemo(() => {
@@ -91,6 +93,18 @@ export function PaymentAccountsManager() {
       toast.error(err instanceof Error ? err.message : 'Failed to deactivate');
     } finally {
       setDeactivateTarget(null);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    try {
+      await del.mutateAsync(deleteTarget.id);
+      toast.success('Account deleted');
+      setDeleteTarget(null);
+    } catch (err) {
+      // Server blocks deletion of accounts that have transactions — surface it.
+      toast.error(err instanceof Error ? err.message : 'Failed to delete');
     }
   }
 
@@ -184,6 +198,12 @@ export function PaymentAccountsManager() {
                               {testingId === a.id ? <Loader2 className='h-3.5 w-3.5 animate-spin' /> : <PlugZap className='h-3.5 w-3.5' />} Test
                             </Button>
                           )}
+                          {canManage && (
+                            <Button variant='ghost' size='sm' className='h-7 gap-1 px-2 text-xs'
+                              onClick={() => setDialog({ mode: 'edit', account: a })}>
+                              <Pencil className='h-3.5 w-3.5' /> Edit
+                            </Button>
+                          )}
                           {canManage && a.status === 'active' && (
                             <>
                               <Button variant='ghost' size='sm' className='h-7 gap-1 px-2 text-xs'
@@ -194,6 +214,11 @@ export function PaymentAccountsManager() {
                                 <Power className='h-3.5 w-3.5' /> Deactivate
                               </Button>
                             </>
+                          )}
+                          {canManage && (
+                            <Button variant='ghost' size='sm' className='h-7 gap-1 px-2 text-xs text-destructive' onClick={() => setDeleteTarget(a)}>
+                              <Trash2 className='h-3.5 w-3.5' /> Delete
+                            </Button>
                           )}
                         </div>
                       </TableCell>
@@ -232,6 +257,28 @@ export function PaymentAccountsManager() {
             <AlertDialogCancel disabled={deactivate.isPending}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={confirmDeactivate} disabled={deactivate.isPending}>
               {deactivate.isPending ? 'Deactivating…' : 'Deactivate'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this account?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget && (
+                <>Permanently remove the <strong>{feeHeadLabel(deleteTarget.feeHead)}</strong> account for{' '}
+                <strong>{instName(deleteTarget.institutionId)}</strong>
+                {deleteTarget.status === 'draft' ? ' (draft).' : '.'} This can&apos;t be undone. An account that
+                already has payment transactions can&apos;t be deleted — deactivate it instead.</>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={del.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} disabled={del.isPending}>
+              {del.isPending ? 'Deleting…' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

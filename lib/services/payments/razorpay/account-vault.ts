@@ -82,6 +82,20 @@ export interface ActivateRazorpayAccountInput {
   actor?: string | null;
 }
 
+export interface UpdateRazorpayMetaInput {
+  accountId: string;
+  label?: string | null;
+  mid?: string | null;
+  tid?: string | null;
+  dbaName?: string | null;
+  mode?: 'test' | 'live';
+  /** Slot (institution/fee-head) is changed only when changeSlot=true AND the row is a draft. */
+  institutionId?: string | null;
+  feeHead?: string | null;
+  changeSlot?: boolean;
+  actor?: string | null;
+}
+
 export interface SetRazorpayAccountInput {
   institutionId: string;
   keyId: string;
@@ -332,5 +346,40 @@ export class RazorpayAccountVault {
       throw new Error('[razorpay-account-vault] fn_activate_razorpay_account returned no row');
     }
     return { id: row.id, webhookRef: row.webhook_ref };
+  }
+
+  /**
+   * Edit reconciliation/display metadata (label/MID/TID/DBA/mode). The routing slot
+   * (institution/fee-head) changes only when changeSlot=true AND the row is a draft.
+   */
+  static async updateMeta(input: UpdateRazorpayMetaInput): Promise<void> {
+    const supabase = createServiceRoleClient();
+    const { error } = await supabase.rpc('fn_update_razorpay_account_meta', {
+      p_account_id: input.accountId,
+      p_label: input.label ?? null,
+      p_mid: input.mid ?? null,
+      p_tid: input.tid ?? null,
+      p_dba_name: input.dbaName ?? null,
+      p_mode: input.mode ?? null,
+      p_institution_id: input.institutionId ?? null,
+      p_fee_head: input.feeHead ?? null,
+      p_change_slot: input.changeSlot ?? false,
+      p_actor: input.actor ?? null,
+    });
+    if (error) {
+      throw new Error(`[razorpay-account-vault] fn_update_razorpay_account_meta failed for ${input.accountId}: ${error.message}`);
+    }
+  }
+
+  /** Hard-delete an account (blocked by the RPC when transactions pin it). */
+  static async deleteById(accountId: string, actor?: string | null): Promise<void> {
+    const supabase = createServiceRoleClient();
+    const { error } = await supabase.rpc('fn_delete_razorpay_account_by_id', {
+      p_account_id: accountId,
+      p_actor: actor ?? null,
+    });
+    if (error) {
+      throw new Error(`[razorpay-account-vault] fn_delete_razorpay_account_by_id failed for ${accountId}: ${error.message}`);
+    }
   }
 }
