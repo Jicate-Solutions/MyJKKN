@@ -1,6 +1,6 @@
-'use client';
+﻿'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, type ChangeEvent } from 'react';
 import { useCreateBosSyllabus, useUpdateBosSyllabus, useBosSyllabus } from '@/hooks/bos/use-bos-syllabus';
 import { useBosTaxonomy } from '@/hooks/bos/use-bos-taxonomy';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -24,9 +24,16 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useBosCourses } from '@/hooks/bos/use-bos-courses';
 import { useInstitutionContext } from '@/hooks/use-institution-context';
-import { X, Trash2, BookOpen, Plus, FlaskConical, BookText, Check } from 'lucide-react';
+import { useBosInstitutionScope } from '@/hooks/bos/use-bos-institution-scope';
+import { X, Trash2, BookOpen, Plus, FlaskConical, BookText, Check, Upload, Loader2, FileText, AlertTriangle } from 'lucide-react';
+import { toast } from 'react-hot-toast';
+import {
+  SyllabusImportIssuesDialog,
+  type ImportWarning,
+  type ImportSummaryCounts,
+} from '@/components/bos/syllabus-import-issues-dialog';
 
-interface Institution { id: string; name: string; myjkkn_institution_ids: string[]; display_name?: string; }
+interface Institution { id: string; name: string; institution_code: string; myjkkn_institution_ids: string[]; display_name?: string; }
 interface Regulation { id: string; title: string; regulation_code: string; regulation_year?: string; }
 
 const DEFAULT_K_VALUES: Record<string, string> = {
@@ -54,6 +61,18 @@ export function SyllabusForm({
   // If the caller already loaded the syllabus (edit page), skip the fetch.
   const { data: fetchedSyllabus } = useBosSyllabus(syllabusProp ? undefined : syllabusId);
   const existingSyllabus = syllabusProp ?? fetchedSyllabus;
+
+  // Superseded-version detection: a syllabus that's been overtaken by a later
+  // version has is_latest=false and isn't archived. Per the 2026-05-20 auto-fork
+  // workflow (forkSyllabiOnMinutesApproval), once a meeting's minutes are
+  // approved the referenced V1 rows flip to is_latest=false and a fresh V2 is
+  // created. Opening V1 after that should be a read-only experience so users
+  // can browse / download the historical snapshot but can't accidentally
+  // modify it. Archived rows fall through to the existing soft-delete logic.
+  const isSupersededVersion =
+    !!existingSyllabus &&
+    existingSyllabus.is_latest === false &&
+    !existingSyllabus.is_archived;
   const createMutation = useCreateBosSyllabus();
   const { userProfile, isSuperAdmin } = usePermissions();
   const { data: institutionCtx } = useInstitutionContext();
@@ -80,6 +99,15 @@ export function SyllabusForm({
     bos_compositions: { composition_title: string; academic_year: string } | null;
   }[]>([]);
   const [courseCodeError, setCourseCodeError] = useState<string | null>(null);
+
+  // ── Import-from-document state ─────────────────────────────────────────────
+  const [isImporting, setIsImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSummary, setImportSummary] = useState<string | null>(null);
+  const [importIssuesOpen, setImportIssuesOpen] = useState(false);
+  const [importWarnings, setImportWarnings] = useState<ImportWarning[]>([]);
+  const [importCounts, setImportCounts] = useState<ImportSummaryCounts>({});
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState<Partial<BosCourseSyllabus>>(
     existingSyllabus || {
@@ -130,6 +158,142 @@ export function SyllabusForm({
   );
   const courseOptions = coursesData?.data ?? [];
 
+  // Read sessionStorage handoff from the list page Import button — runs once
+  // on mount, consume-and-delete so a refresh doesn't replay the data.
+  useEffect(() => {
+    if (isEditingProp || syllabusProp) return;
+    if (typeof window === 'undefined') return;
+    const raw = sessionStorage.getItem('bos.syllabus.import.handoff');
+    if (!raw) return;
+    try {
+      const payload = JSON.parse(raw) as {
+        data: any;
+        summary: Record<string, number>;
+        warnings?: ImportWarning[];
+      };
+      sessionStorage.removeItem('bos.syllabus.import.handoff');
+      if (payload.warnings && payload.warnings.length > 0) {
+        setImportWarnings(payload.warnings);
+        setImportCounts(payload.summary as ImportSummaryCounts);
+        setImportIssuesOpen(true);
+      }
+      setFormData((prev) => ({
+        ...prev,
+        course_objectives: payload.data.course_objectives ?? prev.course_objectives,
+        course_learning_outcomes:
+          payload.data.course_learning_outcomes ?? prev.course_learning_outcomes,
+        course_content: payload.data.course_content ?? prev.course_content,
+        textbooks: payload.data.textbooks ?? prev.textbooks,
+        web_resources: payload.data.web_resources ?? prev.web_resources,
+        pedagogy: payload.data.pedagogy ?? prev.pedagogy,
+        po_mappings: payload.data.po_mappings ?? prev.po_mappings,
+      }));
+      const s = payload.summary ?? {};
+      const parts: string[] = [];
+      if (s.objectives) parts.push(`${s.objectives} objectives`);
+      if (s.clos) parts.push(`${s.clos} COs`);
+      if (s.units) parts.push(`${s.units} units`);
+      if (s.textbooks) parts.push(`${s.textbooks} textbooks`);
+      if (s.references) parts.push(`${s.references} references`);
+      if (s.web_resources) parts.push(`${s.web_resources} web resources`);
+      if (s.pedagogy) parts.push(`${s.pedagogy} pedagogy methods`);
+      if (s.po_mapping_rows) parts.push(`PO mapping (${s.po_mapping_rows} rows)`);
+      if (parts.length > 0) {
+        setImportSummary(`Imported: ${parts.join(', ')}. Fill Basic Info and Save.`);
+      }
+    } catch {
+      sessionStorage.removeItem('bos.syllabus.import.handoff');
+    }
+  }, [isEditingProp, syllabusProp]);
+
+  // Per-form import handler used by the upload card on the Basic Info tab.
+  // Non-destructive merge — only fills sections that are currently empty.
+  const handleImportFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    setImportError(null);
+    setImportSummary(null);
+
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/bos/syllabus/extract', { method: 'POST', body: fd });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to extract syllabus');
+
+      const { data, summary, warnings } = json as {
+        data: any;
+        summary: Record<string, number>;
+        warnings?: ImportWarning[];
+      };
+
+      if (warnings && warnings.length > 0) {
+        setImportWarnings(warnings);
+        setImportCounts(summary as ImportSummaryCounts);
+        setImportIssuesOpen(true);
+      }
+
+      setFormData((prev) => {
+        const isEmpty = (val: any, listKey: string) =>
+          !val || !Array.isArray(val[listKey]) || val[listKey].length === 0;
+        return {
+          ...prev,
+          course_objectives:
+            isEmpty(prev.course_objectives, 'objectives')
+              ? data.course_objectives
+              : prev.course_objectives,
+          course_learning_outcomes:
+            isEmpty(prev.course_learning_outcomes, 'clos')
+              ? data.course_learning_outcomes
+              : prev.course_learning_outcomes,
+          course_content:
+            isEmpty(prev.course_content, 'units') && isEmpty(prev.course_content, 'topics')
+              ? data.course_content
+              : prev.course_content,
+          textbooks:
+            isEmpty(prev.textbooks, 'primary') && isEmpty(prev.textbooks, 'references')
+              ? data.textbooks
+              : prev.textbooks,
+          web_resources:
+            isEmpty(prev.web_resources, 'resources')
+              ? data.web_resources
+              : prev.web_resources,
+          pedagogy:
+            isEmpty(prev.pedagogy, 'methods')
+              ? data.pedagogy
+              : prev.pedagogy,
+          po_mappings:
+            isEmpty(prev.po_mappings, 'mappings')
+              ? data.po_mappings
+              : prev.po_mappings,
+        };
+      });
+
+      const parts: string[] = [];
+      if (summary.objectives) parts.push(`${summary.objectives} objectives`);
+      if (summary.clos) parts.push(`${summary.clos} COs`);
+      if (summary.units) parts.push(`${summary.units} units`);
+      if (summary.textbooks) parts.push(`${summary.textbooks} textbooks`);
+      if (summary.references) parts.push(`${summary.references} references`);
+      if (summary.web_resources) parts.push(`${summary.web_resources} web resources`);
+      if (summary.pedagogy) parts.push(`${summary.pedagogy} pedagogy methods`);
+      if (summary.po_mapping_rows) parts.push(`PO mapping (${summary.po_mapping_rows} rows)`);
+
+      setImportSummary(
+        parts.length > 0
+          ? `Imported: ${parts.join(', ')}`
+          : 'No recognisable sections were found in the document.',
+      );
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Failed to import syllabus');
+    } finally {
+      setIsImporting(false);
+      if (importInputRef.current) importInputRef.current.value = '';
+    }
+  };
+
   const handleSaveAndNext = async (nextTab: string) => {
     try {
       // Validate required fields before submission
@@ -153,6 +317,7 @@ export function SyllabusForm({
       setActiveTab(nextTab);
     } catch (error) {
       console.error('Failed to save:', error);
+      toast.error((error as Error).message || 'Failed to save syllabus');
     }
   };
 
@@ -173,6 +338,24 @@ export function SyllabusForm({
       institutions_id: prev.institutions_id || institutionCtx.myjkkn_id,
     }));
   }, [isSuperAdmin, isEditingProp, syllabusProp, institutionCtx]);
+
+  // Super-admin edit path: the syllabus may store any CAS sibling UUID, but the
+  // Institution dropdown's option values are `inst.id` (the FIRST sibling UUID
+  // returned by /api/bos/institutions). SearchableSelect matches strictly by
+  // ===, so a stored Self-Financed UUID against an Aided-keyed option shows
+  // the placeholder. Normalise to the option's `inst.id` once the list loads.
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    if (!formData.institutions_id) return;
+    if (institutions.length === 0) return;
+    if (institutions.some((i) => i.id === formData.institutions_id)) return;
+    const match = institutions.find((i) =>
+      i.myjkkn_institution_ids?.includes(formData.institutions_id ?? '')
+    );
+    if (match && match.id !== formData.institutions_id) {
+      setFormData((prev) => ({ ...prev, institutions_id: match.id }));
+    }
+  }, [isSuperAdmin, institutions, formData.institutions_id]);
 
   // Fetch institutions
   useEffect(() => {
@@ -211,21 +394,30 @@ export function SyllabusForm({
   }, []);
 
   // Step 1: fetch compositions for the selected institution.
-  // Super-admin: pass all CAS sibling UUIDs via institutionIds= to avoid missing records.
-  // Non-admin: server uses resolveBosAccess scope automatically (no params needed).
+  // Filter by institution_code (= counselling_code), the authoritative single
+  // identifier for one real-world institution. The server resolves the matching
+  // MyJKKN sibling UUIDs (CAS Aided + Self) so neither variant's compositions
+  // are dropped — the client doesn't need to know about the split.
   useEffect(() => {
     const fetchCompositions = async () => {
       try {
         const url = new URL('/api/bos/compositions', window.location.origin);
         if (isSuperAdmin) {
-          const instOption = institutions.find((i) => i.id === formData.institutions_id);
-          const ids = instOption?.myjkkn_institution_ids ?? (formData.institutions_id ? [formData.institutions_id] : []);
-          if (ids.length > 1) url.searchParams.set('institutionIds', ids.join(','));
-          else if (ids.length === 1) url.searchParams.set('institutionsId', ids[0]);
-        } else if (institutionCtx?.myjkkn_institution_ids && institutionCtx.myjkkn_institution_ids.length > 1) {
-          // CAS non-admin: pass COE-authoritative sibling IDs so the server doesn't
-          // miss compositions stored under the other institution UUID (Aided vs Self).
-          url.searchParams.set('institutionIds', institutionCtx.myjkkn_institution_ids.join(','));
+          // Match by myjkkn_institution_ids.includes(), not i.id ===, because
+          // formData.institutions_id may be ANY of a CAS pair while i.id is only
+          // the first UUID in the list.
+          const instOption = institutions.find((i) =>
+            i.myjkkn_institution_ids?.includes(formData.institutions_id ?? '')
+          );
+          if (instOption?.institution_code) {
+            url.searchParams.set('institutionCode', instOption.institution_code);
+          } else if (formData.institutions_id) {
+            url.searchParams.set('institutionsId', formData.institutions_id);
+          }
+        } else if (institutionCtx?.institution_code) {
+          // Non-admin: pass the resolved code so the server can hydrate sibling
+          // UUIDs from the COE MDM (Aided + Self for CAS) without client juggling.
+          url.searchParams.set('institutionCode', institutionCtx.institution_code);
         }
         // In edit mode fetch all compositions (including inactive) so the linked
         // one is always visible in the dropdown regardless of its current status.
@@ -258,6 +450,47 @@ export function SyllabusForm({
   // so both must be deps to trigger the single fetch once ctx is ready.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.institutions_id, institutionCtx]);
+
+  // Edit-mode safety net: the /api/bos/compositions list paginates at limit=100
+  // sorted by term_start_date desc, so an older composition the syllabus is
+  // linked to can drop out of the page and the dropdown shows the placeholder
+  // even though every other field is fine. Fetch the linked composition by ID
+  // and merge it in so the dropdown can always render the saved value.
+  useEffect(() => {
+    if (!isEditingProp) return;
+    const linkedId = existingSyllabus?.composition_id;
+    if (!linkedId) return;
+    if (compositions.some((c) => c.id === linkedId)) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/bos/compositions/${linkedId}`);
+        if (!res.ok) return;
+        const comp = await res.json();
+        if (cancelled || !comp?.id) return;
+        setCompositions((prev) =>
+          prev.some((c) => c.id === comp.id)
+            ? prev
+            : [
+                {
+                  id: comp.id,
+                  composition_title: comp.composition_title,
+                  board_id: comp.board_id,
+                  academic_year: comp.academic_year,
+                  institutions_id: comp.institutions_id,
+                  board: comp.board ?? null,
+                },
+                ...prev,
+              ],
+        );
+      } catch (err) {
+        console.error('Failed to fetch linked composition:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditingProp, existingSyllabus?.composition_id, compositions]);
 
   // Step 2: fetch meetings for the selected composition.
   // Filtering by compositionId avoids CAS institution-UUID mismatch entirely.
@@ -297,13 +530,36 @@ export function SyllabusForm({
     }
   }, [formData.board_id, formData.composition_id, compositions]);
 
-  // Fetch regulations filtered by institution
+  // Fetch regulations filtered by institution.
+  // For CAS (Aided + Self share a counselling_code), pass BOTH sibling UUIDs so
+  // regulations created against either institution variant are included.
+  // The /api/bos/regulations route deduplicates by regulation_code.
   useEffect(() => {
     const fetchRegulations = async () => {
       try {
         const url = new URL('/api/bos/regulations', window.location.origin);
-        if (formData.institutions_id) {
+        if (isSuperAdmin) {
+          const instOption = institutions.find((i) =>
+            i.myjkkn_institution_ids?.includes(formData.institutions_id ?? '')
+          );
+          const ids = instOption?.myjkkn_institution_ids ?? (formData.institutions_id ? [formData.institutions_id] : []);
+          if (ids.length > 1) url.searchParams.set('institutionIds', ids.join(','));
+          else if (ids.length === 1) url.searchParams.set('institutionId', ids[0]);
+        } else if (institutionCtx?.myjkkn_institution_ids && institutionCtx.myjkkn_institution_ids.length > 0) {
+          if (institutionCtx.myjkkn_institution_ids.length > 1) {
+            url.searchParams.set('institutionIds', institutionCtx.myjkkn_institution_ids.join(','));
+          } else {
+            url.searchParams.set('institutionId', institutionCtx.myjkkn_institution_ids[0]);
+          }
+        } else if (formData.institutions_id) {
           url.searchParams.set('institutionId', formData.institutions_id);
+        }
+        // On edit, ensure the dedup-by-code in /api/bos/regulations keeps the
+        // exact row this syllabus already references (CAS Aided+Self share
+        // codes, otherwise the dropdown shows the placeholder). Use the
+        // original syllabus value so this stays stable across user edits.
+        if (isEditingProp && existingSyllabus?.regulation_id) {
+          url.searchParams.set('preferId', existingSyllabus.regulation_id);
         }
         const res = await fetch(url.toString());
         if (res.ok) {
@@ -317,8 +573,37 @@ export function SyllabusForm({
       }
     };
 
-    fetchRegulations();
-  }, [formData.institutions_id]);
+    if (formData.institutions_id) {
+      if (!isSuperAdmin && institutionCtx === undefined) return;
+      fetchRegulations();
+    }
+  }, [formData.institutions_id, institutions, institutionCtx, isSuperAdmin]);
+
+  // Auto-derive regulation_id from the selected composition's academic_year.
+  // The composition record doesn't store regulation_id directly, but its
+  // academic_year (e.g. "2024-2027" or "2024-25") naturally aligns with the
+  // regulation's regulation_year. Match the start year as the common case.
+  //
+  // Only fills an EMPTY regulation_id — never overrides a manual selection.
+  // (The composition onChange below explicitly clears regulation_id on change,
+  //  letting this effect re-fire to derive the new default.)
+  useEffect(() => {
+    if (formData.regulation_id) return;
+    if (!formData.composition_id) return;
+    if (regulations.length === 0) return;
+    const comp = compositions.find((c) => c.id === formData.composition_id);
+    if (!comp?.academic_year) return;
+    const startYear = comp.academic_year.split('-')[0];
+    const matched = regulations.find(
+      (r) =>
+        r.regulation_year === comp.academic_year ||
+        r.regulation_year === startYear ||
+        r.regulation_year?.startsWith(startYear),
+    );
+    if (matched) {
+      setFormData((prev) => ({ ...prev, regulation_id: matched.id }));
+    }
+  }, [formData.composition_id, formData.regulation_id, compositions, regulations]);
 
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -334,6 +619,7 @@ export function SyllabusForm({
       }
     } catch (error) {
       console.error('Failed to save syllabus:', error);
+      toast.error((error as Error).message || 'Failed to save syllabus');
     }
   };
 
@@ -379,6 +665,32 @@ export function SyllabusForm({
 
   return (
     <form onSubmit={handleSubmit}>
+      {/* Superseded-version banner.
+          Shown when the loaded syllabus is no longer the latest version (a
+          newer V2+ exists). The form below is wrapped in <fieldset disabled>
+          which cascades to all native inputs/buttons — so users can browse
+          every tab and field but can't submit. Download/PDF/DOCX from the
+          parent list page still work for archival reference. */}
+      {isSupersededVersion && existingSyllabus && (
+        <Alert className='mb-4 border-amber-300 bg-amber-50 text-amber-900 [&>svg]:text-amber-600'>
+          <AlertTriangle className='h-4 w-4' />
+          <AlertDescription>
+            <span className='font-semibold'>
+              Superseded by Version {(existingSyllabus.version_number ?? 1) + 1}
+              {' '}— this syllabus is read-only.
+            </span>
+            <br />
+            <span className='text-xs'>
+              This is Version {existingSyllabus.version_number ?? 1} of{' '}
+              <span className='font-mono'>{existingSyllabus.course_code}</span>.
+              The current active version was created when meeting minutes were
+              approved. Use Syllabus History (from the syllabus list) to open
+              the latest version for editing.
+            </span>
+          </AlertDescription>
+        </Alert>
+      )}
+      <fieldset disabled={isSupersededVersion} className='contents'>
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="basic">Basic Info</TabsTrigger>
@@ -392,6 +704,89 @@ export function SyllabusForm({
 
         {/* Basic Information */}
         <TabsContent value="basic" className="space-y-4">
+          {/* ── Import from Document — create flow only; hidden on edit ── */}
+          {!isEditing && (
+            <Card className="border-dashed border-primary/30 bg-primary/5">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Upload className="h-4 w-4" />
+                  Import from Document
+                </CardTitle>
+                <CardDescription>
+                  Upload a syllabus PDF, Word, or Excel file to auto-fill Objectives,
+                  COs, Content, Resources, Pedagogy, and PO Mappings. Basic Info
+                  fields stay manual. Existing entries are preserved (non-destructive).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <input
+                    ref={importInputRef}
+                    type="file"
+                    accept=".pdf,.docx,.xlsx,.xls"
+                    onChange={handleImportFile}
+                    disabled={isImporting}
+                    className="hidden"
+                    id="syllabus-import-input"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => importInputRef.current?.click()}
+                    disabled={isImporting}
+                    className="gap-2"
+                  >
+                    {isImporting ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Extracting…
+                      </>
+                    ) : (
+                      <>
+                        <FileText className="h-4 w-4" />
+                        Choose file (.pdf / .docx / .xlsx)
+                      </>
+                    )}
+                  </Button>
+                  <span className="text-xs text-muted-foreground">Max 10 MB</span>
+                </div>
+
+                {importSummary && (
+                  <Alert className="border-green-300 bg-green-50 dark:bg-green-950/30">
+                    <AlertDescription className="text-sm text-green-800 dark:text-green-200 flex items-start justify-between gap-2">
+                      <span>{importSummary}</span>
+                      <button
+                        type="button"
+                        onClick={() => setImportSummary(null)}
+                        className="text-green-700 hover:text-green-900 shrink-0"
+                        aria-label="Dismiss"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {importError && (
+                  <Alert variant="destructive">
+                    <AlertDescription className="text-sm flex items-start justify-between gap-2">
+                      <span>{importError}</span>
+                      <button
+                        type="button"
+                        onClick={() => setImportError(null)}
+                        className="shrink-0 hover:opacity-80"
+                        aria-label="Dismiss"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle>Course Information</CardTitle>
@@ -520,10 +915,26 @@ export function SyllabusForm({
                       updateField('contact_hours', Number(c.class_hours ?? (th + ph)));
                       validateCourseCode(course.course_code);
                     }}
-                    options={courseOptions.map((c) => ({
-                      value: c.course_code,
-                      label: `${c.course_code} — ${c.course_name || c.course_title || ''}`,
-                    }))}
+                    options={(() => {
+                      const opts = courseOptions.map((c) => ({
+                        value: c.course_code,
+                        label: `${c.course_code} — ${c.course_name || c.course_title || ''}`,
+                      }));
+                      // On edit, the courses list is filtered by institution + regulation
+                      // and may not include the saved row yet (or at all). Prepend a
+                      // synthetic option using the form's own course_code/name so the
+                      // disabled field still displays its saved value.
+                      if (
+                        formData.course_code &&
+                        !opts.some((o) => o.value === formData.course_code)
+                      ) {
+                        opts.unshift({
+                          value: formData.course_code,
+                          label: `${formData.course_code}${formData.course_name ? ` — ${formData.course_name}` : ''}`,
+                        });
+                      }
+                      return opts;
+                    })()}
                     placeholder={formData.institutions_id && regulation_code ? 'Select course' : 'Select institution & regulation first'}
                     searchPlaceholder='Search by code or name…'
                     loading={coursesLoading}
@@ -788,6 +1199,7 @@ export function SyllabusForm({
               <PoMappingsEditor
                 mappings={formData.po_mappings as BosPOMappingsData | undefined}
                 regulationId={formData.regulation_id || ''}
+                institutionsIds={formData.institutions_id || ''}
                 boardId={formData.board_id || ''}
                 courseOutcomes={((formData.course_learning_outcomes as any)?.clos ?? []) as BosCourseLearnOutcome[]}
                 onChange={(val) => updateField('po_mappings', val)}
@@ -808,6 +1220,7 @@ export function SyllabusForm({
           </Card>
         </TabsContent>
       </Tabs>
+      </fieldset>
 
       {(createMutation.error || updateMutation.error) && (
         <Alert variant="destructive" className="mt-4">
@@ -816,6 +1229,13 @@ export function SyllabusForm({
           </AlertDescription>
         </Alert>
       )}
+
+      <SyllabusImportIssuesDialog
+        open={importIssuesOpen}
+        onOpenChange={setImportIssuesOpen}
+        warnings={importWarnings}
+        summary={importCounts}
+      />
     </form>
   );
 }
@@ -1055,21 +1475,28 @@ function CloEditor({ clos, kValues, onChange }: any) {
 
 function ContentEditor({ content, onChange }: any) {
   const isPractical = !!content?.is_practical;
+  const isProject = !!content?.is_project;
   const units = content?.units || [];
-  const topics: { number: number; title: string }[] = content?.topics || [];
+  const topics: {
+    number: number;
+    title: string;
+    subtopics?: { number: number; title: string }[];
+  }[] = content?.topics || [];
+  const projectUnits = content?.project_units || [];
 
   // Migrate legacy single-letter unit IDs (A, B, C…) to Roman numerals (I, II, III…).
-  // Safe to re-run: Roman numerals don't match /^[A-Z]$/ so the effect is a no-op
-  // after the first conversion.
+  // The regex excludes I, V, X — those are valid Roman numerals already and must
+  // not be mistaken for legacy letters 9/22/24.
+  const LEGACY_LETTER = /^[A-HJ-UWY-Z]$/;
   useEffect(() => {
     if (!units.length) return;
-    const hasLegacyIds = units.some((u: any) => /^[A-Z]$/.test(u.unit_id));
+    const hasLegacyIds = units.some((u: any) => LEGACY_LETTER.test(u.unit_id));
     if (!hasLegacyIds) return;
     onChange({
       ...content,
       units: units.map((u: any) => ({
         ...u,
-        unit_id: /^[A-Z]$/.test(u.unit_id)
+        unit_id: LEGACY_LETTER.test(u.unit_id)
           ? (() => {
               const n = u.unit_id.charCodeAt(0) - 64; // A=1, B=2, …
               const vals = [10,9,5,4,1], syms = ['X','IX','V','IV','I'];
@@ -1083,26 +1510,38 @@ function ContentEditor({ content, onChange }: any) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const toggleMode = () => {
-    if (!isPractical) {
-      // Theory → Practical: collect all chapters from all units as flat topics
-      const allChapters = units.flatMap((u: any) => u.chapters || []);
-      const flatTopics = allChapters.map((ch: any, i: number) => ({
-        number: i + 1,
-        title: ch.title || '',
-      }));
-      onChange({ is_practical: true, topics: flatTopics.length > 0 ? flatTopics : [] });
-    } else {
-      // Practical → Theory: move topics back into a single unit
-      const chapters = topics.map((t, i) => ({
-        chapter_number: i + 1,
-        title: t.title,
-        sections: '',
-      }));
-      onChange({
-        is_practical: false,
-        units: [{ unit_id: 'A', unit_title: '', chapters }],
-      });
+  const switchToMode = (targetMode: 'theory' | 'practical' | 'project') => {
+    if (targetMode === 'theory' && !isPractical && !isProject) return;
+    if (targetMode === 'practical' && isPractical) return;
+    if (targetMode === 'project' && isProject) return;
+
+    if (targetMode === 'theory') {
+      // From Practical or Project → Theory
+      if (isPractical) {
+        const chapters = topics.map((t, i) => ({
+          chapter_number: i + 1,
+          title: t.title,
+          sections: '',
+        }));
+        onChange({ is_practical: false, is_project: false, units: [{ unit_id: 'I', unit_title: '', chapters }] });
+      } else {
+        onChange({ is_practical: false, is_project: false, units: projectUnits.length > 0 ? [{ unit_id: 'I', unit_title: '', chapters: [] }] : units });
+      }
+    } else if (targetMode === 'practical') {
+      // From Theory or Project → Practical
+      if (!isPractical && !isProject) {
+        const allChapters = units.flatMap((u: any) => u.chapters || []);
+        const flatTopics = allChapters.map((ch: any, i: number) => ({
+          number: i + 1,
+          title: ch.title || '',
+        }));
+        onChange({ is_practical: true, is_project: false, topics: flatTopics.length > 0 ? flatTopics : [] });
+      } else if (isProject) {
+        onChange({ is_practical: true, is_project: false, topics: [] });
+      }
+    } else if (targetMode === 'project') {
+      // From Theory or Practical → Project
+      onChange({ is_practical: false, is_project: true, project_units: [] });
     }
   };
 
@@ -1144,9 +1583,37 @@ function ContentEditor({ content, onChange }: any) {
     const newUnits = [...units];
     newUnits[unitIdx].chapters = [
       ...(newUnits[unitIdx].chapters || []),
-      { chapter_number: (newUnits[unitIdx].chapters?.length || 0) + 1, title: '', sections: '' },
+      { chapter_number: (newUnits[unitIdx].chapters?.length || 0) + 1, title: '', sections: '', subtopics: [] },
     ];
     onChange({ ...content, units: newUnits });
+  };
+
+  const addSubtopic = (unitIdx: number, chIdx: number) => {
+    const newChapters = [...(units[unitIdx].chapters || [])];
+    const existing = newChapters[chIdx].subtopics || [];
+    newChapters[chIdx] = {
+      ...newChapters[chIdx],
+      subtopics: [...existing, { number: existing.length + 1, title: '' }],
+    };
+    updateUnit(unitIdx, 'chapters', newChapters);
+  };
+
+  const updateSubtopic = (unitIdx: number, chIdx: number, stIdx: number, title: string) => {
+    const newChapters = [...(units[unitIdx].chapters || [])];
+    const subtopics = (newChapters[chIdx].subtopics || []).map((s: any, i: number) =>
+      i === stIdx ? { ...s, title } : s
+    );
+    newChapters[chIdx] = { ...newChapters[chIdx], subtopics };
+    updateUnit(unitIdx, 'chapters', newChapters);
+  };
+
+  const removeSubtopic = (unitIdx: number, chIdx: number, stIdx: number) => {
+    const newChapters = [...(units[unitIdx].chapters || [])];
+    const subtopics = (newChapters[chIdx].subtopics || [])
+      .filter((_: any, i: number) => i !== stIdx)
+      .map((s: any, i: number) => ({ ...s, number: i + 1 }));
+    newChapters[chIdx] = { ...newChapters[chIdx], subtopics };
+    updateUnit(unitIdx, 'chapters', newChapters);
   };
 
   const addTopic = () => {
@@ -1167,6 +1634,82 @@ function ContentEditor({ content, onChange }: any) {
     onChange({ ...content, topics: updated });
   };
 
+  const addPracticalSubtopic = (topicIdx: number) => {
+    const updated = topics.map((t, i) => {
+      if (i !== topicIdx) return t;
+      const existing = t.subtopics ?? [];
+      return { ...t, subtopics: [...existing, { number: existing.length + 1, title: '' }] };
+    });
+    onChange({ ...content, topics: updated });
+  };
+
+  const updatePracticalSubtopic = (topicIdx: number, stIdx: number, title: string) => {
+    const updated = topics.map((t, i) => {
+      if (i !== topicIdx) return t;
+      const subs = (t.subtopics ?? []).map((s, j) => (j === stIdx ? { ...s, title } : s));
+      return { ...t, subtopics: subs };
+    });
+    onChange({ ...content, topics: updated });
+  };
+
+  const removePracticalSubtopic = (topicIdx: number, stIdx: number) => {
+    const updated = topics.map((t, i) => {
+      if (i !== topicIdx) return t;
+      const subs = (t.subtopics ?? [])
+        .filter((_, j) => j !== stIdx)
+        .map((s, j) => ({ ...s, number: j + 1 }));
+      return { ...t, subtopics: subs };
+    });
+    onChange({ ...content, topics: updated });
+  };
+
+  // Project mode helpers
+  const addProjectUnit = () => {
+    onChange({
+      ...content,
+      project_units: [...projectUnits, { unit_id: toRoman(projectUnits.length + 1), unit_title: '', rules: [], remarks: '' }],
+    });
+  };
+
+  const removeProjectUnit = (idx: number) => {
+    const updated = projectUnits
+      .filter((_: any, i: number) => i !== idx)
+      .map((u: any, i: number) => ({ ...u, unit_id: toRoman(i + 1) }));
+    onChange({ ...content, project_units: updated });
+  };
+
+  const updateProjectUnit = (idx: number, field: string, value: any) => {
+    onChange({
+      ...content,
+      project_units: projectUnits.map((u: any, i: number) =>
+        i === idx ? { ...u, [field]: value } : u
+      ),
+    });
+  };
+
+  const addProjectRule = (unitIdx: number) => {
+    const newUnits = [...projectUnits];
+    newUnits[unitIdx].rules = [
+      ...(newUnits[unitIdx].rules || []),
+      { unit_of_experiment: '', content: '' },
+    ];
+    onChange({ ...content, project_units: newUnits });
+  };
+
+  const updateProjectRule = (unitIdx: number, ruleIdx: number, field: string, value: string) => {
+    const newUnits = [...projectUnits];
+    const rules = newUnits[unitIdx].rules || [];
+    rules[ruleIdx] = { ...rules[ruleIdx], [field]: value };
+    newUnits[unitIdx].rules = rules;
+    onChange({ ...content, project_units: newUnits });
+  };
+
+  const removeProjectRule = (unitIdx: number, ruleIdx: number) => {
+    const newUnits = [...projectUnits];
+    newUnits[unitIdx].rules = (newUnits[unitIdx].rules || []).filter((_: any, i: number) => i !== ruleIdx);
+    onChange({ ...content, project_units: newUnits });
+  };
+
   return (
     <div className="space-y-4">
       {/* ── Mode toggle ────────────────────────────────────────────── */}
@@ -1175,9 +1718,9 @@ function ContentEditor({ content, onChange }: any) {
         <div className="flex rounded-lg border bg-muted/40 p-0.5 text-sm gap-0.5">
           <button
             type="button"
-            onClick={() => isPractical && toggleMode()}
+            onClick={() => switchToMode('theory')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all text-xs font-medium ${
-              !isPractical
+              !isPractical && !isProject
                 ? 'bg-white dark:bg-card shadow-sm text-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
@@ -1187,7 +1730,7 @@ function ContentEditor({ content, onChange }: any) {
           </button>
           <button
             type="button"
-            onClick={() => !isPractical && toggleMode()}
+            onClick={() => switchToMode('practical')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all text-xs font-medium ${
               isPractical
                 ? 'bg-white dark:bg-card shadow-sm text-foreground'
@@ -1197,27 +1740,184 @@ function ContentEditor({ content, onChange }: any) {
             <FlaskConical className="h-3.5 w-3.5" />
             Practical
           </button>
+          <button
+            type="button"
+            onClick={() => switchToMode('project')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all text-xs font-medium ${
+              isProject
+                ? 'bg-white dark:bg-card shadow-sm text-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <BookOpen className="h-3.5 w-3.5" />
+            Project
+          </button>
         </div>
       </div>
 
-      {isPractical ? (
+      {isProject ? (
+        /* ── Project mode ────────────────────────────────────────── */
+        <div className="space-y-3">
+          {projectUnits.map((unit: any, unitIdx: number) => (
+            <div key={unitIdx} className="rounded-xl border bg-card overflow-hidden shadow-sm">
+              {/* Unit header */}
+              <div className="flex items-center gap-3 bg-primary/5 dark:bg-primary/10 border-b px-4 py-3">
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-primary/70">Unit</span>
+                  <span className="inline-flex h-7 min-w-[2.5rem] items-center justify-center px-1 text-base font-bold text-primary tabular-nums">
+                    {unit.unit_id || toRoman(unitIdx + 1)}
+                  </span>
+                </div>
+                <div className="h-5 w-px bg-primary/20" />
+                <Input
+                  placeholder="Unit Title (e.g., Timeline & Submission)"
+                  value={unit.unit_title}
+                  onChange={(e) => updateProjectUnit(unitIdx, 'unit_title', e.target.value)}
+                  className="h-7 flex-1 border-0 bg-transparent px-0 text-sm font-semibold focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/50"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeProjectUnit(unitIdx)}
+                  className="ml-auto rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                  title="Remove unit"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              {/* Rules */}
+              <div className="px-4 py-3 space-y-2">
+                {unit.rules?.map((rule: any, ruleIdx: number) => (
+                  <div key={ruleIdx} className="space-y-2 p-3 rounded-lg border bg-muted/30">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Unit of Experiment</span>
+                      <Input
+                        placeholder="e.g., Project Assignment & Submission"
+                        value={rule.unit_of_experiment || ''}
+                        onChange={(e) => updateProjectRule(unitIdx, ruleIdx, 'unit_of_experiment', e.target.value)}
+                        className="flex-1 h-8 text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeProjectRule(unitIdx, ruleIdx)}
+                        className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                        title="Remove rule"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <Textarea
+                      placeholder="Rule content/guideline (the paragraph from the PDF)"
+                      value={rule.content || ''}
+                      onChange={(e) => updateProjectRule(unitIdx, ruleIdx, 'content', e.target.value)}
+                      rows={3}
+                      className="text-sm bg-transparent border-muted resize-none"
+                    />
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={() => addProjectRule(unitIdx)}
+                  className="flex items-center gap-1.5 rounded-md border border-dashed px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors mt-1"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add Rule
+                </button>
+              </div>
+
+              {/* Remarks */}
+              <div className="px-4 pb-4">
+                <div className="rounded-lg bg-muted/40 p-3 space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <BookOpen className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Remarks</span>
+                  </div>
+                  <Textarea
+                    placeholder="Additional notes or remarks for this unit"
+                    value={unit.remarks || ''}
+                    onChange={(e) => updateProjectUnit(unitIdx, 'remarks', e.target.value)}
+                    rows={2}
+                    className="text-xs bg-transparent border-muted resize-none"
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+
+          <button
+            type="button"
+            onClick={addProjectUnit}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed py-3 text-sm font-medium text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors"
+          >
+            <Plus className="h-4 w-4" /> Add Unit
+          </button>
+
+          {/* Instructions */}
+          <div className="px-4 py-3 space-y-2">
+            <Textarea
+              placeholder="General instructions or guidelines for the project work"
+              value={content.instruction || ''}
+              onChange={(e) => onChange({ ...content, instruction: e.target.value })}
+              rows={3}
+              className="text-sm bg-transparent border-muted resize-none"
+            />
+          </div>
+        </div>
+      ) : isPractical ? (
         /* ── Practical mode ──────────────────────────────────────── */
         <div className="space-y-2">
           {topics.map((topic, idx) => (
-            <div key={idx} className="flex items-start gap-2.5">
+            <div key={idx} className="flex items-start gap-2.5 group">
               <span className="mt-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">
                 {topic.number}
               </span>
-              <MathInput
-                placeholder="Topic title"
-                value={topic.title}
-                onChange={(v) => updateTopic(idx, v)}
-                className="flex-1 text-sm"
-              />
+              <div className="flex-1 space-y-1">
+                <MathInput
+                  placeholder="Topic heading (e.g. MAJOR PRACTICALS)"
+                  value={topic.title}
+                  onChange={(v) => updateTopic(idx, v)}
+                  className="text-sm"
+                />
+
+                {/* Sub-topics — mirror of theory-mode subtopic block */}
+                {(topic.subtopics?.length ?? 0) > 0 && (
+                  <div className="mt-2 ml-3 space-y-1.5 border-l-2 border-muted pl-3">
+                    {topic.subtopics!.map((st, stIdx) => (
+                      <div key={stIdx} className="flex items-start gap-2 group/sub">
+                        <span className="mt-1.5 shrink-0 text-[10px] font-semibold text-muted-foreground tabular-nums">
+                          {topic.number}.{st.number}
+                        </span>
+                        <MathInput
+                          placeholder="Sub-topic title"
+                          value={st.title}
+                          onChange={(v) => updatePracticalSubtopic(idx, stIdx, v)}
+                          className="flex-1 text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removePracticalSubtopic(idx, stIdx)}
+                          className="mt-1 rounded p-0.5 text-muted-foreground opacity-0 group-hover/sub:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all"
+                          title="Remove sub-topic"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => addPracticalSubtopic(idx)}
+                  className="mt-1 inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors"
+                >
+                  <Plus className="h-3 w-3" /> Add Sub-topic
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={() => removeTopic(idx)}
-                className="mt-2 rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                className="mt-2 rounded p-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all"
+                title="Remove topic"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -1236,16 +1936,16 @@ function ContentEditor({ content, onChange }: any) {
         <div className="space-y-3">
           {units.map((unit: any, unitIdx: number) => (
             <div key={unitIdx} className="rounded-xl border bg-card overflow-hidden shadow-sm">
-              {/* Unit header */}
+              {/* Unit header — unit_id is auto-generated (I, II, III …) and read-only. */}
               <div className="flex items-center gap-3 bg-primary/5 dark:bg-primary/10 border-b px-4 py-3">
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="text-[10px] font-bold uppercase tracking-widest text-primary/70">Unit</span>
-                  <Input
-                    value={unit.unit_id}
-                    onChange={(e) => updateUnit(unitIdx, 'unit_id', e.target.value)}
-                    maxLength={6}
-                    className="h-7 w-14 border-0 bg-transparent p-0 text-center text-base font-bold text-primary focus-visible:ring-0 focus-visible:ring-offset-0"
-                  />
+                  <span
+                    className="inline-flex h-7 min-w-[2.5rem] items-center justify-center px-1 text-base font-bold text-primary tabular-nums"
+                    aria-label={`Unit ${unit.unit_id || toRoman(unitIdx + 1)}`}
+                  >
+                    {unit.unit_id || toRoman(unitIdx + 1)}
+                  </span>
                 </div>
                 <div className="h-5 w-px bg-primary/20" />
                 <Input
@@ -1292,6 +1992,40 @@ function ContentEditor({ content, onChange }: any) {
                         }}
                         className="h-7 text-xs text-muted-foreground bg-muted/30 border-muted"
                       />
+
+                      {/* Sub-topics */}
+                      {(ch.subtopics?.length ?? 0) > 0 && (
+                        <div className="mt-2 ml-3 space-y-1.5 border-l-2 border-muted pl-3">
+                          {ch.subtopics.map((st: any, stIdx: number) => (
+                            <div key={stIdx} className="flex items-start gap-2 group/sub">
+                              <span className="mt-1.5 shrink-0 text-[10px] font-semibold text-muted-foreground tabular-nums">
+                                {ch.chapter_number}.{st.number}
+                              </span>
+                              <MathInput
+                                placeholder="Sub-topic title"
+                                value={st.title}
+                                onChange={(v) => updateSubtopic(unitIdx, chIdx, stIdx, v)}
+                                className="flex-1 text-xs"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeSubtopic(unitIdx, chIdx, stIdx)}
+                                className="mt-1 rounded p-0.5 text-muted-foreground opacity-0 group-hover/sub:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all"
+                                title="Remove sub-topic"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => addSubtopic(unitIdx, chIdx)}
+                        className="mt-1 inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors"
+                      >
+                        <Plus className="h-3 w-3" /> Add Sub-topic
+                      </button>
                     </div>
                     <button
                       type="button"
@@ -1343,6 +2077,17 @@ function ContentEditor({ content, onChange }: any) {
           >
             <Plus className="h-4 w-4" /> Add Unit
           </button>
+
+          {/* Instructions — displayed after all units */}
+          <div className="px-4 py-3 space-y-2">
+            <Textarea
+              placeholder="e.g. Important instructions for students, teaching guidance, special notes about this course content"
+              value={content.instruction || ''}
+              onChange={(e) => onChange({ ...content, instruction: e.target.value })}
+              rows={3}
+              className="text-sm bg-transparent border-muted resize-none"
+            />
+          </div>
         </div>
       )}
     </div>
@@ -1659,17 +2404,22 @@ type AlignmentLevel = '' | 'L' | 'M' | 'H';
 interface PoMappingsEditorProps {
   mappings: BosPOMappingsData | undefined;
   regulationId: string;
+  institutionsIds: string;
   boardId: string;
   courseOutcomes: BosCourseLearnOutcome[];
   onChange: (val: BosPOMappingsData) => void;
 }
 
-function PoMappingsEditor({ mappings, regulationId, boardId, courseOutcomes, onChange }: PoMappingsEditorProps) {
+function PoMappingsEditor({ mappings, regulationId, institutionsIds, boardId, courseOutcomes, onChange }: PoMappingsEditorProps) {
   const [programmes, setProgrammes] = useState<BosBoardProgramme[]>([]);
   const [selectedProgramme, setSelectedProgramme] = useState('');
   const [pos, setPos] = useState<BosProgrammeOutcome[]>([]);
   const [psos, setPsos] = useState<BosProgrammeSpecificOutcome[]>([]);
   const [loadingPos, setLoadingPos] = useState(false);
+
+  // Expand institution_id to full CAS pair (Aided + Self) if needed
+  const scope = useBosInstitutionScope(institutionsIds || null);
+  const resolvedInstitutionsIds = scope.csv;
 
   // Derive the CO→outcome→level matrix directly from the mappings prop.
   // No separate matrix state — avoids stale state when parent re-renders.
@@ -1726,15 +2476,18 @@ function PoMappingsEditor({ mappings, regulationId, boardId, courseOutcomes, onC
   // Fetch POs + PSOs for the selected programme
   useEffect(() => {
     if (!regulationId || !selectedProgramme) { setPos([]); setPsos([]); return; }
+    // Don't fetch until institution scope is resolved (csv is null while loading)
+    if (scope.isLoading) return;
     setLoadingPos(true);
+    const qs = resolvedInstitutionsIds ? `?institutionsIds=${encodeURIComponent(resolvedInstitutionsIds)}` : '';
     Promise.all([
-      fetch(`/api/bos/taxonomy/${regulationId}/programmes/${selectedProgramme}/pos`).then(r => r.json()),
-      fetch(`/api/bos/taxonomy/${regulationId}/programmes/${selectedProgramme}/psos`).then(r => r.json()),
+      fetch(`/api/bos/taxonomy/${regulationId}/programmes/${selectedProgramme}/pos${qs}`).then(r => r.json()),
+      fetch(`/api/bos/taxonomy/${regulationId}/programmes/${selectedProgramme}/psos${qs}`).then(r => r.json()),
     ])
       .then(([posRes, psosRes]) => { setPos(posRes.data ?? []); setPsos(psosRes.data ?? []); })
       .catch(() => { setPos([]); setPsos([]); })
       .finally(() => setLoadingPos(false));
-  }, [regulationId, selectedProgramme]);
+  }, [regulationId, selectedProgramme, resolvedInstitutionsIds, scope.isLoading]);
 
   const handleCellClick = (coCode: string, outcomeCode: string) => {
     const current: AlignmentLevel = matrix[coCode]?.[outcomeCode] ?? '';

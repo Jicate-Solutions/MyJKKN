@@ -33,6 +33,7 @@ const SOURCE_COLORS: Record<string, string> = {
   youtube_ads: '#e11d48',
   admission_form: '#84cc16',
   publisher: '#0ea5e9',
+  learner_creator_content: '#d946ef',
   other: '#9ca3af',
   unknown: '#d1d5db',
 };
@@ -48,7 +49,11 @@ function sourceLabel(source: string | null): string {
   return source.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-// Aggregate enrolled counts by source across all institutions
+// 2026-05-20: All aggregations renamed from 'enrolled' → 'admitted' to track
+// the new workflow semantics. The underlying RPC's enrolled_count column was
+// narrowed to lifecycle_status IN ('admitted', 'active') in the same rollout.
+
+// Aggregate admitted counts by source across all institutions
 function aggregateBySource(rows: SourceAnalyticsRow[]) {
   const map = new Map<string, number>();
   for (const r of rows) {
@@ -60,21 +65,21 @@ function aggregateBySource(rows: SourceAnalyticsRow[]) {
     .sort((a, b) => b.value - a.value);
 }
 
-// Aggregate by referral_type (consultant/student/faculty) for enrolled
+// Aggregate by referral_type (consultant/student/faculty) for admitted
 function aggregateByReferralType(rows: SourceAnalyticsRow[]) {
-  const map = new Map<string, { leads: number; enrolled: number }>();
+  const map = new Map<string, { leads: number; admitted: number }>();
   for (const r of rows) {
     if (!r.referral_type) continue;
-    const cur = map.get(r.referral_type) ?? { leads: 0, enrolled: 0 };
+    const cur = map.get(r.referral_type) ?? { leads: 0, admitted: 0 };
     cur.leads += Number(r.lead_count);
-    cur.enrolled += Number(r.enrolled_count);
+    cur.admitted += Number(r.enrolled_count);
     map.set(r.referral_type, cur);
   }
   return [...map.entries()].map(([type, v]) => ({
     name: REFERRAL_LABELS[type] ?? type,
     leads: v.leads,
-    enrolled: v.enrolled,
-    rate: v.leads > 0 ? Math.round((v.enrolled / v.leads) * 100) : 0,
+    admitted: v.admitted,
+    rate: v.leads > 0 ? Math.round((v.admitted / v.leads) * 100) : 0,
   }));
 }
 
@@ -131,8 +136,10 @@ export function SourceAnalyticsTab({ institutionIds, programStartYear }: SourceA
   const { institutions, sources } = buildMatrix(rows);
 
   const totalLeads = rows.reduce((s, r) => s + Number(r.lead_count), 0);
-  const totalEnrolled = rows.reduce((s, r) => s + Number(r.enrolled_count), 0);
-  const overallConversion = totalLeads > 0 ? Math.round((totalEnrolled / totalLeads) * 100 * 10) / 10 : 0;
+  // 2026-05-20: totalAdmitted sums enrolled_count which the RPC now defines as
+  // lifecycle_status IN ('admitted','active') — i.e., the cohort that "got admitted".
+  const totalAdmitted = rows.reduce((s, r) => s + Number(r.enrolled_count), 0);
+  const overallConversion = totalLeads > 0 ? Math.round((totalAdmitted / totalLeads) * 100 * 10) / 10 : 0;
 
   return (
     <div className="space-y-4">
@@ -140,8 +147,8 @@ export function SourceAnalyticsTab({ institutionIds, programStartYear }: SourceA
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {[
           { label: 'Total Leads', value: totalLeads.toLocaleString() },
-          { label: 'Enrolled', value: totalEnrolled.toLocaleString() },
-          { label: 'Conversion', value: `${overallConversion}%` },
+          { label: 'Admitted',    value: totalAdmitted.toLocaleString() },
+          { label: 'Conversion',  value: `${overallConversion}%` },
         ].map((s) => (
           <Card key={s.label}>
             <CardContent className="p-3 text-center">
@@ -153,10 +160,10 @@ export function SourceAnalyticsTab({ institutionIds, programStartYear }: SourceA
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Pie chart: enrolled by source */}
+        {/* Pie chart: admitted by source */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Enrollments by Source</CardTitle>
+            <CardTitle className="text-sm font-medium">Admitted by Source</CardTitle>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={220}>
@@ -175,7 +182,7 @@ export function SourceAnalyticsTab({ institutionIds, programStartYear }: SourceA
                     <Cell key={i} fill={SOURCE_COLORS[entry.source] ?? '#9ca3af'} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(v) => [v, 'Enrolled']} />
+                <Tooltip formatter={(v) => [v, 'Admitted']} />
               </PieChart>
             </ResponsiveContainer>
           </CardContent>
@@ -194,8 +201,8 @@ export function SourceAnalyticsTab({ institutionIds, programStartYear }: SourceA
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip />
-                  <Bar dataKey="leads" name="Leads" fill="#e5e7eb" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="enrolled" name="Enrolled" fill="#8b5cf6" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="leads"    name="Leads"    fill="#e5e7eb" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="admitted" name="Admitted" fill="#8b5cf6" radius={[2, 2, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
               <div className="flex gap-3 justify-center mt-2">
@@ -215,7 +222,7 @@ export function SourceAnalyticsTab({ institutionIds, programStartYear }: SourceA
       {institutions.length > 1 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Enrollment Matrix: Institution × Source</CardTitle>
+            <CardTitle className="text-sm font-medium">Admitted Matrix: Institution × Source</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-auto max-h-[320px]">

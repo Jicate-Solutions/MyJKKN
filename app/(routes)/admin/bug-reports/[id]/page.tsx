@@ -212,7 +212,7 @@ export default function BugReportDetailsPage() {
         toast.success(`Report status changed to ${status.replace(/_/g, ' ')}.`);
       }
     } catch (err: any) {
-      toast.error('Could not update the report status.');
+      toast.error(err?.message || 'Could not update the report status.');
     }
   };
 
@@ -303,7 +303,7 @@ export default function BugReportDetailsPage() {
 
   if (isLoading) {
     return (
-      <AdminPermissionGuard>
+      <AdminPermissionGuard adminRoles={['super_admin', 'administrator', 'ceo']}>
         <ContentLayout title='Bug Report Details'>
           <LoadingSkeleton />
         </ContentLayout>
@@ -313,7 +313,7 @@ export default function BugReportDetailsPage() {
 
   if (error) {
     return (
-      <AdminPermissionGuard>
+      <AdminPermissionGuard adminRoles={['super_admin', 'administrator', 'ceo']}>
         <ContentLayout title='Bug Report Details'>
           <div className='flex flex-col items-center justify-center py-12'>
             <Bug className='w-16 h-16 text-muted-foreground mb-4' />
@@ -338,7 +338,7 @@ export default function BugReportDetailsPage() {
 
   if (!report) {
     return (
-      <AdminPermissionGuard>
+      <AdminPermissionGuard adminRoles={['super_admin', 'administrator', 'ceo']}>
         <ContentLayout title='Bug Report Details'>
           <div className='flex flex-col items-center justify-center py-12'>
             <Bug className='w-16 h-16 text-muted-foreground mb-4' />
@@ -358,7 +358,7 @@ export default function BugReportDetailsPage() {
   }
 
   return (
-    <AdminPermissionGuard>
+    <AdminPermissionGuard adminRoles={['super_admin', 'administrator', 'ceo']}>
       <ContentLayout title='Bug Report Details'>
         <div className='space-y-6'>
           {/* Header with Breadcrumbs and Back Button */}

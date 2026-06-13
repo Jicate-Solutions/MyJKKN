@@ -15,6 +15,7 @@ const PUBLIC_PATHS_SET = new Set([
   '/auth/complete-profile',
   '/auth/test-login', // Dev-only test login page for role permission testing
   '/auth/lti-login', // Feature-flagged email+password login for MathWorks LTI integration testing
+  '/auth/audit-login', // Feature-flagged email+password login for the Razorpay payment-gateway audit
   '/auth/dev-login', // Dev-only magic-link exchange (gated by NEXT_PUBLIC_ENABLE_DEV_LOGIN)
   '/unauthorized',
   '/students/onboarding', // Add onboarding path for pending students
@@ -25,6 +26,10 @@ const PUBLIC_PATHS_SET = new Set([
   '/browserconfig.xml',
   '/pwa-test.html',
   '/refer', // Agent referral form — public, no login
+  '/privacy', // Privacy Policy — public, required for Meta App Review
+  '/terms', // Terms of Use — public, required for Meta App Review
+  '/data-deletion', // Data Deletion instructions — public, required for Meta App Review
+  '/meet', // Universal Booking directory — public, no login (U4)
   '/api/admission/leads/refer', // Agent referral API
   '/api/admission/leads/inbound' // Inbound webhook API
 ]);
@@ -32,6 +37,14 @@ const PUBLIC_PATHS_SET = new Set([
 // Public path prefixes (for dynamic routes like /apply/[slug])
 const PUBLIC_PATH_PREFIXES = [
   '/apply/', // Public admission form builder pages — no login
+  '/book/', // Public routed-booking pages (/book/[slug]) — no login (Path W #10)
+  '/meet/', // Universal Booking personal pages (/meet/[handle]) — no login (U4)
+  '/c/', // Public campaign link shortener pages — no login
+  '/student-form/', // Student self-fill form via QR (token-validated server-side) — no login
+  '/m/', // Family Moments gift cards (/m/[token]) — parent-facing, no login (Father's Day 2026).
+  //        NOTE: deliberately NOT '/moments/' — that prefix is the AUTHENTICATED
+  //        teacher/admin module (submit, campaigns) and must stay behind login.
+  '/api/public/moments/', // Family Moments engagement tracking — token-keyed, no login
 ];
 
 // Regex for static assets - single check instead of multiple endsWith
@@ -132,20 +145,39 @@ export async function proxy(request: NextRequest) {
             return cookie?.value ?? '';
           },
           async set(name: string, value: string, options: CookieOptions) {
-            res.cookies.set({ name, value });
+            // CRITICAL: forward Supabase's cookie options (maxAge, path,
+            // sameSite, secure) verbatim. Dropping them downgrades the
+            // persistent auth cookie to a session cookie on every token
+            // refresh, which is why iOS PWA users were logged out on every
+            // app-close. Sister code in lib/supabase/server.ts already does
+            // this correctly — proxy.ts was the outlier.
+            res.cookies.set({ name, value, ...options });
           },
           async remove(name: string, options: CookieOptions) {
-            res.cookies.delete(name);
+            // Match Supabase's expected delete semantics: write an empty
+            // value with maxAge: 0 carrying the same path/domain so the
+            // browser actually evicts the cookie scope-correctly.
+            res.cookies.set({ name, value: '', ...options, maxAge: 0 });
           }
         }
       }
     );
 
-    // Get and verify user - this sends a request to Supabase Auth server every time
+    // Get and verify user - this sends a request to Supabase Auth server every time.
+    // Mobile networks (LTE handoffs, cell switches, weak signal) routinely produce
+    // a single transient 5xx or network error here. Without a retry, that one
+    // failure logs the user out. Match the profile-fetch retry pattern below
+    // (single retry after 200 ms) — cheap, bounded, eliminates the largest class
+    // of "logged out for no reason" mobile failures.
+    let authResult = await supabase.auth.getUser();
+    if (authResult.error && !authResult.data.user) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      authResult = await supabase.auth.getUser();
+    }
     const {
       data: { user },
       error: userError
-    } = await supabase.auth.getUser();
+    } = authResult;
 
     if (userError) {
       // FIXED: Clear stale profile cache on auth error to prevent stuck loading states
@@ -431,6 +463,6 @@ export const config = {
     '/guest/:path*',
     '/driver/:path*',
     // Match all paths except public ones
-    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|auth/test-login|auth/lti-login|auth/dev-login|icons|pwa-test.html).*)'
+    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|auth/test-login|auth/lti-login|auth/audit-login|auth/dev-login|icons|pwa-test.html).*)'
   ]
 };

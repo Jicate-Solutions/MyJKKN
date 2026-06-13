@@ -213,37 +213,81 @@ export function ReservationInfo({ reservation }: ReservationInfoProps) {
             User Information
           </CardTitle>
         </CardHeader>
-        <CardContent className='space-y-3'>
-          <div className='flex items-center justify-between'>
-            <p className='text-sm text-muted-foreground'>Reserved By</p>
-            <p className='text-sm font-medium'>
-              {reservation.user?.full_name || 'Unknown'}
-            </p>
+        <CardContent className='space-y-4'>
+          {/* Reserved By — primary */}
+          <div className='flex items-center gap-3 rounded-lg border p-3 bg-muted/30'>
+            <div className='flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10'>
+              <User className='h-5 w-5 text-primary' />
+            </div>
+            <div className='flex-1 min-w-0'>
+              <p className='text-xs text-muted-foreground'>Reserved By</p>
+              <p className='text-sm font-semibold truncate'>
+                {reservation.user?.full_name || 'Unknown'}
+              </p>
+              {reservation.user?.email && (
+                <p className='text-xs text-muted-foreground truncate'>
+                  {reservation.user.email}
+                </p>
+              )}
+              {(reservation.user as any)?.phone_number && (
+                <p className='text-xs text-muted-foreground'>
+                  {(reservation.user as any).phone_number}
+                </p>
+              )}
+            </div>
           </div>
+
+          {/* Approved / Rejected By */}
           {reservation.approved_by && (
-            <div className='flex items-center justify-between'>
-              <p className='text-sm text-muted-foreground'>Approved By</p>
+            <div className='flex items-center justify-between py-1'>
+              <p className='text-sm text-muted-foreground'>
+                {reservation.status === 'rejected' ? 'Rejected By' : 'Approved By'}
+              </p>
               <p className='text-sm font-medium'>
                 {reservation.approver?.full_name || 'Unknown'}
               </p>
             </div>
           )}
+
+          {/* Checked In By */}
           {reservation.checked_in_by && (
-            <div className='flex items-center justify-between'>
+            <div className='flex items-center justify-between py-1'>
               <p className='text-sm text-muted-foreground'>Checked In By</p>
               <p className='text-sm font-medium'>
                 {reservation.checked_in_user?.full_name || 'Unknown'}
               </p>
             </div>
           )}
+
+          {/* Checked Out By */}
           {reservation.checked_out_by && (
-            <div className='flex items-center justify-between'>
+            <div className='flex items-center justify-between py-1'>
               <p className='text-sm text-muted-foreground'>Checked Out By</p>
               <p className='text-sm font-medium'>
                 {reservation.checked_out_user?.full_name || 'Unknown'}
               </p>
             </div>
           )}
+
+          {/* Timestamps */}
+          <div className='border-t pt-3 space-y-2'>
+            <div className='flex items-center justify-between'>
+              <p className='text-xs text-muted-foreground'>Created At</p>
+              <p className='text-xs font-medium'>
+                {formatDateTime(reservation.created_at)}
+              </p>
+            </div>
+            {reservation.approved_at && (
+              <div className='flex items-center justify-between'>
+                <p className='text-xs text-muted-foreground'>
+                  {reservation.status === 'rejected' ? 'Rejected At' : 'Approved At'}
+                </p>
+                <p className='text-xs font-medium'>
+                  {formatDateTime(reservation.approved_at)}
+                </p>
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
 

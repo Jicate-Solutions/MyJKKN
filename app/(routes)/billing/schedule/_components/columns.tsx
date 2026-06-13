@@ -5,6 +5,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { StudentBill } from '@/types/billing-schedule';
 import { Badge } from '@/components/ui/badge';
+import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
+import type { LifecycleStatus } from '@/types/learner-profile';
 import { format } from 'date-fns';
 import { DataTableRowActions } from './row-actions';
 import Link from 'next/link';
@@ -40,7 +42,8 @@ export const columns: ColumnDef<StudentBill>[] = [
       />
     ),
     enableSorting: false,
-    enableHiding: false
+    enableHiding: false,
+    enableResizing: false
   },
   {
     accessorKey: 'student',
@@ -181,6 +184,22 @@ export const columns: ColumnDef<StudentBill>[] = [
     }
   },
   {
+    accessorKey: 'academic_year',
+    id: 'academic_year',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Academic Year' />
+    ),
+    size: 140,
+    minSize: 120,
+    maxSize: 160,
+    cell: ({ row }) => (
+      <span className='text-sm'>
+        {row.original.academic_year?.academic_year_name ?? 'Unspecified'}
+      </span>
+    ),
+    enableSorting: false
+  },
+  {
     accessorKey: 'final_amount',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Amount' />
@@ -243,6 +262,26 @@ export const columns: ColumnDef<StudentBill>[] = [
       return value.includes(row.getValue(id));
     }
   },
+  {
+    accessorKey: 'lifecycle_status',
+    id: 'lifecycle_status',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Learner Status' />
+    ),
+    size: 140,
+    minSize: 120,
+    maxSize: 170,
+    cell: ({ row }) => {
+      const status = row.original.student?.lifecycle_status;
+      if (!status) {
+        return <span className='text-sm text-muted-foreground'>—</span>;
+      }
+      return <LifecycleStatusBadge status={status as LifecycleStatus} />;
+    },
+    // lifecycle_status lives on the embedded learner, not on the bill row, so
+    // server-side ordering by it isn't wired — keep it unsortable.
+    enableSorting: false
+  },
 
   {
     accessorKey: 'created_at',
@@ -263,6 +302,7 @@ export const columns: ColumnDef<StudentBill>[] = [
     cell: ({ row }) => <DataTableRowActions row={row} />,
     enableSorting: false,
     enableHiding: false,
+    enableResizing: false,
     size: 60,
     minSize: 60,
     maxSize: 80

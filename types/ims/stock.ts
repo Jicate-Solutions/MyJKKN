@@ -7,6 +7,8 @@ export type ImsLocationType = 'central_store' | 'department';
 export interface ImsStockSummary {
   id: string;
   item_id: string;
+  /** Quantity recorded at item-creation time ("Opening stock" batch). Admin-manageable via ImsStockService.updateOpeningQuantity. */
+  opening_quantity: number;
   current_quantity: number;
   reserved_quantity: number;
   available_quantity: number;

@@ -23,6 +23,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
 import Loading from '@/components/Loading/Loading';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface TimetableConflict {
   timetable_id: string;
@@ -58,6 +59,7 @@ export default function TimetableConflictsPage() {
 
   const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
   const { getAllStaffConflicts, syncStaffAssignment } = useTimetables();
+  const adapt = useAdaptiveLabels();
 
   // Check super admin permissions
   useEffect(() => {
@@ -676,7 +678,7 @@ export default function TimetableConflictsPage() {
                     Missing Staff Plans ({conflictsByType.NO_STAFF_PLAN.length})
                   </CardTitle>
                   <p className='text-sm text-muted-foreground'>
-                    Courses in timetables that don&apos;t have staff planning
+                    {adapt('Courses')} in timetables that don&apos;t have staff planning
                     configured
                   </p>
                   <div className='flex gap-2 flex-wrap'>

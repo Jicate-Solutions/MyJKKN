@@ -101,9 +101,9 @@ export function ReceiptActionsClient({
   return (
     <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center'>
       <Button variant='outline' size='sm' asChild>
-        <Link href='/billing/receipts'>
+        <Link href={`/billing/schedule/students/${receipt.student_id}`}>
           <ArrowLeft className='mr-2 h-4 w-4' />
-          Back to Receipts
+          Back to Student Bills
         </Link>
       </Button>
 

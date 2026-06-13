@@ -7,9 +7,15 @@
  *
  * Auth is NOT checked here — each page.tsx handles its own auth. This avoids
  * double getEnhancedUserProfile() calls which fail in Next.js 16 Turbopack.
+ *
+ * Exception: CampusLivingResidentGuard (a client child using React-Query-cached
+ * auth/permissions, NOT getEnhancedUserProfile) confines student-role users to
+ * /campus-living/my-hostel/* — hard-blocking the admin/operational pages even on
+ * a manually-typed URL. Staff and non-student roles are unaffected.
  */
 
 import { Suspense } from 'react';
+import { CampusLivingResidentGuard } from './_components/resident-route-guard';
 
 interface CLLayoutProps {
   children: React.ReactNode;
@@ -25,7 +31,7 @@ export default function CampusLivingLayout({ children }: CLLayoutProps) {
           </div>
         }
       >
-        {children}
+        <CampusLivingResidentGuard>{children}</CampusLivingResidentGuard>
       </Suspense>
     </div>
   );

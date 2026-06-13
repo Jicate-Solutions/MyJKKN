@@ -9,6 +9,9 @@
 
 import { useState } from 'react';
 import { format } from 'date-fns';
+import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
+import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
+import { useActiveRoutes, useRouteStops } from '@/hooks/tms/use-route-lookup';
 import {
   UserCheck,
   GraduationCap,
@@ -35,7 +38,14 @@ import { cn } from '@/lib/utils';
 import { formatAdmissionYear } from '@/lib/utils/admission-year-format';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
+import { formatTwelfthGroup } from '@/lib/utils/mappings/enquiry-excel-mappings';
+import { useQuery } from '@tanstack/react-query';
+import { DegreeService } from '@/lib/services/organization/degree-service';
 // Fee structure constants removed 2026-04-15 — replaced by dynamic fee_items flow.
+
+import { useQuotaName } from '@/hooks/admission/use-quota-name';
+import { useCommunityName } from '@/hooks/admission/use-community-name';
+import { useCasteName } from '@/hooks/admission/use-caste-name';
 
 interface LearnerDetailProps {
   learner: LearnerProfile;
@@ -43,12 +53,37 @@ interface LearnerDetailProps {
 
 export function LearnerDetail({ learner }: LearnerDetailProps) {
   const [activeSection, setActiveSection] = useState('personal');
+  const quotaName = useQuotaName((learner as { quota_id?: string }).quota_id);
+  const communityName = useCommunityName((learner as { community_category_id?: string }).community_category_id);
+  const casteName = useCasteName((learner as { caste_id?: string }).caste_id);
   const {
     canAccess,
     isSuperAdmin,
     isAdmissionGlobalUser,
     isLoading: permissionsLoading,
   } = usePermissions();
+
+  // Resolve the stored hostel/mess category FKs to display names.
+  const { hostelCategories: allHostelCategories } = useActiveHostelCategories();
+  const { messCategories: allMessCategories } = useActiveMessCategories();
+  const hostelCategoryName = allHostelCategories.find(
+    (c) => c.id === (learner as any).hostel_category_id
+  )?.name;
+  const messCategoryName = allMessCategories.find(
+    (c) => c.id === (learner as any).mess_category_id
+  )?.name;
+
+  // Resolve the Day-Scholar transport route + boarding-point names.
+  const transportRouteId = (learner as any).transport_route_id as string | undefined;
+  const { routes: allRoutes } = useActiveRoutes();
+  const { stops: routeStops } = useRouteStops(transportRouteId);
+  const routeObj = allRoutes.find((r) => r.id === transportRouteId);
+  const routeName = routeObj
+    ? `${routeObj.route_number} - ${routeObj.route_name}`
+    : undefined;
+  const stopName = routeStops.find(
+    (s) => s.id === (learner as any).transport_stop_id
+  )?.stop_name;
 
   const isProfileComplete =
     !!learner.roll_number &&
@@ -59,6 +94,13 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
   const hasEditPermission =
     !permissionsLoading && (isSuperAdmin || isAdmissionGlobalUser || canAccess('learners', 'edit'));
   const canViewFinance = isSuperAdmin || isAdmissionGlobalUser || canAccess('learners', 'finance.view');
+
+  const { data: degreeData } = useQuery({
+    queryKey: ['degree-for-detail', learner.degree_id],
+    queryFn: () => DegreeService.getDegree(learner.degree_id!),
+    enabled: !!learner.degree_id,
+  });
+  const isPG = degreeData?.degree_type === 'pg';
 
   const sections = [
     {
@@ -217,11 +259,11 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                       <h4 className="text-sm font-medium text-muted-foreground">
                         Community
                       </h4>
-                      <p className="text-sm">{learner.community || 'Not specified'}</p>
+                      <p className="text-sm">{communityName || 'Not specified'}</p>
                     </div>
                     <div className="space-y-1">
                       <h4 className="text-sm font-medium text-muted-foreground">Caste</h4>
-                      <p className="text-sm">{learner.caste || 'Not specified'}</p>
+                      <p className="text-sm">{casteName || 'Not specified'}</p>
                     </div>
                     <div className="space-y-1">
                       <h4 className="text-sm font-medium text-muted-foreground">
@@ -468,7 +510,7 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                       <h4 className="text-sm font-medium text-muted-foreground">
                         Quota
                       </h4>
-                      <p className="text-sm">{learner.quota || 'Not specified'}</p>
+                      <p className="text-sm">{quotaName || 'Not specified'}</p>
                     </div>
                   </div>
                 </div>
@@ -484,94 +526,40 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                 <CardDescription>Previous academic qualifications</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {/* Academic Background */}
+                {/* College / School Background — always visible */}
                 <div className="space-y-2">
-                  <h3 className="text-sm font-medium">Academic Background</h3>
+                  <h3 className="text-sm font-medium">{isPG ? 'Previous College' : 'Academic Background'}</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
                       <h4 className="text-sm font-medium text-muted-foreground">
-                        Last School
+                        {isPG ? 'College Name & Place' : 'Last School'}
                       </h4>
                       <p className="text-sm">{learner.last_school || 'Not specified'}</p>
                     </div>
-                    <div className="space-y-1">
-                      <h4 className="text-sm font-medium text-muted-foreground">
-                        Board of Study
-                      </h4>
-                      <p className="text-sm">{learner.board_of_study || 'Not specified'}</p>
-                    </div>
+                    {!isPG && (
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-medium text-muted-foreground">
+                          Board of Study
+                        </h4>
+                        <p className="text-sm">{learner.board_of_study || 'Not specified'}</p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                <Separator />
-
-                {/* 10th Grade Marks */}
-                <div className="space-y-2">
-                  <h3 className="text-sm font-medium">10th Grade Marks</h3>
-                  {learner.tenth_marks ? (
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                      <div className="space-y-1">
-                        <h4 className="text-sm font-medium text-muted-foreground">
-                          Maximum Marks
-                        </h4>
-                        <p className="text-sm">
-                          {(learner.tenth_marks as any).max_marks || 'Not specified'}
-                        </p>
-                      </div>
-                      <div className="space-y-1">
-                        <h4 className="text-sm font-medium text-muted-foreground">
-                          Obtained Marks
-                        </h4>
-                        <p className="text-sm">
-                          {(learner.tenth_marks as any).obtained_marks || 'Not specified'}
-                        </p>
-                      </div>
-                      <div className="space-y-1">
-                        <h4 className="text-sm font-medium text-muted-foreground">
-                          Percentage
-                        </h4>
-                        <p className="text-sm">
-                          {(learner.tenth_marks as any).percentage || 'Not specified'}
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      No 10th grade mark information available
-                    </p>
-                  )}
-                </div>
-
-                <Separator />
-
-                {/* 12th Grade Marks */}
-                <div className="space-y-2">
-                  <h3 className="text-sm font-medium">12th Grade Marks</h3>
-                  {learner.twelfth_marks ? (
-                    <div className="space-y-4">
-                      <div className="space-y-1">
-                        <h4 className="text-sm font-medium text-muted-foreground">
-                          Group/Stream
-                        </h4>
-                        <p className="text-sm">
-                          {(learner.twelfth_marks as any).group || 'Not specified'}
-                        </p>
-                      </div>
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                {/* PG-specific: Previous Qualification */}
+                {isPG && learner.twelfth_marks && (
+                  <>
+                    <Separator />
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-medium">Previous Qualification</h3>
+                      <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1">
                           <h4 className="text-sm font-medium text-muted-foreground">
-                            Maximum Marks
+                            Previous Course / Degree
                           </h4>
                           <p className="text-sm">
-                            {(learner.twelfth_marks as any).max_marks || 'Not specified'}
-                          </p>
-                        </div>
-                        <div className="space-y-1">
-                          <h4 className="text-sm font-medium text-muted-foreground">
-                            Obtained Marks
-                          </h4>
-                          <p className="text-sm">
-                            {(learner.twelfth_marks as any).obtained_marks || 'Not specified'}
+                            {(learner.twelfth_marks as any).course_name || 'Not specified'}
                           </p>
                         </div>
                         <div className="space-y-1">
@@ -584,53 +572,146 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                         </div>
                       </div>
                     </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      No 12th grade mark information available
-                    </p>
-                  )}
-                </div>
+                  </>
+                )}
 
-                <Separator />
+                {/* UG-only: 10th Grade Marks */}
+                {!isPG && (
+                  <>
+                    <Separator />
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-medium">10th Grade Marks</h3>
+                      {learner.tenth_marks ? (
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                          <div className="space-y-1">
+                            <h4 className="text-sm font-medium text-muted-foreground">
+                              Maximum Marks
+                            </h4>
+                            <p className="text-sm">
+                              {(learner.tenth_marks as any).max_marks || 'Not specified'}
+                            </p>
+                          </div>
+                          <div className="space-y-1">
+                            <h4 className="text-sm font-medium text-muted-foreground">
+                              Obtained Marks
+                            </h4>
+                            <p className="text-sm">
+                              {(learner.tenth_marks as any).obtained_marks || 'Not specified'}
+                            </p>
+                          </div>
+                          <div className="space-y-1">
+                            <h4 className="text-sm font-medium text-muted-foreground">
+                              Percentage
+                            </h4>
+                            <p className="text-sm">
+                              {(learner.tenth_marks as any).percentage || 'Not specified'}
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          No 10th grade mark information available
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
 
-                {/* Entrance Exam Details */}
-                <div className="space-y-2">
-                  <h3 className="text-sm font-medium">Entrance Exam Details</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <h4 className="text-sm font-medium text-muted-foreground">
-                        Medical Cutoff Marks
-                      </h4>
-                      <p className="text-sm">
-                        {learner.medical_cutoff_marks || 'Not applicable'}
-                      </p>
+                {/* UG-only: 12th Grade Marks */}
+                {!isPG && (
+                  <>
+                    <Separator />
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-medium">12th Grade Marks</h3>
+                      {learner.twelfth_marks ? (
+                        <div className="space-y-4">
+                          <div className="space-y-1">
+                            <h4 className="text-sm font-medium text-muted-foreground">
+                              Group/Stream
+                            </h4>
+                            <p className="text-sm">
+                              {formatTwelfthGroup((learner.twelfth_marks as any).group)}
+                            </p>
+                          </div>
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                            <div className="space-y-1">
+                              <h4 className="text-sm font-medium text-muted-foreground">
+                                Maximum Marks
+                              </h4>
+                              <p className="text-sm">
+                                {(learner.twelfth_marks as any).max_marks || 'Not specified'}
+                              </p>
+                            </div>
+                            <div className="space-y-1">
+                              <h4 className="text-sm font-medium text-muted-foreground">
+                                Obtained Marks
+                              </h4>
+                              <p className="text-sm">
+                                {(learner.twelfth_marks as any).obtained_marks || 'Not specified'}
+                              </p>
+                            </div>
+                            <div className="space-y-1">
+                              <h4 className="text-sm font-medium text-muted-foreground">
+                                Percentage
+                              </h4>
+                              <p className="text-sm">
+                                {(learner.twelfth_marks as any).percentage || 'Not specified'}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          No 12th grade mark information available
+                        </p>
+                      )}
                     </div>
-                    <div className="space-y-1">
-                      <h4 className="text-sm font-medium text-muted-foreground">
-                        Engineering Cutoff Marks
-                      </h4>
-                      <p className="text-sm">
-                        {learner.engineering_cutoff_marks || 'Not applicable'}
-                      </p>
+                  </>
+                )}
+
+                {/* UG-only: Entrance Exam Details */}
+                {!isPG && (
+                  <>
+                    <Separator />
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-medium">Entrance Exam Details</h3>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">
+                            Medical Cutoff Marks
+                          </h4>
+                          <p className="text-sm">
+                            {learner.medical_cutoff_marks || 'Not applicable'}
+                          </p>
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">
+                            Engineering Cutoff Marks
+                          </h4>
+                          <p className="text-sm">
+                            {learner.engineering_cutoff_marks || 'Not applicable'}
+                          </p>
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">
+                            NEET Roll Number
+                          </h4>
+                          <p className="text-sm">
+                            {learner.neet_roll_number || 'Not applicable'}
+                          </p>
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">
+                            NEET Score
+                          </h4>
+                          <p className="text-sm">
+                            {learner.neet_score || 'Not applicable'}
+                          </p>
+                        </div>
+                      </div>
                     </div>
-                    <div className="space-y-1">
-                      <h4 className="text-sm font-medium text-muted-foreground">
-                        NEET Roll Number
-                      </h4>
-                      <p className="text-sm">
-                        {learner.neet_roll_number || 'Not applicable'}
-                      </p>
-                    </div>
-                    <div className="space-y-1">
-                      <h4 className="text-sm font-medium text-muted-foreground">
-                        NEET Score
-                      </h4>
-                      <p className="text-sm">
-                        {learner.neet_score || 'Not applicable'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                  </>
+                )}
               </CardContent>
             </>
           )}
@@ -729,6 +810,58 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                       {learner.accommodation_type || 'Not specified'}
                     </p>
                   </div>
+                  {learner.accommodation_type === 'HOSTEL' && (
+                    <>
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-medium text-muted-foreground">
+                          Hostel Room Category
+                        </h4>
+                        <p className="text-sm">
+                          {hostelCategoryName || 'Not specified'}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-medium text-muted-foreground">
+                          Mess Category
+                        </h4>
+                        <p className="text-sm">
+                          {messCategoryName || 'Not specified'}
+                        </p>
+                      </div>
+                    </>
+                  )}
+                  {learner.accommodation_type === 'DAY SCHOLAR' && (
+                    <>
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-medium text-muted-foreground">
+                          Bus Required
+                        </h4>
+                        <p className="text-sm">
+                          {(learner as any).bus_required === true
+                            ? 'Yes'
+                            : (learner as any).bus_required === false
+                            ? 'No'
+                            : 'Not specified'}
+                        </p>
+                      </div>
+                      {(learner as any).bus_required === true && (
+                        <>
+                          <div className="space-y-1">
+                            <h4 className="text-sm font-medium text-muted-foreground">
+                              Route
+                            </h4>
+                            <p className="text-sm">{routeName || 'Not specified'}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <h4 className="text-sm font-medium text-muted-foreground">
+                              Boarding Point
+                            </h4>
+                            <p className="text-sm">{stopName || 'Not specified'}</p>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
                 </div>
               </CardContent>
             </>
@@ -765,7 +898,6 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                     { name: 'uniform_fee', label: 'Uniform Fee' },
                     { name: 'hospital_training_fee', label: 'Hospital Training Fee' },
                     { name: 'placement_fee', label: 'Placement Fee' },
-                    { name: 'transport_fee', label: 'Transport Fee' },
                   ];
                   const presentLegacy = legacyFields.filter(
                     ({ name }) =>

@@ -1,6 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { resolveBosAccess, applyInstitutionScope, guardInstitutionWrite } from '@/lib/utils/bos/bos-access';
+import {
+  resolveBosAccess,
+  resolveBosBoardScope,
+  guardInstitutionWrite,
+  guardSyllabusEdit,
+  readableInstitutionIds,
+} from '@/lib/utils/bos/bos-access';
 import { BosCourseSyllabus, UpdateBosSyllabusDto } from '@/types/bos';
 
 /**
@@ -46,9 +52,18 @@ export async function GET(
       .select('*')
       .eq('id', id);
 
-    // Apply institution scope if not super admin
-    if (!scope.isSuperAdmin) {
-      query = query.eq('institutions_id', scope.institutionsId);
+    // CAS-aware institution scope. For Arts & Science colleges the user's
+    // profile.institution_id points to one of two MyJKKN UUIDs (Aided or
+    // Self) but syllabi may be stored under the sibling UUID â€” so we filter
+    // by the full allInstitutionIds list, never a single UUID.
+    const allowedIds = readableInstitutionIds(scope);
+    if (allowedIds !== null) {
+      if (allowedIds.length === 0) {
+        return NextResponse.json({ error: 'Syllabus not found' }, { status: 404 });
+      }
+      query = allowedIds.length === 1
+        ? query.eq('institutions_id', allowedIds[0])
+        : query.in('institutions_id', allowedIds);
     }
 
     const { data, error } = await query.maybeSingle();
@@ -123,13 +138,14 @@ export async function PUT(
       );
     }
 
-    // Step 2: Resolve institution scope
-    const scope = await resolveBosAccess(user.id);
+    // Step 2: Resolve board-aware scope
+    const scope = await resolveBosBoardScope(user.id);
 
-    // Step 3: Fetch existing syllabus to check permissions
+    // Step 3: Fetch existing syllabus â€” need board_id + created_by for the
+    // creator/chairman edit gate, plus institutions_id for the institution backstop.
     const { data: existingSyllabus, error: fetchError } = await supabase
       .from('bos_course_syllabi')
-      .select('id, institutions_id')
+      .select('id, institutions_id, board_id, created_by')
       .eq('id', id)
       .maybeSingle();
 
@@ -148,11 +164,21 @@ export async function PUT(
       );
     }
 
-    // Step 4: Guard institution write
-    const writeError = guardInstitutionWrite(scope, existingSyllabus.institutions_id);
-    if (writeError) {
-      return NextResponse.json({ error: writeError }, { status: 403 });
+    // Step 4: Institution backstop (catches cross-institution edits even if
+    // the syllabus edit guard below would technically allow it).
+    const institutionDeny = guardInstitutionWrite(scope, existingSyllabus.institutions_id);
+    if (institutionDeny) {
+      return NextResponse.json({ error: institutionDeny }, { status: 403 });
     }
+
+    // Step 4b: Creator / chairman / super-admin gate (spec: only the author or
+    // the board chairman can edit a published syllabus â€” members are view-only).
+    const editDeny = guardSyllabusEdit(
+      scope,
+      { board_id: existingSyllabus.board_id, created_by: existingSyllabus.created_by },
+      user.id,
+    );
+    if (editDeny) return NextResponse.json({ error: editDeny }, { status: 403 });
 
     // Step 5: Parse request body
     const body = (await request.json()) as UpdateBosSyllabusDto;
@@ -226,13 +252,13 @@ export async function DELETE(
       );
     }
 
-    // Step 2: Resolve institution scope
-    const scope = await resolveBosAccess(user.id);
+    // Step 2: Resolve board-aware scope
+    const scope = await resolveBosBoardScope(user.id);
 
-    // Step 3: Fetch existing syllabus to check permissions
+    // Step 3: Fetch existing syllabus
     const { data: existingSyllabus, error: fetchError } = await supabase
       .from('bos_course_syllabi')
-      .select('id, institutions_id')
+      .select('id, institutions_id, board_id, created_by')
       .eq('id', id)
       .maybeSingle();
 
@@ -251,35 +277,62 @@ export async function DELETE(
       );
     }
 
-    // Step 4: Guard institution write
-    const writeError = guardInstitutionWrite(scope, existingSyllabus.institutions_id);
-    if (writeError) {
-      return NextResponse.json({ error: writeError }, { status: 403 });
+    // Step 4: Institution backstop + creator/chairman gate
+    const institutionDeny = guardInstitutionWrite(scope, existingSyllabus.institutions_id);
+    if (institutionDeny) {
+      return NextResponse.json({ error: institutionDeny }, { status: 403 });
     }
+    const editDeny = guardSyllabusEdit(
+      scope,
+      { board_id: existingSyllabus.board_id, created_by: existingSyllabus.created_by },
+      user.id,
+    );
+    if (editDeny) return NextResponse.json({ error: editDeny }, { status: 403 });
 
-    // Step 5: Soft delete (archive)
-    const { error: deleteError } = await supabase
+    // Step 5: Soft delete (archive). Use .select() so we can detect RLS
+    // returning zero rows (which Supabase doesn't surface as an error). The
+    // bos_course_syllabi_update RLS policy gates by 'academic.bos-syllabus.edit'
+    // permission + creator/chairman check, so a user with only the 'delete'
+    // permission would silently update 0 rows here.
+    const { data: updatedRows, error: deleteError } = await supabase
       .from('bos_course_syllabi')
       .update({
         is_archived: true,
         last_modified_by: user.id,
         last_modified_at: new Date().toISOString(),
       })
-      .eq('id', id);
+      .eq('id', id)
+      .select('id');
 
     if (deleteError) {
       console.error('[DELETE /api/bos/syllabus/[id]] Delete error:', deleteError);
       return NextResponse.json(
-        { error: 'Failed to delete syllabus' },
+        {
+          error: 'Failed to delete syllabus',
+          details: deleteError.message,
+          code: deleteError.code,
+          hint: deleteError.hint,
+        },
         { status: 500 }
+      );
+    }
+
+    if (!updatedRows || updatedRows.length === 0) {
+      return NextResponse.json(
+        {
+          error:
+            'Delete blocked by row-level security. You need the academic.bos-syllabus.edit permission (the soft-delete is implemented as an UPDATE) and must be the syllabus creator or the board chairman.',
+        },
+        { status: 403 }
       );
     }
 
     return NextResponse.json(null, { status: 204 });
   } catch (error) {
     console.error('[DELETE /api/bos/syllabus/[id]] Error:', error);
+    const msg = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', details: msg },
       { status: 500 }
     );
   }

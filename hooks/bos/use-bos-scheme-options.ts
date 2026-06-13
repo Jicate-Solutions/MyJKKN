@@ -25,13 +25,22 @@ function buildParams(ids: string[]): string {
   return `institutionIds=${ids.join(',')}`;
 }
 
-export function useBosProgramOptions(institutionIds: string | string[] | undefined) {
+export function useBosProgramOptions(
+  institutionIds: string | string[] | undefined,
+  // When set, the API restricts results to programmes the user has BoS board
+  // membership for at this COE-side institution. Omit (super-admin) to see all.
+  boardScopeInstitutionId?: string,
+) {
   const ids = toIds(institutionIds);
   return useQuery<{ data: BosProgramOption[]; count: number }>({
-    queryKey: ['bos', 'programs', ...ids.slice().sort()],
+    queryKey: ['bos', 'programs', boardScopeInstitutionId ?? 'all', ...ids.slice().sort()],
     enabled: ids.length > 0,
     queryFn: async () => {
-      const r = await fetch(`/api/bos/programs?${buildParams(ids)}`);
+      const params = buildParams(ids);
+      const url = boardScopeInstitutionId
+        ? `/api/bos/programs?${params}&boardScopeInstitutionId=${boardScopeInstitutionId}`
+        : `/api/bos/programs?${params}`;
+      const r = await fetch(url);
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
         throw new Error(err.error || 'Failed to load programs');

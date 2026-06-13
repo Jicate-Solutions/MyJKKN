@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { LearnerProfile } from '@/types/learner-profile';
 import { usePendingChangeRequest } from '@/hooks/learner-profile/use-change-request';
 import { useCreateChangeRequest } from '@/hooks/learner-profile/use-change-request-mutations';
+import { usePermissions } from '@/hooks/use-permissions';
 import { PendingChangesBanner } from './pending-changes-banner';
 import { ProfileComparisonView } from './profile-comparison-view';
 import { ProfileView } from './profile-view';
@@ -32,8 +33,13 @@ export default function ProfilePageContent({ learner, userId }: ProfilePageConte
   // Mutation for creating change request
   const { mutate: createChangeRequest, isPending: isSubmitting } = useCreateChangeRequest();
 
-  // Determine if user can edit (no pending request)
-  const canEdit = !pendingRequest;
+  // Profile editing is permission-gated. The `student` role has
+  // `learners.my-profile.edit = false`, so students are view-only and the
+  // change-request flow stays disabled for them. Flip the key in Role
+  // Management to re-enable self-service edits without a code change.
+  // `can()` returns false while permissions load, so the button never flashes.
+  const { can } = usePermissions();
+  const canEdit = !pendingRequest && can('learners.my-profile.edit');
 
   // Calculate profile completion (memoized)
   const profileCompletion = useMemo(() => {

@@ -33,19 +33,37 @@ export function ApprovalActionsDialog({
 }: ApprovalActionsDialogProps) {
   const [notes, setNotes] = useState('');
   const [rejectionReason, setRejectionReason] = useState('');
+  const [approvalError, setApprovalError] = useState<string | null>(null);
 
   const approveReservation = useApproveReservation();
   const rejectReservation = useRejectReservation();
 
   const handleApprove = async () => {
     if (!reservation) return;
+    setApprovalError(null);
 
-    await approveReservation.mutateAsync({
-      reservation_id: reservation.id,
-      notes: notes || undefined
-    });
-
-    handleClose();
+    try {
+      await approveReservation.mutateAsync({
+        reservation_id: reservation.id,
+        notes: notes || undefined
+      });
+      handleClose();
+    } catch (err: any) {
+      const msg: string = err?.message ?? '';
+      if (msg.includes('still pending')) {
+        // Sequential chain: a lower level hasn't acted yet.
+        const match = msg.match(/level (\d+) is still pending/);
+        const blockingLevel = match ? match[1] : 'a previous';
+        setApprovalError(
+          `Waiting for Level ${blockingLevel} approval — you will be able to approve once the preceding approver has acted.`
+        );
+      } else if (msg.includes('own reservation')) {
+        setApprovalError('You cannot approve a request you submitted yourself.');
+      } else if (msg.toLowerCase().includes('insufficient stock')) {
+        setApprovalError(msg);
+      }
+      // onError in the mutation hook already fires a toast for all errors.
+    }
   };
 
   const handleReject = async () => {
@@ -62,6 +80,7 @@ export function ApprovalActionsDialog({
   const handleClose = () => {
     setNotes('');
     setRejectionReason('');
+    setApprovalError(null);
     onClose();
   };
 
@@ -113,6 +132,13 @@ export function ApprovalActionsDialog({
                 </p>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Inline error for sequential / self-approval blocks */}
+        {approvalError && (
+          <div className='rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800'>
+            {approvalError}
           </div>
         )}
 

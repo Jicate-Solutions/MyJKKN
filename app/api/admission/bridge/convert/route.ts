@@ -17,6 +17,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // ── 1b. Permission gate ────────────────────────────────────────────────────
+  // Defense-in-depth: this route uses createServiceRoleClient() below (bypasses
+  // RLS) so the UI PermissionGuard alone is not a security boundary — every
+  // authenticated user could otherwise POST here directly. user_has_permission
+  // honors super_admin bypass internally; we just call it with the catalog key.
+  const { data: canConvert } = await (supabase as any)
+    .rpc('user_has_permission', {
+      user_id: user.id,
+      permission_key: 'admission.leads.convert_to_admitted',
+    });
+  if (!canConvert) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
   // ── 2. Parse body ────────────────────────────────────────────────────────────
   let leadId: string;
   let institutionId: string;
@@ -40,7 +54,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // extra query.
   const { data: lead, error: leadError } = await (svc as any)
     .from('admission_leads')
-    .select('*, admission_year:admission_years(id, institution_id, program_id, program_start_year, program_end_year, admission_year_name)')
+    .select('*, admission_year:admission_years(id, institution_id, year, admission_year_name)')
     .eq('id', leadId)
     .eq('institution_id', institutionId)
     .single();
@@ -61,32 +75,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   // ── 5a. Resolve a valid admission_year_id for the new learner ───────────────
   // Why this exists:
-  //   The DB trigger `validate_learner_admission_year_scope` rejects any FK
-  //   attach where the admission_years row's (institution_id, program_id) does
-  //   not match the learner's. We've seen leads carry an admission_year_id
-  //   that belongs to a *duplicate* program (same name+institution, different
-  //   id) — a data-quality bug, but the user-facing conversion shouldn't fail
-  //   on it. If the lead's stored AY does not match this lead's program, we
-  //   re-resolve by (institution_id, program_id, program_start_year). If
-  //   nothing matches, we drop the FK to NULL (legacy integer column still
-  //   propagates so B2A / MCP back-compat keeps working).
+  //   admission_years is now institution-wide (program_id dropped; cohort key is
+  //   `year`). The validation trigger rejects an FK attach whose admission_years
+  //   row belongs to a different institution than the learner. If the lead's
+  //   stored AY does not match this lead's institution, we re-resolve by
+  //   (institution_id, year). If nothing matches, we drop the FK to NULL (legacy
+  //   integer column still propagates so B2A / MCP back-compat keeps working).
   let resolvedAdmissionYearId: string | null = lead.admission_year_id || null;
-  if (resolvedAdmissionYearId && lead.program_id) {
+  if (resolvedAdmissionYearId) {
     const ay = lead.admission_year;
-    const ayProgramMismatch =
-      !ay || (ay.program_id && ay.program_id !== lead.program_id);
     const ayInstitutionMismatch =
       !ay || (ay.institution_id && ay.institution_id !== lead.institution_id);
 
-    if (ayProgramMismatch || ayInstitutionMismatch) {
-      // Try to find the correct admission_year for this lead's actual program.
-      const startYear = ay?.program_start_year;
+    if (ayInstitutionMismatch) {
+      // Try to find the correct admission_year for this lead's institution.
+      const cohortYear = ay?.year;
       let lookup = (svc as any)
         .from('admission_years')
         .select('id')
-        .eq('institution_id', lead.institution_id)
-        .eq('program_id', lead.program_id);
-      if (startYear) lookup = lookup.eq('program_start_year', startYear);
+        .eq('institution_id', lead.institution_id);
+      if (cohortYear) lookup = lookup.eq('year', cohortYear);
       const { data: matchAy } = await lookup.limit(1).maybeSingle();
 
       if (matchAy?.id) {
@@ -99,12 +107,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         resolvedAdmissionYearId = matchAy.id;
       } else {
         console.warn(
-          '[bridge/convert] No matching admission_year for program; dropping FK'
+          '[bridge/convert] No matching admission_year for institution; dropping FK'
         );
         resolvedAdmissionYearId = null;
       }
     }
   }
+
+  // accommodation_type TEXT is retired — convert defaults a lead to day-scholar,
+  // so resolve the global 'dayscholar' accommodation_types FK to persist.
+  const { data: accRow } = await (svc as any)
+    .from('accommodation_types')
+    .select('id')
+    .eq('code', 'dayscholar')
+    .maybeSingle();
+  const accommodationTypeId: string | null = accRow?.id ?? null;
 
   // ── 5. Map fields ────────────────────────────────────────────────────────────
   const profileData = {
@@ -144,20 +161,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // a plain text shadow with no triggers attached, so it stays here.
     referred_by_name: lead.referred_by_name || null,
     // Required fields with safe defaults
-    // 2026-05-09: reverted from 'enquiry' back to 'admitted'. The 'enquiry'
-    // value was added by the 2026-05-08 student-self-fill plan and dropped
-    // again in the same week — it produced rows invisible to every tab on
-    // /learners/enquiries (which filters by admitted/pending/account/rejected/
-    // waitlisted). The enum value has been removed from the DB.
-    lifecycle_status: 'admitted',
-    accommodation_type: 'DAY SCHOLAR',
+    // 2026-05-20: re-introduced 'enquiry' as the entry-point status for the
+    // counselor workflow. Previous attempt (2026-05-08 → 2026-05-09 revert)
+    // failed because the /learners/enquiries tabs didn't include 'enquiry'.
+    // That gap was closed in this rollout: migration
+    // 20260520120100_realign_lifecycle_statuses_data_and_seed re-added the
+    // enum value, and the enquiries list filter now includes 'enquiry' and
+    // 'enquiry_submitted'. Old 'admitted' rows were migrated to 'enquiry' in
+    // the same migration. The new meaning of 'admitted' is post-threshold
+    // (auto-set by evaluate_learner_status_after_payment when fees clear 50%).
+    lifecycle_status: 'enquiry',
+    // accommodation_type TEXT retired — write the resolved 'dayscholar' FK.
+    accommodation_type_id: accommodationTypeId,
     entry_type: 'FIRST YEAR',
     last_school: '',
     board_of_study: '',
     tenth_marks: {},
     twelfth_marks: {},
     religion: '',
-    community: '',
     // Audit
     created_by: user.id,
   };

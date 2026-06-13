@@ -23,7 +23,8 @@ import {
   AlertCircle,
   HelpCircle,
   Landmark,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Send,
 } from 'lucide-react';
 import { TransferEnquiryDialog } from './transfer-enquiry-dialog';
 import { Button } from '@/components/ui/button';
@@ -49,8 +50,15 @@ import {
 } from '@/components/ui/alert-dialog';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { useDeleteLearnerProfile, useUpdateLearnerProfile } from '@/hooks/use-learner-profiles';
-import { useMarkAsAccount } from '@/hooks/billing/use-onboarding';
 import { usePermissions } from '@/hooks/use-permissions';
+// 2026-05-21: 'Mark as Account' from the table row-actions now routes through
+// the same AccountVerificationDialog the detail-page status updater uses.
+// markAsAccountMutation (which the legacy flow called here) reads the
+// institution's required_documents config and fails with P0001 when
+// documents are configured but not yet collected at this UI surface.
+// The dialog handles the documents-optional path + provides the
+// verification preview the user requested.
+import { AccountVerificationDialog } from './_account/account-verification-dialog';
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
@@ -81,6 +89,10 @@ export function DataTableRowActions<TData>({
   const [showStatusDialog, setShowStatusDialog] = useState(false);
   const [showTransferDialog, setShowTransferDialog] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState('');
+  // 2026-05-21: dedicated state for the verification dialog. The 'account'
+  // path opens this instead of the inline AlertDialog so admins see the
+  // dim preview + fee structure + total before committing bills.
+  const [showAccountVerifyDialog, setShowAccountVerifyDialog] = useState(false);
 
   // Use learners.admissions module for enquiries
   const canEdit = isSuperAdmin || canAccess('learners.admissions', 'edit');
@@ -94,7 +106,6 @@ export function DataTableRowActions<TData>({
   // Use React Query mutation hooks with automatic cache invalidation
   const deleteMutation = useDeleteLearnerProfile();
   const updateMutation = useUpdateLearnerProfile();
-  const markAsAccountMutation = useMarkAsAccount();
 
   const handleDelete = async () => {
     if (!canDelete) return;
@@ -127,12 +138,23 @@ export function DataTableRowActions<TData>({
 
   const handleStatusUpdate = (newStatus: string) => {
     if (!canEdit) return;
+    // 2026-05-21: the 'account' transition gets the dedicated verification
+    // dialog (academic-dimension preview + fee-structure resolution + total)
+    // instead of the lightweight AlertDialog used for the other statuses.
+    // The dialog itself drives admission_account_transition_with_bills, so
+    // we never enter the confirmStatusUpdate path for this status.
+    if (newStatus === 'account') {
+      setShowAccountVerifyDialog(true);
+      return;
+    }
     setSelectedStatus(newStatus);
     setShowStatusDialog(true);
   };
 
   const confirmStatusUpdate = async () => {
     if (!canEdit || !selectedStatus) return;
+    // 'account' never reaches this handler — it's routed through
+    // AccountVerificationDialog. Every other status flows here unchanged.
 
     console.log('[enquiries/row-actions] Status update started', {
       id: learner.id,
@@ -141,42 +163,35 @@ export function DataTableRowActions<TData>({
     });
 
     try {
-      // Use OnboardingService.markAsAccount for 'account' status — validates finance fields. Bills are NOT auto-created; accounts team creates them manually from the onboarding page.
-      if (selectedStatus === 'account') {
-        await markAsAccountMutation.mutateAsync(learner.id);
-      } else {
-        const result = await updateMutation.mutateAsync({
-          id: learner.id,
-          dto: { lifecycle_status: selectedStatus as any }
-        });
+      const result = await updateMutation.mutateAsync({
+        id: learner.id,
+        dto: { lifecycle_status: selectedStatus as any }
+      });
 
-        console.log('[enquiries/row-actions] Status mutation completed', { result });
+      console.log('[enquiries/row-actions] Status mutation completed', { result });
 
-        // Check if user account was created during this update
-        // @ts-expect-error - Temporary metadata from service
-        const userCreation = result._userCreation;
-        if (userCreation) {
-          console.log('[enquiries/row-actions] User creation metadata found', userCreation);
-          if (userCreation.success) {
-            toast.success(userCreation.message, { duration: 5000 });
-          } else {
-            toast.error(`User creation failed: ${userCreation.message}`, { duration: 5000 });
-          }
+      // Check if user account was created during this update
+      // @ts-expect-error - Temporary metadata from service
+      const userCreation = result._userCreation;
+      if (userCreation) {
+        console.log('[enquiries/row-actions] User creation metadata found', userCreation);
+        if (userCreation.success) {
+          toast.success(userCreation.message, { duration: 5000 });
+        } else {
+          toast.error(`User creation failed: ${userCreation.message}`, { duration: 5000 });
         }
       }
 
       const statusLabels: Record<string, string> = {
+        enquiry: 'Enquiry',
+        enquiry_submitted: 'Enquiry Submitted',
         admitted: 'Admitted',
         pending: 'Pending Application',
-        account: 'Account (Sent to Billing)',
         rejected: 'Rejected',
         waitlisted: 'Waitlisted'
       };
 
-      if (selectedStatus !== 'account') {
-        // markAsAccount hook already shows its own toast
-        toast.success(`Status updated to ${statusLabels[selectedStatus]}`);
-      }
+      toast.success(`Status updated to ${statusLabels[selectedStatus] ?? selectedStatus}`);
 
       // Close dialog and clear state first
       setShowStatusDialog(false);
@@ -188,10 +203,7 @@ export function DataTableRowActions<TData>({
       }, 300);
     } catch (error) {
       console.error('[enquiries/row-actions] Error updating status:', error);
-      if (selectedStatus !== 'account') {
-        // markAsAccount hook already shows its own error toast
-        toast.error('Failed to update status. Please try again.');
-      }
+      toast.error('Failed to update status. Please try again.');
       setShowStatusDialog(false);
       setSelectedStatus('');
     }
@@ -238,11 +250,18 @@ export function DataTableRowActions<TData>({
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
                   <DropdownMenuItem
-                    onClick={() => handleStatusUpdate('admitted')}
-                    disabled={learner.lifecycle_status === 'admitted' || updateMutation.isPending}
+                    onClick={() => handleStatusUpdate('enquiry')}
+                    disabled={learner.lifecycle_status === 'enquiry' || updateMutation.isPending}
                   >
                     <HelpCircle className="mr-2 h-4 w-4 text-gray-500" />
                     Mark as Enquiry
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => handleStatusUpdate('enquiry_submitted')}
+                    disabled={learner.lifecycle_status === 'enquiry_submitted' || updateMutation.isPending}
+                  >
+                    <Send className="mr-2 h-4 w-4 text-sky-500" />
+                    Mark as Enquiry Submitted
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => handleStatusUpdate('pending')}
@@ -363,6 +382,24 @@ export function DataTableRowActions<TData>({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Account-transition verification dialog — same component the detail
+       *  page header uses. Mounted conditionally so the
+       *  FeeChangeEventService.hasPendingForLearner probe inside the dialog
+       *  only fires when the user actually picks 'Mark as Account'. */}
+      {showAccountVerifyDialog && (
+        <AccountVerificationDialog
+          learner={learner}
+          open={showAccountVerifyDialog}
+          onOpenChange={setShowAccountVerifyDialog}
+          onSuccess={() => {
+            // The dialog already toasts + writes the activity audit row,
+            // so we just refresh the table to surface the new lifecycle
+            // status badge.
+            setTimeout(() => router.refresh(), 300);
+          }}
+        />
+      )}
     </>
   );
 }

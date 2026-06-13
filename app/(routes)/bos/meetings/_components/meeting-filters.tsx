@@ -21,6 +21,12 @@ interface Board {
   board_name: string;
 }
 
+interface InstitutionOption {
+  id: string;
+  name: string;
+  institution_code: string;
+}
+
 interface MeetingFiltersProps {
   searchParams: MeetingSearchParams;
   onFilterChange: (key: string, value: string | undefined) => void;
@@ -37,7 +43,7 @@ export function MeetingFilters({
   const { userProfile } = usePermissions();
   const [boards, setBoards] = useState<Board[]>([]);
   const [loadingBoards, setLoadingBoards] = useState(false);
-  const [institutionOptions, setInstitutionOptions] = useState<{ id: string; name: string }[]>([]);
+  const [institutionOptions, setInstitutionOptions] = useState<InstitutionOption[]>([]);
   const institutionsAbortControllerRef = useRef<AbortController | null>(null);
 
   // Fetch institutions (for super admins)
@@ -72,15 +78,21 @@ export function MeetingFilters({
     };
   }, [isSuperAdmin]);
 
+  // Board sub-filter still keys on institution UUID. For super-admin who picked
+  // an institution_code, look the UUID up from the loaded institutionOptions;
+  // for everyone else fall back to their own institution_id.
+  const institutionIdForBoards = searchParams.institutionCode
+    ? institutionOptions.find((o) => o.institution_code === searchParams.institutionCode)?.id
+    : userProfile?.institution_id;
+
   useEffect(() => {
-    const institutionIdToFetch = searchParams.institutionsId || userProfile?.institution_id;
-    if (!institutionIdToFetch) return;
+    if (!institutionIdForBoards) return;
 
     async function fetchBoards() {
       setLoadingBoards(true);
       try {
         const res = await fetch(
-          `/api/bos/boards?institutionsId=${institutionIdToFetch}`
+          `/api/bos/boards?institutionsId=${institutionIdForBoards}`
         );
         if (res.ok) {
           const json = await res.json();
@@ -93,30 +105,38 @@ export function MeetingFilters({
       }
     }
     fetchBoards();
-  }, [searchParams.institutionsId, userProfile?.institution_id]);
+  }, [institutionIdForBoards]);
 
   const hasActiveFilters = !!(
     searchParams.board_id ||
     searchParams.academic_year ||
     searchParams.meeting_type ||
-    searchParams.institutionsId
+    searchParams.institutionCode
   );
 
   return (
     <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
       <div className='flex flex-col gap-3 sm:flex-row sm:items-center flex-wrap'>
-        {/* Institution Filter (Super Admin Only) */}
+        {/* Institution Filter (Super Admin Only) — keyed on institution_code
+            (= counselling_code) so CAS Aided+Self resolve as one unit. */}
         {isSuperAdmin && (
-          <div className='min-w-[200px]'>
+          <div className='min-w-[220px]'>
             <SearchableSelect
-              value={searchParams.institutionsId || 'all'}
-              onValueChange={(val) => onFilterChange('institutionsId', val === 'all' ? undefined : val)}
+              value={searchParams.institutionCode || 'all'}
+              onValueChange={(val) =>
+                onFilterChange('institutionCode', val === 'all' ? undefined : val)
+              }
               options={[
                 { value: 'all', label: 'All institutions' },
-                ...institutionOptions.map((inst) => ({ value: inst.id, label: inst.name })),
+                ...institutionOptions.map((inst) => ({
+                  value: inst.institution_code,
+                  label: inst.institution_code
+                    ? `${inst.name} (${inst.institution_code})`
+                    : inst.name,
+                })),
               ]}
               className='w-full'
-              searchPlaceholder='Search institution…'
+              searchPlaceholder='Search institution or code…'
             />
           </div>
         )}
@@ -155,6 +175,7 @@ export function MeetingFilters({
             </SelectContent>
           </Select>
         </div>
+
       </div>
 
       {hasActiveFilters && (

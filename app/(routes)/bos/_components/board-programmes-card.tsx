@@ -91,6 +91,19 @@ export function BoardProgrammesCard({
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error ?? 'Failed to add programme');
       }
+      const inserted = (await res.json()) as BosBoardProgramme;
+      // Optimistic write: push the inserted row into the cache so the list
+      // re-renders this tick, instead of waiting for the background refetch.
+      queryClient.setQueryData<{ data: BosBoardProgramme[] }>(
+        boardProgrammesKey,
+        (old) => {
+          const existing = old?.data ?? [];
+          if (existing.some((p) => p.programme_code === inserted.programme_code)) {
+            return { data: existing };
+          }
+          return { data: [...existing, inserted] };
+        },
+      );
       toast.success(`${selectedCode} added to board`);
       setSelectedCode('');
       queryClient.invalidateQueries({ queryKey: boardProgrammesKey });
@@ -114,6 +127,16 @@ export function BoardProgrammesCard({
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error ?? 'Failed to remove programme');
       }
+      // Optimistic write: drop the removed row from cache immediately so the
+      // list re-renders this tick. The DELETE endpoint is a soft-delete
+      // (is_active=false) and the GET filters on is_active=true, so removing
+      // the row from cache matches what the eventual refetch will return.
+      queryClient.setQueryData<{ data: BosBoardProgramme[] }>(
+        boardProgrammesKey,
+        (old) => ({
+          data: (old?.data ?? []).filter((p) => p.programme_code !== programmeCode),
+        }),
+      );
       toast.success(`${programmeCode} removed from board`);
       queryClient.invalidateQueries({ queryKey: boardProgrammesKey });
       queryClient.invalidateQueries({ queryKey: ['bos', 'regulation-programmes'] });

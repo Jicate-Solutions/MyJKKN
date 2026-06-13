@@ -33,7 +33,7 @@ export async function GET() {
     if (
       profileError ||
       !profile ||
-      !['admin', 'super_admin', 'administrator'].includes(profile.role)
+      !['super_admin', 'administrator', 'ceo'].includes(profile.role)
     ) {
       return NextResponse.json(
         { error: 'Admin permissions required' },

@@ -4,6 +4,7 @@ import type {
 	BosCourseObjective,
 	BosCourseLearnOutcome,
 	BosUnit,
+	BosPracticalTopic,
 	BosTextbook,
 	BosWebResource,
 	BosPoMapping,
@@ -26,12 +27,93 @@ function lastY(doc: jsPDF): number {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyCell = Record<string, any>
 
+// Mixed-style line: one visual line in a cell where the bold prefix runs from
+// char 0 to `prefixEnd`, and the rest renders regular. `prefixEnd === text.length`
+// means the whole line is bold; `prefixEnd === 0` means the whole line is regular.
+// `halign` applies only when the line is fully bold or fully regular (mixed lines
+// are inherently left-anchored). `justify === true` spreads tokens to fill the
+// cell width — set on all wrapped lines of a paragraph except the last.
+interface BosMixedLine {
+	text: string
+	prefixEnd: number
+	halign?: 'left' | 'center' | 'right'
+	justify?: boolean
+}
+
+interface BosMixedMeta {
+	lines: BosMixedLine[]
+}
+
+// Draws one line with words distributed evenly across `maxWidth`. Tokens
+// before `prefixEnd` are measured/drawn in Times Bold; tokens after are
+// regular. If the leftover space per gap is unreasonably large (>3× a natural
+// space) we fall back to a normal space — keeps sparse 2-token lines from
+// stretching grotesquely.
+function drawJustifiedLine(
+	doc: jsPDF,
+	text: string,
+	prefixEnd: number,
+	x: number,
+	y: number,
+	maxWidth: number,
+): void {
+	const prefixPart = text.slice(0, prefixEnd)
+	const restPart = text.slice(prefixEnd)
+	const prefixWords = prefixPart.match(/\S+/g) ?? []
+	const restWords = restPart.match(/\S+/g) ?? []
+
+	const tokens: Array<{ text: string; bold: boolean; w: number }> = []
+	doc.setFont('times', 'bold')
+	for (const word of prefixWords) {
+		tokens.push({ text: word, bold: true, w: doc.getTextWidth(word) })
+	}
+	doc.setFont('times', 'normal')
+	for (const word of restWords) {
+		tokens.push({ text: word, bold: false, w: doc.getTextWidth(word) })
+	}
+
+	if (tokens.length === 0) return
+	if (tokens.length === 1) {
+		doc.setFont('times', tokens[0].bold ? 'bold' : 'normal')
+		doc.text(tokens[0].text, x, y, { baseline: 'top' })
+		return
+	}
+
+	const totalTokenW = tokens.reduce((s, t) => s + t.w, 0)
+	const gaps = tokens.length - 1
+	let gap = (maxWidth - totalTokenW) / gaps
+
+	doc.setFont('times', 'normal')
+	const naturalSpace = doc.getTextWidth(' ')
+	// Refuse to justify if the resulting gap would look comical, or be negative.
+	if (gap > naturalSpace * 3 || gap < 0) gap = naturalSpace
+
+	let cursorX = x
+	for (let i = 0; i < tokens.length; i++) {
+		doc.setFont('times', tokens[i].bold ? 'bold' : 'normal')
+		doc.text(tokens[i].text, cursorX, y, { baseline: 'top' })
+		cursorX += tokens[i].w + gap
+	}
+}
+
 function table(
 	doc: jsPDF,
 	startY: number,
 	body: AnyCell[][],
 	columnStyles: Record<number, AnyCell> = {},
 ): number {
+	// Orphan-prevention: every section's first row is the bold heading
+	// (e.g. "Unit | Course content"). If less than ~24mm of page remains,
+	// autoTable would draw the bold heading at the bottom of the current
+	// page and push the first data row to the next — visually orphaned.
+	// Push the entire table to a fresh page when we're that close to the
+	// margin so heading + first data row land together.
+	// 24mm ≈ heading row (~9mm) + a reasonable first data row (~15mm).
+	const PAGE_BOTTOM_THRESHOLD = 24
+	if (body.length >= 2 && startY > A4_H - MARGIN - PAGE_BOTTOM_THRESHOLD) {
+		doc.addPage()
+		startY = MARGIN
+	}
 	autoTable(doc, {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		body: body as any,
@@ -39,6 +121,10 @@ function table(
 		margin: { left: MARGIN, right: MARGIN },
 		tableWidth: TABLE_W,
 		theme: 'grid',
+		// Keep rows intact across page breaks — our custom didDrawCell redraws
+		// from cell.y, so a split row would render twice (once at end of page N
+		// and again at start of page N+1).
+		rowPageBreak: 'avoid',
 		styles: {
 			font: 'times',
 			fontSize: FONT_SIZE,
@@ -51,6 +137,59 @@ function table(
 			halign: 'justify',
 		},
 		columnStyles,
+		willDrawCell: data => {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const raw = data.cell.raw as any
+			if (raw && raw._bosMixed) {
+				// Suppress autoTable's default text draw — we render it ourselves.
+				data.cell.text = []
+			}
+		},
+		didDrawCell: data => {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const raw = data.cell.raw as any
+			if (!raw || !raw._bosMixed) return
+
+			const meta = raw._bosMixed as BosMixedMeta
+			const padding = 2
+			const xLeft = data.cell.x + padding
+			const cellW = data.cell.width
+			const fontSizeMM = (FONT_SIZE * 25.4) / 72
+			const lineHeight = fontSizeMM * 1.15
+
+			doc.setFontSize(FONT_SIZE)
+			doc.setTextColor(0, 0, 0)
+			let yLine = data.cell.y + padding
+
+			for (const line of meta.lines) {
+				const t = line.text
+				if (line.justify && t.length > 0) {
+					// Justify mode: spread tokens evenly across the cell width.
+					// Works for both mixed-font and single-font lines.
+					drawJustifiedLine(doc, t, line.prefixEnd, xLeft, yLine, cellW - padding * 2)
+				} else if (line.prefixEnd > 0 && line.prefixEnd < t.length) {
+					// Mixed: bold prefix + regular rest (always left-aligned).
+					doc.setFont('times', 'bold')
+					doc.text(t.slice(0, line.prefixEnd), xLeft, yLine, { baseline: 'top' })
+					const w = doc.getTextWidth(t.slice(0, line.prefixEnd))
+					doc.setFont('times', 'normal')
+					doc.text(t.slice(line.prefixEnd), xLeft + w, yLine, { baseline: 'top' })
+				} else {
+					// Fully bold (prefixEnd >= length) or fully regular (prefixEnd === 0).
+					const fullyBold = line.prefixEnd >= t.length && t.length > 0
+					doc.setFont('times', fullyBold ? 'bold' : 'normal')
+					const halign = line.halign ?? 'left'
+					if (halign === 'center') {
+						doc.text(t, data.cell.x + cellW / 2, yLine, { baseline: 'top', align: 'center' })
+					} else if (halign === 'right') {
+						doc.text(t, data.cell.x + cellW - padding, yLine, { baseline: 'top', align: 'right' })
+					} else {
+						doc.text(t, xLeft, yLine, { baseline: 'top' })
+					}
+				}
+				yLine += lineHeight
+			}
+		},
 		didDrawPage: ({ pageNumber }) => {
 			doc.setFont('times', 'normal')
 			doc.setFontSize(7)
@@ -61,6 +200,20 @@ function table(
 		},
 	})
 	return lastY(doc)
+}
+
+// Auto-shrink font size until `text` fits within `maxWidth` in Times Bold.
+// Used for short identifier-style values (e.g. course code) that should
+// stay on a single line. Stops at a 6pt floor.
+function fitBoldFontSize(doc: jsPDF, text: string, maxWidth: number): number {
+	doc.setFont('times', 'bold')
+	let size = FONT_SIZE
+	doc.setFontSize(size)
+	while (doc.getTextWidth(text) > maxWidth && size > 6) {
+		size -= 0.5
+		doc.setFontSize(size)
+	}
+	return size
 }
 
 function bold(content: string, extra: AnyCell = {}): AnyCell {
@@ -75,12 +228,52 @@ function span(content: string, colSpan: number, extra: AnyCell = {}): AnyCell {
 	return { content, colSpan, styles: extra }
 }
 
+// ── Mixed-style line wrap (bold prefix + regular rest) ─────────────────────────
+// Splits `rest` into lines that fit in `maxWidth`. The first line has its
+// available width reduced by the bold prefix's measured width; subsequent
+// lines use the full width. The returned array stores complete display lines
+// (line 0 already has the prefix prepended).
+function wrapBoldPrefixRest(
+	doc: jsPDF,
+	prefix: string,
+	rest: string,
+	maxWidth: number,
+): string[] {
+	doc.setFontSize(FONT_SIZE)
+	doc.setFont('times', 'bold')
+	const prefixW = doc.getTextWidth(prefix)
+	doc.setFont('times', 'normal')
+
+	const tokens = rest.split(/(\s+)/).filter(t => t.length > 0)
+	const lines: string[] = []
+	let cur = ''
+	let curMax = Math.max(0, maxWidth - prefixW)
+
+	for (const tok of tokens) {
+		const candidate = cur + tok
+		if (doc.getTextWidth(candidate) <= curMax || cur.trim().length === 0) {
+			cur = candidate
+		} else {
+			lines.push(cur.replace(/\s+$/, ''))
+			cur = /^\s+$/.test(tok) ? '' : tok
+			curMax = maxWidth
+		}
+	}
+	if (cur.trim()) lines.push(cur.replace(/\s+$/, ''))
+	if (lines.length === 0) lines.push('')
+
+	lines[0] = prefix + lines[0]
+	return lines
+}
+
 // ── Book formatter ────────────────────────────────────────────────────────────
+// Returns the book reference without any list marker; the caller is responsible
+// for prefixing "1.", "2.", … so numbering stays continuous across the list.
 function fmtBook(b: BosTextbook): string {
 	const parts = [b.author, b.title, b.publisher, b.publication_year ? String(b.publication_year) : '']
 		.filter(Boolean)
 		.map(sanitize)
-	return `• ${parts.join(', ')}.`
+	return `${parts.join(', ')}.`
 }
 
 // ── Unicode → WinAnsi sanitizer ───────────────────────────────────────────────
@@ -171,6 +364,15 @@ export interface CourseSyllabusPDFData {
 	/** K-code → description map from regulation taxonomy; falls back to Bloom's defaults */
 	k_values?: Record<string, string>
 	units?: BosUnit[]
+	/**
+	 * Numbered list of practical-paper topics — set instead of `units` for
+	 * practical/lab papers. Each topic is a heading (e.g. "MAJOR PRACTICALS")
+	 * and may optionally carry its own numbered sub-topics (rendered with
+	 * "1.1, 1.2, …" prefixes under the parent heading).
+	 */
+	practical_topics?: BosPracticalTopic[]
+	/** Instructions displayed after all course content (units/topics) */
+	instruction?: string
 	textbooks?: BosTextbook[]
 	references?: BosTextbook[]
 	web_resources?: BosWebResource[]
@@ -186,8 +388,24 @@ export interface CourseSyllabusPDFData {
 
 // ── Main generator ────────────────────────────────────────────────────────────
 
-export function generateCourseSyllabusPDF(data: CourseSyllabusPDFData): string {
-	const doc = new jsPDF('portrait', 'mm', 'a4')
+/**
+ * Renders a single course syllabus into the given jsPDF document.
+ *
+ * Use this when you need to compose multiple syllabi (e.g. all courses in a
+ * regulation) into one combined PDF. The bos/course-scheme "Download Syllabi"
+ * report calls this once per course inside a single shared `doc`.
+ *
+ * The renderer does NOT call `doc.save()` — the caller is responsible.
+ * If `opts.startNewPage` is true, a `doc.addPage()` is issued before drawing
+ * the institutional header, which is the right behaviour for every syllabus
+ * after the first in a combined report.
+ */
+export function renderCourseSyllabusPDF(
+	doc: jsPDF,
+	data: CourseSyllabusPDFData,
+	opts?: { startNewPage?: boolean },
+): void {
+	if (opts?.startNewPage) doc.addPage()
 	let y = MARGIN
 
 	// ── INSTITUTION HEADER ────────────────────────────────────────────────────
@@ -231,6 +449,9 @@ export function generateCourseSyllabusPDF(data: CourseSyllabusPDFData): string {
 
 	// ── SECTION 2: Code / Hours / Credits ─────────────────────────────────────
 	const c0 = LABEL_W, c1 = 40, c2 = 50, c3 = TABLE_W - c0 - c1 - c2
+	// Auto-shrink the course code font so identifiers like "24UUCSDSE01" stay on
+	// a single line inside the LABEL_W column (cellPadding 2 on each side).
+	const codeFontSize = fitBoldFontSize(doc, data.course_code, c0 - 4)
 	y = table(doc, y, [
 		[
 			bold('Course\ncode', { halign: 'center' }),
@@ -239,7 +460,7 @@ export function generateCourseSyllabusPDF(data: CourseSyllabusPDFData): string {
 			bold('Credits', { halign: 'center' }),
 		],
 		[
-			bold(data.course_code, { halign: 'center' }),
+			bold(data.course_code, { halign: 'center', fontSize: codeFontSize }),
 			cell(data.total_hours != null ? String(data.total_hours) : '–', { halign: 'center' }),
 			cell(data.contact_hours != null ? String(data.contact_hours) : '–', { halign: 'center' }),
 			cell(data.credits != null ? String(data.credits) : '–', { halign: 'center' }),
@@ -302,29 +523,194 @@ export function generateCourseSyllabusPDF(data: CourseSyllabusPDFData): string {
 	}
 
 	// ── SECTION 5: Course Content ─────────────────────────────────────────────
-	// Format: {unit_title}: {topic1} - {topic2} - {topic3} ...
-	//         {section reference(s)}
-	if (data.units && data.units.length > 0) {
-		const rows: object[][] = [
-			[cell(''), bold('Course content', { halign: 'center' })],
-		]
-		for (const unit of data.units) {
-			const chapterTitles = unit.chapters.map(ch => ch.title).filter(Boolean)
-			const topicText = unit.unit_title && chapterTitles.length > 0
-				? `${sanitize(unit.unit_title)}: ${chapterTitles.map(sanitize).join(' - ')}`
-				: sanitize(unit.unit_title || chapterTitles.join(' - '))
+	// Practical-paper variant: when the syllabus is a lab/practical course, the
+	// form stores a flat numbered `topics` list instead of unit/chapter trees
+	// (see ContentEditor.toggleMode in components/bos/syllabus-form.tsx).
+	// Render it as an "S.No | List of Experiments" table. This branch wins over
+	// the units block — the two modes are mutually exclusive by construction.
+	if (data.practical_topics && data.practical_topics.length > 0) {
+		// Bordered table — one row per parent topic, with the bold heading +
+		// numbered sub-items stacked inside the content cell via the shared
+		// `_bosMixed` line mechanism (same machinery theory-mode unit content
+		// uses below). Row borders only appear between *different* parent
+		// topics, so each heading and its children read as one visual block.
+		const contentColW = TABLE_W - LABEL_W
+		const contentMaxTextW = contentColW - 4 // cellPadding (2) on each side
 
-			const sectionRefs = [...new Set(unit.chapters.map(ch => ch.sections).filter(Boolean))].map(sanitize).join('\n')
-			const fullContent = sectionRefs ? `${topicText}\n${sectionRefs}` : topicText
+		const rows: AnyCell[][] = [
+			[
+				bold('S.No', { halign: 'center' }),
+				bold('List of Experiments', { halign: 'center' }),
+			],
+		]
+
+		for (const t of data.practical_topics) {
+			// Normalize: strip trailing ":"/whitespace from stored data
+			// (legacy rows often have "MAJOR PRACTICALS:" baked in) so we
+			// always append exactly one colon below.
+			const rawTitle = sanitize(t.title || '').replace(/[:\s]+$/, '')
+			const headingText = rawTitle.length > 0 ? `${rawTitle}:` : ''
+
+			const allLines: BosMixedLine[] = []
+
+			// Bold heading line(s). Use splitTextToSize against the bold font
+			// width so a long heading wraps inside the cell rather than
+			// overflowing horizontally.
+			if (headingText) {
+				doc.setFont('times', 'bold')
+				doc.setFontSize(FONT_SIZE)
+				const headingWrapped = doc.splitTextToSize(headingText, contentMaxTextW) as string[]
+				headingWrapped.forEach(ln =>
+					allLines.push({ text: ln, prefixEnd: ln.length }),
+				)
+			}
+
+			// Sub-items (plain, leading number from stored data). Wrap with
+			// the regular font so width calculations match the rendered glyphs.
+			if ((t.subtopics?.length ?? 0) > 0) {
+				doc.setFont('times', 'normal')
+				doc.setFontSize(FONT_SIZE)
+				for (const st of t.subtopics!) {
+					const subText = `${st.number}. ${sanitize(st.title || '')}`
+					const subWrapped = doc.splitTextToSize(subText, contentMaxTextW) as string[]
+					subWrapped.forEach(ln =>
+						allLines.push({ text: ln, prefixEnd: 0 }),
+					)
+				}
+			}
+
+			if (allLines.length === 0) allLines.push({ text: '', prefixEnd: 0 })
 
 			rows.push([
-				bold(`Unit-${unit.unit_id}`),
-				cell(fullContent),
+				{
+					content: String(t.number),
+					styles: { fontStyle: 'bold', halign: 'center', valign: 'top' },
+				},
+				{
+					content: allLines.map(l => l.text).join('\n'),
+					_bosMixed: { lines: allLines },
+					styles: { valign: 'top' },
+				},
 			])
 		}
+
 		y = table(doc, y, rows, {
 			0: { cellWidth: LABEL_W },
-			1: { cellWidth: TABLE_W - LABEL_W },
+			1: { cellWidth: contentColW },
+		})
+	} else if (data.units && data.units.length > 0) {
+	// One row per unit, two columns: the unit_id label (e.g. "I", "II") on the
+	// left, and all chapters merged into a single content cell on the right.
+	// Each chapter renders as one inline paragraph with a bold "Title:" prefix
+	// and regular subtopic tail; multiple chapters in the same unit are stacked
+	// on consecutive lines within the cell. Mixed bold/regular within one cell
+	// is achieved via the shared table() helper's `_bosMixed` hooks.
+		const contentColW = TABLE_W - LABEL_W
+		const contentMaxTextW = contentColW - 4 // cellPadding (2) on each side
+
+		const rows: AnyCell[][] = [
+			[
+				bold('Unit', { halign: 'center' }),
+				bold('Course content', { halign: 'center' }),
+			],
+		]
+
+		for (const unit of data.units) {
+			const unitTitle = sanitize(unit.unit_title || '').trim()
+
+			const chapterEntries = unit.chapters
+				.map(ch => {
+					const title = sanitize(ch.title || '').trim()
+					const subs = (ch.subtopics ?? [])
+						.map(s => sanitize(s.title || '').trim().replace(/[,;]+$/, ''))
+						.filter(Boolean)
+					return { title, subs }
+				})
+				.filter(c => c.title || c.subs.length > 0)
+
+			const sectionRefs = [...new Set(unit.chapters.map(ch => ch.sections).filter(Boolean))]
+				.map(sanitize)
+				.join('\n')
+
+			// Build the flat list of mixed-style lines for this unit's content cell.
+			const allLines: BosMixedLine[] = []
+
+			if (unitTitle) {
+				// Render unit_title as a fully-bold heading line at the top.
+				allLines.push({ text: unitTitle, prefixEnd: unitTitle.length })
+			}
+
+			for (const ch of chapterEntries) {
+				// Strip trailing colon/whitespace from the title — we append our own
+				// ": " separator, so a stored "Database Concepts:" would otherwise
+				// render as "Database Concepts:: ".
+				const cleanTitle = ch.title.replace(/[:\s]+$/, '')
+				const subsText = ch.subs.length > 0 ? `${ch.subs.join(', ')}.` : ''
+
+				if (cleanTitle && subsText) {
+					const prefix = `${cleanTitle}: `
+					const wrapped = wrapBoldPrefixRest(doc, prefix, subsText, contentMaxTextW)
+					wrapped.forEach((line, idx) => {
+						allLines.push({
+							text: line,
+							prefixEnd: idx === 0 ? prefix.length : 0,
+							// Justify every wrapped line except the last — matches the
+							// halign:'justify' behaviour autoTable uses for regular cells.
+							justify: idx < wrapped.length - 1,
+						})
+					})
+				} else if (cleanTitle) {
+					allLines.push({ text: cleanTitle, prefixEnd: cleanTitle.length })
+				} else if (subsText) {
+					doc.setFont('times', 'normal')
+					doc.setFontSize(FONT_SIZE)
+					const wrapped = doc.splitTextToSize(subsText, contentMaxTextW) as string[]
+					wrapped.forEach((l, idx) =>
+						allLines.push({
+							text: l,
+							prefixEnd: 0,
+							justify: idx < wrapped.length - 1,
+						}),
+					)
+				}
+			}
+
+			if (sectionRefs) {
+				doc.setFont('times', 'normal')
+				doc.setFontSize(FONT_SIZE)
+				const wrapped = doc.splitTextToSize(sectionRefs, contentMaxTextW) as string[]
+				wrapped.forEach(l => allLines.push({ text: l, prefixEnd: 0 }))
+			}
+
+			if (allLines.length === 0) allLines.push({ text: '', prefixEnd: 0 })
+
+			rows.push([
+				{
+					content: unit.unit_id,
+					styles: { fontStyle: 'bold', halign: 'center', valign: 'top' },
+				},
+				{
+					content: allLines.map(l => l.text).join('\n'),
+					_bosMixed: { lines: allLines },
+				},
+			])
+		}
+
+		y = table(doc, y, rows, {
+			0: { cellWidth: LABEL_W },
+			1: { cellWidth: contentColW },
+		})
+	}
+
+	// ── SECTION 5.5: Instructions (after units/topics) ──────────────────────────
+	if (data.instruction && data.instruction.trim()) {
+		const instructionText = sanitize(data.instruction).trim()
+		y = table(doc, y, [
+			[
+				bold(instructionText, { halign: 'left' }),
+			],
+		], {
+			0: { cellWidth: TABLE_W },
 		})
 	}
 
@@ -334,17 +720,25 @@ export function generateCourseSyllabusPDF(data: CourseSyllabusPDFData): string {
 	if (data.textbooks && data.textbooks.length > 0) {
 		metaRows.push([
 			bold('Text Books', { valign: 'top' }),
-			cell(data.textbooks.map(fmtBook).join('\n'), { halign: 'left' }),
+			cell(
+				data.textbooks.map((b, i) => `${i + 1}. ${fmtBook(b)}`).join('\n'),
+				{ halign: 'left' },
+			),
 		])
 	}
 	if (data.references && data.references.length > 0) {
 		metaRows.push([
 			bold('Reference\nBooks', { valign: 'top' }),
-			cell(data.references.map(fmtBook).join('\n'), { halign: 'left' }),
+			cell(
+				data.references.map((b, i) => `${i + 1}. ${fmtBook(b)}`).join('\n'),
+				{ halign: 'left' },
+			),
 		])
 	}
 	if (data.web_resources && data.web_resources.length > 0) {
-		const lines = data.web_resources.map(r => sanitize(r.url || r.title || '')).join('\n')
+		const lines = data.web_resources
+			.map((r, i) => `${i + 1}. ${sanitize(r.url || r.title || '')}`)
+			.join('\n')
 		metaRows.push([
 			bold('Web\nResources', { valign: 'top' }),
 			cell(lines, { halign: 'left' }),
@@ -365,8 +759,18 @@ export function generateCourseSyllabusPDF(data: CourseSyllabusPDFData): string {
 	// ── SECTION 7: Signature row (bottom of document) ────────────────────────
 	y = table(doc, y, [
 		[
-			bold('Course Designer\n(Name & Signature)', { halign: 'center', minCellHeight: 30, valign: 'bottom' }),
-			bold('Verified by BoS Chairman', { halign: 'center', minCellHeight: 30, valign: 'bottom' }),
+			{
+				content: 'Course Designer\nName:\nDesignation:',
+				_bosMixed: {
+					lines: [
+						{ text: 'Course Designer', prefixEnd: 'Course Designer'.length, halign: 'center' },
+						{ text: 'Name:', prefixEnd: 'Name:'.length, halign: 'left' },
+						{ text: 'Designation:', prefixEnd: 'Designation:'.length, halign: 'left' },
+					],
+				},
+				styles: { minCellHeight: 30, valign: 'top' },
+			},
+			bold('Verified by BoS Chairman', { halign: 'center', minCellHeight: 30, valign: 'top' }),
 		],
 	], {
 		0: { cellWidth: TABLE_W / 2 },
@@ -462,9 +866,18 @@ export function generateCourseSyllabusPDF(data: CourseSyllabusPDFData): string {
 		doc.text('H–High;  M–Medium;  L–Low', MARGIN, y)
 	}
 
-	
+}
 
-	// ── SAVE ─────────────────────────────────────────────────────────────────
+/**
+ * Original single-course download entry point — creates a new jsPDF doc,
+ * renders one syllabus, and saves it to disk. Kept as a thin wrapper around
+ * {@link renderCourseSyllabusPDF} so existing call-sites
+ * (bos/syllabus row actions, course-syllabus DOCX export) continue to work
+ * unchanged.
+ */
+export function generateCourseSyllabusPDF(data: CourseSyllabusPDFData): string {
+	const doc = new jsPDF('portrait', 'mm', 'a4')
+	renderCourseSyllabusPDF(doc, data)
 	const date = new Date().toISOString().split('T')[0]
 	const fileName = `${data.course_code}_syllabus_${date}.pdf`
 	doc.save(fileName)

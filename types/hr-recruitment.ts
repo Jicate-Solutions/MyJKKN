@@ -206,6 +206,13 @@ export interface CandidateFilters {
   search?: string;
   page?: number;
   pageSize?: number;
+  /**
+   * Approver-inbox view: restrict to candidates whose approval_chain[current_step]
+   * targets `approver_id`. Required to be paired with `approver_id`.
+   */
+  pending_for_me?: boolean;
+  /** UUID of the approver whose inbox we're computing. Required when `pending_for_me=true`. */
+  approver_id?: string;
 }
 
 // =====================================================================================

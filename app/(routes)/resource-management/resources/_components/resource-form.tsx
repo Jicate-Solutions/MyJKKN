@@ -32,7 +32,21 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger
+} from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList
+} from '@/components/ui/command';
 import { Input } from '@/components/ui/input';
+import { cn, getErrorMessage } from '@/lib/utils';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -52,11 +66,20 @@ import { useSubCategoriesSelect } from '@/hooks/resource-management/use-sub-cate
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useDepartments } from '@/hooks/organization/use-departments';
-import { useProfilesForSelection } from '@/hooks/organization/use-profiles';
+import { useApproverProfiles } from '@/hooks/organization/use-profiles';
 import { SubCategoryService } from '@/lib/services/resource-management/sub-category-service';
 import { ResourceService } from '@/lib/services/resource-management/resource-service';
 import { generateResourceCode, isValidResourceCode } from '@/lib/utils/resource-id-generator';
-import { Loader2, Upload, Trash2, Eye, RefreshCw, Search } from 'lucide-react';
+import {
+  Loader2,
+  Upload,
+  Trash2,
+  Eye,
+  RefreshCw,
+  Search,
+  Check,
+  ChevronsUpDown
+} from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { ApproverSelector } from './approver-selector';
 import Image from 'next/image';
@@ -174,12 +197,30 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
 
   // Caretaker search & filter state (must be at component level, not inside render prop)
   const [caretakerSearch, setCaretakerSearch] = useState('');
-  const [caretakerRoleFilter, setCaretakerRoleFilter] = useState<string>('all');
+  // Caretaker filters mirror the Approver flow: role + institution combobox
+  // so users can collaborate across institutions. '' = no filter applied
+  // (defaults to all accessible institutions for institution; all roles for role).
+  const [caretakerRoleFilter, setCaretakerRoleFilter] = useState<string>('');
+  const [caretakerRoleOpen, setCaretakerRoleOpen] = useState(false);
+  const [caretakerInstitutionFilter, setCaretakerInstitutionFilter] =
+    useState<string>('');
+  const [caretakerInstitutionOpen, setCaretakerInstitutionOpen] =
+    useState(false);
+  // Debounce text search so we don't hammer the server-side endpoint
+  const [debouncedCaretakerSearch, setDebouncedCaretakerSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedCaretakerSearch(caretakerSearch), 300);
+    return () => clearTimeout(t);
+  }, [caretakerSearch]);
 
   const { institutions: accessibleInstitutions } = useUserInstitutionAccess();
   const institutionId = accessibleInstitutions[0]?.institution_id;
+  // Resources can be tied to any organizational entity, not just educational
+  // institutions — administration offices and companies own physical resources
+  // (printers, vehicles, equipment) too. Pass `entityType: 'all'` to surface
+  // institution + admin_office + company + school in the dropdown.
   const { institutions, loading: loadingInstitutions } =
-    useInstitutionsWithAccess();
+    useInstitutionsWithAccess({ entityType: 'all' });
   const { categories: parentCategories, loading: loadingParent } =
     useParentCategoriesSelect();
   const { categories: subcategories, loading: loadingSubcategories } =
@@ -198,42 +239,32 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
     isActive: true
   });
 
-  // Fetch profiles (staff only) for caretaker selection - excludes students/guests
-  // Only staff-type roles should be responsible persons for resources
+  // Caretaker profiles — cross-institution capable. Mirrors the Approver flow.
+  //
+  // Why useApproverProfiles instead of useProfilesForSelection:
+  //   1. Accepts institution_ids[] so we can search across every institution
+  //      the current user has access to (collaboration across institutions).
+  //   2. Routes role_key filtering through the SECURITY DEFINER RPC, so the
+  //      role filter actually returns users for non-super-admin callers.
+  //   3. Returns institution_id on each profile so we can show ownership in
+  //      the list (helps disambiguate same-named people across institutions).
+  //
+  // Default scope: all accessible institutions. If the user picks a specific
+  // institution from the caretaker filter dropdown, narrow to just that one.
+  const accessibleInstitutionIds = institutions.map((i: any) => i.id);
   const {
-    data: profiles = [],
+    data: caretakerProfiles = [],
     isLoading: loadingProfiles,
     error: profilesError
-  } = useProfilesForSelection(
-    selectedInstitutionId
-      ? {
-          institution_id: selectedInstitutionId,
-          department_id: selectedDepartmentId || undefined,
-          is_active: true,
-          // Exclude students (4918) and guests (219) — not valid caretakers
-          // All other roles: faculty, hod, super_admin, accounts, administrator,
-          // admission, coe, coe_office, principal, counselor, staff, admin,
-          // digital_coordinator, driver
-          roles: [
-            'faculty',
-            'hod',
-            'super_admin',
-            'accounts',
-            'administrator',
-            'admission',
-            'coe',
-            'coe_office',
-            'principal',
-            'admission_counselor',
-            'expo_counselor',
-            'staff',
-            'admin',
-            'digital_coordinator',
-            'driver'
-          ]
-        }
-      : { institution_id: '' } // Won't fetch due to enabled check in hook
-  );
+  } = useApproverProfiles({
+    institution_ids: caretakerInstitutionFilter
+      ? [caretakerInstitutionFilter]
+      : accessibleInstitutionIds,
+    role_key: caretakerRoleFilter || undefined,
+    search: debouncedCaretakerSearch || undefined,
+    is_active: true
+  });
+
 
   // Removed: useEffect for fetching subcategory attribute definitions
   // Custom attributes are now managed per-resource, not inherited from subcategory
@@ -392,7 +423,10 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
         warranty_expiry_date: data.warranty_expiry_date || undefined,
         disposal_date: (data as any).disposal_date || undefined,
         // Clean UUID fields - convert empty strings to undefined
+        // Postgres UUID columns reject '' with 22P02. The form defaults these
+        // optional FKs to '' so users can keep them blank — strip before send.
         department_id: data.department_id || undefined,
+        subcategory_id: data.subcategory_id || undefined,
         caretaker_user_id: (data as any).caretaker_user_id || undefined,
         // Clean numeric fields
         depreciation_rate: data.depreciation_rate || undefined,
@@ -453,8 +487,13 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
         router.refresh();
       }
     } catch (error) {
+      // Surface the real error so users can self-diagnose. The hook already
+      // toasts DB errors (and returns null without rethrowing), so anything
+      // reaching this catch is from image upload, resource-code generation,
+      // or another non-mutation step — getErrorMessage preserves the message
+      // whether it's an Error instance or a Supabase plain object.
       console.error('Error submitting resource:', error);
-      toast.error('Failed to save resource');
+      toast.error(getErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -725,7 +764,21 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                       <SelectContent>
                         {institutions.map((inst: any) => (
                           <SelectItem key={inst.id} value={inst.id}>
-                            {inst.name}
+                            <span className='flex items-center gap-2'>
+                              <span>{inst.name}</span>
+                              {inst.entity_type &&
+                                inst.entity_type !== 'institution' && (
+                                  <span className='text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-muted text-muted-foreground'>
+                                    {inst.entity_type === 'admin_office'
+                                      ? 'Admin Office'
+                                      : inst.entity_type === 'company'
+                                        ? 'Company'
+                                        : inst.entity_type === 'school'
+                                          ? 'School'
+                                          : inst.entity_type}
+                                  </span>
+                                )}
+                            </span>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -781,6 +834,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='e.g., A Block'
+                        maxLength={50}
                         {...field}
                         value={field.value || ''}
                       />
@@ -799,6 +853,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='e.g., 2nd Block'
+                        maxLength={50}
                         {...field}
                         value={field.value || ''}
                       />
@@ -817,6 +872,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='e.g., 3rd Floor'
+                        maxLength={100}
                         {...field}
                         value={field.value || ''}
                       />
@@ -835,6 +891,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='e.g., 301'
+                        maxLength={50}
                         {...field}
                         value={field.value || ''}
                       />
@@ -870,144 +927,276 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
               control={form.control}
               name='caretaker_user_ids'
               render={({ field }) => {
-                // Extract unique roles from profiles for the filter dropdown
-                const availableRoles = Array.from(
-                  new Set(profiles.map((p) => p.role).filter(Boolean))
-                ).sort() as string[];
-
-                // Apply role filter first, then text search
-                let filteredProfiles = caretakerRoleFilter !== 'all'
-                  ? profiles.filter((p) => p.role === caretakerRoleFilter)
-                  : profiles;
-
-                if (caretakerSearch) {
-                  const query = caretakerSearch.toLowerCase();
-                  filteredProfiles = filteredProfiles.filter((p) =>
-                    p.full_name?.toLowerCase().includes(query) ||
-                    p.email?.toLowerCase().includes(query) ||
-                    p.role?.toLowerCase().includes(query) ||
-                    p.designation?.toLowerCase().includes(query)
-                  );
-                }
-
+                // Server already filtered by role_key + institution_ids + search.
+                // No additional client-side filtering needed.
+                const visibleProfiles = caretakerProfiles;
                 const selectedCount = field.value?.length || 0;
+
+                // Lookup helpers for display
+                const institutionNameById = new Map(
+                  institutions.map((i: any) => [i.id, i.name])
+                );
+                const customRoleNameByKey = new Map(
+                  (customRoles as any[]).map((r: any) => [r.role_key, r.role_name])
+                );
+
+                const selectedInstitutionLabel = caretakerInstitutionFilter
+                  ? institutionNameById.get(caretakerInstitutionFilter) ??
+                    'Institution'
+                  : 'All Institutions';
+                const selectedRoleLabel = caretakerRoleFilter
+                  ? customRoleNameByKey.get(caretakerRoleFilter) ?? caretakerRoleFilter
+                  : 'All Roles';
 
                 return (
                   <FormItem>
                     <FormLabel>Caretaker / Responsible Person(s)</FormLabel>
                     <div className='rounded-lg border p-4 space-y-3'>
-                      {/* Search & Role Filter */}
-                      {selectedInstitutionId && profiles.length > 0 && (
-                        <div className='space-y-2'>
-                          <div className='flex gap-2'>
-                            <div className='relative flex-1'>
-                              <Search className='absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground' />
-                              <Input
-                                placeholder='Search by name, email, or designation...'
-                                value={caretakerSearch}
-                                onChange={(e) => setCaretakerSearch(e.target.value)}
-                                className='pl-9 h-9'
-                              />
-                            </div>
-                            <Select
-                              value={caretakerRoleFilter}
-                              onValueChange={setCaretakerRoleFilter}
+                      {/* Search + Role + Institution filters */}
+                      <div className='space-y-2'>
+                        <div className='flex flex-col gap-2 sm:flex-row'>
+                          <div className='relative flex-1'>
+                            <Search className='absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground' />
+                            <Input
+                              placeholder='Search by name or email...'
+                              value={caretakerSearch}
+                              onChange={(e) => setCaretakerSearch(e.target.value)}
+                              className='pl-9 h-9'
+                            />
+                          </div>
+
+                          {/* Role filter — searchable combobox over custom_roles */}
+                          <Popover
+                            open={caretakerRoleOpen}
+                            onOpenChange={setCaretakerRoleOpen}
+                          >
+                            <PopoverTrigger asChild>
+                              <Button
+                                type='button'
+                                variant='outline'
+                                role='combobox'
+                                aria-expanded={caretakerRoleOpen}
+                                className='w-full sm:w-[200px] h-9 justify-between font-normal'
+                              >
+                                <span className='truncate'>{selectedRoleLabel}</span>
+                                <ChevronsUpDown className='ml-2 h-4 w-4 shrink-0 opacity-50' />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent
+                              className='w-[--radix-popover-trigger-width] p-0'
+                              align='end'
                             >
-                              <SelectTrigger className='w-[180px] h-9'>
-                                <SelectValue placeholder='Filter by role' />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value='all'>All Roles</SelectItem>
-                                {availableRoles.map((role) => (
-                                  <SelectItem key={role} value={role}>
-                                    {role.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          {/* Select All / Deselect All for visible filtered results */}
-                          <div className='flex items-center justify-between'>
-                            <div className='flex items-center space-x-2'>
-                              <Checkbox
-                                id='caretaker-select-all'
-                                checked={
-                                  filteredProfiles.length > 0 &&
-                                  filteredProfiles.every((p) => field.value?.includes(p.id))
-                                }
-                                onCheckedChange={(checked) => {
-                                  const currentValue = field.value || [];
-                                  if (checked) {
-                                    const newIds = filteredProfiles
-                                      .map((p) => p.id)
-                                      .filter((id): id is string => !!id && !currentValue.includes(id));
-                                    field.onChange([...currentValue, ...newIds]);
-                                  } else {
-                                    const filteredIds = new Set(filteredProfiles.map((p) => p.id));
-                                    field.onChange(currentValue.filter((id: string) => !filteredIds.has(id)));
-                                  }
-                                }}
-                              />
-                              <Label htmlFor='caretaker-select-all' className='text-xs font-medium cursor-pointer'>
-                                Select All
-                                {caretakerRoleFilter !== 'all' && ` (${caretakerRoleFilter.replace(/_/g, ' ')})`}
-                              </Label>
-                            </div>
-                            <span className='text-xs text-muted-foreground'>
-                              {selectedCount} selected · {filteredProfiles.length} shown
-                            </span>
-                          </div>
+                              <Command>
+                                <CommandInput placeholder='Search roles...' />
+                                <CommandList>
+                                  <CommandEmpty>No roles found.</CommandEmpty>
+                                  <CommandGroup>
+                                    <CommandItem
+                                      value='All Roles'
+                                      onSelect={() => {
+                                        setCaretakerRoleFilter('');
+                                        setCaretakerRoleOpen(false);
+                                      }}
+                                    >
+                                      <Check
+                                        className={cn(
+                                          'mr-2 h-4 w-4',
+                                          !caretakerRoleFilter
+                                            ? 'opacity-100'
+                                            : 'opacity-0'
+                                        )}
+                                      />
+                                      All Roles
+                                    </CommandItem>
+                                    {(customRoles as any[]).map((role: any) => (
+                                      <CommandItem
+                                        key={role.id}
+                                        value={role.role_name}
+                                        onSelect={() => {
+                                          setCaretakerRoleFilter(role.role_key);
+                                          setCaretakerRoleOpen(false);
+                                        }}
+                                      >
+                                        <Check
+                                          className={cn(
+                                            'mr-2 h-4 w-4',
+                                            caretakerRoleFilter === role.role_key
+                                              ? 'opacity-100'
+                                              : 'opacity-0'
+                                          )}
+                                        />
+                                        {role.role_name}
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+
+                          {/* Institution filter — searchable combobox over accessible institutions */}
+                          <Popover
+                            open={caretakerInstitutionOpen}
+                            onOpenChange={setCaretakerInstitutionOpen}
+                          >
+                            <PopoverTrigger asChild>
+                              <Button
+                                type='button'
+                                variant='outline'
+                                role='combobox'
+                                aria-expanded={caretakerInstitutionOpen}
+                                className='w-full sm:w-[220px] h-9 justify-between font-normal'
+                              >
+                                <span className='truncate'>
+                                  {selectedInstitutionLabel}
+                                </span>
+                                <ChevronsUpDown className='ml-2 h-4 w-4 shrink-0 opacity-50' />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent
+                              className='w-[--radix-popover-trigger-width] p-0'
+                              align='end'
+                            >
+                              <Command>
+                                <CommandInput placeholder='Search institutions...' />
+                                <CommandList>
+                                  <CommandEmpty>No institutions found.</CommandEmpty>
+                                  <CommandGroup>
+                                    <CommandItem
+                                      value='All Institutions'
+                                      onSelect={() => {
+                                        setCaretakerInstitutionFilter('');
+                                        setCaretakerInstitutionOpen(false);
+                                      }}
+                                    >
+                                      <Check
+                                        className={cn(
+                                          'mr-2 h-4 w-4',
+                                          !caretakerInstitutionFilter
+                                            ? 'opacity-100'
+                                            : 'opacity-0'
+                                        )}
+                                      />
+                                      All Institutions
+                                    </CommandItem>
+                                    {institutions.map((inst: any) => (
+                                      <CommandItem
+                                        key={inst.id}
+                                        value={inst.name}
+                                        onSelect={() => {
+                                          setCaretakerInstitutionFilter(inst.id);
+                                          setCaretakerInstitutionOpen(false);
+                                        }}
+                                      >
+                                        <Check
+                                          className={cn(
+                                            'mr-2 h-4 w-4',
+                                            caretakerInstitutionFilter === inst.id
+                                              ? 'opacity-100'
+                                              : 'opacity-0'
+                                          )}
+                                        />
+                                        {inst.name}
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
                         </div>
-                      )}
+
+                        {/* Select All / count summary */}
+                        <div className='flex items-center justify-between'>
+                          <div className='flex items-center space-x-2'>
+                            <Checkbox
+                              id='caretaker-select-all'
+                              checked={
+                                visibleProfiles.length > 0 &&
+                                visibleProfiles.every((p) =>
+                                  field.value?.includes(p.id)
+                                )
+                              }
+                              onCheckedChange={(checked) => {
+                                const currentValue = field.value || [];
+                                if (checked) {
+                                  const newIds = visibleProfiles
+                                    .map((p) => p.id)
+                                    .filter(
+                                      (id): id is string =>
+                                        !!id && !currentValue.includes(id)
+                                    );
+                                  field.onChange([...currentValue, ...newIds]);
+                                } else {
+                                  const filteredIds = new Set(
+                                    visibleProfiles.map((p) => p.id)
+                                  );
+                                  field.onChange(
+                                    currentValue.filter(
+                                      (id: string) => !filteredIds.has(id)
+                                    )
+                                  );
+                                }
+                              }}
+                            />
+                            <Label
+                              htmlFor='caretaker-select-all'
+                              className='text-xs font-medium cursor-pointer'
+                            >
+                              Select All Visible
+                            </Label>
+                          </div>
+                          <span className='text-xs text-muted-foreground'>
+                            {selectedCount} selected · {visibleProfiles.length} shown
+                          </span>
+                        </div>
+                      </div>
 
                       {/* User list - fixed height to prevent layout shifts */}
                       <div className='space-y-2 h-60 overflow-y-scroll overscroll-contain'>
-                        {!selectedInstitutionId ? (
-                          <p className='text-sm text-muted-foreground py-4 text-center'>
-                            Please select an institution first
-                          </p>
-                        ) : loadingProfiles ? (
+                        {loadingProfiles ? (
                           <p className='text-sm text-muted-foreground py-4 text-center'>
                             Loading users...
                           </p>
-                        ) : profiles.length === 0 ? (
-                          <p className='text-sm text-muted-foreground py-4 text-center'>
-                            No users found for the selected institution
-                            {selectedDepartmentId && '/department'}
+                        ) : profilesError ? (
+                          <p className='text-sm text-destructive py-4 text-center'>
+                            Failed to load users. Please try again.
                           </p>
-                        ) : filteredProfiles.length === 0 ? (
+                        ) : visibleProfiles.length === 0 ? (
                           <p className='text-sm text-muted-foreground py-4 text-center'>
-                            No users matching &quot;{caretakerSearch}&quot;
+                            {caretakerSearch ||
+                            caretakerRoleFilter ||
+                            caretakerInstitutionFilter
+                              ? 'No users match the current filters.'
+                              : 'No users available.'}
                           </p>
                         ) : (
-                          filteredProfiles.map((profile) => {
+                          visibleProfiles.map((profile: any) => {
                             if (!profile.id) return null;
-
+                            const institutionName =
+                              institutionNameById.get(profile.institution_id) ??
+                              null;
                             return (
                               <div
                                 key={profile.id}
-                                className='flex items-center space-x-2'
+                                className='flex items-start space-x-2'
                               >
                                 <Checkbox
                                   id={`caretaker-${profile.id}`}
-                                  checked={field.value?.includes(profile.id) || false}
-                                  disabled={!selectedInstitutionId}
+                                  checked={
+                                    field.value?.includes(profile.id) || false
+                                  }
                                   onCheckedChange={(checked) => {
-                                    if (!selectedInstitutionId) {
-                                      toast.error(
-                                        'Please select an institution first'
-                                      );
-                                      return;
-                                    }
-
                                     if (!profile.id) {
                                       toast.error('Invalid user');
                                       return;
                                     }
-
                                     const currentValue = field.value || [];
                                     if (checked) {
-                                      field.onChange([...currentValue, profile.id]);
+                                      field.onChange([
+                                        ...currentValue,
+                                        profile.id
+                                      ]);
                                     } else {
                                       field.onChange(
                                         currentValue.filter(
@@ -1016,14 +1205,27 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                                       );
                                     }
                                   }}
+                                  className='mt-0.5'
                                 />
                                 <Label
                                   htmlFor={`caretaker-${profile.id}`}
-                                  className='text-sm font-normal cursor-pointer'
+                                  className='text-sm font-normal cursor-pointer leading-tight'
                                 >
-                                  {profile.full_name}
-                                  {profile.role && ` (${profile.role})`}
-                                  {profile.designation && ` - ${profile.designation}`}
+                                  <span className='block'>
+                                    {profile.full_name}
+                                    {profile.role && (
+                                      <span className='text-muted-foreground'>
+                                        {' '}
+                                        · {profile.role}
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span className='block text-xs text-muted-foreground'>
+                                    {profile.email}
+                                    {institutionName && ` · ${institutionName}`}
+                                    {profile.designation &&
+                                      ` · ${profile.designation}`}
+                                  </span>
                                 </Label>
                               </div>
                             );
@@ -1032,11 +1234,8 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                       </div>
                     </div>
                     <FormDescription>
-                      {!selectedInstitutionId
-                        ? 'Select an institution to view available users'
-                        : selectedDepartmentId
-                        ? 'Showing users from selected department. Select one or more responsible persons.'
-                        : 'Showing all users from selected institution. Select one or more responsible persons.'}
+                      Pick caretakers from any institution you have access to.
+                      Use the Role and Institution filters to narrow the list.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -1075,6 +1274,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                         <SelectItem value='occupied'>Occupied</SelectItem>
                         <SelectItem value='maintenance'>Maintenance</SelectItem>
                         <SelectItem value='retired'>Retired</SelectItem>
+                        <SelectItem value='inactive'>Inactive</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -1117,6 +1317,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='e.g., ABC Supplies Inc.'
+                        maxLength={200}
                         {...field}
                         value={field.value || ''}
                       />
@@ -1136,6 +1337,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                       <Input
                         type='email'
                         placeholder='e.g., vendor@example.com'
+                        maxLength={100}
                         {...field}
                         value={field.value || ''}
                       />
@@ -1154,6 +1356,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='e.g., +91 98765 43210'
+                        maxLength={30}
                         {...field}
                         value={field.value || ''}
                       />
@@ -1172,6 +1375,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='Street address, P.O. box'
+                        maxLength={255}
                         {...field}
                         value={field.value || ''}
                       />
@@ -1190,6 +1394,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='Apartment, suite, unit, building, floor'
+                        maxLength={255}
                         {...field}
                         value={field.value || ''}
                       />
@@ -1208,6 +1413,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='City name'
+                        maxLength={100}
                         {...field}
                         value={field.value || ''}
                       />
@@ -1226,6 +1432,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='State or province'
+                        maxLength={100}
                         {...field}
                         value={field.value || ''}
                       />
@@ -1244,6 +1451,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                     <FormControl>
                       <Input
                         placeholder='ZIP or postal code'
+                        maxLength={20}
                         {...field}
                         value={field.value || ''}
                       />
@@ -1604,10 +1812,19 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                 id='enable_approval'
                 checked={approvalConfig.enabled || false}
                 onCheckedChange={(checked) => {
-                  updateApprovalConfig('enabled', checked);
-                  if (!checked) {
-                    // Clear approvers when disabled
-                    updateApprovalConfig('approvers', []);
+                  if (checked) {
+                    form.setValue('approval_config', {
+                      ...approvalConfig,
+                      enabled: true,
+                      approval_type: approvalConfig.approval_type || 'sequential',
+                      require_all_approvers: approvalConfig.require_all_approvers ?? true,
+                    });
+                  } else {
+                    form.setValue('approval_config', {
+                      ...approvalConfig,
+                      enabled: false,
+                      approvers: [],
+                    });
                   }
                 }}
               />

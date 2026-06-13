@@ -152,7 +152,15 @@ function QuickStat({ label, value, hint, Icon, loading }: QuickStatProps) {
 
 export default function CampaignDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const [mode, setMode] = useState<AttributionMode>('first');
+  // Default to 'any' so the KPI/funnel/time-series include EVERY lead this
+  // campaign has touched — including pre-existing leads that the
+  // capture_admission_lead RPC merged into instead of creating fresh. The
+  // dedup path still inserts a capture row (and the AFTER INSERT trigger
+  // bumps admission_campaign_links.capture_count), so 'any' is the only
+  // mode whose count agrees with the per-link denormalized counter. Users
+  // can still flip to 'first' or 'last' for first-touch / last-touch
+  // attribution via the AttributionModeToggle.
+  const [mode, setMode] = useState<AttributionMode>('any');
   const [range] = useState(() => ({
     from: new Date(Date.now() - 30 * 24 * 3600 * 1000),
     to: new Date(),

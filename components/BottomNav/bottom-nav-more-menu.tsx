@@ -10,6 +10,7 @@ import { BottomNavItem } from './bottom-nav-item';
 import { usePageFavorites } from '@/hooks/use-page-favorites';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
 import { ICON_MAP } from '@/lib/navigation/page-registry';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import {
   Sheet,
   SheetContent,
@@ -88,6 +89,9 @@ export function BottomNavMoreMenu({
 }: BottomNavMoreMenuProps) {
   const pathname = usePathname();
   const { favorites, isLoading: favoritesLoading } = usePageFavorites();
+  // Favorites store canonical titles; adapt on display so a school user sees
+  // "Streams" not "Degrees" (matches the sidebar Favorites section).
+  const adapt = useAdaptiveLabels();
 
   const { open: openCommandPalette } = useCommandPalette();
 
@@ -315,7 +319,7 @@ export function BottomNavMoreMenu({
                       )}
                     >
                       <Icon className="h-4 w-4" strokeWidth={2} />
-                      <span className="whitespace-nowrap">{fav.title}</span>
+                      <span className="whitespace-nowrap">{adapt(fav.title)}</span>
                     </button>
                   );
                 })}

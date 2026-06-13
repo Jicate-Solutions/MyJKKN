@@ -27,6 +27,7 @@ function normalizeMappingResponse(
         credit:             joined.credit       ?? joined.credits         ?? 0,
         // Prefer the full course record for structural fields missing from the join.
         course_part_master: full?.course_part_master ?? joined.course_part_master ?? joined.part ?? null,
+        course_type_code:   full?.course_type_code   ?? joined.course_type_code   ?? null,
         exam_duration:      full?.exam_duration      ?? joined.exam_duration      ?? null,
         theory_hours:       full?.theory_hours       ?? joined.theory_hours       ?? null,
         practical_hours:    full?.practical_hours     ?? joined.practical_hours    ?? null,

@@ -14,7 +14,7 @@ type PipelineStage = typeof PIPELINE_STAGES[number];
  * Director-tunable ExoVoiceAnalyze submission config.
  * Read from `platform_policies` row keyed `telephony.exovoice.config` (global scope).
  * Hardcoded fallbacks below preserve historical behaviour when the row is missing
- * or the RPC fails. Director edits via /admin/telephony-policies — no deploy needed.
+ * or the RPC fails. Director edits via /admission/settings/telephony-policies — no deploy needed.
  */
 interface ExoVoiceConfig {
   tasks: string[];
@@ -245,7 +245,7 @@ export class CallPipelineService {
       // Submit to ExoVoiceAnalyze.
       // Tasks + categories sourced from platform_policies
       // (telephony.exovoice.config, global scope). Director-tunable via
-      // /admin/telephony-policies — no deploy needed. Hardcoded fallbacks
+      // /admission/settings/telephony-policies — no deploy needed. Hardcoded fallbacks
       // inside getExoVoiceConfig() preserve historical behaviour when the
       // row is missing or the RPC fails.
       const exovoiceCfg = await getExoVoiceConfig();

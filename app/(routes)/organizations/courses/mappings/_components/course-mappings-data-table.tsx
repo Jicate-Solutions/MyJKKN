@@ -1,7 +1,7 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
-import { columns } from './columns';
+import { getCourseMappingColumns } from './columns';
 import type { CourseMappingsSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
 import {
@@ -20,6 +20,7 @@ import { CourseMappingService } from '@/lib/services/organization/course-mapping
 import { CourseMapping } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { useState } from 'react';
 import {
   AlertDialog,
@@ -51,6 +52,7 @@ export function CourseMappingsDataTable({
   const router = useRouter();
   const { profile } = useAuth();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const adapt = useAdaptiveLabels();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<CourseMapping[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
@@ -140,11 +142,11 @@ export function CourseMappingsDataTable({
       const failed = results.filter(r => r.status === 'rejected').length;
 
       if (successful > 0) {
-        toast.success(`Successfully deleted ${successful} course mapping${successful > 1 ? 's' : ''}`);
+        toast.success(`Successfully deleted ${successful} ${adapt('course')} mapping${successful > 1 ? 's' : ''}`);
       }
-      
+
       if (failed > 0) {
-        toast.error(`Failed to delete ${failed} course mapping${failed > 1 ? 's' : ''}`);
+        toast.error(`Failed to delete ${failed} ${adapt('course')} mapping${failed > 1 ? 's' : ''}`);
       }
 
       if (deleteResetFn) {
@@ -159,7 +161,7 @@ export function CourseMappingsDataTable({
       setDeleteResetFn(null);
     } catch (error) {
       console.error('Error deleting course mappings:', error);
-      toast.error('An error occurred while deleting course mappings');
+      toast.error(`An error occurred while deleting ${adapt('course')} mappings`);
     } finally {
       setIsDeleting(false);
     }
@@ -185,7 +187,7 @@ export function CourseMappingsDataTable({
       toast.success('Export completed successfully');
     } catch (error) {
       console.error('Export error:', error);
-      toast.error('Failed to export course mappings');
+      toast.error(`Failed to export ${adapt('course')} mappings`);
     }
   };
 
@@ -227,7 +229,7 @@ export function CourseMappingsDataTable({
           className='h-8'
         >
           <Plus className='mr-2 h-4 w-4' />
-          Map Course
+          Map {adapt('Course')}
         </Button>
       )}
 
@@ -296,7 +298,7 @@ export function CourseMappingsDataTable({
     <>
       <DataTable
         fetchDataFn={fetchData}
-        getColumns={() => columns as any}
+        getColumns={() => getCourseMappingColumns(adapt) as any}
         exportConfig={{
           entityName: 'course-mappings',
           columnMapping: {},
@@ -319,11 +321,11 @@ export function CourseMappingsDataTable({
           <AlertDialogHeader>
             <AlertDialogTitle>
               {selectedForDelete.length > 1
-                ? `Delete ${selectedForDelete.length} Course Mappings`
-                : `Delete Course Mapping`}
+                ? `Delete ${selectedForDelete.length} ${adapt('Course')} Mappings`
+                : `Delete ${adapt('Course')} Mapping`}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the course mapping{selectedForDelete.length > 1 ? 's' : ''} and all related data.
+              This action cannot be undone. This will permanently delete the {adapt('course')} mapping{selectedForDelete.length > 1 ? 's' : ''} and all related data.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -331,7 +333,7 @@ export function CourseMappingsDataTable({
           {selectedForDelete.length > 0 && (
             <div className="my-4 p-3 bg-muted rounded-lg">
               <div className="text-sm font-medium mb-2">
-                Course Mapping{selectedForDelete.length > 1 ? 's' : ''} to be deleted:
+                {adapt('Course')} Mapping{selectedForDelete.length > 1 ? 's' : ''} to be deleted:
               </div>
               <div className="space-y-1 max-h-32 overflow-y-auto">
                 {selectedForDelete.map((mapping) => (
@@ -356,7 +358,7 @@ export function CourseMappingsDataTable({
                   Deleting...
                 </>
               ) : (
-                `Delete ${selectedForDelete.length > 1 ? `${selectedForDelete.length} Course Mappings` : 'Course Mapping'}`
+                `Delete ${selectedForDelete.length > 1 ? `${selectedForDelete.length} ${adapt('Course')} Mappings` : `${adapt('Course')} Mapping`}`
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

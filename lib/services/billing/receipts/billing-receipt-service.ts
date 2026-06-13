@@ -10,6 +10,7 @@ import type {
 } from '@/types/billing-schedule';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { trackUsage } from '@/lib/utils/track-usage';
+import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
 
 export class BillingReceiptService {
   private static supabase = createClientSupabaseClient();
@@ -149,6 +150,9 @@ export class BillingReceiptService {
 
         if (itemsError) {
           logger.error('billing/receipts', 'Receipt items creation error', itemsError);
+          // Rollback: delete the orphaned receipt header to prevent ghost receipts
+          await client.from('billing_receipts').delete().eq('id', receipt.id);
+          logger.warn('billing/receipts', 'Rolled back receipt header after items failure', { receiptId: receipt.id });
           throw itemsError;
         }
 
@@ -164,6 +168,27 @@ export class BillingReceiptService {
       }
 
       trackUsage({ module: 'billing/receipts', feature: 'create_receipt', eventType: 'create' });
+
+      const studentNameReceipt = `${receipt.student?.first_name || ''} ${receipt.student?.last_name || ''}`.trim() || 'Unknown';
+      const templateReceipt = BillingActivityTemplates.receiptCreated(
+        receiptNumber,
+        studentNameReceipt,
+        receiptData.payment_amount
+      );
+      logActivityForCurrentUser({
+        ...templateReceipt,
+        resourceId: receipt.id,
+        resourceName: receiptNumber,
+        institutionId: receiptData.institution_id,
+        metadata: {
+          sub_type: templateReceipt.sub_type,
+          student_id: receiptData.student_id,
+          payment_mode: receiptData.payment_mode,
+          payment_amount: receiptData.payment_amount,
+          bill_count: receiptData.receipt_items?.length || 0,
+        },
+      });
+
       return receipt;
     } catch (error) {
       logger.error('billing/receipts', 'Error creating receipt', error);
@@ -202,6 +227,15 @@ export class BillingReceiptService {
         .single();
 
       if (error) throw error;
+
+      const templateUpdate = BillingActivityTemplates.receiptUpdated((data as any)?.receipt_number || id);
+      logActivityForCurrentUser({
+        ...templateUpdate,
+        resourceId: id,
+        resourceName: (data as any)?.receipt_number,
+        metadata: { sub_type: templateUpdate.sub_type, updated_fields: Object.keys(receiptData) },
+      });
+
       return data;
     } catch (error) {
       console.error('Error updating receipt:', error);
@@ -219,6 +253,13 @@ export class BillingReceiptService {
         .eq('id', id);
 
       if (error) throw error;
+
+      const templateDelete = BillingActivityTemplates.receiptDeleted(id);
+      logActivityForCurrentUser({
+        ...templateDelete,
+        resourceId: id,
+        metadata: { sub_type: templateDelete.sub_type },
+      });
     } catch (error) {
       console.error('Error deleting receipt:', error);
       throw new Error(
@@ -1195,5 +1236,111 @@ export class BillingReceiptService {
         balance_amount: balance
       };
     });
+  }
+
+  /**
+   * Count outstanding bills matching the bulk-receipt template filters.
+   *
+   * Uses Supabase's `count: 'exact', head: true` mode so it returns the
+   * count without serializing any rows. Mirrors the filter logic in
+   * getOutstandingBillsForBulk exactly — kept in lock-step so the preview
+   * count in the dialog never drifts from what the actual download would
+   * produce.
+   *
+   * Note: this does NOT apply the 5000-row cap that the download method
+   * uses. The dialog uses the true count to decide whether to show a
+   * "first 5000 only" warning before the user hits Download.
+   */
+  static async countOutstandingBillsForBulk(
+    filters: {
+      institution_id?: string;
+      item_category_id?: string;
+      degree_id?: string;
+      department_id?: string;
+      program_id?: string;
+      semester_id?: string;
+      section_id?: string;
+      academic_year_id?: string;
+      due_date_from?: string;
+      due_date_to?: string;
+    },
+    supabaseClient?: SupabaseClient
+  ): Promise<number> {
+    const client = this.getClient(supabaseClient);
+
+    // Only join learners_profiles when a hierarchy filter ACTUALLY needs it.
+    // Without this conditional, the count query forces a full inner-join
+    // even for "give me the system-wide total" requests, which can blow
+    // past the 15s client deadline on a large bills table for no reason —
+    // every bill has a learner, so the join doesn't filter anything.
+    const needsLearnerJoin = !!(
+      filters.degree_id ||
+      filters.department_id ||
+      filters.program_id ||
+      filters.semester_id ||
+      filters.section_id ||
+      filters.academic_year_id
+    );
+
+    let query = needsLearnerJoin
+      ? client
+          .from('billing_student_bills')
+          .select(
+            `id, student:learners_profiles!inner (id)`,
+            { count: 'exact', head: true }
+          )
+      : client
+          .from('billing_student_bills')
+          .select('id', { count: 'exact', head: true });
+
+    query = query.in('status', ['unpaid', 'partially_paid']);
+
+    if (filters.institution_id) {
+      query = query.eq('institution_id', filters.institution_id);
+    }
+    if (filters.item_category_id) {
+      query = query.eq('item_category_id', filters.item_category_id);
+    }
+    if (filters.due_date_from) {
+      query = query.gte('due_date', filters.due_date_from);
+    }
+    if (filters.due_date_to) {
+      query = query.lte('due_date', filters.due_date_to);
+    }
+    // Hierarchy filters only apply when the join is part of the SELECT.
+    // The `needsLearnerJoin` flag above guarantees that branch.
+    if (needsLearnerJoin) {
+      if (filters.degree_id) {
+        query = query.eq('student.degree_id', filters.degree_id);
+      }
+      if (filters.department_id) {
+        query = query.eq('student.department_id', filters.department_id);
+      }
+      if (filters.program_id) {
+        query = query.eq('student.program_id', filters.program_id);
+      }
+      if (filters.semester_id) {
+        query = query.eq('student.semester_id', filters.semester_id);
+      }
+      if (filters.section_id) {
+        query = query.eq('student.section_id', filters.section_id);
+      }
+      if (filters.academic_year_id) {
+        query = query.eq('student.academic_year_id', filters.academic_year_id);
+      }
+    }
+
+    const { count, error } = await query;
+
+    if (error) {
+      logger.error(
+        'billing/receipts',
+        'countOutstandingBillsForBulk failed',
+        error
+      );
+      throw error;
+    }
+
+    return count ?? 0;
   }
 }

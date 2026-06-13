@@ -24,7 +24,11 @@ import type { CompositionSearchParams } from './data-table-schema';
 import { BosComposition } from '@/types/bos';
 import { BosCompositionService } from '@/lib/services/bos/bos-composition-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useBosBoardScope, canCreateComposition } from '@/hooks/bos/use-bos-board-scope';
+import { bosCompositionKeys } from '@/hooks/bos/use-bos-compositions';
+import { useDataTableRefreshOnInvalidate } from '@/hooks/use-data-table-refresh';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface CompositionDataTableProps {
   search: CompositionSearchParams;
@@ -32,8 +36,20 @@ interface CompositionDataTableProps {
 
 export function CompositionDataTable({ search }: CompositionDataTableProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { canAccess, isSuperAdmin, userProfile, isLoading: permissionsLoading } =
     usePermissions();
+  const boardScope = useBosBoardScope();
+
+  // Re-fetch table rows when any code path invalidates the bos-compositions
+  // cache (create/update/delete mutations elsewhere in the app). Without this
+  // bridge, mutations would only refresh React-Query observers, not this
+  // table's internal fetchData state.
+  //
+  // bosCompositionKeys.all takes the user id so the cache slot is scoped to
+  // this caller — see comment on the keys helper for why.
+  const userId = userProfile?.id ?? null;
+  const refetchKey = useDataTableRefreshOnInvalidate(bosCompositionKeys.all(userId));
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{
@@ -44,10 +60,16 @@ export function CompositionDataTable({ search }: CompositionDataTableProps) {
 
   const isReady = !permissionsLoading && !!userProfile;
 
+  // Role-permission gate (legacy layer): "may this role perform the action at
+  // all?". Combined with the board-scope gate below: "may THIS user perform it
+  // given their board memberships?". Both must pass.
   const canCreate = useMemo(
-    () => isSuperAdmin || canAccess('academic.bos-compositions', 'create'),
-    [isSuperAdmin, canAccess]
+    () => (isSuperAdmin || canAccess('academic.bos-compositions', 'create')) && canCreateComposition(boardScope),
+    [isSuperAdmin, canAccess, boardScope]
   );
+  // Row-level edit/delete now depend on the specific row's chairman status,
+  // so the table-wide booleans only check the role-perm. Per-row gating happens
+  // inside row-actions via the boardScope set.
   const canEdit = useMemo(
     () => isSuperAdmin || canAccess('academic.bos-compositions', 'edit'),
     [isSuperAdmin, canAccess]
@@ -125,6 +147,10 @@ export function CompositionDataTable({ search }: CompositionDataTableProps) {
       );
       toast.success(`${count} composition${count > 1 ? 's' : ''} deleted`);
       pendingDelete.resetSelection();
+      // Bulk delete bypasses useDeleteBosComposition's invalidation, so fire
+      // it manually here. The refetchKey bridge above picks this up and the
+      // table re-fetches without a manual page refresh.
+      queryClient.invalidateQueries({ queryKey: bosCompositionKeys.all(userId) });
     } catch (error) {
       logger.error('academic/bos', 'Error deleting compositions', error);
       toast.error('Failed to delete some compositions');
@@ -207,6 +233,7 @@ export function CompositionDataTable({ search }: CompositionDataTableProps) {
           columnResizingTableId: 'bos-compositions-table',
         }}
         renderToolbarContent={renderCustomToolbar}
+        refetchKey={refetchKey}
       />
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

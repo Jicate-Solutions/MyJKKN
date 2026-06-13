@@ -455,8 +455,6 @@ export class AIQueryService {
     caste?: string;
     // Accommodation filters
     accommodationType?: string;
-    hostelType?: string;
-    foodType?: string;
     // Academic filters
     institutionId?: string;
     departmentId?: string;

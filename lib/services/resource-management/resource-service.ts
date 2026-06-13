@@ -98,6 +98,14 @@ export class ResourceService {
         query = query.eq('status', 'available');
       }
 
+      // Wave 1.5 HR-adapter substrate (PR-1): scope to current assignment
+      if (filters.assignee_type) {
+        query = query.eq('assignee_type', filters.assignee_type);
+      }
+      if (filters.assignee_id) {
+        query = query.eq('assignee_id', filters.assignee_id);
+      }
+
       // Apply sorting
       const sortBy = filters.sortBy || 'created_at';
       const sortOrder = filters.sortOrder || 'desc';
@@ -197,27 +205,19 @@ export class ResourceService {
         throw new Error('Institution is required');
       }
 
-      // Use resource_code from resourceData if not provided as parameter
-      const resourceCode = customResourceCode || resourceData.resource_code;
+      // Use resource_code from resourceData if not provided as parameter.
+      // We may rewrite this several times below if the pre-INSERT check or the
+      // DB unique constraint reports a collision — see resolveAvailableResourceCode
+      // for why a single MAX+1 isn't enough under concurrent JKKN-family creates.
+      let resourceCode = customResourceCode || resourceData.resource_code;
       console.log('Resource code being used:', resourceCode);
 
-      // Check if resource code already exists (if provided)
       if (resourceCode) {
-        const { data: existingCode, error: codeCheckError } = await this.supabase
-          .from('resources')
-          .select('id')
-          .eq('resource_code', resourceCode)
-          .maybeSingle();
-
-        if (codeCheckError) {
-          console.error('Error checking resource code:', codeCheckError);
-        }
-
-        if (existingCode) {
-          throw new Error(
-            'A resource with this code already exists. Please use a different code.'
-          );
-        }
+        resourceCode = await this.resolveAvailableResourceCode(
+          resourceCode,
+          resourceData.parent_category_id,
+          resourceData.institution_id
+        );
       }
 
       // Check if resource name already exists in the same location
@@ -279,6 +279,22 @@ export class ResourceService {
 
       console.log('Filtered validCaretakerIds:', validCaretakerIds);
 
+      // Defense-in-depth: any nullable FK column that arrives as '' from the
+      // form (or bulk-upload, or API caller) would otherwise reach Postgres as
+      // an empty UUID and trigger 22P02. Normalize to null here so callers
+      // can't bypass the form's own cleaning step.
+      const NULLABLE_UUID_KEYS = [
+        'subcategory_id',
+        'department_id',
+        'caretaker_user_id'
+      ] as const;
+      for (const key of NULLABLE_UUID_KEYS) {
+        const v = (otherData as any)[key];
+        if (typeof v === 'string' && v.trim() === '') {
+          (otherData as any)[key] = null;
+        }
+      }
+
       // Use initial_stock_quantity or default to 1
       const initialStock = resourceData.initial_stock_quantity ?? 1;
 
@@ -303,11 +319,54 @@ export class ResourceService {
         caretaker_user_ids: dbData.caretaker_user_ids
       });
 
-      const { data: resource, error } = await (this.supabase as any)
-        .from('resources')
-        .insert(dbData)
-        .select()
-        .single();
+      let resource: any = null;
+      let insertError: any = null;
+
+      // Retry only on resource_code unique-constraint collisions. Name/location
+      // duplicates were already filtered above and shouldn't be auto-rewritten.
+      const MAX_INSERT_ATTEMPTS = 5;
+      for (let attempt = 1; attempt <= MAX_INSERT_ATTEMPTS; attempt++) {
+        const { data, error: err } = await (this.supabase as any)
+          .from('resources')
+          .insert(dbData)
+          .select()
+          .single();
+
+        if (!err) {
+          resource = data;
+          insertError = null;
+          break;
+        }
+
+        const isResourceCodeCollision =
+          err.code === '23505' &&
+          typeof err.message === 'string' &&
+          err.message.toLowerCase().includes('resource_code');
+
+        if (!isResourceCodeCollision || attempt === MAX_INSERT_ATTEMPTS) {
+          insertError = err;
+          break;
+        }
+
+        if (!resourceData.parent_category_id || !resourceData.institution_id) {
+          insertError = err;
+          break;
+        }
+
+        // Another insert won the race for our resource_code. Re-derive a fresh
+        // code from MAX(suffix) and try again with that value.
+        const fresh = await this.resolveAvailableResourceCode(
+          dbData.resource_code,
+          resourceData.parent_category_id,
+          resourceData.institution_id
+        );
+        console.warn(
+          `Resource code collision on ${dbData.resource_code}; retrying with ${fresh} (attempt ${attempt + 1}/${MAX_INSERT_ATTEMPTS})`
+        );
+        dbData.resource_code = fresh;
+      }
+
+      const error = insertError;
 
       if (error) {
         console.error('Database error creating resource:', error);
@@ -332,7 +391,22 @@ export class ResourceService {
           );
         }
 
-        throw error;
+        if (error.code === '22P02') {
+          // Invalid input syntax (most often empty string in a UUID column)
+          throw new Error(
+            `Database rejected a value: ${error.message}. Please re-check the form fields and try again.`
+          );
+        }
+
+        // Preserve the actual Postgres message instead of leaking the raw
+        // plain object up to a catch that does `instanceof Error`. Without
+        // this wrap, every uncategorized error becomes the generic
+        // "Failed to create resource" toast (PostgrestBuilder returns a
+        // plain object, not an Error — see lib/utils.ts getErrorMessage).
+        const dbMessage = [error.message, error.details, error.hint]
+          .filter(Boolean)
+          .join(' — ');
+        throw new Error(dbMessage || 'Database error while creating resource');
       }
 
       const tpl = ResourceManagementActivityTemplates.resourceCreated(resource.name);
@@ -355,6 +429,18 @@ export class ResourceService {
         throw error;
       }
 
+      // Supabase errors are plain {code, details, hint, message} objects —
+      // not Error instances. Preserve their message so the toast shows the
+      // real reason instead of "Failed to create resource".
+      if (
+        error !== null &&
+        typeof error === 'object' &&
+        'message' in error &&
+        typeof (error as { message: unknown }).message === 'string'
+      ) {
+        throw new Error((error as { message: string }).message);
+      }
+
       throw new Error('Failed to create resource');
     }
   }
@@ -374,18 +460,50 @@ export class ResourceService {
         throw new Error('Resource not found');
       }
 
-      // Check if new name conflicts with existing resources
+      // Check if new name conflicts with existing resources at the same location.
+      // Must mirror the CREATE check (institution + department + building + block + room)
+      // so that two resources with the same name in different locations can coexist.
+      // For each location field, fall back to the existing resource value when the field
+      // is absent from the update payload (i.e. not being changed this edit).
       if (resourceData.name) {
-        const { data: conflictResource, error: conflictCheckError } = await this.supabase
+        const effInstitution = resourceData.institution_id ?? existingResource.institution_id;
+        const effDepartment  = resourceData.department_id  !== undefined ? resourceData.department_id  : existingResource.department_id;
+        const effBuilding    = resourceData.building_number !== undefined ? resourceData.building_number : existingResource.building_number;
+        const effBlock       = resourceData.block_number    !== undefined ? resourceData.block_number    : existingResource.block_number;
+        const effRoom        = resourceData.room_number     !== undefined ? resourceData.room_number     : existingResource.room_number;
+
+        let conflictCheckQuery = this.supabase
           .from('resources')
           .select('id')
           .eq('name', resourceData.name.trim())
-          .eq(
-            'institution_id',
-            resourceData.institution_id || existingResource.institution_id
-          )
-          .neq('id', id)
-          .maybeSingle();
+          .eq('institution_id', effInstitution)
+          .neq('id', id);
+
+        if (effDepartment) {
+          conflictCheckQuery = conflictCheckQuery.eq('department_id', effDepartment);
+        } else {
+          conflictCheckQuery = conflictCheckQuery.is('department_id', null);
+        }
+
+        if (effBuilding) {
+          conflictCheckQuery = conflictCheckQuery.eq('building_number', effBuilding);
+        } else {
+          conflictCheckQuery = conflictCheckQuery.is('building_number', null);
+        }
+
+        if (effBlock) {
+          conflictCheckQuery = conflictCheckQuery.eq('block_number', effBlock);
+        } else {
+          conflictCheckQuery = conflictCheckQuery.is('block_number', null);
+        }
+
+        if (effRoom) {
+          conflictCheckQuery = conflictCheckQuery.eq('room_number', effRoom);
+        } else {
+          conflictCheckQuery = conflictCheckQuery.is('room_number', null);
+        }
+
+        const { data: conflictResource, error: conflictCheckError } = await conflictCheckQuery.maybeSingle();
 
         if (conflictCheckError) {
           console.error('Error checking resource name conflict:', conflictCheckError);
@@ -405,6 +523,21 @@ export class ResourceService {
       const validCaretakerIds = caretaker_user_ids?.filter(
         (id) => id && id.trim() !== ''
       ) || [];
+
+      // Defense-in-depth: same '' → null normalization as createResource so
+      // edits can't reintroduce the 22P02 UUID error when a user clears an
+      // optional FK dropdown (mirrors createResource above).
+      const NULLABLE_UUID_KEYS = [
+        'subcategory_id',
+        'department_id',
+        'caretaker_user_id'
+      ] as const;
+      for (const key of NULLABLE_UUID_KEYS) {
+        const v = (otherData as any)[key];
+        if (typeof v === 'string' && v.trim() === '') {
+          (otherData as any)[key] = null;
+        }
+      }
 
       const updateData = {
         ...otherData,
@@ -450,9 +583,21 @@ export class ResourceService {
       return resource;
     } catch (error) {
       console.error('Error updating resource:', error);
-      throw new Error(
-        error instanceof Error ? error.message : 'Failed to update resource'
-      );
+      // Same plain-object handling as createResource — preserve PostgREST
+      // {code, details, hint, message} instead of falling back to a generic
+      // string that hides the real reason in the toast.
+      if (error instanceof Error) {
+        throw error;
+      }
+      if (
+        error !== null &&
+        typeof error === 'object' &&
+        'message' in error &&
+        typeof (error as { message: unknown }).message === 'string'
+      ) {
+        throw new Error((error as { message: string }).message);
+      }
+      throw new Error('Failed to update resource');
     }
   }
 
@@ -655,11 +800,11 @@ export class ResourceService {
   static async getResourcesForSelect(
     institutionId?: string,
     departmentId?: string
-  ): Promise<Array<{ id: string; name: string; status: string }>> {
+  ): Promise<Array<{ id: string; name: string; status: string; parent_category_id?: string }>> {
     try {
       let query = this.supabase
         .from('resources')
-        .select('id, name, status')
+        .select('id, name, status, parent_category_id')
         .eq('status', 'available')
         .order('name');
 
@@ -771,22 +916,181 @@ export class ResourceService {
   }
 
   /**
+   * Return a resource_code that is currently free in the database, starting
+   * from the caller-supplied candidate and bumping the numeric suffix on each
+   * collision. Used by createResource() to close the read-then-INSERT race
+   * window that the form's auto-generation cannot fix on its own.
+   *
+   * Why this is needed even after getResourceCountForIdGeneration returns
+   * MAX+1: the form auto-generates the code at category/institution selection
+   * time and caches it in React state. While the user fills out the rest of
+   * the form (often several minutes), other JKKN-family institutions sharing
+   * the same `RES-<CAT>-JKKN-` prefix keep advancing the global suffix. By
+   * submit time, the cached code is stale and the pre-INSERT existence check
+   * — or the DB UNIQUE constraint — fires. Confirmed in production 2026-05-14
+   * for JKKN College of Pharmacy (codes 0004→0009 minted in a 20-minute
+   * window across two concurrent users; a third user's stale 0006 form kept
+   * losing the race).
+   *
+   * Behavior:
+   *   - If the candidate isn't taken, returns it unchanged.
+   *   - If taken, computes MAX(suffix) for the prefix family and returns
+   *     prefix + (MAX+1). Repeats up to 5 times in case the DB advances mid
+   *     loop (e.g. two browser tabs racing).
+   *   - If the candidate doesn't match the RES-<CAT>-<INST>-<NNNN> shape, or
+   *     the category/institution can't be resolved, throws the standard
+   *     "already exists" error so the user can pick a manual code instead of
+   *     us silently inserting under an unexpected one.
+   */
+  static async resolveAvailableResourceCode(
+    candidateCode: string,
+    categoryId?: string | null,
+    institutionId?: string | null
+  ): Promise<string> {
+    const MAX_REGEN_ATTEMPTS = 5;
+
+    const prefix = await this.resolveResourceCodePrefix(
+      candidateCode,
+      categoryId,
+      institutionId
+    );
+
+    let code = candidateCode;
+    for (let attempt = 0; attempt <= MAX_REGEN_ATTEMPTS; attempt++) {
+      const { data: existing } = await (this.supabase as any)
+        .from('resources')
+        .select('id')
+        .eq('resource_code', code)
+        .maybeSingle();
+
+      if (!existing) {
+        return code;
+      }
+
+      if (!prefix) {
+        throw new Error(
+          'A resource with this code already exists. Please use a different code.'
+        );
+      }
+
+      const nextSuffix = (await this.fetchMaxResourceCodeSuffix(prefix)) + 1;
+      code = `${prefix}${String(nextSuffix).padStart(4, '0')}`;
+    }
+
+    throw new Error(
+      'A resource with this code already exists. Please use a different code.'
+    );
+  }
+
+  /**
+   * Rebuild the `RES-<CAT>-<INST>-` prefix either from category/institution
+   * names (matches generateResourceCode exactly) or by parsing the candidate
+   * code itself. Returns null when neither path yields a usable prefix.
+   */
+  private static async resolveResourceCodePrefix(
+    candidateCode: string,
+    categoryId?: string | null,
+    institutionId?: string | null
+  ): Promise<string | null> {
+    if (categoryId && institutionId) {
+      const [{ data: category }, { data: institution }] = await Promise.all([
+        this.supabase
+          .from('resource_parent_categories')
+          .select('name')
+          .eq('id', categoryId)
+          .maybeSingle(),
+        this.supabase
+          .from('institutions')
+          .select('name')
+          .eq('id', institutionId)
+          .maybeSingle()
+      ]);
+
+      if (category?.name && institution?.name) {
+        const categoryCode = category.name
+          .replace(/[^a-zA-Z]/g, '')
+          .substring(0, 3)
+          .toUpperCase()
+          .padEnd(3, 'X');
+        const institutionCode = institution.name
+          .replace(/[^a-zA-Z]/g, '')
+          .substring(0, 4)
+          .toUpperCase()
+          .padEnd(4, 'X');
+        return `RES-${categoryCode}-${institutionCode}-`;
+      }
+    }
+
+    const parts = candidateCode.split('-');
+    if (parts.length === 4 && parts[0] === 'RES' && /^\d+$/.test(parts[3])) {
+      return `${parts[0]}-${parts[1]}-${parts[2]}-`;
+    }
+
+    return null;
+  }
+
+  /**
+   * Highest numeric suffix currently used by any row sharing the given prefix.
+   * Returns 0 when the prefix has no rows yet.
+   */
+  private static async fetchMaxResourceCodeSuffix(prefix: string): Promise<number> {
+    const { data, error } = await (this.supabase as any)
+      .from('resources')
+      .select('resource_code')
+      .like('resource_code', `${prefix}%`);
+
+    if (error) {
+      console.error('Error fetching resource_code suffix MAX:', error);
+      return 0;
+    }
+
+    let maxSuffix = 0;
+    for (const row of (data ?? []) as { resource_code: string }[]) {
+      const suffixStr = row.resource_code.substring(prefix.length);
+      const suffix = parseInt(suffixStr, 10);
+      if (Number.isFinite(suffix) && suffix > maxSuffix) {
+        maxSuffix = suffix;
+      }
+    }
+    return maxSuffix;
+  }
+
+  /**
    * Get count of resources by category and institution for ID generation
+   */
+  /**
+   * Returns the seed value for the next sequential resource_code suffix.
+   *
+   * Despite the legacy name, this no longer returns a row COUNT. It returns
+   * the MAX numeric suffix already used for the same RES-<CAT>-<INST>-
+   * prefix family, so the generator (which always adds 1) produces a code
+   * that cannot collide.
+   *
+   * Why this matters: the prefix is derived from the FIRST 3 alpha chars of
+   * the category and the FIRST 4 alpha chars of the institution name. JKKN
+   * has 11 institutions that all compress to "JKKN" (JKKN College of
+   * Pharmacy, JKKN College of Engineering and Technology, JKKN Main Office,
+   * etc.) — so two distinct institutions creating resources in the same
+   * category would race on the same suffix and one would always lose to a
+   * 23505 (unique violation) at insert time. Scoping the lookup to a single
+   * (category, institution) row COUNT was the original bug: at College of
+   * Pharmacy with zero existing rows the next code was 0001, which clashes
+   * with Main Office's existing 0001.
+   *
+   * Using MAX across the prefix family also fixes the secondary bug where
+   * deleting a row left a gap (COUNT=N-1) and the next insert reused an
+   * already-taken suffix.
    */
   static async getResourceCountForIdGeneration(
     categoryId: string,
     institutionId: string
   ): Promise<number> {
     try {
-      const { count, error} = await this.supabase
-        .from('resources')
-        .select('*', { count: 'exact', head: true })
-        .eq('parent_category_id', categoryId)
-        .eq('institution_id', institutionId);
-
-      if (error) throw error;
-
-      return count || 0;
+      // Shares prefix/MAX primitives with resolveAvailableResourceCode so the
+      // form's preview code stays in lockstep with the createResource retry logic.
+      const prefix = await this.resolveResourceCodePrefix('', categoryId, institutionId);
+      if (!prefix) return 0;
+      return await this.fetchMaxResourceCodeSuffix(prefix);
     } catch (error) {
       console.error('Error getting resource count:', error);
       return 0; // Return 0 on error to allow fallback to random ID
@@ -819,5 +1123,70 @@ export class ResourceService {
       console.error('Error incrementing reservation count:', error);
       // Don't throw error as this is non-critical
     }
+  }
+
+  // ===== Wave 1.5 HR-adapter substrate (PR-1) =====
+
+  /**
+   * Assign a resource to a staff member.
+   *
+   * Sets assignee_type='staff', assignee_id=staffId, assigned_at=now(), and
+   * clears returned_at so the resource shows as currently held.
+   *
+   * Throws on Supabase error (RLS, CHECK violation, missing row).
+   */
+  static async assignToStaff(
+    resourceId: string,
+    staffId: string
+  ): Promise<Resource> {
+    const { data: resource, error } = await (this.supabase as any)
+      .from('resources')
+      .update({
+        assignee_type: 'staff',
+        assignee_id: staffId,
+        assigned_at: new Date().toISOString(),
+        returned_at: null,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', resourceId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error assigning resource to staff:', error);
+      throw new Error(error.message || 'Failed to assign resource to staff');
+    }
+
+    return resource as Resource;
+  }
+
+  /**
+   * Mark a resource as returned to the pool.
+   *
+   * Sets assignee_type='none', clears assignee_id, and stamps returned_at=now().
+   * assigned_at is intentionally retained so the previous-assignment history is
+   * preserved until the next assign call overwrites it.
+   *
+   * Throws on Supabase error.
+   */
+  static async markReturned(resourceId: string): Promise<Resource> {
+    const { data: resource, error } = await (this.supabase as any)
+      .from('resources')
+      .update({
+        assignee_type: 'none',
+        assignee_id: null,
+        returned_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', resourceId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error marking resource returned:', error);
+      throw new Error(error.message || 'Failed to mark resource returned');
+    }
+
+    return resource as Resource;
   }
 }

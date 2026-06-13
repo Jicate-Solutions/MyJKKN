@@ -12,6 +12,10 @@ declare global {
   }
 }
 
+// Opt-in verbose logging for One Tap initialization.
+// Set NEXT_PUBLIC_DEBUG_ONE_TAP=true to surface the origin/client-id debug block.
+const ONE_TAP_DEBUG = process.env.NEXT_PUBLIC_DEBUG_ONE_TAP === 'true';
+
 export function GoogleOneTap() {
   const router = useRouter();
   const supabase = createClientSupabaseClient();
@@ -245,6 +249,19 @@ export function GoogleOneTap() {
   useEffect(() => {
     if (!shouldRender || initialized.current) return;
 
+    // Skip the One Tap (FedCM) auto-prompt on localhost. Google's FedCM flow
+    // cannot silently complete on an unconfigured local origin and logs a noisy
+    // "[GSI_LOGGER]: FedCM get() rejects with AbortError" on every dev page load.
+    // The redirect-based "Continue with Google" button (signInWithOAuth) is a
+    // separate path and stays fully functional for local development.
+    const isLocalhost =
+      window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1';
+    if (isLocalhost) {
+      initialized.current = true;
+      return;
+    }
+
     // Add a delay to ensure other credential operations have completed
     const timer = setTimeout(() => {
       if (
@@ -263,23 +280,18 @@ export function GoogleOneTap() {
             
           const currentOrigin = window.location.origin;
 
-          console.log('Google One Tap Debug Info:');
-          console.log('Environment:', isDevelopment ? 'Development' : 'Production');
-          console.log('Current Origin:', currentOrigin);
-          console.log('Client ID:', clientId);
-          console.log('Full URL:', window.location.href);
+          if (ONE_TAP_DEBUG) {
+            console.log('[One Tap] init', {
+              environment: isDevelopment ? 'Development' : 'Production',
+              currentOrigin,
+              clientId,
+              url: window.location.href,
+            });
+          }
 
           if (!clientId) {
             console.error('NEXT_PUBLIC_GOOGLE_CLIENT_ID is not set!');
             return;
-          }
-
-          // Add origin validation warning
-          if (isDevelopment) {
-            console.warn(
-              'Running in development mode. Make sure your Google OAuth client has ' +
-              `"${currentOrigin}" added as an authorized JavaScript origin in Google Cloud Console.`
-            );
           }
 
           window.google.accounts.id.initialize({

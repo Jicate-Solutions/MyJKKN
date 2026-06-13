@@ -79,9 +79,26 @@ export function resolveEffectiveInstitutionId(
 
 
 // In-memory cache for COE institution mapping (avoids repeated API calls)
-let coeInstitutionCache: Array<{ id: string; myjkkn_institution_ids: string[] }> | null = null;
+interface CoeInstitutionEntry {
+  id: string;
+  institution_code: string;
+  myjkkn_institution_ids: string[];
+}
+let coeInstitutionCache: CoeInstitutionEntry[] | null = null;
 let coeInstitutionCacheExpiry = 0;
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+async function getCoeInstitutions(): Promise<CoeInstitutionEntry[]> {
+  if (coeInstitutionCache && Date.now() < coeInstitutionCacheExpiry) {
+    return coeInstitutionCache;
+  }
+  const { CoeRestClient } = await import('@/lib/services/coe/coe-rest-client');
+  const client = CoeRestClient.create();
+  const institutions = await client.get<CoeInstitutionEntry[]>('/api/v1/institutions');
+  coeInstitutionCache = institutions;
+  coeInstitutionCacheExpiry = Date.now() + CACHE_TTL_MS;
+  return institutions;
+}
 
 /**
  * Resolves MyJKKN institution UUID → COE institution UUID.
@@ -91,30 +108,26 @@ const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 export async function resolveCoeInstitutionId(
   myjkknInstitutionId: string
 ): Promise<string | null> {
-  // Use cached data if fresh
-  if (coeInstitutionCache && Date.now() < coeInstitutionCacheExpiry) {
-    const match = coeInstitutionCache.find((inst) =>
-      inst.myjkkn_institution_ids?.includes(myjkknInstitutionId)
-    );
-    return match?.id ?? null;
-  }
-
-  // Fetch and cache
-  const { CoeRestClient } = await import('@/lib/services/coe/coe-rest-client');
-  const client = CoeRestClient.create();
-
-  const institutions = await client.get<
-    Array<{ id: string; myjkkn_institution_ids: string[] }>
-  >('/api/v1/institutions');
-
-  coeInstitutionCache = institutions;
-  coeInstitutionCacheExpiry = Date.now() + CACHE_TTL_MS;
-
+  const institutions = await getCoeInstitutions();
   const match = institutions.find((inst) =>
     inst.myjkkn_institution_ids?.includes(myjkknInstitutionId)
   );
-
   return match?.id ?? null;
+}
+
+/**
+ * Resolves MyJKKN institution UUID → COE institution_code (natural key).
+ * Use this when calling COE endpoints that accept institution_code rather than a UUID
+ * (e.g. /api/public/boards?institution_code=...).
+ */
+export async function resolveCoeInstitutionCode(
+  myjkknInstitutionId: string
+): Promise<string | null> {
+  const institutions = await getCoeInstitutions();
+  const match = institutions.find((inst) =>
+    inst.myjkkn_institution_ids?.includes(myjkknInstitutionId)
+  );
+  return match?.institution_code ?? null;
 }
 
 /**

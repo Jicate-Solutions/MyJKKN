@@ -6,7 +6,7 @@
 // migrated assignment-rules to the CascadeStepList substrate.
 //
 // This file is preserved as a thin re-export of `getRuleTypeIcon` because
-// /admin/counselors/rule-types/page.tsx (PR #757) imports the icon helper
+// /admission/counselors/admin/rule-types/page.tsx (PR #757) imports the icon helper
 // directly from this path. New code should import from the package barrel
 // (`@/components/shared/assignment-rules-crud`) instead of this file.
 // ============================================================================

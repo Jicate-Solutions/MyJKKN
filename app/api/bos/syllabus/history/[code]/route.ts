@@ -17,7 +17,7 @@ import { BosCourseSyllabus, BosSyllabusHistory } from '@/types/bos';
  * {
  *   current: BosCourseSyllabus,
  *   previous?: BosCourseSyllabus,
- *   allVersions: BosCourseSyllabus[]
+ *   all_versions: BosCourseSyllabus[]
  * }
  */
 export async function GET(
@@ -92,11 +92,13 @@ export async function GET(
       );
     }
 
-    // Step 8: Format response
+    // Step 8: Format response. Keys are snake_case to match the
+    // BosSyllabusHistory type in types/bos.ts and the page reader in
+    // app/(routes)/bos/syllabus/[id]/history/page.tsx (history.all_versions).
     const response: BosSyllabusHistory = {
       current,
-      previous: previous || null,
-      allVersions: allVersions as BosCourseSyllabus[],
+      previous: previous || undefined,
+      all_versions: allVersions as BosCourseSyllabus[],
     };
 
     return NextResponse.json(response);

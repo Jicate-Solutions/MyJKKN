@@ -14,8 +14,9 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
 import { getEnquiry } from '../_data/get-enquiry';
-import { EnquiryDetail } from '../_components/enquiry-detail';
 import { EnquiryDetailActions } from '../_components/enquiry-detail-actions';
+import { EnquiryStatusUpdate } from '../_components/enquiry-status-update';
+import { EnquiryDetailTabs } from './_components/enquiry-detail-tabs';
 
 interface EnquiryDetailPageProps {
   params: Promise<{ id: string }>;
@@ -116,20 +117,19 @@ export default async function EnquiryDetailPage({ params }: EnquiryDetailPagePro
               {enquiry.application_id || 'No Application ID'}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" asChild>
               <Link href="/learners/enquiries">
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Back
               </Link>
             </Button>
+            <EnquiryStatusUpdate enquiry={enquiry} />
             <EnquiryDetailActions enquiry={enquiry} />
           </div>
         </div>
 
-        <div className="flex flex-col lg:flex-row gap-8">
-          <EnquiryDetail enquiry={enquiry} />
-        </div>
+        <EnquiryDetailTabs enquiry={enquiry} />
       </div>
     </ContentLayout>
   );

@@ -29,11 +29,12 @@ import toast from 'react-hot-toast';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { FeesStructureDimensionSelector } from '../../_components/fees-structure-dimension-selector';
-import { NewStructureForm } from '../../_components/fees-structure-form';
+import { NewStructureForm, filterFeeStructureCategories } from '../../_components/fees-structure-form';
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { FeeStructureMatrixDimensions } from '@/types/admission';
+import { getErrorMessage } from '@/lib/utils';
+import type { FeeStructureMatrixDimensions, FeeItemAppliesTo } from '@/types/admission';
 import type { BillingCategory } from '@/types/billing';
 
 interface RouteProps {
@@ -51,6 +52,8 @@ interface FormItem {
   billing_category_id: string;
   amount: number;
   is_optional: boolean;
+  applies_to: FeeItemAppliesTo;
+  applies_year_of_study: number | null;
 }
 
 // Local prefill shape — matches the optional `initialValues` prop on
@@ -129,19 +132,19 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
           return;
         }
 
-        setCategories(cats);
+        setCategories(filterFeeStructureCategories(cats));
         setCommunityOptions(comms);
         setSourceName(source.name);
 
-        // Pre-fill all 7 matrix dims from source.
+        // Pre-fill all matrix dims from source (including optional gender).
         setSelectedDims({
           institution_id: source.institution_id,
           degree_id: source.degree_id,
           department_id: source.department_id,
           programme_id: source.programme_id,
           quota_id: source.quota_id,
-          accommodation_type_id: source.accommodation_type_id,
           admission_year_id: source.admission_year_id,
+          gender: source.gender ?? undefined,
         });
 
         // Pre-fill the form values. Adding "(cloned)" to the name avoids
@@ -161,13 +164,15 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
               billing_category_id: it.billing_category_id,
               amount: Number(it.amount),
               is_optional: it.is_optional,
+              applies_to: it.applies_to ?? 'every_year',
+              applies_year_of_study: it.applies_year_of_study ?? null,
             })),
         });
         setLoading(false);
       })
       .catch((err) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : 'Failed to load source structure');
+        setError(getErrorMessage(err) || 'Failed to load source structure');
         setLoading(false);
       });
 
@@ -189,8 +194,7 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
     selectedDims.department_id &&
     selectedDims.programme_id &&
     selectedDims.admission_year_id &&
-    selectedDims.quota_id &&
-    selectedDims.accommodation_type_id
+    selectedDims.quota_id
   );
 
   return (

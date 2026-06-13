@@ -12,7 +12,7 @@ import { StaffService } from '@/lib/services/staff/staff-service';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { StaffAvatar } from '@/components/staff/staff-avatar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,6 +33,14 @@ import {
 } from '@/components/ui/alert-dialog';
 import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
 import { usePermissions } from '@/hooks/use-permissions';
+import { isSyntheticEmail } from '@/lib/services/staff/synthetic-email';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
 
 interface StaffListProps {
   staff: Staff[];
@@ -104,6 +112,12 @@ const StaffListComponent = ({
   // on the permission keys above, so faculty (staff.edit=true) keeps Edit
   // and other own_records users (staff.edit=false) lose it automatically.
   const readOnly = scope === 'own_records';
+
+  // 2026-05-15: client-side filter for view-only / login users. Applied to
+  // the `staff` array passed from the parent BEFORE it reaches the DataTable.
+  // Server-side pagination metadata is preserved as-is; this is a visual
+  // refinement, not a query-shape change.
+  const [loginFilter, setLoginFilter] = useState<'all' | 'login' | 'view_only'>('all');
 
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [selectedStaffForDelete, setSelectedStaffForDelete] =
@@ -204,10 +218,6 @@ const StaffListComponent = ({
     }
   };
 
-  const getInitials = (firstName: string, lastName: string) => {
-    return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
-  };
-
   // Copy email to clipboard
   const copyToClipboard = useCallback(
     async (email: string, type: 'personal' | 'institution') => {
@@ -236,10 +246,22 @@ const StaffListComponent = ({
     []
   );
 
-  // Email display component with copy functionality
+  // Email display component with copy functionality.
+  // 2026-05-15: synthetic @nolog.jkkn.local emails render as a muted em-dash
+  // with a tooltip — the actual value would just confuse a viewer ("staff.x.institution@nolog.jkkn.local").
   const EmailWithCopy = useCallback(
     ({ email, type }: { email: string; type: 'personal' | 'institution' }) => {
       if (!email) return <span className='text-muted-foreground'>-</span>;
+      if (isSyntheticEmail(email)) {
+        return (
+          <span
+            className='text-muted-foreground italic'
+            title='View-only staff — no real email on file'
+          >
+            —
+          </span>
+        );
+      }
 
       return (
         <div className='flex items-center gap-1 min-w-0'>
@@ -264,6 +286,14 @@ const StaffListComponent = ({
     [copyToClipboard]
   );
 
+  // 2026-05-15: client-side login_enabled filter applied before DataTable sees
+  // the rows. `all` keeps the full list; the other options narrow visually.
+  const filteredStaff = useMemo(() => {
+    if (loginFilter === 'all') return staff;
+    if (loginFilter === 'login') return staff.filter((s: any) => s.login_enabled !== false);
+    return staff.filter((s: any) => s.login_enabled === false);
+  }, [staff, loginFilter]);
+
   // Define columns for the data table
   const columns: PermissionColumnDef<Staff, any>[] = useMemo(
     () => [
@@ -278,12 +308,12 @@ const StaffListComponent = ({
               href={`/staff/list/${staff.id}`}
               className='flex items-center gap-2 hover:text-primary min-w-0'
             >
-              <Avatar className='h-10 w-10 flex-shrink-0'>
-                <AvatarImage src={staff.profile_picture || undefined} />
-                <AvatarFallback className='text-xs'>
-                  {getInitials(staff.first_name, staff.last_name)}
-                </AvatarFallback>
-              </Avatar>
+              <StaffAvatar
+                src={staff.profile_picture}
+                firstName={staff.first_name}
+                lastName={staff.last_name}
+                className='h-10 w-10 flex-shrink-0'
+              />
               <div className='flex flex-col min-w-0 flex-1'>
                 <span className='font-medium truncate'>
                   {staff.first_name} {staff.last_name}
@@ -295,12 +325,12 @@ const StaffListComponent = ({
             </Link>
           ) : (
             <div className='flex items-center gap-2 min-w-0'>
-              <Avatar className='h-8 w-8 flex-shrink-0'>
-                <AvatarImage src={staff.profile_picture || undefined} />
-                <AvatarFallback className='text-xs'>
-                  {getInitials(staff.first_name, staff.last_name)}
-                </AvatarFallback>
-              </Avatar>
+              <StaffAvatar
+                src={staff.profile_picture}
+                firstName={staff.first_name}
+                lastName={staff.last_name}
+                className='h-8 w-8 flex-shrink-0'
+              />
               <div className='flex flex-col min-w-0 flex-1'>
                 <span className='font-medium truncate'>
                   {staff.first_name} {staff.last_name}
@@ -360,11 +390,23 @@ const StaffListComponent = ({
         id: 'status',
         header: 'Status',
         cell: ({ row }) => {
-          const staff = row.original;
+          const staff = row.original as any;
+          const isViewOnly = staff.login_enabled === false;
           return (
-            <Badge variant={staff.is_active ? 'default' : 'secondary'}>
-              {staff.is_active ? 'Active' : 'Inactive'}
-            </Badge>
+            <div className='flex items-center gap-1.5 flex-wrap'>
+              <Badge variant={staff.is_active ? 'default' : 'secondary'}>
+                {staff.is_active ? 'Active' : 'Inactive'}
+              </Badge>
+              {isViewOnly && (
+                <Badge
+                  variant='outline'
+                  className='text-xs text-muted-foreground'
+                  title='View-only staff — cannot log in'
+                >
+                  View-only
+                </Badge>
+              )}
+            </div>
           );
         }
       },
@@ -486,9 +528,24 @@ const StaffListComponent = ({
     ]
   );
 
-  // Create table tools (action buttons)
+  // Create table tools (action buttons + view-only filter).
+  // 2026-05-15: login-type filter narrows the visible rows client-side.
   const tableTools = (
     <div className='flex flex-col sm:flex-row gap-2'>
+      <Select
+        value={loginFilter}
+        onValueChange={(v) => setLoginFilter(v as 'all' | 'login' | 'view_only')}
+      >
+        <SelectTrigger className='w-full sm:w-[170px]'>
+          <SelectValue placeholder='Login type' />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value='all'>All staff</SelectItem>
+          <SelectItem value='login'>Login users</SelectItem>
+          <SelectItem value='view_only'>View-only</SelectItem>
+        </SelectContent>
+      </Select>
+
       {canCreateStaff ? (
         <Button className='w-full sm:w-auto' asChild>
           <Link href='/staff/list/new'>
@@ -527,7 +584,7 @@ const StaffListComponent = ({
     <>
       <DataTable
         columns={columns}
-        data={staff}
+        data={filteredStaff}
         searchPlaceholder='Search learning employees...'
         filterColumn='__no_search__'
         permissions={{

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Select,
   SelectContent,
@@ -10,12 +10,15 @@ import {
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { RotateCcw } from 'lucide-react';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
-import { usePermissions } from '@/hooks/use-permissions';
-import type { OnboardingFilters as OnboardingFilterShape } from '@/lib/services/billing/onboarding/onboarding-service';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import {
+  ONBOARDING_LIFECYCLE_STATUSES,
+  type OnboardingFilters as OnboardingFilterShape,
+  type OnboardingLifecycleStatus,
+} from '@/lib/services/billing/onboarding/onboarding-service';
 
 // Subset of OnboardingFilters that this component manages. The data table owns
 // search/payment_status/page/limit and merges these in.
@@ -26,24 +29,46 @@ export type OnboardingHierarchyFilters = Pick<
   | 'department_id'
   | 'program_id'
   | 'bill_status'
+  | 'lifecycle_status'
 >;
+
+const LIFECYCLE_LABELS: Record<OnboardingLifecycleStatus, string> = {
+  account: 'Account',
+  admitted: 'Admitted',
+  reserved: 'Reserved',
+};
 
 export type OnboardingFilterKey = keyof OnboardingHierarchyFilters;
 
+/**
+ * A batch of filter changes applied in ONE URL update. Selecting a hierarchy
+ * level must set that level AND clear its dependent children atomically —
+ * splitting it across several onFilterChange calls would clobber the selection,
+ * because each call reads the same stale useSearchParams() snapshot and the
+ * last router.replace() (a child-clear) wins.
+ */
+export type OnboardingFilterUpdates = Partial<
+  Record<OnboardingFilterKey, string | undefined>
+>;
+
 interface OnboardingFiltersProps {
   filters: OnboardingHierarchyFilters;
-  onFilterChange: (key: OnboardingFilterKey, value: string | undefined) => void;
+  onFilterChange: (updates: OnboardingFilterUpdates) => void;
   onClearFilters: () => void;
 }
+
+const HIERARCHY_ORDER: OnboardingFilterKey[] = [
+  'institution_id',
+  'degree_id',
+  'department_id',
+  'program_id',
+];
 
 export function OnboardingFilters({
   filters,
   onFilterChange,
   onClearFilters,
 }: OnboardingFiltersProps) {
-  const [institutions, setInstitutions] = useState<
-    Array<{ id: string; name: string }>
-  >([]);
   const [degrees, setDegrees] = useState<
     Array<{ id: string; degree_name: string }>
   >([]);
@@ -53,46 +78,32 @@ export function OnboardingFilters({
   const [programs, setPrograms] = useState<
     Array<{ id: string; program_name: string }>
   >([]);
-  const [loadingInstitutions, setLoadingInstitutions] = useState(false);
-  const { isSuperAdmin, userProfile } = usePermissions();
+  const {
+    institutions,
+    loading: loadingInstitutions,
+  } = useInstitutionsWithAccess({ isActive: true });
 
-  // Load institutions once on mount.
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        setLoadingInstitutions(true);
-        const data = await OrganizationService.getInstitutionNames(true);
-        if (!cancelled) setInstitutions(data);
-      } catch (error) {
-        console.error('[onboarding-filters] load institutions failed:', error);
-      } finally {
-        if (!cancelled) setLoadingInstitutions(false);
-      }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const hasMultiInstitutionAccess = institutions.length > 1;
 
-  // Auto-pin institution for non-super-admin users (their access is scoped).
+  // Keep a stable ref so the auto-pin effect can always call the latest
+  // onFilterChange without including it in deps. Including it would cause
+  // the effect to re-run on every URL update (onFilterChange is recreated
+  // whenever searchParams changes), which is unnecessary and can cause
+  // timing issues with concurrent URL writes.
+  const onFilterChangeRef = useRef(onFilterChange);
+  onFilterChangeRef.current = onFilterChange;
+
+  // Auto-pin institution for single-institution users.
   useEffect(() => {
     if (
-      !isSuperAdmin &&
-      userProfile?.institution_id &&
-      !filters.institution_id &&
-      !loadingInstitutions
+      !loadingInstitutions &&
+      institutions.length === 1 &&
+      !filters.institution_id
     ) {
-      onFilterChange('institution_id', userProfile.institution_id);
+      onFilterChangeRef.current({ institution_id: institutions[0].id });
     }
-  }, [
-    userProfile,
-    isSuperAdmin,
-    filters.institution_id,
-    onFilterChange,
-    loadingInstitutions,
-  ]);
+  }, [institutions, filters.institution_id, loadingInstitutions]);
+  // onFilterChange intentionally excluded — ref above keeps it current
 
   // Cascade loaders — each dropdown's options depend on its parent.
   useEffect(() => {
@@ -161,20 +172,18 @@ export function OnboardingFilters({
     };
   }, [filters.department_id]);
 
-  // Cascading reset — clearing a parent must clear every dependent child so
-  // the table doesn't keep filtering by stale orphan IDs.
-  const clearChildren = (level: OnboardingFilterKey) => {
-    const order: OnboardingFilterKey[] = [
-      'institution_id',
-      'degree_id',
-      'department_id',
-      'program_id',
-    ];
-    const idx = order.indexOf(level);
-    if (idx === -1) return;
-    for (let i = idx + 1; i < order.length; i++) {
-      onFilterChange(order[i], undefined);
+  // Set one hierarchy level and clear every dependent child in a SINGLE update.
+  const setHierarchyLevel = (
+    level: OnboardingFilterKey,
+    value: string | undefined
+  ) => {
+    const updates: OnboardingFilterUpdates = {};
+    updates[level] = value;
+    const idx = HIERARCHY_ORDER.indexOf(level);
+    for (let i = idx + 1; i < HIERARCHY_ORDER.length; i++) {
+      updates[HIERARCHY_ORDER[i]] = undefined;
     }
+    onFilterChange(updates);
   };
 
   const hasActiveFilters = !!(
@@ -182,7 +191,8 @@ export function OnboardingFilters({
     filters.degree_id ||
     filters.department_id ||
     filters.program_id ||
-    filters.bill_status
+    filters.bill_status ||
+    filters.lifecycle_status
   );
 
   return (
@@ -190,14 +200,12 @@ export function OnboardingFilters({
       {/* Row 1: Institution → Degree → Department → Programme + Reset */}
       <div className='flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between'>
         <div className='flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center'>
-          {isSuperAdmin && (
+          {hasMultiInstitutionAccess && (
             <Select
               value={filters.institution_id || 'all'}
-              onValueChange={(value) => {
-                const next = value === 'all' ? undefined : value;
-                onFilterChange('institution_id', next);
-                clearChildren('institution_id');
-              }}
+              onValueChange={(value) =>
+                setHierarchyLevel('institution_id', value === 'all' ? undefined : value)
+              }
             >
               <SelectTrigger className='w-full sm:w-[200px]'>
                 <SelectValue placeholder='Select institution' />
@@ -215,11 +223,9 @@ export function OnboardingFilters({
 
           <Select
             value={filters.degree_id || 'all'}
-            onValueChange={(value) => {
-              const next = value === 'all' ? undefined : value;
-              onFilterChange('degree_id', next);
-              clearChildren('degree_id');
-            }}
+            onValueChange={(value) =>
+              setHierarchyLevel('degree_id', value === 'all' ? undefined : value)
+            }
             disabled={!filters.institution_id}
           >
             <SelectTrigger className='w-full sm:w-[180px]'>
@@ -237,11 +243,9 @@ export function OnboardingFilters({
 
           <Select
             value={filters.department_id || 'all'}
-            onValueChange={(value) => {
-              const next = value === 'all' ? undefined : value;
-              onFilterChange('department_id', next);
-              clearChildren('department_id');
-            }}
+            onValueChange={(value) =>
+              setHierarchyLevel('department_id', value === 'all' ? undefined : value)
+            }
             disabled={!filters.degree_id}
           >
             <SelectTrigger className='w-full sm:w-[180px]'>
@@ -259,11 +263,9 @@ export function OnboardingFilters({
 
           <Select
             value={filters.program_id || 'all'}
-            onValueChange={(value) => {
-              const next = value === 'all' ? undefined : value;
-              onFilterChange('program_id', next);
-              clearChildren('program_id');
-            }}
+            onValueChange={(value) =>
+              setHierarchyLevel('program_id', value === 'all' ? undefined : value)
+            }
             disabled={!filters.department_id}
           >
             <SelectTrigger className='w-full sm:w-[180px]'>
@@ -292,17 +294,41 @@ export function OnboardingFilters({
         )}
       </div>
 
-      {/* Row 2: Bill Status — orthogonal to the academic hierarchy.
-          Generated = at least one billing_student_bills row exists.
-          Not Generated = zero bill rows (learner sent to accounts but bills not yet created). */}
+      {/* Row 2: Lifecycle Status + Bill Status — orthogonal to the academic hierarchy. */}
       <div className='flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center'>
+        <Select
+          value={filters.lifecycle_status || 'all'}
+          onValueChange={(value) =>
+            onFilterChange({
+              lifecycle_status:
+                value === 'all'
+                  ? undefined
+                  : (value as OnboardingLifecycleStatus),
+            })
+          }
+        >
+          <SelectTrigger className='w-full sm:w-[180px]'>
+            <SelectValue placeholder='Learner status' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='all'>All Statuses</SelectItem>
+            {ONBOARDING_LIFECYCLE_STATUSES.map((status) => (
+              <SelectItem key={status} value={status}>
+                {LIFECYCLE_LABELS[status]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
         <Select
           value={filters.bill_status || 'all'}
           onValueChange={(value) =>
-            onFilterChange(
-              'bill_status',
-              value === 'all' ? undefined : (value as 'generated' | 'not_generated')
-            )
+            onFilterChange({
+              bill_status:
+                value === 'all'
+                  ? undefined
+                  : (value as 'generated' | 'not_generated'),
+            })
           }
         >
           <SelectTrigger className='w-full sm:w-[180px]'>

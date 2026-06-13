@@ -77,7 +77,8 @@ export interface SeatPivotRow {
   group_label: string;          // e.g. "UG ENGINEERING - I YEAR"
   group_sort_key: string;
   intake: number;
-  filled: number;
+  filled: number;               // admitted-or-beyond (admitted/active/graduated/account)
+  reserved: number;             // point-in-time count of reserved learners
   balance: number;
   fill_percentage: number;
   daily_counts: Record<string, number>; // { "2026-03-25": 2, "2026-03-28": 1, ... }
@@ -96,20 +97,51 @@ export interface InstitutionAdmissionSummary {
   total_leads: number;
   active_crm_leads: number;
   lost_leads: number;
+  /** @deprecated 2026-05-20 — funnel_stage-based; use admitted_count below. */
   applied: number;
+  /** @deprecated 2026-05-20 — funnel_stage-based; use admitted_count below. */
   enrolled: number;
+  /** @deprecated 2026-05-20 — funnel_stage-based; use rejected_lifecycle_count below. */
   rejected: number;
   total_seats: number;
   filled_seats: number;
+  /**
+   * Lead-space "filled" — admission_leads.funnel_stage = 'enrolled'.
+   * Added 2026-05-17 (E4 of dynamic-admission-statuses). Equal to filled_seats
+   * during the rollout window; kept as a distinct field so consumers can
+   * migrate off the legacy name.
+   */
+  enrolled_leads: number;
+  /**
+   * Learner-space "filled" — learners_profiles.lifecycle_status matches an
+   * admission_statuses row with scope='learner' AND is_seat_filled=true.
+   * Added 2026-05-17 (E4). Gap vs enrolled_leads = drop-off pursuit list.
+   */
+  seat_filled_learners: number;
   fill_percentage: number;
+  // ─────────────────────────────────────────────────────────────────────────
+  // Lifecycle-status-based counts (added 2026-05-20 with workflow realignment).
+  // Sourced from learners_profiles.lifecycle_status, scoped by the same
+  // admission_year / program_start_year filter the leads side uses.
+  // ─────────────────────────────────────────────────────────────────────────
+  enquiry_count: number;
+  enquiry_submitted_count: number;
+  account_count: number;
+  reserved_count: number;
+  /** Admitted KPI = lifecycle_status IN ('admitted', 'active') per workflow spec. */
+  admitted_count: number;
+  rejected_lifecycle_count: number;
 }
 
 export interface GroupDashboardData {
   institutions: InstitutionAdmissionSummary[];
   totals: {
     total_leads: number;
+    /** @deprecated 2026-05-20 — funnel_stage-based; use total_admitted below. */
     total_applied: number;
+    /** @deprecated 2026-05-20 — funnel_stage-based; use total_admitted below. */
     total_enrolled: number;
+    /** @deprecated 2026-05-20 — funnel_stage-based; use total_rejected_lifecycle below. */
     total_rejected: number;
     total_seats: number;
     /**
@@ -118,7 +150,22 @@ export interface GroupDashboardData {
      * Use this for Fill Rate, not total_enrolled (which is just 'active').
      */
     total_filled: number;
+    /** Sum of enrolled_leads across institutions (lead-space). */
+    total_enrolled_leads: number;
+    /** Sum of seat_filled_learners across institutions (learner-space). */
+    total_seat_filled_learners: number;
     overall_fill_percentage: number;
+    // ───────────────────────────────────────────────────────────────────────
+    // Lifecycle-status-based totals (added 2026-05-20). PRIMARY source for
+    // the dashboard's top KPI strip going forward.
+    // ───────────────────────────────────────────────────────────────────────
+    total_enquiry: number;
+    total_enquiry_submitted: number;
+    total_account: number;
+    total_reserved: number;
+    /** Admitted KPI = sum of lifecycle_status IN ('admitted', 'active'). */
+    total_admitted: number;
+    total_rejected_lifecycle: number;
   };
 }
 
@@ -137,7 +184,8 @@ export interface SeatAnalyticsRow {
   program_start_year: number;
   program_end_year: number;
   total_seats: number;
-  filled_seats: number;
+  filled_seats: number;          // admitted-or-beyond (admitted/active/graduated/account)
+  reserved_seats: number;        // point-in-time count of reserved learners
   balance_seats: number;
   fill_percentage: number;
   last_filled_at: string | null;

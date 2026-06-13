@@ -173,28 +173,6 @@ export class DegreeService {
         query = query.eq('is_active', filters.isActive);
       }
 
-      // Apply institution filtering based on user access if userId is provided
-      if (filters.userId && !filters.bypassInstitutionFilter) {
-        const accessibleInstitutionIds =
-          await this.getUserAccessibleInstitutionIds(filters.userId);
-
-        if (accessibleInstitutionIds.length > 0) {
-          query = query.in('institution_id', accessibleInstitutionIds);
-        } else {
-          // If user has no accessible institutions, return empty result
-          return {
-            data: [],
-            metadata: {
-              total: 0,
-              page: filters.page || 1,
-              limit: filters.limit || 10,
-              totalPages: 0
-            }
-          };
-        }
-      } else if (filters.bypassInstitutionFilter) {
-      } else {
-      }
 
       // Apply sorting
       if (filters.sortBy && filters.sortOrder) {
@@ -216,7 +194,13 @@ export class DegreeService {
       const { data: degrees, error, count } = await query;
 
       if (error) {
-        console.error('DegreeService: Query error:', error);
+        console.error('DegreeService: Query error:', {
+          code: error?.code,
+          message: error?.message,
+          details: error?.details,
+          hint: error?.hint,
+          fullError: error
+        });
         throw error;
       }
 

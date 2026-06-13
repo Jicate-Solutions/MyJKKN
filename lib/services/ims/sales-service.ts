@@ -153,7 +153,7 @@ export class ImsSalesService {
       let query = this.supabase
         .from('ims_items')
         .select(
-          `id, name, code, selling_price, cost_price,
+          `id, name, code, selling_price, cost_price, image_url,
            base_unit:ims_units!ims_items_base_unit_id_fkey(abbreviation),
            category:ims_item_categories(name),
            stock:ims_stock_summary(available_quantity)`
@@ -181,6 +181,7 @@ export class ImsSalesService {
         available_quantity: item.stock?.[0]?.available_quantity || item.stock?.available_quantity || 0,
         unit_abbreviation: item.base_unit?.abbreviation || '',
         category_name: item.category?.name || '',
+        image_url: item.image_url || null,
       })) as ImsSellableItem[];
     } catch (error) {
       console.error('[ImsSalesService] Error in getSellableItems:', error);

@@ -286,7 +286,6 @@ SELECT
     student_mobile,
     student_email,
     accommodation_type,
-    hostel_type,
     reference_type,
     reference_name,
     reference_contact,
@@ -354,7 +353,6 @@ SELECT
     student_mobile,
     student_email,
     accommodation_type,
-    hostel_type,
     reference_type,
     reference_name,
     reference_contact,
@@ -770,12 +768,12 @@ WHERE al.first_touch_at >= (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::timestamp
   AND al.first_touch_at IS NOT NULL
   AND al.assigned_counselor_id IS NOT NULL
   AND p.is_active = TRUE
-  AND NOT EXISTS (
-    SELECT 1 FROM hr_leave_applications hla
-    WHERE hla.employee_id = p.id
-      AND hla.status = 'approved'
-      AND CURRENT_DATE BETWEEN hla.start_date AND hla.end_date
-  )
+  -- 2026-04-28: HLA clause removed — hr_leave_applications is referenced here and
+  -- in 02_functions.sql but is undefined anywhere in source (no CREATE TABLE).
+  -- Reinstate the subquery once the table is authored:
+  --   AND NOT EXISTS (SELECT 1 FROM hr_leave_applications hla
+  --                   WHERE hla.employee_id = p.id AND hla.status = 'approved'
+  --                   AND CURRENT_DATE BETWEEN hla.start_date AND hla.end_date)
 GROUP BY al.assigned_counselor_id, p.full_name, p.avatar_url, al.institution_id, i.name
 -- Updated: 2026-05-03 — min-volume threshold moved from hardcoded 5 into
 -- platform_policies.dashboard.leaderboard.sla_min_leads. Director can tune
@@ -920,3 +918,193 @@ SELECT
     leave_types.duration_type
 FROM leave_types
 WHERE (leave_types.scope)::text = 'staff'::text;
+
+<<<<<<< HEAD
+-- ================================================================================
+-- SECTION: CAMPUS LIVING VIEWS (Added: 2026-05-29)
+-- ================================================================================
+
+-- ─── v_learner_hostelites ─────────────────────────────────────────────────
+-- Extended 2026-05-29 (migration 20260529_extend_v_learner_hostelites_cascade.sql)
+-- for the Hostel Residents → Learners advanced DataTable: adds cascade FK columns
+-- (degree/department/program/semester/section/academic_year) for filter pushdown,
+-- plus program_name and the current block's name/code for display columns.
+-- LEFT JOINs only — no hostelite row may be dropped by a null FK or missing
+-- active allocation.
+--
+-- Recreated 2026-06-05 (migration 20260605150020_admission_year_schema_ddl.sql):
+-- admission_years lost program_id / program_end_year and renamed
+-- program_start_year → year. The OUTPUT columns program_start_year and
+-- program_end_year are UNCHANGED for consumers — they are now DERIVED:
+-- program_start_year = ay.year, program_end_year = ay.year + pr.program_duration_yrs.
+--
+-- The applied migration uses DROP VIEW + CREATE VIEW (the new cascade FK columns
+-- are inserted before existing columns, and Postgres forbids reordering an
+-- existing view's columns via CREATE OR REPLACE — 42P16). This reference mirror
+-- preserves that form. The default anon/authenticated/service_role SELECT grants
+-- are re-applied below to match Supabase's defaults.
+--
+-- Lifecycle filter (migrations 20260608130000 -> 20260608150000, revised
+-- 2026-06-08): residents = hostel AND lifecycle_status = 'active' ONLY. All
+-- non-active statuses (reserved/admitted/account/enquiry_submitted/graduated/
+-- inactive/rejected) are excluded from the Residents list AND the Generate-bills
+-- surface. lifecycle_status column exposed by migration 20260608140000.
+--
+-- academic_year_name appended 2026-06-09 (migration
+-- 20260609120000_add_academic_year_name_to_v_learner_hostelites.sql) as the LAST
+-- column for the Learners table's Academic Year display column — LEFT JOIN to
+-- academic_years (alias 'acy'; 'ay' is admission_years). Mirror kept as
+-- DROP+CREATE; the live migration uses CREATE OR REPLACE since the new column is
+-- appended at the end.
+DROP VIEW IF EXISTS public.v_learner_hostelites;
+
+CREATE VIEW v_learner_hostelites AS
+ SELECT lp.id,
+    lp.first_name,
+    lp.last_name,
+    lp.roll_number,
+    lp.student_email,
+    lp.college_email,
+    lp.gender,
+    lp.institution_id,
+    acc.code AS accommodation_type,
+    lp.hostel_fee,
+    lp.dayscholar_fee,
+    lp.father_name,
+    lp.mother_name,
+    lp.admission_year_id,
+    lp.degree_id,
+    lp.department_id,
+    lp.program_id,
+    lp.semester_id,
+    lp.section_id,
+    lp.academic_year_id,
+    pr.program_name,
+    ay.year AS program_start_year,
+    (ay.year + pr.program_duration_yrs)::integer AS program_end_year,
+        CASE
+            WHEN lp.admission_year_id IS NOT NULL AND ay.year IS NOT NULL THEN GREATEST(1, LEAST(EXTRACT(year FROM CURRENT_DATE)::integer - ay.year + 1, pr.program_duration_yrs::integer + 1))
+            WHEN lp.batch_id IS NOT NULL AND b.start_date IS NOT NULL THEN GREATEST(1, LEAST(EXTRACT(year FROM CURRENT_DATE)::integer - EXTRACT(year FROM b.start_date)::integer + 1, EXTRACT(year FROM b.end_date)::integer - EXTRACT(year FROM b.start_date)::integer + 1))
+            WHEN lp.enquiry_date IS NOT NULL THEN GREATEST(1, EXTRACT(year FROM CURRENT_DATE)::integer - EXTRACT(year FROM lp.enquiry_date)::integer + 1)
+            ELSE NULL::integer
+        END AS year_of_study,
+    ha.block_id AS current_block_id,
+    ha.room_id AS current_room_id,
+    ha.bed_id AS current_bed_id,
+    ha.id AS current_allocation_id,
+    hb.name AS current_block_name,
+    hb.code AS current_block_code,
+        CASE
+            WHEN lp.admission_year_id IS NOT NULL AND ay.year IS NOT NULL THEN 'admission_year'::text
+            WHEN lp.batch_id IS NOT NULL AND b.start_date IS NOT NULL THEN 'batch'::text
+            WHEN lp.enquiry_date IS NOT NULL THEN 'enquiry'::text
+            ELSE NULL::text
+        END AS year_source,
+    dg.degree_name,
+    sm.semester_name,
+    lp.lifecycle_status,
+    acy.academic_year_name
+   FROM learners_profiles lp
+     LEFT JOIN accommodation_types acc ON acc.id = lp.accommodation_type_id
+     LEFT JOIN admission_years ay ON ay.id = lp.admission_year_id
+     LEFT JOIN batches b ON b.id = lp.batch_id
+     LEFT JOIN programs pr ON pr.id = lp.program_id
+     -- Bridge: hostel_allocations.learner_id is an FK to profiles.id, NOT
+     -- learners_profiles.id. profiles.learner_id = learners_profiles.id is 1:1.
+     -- (migration 20260609140000_fix_v_learner_hostelites_alloc_profiles_bridge.sql)
+     LEFT JOIN profiles palloc ON palloc.learner_id = lp.id
+     LEFT JOIN hostel_allocations ha ON ha.learner_id = palloc.id AND ha.status = 'active'::allocation_status_enum
+     LEFT JOIN hostel_blocks hb ON hb.id = ha.block_id
+     LEFT JOIN degrees dg ON dg.id = lp.degree_id
+     LEFT JOIN semesters sm ON sm.id = lp.semester_id
+     LEFT JOIN academic_years acy ON acy.id = lp.academic_year_id
+  WHERE acc.code = 'hostel'::text
+    AND lp.lifecycle_status::text = 'active';
+
+GRANT ALL ON v_learner_hostelites TO anon, authenticated, service_role;
+
+-- =============================================================================
+-- IMS Department Stock — added 2026-04-28
+-- Purpose: power /ims/stock/department page (replaces hardcoded placeholders).
+-- Source tables: ims_stock_issues (issued events) + ims_department_consumption
+-- (consumed events). RLS is inherited from those base tables via
+-- security_invoker = true; do not add separate policies on the view.
+-- =============================================================================
+
+-- Per-(department, item) aggregated balance.
+-- Used by: useImsDepartmentStock (table) and useImsDepartmentSummaries (cards).
+CREATE OR REPLACE VIEW ims_department_stock_summary
+WITH (security_invoker = true) AS
+WITH issued AS (
+    SELECT
+        si.department_id,
+        si.item_id,
+        si.store_id,
+        si.institution_id,
+        SUM(si.quantity)::numeric AS total_issued
+    FROM ims_stock_issues si
+    GROUP BY si.department_id, si.item_id, si.store_id, si.institution_id
+),
+consumed AS (
+    SELECT
+        dc.department_id,
+        dc.item_id,
+        dc.store_id,
+        dc.institution_id,
+        SUM(dc.quantity)::numeric AS total_consumed,
+        SUM(dc.value)::numeric    AS total_value
+    FROM ims_department_consumption dc
+    GROUP BY dc.department_id, dc.item_id, dc.store_id, dc.institution_id
+)
+SELECT
+    COALESCE(i.department_id,  c.department_id)  AS department_id,
+    COALESCE(i.item_id,        c.item_id)        AS item_id,
+    COALESCE(i.store_id,       c.store_id)       AS store_id,
+    COALESCE(i.institution_id, c.institution_id) AS institution_id,
+    d.department_name,
+    it.name        AS item_name,
+    it.cost_price  AS item_cost_price,
+    COALESCE(i.total_issued,    0) AS total_issued,
+    COALESCE(c.total_consumed,  0) AS total_consumed,
+    COALESCE(c.total_value,     0) AS total_value,
+    (COALESCE(i.total_issued, 0) - COALESCE(c.total_consumed, 0)) AS balance
+FROM issued i
+FULL OUTER JOIN consumed c
+    ON  i.department_id = c.department_id
+    AND i.item_id       = c.item_id
+    AND COALESCE(i.store_id::text,       '') = COALESCE(c.store_id::text,       '')
+    AND COALESCE(i.institution_id::text, '') = COALESCE(c.institution_id::text, '')
+LEFT JOIN departments d ON d.id = COALESCE(i.department_id, c.department_id)
+LEFT JOIN ims_items   it ON it.id = COALESCE(i.item_id, c.item_id);
+
+-- Chronological event stream for one (department, item) pair.
+-- Used by: useImsDepartmentItemMovements (history dialog).
+-- 'received' rows come from issues; 'consumed' rows come from consumption.
+-- 'returned' is intentionally omitted — no source table exists yet.
+CREATE OR REPLACE VIEW ims_department_item_movements
+WITH (security_invoker = true) AS
+SELECT
+    si.id,
+    'received'::text   AS type,
+    si.quantity,
+    si.notes,
+    si.created_at,
+    si.issued_by       AS created_by_id,
+    si.department_id,
+    si.item_id,
+    si.store_id,
+    si.institution_id
+FROM ims_stock_issues si
+UNION ALL
+SELECT
+    dc.id,
+    'consumed'::text   AS type,
+    dc.quantity,
+    NULL::text         AS notes,
+    dc.created_at,
+    NULL::uuid         AS created_by_id,
+    dc.department_id,
+    dc.item_id,
+    dc.store_id,
+    dc.institution_id
+FROM ims_department_consumption dc;

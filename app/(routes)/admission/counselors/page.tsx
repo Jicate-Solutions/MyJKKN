@@ -1,8 +1,6 @@
 'use client';
 
 import { useState, useMemo, Suspense } from 'react';
-import { AddCounselorDialog } from './_components/add-counselor-dialog';
-import { CounselorList } from './_components/counselor-list';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -25,6 +23,7 @@ import {
 import { DataAlertBanner } from '@/components/shared/data-alert-banner/data-alert-banner';
 import { useUnassignedLeadsCount } from '@/hooks/admission/use-unassigned-leads-count';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { PermissionError } from '@/components/errors/permission-error';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
@@ -39,8 +38,6 @@ import {
   Star,
   RefreshCw,
   Download,
-  UserPlus,
-  User,
   MessageSquare,
   Clock,
   Target,
@@ -499,7 +496,7 @@ function CounselorLeaderboard({
 
 function CounselorPerformancePageContent() {
   const { profile } = useAuth();
-  const { isSuperAdmin, isAdmissionGlobalUser, canAccess } = usePermissions();
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
   const isGlobalUser = isSuperAdmin || isAdmissionGlobalUser;
   const { institutions } = useInstitutionsWithAccess();
   const [chosenInstitutionId, setChosenInstitutionId] = useState<string>('');
@@ -512,8 +509,6 @@ function CounselorPerformancePageContent() {
   const institutionId = resolvedChoice || (institutions.length === 1 ? institutions[0]?.id : defaultInstitutionId) || undefined;
   const [dateRange, setDateRange] = useState('30');
   const [isRefetching, setIsRefetching] = useState(false);
-  const [showAddDialog, setShowAddDialog] = useState(false);
-  const [view, setView] = useState<'performance' | 'manage'>('performance');
 
   // Calculate date range for query — memoized so the object reference is stable
   // and the React Query key doesn't change on every render (which would cause infinite refetches)
@@ -550,7 +545,23 @@ function CounselorPerformancePageContent() {
   const goldCount = counselors.filter(c => c.conversionRate >= 30).length;
 
   return (
-    <PermissionGuard module="admission" action="counselors.view">
+    <PermissionGuard
+      module="admission"
+      action="counselors.view"
+      // BUG-003986: without a fallback, users lacking admission.counselors.view
+      // (e.g. counselor roles — 'admission.counselors' is a restricted prefix in
+      // permission-guard.tsx, so the counselor bypass does NOT apply here) got a
+      // fully BLANK page with zero explanation. Permission failures must be
+      // explicit, never silent (CLAUDE.md rule #27).
+      fallback={
+        <ContentLayout title="Counselor Performance">
+          <PermissionError
+            message="The Counselor Performance dashboard is restricted to admission leadership."
+            requiredPermission="admission.counselors.view"
+          />
+        </ContentLayout>
+      }
+    >
       <ContentLayout title="Counselor Performance">
         <div className="space-y-6">
           {/* Header */}
@@ -611,13 +622,6 @@ function CounselorPerformancePageContent() {
                     <RefreshCw className="h-4 w-4" />
                   )}
                 </Button>
-                {canAccess('admission', 'counselors.create') && (
-                  <Button size="sm" onClick={() => setShowAddDialog(true)}>
-                    <UserPlus className="h-4 w-4 mr-2" />
-                    <span className="hidden sm:inline">Add Counselor</span>
-                    <span className="sm:hidden">Add</span>
-                  </Button>
-                )}
               </div>
             </div>
           </div>
@@ -635,32 +639,6 @@ function CounselorPerformancePageContent() {
 
           {/* TODO(@quickwin-d): briefing-status panel mounts here in follow-up PR */}
 
-          {/* View Toggle */}
-          <div className="flex gap-1 bg-muted p-1 rounded-lg w-fit">
-            <Button
-              variant={view === 'performance' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setView('performance')}
-            >
-              Performance
-            </Button>
-            <Button
-              variant={view === 'manage' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setView('manage')}
-            >
-              Manage
-            </Button>
-          </div>
-
-          {view === 'manage' ? (
-            <CounselorList
-              onRefresh={() => refetch()}
-              institutionId={institutionId}
-              isGlobalUser={isGlobalUser}
-            />
-          ) : (
-            <>
           {error && (
             <Card className="border-red-200 bg-red-50">
               <CardContent className="pt-4">
@@ -742,18 +720,7 @@ function CounselorPerformancePageContent() {
               <CounselorLeaderboard counselors={counselors} dateRange={dateRange} />
             </>
           )}
-            </>
-          )}
         </div>
-
-        <AddCounselorDialog
-          open={showAddDialog}
-          onOpenChange={setShowAddDialog}
-          institutionId={institutionId}
-          onSuccess={() => {
-            refetch();
-          }}
-        />
       </ContentLayout>
     </PermissionGuard>
   );

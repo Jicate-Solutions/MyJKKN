@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ImsInventoryService } from '@/lib/services/ims/inventory-service';
+import type { ImsItemForSelect } from '@/lib/services/ims/inventory-service';
 import { ImsCategoryService } from '@/lib/services/ims/category-service';
 import type {
   ImsItemFilters,
@@ -11,6 +12,9 @@ import type {
   CreateImsCategoryDto,
   UpdateImsCategoryDto,
 } from '@/types/ims';
+
+// Re-export so callers can type the hook's data without importing from the service directly
+export type { ImsItemForSelect };
 
 // ─── Items ───────────────────────────────────────────────
 
@@ -33,7 +37,7 @@ export function useImsItem(id: string) {
 }
 
 export function useImsItemsForSelect(storeId: string, institutionId?: string) {
-  return useQuery({
+  return useQuery<ImsItemForSelect[]>({
     queryKey: ['ims-items-select', storeId],
     queryFn: () => ImsInventoryService.getItemsForSelect(storeId, institutionId),
     enabled: !!storeId,

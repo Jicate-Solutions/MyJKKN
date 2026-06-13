@@ -26,6 +26,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 import type { AttendanceEditDiff } from '@/types/attendance';
 
@@ -65,6 +66,7 @@ export function AttendanceSummaryModal({
   isEditMode,
   editDiff
 }: AttendanceSummaryModalProps) {
+  const label = useAdaptiveLabels();
   // Calculate stats
   const presentCount = Object.values(attendanceData).filter(
     (status) => status === 'Present'
@@ -108,7 +110,7 @@ export function AttendanceSummaryModal({
                 <div className='flex items-center gap-2'>
                   <BookOpen className='h-4 w-4 text-blue-600 dark:text-blue-400' />
                   <div>
-                    <p className='text-gray-600 dark:text-gray-400'>Course</p>
+                    <p className='text-gray-600 dark:text-gray-400'>{label('Course')}</p>
                     <p className='font-semibold'>
                       {courseName || 'Unknown Course'}
                     </p>
@@ -149,12 +151,12 @@ export function AttendanceSummaryModal({
                 <div className='flex items-center gap-2'>
                   <Building2 className={contextData?.slot_sections && contextData.slot_sections.length > 1 ? 'h-4 w-4 text-green-600 dark:text-green-400' : 'h-4 w-4 text-indigo-600 dark:text-indigo-400'} />
                   <div>
-                    <p className='text-gray-600 dark:text-gray-400'>Section{contextData?.slot_sections && contextData.slot_sections.length > 1 ? 's' : ''}</p>
+                    <p className='text-gray-600 dark:text-gray-400'>{contextData?.slot_sections && contextData.slot_sections.length > 1 ? label('Sections') : label('Section')}</p>
                     <p className={contextData?.slot_sections && contextData.slot_sections.length > 1 ? 'font-semibold text-green-700 dark:text-green-300' : 'font-semibold'}>
                       {contextData?.slot_sections && contextData.slot_sections.length > 0
                         ? contextData.slot_sections.length === 1
                           ? contextData.slot_sections[0].section_name
-                          : `${contextData.slot_sections.length} Sections: ${contextData.slot_sections.map((s: any) => s.section_name).join(', ')}`
+                          : `${contextData.slot_sections.length} ${label('Sections')}: ${contextData.slot_sections.map((s: any) => s.section_name).join(', ')}`
                         : contextData?.section_name || 'Unknown Section'
                       }
                     </p>

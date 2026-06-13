@@ -2,9 +2,10 @@
 
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import { ResourceService } from '@/lib/services/resource-management/resource-service';
+import { getErrorMessage } from '@/lib/utils';
 import type {
   Resource,
   CreateResourceDto,
@@ -15,7 +16,23 @@ import type {
 } from '@/types/resource-management';
 import { useAuth } from '@/hooks/use-auth';
 
-// Hook for managing resources list with filters and pagination
+/**
+ * Hook for managing resources list with filters and pagination.
+ *
+ * Wave 1.5 (PR-1) — ResourceFilters now supports two HR-adapter filters:
+ *   - `assignee_type`: 'staff' | 'student' | 'vendor' | 'none'
+ *   - `assignee_id`: string (UUID)
+ *
+ * Example — fetch the assets assigned to the current staff member:
+ *
+ *   const { resources } = useResources({
+ *     assignee_type: 'staff',
+ *     assignee_id: currentUser.id,
+ *   });
+ *
+ * Existing callers (no args, or filtering by category/status/etc.) keep
+ * their current behavior — both new fields are optional on ResourceFilters.
+ */
 export function useResources(initialFilters: ResourceFilters = {}) {
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(false);
@@ -28,20 +45,30 @@ export function useResources(initialFilters: ResourceFilters = {}) {
   });
   const [filters, setFilters] = useState<ResourceFilters>(initialFilters);
 
+  // Monotonically-incrementing counter. Each call to fetchResources stamps the
+  // in-flight request with the CURRENT counter value; when the response arrives
+  // it compares against the ref to decide whether to commit the result. If a
+  // newer request has already started (counter advanced), the stale response is
+  // silently discarded — preventing an older unfiltered fetch from overwriting
+  // a filtered one that already completed.
+  const requestIdRef = useRef(0);
+
   const fetchResources = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
     try {
       setLoading(true);
       setError(null);
       const response = await ResourceService.getResources(filters);
+      if (requestId !== requestIdRef.current) return; // stale — a newer fetch won
       setResources(response.data);
       setMetadata(response.metadata);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Failed to fetch resources';
+      if (requestId !== requestIdRef.current) return;
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
   }, [filters]);
 
@@ -84,8 +111,7 @@ export function useResource(id?: string) {
       const resourceData = await ResourceService.getResource(id);
       setResource(resourceData);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Failed to fetch resource';
+      const errorMessage = getErrorMessage(err);
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
@@ -133,9 +159,9 @@ export function useResourceOperations() {
         toast.success('Resource created successfully');
         return newResource;
       } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : 'Failed to create resource';
-        toast.error(errorMessage);
+        // getErrorMessage handles Supabase plain-object errors that
+        // `instanceof Error` would silently drop into the fallback string.
+        toast.error(getErrorMessage(err));
         return null;
       } finally {
         setLoading(false);
@@ -166,9 +192,7 @@ export function useResourceOperations() {
         toast.success('Resource updated successfully');
         return updatedResource;
       } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : 'Failed to update resource';
-        toast.error(errorMessage);
+        toast.error(getErrorMessage(err));
         return null;
       } finally {
         setLoading(false);
@@ -188,9 +212,7 @@ export function useResourceOperations() {
       }
       return success;
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Failed to delete resource';
-      toast.error(errorMessage);
+      toast.error(getErrorMessage(err));
       return false;
     } finally {
       setLoading(false);
@@ -215,9 +237,7 @@ export function useResourceOperations() {
 
         return result;
       } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : 'Failed to delete resources';
-        toast.error(errorMessage);
+        toast.error(getErrorMessage(err));
         return {
           success: false,
           processedCount: 0,
@@ -294,9 +314,7 @@ export function useResourceAvailability(resourceId?: string) {
         );
         return result;
       } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : 'Failed to check availability';
-        toast.error(errorMessage);
+        toast.error(getErrorMessage(err));
         return null;
       } finally {
         setChecking(false);
@@ -317,7 +335,7 @@ export function useResourcesSelect(
   departmentId?: string
 ) {
   const [resources, setResources] = useState<
-    Array<{ id: string; name: string; status: string }>
+    Array<{ id: string; name: string; status: string; parent_category_id?: string }>
   >([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -332,9 +350,7 @@ export function useResourcesSelect(
       );
       setResources(resourcesData);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Failed to fetch resources';
-      setError(errorMessage);
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -374,9 +390,7 @@ export function useResourceUsageStats(resourceId?: string) {
       const statsData = await ResourceService.getResourceUsageStats(resourceId);
       setStats(statsData);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Failed to fetch usage statistics';
-      setError(errorMessage);
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -414,9 +428,7 @@ export function useResourceSearch() {
       const results = await ResourceService.searchResources(query);
       setSearchResults(results);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Failed to search resources';
-      setError(errorMessage);
+      setError(getErrorMessage(err));
       setSearchResults([]);
     } finally {
       setLoading(false);

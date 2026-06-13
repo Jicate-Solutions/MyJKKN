@@ -56,6 +56,18 @@ const expertFormSchema = z.object({
   ]),
   specialization: z.string().optional(),
   qualifications: z.string().optional(),
+  // One-way distance to the institution. Auto-doubled by the TA/DA rate
+  // engine for round-trip travel reimbursement (km × 2 × ₹5). Optional —
+  // experts without a distance get honorarium only, no TA.
+  distance_km: z
+    .union([z.string(), z.number(), z.null(), z.undefined()])
+    .transform((v) => {
+      if (v === '' || v === null || v === undefined) return null;
+      const n = typeof v === 'number' ? v : Number(v);
+      return Number.isFinite(n) && n >= 0 ? n : null;
+    })
+    .nullable()
+    .optional(),
   is_active: z.boolean().default(true),
   notes: z.string().optional(),
 });
@@ -97,6 +109,7 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
           category: expert.category,
           specialization: expert.specialization ?? '',
           qualifications: expert.qualifications ?? '',
+          distance_km: expert.distance_km ?? null,
           is_active: expert.is_active,
           notes: expert.notes ?? '',
         }
@@ -113,6 +126,7 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
           category: 'subject_expert',
           specialization: '',
           qualifications: '',
+          distance_km: null,
           is_active: true,
           notes: '',
         },
@@ -279,7 +293,7 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
                   <FormItem>
                     <FormLabel>Institution / Company</FormLabel>
                     <FormControl>
-                      <Input placeholder='e.g. Anna University' {...field} />
+                      <Input placeholder='e.g. JKKN College of Arts and Science (Autonomous)' {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -320,19 +334,48 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
               )}
             />
 
-            <FormField
-              control={form.control}
-              name='qualifications'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Qualifications</FormLabel>
-                  <FormControl>
-                    <Input placeholder='e.g. MCA, M.Phil, Ph.D.' {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <div className='grid gap-3 md:grid-cols-2'>
+              <FormField
+                control={form.control}
+                name='qualifications'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Qualifications</FormLabel>
+                    <FormControl>
+                      <Input placeholder='e.g. MCA, M.Phil, Ph.D.' {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='distance_km'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Distance to Institution (km, one-way)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        inputMode='decimal'
+                        min={0}
+                        step='0.1'
+                        placeholder='e.g. 45'
+                        value={field.value ?? ''}
+                        onChange={(e) =>
+                          field.onChange(e.target.value === '' ? null : e.target.value)
+                        }
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Auto-doubled for round-trip TA at ₹5/km. Leave blank if not applicable.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
           </CardContent>
         </Card>
 

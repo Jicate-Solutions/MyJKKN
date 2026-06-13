@@ -17,6 +17,7 @@ import { AlertCircle, Info } from 'lucide-react';
 import { useSubmitCandidate } from '@/hooks/hr/use-recruitment';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useStaff } from '@/hooks/staff/use-staff';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import type { RoleCategory, MonthlySalaryBand } from '@/types/hr-recruitment';
 import {
@@ -63,8 +64,17 @@ export default function SubmitCandidatePage() {
   const paramName = searchParams.get('name') ?? '';
   const paramEmail = searchParams.get('email') ?? '';
 
-  // Context (v1 — accepted as form input; Sprint N will auto-resolve from profile)
+  // Context — HR Organization is auto-resolved from the signed-in user's profile.
+  // Resolve order: user_hr_access (explicit grants) → hr_employees (HR-side staff) →
+  // institutions via staff (academic-side staff) → fallback picker (any signed-in user).
   const [hrOrgId, setHrOrgId] = useState('');
+  const [resolvedOrgName, setResolvedOrgName] = useState('');
+  const [availableOrgs, setAvailableOrgs] = useState<Array<{ id: string; name: string }>>([]);
+  // 'loading' until first attempt finishes. 'resolved' = single auto-pick (no picker shown).
+  // 'multi' = user has 2+ HR org grants, picker shown with their orgs pre-listed.
+  // 'fallback' = no resolvable link, picker shows every HR organization.
+  const [orgResolveStatus, setOrgResolveStatus] = useState<'loading' | 'resolved' | 'multi' | 'fallback'>('loading');
+  const [showOrgPicker, setShowOrgPicker] = useState(false);
 
   // Candidate basics — initialised from URL params when present (pre-fill only, no auto-submit)
   const [name, setName] = useState(paramName);
@@ -90,6 +100,93 @@ export default function SubmitCandidatePage() {
     if (paramSourceStaffId) setSourceStaffId(paramSourceStaffId);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // run once on mount
+
+  // Auto-resolve HR Organization from the signed-in user's profile.
+  // Runs once on mount. Sets hrOrgId silently when a single org matches; surfaces a
+  // picker when the user belongs to multiple orgs or no link can be found.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const supabase = createClientSupabaseClient();
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData?.user?.id;
+      if (!uid) {
+        if (!cancelled) setOrgResolveStatus('fallback');
+        return;
+      }
+
+      // 1. Explicit HR access grants (super-admin may have >1)
+      const { data: accessRows } = await supabase
+        .from('user_hr_access')
+        .select('hr_organization_id, hr_organizations:hr_organization_id(id, name)')
+        .eq('user_id', uid);
+      const accessOrgs = (accessRows ?? [])
+        .map((r: any) => r.hr_organizations)
+        .filter((o: any) => o && o.id && o.name) as Array<{ id: string; name: string }>;
+
+      if (accessOrgs.length === 1) {
+        if (cancelled) return;
+        setHrOrgId(accessOrgs[0].id);
+        setResolvedOrgName(accessOrgs[0].name);
+        setAvailableOrgs(accessOrgs);
+        setOrgResolveStatus('resolved');
+        return;
+      }
+      if (accessOrgs.length > 1) {
+        if (cancelled) return;
+        setHrOrgId(accessOrgs[0].id);
+        setResolvedOrgName(accessOrgs[0].name);
+        setAvailableOrgs(accessOrgs);
+        setOrgResolveStatus('multi');
+        return;
+      }
+
+      // 2. HR-side employee record
+      const { data: empRow } = await supabase
+        .from('hr_employees')
+        .select('hr_organization_id, hr_organizations:hr_organization_id(id, name)')
+        .eq('user_id', uid)
+        .limit(1)
+        .maybeSingle();
+      const empOrg = (empRow as any)?.hr_organizations;
+      if (empOrg?.id && empOrg?.name) {
+        if (cancelled) return;
+        setHrOrgId(empOrg.id);
+        setResolvedOrgName(empOrg.name);
+        setAvailableOrgs([{ id: empOrg.id, name: empOrg.name }]);
+        setOrgResolveStatus('resolved');
+        return;
+      }
+
+      // 3. Academic-side staff → institution → hr_organization
+      // (cast to any: staff.user_id exists in prod but is not yet in the typed schema)
+      const { data: staffRow } = await (supabase.from('staff') as any)
+        .select('institution_id, institutions:institution_id(hr_organization_id, hr_organizations:hr_organization_id(id, name))')
+        .eq('user_id', uid)
+        .limit(1)
+        .maybeSingle();
+      const staffOrg = (staffRow as any)?.institutions?.hr_organizations;
+      if (staffOrg?.id && staffOrg?.name) {
+        if (cancelled) return;
+        setHrOrgId(staffOrg.id);
+        setResolvedOrgName(staffOrg.name);
+        setAvailableOrgs([{ id: staffOrg.id, name: staffOrg.name }]);
+        setOrgResolveStatus('resolved');
+        return;
+      }
+
+      // 4. Fallback — load every HR organization for manual pick
+      const { data: allOrgs } = await supabase
+        .from('hr_organizations')
+        .select('id, name')
+        .order('name');
+      if (cancelled) return;
+      setAvailableOrgs((allOrgs ?? []) as Array<{ id: string; name: string }>);
+      setOrgResolveStatus('fallback');
+      setShowOrgPicker(true);
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Approval flow preview
   const [approvalFlows, setApprovalFlows] = useState<ApprovalFlow[]>([]);
@@ -142,7 +239,21 @@ export default function SubmitCandidatePage() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!hrOrgId || !name || !email || !roleCategory || !roleTitle || !cvvizUrl) return;
+
+    // Surface missing required fields to the user instead of silently no-op'ing.
+    // Previous behaviour returned without feedback, leaving the form looking unresponsive
+    // when a controlled <select> value hadn't synced (e.g. CDP-driven flows, autofill races).
+    const missing: string[] = [];
+    if (!hrOrgId) missing.push('HR Organization');
+    if (!name) missing.push('Full Name');
+    if (!email) missing.push('Email');
+    if (!roleCategory) missing.push('Role Category');
+    if (!roleTitle) missing.push('Role Title');
+    if (!cvvizUrl) missing.push('CVViz Profile URL');
+    if (missing.length > 0) {
+      toast.error(`Please fill the required field${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}`);
+      return;
+    }
 
     try {
       const result = await mutation.mutateAsync({
@@ -194,23 +305,57 @@ export default function SubmitCandidatePage() {
       )}
 
       <form onSubmit={onSubmit} className="mt-6 space-y-4 max-w-3xl">
-        {/* Context card — MVP until Sprint N auto-resolves from profile */}
+        {/* Context card — HR Organization is auto-resolved from the signed-in user's profile. */}
         <Card>
           <CardHeader><CardTitle className="text-base">Context</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <Label htmlFor="hrOrgId">HR Organization ID</Label>
-              <Input
-                id="hrOrgId"
-                value={hrOrgId}
-                onChange={(e) => setHrOrgId(e.target.value)}
-                required
-                placeholder="uuid"
-              />
+              <Label htmlFor="hrOrgId">HR Organization</Label>
+
+              {orgResolveStatus === 'loading' && (
+                <p className="mt-1 text-sm text-muted-foreground">Detecting your HR organization…</p>
+              )}
+
+              {(orgResolveStatus === 'resolved' || orgResolveStatus === 'multi') && !showOrgPicker && (
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="text-sm font-medium">{resolvedOrgName}</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowOrgPicker(true)}
+                    className="text-xs text-primary underline-offset-2 hover:underline"
+                  >
+                    (change)
+                  </button>
+                </div>
+              )}
+
+              {(showOrgPicker || orgResolveStatus === 'fallback') && (
+                <>
+                  {orgResolveStatus === 'fallback' && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      We couldn&apos;t auto-detect your HR organization. Pick the one this candidate belongs to.
+                    </p>
+                  )}
+                  <select
+                    id="hrOrgId"
+                    value={hrOrgId}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setHrOrgId(next);
+                      const match = availableOrgs.find((o) => o.id === next);
+                      setResolvedOrgName(match?.name ?? '');
+                    }}
+                    required
+                    className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">Select an organization…</option>
+                    {availableOrgs.map((o) => (
+                      <option key={o.id} value={o.id}>{o.name}</option>
+                    ))}
+                  </select>
+                </>
+              )}
             </div>
-            <p className="text-xs text-muted-foreground">
-              Sprint 3.1 will auto-resolve this from your logged-in profile. For now paste the UUID.
-            </p>
           </CardContent>
         </Card>
 

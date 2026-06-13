@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Save, Users, Lock } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 
-import { BosAttendanceStatus, BosMemberType, BosMeetingStatus, BOS_MEETING_STATUS_ORDER } from '@/types/bos';
+import { BosAttendanceStatus, BosMemberType, BosMeetingStatus, BOS_MEETING_STATUS_ORDER, BosMember } from '@/types/bos';
 import { useBosMembersByComposition } from '@/hooks/bos/use-bos-members';
 import { useBosAttendance, useSaveBosAttendance } from '@/hooks/bos/use-bos-attendance';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -21,7 +21,26 @@ interface AttendanceEntry {
   memberType: BosMemberType;
   designation?: string;
   status: BosAttendanceStatus;
-  taEligible: boolean;
+  distanceKm?: number | null;
+}
+
+// Per-member local edits that the user has made but not yet saved. Stored
+// separately from the server-side `savedAttendance` so we can derive the
+// displayed `entries` array purely from props + query data + this overlay —
+// no useEffect-driven setState (which previously caused a render loop when
+// the React-Query data refs churned).
+interface AttendanceOverride {
+  status?: BosAttendanceStatus;
+}
+
+// SOP cutover (2026-05-21): the TA/DA "eligible" toggle was removed because
+// the per-role claim shape is fully determined by member type. Internal
+// members (chairman + internal_member) get honorarium only; everyone else
+// is external and also receives the round-trip TA component. The flag is
+// kept in the database but is now derived, not user-controlled.
+const INTERNAL_MEMBER_TYPES = new Set<BosMemberType>(['internal_member', 'chairman']);
+function isExternalMember(memberType: BosMemberType): boolean {
+  return !INTERNAL_MEMBER_TYPES.has(memberType);
 }
 
 // ── Status toggle button labels ────────────────────────────────────────────────
@@ -44,17 +63,19 @@ function nextStatus(current: BosAttendanceStatus): BosAttendanceStatus {
 function AttendanceRow({
   entry,
   onToggle,
-  onTaToggle,
 }: {
   entry: AttendanceEntry;
   onToggle: () => void;
-  onTaToggle: () => void;
 }) {
   const statusColor: Record<BosAttendanceStatus, string> = {
     present: 'bg-green-100 text-green-800 border-green-200 hover:bg-green-200',
     absent: 'bg-red-100 text-red-800 border-red-200 hover:bg-red-200',
     leave_of_absence: 'bg-yellow-100 text-yellow-800 border-yellow-200 hover:bg-yellow-200',
   };
+
+  const isExternal = isExternalMember(entry.memberType);
+  const hasNoDistance = isExternal && entry.distanceKm == null;
+  const isToggleDisabled = hasNoDistance;
 
   return (
     <div className='flex items-center gap-3 rounded-lg border p-2.5'>
@@ -66,28 +87,42 @@ function AttendanceRow({
         {entry.designation && (
           <p className='text-xs text-muted-foreground truncate'>{entry.designation}</p>
         )}
+        {hasNoDistance && (
+          <p className='text-xs text-amber-600 mt-1'>Distance not assigned</p>
+        )}
       </div>
       <div className='flex items-center gap-2 shrink-0'>
-        {/* TA/DA eligible toggle — only shown for non-internal members */}
-        {entry.memberType !== 'internal_member' && entry.memberType !== 'chairman' && (
-          <button
-            type='button'
-            onClick={onTaToggle}
-            className={`text-xs px-2 py-0.5 rounded border transition-colors ${
-              entry.taEligible
-                ? 'bg-blue-100 text-blue-800 border-blue-200'
-                : 'bg-muted text-muted-foreground border-transparent'
+        {/* Static TA/DA marker — shown for external members so reviewers can
+            see at a glance which attendees will receive the travel allowance
+            component on the auto-generated claim. Not interactive: eligibility
+            is now determined by member type, not by per-meeting toggle. */}
+        {isExternal && (
+          <span
+            className={`text-xs px-2 py-0.5 rounded border ${
+              hasNoDistance
+                ? 'bg-amber-100 text-amber-800 border-amber-200'
+                : 'bg-blue-100 text-blue-800 border-blue-200'
             }`}
-            title='Toggle TA/DA eligibility'
+            title={
+              hasNoDistance
+                ? 'Distance not assigned — assign distance before marking attendance'
+                : 'External member — claim will include round-trip TA (km × 2 × Rs.5)'
+            }
           >
-            TA/DA
-          </button>
+            {hasNoDistance ? 'No Distance' : 'TA/DA'}
+          </span>
         )}
         {/* Attendance status toggle */}
         <button
           type='button'
           onClick={onToggle}
-          className={`text-xs px-3 py-1 rounded border font-medium transition-colors ${statusColor[entry.status]}`}
+          disabled={isToggleDisabled}
+          className={`text-xs px-3 py-1 rounded border font-medium transition-colors ${
+            isToggleDisabled
+              ? 'opacity-50 cursor-not-allowed bg-gray-100 text-gray-500 border-gray-200'
+              : statusColor[entry.status]
+          }`}
+          title={isToggleDisabled ? 'Assign distance to this expert first' : undefined}
         >
           {STATUS_LABELS[entry.status]}
         </button>
@@ -117,52 +152,49 @@ export function AttendanceTab({
   const currentStatusIndex = BOS_MEETING_STATUS_ORDER.indexOf(meetingStatus);
   const isBeforeMeeting = currentStatusIndex < completedIndex;
   const isReadOnly = meetingStatus === 'ratified';
-  const { data: members = [], isLoading: loadingMembers } = useBosMembersByComposition(compositionId);
-  const { data: savedAttendance = [], isLoading: loadingAttendance } = useBosAttendance(meetingId);
+  const { data: members, isLoading: loadingMembers } = useBosMembersByComposition(compositionId);
+  const { data: savedAttendance, isLoading: loadingAttendance } = useBosAttendance(meetingId);
   const saveAttendance = useSaveBosAttendance(meetingId);
 
-  const [entries, setEntries] = useState<AttendanceEntry[]>([]);
-  const [isDirty, setIsDirty] = useState(false);
+  // Only the user's unsaved edits live in local state. Server-side values are
+  // read directly from React-Query data and merged during render — see the
+  // `entries` useMemo below. Avoid the old `useEffect → setEntries` sync,
+  // which infinite-looped whenever the query data refs were re-allocated.
+  const [overrides, setOverrides] = useState<Record<string, AttendanceOverride>>({});
 
-  // Seed local state from saved attendance + composition members
-  useEffect(() => {
-    if (loadingMembers || loadingAttendance) return;
-
-    const activeMembers = members.filter((m) => m.is_active);
-    const attendanceMap = new Map(savedAttendance.map((a) => [a.member_id, a]));
-
-    const merged: AttendanceEntry[] = activeMembers.map((member) => {
+  const entries = useMemo<AttendanceEntry[]>(() => {
+    const activeMembers = (members ?? []).filter((m) => m.is_active);
+    const attendanceMap = new Map(
+      (savedAttendance ?? []).map((a) => [a.member_id, a]),
+    );
+    return activeMembers.map((member) => {
       const existing = attendanceMap.get(member.id);
+      const override = overrides[member.id];
+      // bos_members.distance_km is the authoritative source; expert.distance_km is the fallback
+      const memberWithExpert = member as BosMember & { distance_km?: number | null; expert?: { distance_km?: number | null } };
+      const distanceKm = memberWithExpert.distance_km ?? memberWithExpert.expert?.distance_km;
       return {
         memberId: member.id,
         memberName: member.display_name,
         memberType: member.member_type,
         designation: member.display_designation,
-        status: existing?.attendance_status ?? 'absent',
-        taEligible: existing?.ta_da_eligible ?? false,
+        distanceKm,
+        status:
+          override?.status ?? existing?.attendance_status ?? 'absent',
       };
     });
+  }, [members, savedAttendance, overrides]);
 
-    setEntries(merged);
-    setIsDirty(false);
-  }, [members, savedAttendance, loadingMembers, loadingAttendance]);
+  const isDirty = Object.keys(overrides).length > 0;
 
   const toggle = (memberId: string) => {
-    setEntries((prev) =>
-      prev.map((e) =>
-        e.memberId === memberId ? { ...e, status: nextStatus(e.status) } : e
-      )
-    );
-    setIsDirty(true);
-  };
-
-  const toggleTa = (memberId: string) => {
-    setEntries((prev) =>
-      prev.map((e) =>
-        e.memberId === memberId ? { ...e, taEligible: !e.taEligible } : e
-      )
-    );
-    setIsDirty(true);
+    const current = entries.find((e) => e.memberId === memberId);
+    if (!current) return;
+    const newStatus = nextStatus(current.status);
+    setOverrides((prev) => ({
+      ...prev,
+      [memberId]: { ...prev[memberId], status: newStatus },
+    }));
   };
 
   const presentCount = useMemo(
@@ -173,17 +205,50 @@ export function AttendanceTab({
   const quorumThreshold = Math.floor(totalCount / 2) + 1;
   const quorumMet = presentCount >= quorumThreshold;
 
+  // Check for external members without distance
+  const externalMembersWithoutDistance = useMemo(
+    () =>
+      entries.filter(
+        (e) => isExternalMember(e.memberType) && e.distanceKm == null
+      ),
+    [entries]
+  );
+
   const handleSave = async () => {
     try {
+      // Validate external members marked as present have distance assigned
+      const membersWithoutDistance = entries.filter(
+        (e) =>
+          isExternalMember(e.memberType) &&
+          e.status === 'present' &&
+          e.distanceKm == null
+      );
+
+      if (membersWithoutDistance.length > 0) {
+        const names = membersWithoutDistance.map((m) => m.memberName).join(', ');
+        toast.error(
+          `Please assign distance for: ${names}`
+        );
+        return;
+      }
+
+      // ta_da_eligible is derived, not user-set: external members are
+      // always eligible (auto-TA via distance_km), internals are always
+      // marked ineligible (honorarium-only per SOP). Kept on the payload
+      // so the column has a meaningful value for downstream reporting,
+      // but no longer gates claim generation server-side.
       const records = entries.map((e) => ({
         member_id: e.memberId,
         attendance_status: e.status,
-        ta_da_eligible: e.taEligible,
+        ta_da_eligible: isExternalMember(e.memberType),
         institutions_id: institutionsId,
       }));
       await saveAttendance.mutateAsync(records);
       toast.success('Attendance saved');
-      setIsDirty(false);
+      // Saved values are now authoritative in React-Query cache (via the
+      // mutation's onSuccess setQueryData). Drop local overrides so the next
+      // render shows the server-confirmed state.
+      setOverrides({});
     } catch (err) {
       logger.error('academic/bos', 'Failed to save attendance', err);
       toast.error((err as Error).message || 'Failed to save attendance');
@@ -224,6 +289,14 @@ export function AttendanceTab({
 
   return (
     <div className='space-y-4'>
+      {externalMembersWithoutDistance.length > 0 && (
+        <div className='rounded-lg border border-amber-200 bg-amber-50 p-3'>
+          <p className='text-sm text-amber-900'>
+            <strong>⚠ Distance not assigned:</strong> {externalMembersWithoutDistance.map((m) => m.memberName).join(', ')}
+          </p>
+        </div>
+      )}
+
       {/* ── Quorum indicator ───────────────────────────────── */}
       <div className='flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-2.5'>
         <div className='flex items-center gap-3 text-sm'>
@@ -245,7 +318,6 @@ export function AttendanceTab({
             key={entry.memberId}
             entry={entry}
             onToggle={() => toggle(entry.memberId)}
-            onTaToggle={() => toggleTa(entry.memberId)}
           />
         ))}
       </div>

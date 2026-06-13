@@ -6,6 +6,12 @@ import {
   logActivityForCurrentUser,
   ResourceManagementActivityTemplates,
 } from '@/lib/utils/activity-logger-client';
+import {
+  notifyBookingSubmitted,
+  notifyApproversPendingBooking,
+  notifyBookingApproved,
+  notifyBookingRejected,
+} from '@/lib/services/reservation/reservation-notification-service';
 import type {
   Reservation,
   CreateReservationDto,
@@ -33,12 +39,20 @@ export class ReservationService {
   ): Promise<Reservation[]> {
     const supabase = createClientSupabaseClient();
 
+    // Use !inner join only when filtering by institution_id so the
+    // .eq on the embedded resource column actually constrains rows.
+    // Safe because resource_id is NOT NULL on resource_reservations,
+    // so !inner cannot silently drop pending-approval rows.
+    const resourceSelect = filters?.institution_id
+      ? 'resource:resources!inner(id, name, parent_category_id, subcategory_id, institution_id)'
+      : 'resource:resources(id, name, parent_category_id, subcategory_id)';
+
     let query = supabase
       .from('resource_reservations')
       .select(
         `
         *,
-        resource:resources(id, name, parent_category_id, subcategory_id),
+        ${resourceSelect},
         user:profiles!resource_reservations_user_id_fkey(id, full_name, email, avatar_url),
         approver:profiles!resource_reservations_approved_by_fkey(id, full_name, email)
       `
@@ -72,6 +86,10 @@ export class ReservationService {
 
     if (filters?.is_recurring !== undefined) {
       query = query.eq('is_recurring', filters.is_recurring);
+    }
+
+    if (filters?.institution_id) {
+      query = (query as any).eq('resource.institution_id', filters.institution_id);
     }
 
     const { data, error } = await query;
@@ -199,6 +217,25 @@ export class ReservationService {
 
     const reservation = data as Reservation;
     const resourceName = (reservation as any).resource?.name || '';
+
+    // Fire-and-forget notifications — never block the booking return path.
+    if (requiresApproval) {
+      const requesterName = (reservation as any).user?.full_name || 'A user';
+      const approverIds: string[] =
+        ((resource as any)?.approval_config?.approvers ?? []).map(
+          (a: any) => a.user_id
+        );
+      void notifyBookingSubmitted(reservation, resourceName).catch(console.error);
+      void notifyApproversPendingBooking(
+        approverIds,
+        reservation,
+        resourceName,
+        requesterName
+      ).catch(console.error);
+    } else {
+      void notifyBookingApproved(reservation, resourceName).catch(console.error);
+    }
+
     const tpl = ResourceManagementActivityTemplates.reservationCreated(
       resourceName,
       reservation.start_time
@@ -420,8 +457,12 @@ export class ReservationService {
       : this.generateLegacySlots(date, bookingConfig, resourceId);
 
     // Step 3: Get existing reservations for the date
-    const startOfDay = `${date}T00:00:00Z`;
-    const endOfDay = `${date}T23:59:59Z`;
+    // Compute the user-local day window expressed in UTC so the query bounds
+    // line up with how slots are stored. Hardcoding `T00:00:00Z` would query
+    // a UTC day, missing late-evening local-time reservations in any
+    // east-of-UTC zone (e.g. IST 11pm = next-UTC-day 17:30 UTC).
+    const startOfDay = new Date(`${date}T00:00:00`).toISOString();
+    const endOfDay = new Date(`${date}T23:59:59`).toISOString();
 
     const { data: reservations } = await supabase
       .from('resource_reservations')
@@ -478,10 +519,16 @@ export class ReservationService {
     const endHour = bookingConfig?.operating_hours?.end || 17;
 
     for (let hour = startHour; hour < endHour; hour++) {
-      const slotStart = `${date}T${hour.toString().padStart(2, '0')}:00:00`;
-      const slotEnd = `${date}T${(hour + 1)
-        .toString()
-        .padStart(2, '0')}:00:00`;
+      // Naive local string -> Date() parses as local -> toISOString() emits
+      // the equivalent UTC instant. This is what PostgREST expects to store
+      // and what new Date() must produce later for the overlap check at
+      // L455 to compare apples to apples.
+      const slotStart = new Date(
+        `${date}T${hour.toString().padStart(2, '0')}:00:00`
+      ).toISOString();
+      const slotEnd = new Date(
+        `${date}T${(hour + 1).toString().padStart(2, '0')}:00:00`
+      ).toISOString();
 
       slots.push({
         start_time: slotStart,
@@ -587,25 +634,31 @@ export class ReservationService {
   }
 
   /**
-   * Approve a reservation
+   * Approve a reservation. Delegates authorization + chain logic to the
+   * approve_reservation SECURITY DEFINER RPC, then fetches the joined
+   * row for the return shape the UI expects.
    */
   static async approveReservation(
     dto: ApproveReservationDto,
-    approverId: string
+    _approverId: string
   ): Promise<Reservation> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await (supabase
+    const { error: rpcError } = await (supabase as any).rpc(
+      'approve_reservation',
+      {
+        p_reservation_id: dto.reservation_id,
+        p_notes: dto.notes ?? null
+      }
+    );
+
+    if (rpcError) {
+      console.error('Error approving reservation:', rpcError);
+      throw rpcError;
+    }
+
+    const { data, error: fetchError } = await (supabase
       .from('resource_reservations') as any)
-      .update({
-        status: 'approved',
-        approved_by: approverId,
-        approved_at: new Date().toISOString(),
-        notes: dto.notes
-          ? `${dto.notes}\n--- Approved by ${approverId} ---`
-          : undefined
-      })
-      .eq('id', dto.reservation_id)
       .select(
         `
         *,
@@ -613,25 +666,19 @@ export class ReservationService {
         user:profiles!resource_reservations_user_id_fkey(id, full_name, email)
       `
       )
+      .eq('id', dto.reservation_id)
       .single();
 
-    if (error) {
-      console.error('Error approving reservation:', error);
-      throw error;
+    if (fetchError) {
+      console.error('Error fetching approved reservation:', fetchError);
+      throw fetchError;
     }
-
-    // Update approval record
-    await (supabase
-      .from('resource_approvals') as any)
-      .update({
-        status: 'approved',
-        approved_at: new Date().toISOString()
-      })
-      .eq('reservation_id', dto.reservation_id)
-      .eq('approver_user_id', approverId);
 
     const reservation = data as Reservation;
     const resourceName = (reservation as any).resource?.name || '';
+
+    void notifyBookingApproved(reservation, resourceName).catch(console.error);
+
     const tpl = ResourceManagementActivityTemplates.reservationApproved(resourceName);
     await logActivityForCurrentUser({
       actionType: tpl.actionType,
@@ -651,23 +698,30 @@ export class ReservationService {
   }
 
   /**
-   * Reject a reservation
+   * Reject a reservation. Delegates to the reject_reservation
+   * SECURITY DEFINER RPC, then fetches the joined row.
    */
   static async rejectReservation(
     dto: RejectReservationDto,
-    approverId: string
+    _approverId: string
   ): Promise<Reservation> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await (supabase
+    const { error: rpcError } = await (supabase as any).rpc(
+      'reject_reservation',
+      {
+        p_reservation_id: dto.reservation_id,
+        p_reason: dto.rejection_reason
+      }
+    );
+
+    if (rpcError) {
+      console.error('Error rejecting reservation:', rpcError);
+      throw rpcError;
+    }
+
+    const { data, error: fetchError } = await (supabase
       .from('resource_reservations') as any)
-      .update({
-        status: 'rejected',
-        approved_by: approverId,
-        approved_at: new Date().toISOString(),
-        rejection_reason: dto.rejection_reason
-      })
-      .eq('id', dto.reservation_id)
       .select(
         `
         *,
@@ -675,26 +729,19 @@ export class ReservationService {
         user:profiles!resource_reservations_user_id_fkey(id, full_name, email)
       `
       )
+      .eq('id', dto.reservation_id)
       .single();
 
-    if (error) {
-      console.error('Error rejecting reservation:', error);
-      throw error;
+    if (fetchError) {
+      console.error('Error fetching rejected reservation:', fetchError);
+      throw fetchError;
     }
-
-    // Update approval record
-    await (supabase
-      .from('resource_approvals') as any)
-      .update({
-        status: 'rejected',
-        rejection_reason: dto.rejection_reason,
-        approved_at: new Date().toISOString()
-      })
-      .eq('reservation_id', dto.reservation_id)
-      .eq('approver_user_id', approverId);
 
     const reservation = data as Reservation;
     const resourceName = (reservation as any).resource?.name || '';
+
+    void notifyBookingRejected(reservation, resourceName, dto.rejection_reason).catch(console.error);
+
     const tpl = ResourceManagementActivityTemplates.reservationRejected(
       resourceName,
       dto.rejection_reason
@@ -722,19 +769,32 @@ export class ReservationService {
    */
   static async cancelReservation(
     dto: CancelReservationDto,
-    userId: string
+    _userId: string
   ): Promise<Reservation> {
     const supabase = createClientSupabaseClient();
 
+    // Use the cancel_reservation SECURITY DEFINER RPC so that:
+    // 1. Admins with resources.manage can cancel any reservation (the direct
+    //    UPDATE policy only allowed the original booker).
+    // 2. The RPC returns the updated row via RETURNING * without going through
+    //    the institution-based SELECT RLS policy that caused PGRST116 errors
+    //    even when the cancellation itself succeeded.
+    const { error: rpcError } = await (supabase as any).rpc(
+      'cancel_reservation',
+      {
+        p_reservation_id: dto.reservation_id,
+        p_reason: dto.cancellation_reason ?? null
+      }
+    );
+
+    if (rpcError) {
+      console.error('Error cancelling reservation:', rpcError);
+      throw rpcError;
+    }
+
+    // Fetch the full joined row the UI expects (resource name, user details).
     const { data, error } = await (supabase
       .from('resource_reservations') as any)
-      .update({
-        status: 'cancelled',
-        cancelled_by: userId,
-        cancelled_at: new Date().toISOString(),
-        cancellation_reason: dto.cancellation_reason
-      })
-      .eq('id', dto.reservation_id)
       .select(
         `
         *,
@@ -742,10 +802,11 @@ export class ReservationService {
         user:profiles!resource_reservations_user_id_fkey(id, full_name, email)
       `
       )
+      .eq('id', dto.reservation_id)
       .single();
 
     if (error) {
-      console.error('Error cancelling reservation:', error);
+      console.error('Error fetching cancelled reservation:', error);
       throw error;
     }
 
@@ -952,14 +1013,24 @@ export class ReservationService {
   ): Promise<void> {
     const supabase = createClientSupabaseClient();
 
-    const approvalRecords = approvers.map((approver) => ({
-      reservation_id: reservationId,
-      approver_user_id: approver.user_id,
-      approval_level: approver.level,
-      status: 'pending'
-    }));
+    const approvalRecords = approvers
+      .filter((a) => a.user_id)
+      .map((approver) => ({
+        reservation_id: reservationId,
+        approver_user_id: approver.user_id,
+        approval_level: approver.level ?? 1,
+        status: 'pending'
+      }));
 
-    await (supabase as any).from('resource_approvals').insert(approvalRecords);
+    if (approvalRecords.length === 0) return;
+
+    const { error } = await (supabase as any)
+      .from('resource_approvals')
+      .insert(approvalRecords);
+
+    if (error) {
+      console.error('Error seeding approval chain:', error);
+    }
   }
 
   /**

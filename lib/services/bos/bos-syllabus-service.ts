@@ -93,7 +93,18 @@ export class BosSyllabusService {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Failed to update syllabus' }));
-      throw new Error(err.error ?? 'Failed to update syllabus');
+      // UI-level rephrasing for the most common authz failure. We drop the
+      // technical "Forbidden:" prefix and the "or a super admin" clause
+      // (super-admin is an internal escalation, not something a regular
+      // user is meant to be told to ask for). Any other server error
+      // passes through verbatim so unknown failures stay diagnosable.
+      const raw = err.error ?? 'Failed to update syllabus';
+      const friendly =
+        typeof raw === 'string' &&
+        raw.startsWith('Forbidden: only the syllabus creator')
+          ? 'only the course designer, the board chairman can edit this syllabus'
+          : raw;
+      throw new Error(friendly);
     }
     return res.json();
   }
@@ -104,8 +115,12 @@ export class BosSyllabusService {
   static async deleteSyllabus(id: string): Promise<void> {
     const res = await fetch(`${this.baseUrl}/${id}`, { method: 'DELETE' });
     if (!res.ok && res.status !== 204) {
-      const err = await res.json().catch(() => ({ error: 'Failed to delete syllabus' }));
-      throw new Error(err.error ?? 'Failed to delete syllabus');
+      const err = await res
+        .json()
+        .catch(() => ({ error: 'Failed to delete syllabus' }));
+      const base = err.error ?? 'Failed to delete syllabus';
+      const detail = err.details ? ` — ${err.details}` : '';
+      throw new Error(`${base}${detail}`);
     }
   }
 

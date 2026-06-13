@@ -3,6 +3,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { BosCourseMappingDetailed } from '@/types/bos-courses';
+import { useAuth } from '@/hooks/use-auth';
 
 export interface SchemeFilters {
   institution_id: string;
@@ -11,7 +12,12 @@ export interface SchemeFilters {
   batch_code?: string;
 }
 
-const baseKey = ['bos', 'course-mapping'] as const;
+// Query-key root namespaced per authenticated user. Without the user id slot,
+// React Query (singleton QueryClient in providers/query-client-provider.tsx)
+// served a previous session's data to the next caller until staleTime expired.
+// Pattern mirrors use-bos-board-scope.ts / use-bos-compositions.ts.
+const baseKey = (userId: string | null | undefined) =>
+  ['bos', 'course-mapping', userId ?? 'anonymous'] as const;
 
 export interface BosSemester {
   id: string;
@@ -24,6 +30,9 @@ export function useBosSemesters(
   filters: SchemeFilters | null,
   myjkknInstitutionIds?: string[],
 ) {
+  const { profile } = useAuth();
+  const userId = profile?.id ?? null;
+
   const ids = myjkknInstitutionIds?.length
     ? myjkknInstitutionIds
     : filters?.institution_id
@@ -31,8 +40,8 @@ export function useBosSemesters(
       : [];
 
   return useQuery<{ data: BosSemester[] }>({
-    queryKey: ['bos', 'semesters', ids, filters?.program_code],
-    enabled: ids.length > 0 && !!filters?.program_code,
+    queryKey: ['bos', 'semesters', userId ?? 'anonymous', ids, filters?.program_code],
+    enabled: !!userId && ids.length > 0 && !!filters?.program_code,
     queryFn: async () => {
       const params = new URLSearchParams({ program_code: filters!.program_code });
       if (ids.length === 1) {
@@ -52,9 +61,13 @@ export function useBosSemesters(
 }
 
 export function useBosCourseScheme(filters: SchemeFilters | null) {
+  const { profile } = useAuth();
+  const userId = profile?.id ?? null;
+
   return useQuery<{ data: BosCourseMappingDetailed[] }>({
-    queryKey: [...baseKey, filters] as const,
+    queryKey: [...baseKey(userId), filters] as const,
     enabled:
+      !!userId &&
       !!filters?.institution_id &&
       !!filters?.program_code &&
       !!filters?.regulation_code,
@@ -76,6 +89,9 @@ export function useBosCourseScheme(filters: SchemeFilters | null) {
 
 export function useAddMapping() {
   const qc = useQueryClient();
+  const { profile } = useAuth();
+  const userId = profile?.id ?? null;
+
   return useMutation({
     mutationFn: async (mapping: Record<string, unknown>) => {
       const r = await fetch('/api/bos/course-mapping', {
@@ -89,12 +105,15 @@ export function useAddMapping() {
       }
       return r.json();
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: baseKey }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: baseKey(userId) }),
   });
 }
 
 export function useRemoveMapping() {
   const qc = useQueryClient();
+  const { profile } = useAuth();
+  const userId = profile?.id ?? null;
+
   return useMutation({
     mutationFn: async (id: string) => {
       const r = await fetch(`/api/bos/course-mapping/${id}`, { method: 'DELETE' });
@@ -107,6 +126,6 @@ export function useRemoveMapping() {
         throw new Error(message);
       }
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: baseKey }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: baseKey(userId) }),
   });
 }

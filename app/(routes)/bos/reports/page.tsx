@@ -321,7 +321,7 @@ function AttendanceCertificatesTab({ institutionsId }: { institutionsId: string 
 
   // Prefer actual date; fall back to scheduled date
   const meetingDateRaw = selectedMeeting?.actual_date || selectedMeeting?.scheduled_date;
-  const meetingDate = meetingDateRaw ? format(new Date(meetingDateRaw), 'dd MMMM yyyy') : '—';
+  const meetingDate = meetingDateRaw ? format(new Date(meetingDateRaw), 'dd-MMM-yyyy').toUpperCase() : '—';
 
   const ugPgLabel = inferBoardUgPg(boardType, boardCode, boardName);
 
@@ -341,6 +341,23 @@ function AttendanceCertificatesTab({ institutionsId }: { institutionsId: string 
     rightLogoImage?: string,
   ): BosAttendanceCertificateData {
     const member = (attendee as any).member;
+    // Clean institution field: remove department info (appears in meeting sentence instead)
+    let cleanedInstitution = member?.display_institution ?? '';
+    // Remove all variations of department mentions (beginning, middle, or end)
+    cleanedInstitution = cleanedInstitution
+      .replace(/^DEPARTMENT\s+OF\s+[^,]+\s*,?\s*/gi, '') // DEPARTMENT OF at start
+      .replace(/,?\s*DEPARTMENT\s+OF\s+[^,]+\s*,?\s*/gi, '') // DEPARTMENT OF in middle
+      .replace(/,?\s*DEPARTMENT\s+OF\s+[^,]+$/gi, '') // DEPARTMENT OF at end
+      .replace(/^Dept\.?\s*/gi, '')
+      .replace(/,?\s*Dept\.?\s*/gi, '')
+      .split(',').map(s => s.trim()).filter(Boolean);
+
+    // Remove standalone department names (common academic departments)
+    const departmentNames = ['COMMERCE', 'SCIENCE', 'ARTS', 'ENGINEERING', 'MANAGEMENT', 'EDUCATION', 'LAW'];
+    cleanedInstitution = cleanedInstitution
+      .filter(part => !departmentNames.includes(part.toUpperCase()))
+      .join(', ');
+
     return {
       institution_name: header.institution_name,
       institution_address: header.institution_address,
@@ -349,7 +366,9 @@ function AttendanceCertificatesTab({ institutionsId }: { institutionsId: string 
       rightLogoImage,
       member_name: member?.display_name ?? '—',
       member_designation: member?.display_designation,
-      member_institution: member?.display_institution,
+      member_department: member?.display_department,
+      member_institution: cleanedInstitution || member?.display_institution,
+      member_address: member?.address,
       board_name: boardName,
       board_code: boardCode,
       board_type: boardType,

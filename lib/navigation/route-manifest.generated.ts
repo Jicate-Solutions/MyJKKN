@@ -47,6 +47,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/academic/attendance/day",
+            "label": "Day",
+            "iconName": "CheckSquare",
+            "children": []
+          },
+          {
             "path": "/academic/attendance/mark",
             "label": "Mark",
             "iconName": "CheckSquare",
@@ -466,88 +472,20 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/admin/ai-query-tools",
-        "label": "Ai Query Tools",
-        "iconName": "FileText",
-        "children": []
-      },
-      {
         "path": "/admin/bug-reports",
         "label": "Bug Reports",
         "iconName": "FileText",
         "children": []
       },
       {
-        "path": "/admin/config",
-        "label": "Config",
-        "iconName": "FileText",
+        "path": "/admin/dashboard",
+        "label": "Dashboard",
+        "iconName": "LayoutGrid",
         "children": [
           {
-            "path": "/admin/config/ai-pulse",
-            "label": "Ai Pulse",
-            "iconName": "FileText",
-            "children": []
-          }
-        ]
-      },
-      {
-        "path": "/admin/consultants",
-        "label": "Consultants",
-        "iconName": "Users",
-        "children": [
-          {
-            "path": "/admin/consultants/commission-triggers",
-            "label": "Commission Triggers",
-            "iconName": "Coins",
-            "children": []
-          },
-          {
-            "path": "/admin/consultants/portal-access",
-            "label": "Portal Access Policy",
-            "iconName": "KeyRound",
-            "children": []
-          },
-          {
-            "path": "/admin/consultants/tier-policy",
-            "label": "Consultant Tier Policy",
-            "iconName": "Award",
-            "children": []
-          }
-        ]
-      },
-      {
-        "path": "/admin/counselors",
-        "label": "Counselors",
-        "iconName": "Users",
-        "children": [
-          {
-            "path": "/admin/counselors/alert-thresholds",
-            "label": "Alert Thresholds",
-            "iconName": "Users",
-            "children": []
-          },
-          {
-            "path": "/admin/counselors/routing-config",
-            "label": "Routing Config",
-            "iconName": "Users",
-            "children": []
-          },
-          {
-            "path": "/admin/counselors/routing-errors",
-            "label": "Routing Errors",
-            "iconName": "AlertTriangle",
-            "children": []
-          },
-          {
-            "path": "/admin/counselors/rule-types",
-            "label": "Rule Types",
-            "iconName": "ListChecks",
-            "children": []
-          },
-          {
-            "path": "/admin/counselors/tier-policy",
-            "label": "Tier Policy",
-            "iconName": "Layers",
+            "path": "/admin/dashboard/widget-config",
+            "label": "Dashboard Widgets",
+            "iconName": "LayoutDashboard",
             "children": []
           }
         ]
@@ -559,106 +497,8 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/admin/departments",
-        "label": "Departments",
-        "iconName": "Building2",
-        "children": []
-      },
-      {
-        "path": "/admin/exophone-mapping",
-        "label": "Exophone Mapping",
-        "iconName": "FileText",
-        "children": []
-      },
-      {
-        "path": "/admin/hr",
-        "label": "Hr",
-        "iconName": "FileText",
-        "children": [
-          {
-            "path": "/admin/hr/onboarding-checklists",
-            "label": "Onboarding Checklists",
-            "iconName": "UserPlus",
-            "children": []
-          },
-          {
-            "path": "/admin/hr/recruitment-approvals-scope",
-            "label": "Recruitment Approvals Scope",
-            "iconName": "ShieldCheck",
-            "children": []
-          },
-          {
-            "path": "/admin/hr/required-documents",
-            "label": "Required Documents",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/admin/hr/shift-templates",
-            "label": "Shift Templates",
-            "iconName": "FileText",
-            "children": []
-          }
-        ]
-      },
-      {
-        "path": "/admin/internship-policy",
-        "label": "Internship Policy",
-        "iconName": "FileText",
-        "children": [
-          {
-            "path": "/admin/internship-policy/attendance",
-            "label": "Attendance",
-            "iconName": "CheckSquare",
-            "children": []
-          },
-          {
-            "path": "/admin/internship-policy/cycle",
-            "label": "Cycle",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/admin/internship-policy/eligibility",
-            "label": "Eligibility",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/admin/internship-policy/evaluation",
-            "label": "Evaluation",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/admin/internship-policy/fees",
-            "label": "Fees",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/admin/internship-policy/notifications",
-            "label": "Notifications",
-            "iconName": "Bell",
-            "children": []
-          }
-        ]
-      },
-      {
         "path": "/admin/landing-pages",
         "label": "Landing Pages",
-        "iconName": "FileText",
-        "children": []
-      },
-      {
-        "path": "/admin/lead-stages-policy",
-        "label": "Lead Stages Policy",
-        "iconName": "GitBranch",
-        "children": []
-      },
-      {
-        "path": "/admin/lifecycle",
-        "label": "Lifecycle",
         "iconName": "FileText",
         "children": []
       },
@@ -694,105 +534,10 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/admin/notifications",
-        "label": "Notifications",
-        "iconName": "Bell",
-        "children": [
-          {
-            "path": "/admin/notifications/audiences",
-            "label": "Audiences",
-            "iconName": "Bell",
-            "children": [
-              {
-                "path": "/admin/notifications/audiences/new",
-                "label": "New",
-                "iconName": "Plus",
-                "children": []
-              }
-            ]
-          },
-          {
-            "path": "/admin/notifications/compliance",
-            "label": "Compliance",
-            "iconName": "Bell",
-            "children": []
-          },
-          {
-            "path": "/admin/notifications/new",
-            "label": "New",
-            "iconName": "Plus",
-            "children": []
-          },
-          {
-            "path": "/admin/notifications/recipients",
-            "label": "Recipients",
-            "iconName": "Bell",
-            "children": []
-          }
-        ]
-      },
-      {
         "path": "/admin/page-metadata",
         "label": "Page Metadata",
         "iconName": "FileText",
         "children": []
-      },
-      {
-        "path": "/admin/pde",
-        "label": "Pde",
-        "iconName": "FileText",
-        "children": [
-          {
-            "path": "/admin/pde/assessments",
-            "label": "Assessments",
-            "iconName": "ClipboardCheck",
-            "children": [
-              {
-                "path": "/admin/pde/assessments/create",
-                "label": "Create",
-                "iconName": "Plus",
-                "children": []
-              }
-            ]
-          },
-          {
-            "path": "/admin/pde/at-risk",
-            "label": "At Risk",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/admin/pde/capabilities",
-            "label": "Capabilities",
-            "iconName": "Cpu",
-            "children": []
-          },
-          {
-            "path": "/admin/pde/engagement",
-            "label": "Engagement",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/admin/pde/lti",
-            "label": "Lti",
-            "iconName": "PlugZap",
-            "children": []
-          },
-          {
-            "path": "/admin/pde/quests",
-            "label": "Quests",
-            "iconName": "Trophy",
-            "children": [
-              {
-                "path": "/admin/pde/quests/create",
-                "label": "Create",
-                "iconName": "Plus",
-                "children": []
-              }
-            ]
-          }
-        ]
       },
       {
         "path": "/admin/reset-driver-passwords",
@@ -810,18 +555,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/admin/saml",
         "label": "Saml",
         "iconName": "KeyRound",
-        "children": []
-      },
-      {
-        "path": "/admin/telephony-policies",
-        "label": "Telephony Policies",
-        "iconName": "FileText",
-        "children": []
-      },
-      {
-        "path": "/admin/voice-memo-monitor",
-        "label": "Voice Memo Monitor",
-        "iconName": "Mic",
         "children": []
       },
       {
@@ -868,6 +601,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Users",
         "children": [
           {
+            "path": "/admission/consultants/admin",
+            "label": "Consultant Admin",
+            "iconName": "Settings",
+            "children": [
+              {
+                "path": "/admission/consultants/admin/commission-triggers",
+                "label": "Commission Triggers",
+                "iconName": "Coins",
+                "children": []
+              },
+              {
+                "path": "/admission/consultants/admin/portal-access",
+                "label": "Portal Access Policy",
+                "iconName": "KeyRound",
+                "children": []
+              },
+              {
+                "path": "/admission/consultants/admin/tier-policy",
+                "label": "Consultant Tier Policy",
+                "iconName": "Award",
+                "children": []
+              }
+            ]
+          },
+          {
             "path": "/admission/consultants/analytics",
             "label": "Analytics",
             "iconName": "BarChart",
@@ -904,6 +662,43 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Counselors",
         "iconName": "Users",
         "children": [
+          {
+            "path": "/admission/counselors/admin",
+            "label": "Admin",
+            "iconName": "Users",
+            "children": [
+              {
+                "path": "/admission/counselors/admin/alert-thresholds",
+                "label": "Alert Thresholds",
+                "iconName": "Users",
+                "children": []
+              },
+              {
+                "path": "/admission/counselors/admin/routing-config",
+                "label": "Routing Config",
+                "iconName": "Users",
+                "children": []
+              },
+              {
+                "path": "/admission/counselors/admin/routing-errors",
+                "label": "Routing Errors",
+                "iconName": "AlertTriangle",
+                "children": []
+              },
+              {
+                "path": "/admission/counselors/admin/rule-types",
+                "label": "Rule Types",
+                "iconName": "ListChecks",
+                "children": []
+              },
+              {
+                "path": "/admission/counselors/admin/tier-policy",
+                "label": "Tier Policy",
+                "iconName": "Layers",
+                "children": []
+              }
+            ]
+          },
           {
             "path": "/admission/counselors/alerts",
             "label": "Alerts",
@@ -1052,7 +847,39 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/admission/group-dashboard",
         "label": "Group Dashboard",
         "iconName": "LayoutGrid",
-        "children": []
+        "children": [
+          {
+            "path": "/admission/group-dashboard/actions",
+            "label": "Actions",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/group-dashboard/setup",
+            "label": "Setup",
+            "iconName": "GraduationCap",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/admission/inbox",
+        "label": "Inbox",
+        "iconName": "Inbox",
+        "children": [
+          {
+            "path": "/admission/inbox/instagram",
+            "label": "Instagram",
+            "iconName": "Inbox",
+            "children": []
+          },
+          {
+            "path": "/admission/inbox/messenger",
+            "label": "Messenger",
+            "iconName": "Inbox",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/admission/insights",
@@ -1092,10 +919,41 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Megaphone",
         "children": [
           {
+            "path": "/admission/marketing/automations",
+            "label": "Automations",
+            "iconName": "Megaphone",
+            "children": [
+              {
+                "path": "/admission/marketing/automations/monitoring",
+                "label": "Monitoring",
+                "iconName": "Megaphone",
+                "children": []
+              },
+              {
+                "path": "/admission/marketing/automations/roi",
+                "label": "Roi",
+                "iconName": "Megaphone",
+                "children": []
+              },
+              {
+                "path": "/admission/marketing/automations/segments",
+                "label": "Segments",
+                "iconName": "Megaphone",
+                "children": []
+              }
+            ]
+          },
+          {
             "path": "/admission/marketing/campaigns",
             "label": "Campaigns",
             "iconName": "Megaphone",
             "children": [
+              {
+                "path": "/admission/marketing/campaigns/compare",
+                "label": "Compare",
+                "iconName": "Megaphone",
+                "children": []
+              },
               {
                 "path": "/admission/marketing/campaigns/monitoring",
                 "label": "Monitoring",
@@ -1103,15 +961,9 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               },
               {
-                "path": "/admission/marketing/campaigns/roi",
-                "label": "Roi",
-                "iconName": "Megaphone",
-                "children": []
-              },
-              {
-                "path": "/admission/marketing/campaigns/segments",
-                "label": "Segments",
-                "iconName": "Megaphone",
+                "path": "/admission/marketing/campaigns/new",
+                "label": "New",
+                "iconName": "Plus",
                 "children": []
               }
             ]
@@ -1241,6 +1093,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/settings/checklists",
+            "label": "Checklists",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/settings/exophone-mapping",
+            "label": "Exophone Mapping",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
             "path": "/admission/settings/fees-structure",
             "label": "Fees Structure",
             "iconName": "GraduationCap",
@@ -1266,6 +1130,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/settings/lead-stages-policy",
+            "label": "Lead Stages Policy",
+            "iconName": "GitBranch",
+            "children": []
+          },
+          {
             "path": "/admission/settings/lookups",
             "label": "Lookups",
             "iconName": "GraduationCap",
@@ -1273,6 +1143,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
               {
                 "path": "/admission/settings/lookups/accommodation-types",
                 "label": "Accommodation Types",
+                "iconName": "GraduationCap",
+                "children": []
+              },
+              {
+                "path": "/admission/settings/lookups/castes",
+                "label": "Castes",
                 "iconName": "GraduationCap",
                 "children": []
               },
@@ -1309,6 +1185,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/settings/statuses",
+            "label": "Statuses",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/settings/telephony-policies",
+            "label": "Telephony Policies",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
             "path": "/admission/settings/templates",
             "label": "Templates",
             "iconName": "GraduationCap",
@@ -1332,6 +1220,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          },
+          {
+            "path": "/admission/settings/voice-memo-monitor",
+            "label": "Voice Memo Monitor",
+            "iconName": "Mic",
+            "children": []
           },
           {
             "path": "/admission/settings/whatsapp-numbers",
@@ -1365,6 +1259,74 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           }
         ]
+      },
+      {
+        "path": "/admission/social",
+        "label": "Social",
+        "iconName": "GraduationCap",
+        "children": [
+          {
+            "path": "/admission/social/attribution",
+            "label": "Attribution",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/social/departments",
+            "label": "Departments",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/social/facebook",
+            "label": "Facebook",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/social/insights",
+            "label": "Insights",
+            "iconName": "Lightbulb",
+            "children": []
+          },
+          {
+            "path": "/admission/social/instagram",
+            "label": "Instagram",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/social/lead-ads",
+            "label": "Lead Ads",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/social/meta-audiences",
+            "label": "Meta Audiences",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/social/meta-pixel",
+            "label": "Meta Pixel",
+            "iconName": "GraduationCap",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/admission/tools",
+        "label": "Tools",
+        "iconName": "GraduationCap",
+        "children": [
+          {
+            "path": "/admission/tools/re-evaluate-learner",
+            "label": "Re Evaluate Learner",
+            "iconName": "GraduationCap",
+            "children": []
+          }
+        ]
       }
     ]
   },
@@ -1389,8 +1351,26 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "Cycles",
             "iconName": "RotateCw",
             "children": []
+          },
+          {
+            "path": "/ai-pulse/admin/guide",
+            "label": "Guide",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/ai-pulse/admin/policies",
+            "label": "Policies",
+            "iconName": "BookText",
+            "children": []
           }
         ]
+      },
+      {
+        "path": "/ai-pulse/dept",
+        "label": "Dept",
+        "iconName": "FileText",
+        "children": []
       },
       {
         "path": "/ai-pulse/evidence",
@@ -1406,10 +1386,35 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/ai-pulse/lab",
+        "label": "Lab",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/ai-pulse/my-pulse",
         "label": "My Pulse",
         "iconName": "FileText",
         "children": []
+      },
+      {
+        "path": "/ai-pulse/submit",
+        "label": "Submit",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/ai-pulse/submit/domain-sync",
+            "label": "Domain Sync",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/ai-pulse/submit/publication",
+            "label": "Publication",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
       }
     ]
   },
@@ -1417,7 +1422,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "path": "/ai-query",
     "label": "Ai Query",
     "iconName": "FileText",
-    "children": []
+    "children": [
+      {
+        "path": "/ai-query/admin",
+        "label": "Admin",
+        "iconName": "FileText",
+        "children": []
+      }
+    ]
   },
   {
     "path": "/application-hub",
@@ -1475,6 +1487,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "label": "Audit",
     "iconName": "ClipboardCheck",
     "children": [
+      {
+        "path": "/audit/care",
+        "label": "Care",
+        "iconName": "ClipboardCheck",
+        "children": [
+          {
+            "path": "/audit/care/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/audit/care/score",
+            "label": "Score",
+            "iconName": "ClipboardCheck",
+            "children": []
+          }
+        ]
+      },
       {
         "path": "/audit/cycles",
         "label": "Cycles",
@@ -1552,6 +1583,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "Wallet",
     "children": [
       {
+        "path": "/billing/activities",
+        "label": "Activities",
+        "iconName": "Wallet",
+        "children": []
+      },
+      {
+        "path": "/billing/analytics",
+        "label": "Analytics",
+        "iconName": "BarChart",
+        "children": []
+      },
+      {
         "path": "/billing/categories",
         "label": "Categories",
         "iconName": "Wallet",
@@ -1609,6 +1652,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/billing/payment-accounts",
+        "label": "Payment Accounts",
+        "iconName": "Wallet",
+        "children": []
+      },
+      {
         "path": "/billing/receipts",
         "label": "Receipts",
         "iconName": "Wallet",
@@ -1658,6 +1707,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/billing/schedule/bulk-edit",
+            "label": "Bulk Edit",
+            "iconName": "CalendarClock",
+            "children": []
+          },
+          {
             "path": "/billing/schedule/new",
             "label": "New",
             "iconName": "Plus",
@@ -1678,6 +1733,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "label": "Bos",
     "iconName": "FileText",
     "children": [
+      {
+        "path": "/bos/committees",
+        "label": "Committees",
+        "iconName": "FileText",
+        "children": []
+      },
       {
         "path": "/bos/compositions",
         "label": "Compositions",
@@ -1711,6 +1772,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/bos/email-settings",
+        "label": "Email Settings",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/bos/experts",
         "label": "Experts",
         "iconName": "UserCheck",
@@ -1735,6 +1802,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/bos/member-types",
+        "label": "Member Types",
+        "iconName": "FileText",
+        "children": []
       },
       {
         "path": "/bos/reports",
@@ -1812,6 +1885,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "PackageCheck",
         "children": [
           {
+            "path": "/campus-living/allocations/auto",
+            "label": "Auto",
+            "iconName": "PackageCheck",
+            "children": []
+          },
+          {
+            "path": "/campus-living/allocations/batches",
+            "label": "Batches",
+            "iconName": "Boxes",
+            "children": []
+          },
+          {
             "path": "/campus-living/allocations/new",
             "label": "New",
             "iconName": "Plus",
@@ -1829,6 +1914,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          },
+          {
+            "path": "/campus-living/allocations/pending",
+            "label": "Pending",
+            "iconName": "PackageCheck",
+            "children": []
           },
           {
             "path": "/campus-living/allocations/roommate-matching",
@@ -1865,6 +1956,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/campus-living/analytics/attendance",
             "label": "Attendance",
             "iconName": "CheckSquare",
+            "children": []
+          },
+          {
+            "path": "/campus-living/analytics/bed-economics",
+            "label": "Bed Economics",
+            "iconName": "FileText",
             "children": []
           },
           {
@@ -1993,6 +2090,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "SprayCan",
         "children": [
           {
+            "path": "/campus-living/housekeeping/bookings",
+            "label": "Bookings",
+            "iconName": "SprayCan",
+            "children": []
+          },
+          {
             "path": "/campus-living/housekeeping/schedules",
             "label": "Schedules",
             "iconName": "CalendarClock",
@@ -2094,6 +2197,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/campus-living/mess/categories",
+            "label": "Categories",
+            "iconName": "Utensils",
+            "children": []
+          },
+          {
+            "path": "/campus-living/mess/caterer-management",
+            "label": "Mess Caterers",
+            "iconName": "ChefHat",
+            "children": []
+          },
+          {
             "path": "/campus-living/mess/caterers",
             "label": "Caterers",
             "iconName": "Utensils",
@@ -2110,6 +2225,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/campus-living/mess/feedback",
             "label": "Feedback",
             "iconName": "MessageCircle",
+            "children": []
+          },
+          {
+            "path": "/campus-living/mess/insights",
+            "label": "Mess Rating Insights",
+            "iconName": "BarChart3",
+            "children": []
+          },
+          {
+            "path": "/campus-living/mess/library",
+            "label": "Mess Menu Library",
+            "iconName": "BookOpen",
             "children": []
           },
           {
@@ -2132,6 +2259,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/campus-living/mess/policies",
+            "label": "Mess Policies",
+            "iconName": "Settings",
+            "children": []
+          },
+          {
             "path": "/campus-living/mess/waste",
             "label": "Waste",
             "iconName": "Utensils",
@@ -2145,9 +2278,77 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/campus-living/my-hostel/housekeeping",
+            "label": "Room Cleaning",
+            "iconName": "Brush",
+            "children": []
+          },
+          {
+            "path": "/campus-living/my-hostel/my-meals",
+            "label": "My Meals",
+            "iconName": "UtensilsCrossed",
+            "children": []
+          },
+          {
+            "path": "/campus-living/my-hostel/premium",
+            "label": "Premium Stay — Opt-in",
+            "iconName": "Sparkles",
+            "children": [
+              {
+                "path": "/campus-living/my-hostel/premium/invite-roommate",
+                "label": "Premium Stay — Invite Roommate",
+                "iconName": "Users",
+                "children": []
+              },
+              {
+                "path": "/campus-living/my-hostel/premium/pick-room",
+                "label": "Premium Stay — Pick Room",
+                "iconName": "BedDouble",
+                "children": []
+              }
+            ]
+          },
+          {
             "path": "/campus-living/my-hostel/vacate-request",
             "label": "Vacate Request",
             "iconName": "LogOut",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/campus-living/premium",
+        "label": "Premium",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/campus-living/premium/allocation-rules",
+            "label": "Allocation Rules",
+            "iconName": "Settings2",
+            "children": []
+          },
+          {
+            "path": "/campus-living/premium/audit-log",
+            "label": "Premium Stay — Audit Log",
+            "iconName": "History",
+            "children": []
+          },
+          {
+            "path": "/campus-living/premium/dashboard",
+            "label": "Premium Stay Dashboard",
+            "iconName": "LayoutGrid",
+            "children": []
+          },
+          {
+            "path": "/campus-living/premium/override",
+            "label": "Premium Stay — Chief Warden Override",
+            "iconName": "ShieldCheck",
+            "children": []
+          },
+          {
+            "path": "/campus-living/premium/tier-policy",
+            "label": "Campus Living — Tier Policy",
+            "iconName": "BedDouble",
             "children": []
           }
         ]
@@ -2264,8 +2465,50 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Settings",
         "children": [
           {
+            "path": "/campus-living/settings/ac-amenity-audit",
+            "label": "Ac Amenity Audit",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/campus-living/settings/amenities",
+            "label": "Amenities",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/campus-living/settings/approval-chains",
             "label": "Approval Chains",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/campus-living/settings/billable-amenities",
+            "label": "Billable Amenities",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/campus-living/settings/block-economics",
+            "label": "Block Economics",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/campus-living/settings/categories",
+            "label": "Categories",
+            "iconName": "Tags",
+            "children": []
+          },
+          {
+            "path": "/campus-living/settings/choose-your-menu",
+            "label": "Choose Your Menu",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/campus-living/settings/curfew",
+            "label": "Curfew",
             "iconName": "FileText",
             "children": []
           },
@@ -2279,6 +2522,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/campus-living/settings/general",
             "label": "General",
             "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/campus-living/settings/hostel-years",
+            "label": "Hostel Years",
+            "iconName": "Building",
+            "children": []
+          },
+          {
+            "path": "/campus-living/settings/housekeeping",
+            "label": "Housekeeping",
+            "iconName": "SprayCan",
             "children": []
           },
           {
@@ -2296,6 +2551,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/campus-living/settings/notification-rules",
             "label": "Notification Rules",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/campus-living/settings/packages",
+            "label": "Packages",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/campus-living/settings/program-eligibility",
+            "label": "Program Eligibility",
             "iconName": "FileText",
             "children": []
           }
@@ -2327,6 +2594,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/campus-living/wardens",
+        "label": "Wardens",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/campus-living/wellness",
         "label": "Wellness",
         "iconName": "HeartPulse",
@@ -2335,6 +2608,197 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/campus-living/wellness/surveys",
             "label": "Surveys",
             "iconName": "HeartPulse",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "path": "/cdc",
+    "label": "Cdc",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/cdc/admin",
+        "label": "Admin",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/cdc/admin/cron-status",
+            "label": "Cron Status",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/cdc/admin/dashboard",
+            "label": "Dashboard",
+            "iconName": "LayoutGrid",
+            "children": []
+          },
+          {
+            "path": "/cdc/admin/drive-types",
+            "label": "Drive Types",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/cdc/admin/industry-sectors",
+            "label": "Industry Sectors",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/cdc/admin/offer-types",
+            "label": "Offer Types",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/cdc/admin/policies",
+            "label": "Policies",
+            "iconName": "BookText",
+            "children": []
+          },
+          {
+            "path": "/cdc/admin/recruiters",
+            "label": "Recruiters",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/cdc/admin/training-types",
+            "label": "Training Types",
+            "iconName": "Dumbbell",
+            "children": []
+          },
+          {
+            "path": "/cdc/admin/workshop-types",
+            "label": "Workshop Types",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/cdc/bulletin",
+        "label": "Bulletin",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/cdc/bulletin/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/cdc/clubs",
+        "label": "Clubs",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/cdc/clubs/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/cdc/drives",
+        "label": "Drives",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/cdc/drives/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/cdc/exports",
+        "label": "Exports",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/cdc/idp",
+        "label": "Idp",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/cdc/idp/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/cdc/industry-mentors",
+        "label": "Industry Mentors",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/cdc/industry-mentors/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/cdc/internships",
+        "label": "Internships",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/cdc/internships/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/cdc/mentors",
+        "label": "Mentors",
+        "iconName": "UserCheck",
+        "children": [
+          {
+            "path": "/cdc/mentors/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/cdc/placements",
+        "label": "Placements",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/cdc/placements/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/cdc/training",
+        "label": "Training",
+        "iconName": "Dumbbell",
+        "children": [
+          {
+            "path": "/cdc/training/new",
+            "label": "New",
+            "iconName": "Plus",
             "children": []
           }
         ]
@@ -2411,6 +2875,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/events/proposals",
+        "label": "Proposals",
+        "iconName": "CalendarHeart",
+        "children": []
+      },
+      {
         "path": "/events/propose",
         "label": "Propose",
         "iconName": "CalendarHeart",
@@ -2450,43 +2920,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/faculty/innovation/submit",
             "label": "Submit",
             "iconName": "Lightbulb",
-            "children": []
-          }
-        ]
-      },
-      {
-        "path": "/faculty/pde",
-        "label": "Pde",
-        "iconName": "FileText",
-        "children": [
-          {
-            "path": "/faculty/pde/analytics",
-            "label": "Analytics",
-            "iconName": "BarChart",
-            "children": []
-          },
-          {
-            "path": "/faculty/pde/assessments",
-            "label": "Assessments",
-            "iconName": "ClipboardCheck",
-            "children": []
-          },
-          {
-            "path": "/faculty/pde/dashboard",
-            "label": "Dashboard",
-            "iconName": "LayoutGrid",
-            "children": []
-          },
-          {
-            "path": "/faculty/pde/demonstrations",
-            "label": "Demonstrations",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/faculty/pde/quests",
-            "label": "Quests",
-            "iconName": "Trophy",
             "children": []
           }
         ]
@@ -2560,6 +2993,511 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/hr/admin",
+        "label": "Admin",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/hr/admin/automation-rules",
+            "label": "Automation Rules",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/hr/admin/disciplinary",
+            "label": "Disciplinary Cases",
+            "iconName": "Gavel",
+            "children": [
+              {
+                "path": "/hr/admin/disciplinary/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/hr/admin/fdp",
+            "label": "Fdp",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/hr/admin/forms",
+            "label": "Forms",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/hr/admin/forms/submissions",
+                "label": "Submissions",
+                "iconName": "FileText",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/hr/admin/memos",
+            "label": "HR Memos",
+            "iconName": "AlertTriangle",
+            "children": []
+          },
+          {
+            "path": "/hr/admin/offboarding",
+            "label": "Offboarding Workflow",
+            "iconName": "LogOut",
+            "children": [
+              {
+                "path": "/hr/admin/offboarding/retirements",
+                "label": "Retirements",
+                "iconName": "CalendarClock",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/hr/admin/onboarding-checklists",
+            "label": "Onboarding Checklists",
+            "iconName": "UserPlus",
+            "children": []
+          },
+          {
+            "path": "/hr/admin/payroll",
+            "label": "Payroll",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/hr/admin/payroll/periods",
+                "label": "Periods",
+                "iconName": "Clock",
+                "children": [
+                  {
+                    "path": "/hr/admin/payroll/periods/new",
+                    "label": "New",
+                    "iconName": "Plus",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "path": "/hr/admin/payroll/preview",
+                "label": "Payroll Preview (read-only)",
+                "iconName": "Receipt",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/hr/admin/performance-reviews",
+            "label": "Performance Reviews",
+            "iconName": "ClipboardCheck",
+            "children": [
+              {
+                "path": "/hr/admin/performance-reviews/cycles",
+                "label": "Performance Review Cycles",
+                "iconName": "CalendarRange",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/hr/admin/policies",
+            "label": "Policies",
+            "iconName": "BookText",
+            "children": [
+              {
+                "path": "/hr/admin/policies/academic-scope",
+                "label": "Academic Scope",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/allowances-and-increments",
+                "label": "Allowances & Increments",
+                "iconName": "TrendingUp",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/audit",
+                "label": "Audit",
+                "iconName": "ClipboardCheck",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/audit-log",
+                "label": "Audit Log",
+                "iconName": "ClipboardCheck",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/cadres",
+                "label": "Cadres",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/code-of-conduct",
+                "label": "Code of Conduct",
+                "iconName": "BookOpen",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/disciplinary-action",
+                "label": "Disciplinary Action",
+                "iconName": "Gavel",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/excursion-general",
+                "label": "Excursion General",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/facilities",
+                "label": "Facilities",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/feedback-evaluation",
+                "label": "Feedback Evaluation",
+                "iconName": "MessageCircle",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/grievance-cell",
+                "label": "Grievance Cell",
+                "iconName": "ShieldAlert",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/institution-meta",
+                "label": "Institution Meta",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/joining-and-appointment",
+                "label": "Joining And Appointment",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/leave",
+                "label": "Leave",
+                "iconName": "CalendarOff",
+                "children": [
+                  {
+                    "path": "/hr/admin/policies/leave/casual",
+                    "label": "Casual",
+                    "iconName": "CalendarOff",
+                    "children": []
+                  },
+                  {
+                    "path": "/hr/admin/policies/leave/compensatory",
+                    "label": "Compensatory",
+                    "iconName": "CalendarOff",
+                    "children": []
+                  },
+                  {
+                    "path": "/hr/admin/policies/leave/half-pay",
+                    "label": "Half Pay",
+                    "iconName": "CalendarOff",
+                    "children": []
+                  },
+                  {
+                    "path": "/hr/admin/policies/leave/holidays-and-lop",
+                    "label": "Holidays And Lop",
+                    "iconName": "CalendarOff",
+                    "children": []
+                  },
+                  {
+                    "path": "/hr/admin/policies/leave/marriage",
+                    "label": "Marriage",
+                    "iconName": "CalendarOff",
+                    "children": []
+                  },
+                  {
+                    "path": "/hr/admin/policies/leave/on-duty",
+                    "label": "On Duty",
+                    "iconName": "CalendarOff",
+                    "children": []
+                  },
+                  {
+                    "path": "/hr/admin/policies/leave/vacation",
+                    "label": "Vacation",
+                    "iconName": "CalendarOff",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "path": "/hr/admin/policies/memo-termination",
+                "label": "Memo Termination",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/motivation-fund",
+                "label": "Motivation Fund",
+                "iconName": "Trophy",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": [
+                  {
+                    "path": "/hr/admin/policies/new/data-privacy-it-acceptable-use",
+                    "label": "Data Privacy It Acceptable Use",
+                    "iconName": "FileText",
+                    "children": []
+                  },
+                  {
+                    "path": "/hr/admin/policies/new/genai-usage",
+                    "label": "Genai Usage",
+                    "iconName": "FileText",
+                    "children": []
+                  },
+                  {
+                    "path": "/hr/admin/policies/new/remote-hybrid-work",
+                    "label": "Remote Hybrid Work",
+                    "iconName": "FileText",
+                    "children": []
+                  },
+                  {
+                    "path": "/hr/admin/policies/new/social-media-conduct",
+                    "label": "Social Media Conduct",
+                    "iconName": "FileText",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "path": "/hr/admin/policies/pay-scales",
+                "label": "Pay Scales",
+                "iconName": "Banknote",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/performance-review",
+                "label": "Performance Review",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/promotion-policy",
+                "label": "Promotion Policy",
+                "iconName": "TrendingUp",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/promotion-suggestions",
+                "label": "Promotion Suggestions",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/rd",
+                "label": "Rd",
+                "iconName": "FileText",
+                "children": [
+                  {
+                    "path": "/hr/admin/policies/rd/excursion",
+                    "label": "Excursion",
+                    "iconName": "FileText",
+                    "children": []
+                  },
+                  {
+                    "path": "/hr/admin/policies/rd/incentive-authority",
+                    "label": "Incentive Authority",
+                    "iconName": "FileText",
+                    "children": []
+                  },
+                  {
+                    "path": "/hr/admin/policies/rd/publication-incentives",
+                    "label": "Publication Incentives",
+                    "iconName": "FileText",
+                    "children": []
+                  },
+                  {
+                    "path": "/hr/admin/policies/rd/research-leave",
+                    "label": "Research Leave",
+                    "iconName": "FileText",
+                    "children": []
+                  },
+                  {
+                    "path": "/hr/admin/policies/rd/wfh-rules",
+                    "label": "Wfh Rules",
+                    "iconName": "FileText",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "path": "/hr/admin/policies/reimbursement-workflow",
+                "label": "Reimbursement Workflow",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/resignation-workflow",
+                "label": "Resignation Workflow",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/roles-responsibilities",
+                "label": "Roles Responsibilities",
+                "iconName": "Shield",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/staff-development",
+                "label": "Staff Development",
+                "iconName": "Users",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/teaching-artifacts",
+                "label": "Teaching Artifacts",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/welfare",
+                "label": "Welfare",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/policies/working-schedule",
+                "label": "Working Schedule",
+                "iconName": "FileText",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/hr/admin/promotions",
+            "label": "Promotions",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/hr/admin/recruitment-approvals-scope",
+            "label": "Recruitment Approvals Scope",
+            "iconName": "ShieldCheck",
+            "children": []
+          },
+          {
+            "path": "/hr/admin/recruitment-maintenance",
+            "label": "Recruitment Maintenance",
+            "iconName": "Wrench",
+            "children": []
+          },
+          {
+            "path": "/hr/admin/recruitment-need",
+            "label": "Recruitment Need",
+            "iconName": "UserSearch",
+            "children": [
+              {
+                "path": "/hr/admin/recruitment-need/allocations",
+                "label": "Allocations",
+                "iconName": "UserSearch",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/recruitment-need/approvals",
+                "label": "Approvals",
+                "iconName": "UserSearch",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/recruitment-need/bodies",
+                "label": "Bodies",
+                "iconName": "UserSearch",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/recruitment-need/norms",
+                "label": "Norms",
+                "iconName": "UserSearch",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/recruitment-need/peer-benchmarks",
+                "label": "Peer Benchmarks",
+                "iconName": "UserSearch",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/recruitment-need/snapshots",
+                "label": "Snapshots",
+                "iconName": "UserSearch",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/recruitment-need/specializations",
+                "label": "Specializations",
+                "iconName": "UserSearch",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/recruitment-need/thresholds",
+                "label": "Thresholds",
+                "iconName": "UserSearch",
+                "children": []
+              },
+              {
+                "path": "/hr/admin/recruitment-need/weights",
+                "label": "Weights",
+                "iconName": "UserSearch",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/hr/admin/required-documents",
+            "label": "Required Documents",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/hr/admin/shift-templates",
+            "label": "Shift Templates",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/hr/admin/terminations",
+            "label": "Terminations",
+            "iconName": "Gavel",
+            "children": []
+          },
+          {
+            "path": "/hr/admin/training",
+            "label": "Training",
+            "iconName": "Dumbbell",
+            "children": [
+              {
+                "path": "/hr/admin/training/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "path": "/hr/analytics",
+        "label": "Analytics",
+        "iconName": "BarChart",
+        "children": []
+      },
+      {
         "path": "/hr/attendance",
         "label": "Attendance",
         "iconName": "CheckSquare",
@@ -2578,6 +3516,24 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           }
         ]
+      },
+      {
+        "path": "/hr/automation",
+        "label": "Automation",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/hr/benefits",
+        "label": "Benefits",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/hr/compensation",
+        "label": "Compensation",
+        "iconName": "FileText",
+        "children": []
       },
       {
         "path": "/hr/documents",
@@ -2604,6 +3560,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/hr/fdp",
+        "label": "Fdp",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/hr/forms",
+        "label": "Forms",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/hr/forms/inbox",
+            "label": "Inbox",
+            "iconName": "Inbox",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/hr/intelligence",
+        "label": "Intelligence",
+        "iconName": "FileText",
+        "children": []
       },
       {
         "path": "/hr/leave",
@@ -2649,16 +3630,67 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/hr/memos",
+        "label": "Memos",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/hr/memos/my",
+            "label": "My",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/hr/my-assets",
+        "label": "My Assets",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/hr/offboarding",
+        "label": "Offboarding",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/hr/onboarding",
         "label": "Onboarding",
         "iconName": "UserPlus",
         "children": []
       },
       {
+        "path": "/hr/performance-reviews",
+        "label": "Performance Reviews",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/hr/performance-reviews/team",
+            "label": "Team",
+            "iconName": "Users",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/hr/policies",
         "label": "Policies",
         "iconName": "BookText",
         "children": []
+      },
+      {
+        "path": "/hr/promotions",
+        "label": "Promotions",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/hr/promotions/apply",
+            "label": "Apply",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/hr/recruitment",
@@ -2668,6 +3700,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/hr/recruitment/approvals",
             "label": "Approvals",
+            "iconName": "UserSearch",
+            "children": []
+          },
+          {
+            "path": "/hr/recruitment/interviews",
+            "label": "Interviews",
             "iconName": "UserSearch",
             "children": []
           },
@@ -2709,6 +3747,30 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/hr/staff-specializations",
+        "label": "Staff Specializations",
+        "iconName": "Users",
+        "children": []
+      },
+      {
+        "path": "/hr/templates",
+        "label": "Templates",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/hr/training",
+        "label": "Training",
+        "iconName": "Dumbbell",
+        "children": []
+      },
+      {
+        "path": "/hr/workload",
+        "label": "Workload",
+        "iconName": "FileText",
+        "children": []
       }
     ]
   },
@@ -2913,6 +3975,49 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/internships/policy",
+        "label": "Policy",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/internships/policy/attendance",
+            "label": "Attendance",
+            "iconName": "CheckSquare",
+            "children": []
+          },
+          {
+            "path": "/internships/policy/cycle",
+            "label": "Cycle",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/internships/policy/eligibility",
+            "label": "Eligibility",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/internships/policy/evaluation",
+            "label": "Evaluation",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/internships/policy/fees",
+            "label": "Fees",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/internships/policy/notifications",
+            "label": "Notifications",
+            "iconName": "Bell",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/internships/preceptors",
         "label": "Preceptors",
         "iconName": "FileText",
@@ -3015,6 +4120,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "GraduationCap",
     "children": [
       {
+        "path": "/learners/advisor-caseload",
+        "label": "Advisor Caseload",
+        "iconName": "GraduationCap",
+        "children": []
+      },
+      {
         "path": "/learners/alumni",
         "label": "Alumni",
         "iconName": "GraduationCap",
@@ -3065,6 +4176,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/learners/lifecycle",
+        "label": "Lifecycle",
+        "iconName": "GraduationCap",
+        "children": []
+      },
+      {
         "path": "/learners/my-attendance",
         "label": "My Attendance",
         "iconName": "GraduationCap",
@@ -3109,10 +4226,22 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/learners/onboarding",
+        "label": "Onboarding",
+        "iconName": "GraduationCap",
+        "children": []
+      },
+      {
         "path": "/learners/profiles",
         "label": "Profiles",
         "iconName": "GraduationCap",
         "children": [
+          {
+            "path": "/learners/profiles/create",
+            "label": "Create",
+            "iconName": "Plus",
+            "children": []
+          },
           {
             "path": "/learners/profiles/promotion",
             "label": "Promotion",
@@ -3306,6 +4435,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/moments",
+    "label": "Moments",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/moments/campaigns",
+        "label": "Campaigns",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/moments/submit",
+        "label": "Submit",
+        "iconName": "FileText",
+        "children": []
+      }
+    ]
+  },
+  {
     "path": "/my-bug-reports",
     "label": "My Bug Reports",
     "iconName": "FileText",
@@ -3316,6 +4464,44 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "label": "Notifications",
     "iconName": "Bell",
     "children": [
+      {
+        "path": "/notifications/admin",
+        "label": "Admin",
+        "iconName": "Bell",
+        "children": [
+          {
+            "path": "/notifications/admin/audiences",
+            "label": "Audiences",
+            "iconName": "Bell",
+            "children": [
+              {
+                "path": "/notifications/admin/audiences/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/notifications/admin/compliance",
+            "label": "Compliance",
+            "iconName": "Bell",
+            "children": []
+          },
+          {
+            "path": "/notifications/admin/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/notifications/admin/recipients",
+            "label": "Recipients",
+            "iconName": "Bell",
+            "children": []
+          }
+        ]
+      },
       {
         "path": "/notifications/sent",
         "label": "Sent",
@@ -3505,6 +4691,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Building2",
         "children": [
           {
+            "path": "/organizations/departments/hod-assignment",
+            "label": "Hod Assignment",
+            "iconName": "Building2",
+            "children": []
+          },
+          {
             "path": "/organizations/departments/new",
             "label": "New",
             "iconName": "Plus",
@@ -3539,6 +4731,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/organizations/school-defaults",
+        "label": "School Defaults",
+        "iconName": "Building2",
+        "children": [
+          {
+            "path": "/organizations/school-defaults/audit",
+            "label": "Audit",
+            "iconName": "Building2",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/organizations/sections",
         "label": "Sections",
         "iconName": "LayoutGrid",
@@ -3567,10 +4772,322 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/pde",
+    "label": "Pde",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/pde/admin",
+        "label": "Admin",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/pde/admin/accreditation-evidence",
+            "label": "Accreditation Evidence",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/assessments",
+            "label": "Assessments",
+            "iconName": "ClipboardCheck",
+            "children": [
+              {
+                "path": "/pde/admin/assessments/create",
+                "label": "Create",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/pde/admin/at-risk",
+            "label": "At Risk",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/bos-evidence",
+            "label": "BoS PDE Evidence",
+            "iconName": "FileSearch",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/bridge",
+            "label": "PDE Bridge (legacy → new)",
+            "iconName": "GitMerge",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/capabilities",
+            "label": "Capabilities",
+            "iconName": "Cpu",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/cohort",
+            "label": "PDE Cohort Comparison",
+            "iconName": "BarChart3",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/compliance",
+            "label": "PDE Compliance",
+            "iconName": "ShieldCheck",
+            "children": [
+              {
+                "path": "/pde/admin/compliance/per-college",
+                "label": "PDE Per-College Compliance",
+                "iconName": "ShieldCheck",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/pde/admin/demonstrations",
+            "label": "PDE Demonstrations",
+            "iconName": "Inbox",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/engagement",
+            "label": "Engagement",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/feedback-moderation",
+            "label": "PDE Feedback Moderation",
+            "iconName": "ShieldAlert",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/kpi",
+            "label": "PDE KPI Dashboard",
+            "iconName": "Gauge",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/lti",
+            "label": "Lti",
+            "iconName": "PlugZap",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/placement-signals",
+            "label": "PDE Placement Signals",
+            "iconName": "Megaphone",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/policies",
+            "label": "Policies",
+            "iconName": "BookText",
+            "children": [
+              {
+                "path": "/pde/admin/policies/clinical-reasoning",
+                "label": "PDE Clinical Reasoning",
+                "iconName": "Stethoscope",
+                "children": []
+              },
+              {
+                "path": "/pde/admin/policies/governance",
+                "label": "PDE Gamification & Defense",
+                "iconName": "ShieldCheck",
+                "children": []
+              },
+              {
+                "path": "/pde/admin/policies/quests",
+                "label": "PDE Quests & Supply",
+                "iconName": "Boxes",
+                "children": []
+              },
+              {
+                "path": "/pde/admin/policies/rollout",
+                "label": "PDE Rollout & Compliance",
+                "iconName": "Map",
+                "children": []
+              },
+              {
+                "path": "/pde/admin/policies/scoring",
+                "label": "PDE Scoring & Integrity",
+                "iconName": "Sliders",
+                "children": []
+              },
+              {
+                "path": "/pde/admin/policies/visibility",
+                "label": "PDE Visibility & Transparency",
+                "iconName": "Eye",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/pde/admin/quest-supply",
+            "label": "PDE Quest Supply",
+            "iconName": "Inbox",
+            "children": []
+          },
+          {
+            "path": "/pde/admin/quests",
+            "label": "Quests",
+            "iconName": "Trophy",
+            "children": [
+              {
+                "path": "/pde/admin/quests/create",
+                "label": "Create",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/pde/admin/rubrics",
+            "label": "Rubrics",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/pde/admin/rubrics/cultural-civic",
+                "label": "PDE Rubrics — Cultural & Civic",
+                "iconName": "BookHeart",
+                "children": []
+              },
+              {
+                "path": "/pde/admin/rubrics/embodied",
+                "label": "PDE Embodied Practice Rubrics",
+                "iconName": "Activity",
+                "children": []
+              },
+              {
+                "path": "/pde/admin/rubrics/social-leadership",
+                "label": "PDE Rubrics — Social & Leadership",
+                "iconName": "Users",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/pde/admin/transcript",
+            "label": "Transcript",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/pde/faculty",
+        "label": "Faculty",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/pde/faculty/analytics",
+            "label": "Analytics",
+            "iconName": "BarChart",
+            "children": []
+          },
+          {
+            "path": "/pde/faculty/assessments",
+            "label": "Assessments",
+            "iconName": "ClipboardCheck",
+            "children": []
+          },
+          {
+            "path": "/pde/faculty/cases",
+            "label": "Cases",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/pde/faculty/cases/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/pde/faculty/dashboard",
+            "label": "Dashboard",
+            "iconName": "LayoutGrid",
+            "children": []
+          },
+          {
+            "path": "/pde/faculty/demonstrations",
+            "label": "Demonstrations",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/pde/faculty/quests",
+            "label": "Quests",
+            "iconName": "Trophy",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/pde/learn",
+        "label": "Learn",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/pde/learn/cases",
+            "label": "Cases",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/pde/learn/cohort",
+            "label": "PDE Cohort Comparison",
+            "iconName": "Users",
+            "children": []
+          },
+          {
+            "path": "/pde/learn/demonstrations",
+            "label": "Demonstrations",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/pde/learn/demonstrations/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/pde/learn/transcript",
+            "label": "Transcript",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  {
     "path": "/profile",
     "label": "Profile",
     "iconName": "UserCircle",
     "children": []
+  },
+  {
+    "path": "/projects",
+    "label": "Projects",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/projects/portfolio",
+        "label": "Portfolio",
+        "iconName": "Briefcase",
+        "children": []
+      },
+      {
+        "path": "/projects/templates",
+        "label": "Templates",
+        "iconName": "FileText",
+        "children": []
+      }
+    ]
   },
   {
     "path": "/resource-management",
@@ -3634,6 +5151,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/resource-management/reservations/calendar",
+            "label": "Calendar",
+            "iconName": "Calendar",
+            "children": []
+          },
+          {
             "path": "/resource-management/reservations/my-reservations",
             "label": "My Reservations",
             "iconName": "Boxes",
@@ -3659,6 +5182,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/resource-management/scan",
+        "label": "Scan",
+        "iconName": "FileText",
+        "children": []
       }
     ]
   },

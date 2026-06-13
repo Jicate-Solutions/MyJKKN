@@ -24,6 +24,12 @@ const config: ModuleNavConfig = {
       matchPaths: ['/hr'],
     },
     {
+      label: 'Intelligence',
+      icon: 'Brain',
+      href: '/hr/intelligence',
+      matchPaths: ['/hr/intelligence'],
+    },
+    {
       label: 'Recruitment',
       icon: 'UserPlus',
       href: '/hr/recruitment',
@@ -128,6 +134,18 @@ const config: ModuleNavConfig = {
       matchPaths: ['/hr/onboarding'],
     },
     {
+      label: 'My Assets',
+      icon: 'Laptop',
+      href: '/hr/my-assets',
+      matchPaths: ['/hr/my-assets'],
+    },
+    {
+      label: 'Offboarding',
+      icon: 'LogOut',
+      href: '/hr/offboarding',
+      matchPaths: ['/hr/offboarding'],
+    },
+    {
       label: 'Attendance',
       icon: 'UserCheck',
       href: '/hr/attendance',
@@ -200,10 +218,40 @@ const config: ModuleNavConfig = {
       ],
     },
     {
+      label: 'Performance Reviews',
+      icon: 'ClipboardCheck',
+      href: '/hr/performance-reviews',
+      matchPaths: ['/hr/performance-reviews'],
+      children: [
+        {
+          label: 'My Appraisal',
+          icon: 'ClipboardCheck',
+          href: '/hr/performance-reviews',
+          exact: true,
+        },
+        {
+          label: 'Team Reviews',
+          icon: 'UsersRound',
+          href: '/hr/performance-reviews/team',
+          matchPaths: ['/hr/performance-reviews/team'],
+        },
+      ],
+    },
+    {
       label: 'Policies',
       icon: 'ShieldCheck',
       href: '/hr/policies',
       matchPaths: ['/hr/policies'],
+    },
+    {
+      // 2026-06-10 admin-cluster relocation: /admin/hr → /hr/admin.
+      // No explicit children — the deeper admin pages auto-surface via the
+      // manifest walk (deeperTiersFromManifest), mirroring how the old
+      // /admin auto-nav exposed them.
+      label: 'Admin',
+      icon: 'Settings',
+      href: '/hr/admin',
+      matchPaths: ['/hr/admin'],
     },
   ],
 };

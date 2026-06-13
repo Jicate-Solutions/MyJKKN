@@ -47,8 +47,11 @@ import {
 import { Badge } from '@/components/ui/badge';
 
 import { useAddBosMember } from '@/hooks/bos/use-bos-members';
+import { useInstitutionContextById } from '@/hooks/use-institution-context';
 import {
+  BosCommittee,
   BosMemberType,
+  BosMemberTypeRecord,
   BOS_MEMBER_TYPE_LABELS,
   BosExternalExpert,
 } from '@/types/bos';
@@ -64,6 +67,7 @@ const EXTERNAL_EXPERT_TYPES: BosMemberType[] = [
   'subject_expert',
   'industry_expert',
   'alumni',
+  'startup',
 ];
 
 function isExternalExpertType(t: BosMemberType): boolean {
@@ -92,8 +96,43 @@ interface AddMemberDialogProps {
   open: boolean;
   onClose: () => void;
   compositionId: string;
+  /**
+   * The composition's own institutions_id. The FacilitatorPicker uses this
+   * to resolve the full CAS sibling pair (Aided + Self-Financing) via
+   * `useInstitutionContextById`, so the staff search spans both UUIDs
+   * automatically — no need to pass siblings in.
+   */
   institutionsId: string;
+  /**
+   * Committees of this composition's institution. The dialog asks which
+   * committee the new member sits on; members are grouped by committee on the
+   * detail page. Empty list = the select is hidden and members go to "General".
+   */
+  committees?: readonly BosCommittee[];
+  /**
+   * Institution-wise member types (from /bos/member-types). When provided,
+   * the Member Type dropdown is table-driven and the insert carries
+   * member_type_id; member_type is set to the row's base_type so chairman
+   * authorization and the staff/expert picker keep working. Empty list =
+   * fall back to the legacy hardcoded enum (old data / unseeded institution).
+   */
+  memberTypes?: readonly BosMemberTypeRecord[];
+  /**
+   * Existing members of this composition (staff/expert source + committee).
+   * Used to hide people already on the SELECTED committee from the pickers —
+   * the same person may legitimately sit on two different committees, so the
+   * exclusion is per committee, mirroring the DB's per-(composition,
+   * committee) unique indexes (20260610_bos_committees.sql).
+   */
+  existingMembers?: readonly {
+    staff_id?: string | null;
+    expert_id?: string | null;
+    committee_id?: string | null;
+  }[];
 }
+
+/** Sentinel for "no committee" in the Radix Select (empty value is reserved). */
+const GENERAL_COMMITTEE = '__general__';
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -102,10 +141,64 @@ export function AddMemberDialog({
   onClose,
   compositionId,
   institutionsId,
+  committees = [],
+  memberTypes = [],
+  existingMembers = [],
 }: AddMemberDialogProps) {
   const addMember = useAddBosMember();
 
-  const [memberType, setMemberType] = useState<BosMemberType>('internal_member');
+  // Member type — table-driven when the institution has bos_member_types rows,
+  // legacy hardcoded enum otherwise. Defaults are derived (not effect-synced):
+  // null state = "user hasn't picked yet" → first row by sort_order.
+  const activeMemberTypes = useMemo(
+    () => memberTypes.filter((t) => t.is_active),
+    [memberTypes],
+  );
+  const [memberTypeId, setMemberTypeId] = useState<string | null>(null);
+  const [legacyMemberType, setLegacyMemberType] = useState<BosMemberType>('internal_member');
+
+  const effectiveMemberTypeId = memberTypeId ?? activeMemberTypes[0]?.id ?? null;
+  const selectedTypeRow = effectiveMemberTypeId
+    ? activeMemberTypes.find((t) => t.id === effectiveMemberTypeId) ?? null
+    : null;
+  // Behaviour key used everywhere below (picker choice, payload member_type).
+  const memberType: BosMemberType =
+    activeMemberTypes.length > 0
+      ? (selectedTypeRow?.base_type ?? 'internal_member')
+      : legacyMemberType;
+
+  // null = "user hasn't picked yet" → default to the first (lowest sort_order)
+  // active committee; the API returns committees already ordered. Derived
+  // rather than synced via effect; resetAll() returns it to null on close.
+  const [committeeId, setCommitteeId] = useState<string | null>(null);
+  const effectiveCommitteeId =
+    committeeId ?? committees.find((c) => c.is_active)?.id ?? GENERAL_COMMITTEE;
+  const selectedCommitteeId =
+    effectiveCommitteeId === GENERAL_COMMITTEE ? null : effectiveCommitteeId;
+
+  // People already on the SELECTED committee — hidden from the pickers. Stable
+  // Set references so the pickers can do O(1) `.has(id)` filtering without
+  // rebuilding the set on every keystroke.
+  const assignedStaffSet = useMemo(
+    () =>
+      new Set(
+        existingMembers
+          .filter((m) => (m.committee_id ?? null) === selectedCommitteeId)
+          .map((m) => m.staff_id)
+          .filter((id): id is string => !!id),
+      ),
+    [existingMembers, selectedCommitteeId],
+  );
+  const assignedExpertSet = useMemo(
+    () =>
+      new Set(
+        existingMembers
+          .filter((m) => (m.committee_id ?? null) === selectedCommitteeId)
+          .map((m) => m.expert_id)
+          .filter((id): id is string => !!id),
+      ),
+    [existingMembers, selectedCommitteeId],
+  );
 
   // Selected source row + derived display fields. Exactly one of
   // selectedFacilitator / selectedExpert is non-null at a time.
@@ -118,6 +211,7 @@ export function AddMemberDialog({
   // Display fields. Locked once a person is selected.
   const [displayName, setDisplayName] = useState('');
   const [displayDesignation, setDisplayDesignation] = useState('');
+  const [displayDepartment, setDisplayDepartment] = useState('');
   const [displayInstitution, setDisplayInstitution] = useState('');
   const [email, setEmail] = useState('');
   const [contactNo, setContactNo] = useState('');
@@ -127,11 +221,14 @@ export function AddMemberDialog({
 
   // Reset to a clean slate.
   const resetAll = () => {
-    setMemberType('internal_member');
+    setMemberTypeId(null);
+    setLegacyMemberType('internal_member');
+    setCommitteeId(null);
     setSelectedFacilitator(null);
     setSelectedExpert(null);
     setDisplayName('');
     setDisplayDesignation('');
+    setDisplayDepartment('');
     setDisplayInstitution('');
     setEmail('');
     setContactNo('');
@@ -145,6 +242,7 @@ export function AddMemberDialog({
       setSelectedFacilitator(null);
       setDisplayName('');
       setDisplayDesignation('');
+      setDisplayDepartment('');
       setDisplayInstitution('');
       setEmail('');
       setContactNo('');
@@ -153,6 +251,7 @@ export function AddMemberDialog({
       setSelectedExpert(null);
       setDisplayName('');
       setDisplayDesignation('');
+      setDisplayDepartment('');
       setDisplayInstitution('');
       setEmail('');
       setContactNo('');
@@ -165,6 +264,10 @@ export function AddMemberDialog({
     const fullName = `${row.first_name} ${row.last_name}`.trim();
     setDisplayName(fullName);
     setDisplayDesignation(row.designation ?? '');
+    // department.department_name on the staff row → denormalised onto
+    // bos_members.display_department for the call-letter PDF. Falls back
+    // to empty string if the staff record has no department assigned.
+    setDisplayDepartment(row.department?.department_name ?? '');
     setDisplayInstitution(row.institution?.name ?? '');
     setEmail(row.institution_email ?? row.email ?? '');
     setContactNo(row.phone ?? '');
@@ -173,8 +276,10 @@ export function AddMemberDialog({
   const handleSelectExpert = (row: BosExternalExpert) => {
     setSelectedExpert(row);
     setSelectedFacilitator(null);
-    setDisplayName(row.name);
+    setDisplayName(row.title ? `${row.title} ${row.name}` : row.name);
     setDisplayDesignation(row.designation ?? '');
+    // External experts store department directly on the expert row.
+    setDisplayDepartment(row.department_name ?? '');
     setDisplayInstitution(row.institution_name ?? '');
     setEmail(row.email ?? '');
     setContactNo(row.contact_no ?? '');
@@ -185,12 +290,13 @@ export function AddMemberDialog({
     setSelectedExpert(null);
     setDisplayName('');
     setDisplayDesignation('');
+    setDisplayDepartment('');
     setDisplayInstitution('');
     setEmail('');
     setContactNo('');
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!hasSelection) {
@@ -202,29 +308,41 @@ export function AddMemberDialog({
       return;
     }
 
-    try {
-      await addMember.mutateAsync({
+    // Fire-and-forget: `useAddBosMember`'s onMutate has already pushed a
+    // placeholder row into the cache by the time `.mutate()` returns, so we
+    // can close the dialog immediately. The user then sees the new member
+    // appear in the list this tick instead of waiting for the network
+    // round-trip. Toast / error rollback are wired via per-call callbacks.
+    addMember.mutate(
+      {
         institutions_id: institutionsId,
         composition_id: compositionId,
+        committee_id: selectedCommitteeId,
         member_type: memberType,
+        member_type_id: activeMemberTypes.length > 0 ? effectiveMemberTypeId : null,
         // Persist the source link so future edits can re-resolve canonical info.
         staff_id: selectedFacilitator?.id,
         expert_id: selectedExpert?.id,
         display_name: displayName.trim(),
         display_designation: displayDesignation.trim() || undefined,
+        display_department: displayDepartment.trim() || undefined,
         display_institution: displayInstitution.trim() || undefined,
         email: email.trim() || undefined,
         contact_no: contactNo.trim() || undefined,
         is_active: true,
         sort_order: 0,
-      });
-      toast.success('Member added');
-      resetAll();
-      onClose();
-    } catch (err) {
-      logger.error('academic/bos', 'Failed to add member', err);
-      toast.error((err as Error).message || 'Failed to add member');
-    }
+      },
+      {
+        onSuccess: () => toast.success('Member added'),
+        onError: (err) => {
+          logger.error('academic/bos', 'Failed to add member', err);
+          toast.error((err as Error).message || 'Failed to add member');
+        },
+      },
+    );
+
+    resetAll();
+    onClose();
   };
 
   return (
@@ -243,26 +361,69 @@ export function AddMemberDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className='space-y-4'>
+          {/* ── Committee ────────────────────────────────────────────────── */}
+          {committees.length > 0 && (
+            <div className='space-y-2'>
+              <Label>Committee</Label>
+              <Select value={effectiveCommitteeId} onValueChange={setCommitteeId}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {committees.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                      {c.short_code ? ` (${c.short_code})` : ''}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value={GENERAL_COMMITTEE}>
+                    General (no committee)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           {/* ── Member Type ──────────────────────────────────────────────── */}
+          {/* Table-driven from bos_member_types when the institution has rows;
+              legacy hardcoded enum otherwise (old data / unseeded institution). */}
           <div className='space-y-2'>
             <Label>
               Member Type <span className='text-destructive'>*</span>
             </Label>
-            <Select
-              value={memberType}
-              onValueChange={(v) => setMemberType(v as BosMemberType)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(BOS_MEMBER_TYPE_LABELS).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {activeMemberTypes.length > 0 ? (
+              <Select
+                value={effectiveMemberTypeId ?? undefined}
+                onValueChange={setMemberTypeId}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeMemberTypes.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Select
+                value={legacyMemberType}
+                onValueChange={(v) => setLegacyMemberType(v as BosMemberType)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(BOS_MEMBER_TYPE_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
 
           {/* ── Picker (depends on member type) ─────────────────────────── */}
@@ -272,6 +433,7 @@ export function AddMemberDialog({
               selected={selectedExpert}
               onSelect={handleSelectExpert}
               onClear={handleClearSelection}
+              excludeIds={assignedExpertSet}
             />
           ) : (
             <FacilitatorPicker
@@ -279,6 +441,7 @@ export function AddMemberDialog({
               selected={selectedFacilitator}
               onSelect={handleSelectFacilitator}
               onClear={handleClearSelection}
+              excludeIds={assignedStaffSet}
             />
           )}
 
@@ -352,21 +515,51 @@ function FacilitatorPicker({
   selected,
   onSelect,
   onClear,
+  excludeIds,
 }: {
   institutionsId: string;
   selected: FacilitatorRow | null;
   onSelect: (row: FacilitatorRow) => void;
   onClear: () => void;
+  /** Staff IDs already on the composition — hidden from the list. */
+  excludeIds?: ReadonlySet<string>;
 }) {
   const [search, setSearch] = useState('');
   const [rows, setRows] = useState<FacilitatorRow[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // Resolve the composition's institution to its full CAS sibling pair via
+  // COE API (Arts Aided + Self-Financing share one counselling_code → two
+  // MyJKKN UUIDs). React Query caches the result per institution_id, so this
+  // is effectively free once any component on the page has fetched the same
+  // id (the composition page itself does).
+  const institutionCtx = useInstitutionContextById(institutionsId);
+  const allInstitutionIds: string[] =
+    institutionCtx.data?.myjkkn_institution_ids?.length
+      ? institutionCtx.data.myjkkn_institution_ids
+      : institutionsId
+        ? [institutionsId]
+        : [];
+  // Send csv when we have the pair, single id otherwise (server expands
+  // either way — but the csv form makes the URL self-documenting).
+  const idsCsv = allInstitutionIds.length > 1
+    ? allInstitutionIds.join(',')
+    : null;
+
   useEffect(() => {
     if (selected) return;
+    // Wait for the institution context to resolve before firing the staff
+    // query. Without this guard, the first request races and only includes
+    // the single institutionsId — defeating the CAS expansion.
+    if (institutionCtx.isLoading) return;
     let cancelled = false;
     setLoading(true);
-    const params = new URLSearchParams({ institutionsId, limit: '200' });
+    const params = new URLSearchParams({ limit: '200' });
+    if (idsCsv) {
+      params.set('institutionsIds', idsCsv);
+    } else {
+      params.set('institutionsId', institutionsId);
+    }
     if (search) params.set('search', search);
     fetch(`/api/bos/lookup/facilitators?${params.toString()}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
@@ -374,7 +567,15 @@ function FacilitatorPicker({
       .catch((err) => { if (!cancelled) logger.error('academic/bos', 'Facilitator fetch failed', err); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [search, institutionsId, selected]);
+  }, [search, institutionsId, idsCsv, selected, institutionCtx.isLoading]);
+
+  // Hide staff that are already on this composition. Filtering on the client
+  // is sufficient because the lookup endpoint returns a capped page (limit
+  // 200) and the assigned set is small (a composition rarely exceeds a
+  // dozen members).
+  const visibleRows = excludeIds && excludeIds.size > 0
+    ? rows.filter((r) => !excludeIds.has(r.id))
+    : rows;
 
   if (selected) {
     return (
@@ -407,11 +608,15 @@ function FacilitatorPicker({
               <Loader2 className='mr-2 h-3 w-3 animate-spin' />
               Loading…
             </div>
-          ) : rows.length === 0 ? (
-            <CommandEmpty>No staff found.</CommandEmpty>
+          ) : visibleRows.length === 0 ? (
+            <CommandEmpty>
+              {rows.length === 0
+                ? 'No staff found.'
+                : 'All matching staff are already members.'}
+            </CommandEmpty>
           ) : (
             <CommandGroup>
-              {rows.map((row) => {
+              {visibleRows.map((row) => {
                 const fullName = `${row.first_name} ${row.last_name}`.trim();
                 const subline = [row.designation, row.department?.department_name]
                   .filter(Boolean)
@@ -445,11 +650,14 @@ function ExpertPicker({
   selected,
   onSelect,
   onClear,
+  excludeIds,
 }: {
   memberType: BosMemberType;
   selected: BosExternalExpert | null;
   onSelect: (row: BosExternalExpert) => void;
   onClear: () => void;
+  /** Expert IDs already on the composition — hidden from the list. */
+  excludeIds?: ReadonlySet<string>;
 }) {
   const [search, setSearch] = useState('');
   const [rows, setRows] = useState<BosExternalExpert[]>([]);
@@ -473,12 +681,20 @@ function ExpertPicker({
     return () => { cancelled = true; };
   }, [search, selected]);
 
+  // Hide experts already on this composition. Same approach as
+  // FacilitatorPicker — see the comment there.
+  const visibleRows = excludeIds && excludeIds.size > 0
+    ? rows.filter((r) => !excludeIds.has(r.id))
+    : rows;
+
   if (selected) {
     return (
       <div className='space-y-2'>
         <Label>Select External Expert <span className='text-destructive'>*</span></Label>
         <div className='flex items-center justify-between rounded-md border px-3 py-2'>
-          <span className='text-sm font-medium'>{selected.name}</span>
+          <span className='text-sm font-medium'>
+            {selected.title ? `${selected.title} ` : ''}{selected.name}
+          </span>
           <Button type='button' variant='ghost' size='sm' className='h-7 px-2 text-xs' onClick={onClear}>
             <X className='mr-1 h-3 w-3' />Change
           </Button>
@@ -502,11 +718,15 @@ function ExpertPicker({
               <Loader2 className='mr-2 h-3 w-3 animate-spin' />
               Loading…
             </div>
-          ) : rows.length === 0 ? (
-            <CommandEmpty>No experts found.</CommandEmpty>
+          ) : visibleRows.length === 0 ? (
+            <CommandEmpty>
+              {rows.length === 0
+                ? 'No experts found.'
+                : 'All matching experts are already members.'}
+            </CommandEmpty>
           ) : (
             <CommandGroup>
-              {rows.map((row) => {
+              {visibleRows.map((row) => {
                 const subline = [row.designation, row.institution_name]
                   .filter(Boolean)
                   .join(' • ');
@@ -518,7 +738,9 @@ function ExpertPicker({
                     className='flex flex-col items-start gap-0.5'
                   >
                     <div className='flex w-full items-center justify-between gap-2'>
-                      <span className='font-medium text-sm truncate'>{row.name}</span>
+                      <span className='font-medium text-sm truncate'>
+                        {row.title ? `${row.title} ` : ''}{row.name}
+                      </span>
                       <Badge variant='outline' className='text-[10px] py-0'>
                         {row.category}
                       </Badge>

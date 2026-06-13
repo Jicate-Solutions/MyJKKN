@@ -58,6 +58,8 @@ export function useCandidates(filters: CandidateFilters = {}) {
         const statuses = Array.isArray(filters.status) ? filters.status : [filters.status];
         statuses.forEach((s) => params.append('status', s));
       }
+      if (filters.pending_for_me) params.set('pending_for_me', 'true');
+      if (filters.approver_id) params.set('approver_id', filters.approver_id);
       if (filters.page) params.set('page', String(filters.page));
       if (filters.pageSize) params.set('pageSize', String(filters.pageSize));
 

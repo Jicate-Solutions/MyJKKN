@@ -1,0 +1,128 @@
+// lib/services/cdc/idp-service.ts
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type {
+  CdcIdpResponse,
+  CdcIdpResponseWithLearner,
+  CreateIdpResponseDto,
+  UpdateIdpResponseDto,
+  IdpFilters,
+  IdpListResponse,
+} from '@/types/cdc/idp';
+
+// The embedded learner row comes from learners_profiles, which has
+// first_name / last_name but NO `name` column. Compose a display `name`
+// in JS so consumers (idp list/detail pages reading learner.name) keep working.
+function withLearnerDisplayName<T extends Record<string, unknown>>(row: T): T {
+  const learner = row?.learner as
+    | { first_name?: string | null; last_name?: string | null }
+    | null
+    | undefined;
+  if (!learner) return row;
+  const name = [learner.first_name, learner.last_name]
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+  return { ...row, learner: { ...learner, name } };
+}
+
+export class IdpService {
+  static async list(supabase: SupabaseClient, filters: IdpFilters = {}): Promise<IdpListResponse> {
+    const { page = 1, limit = 20, institution_id, academic_year_label, learner_id, source } = filters;
+    const offset = (page - 1) * limit;
+
+    let query = supabase
+      .from('cdc_idp_responses')
+      .select(
+        `*, learner:learner_id(id, first_name, last_name, roll_number, institution_id)`,
+        { count: 'exact' }
+      )
+      .order('submitted_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (learner_id) query = query.eq('learner_id', learner_id);
+    if (academic_year_label) query = query.eq('academic_year_label', academic_year_label);
+    if (source) query = query.eq('source', source);
+    if (institution_id) {
+      // filter via learner's institution — use inner join approach
+      query = query.eq('learner.institution_id', institution_id);
+    }
+
+    const { data, error, count } = await query;
+    if (error) throw new Error(error.message);
+
+    return {
+      data: (data ?? []).map(withLearnerDisplayName) as CdcIdpResponseWithLearner[],
+      total: count ?? 0,
+      page,
+      limit,
+    };
+  }
+
+  static async getById(supabase: SupabaseClient, id: string): Promise<CdcIdpResponseWithLearner> {
+    const { data, error } = await supabase
+      .from('cdc_idp_responses')
+      .select(`*, learner:learner_id(id, first_name, last_name, roll_number, institution_id)`)
+      .eq('id', id)
+      .single();
+
+    if (error) throw new Error(error.message);
+    return withLearnerDisplayName(data) as CdcIdpResponseWithLearner;
+  }
+
+  static async getByLearnerId(supabase: SupabaseClient, learner_id: string): Promise<CdcIdpResponse | null> {
+    const { data, error } = await supabase
+      .from('cdc_idp_responses')
+      .select('*')
+      .eq('learner_id', learner_id)
+      .order('submitted_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    return data as CdcIdpResponse | null;
+  }
+
+  static async create(supabase: SupabaseClient, dto: CreateIdpResponseDto): Promise<CdcIdpResponse> {
+    const { data, error } = await supabase
+      .from('cdc_idp_responses')
+      .insert({
+        learner_id: dto.learner_id,
+        batch_id: dto.batch_id ?? null,
+        academic_year_label: dto.academic_year_label ?? null,
+        interests: dto.interests ?? [],
+        aspirations: dto.aspirations ?? {},
+        club_picks: dto.club_picks ?? [],
+        three_year_plan: dto.three_year_plan ?? {},
+        skills_self_attribution: dto.skills_self_attribution ?? [],
+        free_text_notes: dto.free_text_notes ?? null,
+        source: 'native_form',
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    return data as CdcIdpResponse;
+  }
+
+  static async update(supabase: SupabaseClient, id: string, dto: UpdateIdpResponseDto): Promise<CdcIdpResponse> {
+    const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (dto.interests !== undefined) payload.interests = dto.interests;
+    if (dto.aspirations !== undefined) payload.aspirations = dto.aspirations;
+    if (dto.club_picks !== undefined) payload.club_picks = dto.club_picks;
+    if (dto.three_year_plan !== undefined) payload.three_year_plan = dto.three_year_plan;
+    if (dto.skills_self_attribution !== undefined) payload.skills_self_attribution = dto.skills_self_attribution;
+    if (dto.free_text_notes !== undefined) payload.free_text_notes = dto.free_text_notes;
+    if (dto.academic_year_label !== undefined) payload.academic_year_label = dto.academic_year_label;
+    if (dto.updated_by !== undefined) payload.updated_by = dto.updated_by;
+
+    const { data, error } = await supabase
+      .from('cdc_idp_responses')
+      .update(payload)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    return data as CdcIdpResponse;
+  }
+}

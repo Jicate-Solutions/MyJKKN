@@ -60,6 +60,8 @@ import {
   Package,
   Layers,
   Upload,
+  UploadCloud,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
@@ -84,6 +86,7 @@ import { AddBatchModal } from '@/components/ims/add-batch-modal';
 import { BatchesDialog } from '@/components/ims/batches-dialog';
 import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 import { usePermissions } from '@/hooks/use-permissions';
+import { StorageService } from '@/lib/storage/storage-service';
 
 const ITEM_TYPES: { label: string; value: ImsItemType }[] = [
   { label: 'Consumable', value: 'consumable' },
@@ -140,6 +143,11 @@ interface ItemFormData {
   opening_stock: number; // only used on create
   opening_batch_number: string; // optional override; auto-generates BTH-YYMMDD-XXXXX if blank
   opening_expiry_date: string; // only relevant if track_expiry is true
+  image_url: string;
+  // Edit-mode only: when editing, these mirror ims_stock_summary so the user can
+  // adjust the recorded opening_quantity and current stock balance from the dialog.
+  edit_opening_quantity: number;
+  edit_current_quantity: number;
 }
 
 const emptyFormData: ItemFormData = {
@@ -163,9 +171,12 @@ const emptyFormData: ItemFormData = {
   track_batch: false,
   track_expiry: false,
   is_sellable_to_students: false,
+  image_url: '',
   opening_stock: 0,
   opening_batch_number: '',
   opening_expiry_date: '',
+  edit_opening_quantity: 0,
+  edit_current_quantity: 0,
 };
 
 export default function InventoryItemsPage() {
@@ -197,6 +208,7 @@ function InventoryItemsPageInner() {
   const [editingItem, setEditingItem] = useState<ImsItemWithRelations | null>(null);
   const [formData, setFormData] = useState<ItemFormData>(emptyFormData);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   // Batch modals state
   const [batchItem, setBatchItem] = useState<ImsItemWithRelations | null>(null);
@@ -240,6 +252,25 @@ function InventoryItemsPageInner() {
   const deleteItem = useDeleteImsItem();
   const toggleActive = useToggleImsItemActive();
 
+  // Upload product image to Supabase Storage; URL is stored in formData so it
+  // gets saved to ims_items.image_url when the form submits.
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingImage(true);
+    try {
+      const scopeId = editingItem?.id || `temp-${Date.now()}`;
+      const { publicUrl, error } = await StorageService.uploadImsItemImage(file, scopeId);
+      if (error) throw error;
+      setFormData((prev) => ({ ...prev, image_url: publicUrl || '' }));
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to upload image');
+    } finally {
+      setIsUploadingImage(false);
+      e.target.value = '';
+    }
+  };
+
   // Open dialog for new item
   const handleAddNew = () => {
     setEditingItem(null);
@@ -253,7 +284,9 @@ function InventoryItemsPageInner() {
     queryClient.invalidateQueries({ queryKey: ['ims-items-select'] });
   };
 
-  // Open dialog for editing
+  // Open dialog for editing.
+  // Postgres NUMERIC columns come back from PostgREST as strings to preserve precision —
+  // <Input type="number"> won't render strings like "0.00" reliably, so coerce with Number().
   const handleEdit = (item: ImsItemWithRelations) => {
     setEditingItem(item);
     setFormData({
@@ -261,25 +294,28 @@ function InventoryItemsPageInner() {
       name: item.name,
       description: item.description || '',
       company_name: item.company_name ?? '',
-      category_id: item.category_id,
+      category_id: item.category_id ?? '',
       item_type: item.item_type,
-      base_unit_id: item.base_unit_id,
+      base_unit_id: item.base_unit_id ?? '',
       purchase_unit_id: item.purchase_unit_id || '',
       sale_unit_id: item.sale_unit_id || '',
       indent_unit_id: item.indent_unit_id || '',
-      cost_price: item.cost_price,
-      mrp: item.mrp,
-      selling_price: item.selling_price,
+      cost_price: Number(item.cost_price) || 0,
+      mrp: Number(item.mrp) || 0,
+      selling_price: Number(item.selling_price) || 0,
       hsn_code: item.hsn_code ?? '',
-      gst_rate: item.gst_rate ?? 0,
-      reorder_level: item.reorder_level,
-      max_stock_level: item.max_stock_level,
+      gst_rate: Number(item.gst_rate) || 0,
+      reorder_level: Number(item.reorder_level) || 0,
+      max_stock_level: Number(item.max_stock_level) || 0,
       track_batch: item.track_batch,
       track_expiry: item.track_expiry,
       is_sellable_to_students: item.is_sellable_to_students,
+      image_url: item.image_url || '',
       opening_stock: 0,
       opening_batch_number: '',
       opening_expiry_date: '',
+      edit_opening_quantity: Number(item.stock?.opening_quantity) || 0,
+      edit_current_quantity: Number(item.stock?.current_quantity) || 0,
     });
     setDialogOpen(true);
   };
@@ -314,8 +350,51 @@ function InventoryItemsPageInner() {
           track_batch: formData.track_batch,
           track_expiry: formData.track_expiry,
           is_sellable_to_students: formData.is_sellable_to_students,
+          image_url: formData.image_url || null,
         };
         await updateItem.mutateAsync({ id: editingItem.id, data: updateData });
+
+        // Stock-side updates: opening_quantity and current_quantity live on
+        // ims_stock_summary, not ims_items, so they take different service calls.
+        // Diff against the original values and only fire if changed — avoids creating
+        // phantom audit-trail rows on no-op saves.
+        const originalOpening = Number(editingItem.stock?.opening_quantity) || 0;
+        const originalCurrent = Number(editingItem.stock?.current_quantity) || 0;
+        const stockOps: Promise<unknown>[] = [];
+
+        if (formData.edit_opening_quantity !== originalOpening) {
+          stockOps.push(
+            ImsStockService.updateOpeningQuantity(
+              editingItem.id,
+              formData.edit_opening_quantity,
+              storeId ?? '',
+              institutionId ?? ''
+            )
+          );
+        }
+
+        const currentDiff = formData.edit_current_quantity - originalCurrent;
+        if (currentDiff !== 0) {
+          stockOps.push(
+            ImsStockAdjustmentService.createAdjustment(
+              {
+                item_id: editingItem.id,
+                adjustment_type: currentDiff > 0 ? 'correction' : 'damage',
+                quantity: Math.abs(currentDiff),
+                reason: 'Manual edit via item dialog',
+                institution_id: institutionId || '',
+                store_id: storeId || undefined,
+              },
+              profile?.id || ''
+            )
+          );
+        }
+
+        if (stockOps.length > 0) {
+          await Promise.all(stockOps);
+          queryClient.invalidateQueries({ queryKey: ['ims-items'] });
+        }
+
         toast.success('Item updated successfully');
       } else {
         const createData: CreateImsItemDto = {
@@ -340,6 +419,7 @@ function InventoryItemsPageInner() {
           track_batch: formData.track_batch,
           track_expiry: formData.track_expiry,
           is_sellable_to_students: formData.is_sellable_to_students,
+          image_url: formData.image_url || null,
           store_id: storeId || null,
           institution_id: institutionId || null,
         };
@@ -428,7 +508,7 @@ function InventoryItemsPageInner() {
   };
 
   const isMutating =
-    createItem.isPending || updateItem.isPending;
+    createItem.isPending || updateItem.isPending || isUploadingImage;
 
   return (
     <ContentLayout title="Inventory Items">
@@ -515,6 +595,46 @@ function InventoryItemsPageInner() {
                     }
                     rows={2}
                   />
+                </div>
+
+                {/* Product Image */}
+                <div className="space-y-2">
+                  <Label>Product Image</Label>
+                  {formData.image_url ? (
+                    <div className="relative w-full h-40 border rounded-lg overflow-hidden bg-muted">
+                      <img
+                        src={formData.image_url}
+                        alt="Product thumbnail"
+                        className="w-full h-full object-contain"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setFormData((prev) => ({ ...prev, image_url: '' }))}
+                        className="absolute top-2 right-2 rounded-full bg-destructive text-destructive-foreground p-1 hover:opacity-90"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-accent/50 transition-colors">
+                      {isUploadingImage ? (
+                        <BeatLoader color="hsl(var(--primary))" size={8} />
+                      ) : (
+                        <>
+                          <UploadCloud className="h-8 w-8 text-muted-foreground mb-2" />
+                          <span className="text-sm text-muted-foreground">Click to upload image</span>
+                          <span className="text-xs text-muted-foreground">PNG, JPG, WebP · max 5 MB</span>
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        className="hidden"
+                        onChange={handleImageUpload}
+                        disabled={isUploadingImage}
+                      />
+                    </label>
+                  )}
                 </div>
 
                 {/* Company / Manufacturer */}
@@ -874,6 +994,63 @@ function InventoryItemsPageInner() {
                   </div>
                 </div>
 
+                {/* Stock section — edit mode: lets admin adjust opening_quantity
+                    (direct write to ims_stock_summary) and current stock balance
+                    (creates a correction/damage adjustment for the delta) */}
+                {editingItem && (
+                  <div className="space-y-4 border-t pt-4">
+                    <Label className="text-sm font-medium text-muted-foreground">
+                      Stock
+                    </Label>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="edit_opening_quantity">Opening Stock</Label>
+                        <Input
+                          id="edit_opening_quantity"
+                          type="number"
+                          min={0}
+                          value={formData.edit_opening_quantity}
+                          onChange={(e) =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              edit_opening_quantity: parseFloat(e.target.value) || 0,
+                            }))
+                          }
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Recorded opening quantity. Direct override — no adjustment row created.
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit_current_quantity">Stock Balance</Label>
+                        <Input
+                          id="edit_current_quantity"
+                          type="number"
+                          min={0}
+                          value={formData.edit_current_quantity}
+                          onChange={(e) =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              edit_current_quantity: parseFloat(e.target.value) || 0,
+                            }))
+                          }
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Current available quantity. Saving creates a{' '}
+                          {formData.edit_current_quantity >
+                          (Number(editingItem.stock?.current_quantity) || 0)
+                            ? "'correction'"
+                            : formData.edit_current_quantity <
+                              (Number(editingItem.stock?.current_quantity) || 0)
+                            ? "'damage'"
+                            : 'no'}{' '}
+                          stock-adjustment row for the delta.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Opening Stock — only shown on create */}
                 {!editingItem && (
                   <div className="space-y-4 border-t pt-4">
@@ -1159,11 +1336,14 @@ function InventoryItemsPageInner() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Code</TableHead>
-                      <TableHead>Name / Category</TableHead>
+                      <TableHead className="w-14">Image</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Category</TableHead>
                       <TableHead>Company</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Base Unit</TableHead>
-                      <TableHead className="text-right">Stock</TableHead>
+                      <TableHead className="text-right">Opening Stock</TableHead>
+                      <TableHead className="text-right">Stock Balance</TableHead>
                       <TableHead className="text-right">Cost Price</TableHead>
                       <TableHead className="text-right">MRP</TableHead>
                       <TableHead className="text-center">GST %</TableHead>
@@ -1172,131 +1352,138 @@ function InventoryItemsPageInner() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(items?.data ?? []).map(
-                      (item: ImsItemWithRelations) => (
-                        <TableRow key={item.id}>
-                          <TableCell className="font-mono text-sm">
-                            {item.code}
-                          </TableCell>
-                          <TableCell>
-                            <div>
-                              <p className="font-medium">{item.name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {item.category?.name || '-'}
-                              </p>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-sm text-muted-foreground">
-                            {item.company_name ?? '—'}
-                          </TableCell>
-                          <TableCell>
-                            <Badge
-                              variant="outline"
-                              className={itemTypeBadgeVariant(item.item_type)}
-                            >
-                              {item.item_type}
+                    {(items?.data ?? []).map((item: ImsItemWithRelations) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-mono text-sm">{item.code}</TableCell>
+                        <TableCell>
+                          <div className="w-10 h-10 rounded border bg-muted flex items-center justify-center overflow-hidden">
+                            {item.image_url ? (
+                              <img
+                                src={item.image_url}
+                                alt={item.name}
+                                className="w-full h-full object-contain"
+                              />
+                            ) : (
+                              <Package className="h-4 w-4 text-muted-foreground/40" />
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <p className="font-medium">{item.name}</p>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {item.category?.name || '—'}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {item.company_name ?? '—'}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={itemTypeBadgeVariant(item.item_type)}>
+                            {item.item_type}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {item.base_unit?.abbreviation || item.base_unit?.name || '-'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <span className="text-muted-foreground font-medium tabular-nums">
+                            {item.stock?.opening_quantity ?? '—'}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {item.stock != null ? (
+                            <span className={
+                              item.stock.current_quantity === 0
+                                ? 'text-red-500 font-medium tabular-nums'
+                                : item.stock.current_quantity <= (item.reorder_level || 0)
+                                ? 'text-yellow-600 font-medium tabular-nums'
+                                : 'text-green-600 font-medium tabular-nums'
+                            }>
+                              {item.stock.current_quantity}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatPrice(Number(item.cost_price) || 0)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatPrice(Number(item.mrp) || 0)}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {Number(item.gst_rate) > 0 ? (
+                            <Badge variant="outline" className="font-mono text-xs">
+                              {item.gst_rate}%
                             </Badge>
-                          </TableCell>
-                          <TableCell>
-                            {item.base_unit?.abbreviation || item.base_unit?.name || '-'}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {item.stock != null ? (
-                              <span className={
-                                item.stock.current_quantity === 0
-                                  ? 'text-red-500 font-medium'
-                                  : item.stock.current_quantity <= (item.reorder_level || 0)
-                                  ? 'text-yellow-600 font-medium'
-                                  : 'text-green-600 font-medium'
-                              }>
-                                {item.stock.current_quantity}
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground text-xs">—</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {formatPrice(item.cost_price)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {formatPrice(item.mrp)}
-                          </TableCell>
-                          <TableCell className="text-center">
-                            {item.gst_rate > 0 ? (
-                              <Badge variant="outline" className="font-mono text-xs">
-                                {item.gst_rate}%
-                              </Badge>
-                            ) : (
-                              <span className="text-muted-foreground text-xs">—</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {item.is_active ? (
-                              <Badge variant="success">Active</Badge>
-                            ) : (
-                              <Badge variant="secondary">Inactive</Badge>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm">
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                {canEdit && (
-                                  <DropdownMenuItem onClick={() => handleEdit(item)}>
-                                    <Pencil className="h-4 w-4 mr-2" />
-                                    Edit
-                                  </DropdownMenuItem>
-                                )}
-                                {canAdjust && (
-                                  <DropdownMenuItem onClick={() => {
-                                    setAdjustingItem(item);
-                                    setAdjustForm({ adjustment_type: 'correction', quantity: 0, reason: '', batch_number: '', expiry_date: '' });
-                                    setAdjustDialogOpen(true);
-                                  }}>
-                                    <Layers className="h-4 w-4 mr-2" />
-                                    Adjust Stock
-                                  </DropdownMenuItem>
-                                )}
-                                {canEdit && (
-                                  <DropdownMenuItem onClick={() => setBatchItem(item)}>
-                                    <Package className="h-4 w-4 mr-2" />
-                                    Add Batch Stock
-                                  </DropdownMenuItem>
-                                )}
-                                <DropdownMenuItem onClick={() => setViewBatchItem(item)}>
-                                  <Layers className="h-4 w-4 mr-2" />
-                                  View Batches
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {item.is_active ? (
+                            <Badge variant="success">Active</Badge>
+                          ) : (
+                            <Badge variant="secondary">Inactive</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              {canEdit && (
+                                <DropdownMenuItem onClick={() => handleEdit(item)}>
+                                  <Pencil className="h-4 w-4 mr-2" />
+                                  Edit
                                 </DropdownMenuItem>
-                                {canEdit && (
+                              )}
+                              {canAdjust && (
+                                <DropdownMenuItem onClick={() => {
+                                  setAdjustingItem(item);
+                                  setAdjustForm({ adjustment_type: 'correction', quantity: 0, reason: '', batch_number: '', expiry_date: '' });
+                                  setAdjustDialogOpen(true);
+                                }}>
+                                  <Layers className="h-4 w-4 mr-2" />
+                                  Adjust Stock
+                                </DropdownMenuItem>
+                              )}
+                              {canEdit && (
+                                <DropdownMenuItem onClick={() => setBatchItem(item)}>
+                                  <Package className="h-4 w-4 mr-2" />
+                                  Add Batch Stock
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuItem onClick={() => setViewBatchItem(item)}>
+                                <Layers className="h-4 w-4 mr-2" />
+                                View Batches
+                              </DropdownMenuItem>
+                              {canEdit && (
+                                <DropdownMenuItem onClick={() => handleToggleActive(item)}>
+                                  <ToggleLeft className="h-4 w-4 mr-2" />
+                                  {item.is_active ? 'Deactivate' : 'Activate'}
+                                </DropdownMenuItem>
+                              )}
+                              {canDelete && (
+                                <>
+                                  <DropdownMenuSeparator />
                                   <DropdownMenuItem
-                                    onClick={() => handleToggleActive(item)}
+                                    className="text-red-600 focus:text-red-600"
+                                    onClick={() => handleDelete(item)}
                                   >
-                                    <ToggleLeft className="h-4 w-4 mr-2" />
-                                    {item.is_active ? 'Deactivate' : 'Activate'}
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Delete
                                   </DropdownMenuItem>
-                                )}
-                                {canDelete && (
-                                  <>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                      className="text-red-600 focus:text-red-600"
-                                      onClick={() => handleDelete(item)}
-                                    >
-                                      <Trash2 className="h-4 w-4 mr-2" />
-                                      Delete
-                                    </DropdownMenuItem>
-                                  </>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    )}
+                                </>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
               </div>

@@ -42,7 +42,12 @@ export default function EditCompositionPage({ params }: EditCompositionPageProps
       router.push(`/bos/compositions/${compositionId}`);
     } catch (error) {
       logger.error('academic/bos', 'Failed to update composition', error);
-      toast.error('Failed to update composition');
+      // Mirror /bos/compositions/new — surface the server's specific reason
+      // (e.g. 403 chairman-only guard, UNIQUE conflict on changed start date).
+      const message = error instanceof Error
+        ? error.message
+        : 'Failed to update composition';
+      toast.error(message);
     }
   };
 

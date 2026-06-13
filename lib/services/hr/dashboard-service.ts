@@ -253,44 +253,29 @@ export class HRDashboardService {
     supabase: SupabaseClient,
     hrOrgId: string | null
   ): Promise<DashboardKPI[]> {
-    // Permanent staff = rows in hr_staff_details (joined to staff)
-    let permanent = supabase
+    // All staff = rows in hr_staff_details (joined to staff)
+    // After consolidation, hr_employees table has been dropped — all employees
+    // are in staff. Total headcount = hr_staff_details count.
+    let staffQ = supabase
       .from('hr_staff_details')
       .select('staff_id', { count: 'exact', head: true });
-    if (hrOrgId) permanent = permanent.eq('hr_organization_id', hrOrgId);
-    const permanentCount = await safeCount(() => permanent);
-
-    // Non-staff = active hr_employees (guests / vendors / TAs / volunteers)
-    let nonStaff = supabase
-      .from('hr_employees')
-      .select('id', { count: 'exact', head: true })
-      .eq('is_active', true);
-    if (hrOrgId) nonStaff = nonStaff.eq('hr_organization_id', hrOrgId);
-    const nonStaffCount = await safeCount(() => nonStaff);
-
-    const total = permanentCount + nonStaffCount;
+    if (hrOrgId) staffQ = staffQ.eq('hr_organization_id', hrOrgId);
+    const totalCount = await safeCount(() => staffQ);
 
     return [
       {
         name: 'total_headcount',
         label: 'Total Headcount',
-        value: total,
+        value: totalCount,
         drill_url: '/staff/list',
         icon: 'Users',
       },
       {
         name: 'permanent_staff',
-        label: 'Permanent Staff',
-        value: permanentCount,
-        drill_url: '/staff/list',
+        label: 'Registered Staff',
+        value: totalCount,
+        drill_url: '/hr/employees',
         icon: 'UserCheck',
-      },
-      {
-        name: 'non_staff_active',
-        label: 'Non-Staff (Active)',
-        value: nonStaffCount,
-        drill_url: '/hr/employees?is_active=true',
-        icon: 'UsersRound',
       },
     ];
   }

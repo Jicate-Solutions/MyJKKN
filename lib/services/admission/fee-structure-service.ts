@@ -11,6 +11,18 @@ import type {
   FeeStructureCoverageReportRow,
 } from '@/types/admission';
 
+export type FeeItemApplicability = {
+  applies_to: 'first_year_only' | 'every_year' | 'specific_year';
+  applies_year_of_study: number | null;
+};
+
+/** Whether a fee item applies to a learner currently in `yearOfStudy`. */
+export function feeItemAppliesToYear(item: FeeItemApplicability, yearOfStudy: number): boolean {
+  if (item.applies_to === 'every_year') return true;
+  if (item.applies_to === 'first_year_only') return yearOfStudy === 1;
+  return item.applies_year_of_study === yearOfStudy; // 'specific_year'
+}
+
 /**
  * CRUD + clone + lookup + coverage for admission_fee_structures and items.
  *
@@ -51,7 +63,13 @@ export class FeeStructureService {
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
     institution_id?: string;
+    degree_id?: string;
+    department_id?: string;
+    programme_id?: string;
     admission_year_id?: string;
+    admission_year_ids?: string[];
+    quota_id?: string;
+    community_category_id?: string;
     status?: 'draft' | 'active' | 'archived';
   }): Promise<{
     data: Array<
@@ -61,11 +79,11 @@ export class FeeStructureService {
         department_name: string | null;
         programme_name: string | null;
         quota_name: string | null;
+        accommodation_name: string | null;
         /** Comma-joined community names, for legacy single-cell rendering. */
         community_name: string | null;
         /** All community names attached to this structure (via junction). */
         community_names: string[];
-        accommodation_name: string | null;
         admission_year_name: string | null;
         item_count: number;
       }
@@ -81,6 +99,31 @@ export class FeeStructureService {
     const sortColumn = params.sortBy && params.sortBy.length > 0 ? params.sortBy : 'updated_at';
     const ascending = params.sortOrder === 'asc';
 
+    // Community filter is many-to-many via admission_fee_structure_communities.
+    // Resolve matching parent IDs first, then constrain the main query with
+    // `.in('id', ids)`. Cheap because the junction is narrow (2 UUIDs/row) and
+    // it sidesteps the !inner-vs-left-join branching that would otherwise be
+    // needed inside the embedded select.
+    let communityScopedIds: string[] | null = null;
+    if (params.community_category_id) {
+      const { data: junctionRows, error: jErr } = await supabase
+        .from('admission_fee_structure_communities')
+        .select('fee_structure_id')
+        .eq('community_category_id', params.community_category_id);
+      if (jErr) throw jErr;
+      communityScopedIds = (junctionRows ?? []).map(
+        (r: { fee_structure_id: string }) => r.fee_structure_id,
+      );
+      // No matches → short-circuit with an empty page; otherwise PostgREST
+      // would receive `.in('id', [])` which it rejects as an empty list.
+      if (communityScopedIds.length === 0) {
+        return {
+          data: [],
+          metadata: { total: 0, totalPages: 1, page, limit },
+        };
+      }
+    }
+
     let query = supabase
       .from('admission_fee_structures')
       .select(
@@ -91,8 +134,8 @@ export class FeeStructureService {
         department:departments(id, department_name),
         programme:programs(id, program_name),
         quota:quotas(id, name),
-        communities:admission_fee_structure_communities(community_category_id, community_category:community_categories(id, name)),
         accommodation:accommodation_types(id, name),
+        communities:admission_fee_structure_communities(community_category_id, community_category:community_categories(id, name)),
         admission_year:admission_years(id, admission_year_name),
         items:admission_fee_structure_items(id)
       `,
@@ -102,7 +145,18 @@ export class FeeStructureService {
       .range(from, to);
 
     if (params.institution_id) query = query.eq('institution_id', params.institution_id);
-    if (params.admission_year_id) query = query.eq('admission_year_id', params.admission_year_id);
+    if (params.degree_id) query = query.eq('degree_id', params.degree_id);
+    if (params.department_id) query = query.eq('department_id', params.department_id);
+    if (params.programme_id) query = query.eq('programme_id', params.programme_id);
+    if (params.admission_year_ids?.length) {
+      query = params.admission_year_ids.length === 1
+        ? query.eq('admission_year_id', params.admission_year_ids[0])
+        : query.in('admission_year_id', params.admission_year_ids);
+    } else if (params.admission_year_id) {
+      query = query.eq('admission_year_id', params.admission_year_id);
+    }
+    if (params.quota_id) query = query.eq('quota_id', params.quota_id);
+    if (communityScopedIds) query = query.in('id', communityScopedIds);
     if (params.status) query = query.eq('status', params.status);
     if (params.search && params.search.trim()) query = query.ilike('name', `%${params.search.trim()}%`);
 
@@ -115,11 +169,11 @@ export class FeeStructureService {
       department: { department_name: string } | null;
       programme: { program_name: string } | null;
       quota: { name: string } | null;
+      accommodation: { name: string } | null;
       communities: Array<{
         community_category_id: string;
         community_category: { id: string; name: string } | null;
       }>;
-      accommodation: { name: string } | null;
       admission_year: { admission_year_name: string } | null;
       items: Array<{ id: string }>;
     }
@@ -138,12 +192,12 @@ export class FeeStructureService {
         department_name: joined.department?.department_name ?? null,
         programme_name: joined.programme?.program_name ?? null,
         quota_name: joined.quota?.name ?? null,
+        accommodation_name: joined.accommodation?.name ?? null,
         // Backwards-compat single-name field — joins all linked communities
         // for legacy table cells. Most consumers should switch to
         // `community_names` (plural) when rendering chips.
         community_name: communityNames.join(', ') || null,
         community_names: communityNames,
-        accommodation_name: joined.accommodation?.name ?? null,
         admission_year_name: joined.admission_year?.admission_year_name ?? null,
         item_count: joined.items?.length ?? 0,
       };
@@ -192,9 +246,9 @@ export class FeeStructureService {
         department_name: string | null;
         programme_name: string | null;
         quota_name: string | null;
+        accommodation_name: string | null;
         community_name: string | null;
         community_names: string[];
-        accommodation_name: string | null;
         admission_year_name: string | null;
         items: Array<
           AdmissionFeeStructureItem & {
@@ -215,8 +269,8 @@ export class FeeStructureService {
         department:departments(id, department_name),
         programme:programs(id, program_name),
         quota:quotas(id, name),
-        communities:admission_fee_structure_communities(community_category_id, community_category:community_categories(id, name)),
         accommodation:accommodation_types(id, name),
+        communities:admission_fee_structure_communities(community_category_id, community_category:community_categories(id, name)),
         admission_year:admission_years(id, admission_year_name),
         items:admission_fee_structure_items(*, billing_category:billing_categories(id, category_name, frequency))
       `)
@@ -231,11 +285,11 @@ export class FeeStructureService {
       department: { department_name: string } | null;
       programme: { program_name: string } | null;
       quota: { name: string } | null;
+      accommodation: { name: string } | null;
       communities: Array<{
         community_category_id: string;
         community_category: { id: string; name: string } | null;
       }>;
-      accommodation: { name: string } | null;
       admission_year: { admission_year_name: string } | null;
       items: Array<{
         billing_category: { category_name: string; frequency: string } | null;
@@ -255,9 +309,9 @@ export class FeeStructureService {
       department_name: joined.department?.department_name ?? null,
       programme_name: joined.programme?.program_name ?? null,
       quota_name: joined.quota?.name ?? null,
+      accommodation_name: joined.accommodation?.name ?? null,
       community_name: communityNames.join(', ') || null,
       community_names: communityNames,
-      accommodation_name: joined.accommodation?.name ?? null,
       admission_year_name: joined.admission_year?.admission_year_name ?? null,
       items: joined.items.map((it) => {
         const withJoin = it as typeof it & {
@@ -273,30 +327,30 @@ export class FeeStructureService {
   }
 
   /**
-   * Find a single active structure that matches the 7 matrix dimensions AND
-   * covers the given community via the junction. Used by the editor when the
-   * tree-rail leaf includes a community: returns the structure that serves
-   * that community for those 7 dims (or null if none).
-   *
-   * The trigger `_fee_structure_community_no_overlap` guarantees this lookup
-   * cannot match more than one active structure, so `.maybeSingle()` is safe.
+   * Find the single active structure matching the 6 hard dims + community,
+   * with `gender` and `accommodation_type_id` as OPTIONAL refinements (NULL =
+   * "Any"). Fetches all active candidates sharing the hard dims + community
+   * (the overlap trigger keeps that set tiny), filters to those whose optional
+   * dims match (exact OR wildcard-NULL), then ranks: accommodation-specific >
+   * gender-specific > most-recently-updated. This MUST stay in lockstep with
+   * admission_resolve_fee_items_for_lead's ORDER BY — preview must equal billed.
    */
   static async findByDimensions(
     d: FeeStructureMatrixDimensions,
     community_category_id: string,
+    yearOfStudy: number = 1,
   ): Promise<AdmissionFeeStructureWithItems | null> {
     const supabase = createClientSupabaseClient();
+    const gender = d.gender?.toUpperCase() || null;
+    const accommodation = d.accommodation_type_id || null;
 
-    // 1. Resolve which active structures cover this community for these 7 dims.
-    //    The junction is keyed (structure, community) and we need to filter by
-    //    parent dimensions, so we query the junction with an inner join.
-    const { data: junctionRows, error: junctionErr } = await supabase
+    const { data: rows, error } = await supabase
       .from('admission_fee_structure_communities')
       .select(
         `fee_structure_id,
-         structure:admission_fee_structures!inner(id, status,
-           institution_id, degree_id, department_id, programme_id,
-           quota_id, accommodation_type_id, admission_year_id)`,
+         structure:admission_fee_structures!inner(id, status, gender,
+           accommodation_type_id, institution_id, degree_id, department_id,
+           programme_id, quota_id, admission_year_id, updated_at)`,
       )
       .eq('community_category_id', community_category_id)
       .eq('structure.institution_id', d.institution_id)
@@ -304,17 +358,58 @@ export class FeeStructureService {
       .eq('structure.department_id', d.department_id)
       .eq('structure.programme_id', d.programme_id)
       .eq('structure.quota_id', d.quota_id)
-      .eq('structure.accommodation_type_id', d.accommodation_type_id)
       .eq('structure.admission_year_id', d.admission_year_id)
-      .eq('structure.status', 'active')
-      .limit(1);
-    if (junctionErr) throw junctionErr;
-    const structureId = junctionRows?.[0]?.fee_structure_id;
-    if (!structureId) return null;
+      .eq('structure.status', 'active');
+    if (error) throw error;
 
-    // 2. Hydrate the full structure (with items + all linked communities) so
-    //    the editor can render the existing community chips.
-    return this.getWithItems(structureId);
+    interface Candidate {
+      id: string;
+      gender: string | null;
+      accommodation_type_id: string | null;
+      updated_at: string | null;
+    }
+
+    // The embedded to-one `structure` comes back as an object (PostgREST FK
+    // embed); cast defensively in case the client types it as an array.
+    const candidates: Candidate[] = (rows ?? [])
+      .map((r: any) => (Array.isArray(r.structure) ? r.structure[0] : r.structure))
+      .filter((s: Candidate | null | undefined): s is Candidate => !!s)
+      .filter(
+        (s) =>
+          (s.gender === gender || s.gender === null) &&
+          (s.accommodation_type_id === accommodation ||
+            s.accommodation_type_id === null),
+      );
+
+    if (candidates.length === 0) return null;
+
+    // Rank: accommodation-specific first, then gender-specific, then newest.
+    // Mirrors the RPC's `ORDER BY accommodation_type_id IS NOT NULL DESC,
+    // gender IS NOT NULL DESC, updated_at DESC`.
+    candidates.sort((a, b) => {
+      const accA = a.accommodation_type_id !== null ? 1 : 0;
+      const accB = b.accommodation_type_id !== null ? 1 : 0;
+      if (accA !== accB) return accB - accA;
+      const genA = a.gender !== null ? 1 : 0;
+      const genB = b.gender !== null ? 1 : 0;
+      if (genA !== genB) return genB - genA;
+      return (b.updated_at ?? '').localeCompare(a.updated_at ?? '');
+    });
+
+    // Hydrate the full structure (with items + all linked communities), then
+    // filter items to those applicable for the requested year of study,
+    // mirroring the server-side filter in admission_resolve_fee_items_for_lead.
+    const full = await this.getWithItems(candidates[0].id);
+    if (!full) return null;
+
+    const applicableItems = full.items.filter((it) =>
+      feeItemAppliesToYear(
+        { applies_to: it.applies_to, applies_year_of_study: it.applies_year_of_study },
+        yearOfStudy,
+      ),
+    );
+
+    return { ...full, items: applicableItems };
   }
 
   static async create(input: CreateAdmissionFeeStructureInput): Promise<AdmissionFeeStructureWithItems> {
@@ -356,6 +451,9 @@ export class FeeStructureService {
         amount: it.amount,
         is_optional: it.is_optional ?? false,
         sort_order: it.sort_order ?? idx,
+        applies_to: it.applies_to ?? 'every_year',
+        applies_year_of_study:
+          it.applies_to === 'specific_year' ? it.applies_year_of_study ?? null : null,
       }));
       const { error: itemError } = await supabase.from('admission_fee_structure_items').insert(rows);
       if (itemError) {
@@ -476,6 +574,9 @@ export class FeeStructureService {
       amount: it.amount,
       is_optional: it.is_optional ?? false,
       sort_order: it.sort_order ?? idx,
+      applies_to: it.applies_to ?? 'every_year',
+      applies_year_of_study:
+        it.applies_to === 'specific_year' ? it.applies_year_of_study ?? null : null,
     }));
     const { error } = await supabase
       .from('admission_fee_structure_items')
@@ -553,8 +654,9 @@ export class FeeStructureService {
       department_id:         overrides?.department_id         ?? source.department_id,
       programme_id:          overrides?.programme_id          ?? source.programme_id,
       quota_id:              overrides?.quota_id              ?? source.quota_id,
-      accommodation_type_id: overrides?.accommodation_type_id ?? source.accommodation_type_id,
       admission_year_id:     newAcademicYearId,
+      gender:                overrides?.gender                ?? source.gender ?? undefined,
+      accommodation_type_id: overrides?.accommodation_type_id ?? source.accommodation_type_id ?? undefined,
     };
     return this.create({
       ...dims,
@@ -568,6 +670,8 @@ export class FeeStructureService {
         amount: it.amount,
         is_optional: it.is_optional,
         sort_order: it.sort_order,
+        applies_to: it.applies_to,
+        applies_year_of_study: it.applies_year_of_study,
       })),
     });
   }
@@ -585,7 +689,7 @@ export class FeeStructureService {
       .from('admission_fee_structures')
       .select(`
         institution_id, degree_id, department_id, programme_id,
-        quota_id, accommodation_type_id, admission_year_id,
+        quota_id, accommodation_type_id, admission_year_id, gender,
         communities:admission_fee_structure_communities(community_category_id),
         items:admission_fee_structure_items(id)
       `)
@@ -611,11 +715,33 @@ export class FeeStructureService {
           community_category_id: c.community_category_id,
           accommodation_type_id: row.accommodation_type_id,
           admission_year_id: row.admission_year_id,
+          gender: (row as any).gender ?? null,
           has_structure: true,
           item_count: itemCount,
         });
       }
     }
     return rows;
+  }
+
+  static async getStats(): Promise<{
+    total: number;
+    active: number;
+    draft: number;
+    archived: number;
+    institutions_covered: number;
+    total_fee_amount: number;
+    avg_fee_per_structure: number;
+    min_fee: number;
+    max_fee: number;
+    avg_items_per_structure: number;
+    total_optional_items: number;
+    total_mandatory_items: number;
+    structures_without_items: number;
+  }> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc('get_fee_structure_stats');
+    if (error) throw error;
+    return data as any;
   }
 }

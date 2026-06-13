@@ -27,8 +27,12 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { useBottomNav, useBottomNavHydration } from '@/hooks/use-bottom-nav';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
 import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
+import { adaptMenuLabels, adaptLabel } from '@/lib/utils/school-label-adapter';
+import { useAuth } from '@/providers/auth-provider';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionType } from '@/hooks/use-institution-type';
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
+import { useIsHosteler } from '@/hooks/campus-living/use-is-hosteler';
 import { usePageFavorites } from '@/hooks/use-page-favorites';
 import { ICON_MAP } from '@/lib/navigation/page-registry';
 import { MODULES, getModulesBySection } from '@/lib/navigation/modules';
@@ -144,6 +148,13 @@ export function BottomNavbar() {
     userProfile
   } = usePermissions();
 
+  const { user } = useAuth();
+  const { institutionType, isLoading: institutionTypeLoading } = useInstitutionType();
+
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[BottomNav] institutionType:', institutionType, 'isLoading:', institutionTypeLoading);
+  }
+
   const { open: openSearch } = useCommandPalette();
   const { favorites } = usePageFavorites();
 
@@ -163,6 +174,12 @@ export function BottomNavbar() {
 
   // Check if user is an expo team member (for dynamic sidebar visibility)
   const { data: isExpoTeamMember } = useUserExpoTeamStatus();
+
+  // Students: the My Hostel entry is shown only for actual hostel residents
+  // (learners_profiles accommodation = hostel). Mirrors menu.tsx so desktop
+  // sidebar and mobile bottom-nav stay in lock-step.
+  const isStudentRole = userProfile?.role === 'student';
+  const { data: isHosteler } = useIsHosteler(isStudentRole);
 
   // Build RolePermissionData from usePermissions (multi-role merged)
   const roleData = useMemo((): RolePermissionData | null => {
@@ -188,20 +205,36 @@ export function BottomNavbar() {
       'staff_counselor',
     ]);
     const skipExpoEnrichment = EXPO_ENRICHMENT_SKIP_ROLES.has(userProfile.role || '');
-    const enrichedPermissions = isExpoTeamMember && !skipExpoEnrichment
-      ? { ...permissions, 'admission.marketing.expos.view': true }
-      : permissions;
+    const enrichedPermissions: Record<string, boolean> = { ...permissions };
+    if (isExpoTeamMember && !skipExpoEnrichment) {
+      enrichedPermissions['admission.marketing.expos.view'] = true;
+    }
+
+    // Students: gate the My Hostel entry on live hostel residency. The role-wide
+    // campus_living.my_hostel.view grant covers every student; overwrite it with
+    // user_is_hosteler() so dayscholars don't get a dead-end menu.
+    if (isStudentRole) {
+      enrichedPermissions['campus_living.my_hostel.view'] =
+        permissions['campus_living.my_hostel.view'] === true && isHosteler === true;
+    }
 
     return {
       role_key: userProfile.role || '',
       permissions: enrichedPermissions
     };
-  }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember]);
+  }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember, isStudentRole, isHosteler]);
 
-  // Get filtered pages based on merged permissions
+  // Get filtered pages based on merged permissions and institution type
   const filteredPages = useMemo(() => {
-    return GetRoleBasedPages(pathname, roleData);
-  }, [pathname, roleData]);
+    const pages = GetRoleBasedPages(pathname, roleData);
+
+    // Apply label adaptation for schools (Degrees → Streams, etc.)
+    // NOTE: Do NOT filter by entity type like filterMenuByEntityType does.
+    // Schools need access to organization menus, just with adapted labels.
+    // The sidebar approach (adapt labels, don't hide menus) is correct.
+    const entityType = (institutionType ?? 'institution') as any;
+    return adaptMenuLabels(pages, entityType);
+  }, [pathname, roleData, institutionType]);
 
   // Transform filtered pages into bottom nav groups.
   //
@@ -260,18 +293,18 @@ export function BottomNavbar() {
       icon: Star,
       menus: favorites.map((fav) => ({
         href: fav.path,
-        label: fav.title,
+        label: adaptLabel(fav.title, institutionType ?? 'institution'),
         icon: ICON_MAP[fav.iconName] || Star,
       })),
       // Favorites are flat by definition — every favorite is a top-level
       // peer (no nested submenus). topLevelPeers === menus here.
       topLevelPeers: favorites.map((fav) => ({
         href: fav.path,
-        label: fav.title,
+        label: adaptLabel(fav.title, institutionType ?? 'institution'),
         icon: ICON_MAP[fav.iconName] || Star,
       })),
     };
-  }, [favorites]);
+  }, [favorites, institutionType]);
 
   // Primary nav groups: 3 regular + favorites (if any), or 4 regular
   const primaryNavGroups = useMemo(() => {

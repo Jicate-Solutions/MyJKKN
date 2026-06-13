@@ -21,6 +21,7 @@ import { SectionService } from '@/lib/services/organization/section-service';
 import { TimetablesSearchParams } from './data-table-schema';
 import { usePermissions } from '@/hooks/use-permissions';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface TimetableFiltersProps {
   searchParams: TimetablesSearchParams;
@@ -64,6 +65,7 @@ export function TimetableFilters({
   const [searchValue, setSearchValue] = useState(searchParams.search || '');
   const [isSearching, setIsSearching] = useState(false);
   const { isSuperAdmin, userProfile } = usePermissions();
+  const adapt = useAdaptiveLabels();
 
   /**
    * Effective institution ID — prefers URL param (user explicitly chose one),
@@ -117,7 +119,8 @@ export function TimetableFilters({
     async function loadInstitutions() {
       try {
         setLoading(true);
-        const data = await OrganizationService.getInstitutionNames(true);
+        // entityType:'all' → include schools. Dropdown is super-admin-only.
+        const data = await OrganizationService.getInstitutionNames(true, undefined, 'all');
         setInstitutions(data);
       } catch (error) {
         logger.error('academic/timetables', 'Error loading institutions', error);
@@ -340,10 +343,10 @@ export function TimetableFilters({
             disabled={!effectiveInstitutionId}
           >
             <SelectTrigger className='w-full sm:w-[180px]'>
-              <SelectValue placeholder='Select degree' />
+              <SelectValue placeholder={`Select ${adapt('degree')}`} />
             </SelectTrigger>
             <SelectContent className='max-h-60 overflow-y-auto'>
-              <SelectItem value='all'>All Degrees</SelectItem>
+              <SelectItem value='all'>{adapt('All Degrees')}</SelectItem>
               {degrees.map((degree) => (
                 <SelectItem key={degree.id} value={degree.id}>
                   {degree.degree_name}
@@ -367,10 +370,10 @@ export function TimetableFilters({
             disabled={!searchParams.degree_id}
           >
             <SelectTrigger className='w-full sm:w-[180px]'>
-              <SelectValue placeholder='Select department' />
+              <SelectValue placeholder={`Select ${adapt('department')}`} />
             </SelectTrigger>
             <SelectContent className='max-h-60 overflow-y-auto'>
-              <SelectItem value='all'>All Departments</SelectItem>
+              <SelectItem value='all'>{adapt('All Departments')}</SelectItem>
               {departments.map((dept) => (
                 <SelectItem key={dept.id} value={dept.id}>
                   {dept.department_name}
@@ -393,10 +396,10 @@ export function TimetableFilters({
             disabled={!searchParams.department_id}
           >
             <SelectTrigger className='w-full sm:w-[180px]'>
-              <SelectValue placeholder='Select program' />
+              <SelectValue placeholder={`Select ${adapt('program')}`} />
             </SelectTrigger>
             <SelectContent className='max-h-60 overflow-y-auto'>
-              <SelectItem value='all'>All Programs</SelectItem>
+              <SelectItem value='all'>{adapt('All Programs')}</SelectItem>
               {programs.map((program) => (
                 <SelectItem key={program.id} value={program.id}>
                   {program.program_name}
@@ -431,10 +434,10 @@ export function TimetableFilters({
           disabled={!searchParams.program_id}
         >
           <SelectTrigger className='w-full sm:w-[180px]'>
-            <SelectValue placeholder='Select semester' />
+            <SelectValue placeholder={`Select ${adapt('semester')}`} />
           </SelectTrigger>
           <SelectContent className='max-h-60 overflow-y-auto'>
-            <SelectItem value='all'>All Semesters</SelectItem>
+            <SelectItem value='all'>{adapt('All Semesters')}</SelectItem>
             {semesters.map((semester) => (
               <SelectItem key={semester.id} value={semester.id}>
                 {semester.semester_name}
@@ -477,10 +480,10 @@ export function TimetableFilters({
           disabled={!searchParams.semester}
         >
           <SelectTrigger className='w-full sm:w-[180px]'>
-            <SelectValue placeholder='Select section' />
+            <SelectValue placeholder={`Select ${adapt('section')}`} />
           </SelectTrigger>
           <SelectContent className='max-h-60 overflow-y-auto'>
-            <SelectItem value='all'>All Sections</SelectItem>
+            <SelectItem value='all'>{adapt('All Sections')}</SelectItem>
             {/* Show all sections with their IDs */}
             {sections.map((section) => (
               <SelectItem key={section.id} value={section.id}>

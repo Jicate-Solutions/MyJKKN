@@ -34,6 +34,14 @@ interface SearchableSelectProps {
   loading?: boolean;
   /** Applied to the trigger button (use to set width, e.g. "w-[220px]") */
   className?: string;
+  /**
+   * Set to `true` when rendering this inside a Radix `Dialog`. Without it,
+   * the Popover portals outside the Dialog DOM and Dialog's pointer-down-
+   * outside handler races (and beats) cmdk's `onSelect` — clicks appear to
+   * do nothing. Defaults to `false` for page-level usage so the page can
+   * still scroll while the popover is open.
+   */
+  modal?: boolean;
 }
 
 /**
@@ -51,15 +59,38 @@ export function SearchableSelect({
   disabled = false,
   loading = false,
   className,
+  modal = false,
 }: SearchableSelectProps) {
   const [open, setOpen] = React.useState(false);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const contentRef = React.useRef<HTMLDivElement>(null);
+
+  // When opened inside a Radix Dialog (modal), portal the popover INTO the
+  // dialog instead of document.body. Otherwise the Dialog's focus-trap eats
+  // keystrokes (search input dead) and react-remove-scroll's scroll-lock eats
+  // wheel events (dropdown won't scroll) because the portaled content sits
+  // outside the dialog DOM subtree. Resolve the container in the open handler
+  // (not an effect) to avoid the set-state-in-effect cascade lint.
+  const [dialogContainer, setDialogContainer] = React.useState<HTMLElement | null>(null);
+
+  const handleOpenChange = (next: boolean) => {
+    if (next && modal) {
+      setDialogContainer(
+        (triggerRef.current?.closest(
+          '[role="dialog"],[role="alertdialog"]',
+        ) as HTMLElement | null) ?? null,
+      );
+    }
+    setOpen(next);
+  };
 
   const selectedLabel = options.find((o) => o.value === value)?.label;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange} modal={modal}>
       <PopoverTrigger asChild>
         <Button
+          ref={triggerRef}
           variant='outline'
           role='combobox'
           aria-expanded={open}
@@ -82,9 +113,21 @@ export function SearchableSelect({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className='p-0'
-        style={{ width: 'var(--radix-popover-trigger-width)' }}
+        ref={contentRef}
+        container={modal ? dialogContainer : undefined}
+        className='p-0 w-full'
+        style={{ width: 'var(--radix-popover-trigger-width)', minWidth: '250px' }}
         align='start'
+        onOpenAutoFocus={(e) => {
+          // When portaled INTO a scrollable DialogContent (modal), the
+          // popover's DOM sits at the end of the container, so the default
+          // focus scrolls the dialog to the bottom and the dropdown appears
+          // to jump. Focus the search input without scrolling instead.
+          e.preventDefault();
+          contentRef.current
+            ?.querySelector<HTMLInputElement>('[cmdk-input]')
+            ?.focus({ preventScroll: true });
+        }}
       >
         <Command
           filter={(cmdValue, search) =>
@@ -95,9 +138,9 @@ export function SearchableSelect({
           <CommandList>
             <CommandEmpty>{emptyMessage}</CommandEmpty>
             <CommandGroup>
-              {options.map((opt) => (
+              {options.map((opt, idx) => (
                 <CommandItem
-                  key={opt.value}
+                  key={opt.value || `empty-${idx}`}
                   // Include both label + value so search matches either
                   value={`${opt.label} ${opt.value}`}
                   onSelect={() => {

@@ -14,7 +14,7 @@ name: TypeCheck (PR-scoped)
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
 
 permissions:
@@ -24,7 +24,7 @@ jobs:
   typecheck:
     name: TypeCheck (PR-scoped)
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 15
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
@@ -32,15 +32,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0  # full history for base...head diff
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-
-      - name: Install deps
-        run: npm ci --no-audit --no-fund
 
       - name: Compute changed TS files (PR scope)
         id: changed
@@ -61,7 +52,31 @@ jobs:
 
       - name: Skip if no TS changes
         if: steps.changed.outputs.count == '0'
-        run: echo "::notice::No .ts/.tsx files changed in this PR. Skipping."
+        run: echo "::notice::No .ts/.tsx files changed in this PR. Install + typecheck skipped (Actions minutes saved)."
+
+      # Setup/install moved BELOW the changed-files computation (2026-06-12)
+      # so docs/sql/config-only PRs never pay the ~1min npm ci cost.
+      - name: Setup Node
+        if: steps.changed.outputs.count != '0'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          # npm download cache intentionally NOT used: the node_modules cache
+          # (seeded from main) makes it dead weight on hits; lockfile-change
+          # misses pay a one-off cold install instead (rare, acceptable).
+
+      # node_modules cache: keyed on the lockfile — a hit skips npm ci.
+      - name: Cache node_modules
+        if: steps.changed.outputs.count != '0'
+        id: nm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install deps
+        if: steps.changed.outputs.count != '0' && steps.nm.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
 
       - name: Run tsc + filter to PR-touched files
         if: steps.changed.outputs.count != '0'

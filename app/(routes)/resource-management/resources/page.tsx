@@ -2,7 +2,7 @@
 // app/(routes)/resource-management/resources/page.tsx
 
 
-import { useEffect, useMemo, useCallback } from 'react';
+import { useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { Plus, Edit, Eye, Package, ImageIcon } from 'lucide-react';
 import { format } from 'date-fns';
@@ -25,6 +25,8 @@ import {
 } from '@/hooks/resource-management/use-resources';
 import { ResourceEmptyState } from './_components/resource-empty-state';
 import { ResourceFiltersComponent } from './_components/resource-filters';
+import DownloadResourceTemplate from './_components/download-resource-template';
+import BulkUploadResources from './_components/bulk-upload-resources';
 import type { Resource, ResourceFilters } from '@/types/resource-management';
 import { usePermissions } from '@/hooks/use-permissions';
 import Loading from '@/components/Loading/Loading';
@@ -64,10 +66,6 @@ export default function ResourcesPage() {
   const canDeleteResources =
     isSuperAdmin || canAccess('resources.resources', 'delete');
 
-  useEffect(() => {
-    fetchResources();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Handle search
   const handleSearch = useCallback(
@@ -117,7 +115,8 @@ export default function ResourcesPage() {
       available: 'bg-green-100 text-green-800',
       occupied: 'bg-blue-100 text-blue-800',
       maintenance: 'bg-yellow-100 text-yellow-800',
-      retired: 'bg-gray-100 text-gray-800'
+      retired: 'bg-gray-100 text-gray-800',
+      inactive: 'bg-slate-200 text-slate-600'
     };
     return colors[status as keyof typeof colors] || 'bg-gray-100 text-gray-800';
   };
@@ -290,9 +289,15 @@ export default function ResourcesPage() {
     );
   }
 
-  // Table tools (Create button)
+  // Table tools (Create button + bulk import controls)
   const tableTools = (
-    <>
+    <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
+      {canCreateResources && (
+        <>
+          <DownloadResourceTemplate />
+          <BulkUploadResources onImported={fetchResources} />
+        </>
+      )}
       {canCreateResources ? (
         <Button asChild>
           <Link href='/resource-management/resources/new'>
@@ -306,7 +311,7 @@ export default function ResourcesPage() {
           Create Resource
         </Button>
       )}
-    </>
+    </div>
   );
 
   // Server-side pagination configuration

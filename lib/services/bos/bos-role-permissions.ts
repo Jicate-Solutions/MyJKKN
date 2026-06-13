@@ -77,22 +77,11 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, RolePermissions> = {
     [BOS_MODULES.SCHEME]: ['view'],
   },
 
-  // Faculty: Limited access to syllabi and TA/DA
+  // Faculty (display name "Facilitator", role_key='faculty')
+  // Can create/edit/revise/duplicate syllabi, compositions, and taxonomy.
+  // NOTE: role_key is always 'faculty' — there is no 'facilitator' key in use.
   faculty: {
-    [BOS_MODULES.SYLLABI]: ['view', 'export'],
-    [BOS_MODULES.TAXONOMY]: ['view'],
-    [BOS_MODULES.EXPERTS]: ['view'],
-    [BOS_MODULES.COMPOSITIONS]: ['view'],
-    [BOS_MODULES.MEETINGS]: ['view'],
-    [BOS_MODULES.TA_DA]: ['view', 'submit'],
-    [BOS_MODULES.REPORTS]: ['view'],
-    [BOS_MODULES.COURSES]: ['view'],
-    [BOS_MODULES.SCHEME]: ['view'],
-  },
-
-  // Facilitator: Can create/edit syllabi, compositions, and taxonomy outcomes
-  facilitator: {
-    [BOS_MODULES.SYLLABI]: ['view', 'create', 'edit', 'export'],
+    [BOS_MODULES.SYLLABI]: ['view', 'create', 'edit', 'revise', 'duplicate', 'export'],
     [BOS_MODULES.TAXONOMY]: ['view', 'edit'],
     [BOS_MODULES.EXPERTS]: ['view'],
     [BOS_MODULES.COMPOSITIONS]: ['view', 'edit'],
@@ -103,31 +92,11 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, RolePermissions> = {
     [BOS_MODULES.SCHEME]: ['view'],
   },
 
-  // Coordinator: Can help manage BOS operations
-  coordinator: {
-    [BOS_MODULES.SYLLABI]: ['view', 'create', 'edit', 'export'],
-    [BOS_MODULES.TAXONOMY]: ['view'],
-    [BOS_MODULES.EXPERTS]: ['view', 'create', 'edit'],
-    [BOS_MODULES.COMPOSITIONS]: ['view', 'create', 'edit'],
-    [BOS_MODULES.MEETINGS]: ['view', 'create', 'edit'],
-    [BOS_MODULES.TA_DA]: ['view', 'submit'],
-    [BOS_MODULES.REPORTS]: ['view'],
-    [BOS_MODULES.COURSES]: ['view', 'create', 'edit'],
-    [BOS_MODULES.SCHEME]: ['view'],
-  },
-
-  // Default (no specific role): View only
-  default: {
-    [BOS_MODULES.SYLLABI]: ['view'],
-    [BOS_MODULES.TAXONOMY]: ['view'],
-    [BOS_MODULES.EXPERTS]: ['view'],
-    [BOS_MODULES.COMPOSITIONS]: ['view'],
-    [BOS_MODULES.MEETINGS]: ['view'],
-    [BOS_MODULES.TA_DA]: ['view'],
-    [BOS_MODULES.REPORTS]: ['view'],
-    [BOS_MODULES.COURSES]: ['view'],
-    [BOS_MODULES.SCHEME]: ['view'],
-  },
+  // Default (no specific role): No BOS access
+  // BOS module is restricted to: faculty, hod, principal, super_admin
+  // All other roles (student, staff, parent, coordinator, guest, driver, nif_coordinator, etc.)
+  // must be explicitly granted access via custom_roles.permissions in user_roles
+  default: {},
 };
 
 /**

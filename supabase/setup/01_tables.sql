@@ -102,8 +102,6 @@ CREATE TABLE IF NOT EXISTS public.api_keys (
 CREATE TABLE IF NOT EXISTS public.institutions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(255) NOT NULL,
-    -- Updated: 2026-05-07 - Added optional display_name (friendly label, falls back to name)
-    display_name VARCHAR(255),
     phone VARCHAR(20),
     email VARCHAR(255),
     website VARCHAR(255),
@@ -648,40 +646,13 @@ CREATE TABLE IF NOT EXISTS public.staff (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     created_by UUID,
     updated_by UUID,
-    institution_email TEXT NOT NULL,
+    -- Updated: 2026-06-09 - Made nullable. institution_email is OPTIONAL for all
+    -- staff (BUG-003989/3980/3962): non-teaching/labour employees have no
+    -- @jkkn.ac.in address. UNIQUE index allows multiple NULLs; the
+    -- sync_staff_to_profiles trigger skips profile-link when it is NULL.
+    institution_email TEXT,
     -- Updated: 2026-04-14 - role_key FK to custom_roles.role_key; drives dynamic role assignment on profile sync.
-    role_key VARCHAR(50) NOT NULL DEFAULT 'faculty' REFERENCES public.custom_roles(role_key) ON UPDATE CASCADE,
-    -- Added: 2026-05-03 - Extended faculty profile fields powering the public website. See migration 20260503100001.
-    has_extended_profile    boolean       NOT NULL DEFAULT false,
-    slug                    text          NULL,
-    status                  text          NOT NULL DEFAULT 'draft',
-    display_order           integer       NOT NULL DEFAULT 0,
-    experience_years        integer       NOT NULL DEFAULT 0,
-    research_papers         integer       NOT NULL DEFAULT 0,
-    phd_scholars            integer       NOT NULL DEFAULT 0,
-    awards_won              integer       NOT NULL DEFAULT 0,
-    pg_dissertations_guided integer       NOT NULL DEFAULT 0,
-    ug_projects_guided      integer       NOT NULL DEFAULT 0,
-    qualification_summary   text          NULL,
-    professional_summary    text          NULL,
-    mentoring_description   text          NULL,
-    google_scholar_url      text          NULL,
-    researchgate_url        text          NULL,
-    orcid_url               text          NULL,
-    badges                  jsonb         NOT NULL DEFAULT '[]'::jsonb,
-    qualifications          jsonb         NOT NULL DEFAULT '[]'::jsonb,
-    specialisations         jsonb         NOT NULL DEFAULT '[]'::jsonb,
-    experience_entries      jsonb         NOT NULL DEFAULT '[]'::jsonb,
-    research_focus_areas    jsonb         NOT NULL DEFAULT '[]'::jsonb,
-    publications            jsonb         NOT NULL DEFAULT '[]'::jsonb,
-    funded_projects         jsonb         NOT NULL DEFAULT '[]'::jsonb,
-    certifications          jsonb         NOT NULL DEFAULT '[]'::jsonb,
-    awards                  jsonb         NOT NULL DEFAULT '[]'::jsonb,
-    memberships             jsonb         NOT NULL DEFAULT '[]'::jsonb,
-    phd_scholars_list       jsonb         NOT NULL DEFAULT '[]'::jsonb,
-    faqs                    jsonb         NOT NULL DEFAULT '[]'::jsonb,
-    achievements            jsonb         NOT NULL DEFAULT '[]'::jsonb,
-    CONSTRAINT staff_status_check CHECK (status IN ('draft', 'published'))
+    role_key VARCHAR(50) NOT NULL DEFAULT 'faculty' REFERENCES public.custom_roles(role_key) ON UPDATE CASCADE
 );
 
 -- Employment Categories
@@ -691,7 +662,6 @@ CREATE TABLE IF NOT EXISTS public.employment_categories (
     category_name TEXT NOT NULL UNIQUE,
     description TEXT,
     is_teaching BOOLEAN NOT NULL DEFAULT false,
-    shows_extended_profile BOOLEAN NOT NULL DEFAULT false,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
@@ -838,11 +808,11 @@ CREATE TABLE IF NOT EXISTS public.timetable_slot_continuity (
 -- SECTION 8: BILLING AND FINANCE
 -- =====================================================
 
--- Billing Categories (flat, dynamic, GLOBAL across institutions)
+-- Billing Categories (flat, dynamic)
 -- Updated: 2026-04-15 - Consolidated 3-tier (parent/sub/item) hierarchy into a single flat table.
--- Updated: 2026-04-28 - Removed institution_id; categories are now common across all institutions.
 CREATE TABLE IF NOT EXISTS public.billing_categories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL,
     category_name VARCHAR(150) NOT NULL,
     amount NUMERIC(15,2),
     frequency VARCHAR(20) NOT NULL,
@@ -852,19 +822,15 @@ CREATE TABLE IF NOT EXISTS public.billing_categories (
     updated_at TIMESTAMPTZ DEFAULT now(),
     created_by UUID,
     updated_by UUID,
-    CONSTRAINT uq_billing_categories_name UNIQUE (category_name),
-    CONSTRAINT chk_billing_categories_frequency CHECK (frequency IN ('monthly','quarterly','yearly','one-time'))
+    CONSTRAINT uq_billing_categories_name_per_institution UNIQUE (institution_id, category_name)
 );
-
-CREATE INDEX IF NOT EXISTS idx_billing_categories_is_active ON public.billing_categories(is_active);
-CREATE INDEX IF NOT EXISTS idx_billing_categories_frequency ON public.billing_categories(frequency);
 
 -- Billing Student Bills
 CREATE TABLE IF NOT EXISTS public.billing_student_bills (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID NOT NULL,
     institution_id UUID NOT NULL,
-    item_category_id UUID,  -- FK to billing_categories(id); kept name 2026-04-28 (per D10)
+    category_id UUID,  -- Renamed 2026-04-15 from item_category_id (flat billing_categories)
     bill_description TEXT NOT NULL,
     due_date DATE NOT NULL,
     quantity INTEGER DEFAULT 1,
@@ -881,7 +847,8 @@ CREATE TABLE IF NOT EXISTS public.billing_student_bills (
     number_of_recurrences INTEGER,
     created_by UUID,
     created_at TIMESTAMPTZ DEFAULT now(),
-    updated_at TIMESTAMPTZ DEFAULT now()
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    academic_year_id uuid REFERENCES public.academic_years(id) ON DELETE SET NULL
 );
 
 -- Billing Invoices
@@ -1297,56 +1264,22 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
     priority VARCHAR(20) DEFAULT 'medium',
     category VARCHAR(50),
     page_url TEXT,
-    -- Updated: 2026-05-05 - Extended CASE to cover all 34 modules from lib/navigation/modules.ts.
-    --                       Was 11 modules; drifted as new modules shipped (campus-living,
-    --                       service-requests, notifications, faculty, etc. all fell to 'other').
-    --                       Drift now caught by scripts/check-bug-module-classifier.mjs (CI gate).
-    -- Updated: 2026-03-23 - Added module_name generated column for module-wise grouping.
-    -- NULL page_url → 'unknown'; unrecognized path → 'other'.
-    -- IMPORTANT: longer/more-specific prefixes MUST come before shorter ones —
-    -- e.g. /admission/ before /admin/, /learners-council/ before /learners/,
-    -- /audit-trail/ before /audit/, /application-hub/ before /applications/.
-    -- The slug list mirrors MODULES in lib/navigation/modules.ts. Adding a new
-    -- module there requires updating this CASE — `node scripts/check-bug-module-classifier.mjs`
-    -- enforces parity in CI.
+    -- Updated: 2026-03-23 - Added module_name generated column for module-wise grouping
+    -- NULL page_url → 'unknown'; unrecognized path → 'other'
     module_name VARCHAR(100) GENERATED ALWAYS AS (
       CASE
         WHEN page_url IS NULL THEN 'unknown'
         WHEN page_url ~ '/academic/' THEN 'academic'
-        WHEN page_url ~ '/admission/' THEN 'admission'                 -- before /admin/
-        WHEN page_url ~ '/admin/' THEN 'admin'
-        WHEN page_url ~ '/ai-query/' THEN 'ai-query'
-        WHEN page_url ~ '/application-hub/' THEN 'application-hub'     -- before /applications/
-        WHEN page_url ~ '/applications/' THEN 'applications'
-        WHEN page_url ~ '/audit-trail/' THEN 'audit-trail'             -- before /audit/
-        WHEN page_url ~ '/audit/' THEN 'audit'
-        WHEN page_url ~ '/accreditation/' THEN 'accreditation'
         WHEN page_url ~ '/billing/' THEN 'billing'
-        WHEN page_url ~ '/bug-leaderboard/' THEN 'bug-leaderboard'
-        WHEN page_url ~ '/campus-living/' THEN 'campus-living'
-        WHEN page_url ~ '/dashboard/' THEN 'dashboard'
-        WHEN page_url ~ '/events/' THEN 'events'
-        WHEN page_url ~ '/faculty/' THEN 'faculty'
-        WHEN page_url ~ '/health/' THEN 'health'
-        WHEN page_url ~ '/hr/' THEN 'hr'
-        WHEN page_url ~ '/learners-council/' THEN 'learners-council'   -- before /learners/
+        WHEN page_url ~ '/organizations?/' THEN 'organization'
         WHEN page_url ~ '/learners/' THEN 'learners'
-        WHEN page_url ~ '/learn/' THEN 'learn'
-        WHEN page_url ~ '/my-bug-reports/' THEN 'my-bug-reports'
-        WHEN page_url ~ '/notifications/' THEN 'notifications'
-        WHEN page_url ~ '/okr/' THEN 'okr'
-        WHEN page_url ~ '/organizations?/' THEN 'organizations'
-        WHEN page_url ~ '/profile/' THEN 'profile'
-        WHEN page_url ~ '/resource-management/' THEN 'resource-management'
-        WHEN page_url ~ '/service-requests/' THEN 'service-requests'
-        WHEN page_url ~ '/settings/' THEN 'settings'
-        WHEN page_url ~ '/solutions/' THEN 'solutions'
         WHEN page_url ~ '/staff/' THEN 'staff'
+        WHEN page_url ~ '/admission/' THEN 'admission'   -- must come before /admin/
+        WHEN page_url ~ '/admin/'     THEN 'admin'
+        WHEN page_url ~ '/resource-management/' THEN 'resource-management'
         WHEN page_url ~ '/startup-studio/' THEN 'startup-studio'
-        WHEN page_url ~ '/system/' THEN 'system'
-        WHEN page_url ~ '/users/' THEN 'users'
-        WHEN page_url ~ '/vac/' THEN 'vac'
-        WHEN page_url ~ '/work-pulse/' THEN 'work-pulse'
+        WHEN page_url ~ '/moments/' THEN 'moments'  -- Added: 2026-06-12 Family Moments
+        WHEN page_url ~ '/settings/' THEN 'settings'
         ELSE 'other'
       END
     ) STORED,
@@ -1357,43 +1290,30 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
     sub_module_name VARCHAR(100) GENERATED ALWAYS AS (
       CASE
         WHEN page_url IS NULL THEN NULL
-        -- IMPORTANT: ordering matches the module_name CASE above — longer
-        -- prefixes first so /admission/ wins over /admin/, etc.
-        WHEN page_url ~ '/academic/' THEN substring(page_url FROM '/academic/([^/?#]+)')
-        WHEN page_url ~ '/admission/' THEN substring(page_url FROM '/admission/([^/?#]+)')
-        WHEN page_url ~ '/admin/' THEN substring(page_url FROM '/admin/([^/?#]+)')
-        WHEN page_url ~ '/ai-query/' THEN substring(page_url FROM '/ai-query/([^/?#]+)')
-        WHEN page_url ~ '/application-hub/' THEN substring(page_url FROM '/application-hub/([^/?#]+)')
-        WHEN page_url ~ '/applications/' THEN substring(page_url FROM '/applications/([^/?#]+)')
-        WHEN page_url ~ '/audit-trail/' THEN substring(page_url FROM '/audit-trail/([^/?#]+)')
-        WHEN page_url ~ '/audit/' THEN substring(page_url FROM '/audit/([^/?#]+)')
-        WHEN page_url ~ '/accreditation/' THEN substring(page_url FROM '/accreditation/([^/?#]+)')
-        WHEN page_url ~ '/billing/' THEN substring(page_url FROM '/billing/([^/?#]+)')
-        WHEN page_url ~ '/bug-leaderboard/' THEN substring(page_url FROM '/bug-leaderboard/([^/?#]+)')
-        WHEN page_url ~ '/campus-living/' THEN substring(page_url FROM '/campus-living/([^/?#]+)')
-        WHEN page_url ~ '/dashboard/' THEN substring(page_url FROM '/dashboard/([^/?#]+)')
-        WHEN page_url ~ '/events/' THEN substring(page_url FROM '/events/([^/?#]+)')
-        WHEN page_url ~ '/faculty/' THEN substring(page_url FROM '/faculty/([^/?#]+)')
-        WHEN page_url ~ '/health/' THEN substring(page_url FROM '/health/([^/?#]+)')
-        WHEN page_url ~ '/hr/' THEN substring(page_url FROM '/hr/([^/?#]+)')
-        WHEN page_url ~ '/learners-council/' THEN substring(page_url FROM '/learners-council/([^/?#]+)')
-        WHEN page_url ~ '/learners/' THEN substring(page_url FROM '/learners/([^/?#]+)')
-        WHEN page_url ~ '/learn/' THEN substring(page_url FROM '/learn/([^/?#]+)')
-        WHEN page_url ~ '/my-bug-reports/' THEN substring(page_url FROM '/my-bug-reports/([^/?#]+)')
-        WHEN page_url ~ '/notifications/' THEN substring(page_url FROM '/notifications/([^/?#]+)')
-        WHEN page_url ~ '/okr/' THEN substring(page_url FROM '/okr/([^/?#]+)')
-        WHEN page_url ~ '/organizations?/' THEN substring(page_url FROM '/organizations?/([^/?#]+)')
-        WHEN page_url ~ '/profile/' THEN substring(page_url FROM '/profile/([^/?#]+)')
-        WHEN page_url ~ '/resource-management/' THEN substring(page_url FROM '/resource-management/([^/?#]+)')
-        WHEN page_url ~ '/service-requests/' THEN substring(page_url FROM '/service-requests/([^/?#]+)')
-        WHEN page_url ~ '/settings/' THEN substring(page_url FROM '/settings/([^/?#]+)')
-        WHEN page_url ~ '/solutions/' THEN substring(page_url FROM '/solutions/([^/?#]+)')
-        WHEN page_url ~ '/staff/' THEN substring(page_url FROM '/staff/([^/?#]+)')
-        WHEN page_url ~ '/startup-studio/' THEN substring(page_url FROM '/startup-studio/([^/?#]+)')
-        WHEN page_url ~ '/system/' THEN substring(page_url FROM '/system/([^/?#]+)')
-        WHEN page_url ~ '/users/' THEN substring(page_url FROM '/users/([^/?#]+)')
-        WHEN page_url ~ '/vac/' THEN substring(page_url FROM '/vac/([^/?#]+)')
-        WHEN page_url ~ '/work-pulse/' THEN substring(page_url FROM '/work-pulse/([^/?#]+)')
+        WHEN page_url ~ '/academic/'
+          THEN substring(page_url FROM '/academic/([^/?#]+)')
+        WHEN page_url ~ '/billing/'
+          THEN substring(page_url FROM '/billing/([^/?#]+)')
+        WHEN page_url ~ '/organizations?/'
+          THEN substring(page_url FROM '/organizations?/([^/?#]+)')
+        WHEN page_url ~ '/learners/'
+          THEN substring(page_url FROM '/learners/([^/?#]+)')
+        WHEN page_url ~ '/staff/'
+          THEN substring(page_url FROM '/staff/([^/?#]+)')
+        WHEN page_url ~ '/admission/'
+          THEN substring(page_url FROM '/admission/([^/?#]+)')
+        WHEN page_url ~ '/admin/'
+          THEN substring(page_url FROM '/admin/([^/?#]+)')
+        WHEN page_url ~ '/resource-management/'
+          THEN substring(page_url FROM '/resource-management/([^/?#]+)')
+        WHEN page_url ~ '/startup-studio/'
+          THEN substring(page_url FROM '/startup-studio/([^/?#]+)')
+        WHEN page_url ~ '/moments/'  -- Added: 2026-06-12 Family Moments
+          THEN substring(page_url FROM '/moments/([^/?#]+)')
+        WHEN page_url ~ '/settings/'
+          THEN substring(page_url FROM '/settings/([^/?#]+)')
+        WHEN page_url ~ '/service-requests/'
+          THEN substring(page_url FROM '/service-requests/([^/?#]+)')
         ELSE NULL
       END
     ) STORED,
@@ -1675,6 +1595,10 @@ CREATE INDEX IF NOT EXISTS idx_staff_staff_id ON public.staff(staff_id);
 CREATE INDEX IF NOT EXISTS idx_billing_invoices_student_id ON public.billing_invoices(student_id);
 CREATE INDEX IF NOT EXISTS idx_billing_receipts_student_id ON public.billing_receipts(student_id);
 CREATE INDEX IF NOT EXISTS idx_billing_student_bills_student_id ON public.billing_student_bills(student_id);
+CREATE INDEX IF NOT EXISTS idx_billing_student_bills_academic_year
+  ON public.billing_student_bills (academic_year_id);
+CREATE INDEX IF NOT EXISTS idx_billing_student_bills_student_academic_year
+  ON public.billing_student_bills (student_id, academic_year_id);
 
 -- Attendance indexes
 -- Updated: 2025-12-29 - Added indexes for student self-service attendance queries
@@ -2091,158 +2015,23 @@ ALTER TABLE service_request_attachments ENABLE ROW LEVEL SECURITY;
 -- =====================================================
 -- SECTION: ADMISSION SETTINGS - ADMISSION YEARS
 -- Added: 2026-04-21 - Per-program admission year tracking
--- Purpose: Track admission year per program with program start/end year metadata
+-- Updated: 2026-06-05 - Institution-wide admission year (program scope dropped); one row per (institution, year)
 -- =====================================================
 
 CREATE TABLE IF NOT EXISTS public.admission_years (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
-    program_id UUID NOT NULL REFERENCES programs(id) ON DELETE CASCADE,
     admission_year_name VARCHAR(150) NOT NULL,
-    program_start_year INTEGER NOT NULL CHECK (program_start_year BETWEEN 2000 AND 2100),
-    program_end_year INTEGER NOT NULL CHECK (program_end_year BETWEEN 2000 AND 2100),
-    -- Added 2026-04-21 — per-cohort seat allocation (replaces academic-year based intake_history for admission flow)
-    sanctioned_intake INTEGER NOT NULL DEFAULT 0,
+    year INTEGER NOT NULL CHECK (year BETWEEN 2000 AND 2100),
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_by UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-    CONSTRAINT admission_years_year_order CHECK (program_end_year >= program_start_year),
-    CONSTRAINT admission_years_unique_per_program UNIQUE (institution_id, program_id, program_start_year),
-    CONSTRAINT admission_years_sanctioned_intake_nonnegative CHECK (sanctioned_intake >= 0)
+    CONSTRAINT admission_years_institution_year_unique UNIQUE (institution_id, year)
 );
 
 CREATE INDEX IF NOT EXISTS idx_admission_years_institution ON admission_years(institution_id);
-CREATE INDEX IF NOT EXISTS idx_admission_years_program ON admission_years(program_id);
 CREATE INDEX IF NOT EXISTS idx_admission_years_name ON admission_years(admission_year_name);
-
--- =====================================================
--- SECTION: ADMISSION FEE STRUCTURE - LOOKUP TABLES
--- Added: 2026-05-05 — Foundation for admission fee structure module
--- Migration: supabase/migrations/20260505100001_create_lookup_tables_quotas_communities_accommodations.sql
--- Spec: docs/superpowers/specs/2026-05-05-admission-fee-structure-automation-design.md §6.1
--- =====================================================
-
--- Global lookup: quotas
-CREATE TABLE IF NOT EXISTS public.quotas (
-    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    code          text NOT NULL UNIQUE,
-    name          text NOT NULL,
-    sort_order    integer NOT NULL DEFAULT 0,
-    is_active     boolean NOT NULL DEFAULT true,
-    created_at    timestamptz NOT NULL DEFAULT now(),
-    updated_at    timestamptz NOT NULL DEFAULT now(),
-    created_by    uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
-    updated_by    uuid REFERENCES public.profiles(id) ON DELETE SET NULL
-);
-
-CREATE INDEX IF NOT EXISTS ix_quotas_active_sort
-    ON public.quotas (is_active, sort_order);
-
--- Global lookup: community_categories
-CREATE TABLE IF NOT EXISTS public.community_categories (
-    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    code          text NOT NULL UNIQUE,
-    name          text NOT NULL,
-    sort_order    integer NOT NULL DEFAULT 0,
-    is_active     boolean NOT NULL DEFAULT true,
-    created_at    timestamptz NOT NULL DEFAULT now(),
-    updated_at    timestamptz NOT NULL DEFAULT now(),
-    created_by    uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
-    updated_by    uuid REFERENCES public.profiles(id) ON DELETE SET NULL
-);
-
-CREATE INDEX IF NOT EXISTS ix_community_categories_active_sort
-    ON public.community_categories (is_active, sort_order);
-
--- Institution-scoped lookup: accommodation_types
-CREATE TABLE IF NOT EXISTS public.accommodation_types (
-    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    institution_id  uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
-    code            text NOT NULL,
-    name            text NOT NULL,
-    sort_order      integer NOT NULL DEFAULT 0,
-    is_active       boolean NOT NULL DEFAULT true,
-    created_at      timestamptz NOT NULL DEFAULT now(),
-    updated_at      timestamptz NOT NULL DEFAULT now(),
-    created_by      uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
-    updated_by      uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
-    UNIQUE (institution_id, code)
-);
-
-CREATE INDEX IF NOT EXISTS ix_accommodation_types_institution_active
-    ON public.accommodation_types (institution_id, is_active, sort_order);
-
--- updated_at maintenance trigger function (shared by lookup + settings tables)
-CREATE OR REPLACE FUNCTION public._touch_updated_at()
-RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-    NEW.updated_at := now();
-    RETURN NEW;
-END;
-$$;
-
-DROP TRIGGER IF EXISTS trg_quotas_touch ON public.quotas;
-CREATE TRIGGER trg_quotas_touch
-    BEFORE UPDATE ON public.quotas
-    FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
-
-DROP TRIGGER IF EXISTS trg_community_categories_touch ON public.community_categories;
-CREATE TRIGGER trg_community_categories_touch
-    BEFORE UPDATE ON public.community_categories
-    FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
-
-DROP TRIGGER IF EXISTS trg_accommodation_types_touch ON public.accommodation_types;
-CREATE TRIGGER trg_accommodation_types_touch
-    BEFORE UPDATE ON public.accommodation_types
-    FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
-
--- Shadow-FK columns on learners_profiles + admission_leads (added 2026-05-05)
--- Migration: supabase/migrations/20260505100002_add_shadow_fk_columns_learners_admission_leads.sql
--- Spec: §6.1 — gradual cutover per the admission_year_id precedent
-ALTER TABLE public.learners_profiles
-    ADD COLUMN IF NOT EXISTS quota_id              uuid REFERENCES public.quotas(id),
-    ADD COLUMN IF NOT EXISTS community_category_id uuid REFERENCES public.community_categories(id),
-    ADD COLUMN IF NOT EXISTS accommodation_type_id uuid REFERENCES public.accommodation_types(id),
-    ADD COLUMN IF NOT EXISTS legacy_fee_mode       boolean NOT NULL DEFAULT true;
-
-ALTER TABLE public.admission_leads
-    ADD COLUMN IF NOT EXISTS quota_id              uuid REFERENCES public.quotas(id),
-    ADD COLUMN IF NOT EXISTS community_category_id uuid REFERENCES public.community_categories(id),
-    ADD COLUMN IF NOT EXISTS accommodation_type_id uuid REFERENCES public.accommodation_types(id);
-
-CREATE INDEX IF NOT EXISTS ix_learners_profiles_matrix_full
-    ON public.learners_profiles
-       (institution_id, degree_id, department_id, program_id,
-        quota_id, community_category_id, accommodation_type_id, admission_year_id)
-    WHERE legacy_fee_mode = false;
-
-CREATE INDEX IF NOT EXISTS ix_admission_leads_shadow_fks
-    ON public.admission_leads
-       (quota_id, community_category_id, accommodation_type_id);
-
--- admission_settings_per_institution — feature-flag + per-institution config home
--- Migration: supabase/migrations/20260505100003_create_admission_settings_per_institution.sql
--- Spec: §6.6
--- One row per institution; the seeding INSERT ... ON CONFLICT ran via the
--- migration above. Do NOT re-run that seed from this setup file.
-CREATE TABLE IF NOT EXISTS public.admission_settings_per_institution (
-    id                                          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    institution_id                              uuid NOT NULL UNIQUE REFERENCES public.institutions(id) ON DELETE CASCADE,
-    use_fee_structures                          boolean NOT NULL DEFAULT false,
-    required_documents_for_account_transition   jsonb   NOT NULL DEFAULT '["pan","aadhaar","parent_id","agreement_form"]'::jsonb,
-    pre_submit_dialog_enabled                   boolean NOT NULL DEFAULT true,
-    status_change_dialog_enabled                boolean NOT NULL DEFAULT true,
-    created_at                                  timestamptz NOT NULL DEFAULT now(),
-    updated_at                                  timestamptz NOT NULL DEFAULT now(),
-    created_by                                  uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
-    updated_by                                  uuid REFERENCES public.profiles(id) ON DELETE SET NULL
-);
-
-DROP TRIGGER IF EXISTS trg_admission_settings_touch ON public.admission_settings_per_institution;
-CREATE TRIGGER trg_admission_settings_touch
-    BEFORE UPDATE ON public.admission_settings_per_institution
-    FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
 
 -- =====================================================
 -- SECTION: STARTUP STUDIO MODULE
@@ -4052,130 +3841,8 @@ CREATE TABLE IF NOT EXISTS admission_form_submissions (
   utm_campaign text,
   referrer_url text,
   device_type text,
-  -- 2026-05-12 — campaign attribution (Migration B §4.2). NULLABLE: pre-migration
-  -- rows and organic (non-campaign) submissions have no link. ON DELETE SET NULL
-  -- so deleting a campaign/link does not delete the submission row.
-  campaign_link_id uuid REFERENCES admission_campaign_links(id) ON DELETE SET NULL,
   submitted_at timestamptz NOT NULL DEFAULT now()
 );
-
-CREATE INDEX IF NOT EXISTS idx_form_subs_campaign_link
-  ON admission_form_submissions (campaign_link_id)
-  WHERE campaign_link_id IS NOT NULL;
-
--- ──────────────────────────────────────────────────────────────
--- 2026-05-12 — Admission Campaign Attribution (Migration A)
--- See: docs/superpowers/specs/2026-05-12-admission-campaign-attribution-design.md §4.1
--- ──────────────────────────────────────────────────────────────
-
-CREATE TABLE IF NOT EXISTS admission_campaigns (
-  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  -- Nullable when scope='global' (cross-institution campaign).
-  institution_id  uuid REFERENCES institutions(id) ON DELETE CASCADE,
-  scope           text NOT NULL DEFAULT 'institution'
-                  CHECK (scope IN ('institution','global')),
-  name            text NOT NULL,
-  slug            text NOT NULL,
-  description     text,
-  source          lead_source NOT NULL,
-  status          text NOT NULL DEFAULT 'draft'
-                  CHECK (status IN ('draft','active','paused','completed','archived')),
-  starts_at       timestamptz,
-  ends_at         timestamptz,
-  budget_inr      numeric(12,2),
-  target_leads    integer,
-  target_enrolled integer,
-  metadata        jsonb NOT NULL DEFAULT '{}'::jsonb,
-  created_by      uuid REFERENCES profiles(id),
-  created_at      timestamptz NOT NULL DEFAULT now(),
-  updated_at      timestamptz NOT NULL DEFAULT now(),
-  archived_at     timestamptz,
-  UNIQUE (institution_id, slug),
-  CONSTRAINT chk_campaigns_scope_institution CHECK (
-    (scope = 'institution' AND institution_id IS NOT NULL)
-    OR
-    (scope = 'global'      AND institution_id IS NULL)
-  )
-);
-
-CREATE INDEX IF NOT EXISTS idx_campaigns_inst_status ON admission_campaigns (institution_id, status)
-  WHERE archived_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_campaigns_inst_source ON admission_campaigns (institution_id, source)
-  WHERE archived_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_campaigns_inst_dates  ON admission_campaigns (institution_id, starts_at, ends_at);
-
-CREATE TABLE IF NOT EXISTS admission_campaign_links (
-  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  campaign_id     uuid NOT NULL REFERENCES admission_campaigns(id) ON DELETE CASCADE,
-  form_id         uuid NOT NULL REFERENCES admission_forms(id),
-  token           text NOT NULL UNIQUE,
-  name            text NOT NULL,
-  description     text,
-  cost_inr        numeric(12,2),
-  utm_source      text,
-  utm_medium      text,
-  utm_campaign    text,
-  utm_content     text,
-  is_active       boolean NOT NULL DEFAULT true,
-  expires_at      timestamptz,
-  click_count     integer NOT NULL DEFAULT 0,
-  capture_count   integer NOT NULL DEFAULT 0,
-  created_by      uuid REFERENCES profiles(id),
-  created_at      timestamptz NOT NULL DEFAULT now(),
-  updated_at      timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_links_campaign ON admission_campaign_links (campaign_id);
-CREATE INDEX IF NOT EXISTS idx_links_form     ON admission_campaign_links (form_id);
-
-CREATE TABLE IF NOT EXISTS admission_campaign_link_clicks (
-  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  link_id         uuid NOT NULL REFERENCES admission_campaign_links(id) ON DELETE CASCADE,
-  campaign_id     uuid NOT NULL REFERENCES admission_campaigns(id) ON DELETE CASCADE,
-  clicked_at      timestamptz NOT NULL DEFAULT now(),
-  ip_hash         text,
-  user_agent      text,
-  referrer        text,
-  device_type     text,
-  country         text,
-  session_id      text,
-  resulted_in_submission boolean NOT NULL DEFAULT false,
-  resulted_lead_id       uuid REFERENCES admission_leads(id) ON DELETE SET NULL,
-  metadata        jsonb NOT NULL DEFAULT '{}'::jsonb
-);
-
-CREATE INDEX IF NOT EXISTS idx_clicks_campaign_time ON admission_campaign_link_clicks (campaign_id, clicked_at DESC);
-CREATE INDEX IF NOT EXISTS idx_clicks_link_time     ON admission_campaign_link_clicks (link_id, clicked_at DESC);
-CREATE INDEX IF NOT EXISTS idx_clicks_session       ON admission_campaign_link_clicks (session_id)
-  WHERE session_id IS NOT NULL;
-
--- ──────────────────────────────────────────────────────────────
--- 2026-05-12 — Admission Campaign Attribution (Migration B §4.2)
--- Migration: supabase/migrations/20260512100002_b_add_campaign_attribution_columns.sql
---
--- Denormalized read-cache columns on admission_leads (the canonical per-touch
--- record lives on admission_lead_source_captures.campaign_link_id, mirrored
--- inside that CREATE TABLE block below). Triggers maintain first/last on every
--- new capture. NULLABLE — pre-migration leads + organic traffic have no link.
--- ON DELETE SET NULL — deleting a campaign/link must NOT delete the lead;
--- the opposite policy would catastrophically cascade.
--- admission_leads has no CREATE TABLE in this file; columns are added via
--- ALTER, alongside the source/expo_event_id/referrer_id tracking columns
--- already accreted via ALTER blocks elsewhere in this file.
--- ──────────────────────────────────────────────────────────────
-ALTER TABLE admission_leads
-  ADD COLUMN IF NOT EXISTS first_campaign_link_id uuid
-    REFERENCES admission_campaign_links(id) ON DELETE SET NULL,
-  ADD COLUMN IF NOT EXISTS last_campaign_link_id  uuid
-    REFERENCES admission_campaign_links(id) ON DELETE SET NULL;
-
-CREATE INDEX IF NOT EXISTS idx_leads_first_campaign
-  ON admission_leads (first_campaign_link_id)
-  WHERE first_campaign_link_id IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_leads_last_campaign
-  ON admission_leads (last_campaign_link_id)
-  WHERE last_campaign_link_id IS NOT NULL;
 
 -- Analytics events
 CREATE TABLE IF NOT EXISTS admission_form_events (
@@ -4539,6 +4206,25 @@ END $$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_idempotency
   ON notifications(idempotency_key) WHERE idempotency_key IS NOT NULL;
+
+-- Updated: 2026-04-28 — Dashboard v2 columns referenced by RPCs but never authored
+-- (fn_dashboard_queue_list, fn_dashboard_morning_brief, fn_dashboard_metrics, fn_create_dashboard_work_item).
+-- Spec at specs/myjkkn-dashboard-v2-spec.md §3.1 assumed these existed; missing DDL caused
+-- 42703 errors at runtime against any DB cloned from setup/. See plan
+-- ~/.claude/plans/ps-c-users-admin-documents-github-myjkkn-radiant-dijkstra.md
+ALTER TABLE notifications
+  ADD COLUMN IF NOT EXISTS action_type VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS action_config JSONB DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS acknowledgment_deadline_hours INT,
+  ADD COLUMN IF NOT EXISTS requires_acknowledgment BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE user_notifications
+  ADD COLUMN IF NOT EXISTS acknowledged_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS escalated_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS escalation_level INT NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_user_notifications_unack
+  ON user_notifications(user_id) WHERE acknowledged_at IS NULL;
 
 -- Updated: 2026-04-24 - Split notifications into announcement vs work_item
 -- Context: /admin/notifications page was being buried under operational cron-
@@ -5096,774 +4782,291 @@ ALTER TABLE admission_counselors
 COMMENT ON COLUMN admission_counselors.deactivated_at IS 'Set when counselor row was soft-deleted via DELETE endpoint. NULL = never soft-deleted.';
 COMMENT ON COLUMN admission_counselors.deactivated_by IS 'User who triggered soft-delete (super-admin / admin / privileged staff).';
 
--- =====================================================
--- 2026-04-27 — admission_lead_source_captures
--- Append-only history of every source-channel capture event for a lead.
--- Lets a single lead surface every source that captured it (website +
--- walk_in + edu_fair + ...) instead of creating duplicate lead rows.
--- Companion: LeadService.captureLead() writes one row here per capture.
--- =====================================================
-CREATE TABLE IF NOT EXISTS public.admission_lead_source_captures (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  lead_id         UUID NOT NULL REFERENCES public.admission_leads(id) ON DELETE CASCADE,
-  institution_id  UUID NOT NULL REFERENCES public.institutions(id) ON DELETE RESTRICT,
-  source          public.lead_source NOT NULL,
-  source_detail   TEXT,
-  captured_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  captured_by     UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-  expo_event_id   UUID REFERENCES public.expo_events(id) ON DELETE SET NULL,
-  stall_id        UUID REFERENCES public.expo_event_stalls(id) ON DELETE SET NULL,
-  utm_source      TEXT,
-  utm_medium      TEXT,
-  utm_campaign    TEXT,
-  -- 2026-05-12 — campaign attribution (Migration B §4.2). Canonical per-touch
-  -- attribution: which campaign link captured this specific touch. NULLABLE
-  -- because organic / pre-migration captures have no link. ON DELETE SET NULL.
-  campaign_link_id UUID REFERENCES public.admission_campaign_links(id) ON DELETE SET NULL,
-  -- Soft polymorphic pointer: profiles.id | learners_profiles.id | staff.id
-  -- depending on parent admission_leads.referral_type. No FK because
-  -- cross-table. User-readable copy lives on admission_leads.referred_by_{id,name}.
-  referrer_id     UUID,
-  raw_payload     JSONB NOT NULL DEFAULT '{}'::jsonb,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  created_by      UUID REFERENCES public.profiles(id) ON DELETE SET NULL
-);
-
-COMMENT ON TABLE public.admission_lead_source_captures IS
-  'One row per source-channel touch on an admission_leads row. Append-only history. Lets a single lead surface every source that captured it.';
-
-CREATE INDEX IF NOT EXISTS idx_alsc_lead_captured_at
-  ON public.admission_lead_source_captures (lead_id, captured_at DESC);
-CREATE INDEX IF NOT EXISTS idx_alsc_institution
-  ON public.admission_lead_source_captures (institution_id);
-CREATE INDEX IF NOT EXISTS idx_alsc_institution_source
-  ON public.admission_lead_source_captures (institution_id, source);
-CREATE INDEX IF NOT EXISTS idx_alsc_expo_event
-  ON public.admission_lead_source_captures (expo_event_id)
-  WHERE expo_event_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_alsc_captured_at
-  ON public.admission_lead_source_captures (captured_at DESC);
--- 2026-05-12 — campaign attribution (Migration B §4.2)
-CREATE INDEX IF NOT EXISTS idx_captures_campaign_link
-  ON public.admission_lead_source_captures (campaign_link_id)
-  WHERE campaign_link_id IS NOT NULL;
-
-ALTER TABLE public.admission_lead_source_captures ENABLE ROW LEVEL SECURITY;
-
--- 2026-04-27 — close FK + self-ref gap on legacy admission_leads.duplicate_of
--- column (added historically with no FK and no self-ref CHECK; verified
--- pre-migration: 0 orphans, 0 self-references). Policies for the captures
--- table live in 03_policies.sql.
-ALTER TABLE public.admission_leads
-  ADD CONSTRAINT admission_leads_duplicate_of_fkey
-  FOREIGN KEY (duplicate_of) REFERENCES public.admission_leads(id) ON DELETE SET NULL;
-
-ALTER TABLE public.admission_leads
-  ADD CONSTRAINT admission_leads_duplicate_of_not_self
-  CHECK (duplicate_of IS NULL OR duplicate_of <> id);
-
--- ════════════════════════════════════════════════════════════════════════════
--- Updated: 2026-04-28 — Attention Bar Phase 1 — DB Foundation
--- Spec: specs/attention-bar-5-layer-system.md (PR #542)
--- 7 tables for the 5-layer Attention Bar resolver system.
--- All idempotent (IF NOT EXISTS) so re-runs are safe.
--- Applied to prod via Supabase MCP 2026-04-28 (verified 7 tables, 11 config rows).
--- ════════════════════════════════════════════════════════════════════════════
-
--- 1) quick_action_rules — Layer 2 admin-configurable rules
-CREATE TABLE IF NOT EXISTS public.quick_action_rules (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    rule_name       VARCHAR(200) NOT NULL,
-    description     TEXT,
-    page            VARCHAR(200) NOT NULL,
-    role            VARCHAR(50)  NOT NULL,
-    when_clause     JSONB        NOT NULL,
-    action_template JSONB        NOT NULL,
-    priority        INTEGER      NOT NULL DEFAULT 0,
-    is_active       BOOLEAN      NOT NULL DEFAULT true,
-    institution_id  UUID REFERENCES public.institutions(id),
-    created_by      UUID REFERENCES public.profiles(id),
-    created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    CONSTRAINT chk_qar_priority CHECK (priority BETWEEN 0 AND 1000)
-);
-CREATE INDEX IF NOT EXISTS idx_qar_page_role_active
-    ON public.quick_action_rules (page, role, is_active, priority DESC);
-COMMENT ON TABLE public.quick_action_rules IS
-    'Layer 2 (state-aware) rules for the Attention Bar resolver. Admin-configurable via /system/attention-bar.';
-
--- 2) quick_action_state_queries — registry of named state queries
-CREATE TABLE IF NOT EXISTS public.quick_action_state_queries (
-    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    query_key             VARCHAR(100) UNIQUE NOT NULL,
-    description           TEXT,
-    sql_function_name     VARCHAR(100) NOT NULL,
-    return_shape          JSONB NOT NULL,
-    rate_limit_per_minute INTEGER NOT NULL DEFAULT 30,
-    is_active             BOOLEAN NOT NULL DEFAULT true,
-    created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-COMMENT ON TABLE public.quick_action_state_queries IS
-    'Registry of named state queries that Layer 2 rules can reference. Indirection means rule editors do not need SQL access.';
-
--- 3) quick_action_taps — Layer 3 behavioral data (impressions + taps + dismissals)
-CREATE TABLE IF NOT EXISTS public.quick_action_taps (
-    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id      UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-    page         VARCHAR(200) NOT NULL,
-    role         VARCHAR(50)  NOT NULL,
-    fired_layer  SMALLINT NOT NULL,
-    rule_id      UUID REFERENCES public.quick_action_rules(id) ON DELETE SET NULL,
-    action_id    VARCHAR(200) NOT NULL,
-    event_type   VARCHAR(20) NOT NULL,
-    context      JSONB,
-    occurred_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT chk_qat_event_type CHECK (event_type IN ('impression','tap','dismiss')),
-    CONSTRAINT chk_qat_fired_layer CHECK (fired_layer BETWEEN 0 AND 4)
-);
-CREATE INDEX IF NOT EXISTS idx_qat_user_page_role_action
-    ON public.quick_action_taps (user_id, page, role, action_id, occurred_at DESC);
-CREATE INDEX IF NOT EXISTS idx_qat_pruning ON public.quick_action_taps (occurred_at);
-COMMENT ON TABLE public.quick_action_taps IS
-    'Layer 3 behavioral data. Impressions + taps + dismissals. 90-day retention via nightly cron.';
-
--- 4) quick_action_user_consent — DPDPA opt-in state
-CREATE TABLE IF NOT EXISTS public.quick_action_user_consent (
-    user_id              UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
-    layer_3_consent      BOOLEAN NOT NULL DEFAULT false,
-    consented_at         TIMESTAMPTZ,
-    revoked_at           TIMESTAMPTZ,
-    consent_text_version VARCHAR(20)
-);
-COMMENT ON TABLE public.quick_action_user_consent IS
-    'Per-user DPDPA consent state for Layer 3 behavioral learning. Default opt-in = false.';
-
--- 5) quick_action_ai_cache — Layer 4 cached LLM responses
-CREATE TABLE IF NOT EXISTS public.quick_action_ai_cache (
-    cache_key  VARCHAR(300) PRIMARY KEY,
-    response   JSONB NOT NULL,
-    model      VARCHAR(50) NOT NULL,
-    cost_usd   NUMERIC(10,6) NOT NULL,
-    cached_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    expires_at TIMESTAMPTZ NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_qac_expires ON public.quick_action_ai_cache (expires_at);
-COMMENT ON TABLE public.quick_action_ai_cache IS
-    'Layer 4 AI fallback cache keyed by page|role|hour_bucket. 1-hour TTL, 90% hit-rate target.';
-
--- 6) quick_action_audit — universal audit trail of every render
-CREATE TABLE IF NOT EXISTS public.quick_action_audit (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id     UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
-    page        VARCHAR(200) NOT NULL,
-    role        VARCHAR(50)  NOT NULL,
-    fired_layer SMALLINT NOT NULL,
-    rule_id     UUID REFERENCES public.quick_action_rules(id) ON DELETE SET NULL,
-    action_id   VARCHAR(200),
-    trace       JSONB,
-    rendered_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT chk_qau_fired_layer CHECK (fired_layer BETWEEN 0 AND 4)
-);
-CREATE INDEX IF NOT EXISTS idx_qau_rendered_at ON public.quick_action_audit (rendered_at DESC);
-COMMENT ON TABLE public.quick_action_audit IS
-    'Audit log of every Attention Bar render. 30-day retention then aggregate-only via nightly cron.';
-
--- 7) quick_action_config — system-wide configuration
-CREATE TABLE IF NOT EXISTS public.quick_action_config (
-    key        VARCHAR(100) PRIMARY KEY,
-    value      JSONB NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_by UUID REFERENCES public.profiles(id)
-);
-COMMENT ON TABLE public.quick_action_config IS
-    'System config for Attention Bar. Daily budgets, thresholds, kill-switches per layer.';
-
--- Seed default config (idempotent)
-INSERT INTO public.quick_action_config (key, value) VALUES
-    ('layer_0.enabled',                'true'::jsonb),
-    ('layer_1.enabled',                'true'::jsonb),
-    ('layer_2.enabled',                'true'::jsonb),
-    ('layer_3.enabled',                'true'::jsonb),
-    ('layer_4.enabled',                'true'::jsonb),
-    ('layer_3.min_impressions',        '30'::jsonb),
-    ('layer_3.confidence_threshold',   '0.7'::jsonb),
-    ('layer_4.daily_budget_usd',       '5'::jsonb),
-    ('layer_4.per_user_daily_calls',   '50'::jsonb),
-    ('layer_4.cache_ttl_minutes',      '60'::jsonb),
-    ('layer_0.queue_pip_visible_at',   '1'::jsonb)
-ON CONFLICT (key) DO NOTHING;
-
--- =====================================================
--- 2026-04-29: HR Sprint 5 Attendance schema
--- (per specs/hrapp-sprint-5-attendance-spec.md)
--- =====================================================
-
--- Forward-compatible: hr_employees.user_id for self-RLS
-ALTER TABLE hr_employees
-  ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES profiles(id);
-CREATE INDEX IF NOT EXISTS hr_employees_user_id_idx ON hr_employees(user_id);
-
--- 1. Master: status types
-CREATE TABLE IF NOT EXISTS hr_attendance_status_types (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  institution_id UUID REFERENCES institutions(id),
-  code VARCHAR(20) NOT NULL,
-  label VARCHAR(50) NOT NULL,
-  affects_lop BOOLEAN DEFAULT FALSE,
-  affects_leave_balance BOOLEAN DEFAULT FALSE,
-  late_grace_minutes INT DEFAULT 0,
-  is_system BOOLEAN DEFAULT FALSE,
-  is_active BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE UNIQUE INDEX IF NOT EXISTS hr_attendance_status_types_inst_code_uidx
-  ON hr_attendance_status_types (
-    COALESCE(institution_id, '00000000-0000-0000-0000-000000000000'::uuid),
-    code
-  );
-
--- 2. Master: regularization reasons
-CREATE TABLE IF NOT EXISTS hr_regularization_reasons (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  institution_id UUID REFERENCES institutions(id),
-  code VARCHAR(30) NOT NULL,
-  label VARCHAR(100) NOT NULL,
-  is_system BOOLEAN DEFAULT FALSE,
-  is_active BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE UNIQUE INDEX IF NOT EXISTS hr_regularization_reasons_inst_code_uidx
-  ON hr_regularization_reasons (
-    COALESCE(institution_id, '00000000-0000-0000-0000-000000000000'::uuid),
-    code
-  );
-
--- 3. Daily attendance records (UNIQUE employee_id + work_date)
-CREATE TABLE IF NOT EXISTS hr_attendance_records (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  employee_id UUID NOT NULL REFERENCES hr_employees(id),
-  hr_organization_id UUID NOT NULL REFERENCES hr_organizations(id),
-  institution_id UUID REFERENCES institutions(id),
-  work_date DATE NOT NULL,
-  status_type_id UUID NOT NULL REFERENCES hr_attendance_status_types(id),
-  in_at TIMESTAMPTZ,
-  out_at TIMESTAMPTZ,
-  source VARCHAR(20) NOT NULL,
-  day_calc VARCHAR(15) DEFAULT 'FULL',
-  hours_worked NUMERIC(4, 2),
-  gps_lat NUMERIC(9, 6),
-  gps_lng NUMERIC(9, 6),
-  gps_accuracy_m INT,
-  recomputed_from_event_id UUID,
-  reconciled_by UUID REFERENCES profiles(id),
-  reconciled_at TIMESTAMPTZ,
-  notes TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  CONSTRAINT hr_attendance_records_employee_date_uniq UNIQUE (employee_id, work_date)
-);
-CREATE INDEX IF NOT EXISTS hr_attendance_records_emp_date_idx
-  ON hr_attendance_records(employee_id, work_date DESC);
-CREATE INDEX IF NOT EXISTS hr_attendance_records_org_date_idx
-  ON hr_attendance_records(hr_organization_id, work_date DESC);
-CREATE INDEX IF NOT EXISTS hr_attendance_records_inst_date_idx
-  ON hr_attendance_records(institution_id, work_date DESC);
-
--- 4. Regularization workflow
-CREATE TABLE IF NOT EXISTS hr_attendance_regularizations (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  employee_id UUID NOT NULL REFERENCES hr_employees(id),
-  attendance_record_id UUID REFERENCES hr_attendance_records(id),
-  for_date DATE NOT NULL,
-  reason_code_id UUID REFERENCES hr_regularization_reasons(id),
-  reason_text TEXT,
-  proposed_status_type_id UUID REFERENCES hr_attendance_status_types(id),
-  proposed_in_at TIMESTAMPTZ,
-  proposed_out_at TIMESTAMPTZ,
-  status VARCHAR(20) DEFAULT 'pending',
-  approver_id UUID REFERENCES profiles(id),
-  approved_at TIMESTAMPTZ,
-  rejection_reason TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS hr_attendance_regs_emp_date_idx
-  ON hr_attendance_regularizations(employee_id, for_date DESC);
-CREATE INDEX IF NOT EXISTS hr_attendance_regs_status_idx
-  ON hr_attendance_regularizations(status) WHERE status='pending';
-
--- 5. Exceptions queue
-CREATE TABLE IF NOT EXISTS hr_attendance_exceptions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  employee_id UUID REFERENCES hr_employees(id),
-  hr_organization_id UUID REFERENCES hr_organizations(id),
-  institution_id UUID REFERENCES institutions(id),
-  exception_date DATE NOT NULL,
-  exception_type VARCHAR(30) NOT NULL,
-  raw_payload JSONB,
-  resolution_status VARCHAR(20) DEFAULT 'open',
-  resolved_by UUID REFERENCES profiles(id),
-  resolved_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS hr_attendance_excs_emp_date_idx
-  ON hr_attendance_exceptions(employee_id, exception_date DESC);
-CREATE INDEX IF NOT EXISTS hr_attendance_excs_status_idx
-  ON hr_attendance_exceptions(resolution_status) WHERE resolution_status='open';
-
--- 6. Audit log (parallel to attendance_audit_log; different FK shape)
-CREATE TABLE IF NOT EXISTS hr_attendance_audit_log (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  attendance_record_id UUID REFERENCES hr_attendance_records(id),
-  employee_id UUID REFERENCES hr_employees(id),
-  institution_id UUID REFERENCES institutions(id),
-  actor_id UUID REFERENCES profiles(id),
-  action VARCHAR(30) NOT NULL,
-  before_state JSONB,
-  after_state JSONB,
-  reason TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS hr_attendance_audit_record_idx
-  ON hr_attendance_audit_log(attendance_record_id);
-CREATE INDEX IF NOT EXISTS hr_attendance_audit_inst_created_idx
-  ON hr_attendance_audit_log(institution_id, created_at DESC);
-
--- 7. Biometric devices master (vendor-agnostic, Round 2.1)
-DO $$ BEGIN
-  CREATE TYPE hr_biometric_vendor AS ENUM ('eSSL', 'ZKTeco', 'Suprema', 'Anviz', 'Other');
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
-CREATE TABLE IF NOT EXISTS hr_biometric_devices (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  hr_organization_id UUID REFERENCES hr_organizations(id),
-  institution_id UUID REFERENCES institutions(id),
-  device_name VARCHAR(100) NOT NULL,
-  vendor hr_biometric_vendor NOT NULL,
-  device_serial VARCHAR(100),
-  device_token VARCHAR(255),
-  location_label VARCHAR(150),
-  gps_lat NUMERIC(9, 6),
-  gps_lng NUMERIC(9, 6),
-  is_active BOOLEAN DEFAULT TRUE,
-  last_seen_at TIMESTAMPTZ,
-  config JSONB,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS hr_biometric_devices_org_idx
-  ON hr_biometric_devices(hr_organization_id);
-CREATE UNIQUE INDEX IF NOT EXISTS hr_biometric_devices_serial_uidx
-  ON hr_biometric_devices(device_serial) WHERE device_serial IS NOT NULL;
-
--- 8. Biometric punches (append-only)
-CREATE TABLE IF NOT EXISTS hr_biometric_punches (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  device_id UUID REFERENCES hr_biometric_devices(id),
-  employee_id UUID REFERENCES hr_employees(id),
-  biometric_id VARCHAR(100),
-  punch_at TIMESTAMPTZ NOT NULL,
-  punch_kind VARCHAR(10),
-  raw_payload JSONB,
-  ingested_at TIMESTAMPTZ DEFAULT NOW(),
-  reconciled_to_record_id UUID REFERENCES hr_attendance_records(id)
-);
-CREATE INDEX IF NOT EXISTS hr_biometric_punches_emp_punch_idx
-  ON hr_biometric_punches(employee_id, punch_at DESC);
-CREATE INDEX IF NOT EXISTS hr_biometric_punches_device_punch_idx
-  ON hr_biometric_punches(device_id, punch_at DESC);
-CREATE INDEX IF NOT EXISTS hr_biometric_punches_ingested_idx
-  ON hr_biometric_punches(ingested_at DESC);
-
--- 9. ALTER hr_organizations: geofence + audit retention
-ALTER TABLE hr_organizations
-  ADD COLUMN IF NOT EXISTS gps_geofence_lat NUMERIC(9, 6),
-  ADD COLUMN IF NOT EXISTS gps_geofence_lng NUMERIC(9, 6),
-  ADD COLUMN IF NOT EXISTS gps_geofence_radius_m INT,
-  ADD COLUMN IF NOT EXISTS audit_retention_years INT DEFAULT 7;
-
-
--- ============================================================================
--- 2026-04-29: platform_policies — canonical runtime-config substrate (Phase 1.5a)
--- Replaces 20+ module-specific config tables. Policy seeds in migration
--- 20260429000002_platform_policies_substrate.sql.
--- ============================================================================
-CREATE TABLE IF NOT EXISTS platform_policies (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  policy_key TEXT NOT NULL,
-  scope_type TEXT NOT NULL CHECK (scope_type IN ('global','institution','role','user')),
-  scope_id UUID,
-  value JSONB NOT NULL,
-  description TEXT,
-  data_type TEXT NOT NULL CHECK (data_type IN ('number','string','boolean','array','object','enum')),
-  enum_options JSONB,
-  validation_schema JSONB,
-  is_system BOOLEAN DEFAULT false,
-  is_active BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now(),
-  updated_by UUID REFERENCES profiles(id)
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_platform_policies_key_scope
-  ON platform_policies (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid));
-
-CREATE INDEX IF NOT EXISTS idx_platform_policies_active
-  ON platform_policies (policy_key, is_active);
-
 -- =====================================================================
--- Updated: 2026-04-29 - Wave B.1 — Notification Generator Policy substrate.
--- Adds notification_generator_config + audit table. Per-generator policy
--- rows (status filters, age windows, batch limits, priority thresholds,
--- TTLs, role lists). Read via fn_get_generator_config(name, fallback).
--- Edited via /system/attention-bar Tab 8 (planned in Wave B.3).
--- Standing rule (memory: feedback_policy_decisions_must_be_config_rows.md):
--- every threshold/mapping/feature-flag = row in config table + super_admin UI.
+-- IMS Module: this-session additions (Phase A5b + A0.5 + Phase F)
+-- Updated: 2026-04-28
+--
+-- This block restores source-of-truth for the IMS schema additions made
+-- during the 2026-04-28 production-readiness session. All changes use
+-- IF NOT EXISTS guards so re-applying is a no-op against the live DB.
+--
+-- The 25 base ims_* tables themselves are NOT defined in this file yet —
+-- they exist only in production from the original IMS migration deploy.
+-- The full table-level backfill is tracked in plan file:
+--   ~/.claude/plans/ps-c-users-admin-documents-github-myjkkn-radiant-dijkstra.md
+--
+-- Each ALTER below is wrapped in `to_regclass(...) IS NOT NULL` so the
+-- block no-ops cleanly on a fresh DB clone (base table missing → skip).
+-- Once the base IMS DDL section lands, these ALTERs will apply naturally.
 -- =====================================================================
-CREATE TABLE IF NOT EXISTS public.notification_generator_config (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  generator_name  VARCHAR(100) UNIQUE NOT NULL,
-  description     TEXT,
-  config          JSONB NOT NULL,
-  is_active       BOOLEAN NOT NULL DEFAULT true,
-  created_by      UUID REFERENCES public.profiles(id),
-  updated_by      UUID REFERENCES public.profiles(id),
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS idx_notif_gen_cfg_active
-  ON public.notification_generator_config (generator_name, is_active);
-COMMENT ON TABLE public.notification_generator_config IS
-  'Per-generator policy config rows. Wave B.1+. Read via fn_get_generator_config(name, fallback). Edited via /system/attention-bar Tab 8. Standing rule: every policy decision is a config-row.';
-
-CREATE TABLE IF NOT EXISTS public.notification_generator_config_audit (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  generator_name  VARCHAR(100) NOT NULL,
-  config_id       UUID REFERENCES public.notification_generator_config(id) ON DELETE SET NULL,
-  operation       VARCHAR(10) NOT NULL CHECK (operation IN ('INSERT','UPDATE','DELETE')),
-  old_config      JSONB,
-  new_config      JSONB,
-  changed_by      UUID REFERENCES public.profiles(id),
-  changed_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  reason          TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_notif_gen_cfg_audit_changed_at
-  ON public.notification_generator_config_audit (changed_at DESC);
-CREATE INDEX IF NOT EXISTS idx_notif_gen_cfg_audit_generator
-  ON public.notification_generator_config_audit (generator_name, changed_at DESC);
-COMMENT ON TABLE public.notification_generator_config_audit IS
-  'Audit trail for notification_generator_config changes. Captures old/new config JSONB on every INSERT/UPDATE/DELETE so a misconfiguration can be reverted via the audit row.';
-
--- =====================================================================
--- Updated: 2026-04-29 - Wave B.4 — Attention Bar Layer 0 dedicated signal.
--- Decouples Layer 0 eligibility from the AcknowledgmentGate's blocking-modal
--- semantics. Two systems, two columns:
---   - requires_acknowledgment: drives the gate (forces user to acknowledge)
---   - is_layer_0:              drives the Attention Bar Layer 0 surface
--- fn_create_dashboard_work_item now sets is_layer_0=(priority='urgent') so
--- cron-emitted urgent work items become Layer 0 candidates without flowing
--- through the gate. Pre-fix the gate would block faculty/students on every
--- urgent work item, which is why ack=FALSE was hardcoded since 2026-04-23.
--- =====================================================================
-ALTER TABLE public.notifications
-  ADD COLUMN IF NOT EXISTS is_layer_0 BOOLEAN NOT NULL DEFAULT FALSE;
-
-CREATE INDEX IF NOT EXISTS idx_notifications_layer_0
-  ON public.notifications (id)
-  WHERE is_layer_0 = TRUE;
-
-COMMENT ON COLUMN public.notifications.is_layer_0 IS
-  'Wave B.4: TRUE when the Attention Bar Layer 0 evaluator should consider this row. Set by fn_create_dashboard_work_item to (priority=''urgent''); independent from requires_acknowledgment which drives the AcknowledgmentGate blocking modal. Two systems, two columns.';
-
--- Backfill existing urgent + ack-required rows so the 2 Director-authored
--- announcements (Apr 9 + Apr 18) keep firing Layer 0 without any code change.
-UPDATE public.notifications
-   SET is_layer_0 = TRUE
- WHERE priority = 'urgent'
-   AND requires_acknowledgment = TRUE
-   AND is_layer_0 = FALSE;
-
--- =====================================================================
--- staff_import_unmatched
--- =====================================================================
--- Holds website faculty rows the import script could not auto-match to a
--- MyJKKN staff record. Reviewed manually after each import run. RLS gated by
--- the staff.manage_imports permission (policy: staff_imports_manage_access).
-
-CREATE TABLE IF NOT EXISTS public.staff_import_unmatched (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  source_table text NOT NULL,
-  source_row  jsonb NOT NULL,
-  reason      text NOT NULL,
-  resolved    boolean NOT NULL DEFAULT false,
-  resolved_by uuid NULL REFERENCES auth.users(id) ON DELETE SET NULL,
-  resolved_at timestamptz NULL,
-  created_at  timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_staff_import_unmatched_unresolved
-  ON public.staff_import_unmatched (created_at DESC)
-  WHERE resolved = false;
--- ============================================================================
--- 20260506100001 — Create admission_fee_structures + admission_fee_structure_items
--- ============================================================================
--- Spec §6.2. Matrix-keyed fee templates (one per 8-dim combination per academic
--- year). Items are billing-category × amount per structure. The 'admission_year_id'
--- IS the version dimension (per Q4 Option C).
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS public.admission_fee_structures (
-    id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    institution_id          uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
-    degree_id               uuid NOT NULL REFERENCES public.degrees(id),
-    department_id           uuid NOT NULL REFERENCES public.departments(id),
-    programme_id            uuid NOT NULL REFERENCES public.programs(id),
-    quota_id                uuid NOT NULL REFERENCES public.quotas(id),
-    -- Community moved to junction table (admission_fee_structure_communities)
-    -- in migration 20260507120001 — one structure can apply to N communities.
-    accommodation_type_id   uuid NOT NULL REFERENCES public.accommodation_types(id),
-    admission_year_id       uuid NOT NULL REFERENCES public.admission_years(id),
-    name                    text NOT NULL,
-    status                  text NOT NULL DEFAULT 'draft'
-                            CHECK (status IN ('draft','active','archived')),
-    notes                   text,
-    created_at              timestamptz NOT NULL DEFAULT now(),
-    updated_at              timestamptz NOT NULL DEFAULT now(),
-    created_by              uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
-    updated_by              uuid REFERENCES public.profiles(id) ON DELETE SET NULL
-);
-
-CREATE INDEX IF NOT EXISTS ix_fee_structures_institution_year_status
-    ON public.admission_fee_structures (institution_id, admission_year_id, status);
-
-DROP TRIGGER IF EXISTS trg_admission_fee_structures_touch ON public.admission_fee_structures;
-CREATE TRIGGER trg_admission_fee_structures_touch
-    BEFORE UPDATE ON public.admission_fee_structures
-    FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
-
-CREATE TABLE IF NOT EXISTS public.admission_fee_structure_communities (
-    fee_structure_id      uuid NOT NULL
-                          REFERENCES public.admission_fee_structures(id)
-                          ON DELETE CASCADE,
-    community_category_id uuid NOT NULL
-                          REFERENCES public.community_categories(id),
-    created_at            timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (fee_structure_id, community_category_id)
-);
-
-CREATE INDEX IF NOT EXISTS ix_fee_structure_communities_community
-    ON public.admission_fee_structure_communities (community_category_id);
-
-CREATE INDEX IF NOT EXISTS ix_fee_structure_communities_structure
-    ON public.admission_fee_structure_communities (fee_structure_id);
-
-CREATE TABLE IF NOT EXISTS public.admission_fee_structure_items (
-    id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    fee_structure_id    uuid NOT NULL REFERENCES public.admission_fee_structures(id) ON DELETE CASCADE,
-    billing_category_id uuid NOT NULL REFERENCES public.billing_categories(id),
-    amount              numeric(15,2) NOT NULL CHECK (amount >= 0),
-    is_optional         boolean NOT NULL DEFAULT false,
-    sort_order          integer NOT NULL DEFAULT 0,
-    UNIQUE (fee_structure_id, billing_category_id)
-);
-
-CREATE INDEX IF NOT EXISTS ix_fee_structure_items_structure
-    ON public.admission_fee_structure_items (fee_structure_id, sort_order);
-
--- ============================================================================
--- admission_fee_adjustments (Plan 3 Task 1)
--- ============================================================================
--- Per-enquiry first-class exceptions: scholarships, donor seats, sibling rebates,
--- management waivers. delta_amount is signed (positive=surcharge, negative=discount).
--- billing_category_id NULL = global flat delta against the resolved total.
--- Spec: §6.3
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS public.admission_fee_adjustments (
-    id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    learner_id          uuid NOT NULL REFERENCES public.learners_profiles(id) ON DELETE CASCADE,
-    billing_category_id uuid REFERENCES public.billing_categories(id),
-    reason_code         text NOT NULL CHECK (reason_code IN
-                          ('scholarship_merit','donor_seat','sibling_rebate','management_waiver',
-                           'fee_concession','staff_ward','financial_hardship','other')),
-    reason_notes        text,
-    delta_amount        numeric(15,2) NOT NULL,
-    applied_at          timestamptz NOT NULL DEFAULT now(),
-    approved_by         uuid REFERENCES public.profiles(id),
-    evidence_documents  jsonb NOT NULL DEFAULT '[]'::jsonb,
-    status              text NOT NULL DEFAULT 'active'
-                        CHECK (status IN ('active','reversed')),
-    created_at          timestamptz NOT NULL DEFAULT now(),
-    updated_at          timestamptz NOT NULL DEFAULT now(),
-    created_by          uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
-    updated_by          uuid REFERENCES public.profiles(id) ON DELETE SET NULL
-);
-
-CREATE INDEX IF NOT EXISTS ix_fee_adjustments_learner_active
-    ON public.admission_fee_adjustments (learner_id, status);
-
-CREATE INDEX IF NOT EXISTS ix_fee_adjustments_category
-    ON public.admission_fee_adjustments (billing_category_id);
-
-DROP TRIGGER IF EXISTS trg_admission_fee_adjustments_touch ON public.admission_fee_adjustments;
-CREATE TRIGGER trg_admission_fee_adjustments_touch
-    BEFORE UPDATE ON public.admission_fee_adjustments
-    FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
-
--- ============================================================================
--- learner_admission_documents (Plan 4 Task 1)
--- ============================================================================
--- Spec §6.6. Audit trail for documents collected at the status='account'
--- transition. One row per (learner_id, doc_type). doc_type is free-form text
--- driven by admission_settings_per_institution.required_documents_for_account_transition
--- (a JSONB array of strings).
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS public.learner_admission_documents (
-    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    learner_id      uuid NOT NULL REFERENCES public.learners_profiles(id) ON DELETE CASCADE,
-    doc_type        text NOT NULL,
-    is_received     boolean NOT NULL DEFAULT false,
-    received_at     timestamptz,
-    received_by     uuid REFERENCES public.profiles(id),
-    received_via    text CHECK (received_via IN ('physical','email','upload')),
-    document_ref    text,
-    notes           text,
-    created_at      timestamptz NOT NULL DEFAULT now(),
-    updated_at      timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (learner_id, doc_type)
-);
-
-CREATE INDEX IF NOT EXISTS ix_learner_admission_documents_learner
-    ON public.learner_admission_documents (learner_id, is_received);
-
-DROP TRIGGER IF EXISTS trg_learner_admission_documents_touch
-    ON public.learner_admission_documents;
-CREATE TRIGGER trg_learner_admission_documents_touch
-    BEFORE UPDATE ON public.learner_admission_documents
-    FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
-
--- ============================================================================
--- Plan 5 — Fee-change reconciliation: admission_fee_change_events + _lines
--- Spec §6.4
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS public.admission_fee_change_events (
-    id                          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    learner_id                  uuid NOT NULL REFERENCES public.learners_profiles(id) ON DELETE CASCADE,
-    trigger_field               text NOT NULL CHECK (trigger_field IN
-                                ('program_id','quota_id','community_category_id',
-                                 'accommodation_type_id','admission_year_id','manual')),
-    old_program_id              uuid,
-    old_quota_id                uuid,
-    old_community_category_id   uuid,
-    old_accommodation_type_id   uuid,
-    old_admission_year_id       uuid,
-    old_fee_structure_id        uuid REFERENCES public.admission_fee_structures(id),
-    new_fee_structure_id        uuid REFERENCES public.admission_fee_structures(id),
-    status                      text NOT NULL DEFAULT 'pending_review'
-                                CHECK (status IN ('pending_review','approved','rejected')),
-    reason_notes                text,
-    requested_by                uuid REFERENCES public.profiles(id),
-    decided_by                  uuid REFERENCES public.profiles(id),
-    requested_at                timestamptz NOT NULL DEFAULT now(),
-    decided_at                  timestamptz,
-    created_at                  timestamptz NOT NULL DEFAULT now(),
-    updated_at                  timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS ix_fee_change_events_pending
-    ON public.admission_fee_change_events (status, learner_id)
-    WHERE status = 'pending_review';
-
-CREATE INDEX IF NOT EXISTS ix_fee_change_events_learner
-    ON public.admission_fee_change_events (learner_id, requested_at DESC);
-
-DROP TRIGGER IF EXISTS trg_fee_change_events_touch ON public.admission_fee_change_events;
-CREATE TRIGGER trg_fee_change_events_touch
-    BEFORE UPDATE ON public.admission_fee_change_events
-    FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
-
-CREATE TABLE IF NOT EXISTS public.admission_fee_change_event_lines (
-    id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    event_id                uuid NOT NULL REFERENCES public.admission_fee_change_events(id) ON DELETE CASCADE,
-    billing_category_id     uuid NOT NULL REFERENCES public.billing_categories(id),
-    old_amount              numeric(15,2),
-    new_amount              numeric(15,2),
-    paid_amount_so_far      numeric(15,2) NOT NULL DEFAULT 0,
-    decision                text CHECK (decision IN
-                            ('apply_supplemental','issue_credit_note','refund_payment',
-                             'reallocate_payment','waive_delta','do_nothing')),
-    generated_artifact_id   uuid,
-    decision_notes          text,
-    UNIQUE (event_id, billing_category_id)
-);
-
-CREATE INDEX IF NOT EXISTS ix_fee_change_event_lines_event
-    ON public.admission_fee_change_event_lines (event_id);
-
--- ============================================================================
--- Plan 5 — student_credit_balances (Spec §6.6)
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS public.student_credit_balances (
-    id                          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    student_id                  uuid NOT NULL REFERENCES public.learners_profiles(id) ON DELETE CASCADE,
-    amount                      numeric(15,2) NOT NULL CHECK (amount >= 0),
-    source                      text NOT NULL CHECK (source IN
-                                ('fee_structure_change','overpayment','refund_reversal','manual')),
-    source_event_id             uuid,
-    is_consumed                 boolean NOT NULL DEFAULT false,
-    consumed_against_bill_id    uuid REFERENCES public.billing_student_bills(id),
-    consumed_at                 timestamptz,
-    notes                       text,
-    created_at                  timestamptz NOT NULL DEFAULT now(),
-    updated_at                  timestamptz NOT NULL DEFAULT now(),
-    created_by                  uuid REFERENCES public.profiles(id) ON DELETE SET NULL
-);
-
-CREATE INDEX IF NOT EXISTS ix_credit_balances_student_unconsumed
-    ON public.student_credit_balances (student_id, is_consumed)
-    WHERE is_consumed = false;
-
-DROP TRIGGER IF EXISTS trg_student_credit_balances_touch ON public.student_credit_balances;
-CREATE TRIGGER trg_student_credit_balances_touch
-    BEFORE UPDATE ON public.student_credit_balances
-    FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
-
--- ============================================================================
--- Plan 5 — Extend billing for supersede + reallocation (Spec §6.5)
--- ============================================================================
-
-ALTER TABLE public.billing_student_bills
-    ADD COLUMN IF NOT EXISTS superseded_by_bill_id uuid REFERENCES public.billing_student_bills(id);
 
 DO $$
 BEGIN
-    IF EXISTS (
-        SELECT 1 FROM information_schema.table_constraints
-         WHERE table_schema='public' AND table_name='billing_student_bills'
-           AND constraint_type='CHECK'
-           AND constraint_name LIKE '%status%'
-    ) THEN
-        EXECUTE (
-            SELECT format('ALTER TABLE public.billing_student_bills DROP CONSTRAINT %I', constraint_name)
-              FROM information_schema.table_constraints
-             WHERE table_schema='public' AND table_name='billing_student_bills'
-               AND constraint_type='CHECK'
-               AND constraint_name LIKE '%status%'
-             LIMIT 1
-        );
-    END IF;
-END$$;
+  -- Phase A0.5: ims_stores distribution flags (added 2026-04-28).
+  IF to_regclass('public.ims_stores') IS NOT NULL THEN
+    ALTER TABLE public.ims_stores
+      ADD COLUMN IF NOT EXISTS is_central_supply_store BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS requires_local_approval BOOLEAN NOT NULL DEFAULT FALSE;
+  END IF;
 
-ALTER TABLE public.billing_student_bills
-    ADD CONSTRAINT billing_student_bills_status_check
-    CHECK (status IN ('unpaid','partially_paid','paid','cancelled','overdue','superseded'));
+  -- Phase A5b.1: ims_items distribution + identity fields. Types in
+  -- types/ims/items.ts referenced these but they were missing in DB.
+  IF to_regclass('public.ims_items') IS NOT NULL THEN
+    ALTER TABLE public.ims_items
+      ADD COLUMN IF NOT EXISTS is_distributable BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS is_bundle BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS brand TEXT,
+      ADD COLUMN IF NOT EXISTS variant_attributes JSONB DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS image_url TEXT;
+  END IF;
 
-ALTER TABLE public.billing_receipt_items
-    ADD COLUMN IF NOT EXISTS allocation_reason text NOT NULL DEFAULT 'original_payment'
-        CHECK (allocation_reason IN
-            ('original_payment','fee_structure_change_reallocation','manual_reallocation'));
+  -- Phase F: indent workflow audit columns. Service layer was setting these
+  -- (e.g., approved_at = new Date().toISOString()) but Postgres was silently
+  -- dropping the values because the columns didn't exist. requested_at also
+  -- backfilled from created_at for existing rows.
+  IF to_regclass('public.ims_indent_requests') IS NOT NULL THEN
+    ALTER TABLE public.ims_indent_requests
+      ADD COLUMN IF NOT EXISTS requested_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS rejected_by UUID REFERENCES profiles(id),
+      ADD COLUMN IF NOT EXISTS local_approved_at TIMESTAMPTZ;
+    UPDATE public.ims_indent_requests
+      SET requested_at = COALESCE(requested_at, created_at)
+      WHERE requested_at IS NULL;
+  END IF;
+
+  -- Phase F: GRN workflow audit columns. Same pattern as indent — service
+  -- writes timestamps that were being dropped at the DB layer.
+  IF to_regclass('public.ims_goods_received_notes') IS NOT NULL THEN
+    ALTER TABLE public.ims_goods_received_notes
+      ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
+    UPDATE public.ims_goods_received_notes
+      SET received_at = COALESCE(received_at, created_at)
+      WHERE received_at IS NULL;
+  END IF;
+END $$;
+
+-- Phase F: append-only audit trail for IMS workflows.
+-- Each row = one user action on one entity (indent / GRN / shipment / adjustment / sale).
+-- Mirrors MyJKKN's per-module audit pattern (attendance_audit_log).
+-- RLS in 03_policies.sql; intentionally no UPDATE/DELETE policies so rows are
+-- tamper-resistant via RLS-respecting clients (compliance grade).
+CREATE TABLE IF NOT EXISTS public.ims_activity_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id UUID NOT NULL REFERENCES institutions(id),
+  entity_type TEXT NOT NULL CHECK (entity_type IN ('indent','grn','shipment','adjustment','sale')),
+  entity_id UUID NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('raised','approved','rejected','verified','dispatched','received','cancelled','commented','adjusted')),
+  actor_id UUID NOT NULL REFERENCES profiles(id),
+  notes TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ims_activity_log_entity
+  ON public.ims_activity_log(entity_type, entity_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ims_activity_log_actor
+  ON public.ims_activity_log(actor_id);
+CREATE INDEX IF NOT EXISTS idx_ims_activity_log_inst
+  ON public.ims_activity_log(institution_id, created_at DESC);
+
+ALTER TABLE public.ims_activity_log ENABLE ROW LEVEL SECURITY;
+
+COMMENT ON TABLE public.ims_activity_log IS
+'Phase F (2026-04-28): per-IMS-entity transition history + comments. Append-only. Mirrors attendance_audit_log pattern. Each row = one user action on one entity (indent/grn/shipment/adjustment/sale).';
+
+-- admission_leads strict-counselor visibility indexes (2026-06-03): make
+-- (counselor_id = X OR assigned_counselor_id = Y) AND source <> 'referral'
+-- ORDER BY created_at DESC, id sargable via BitmapOr. assigned_counselor_id was
+-- previously an unindexed FK, forcing the pagination count(*) to Seq Scan.
+CREATE INDEX IF NOT EXISTS idx_admission_leads_assigned_counselor_created
+  ON public.admission_leads (assigned_counselor_id, created_at DESC, id)
+  WHERE assigned_counselor_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_admission_leads_counselor_created
+  ON public.admission_leads (counselor_id, created_at DESC, id)
+  WHERE counselor_id IS NOT NULL;
+
+-- admission_lead_activities per-lead timeline index (2026-06-03): pure index scan
+-- for the per-lead, created_at-ordered activity/timeline/stats fetch.
+CREATE INDEX IF NOT EXISTS idx_admission_lead_activities_lead_created
+  ON public.admission_lead_activities (lead_id, created_at DESC);
+
+-- razorpay_webhook_events (2026-06-04): INBOUND Razorpay webhook audit log,
+-- written by dispatchRazorpayWebhook() via the service-role client. Kept separate
+-- from public.webhook_logs (the unrelated OUTBOUND user/application sync log).
+CREATE TABLE IF NOT EXISTS public.razorpay_webhook_events (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider     text NOT NULL DEFAULT 'razorpay',
+  event_type   text NOT NULL,
+  raw_payload  jsonb NOT NULL,
+  received_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_razorpay_webhook_events_received_at
+  ON public.razorpay_webhook_events (received_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_razorpay_webhook_events_event_type
+  ON public.razorpay_webhook_events (event_type);
+
+-- hostel_program_eligibility (2026-06-06): single combined program-eligibility table.
+-- One row = (institution, program, quota, fee band) granting both a room category
+-- and a mess category. Replaces the former split hostel_program_room_eligibility +
+-- hostel_program_mess_eligibility tables (both were empty; dropped in migration
+-- 20260606160400_program_eligibility_single_table.sql).
+CREATE TABLE IF NOT EXISTS public.hostel_program_eligibility (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  program_id uuid REFERENCES public.programs(id) ON DELETE CASCADE,   -- NULL = institution default
+  quota_id   uuid REFERENCES public.quotas(id) ON DELETE CASCADE,     -- NULL = any quota
+  fee_min numeric(12,2),                                              -- inclusive lower (rupees), NULL = unbounded
+  fee_max numeric(12,2),                                              -- exclusive upper (rupees), NULL = unbounded
+  room_category_id uuid REFERENCES public.hostel_categories(id) ON DELETE CASCADE,
+  mess_category_id uuid REFERENCES public.mess_categories(id)  ON DELETE CASCADE,
+  hostel_type text NOT NULL DEFAULT 'both' CHECK (hostel_type IN ('boys','girls','both')), -- which gender(s) the band applies to
+  is_monthly_mess_allowed boolean NOT NULL DEFAULT false,
+  is_active boolean NOT NULL DEFAULT true,
+  effective_from date,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  created_by uuid REFERENCES public.profiles(id),
+  updated_by uuid REFERENCES public.profiles(id),
+  CONSTRAINT chk_prog_elig_fee_range    CHECK (fee_min IS NULL OR fee_max IS NULL OR fee_min < fee_max),
+  CONSTRAINT chk_prog_elig_has_category CHECK (room_category_id IS NOT NULL OR mess_category_id IS NOT NULL)
+);
+
+-- One row per band (institution, program, quota, fee_min, fee_max).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_prog_elig_band ON public.hostel_program_eligibility (
+  institution_id,
+  COALESCE(program_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(quota_id,   '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(fee_min, -1),
+  COALESCE(fee_max, -1)
+);
+CREATE INDEX IF NOT EXISTS idx_prog_elig_resolve
+  ON public.hostel_program_eligibility (institution_id, program_id, quota_id, is_active);
+
+-- hostel_waitlist: waitlist for hostel room allocation and self-service category-upgrade intent.
+-- Originally created in migration 20260222000015_campus_living_enums_and_tables.sql.
+-- Columns target_hostel_category_id and entry_kind added in 20260609160000_hostel_waitlist_upgrade_columns.sql.
+-- Columns held_room_id/held_bed_id/hold_expires_at added in
+-- 20260611150000_upgrade_payment_threshold_and_holds.sql: a below-threshold upgrade
+-- hard-reserves the chosen bed (bed status 'reserved') until paid or expired.
+CREATE TABLE IF NOT EXISTS public.hostel_waitlist (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    institution_id UUID NOT NULL REFERENCES public.institutions(id),
+    learner_id UUID NOT NULL,
+    academic_year_id UUID NOT NULL,
+    preferred_block_id UUID REFERENCES public.hostel_blocks(id),
+    preferred_room_type room_type_enum,
+    preferred_ac_status ac_status_enum,
+    priority_score INT DEFAULT 0,
+    status waitlist_status_enum NOT NULL DEFAULT 'waiting',
+    offered_at TIMESTAMPTZ,
+    offer_expires_at TIMESTAMPTZ,
+    allocated_allocation_id UUID,
+    notes TEXT,
+    target_hostel_category_id UUID REFERENCES public.hostel_categories(id),
+    entry_kind TEXT NOT NULL DEFAULT 'allocation',
+    held_room_id UUID REFERENCES public.hostel_rooms(id) ON DELETE SET NULL,
+    held_bed_id UUID REFERENCES public.hostel_beds(id) ON DELETE SET NULL,
+    hold_expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- hostel_categories upgrade-threshold config (20260611150000): min % of the learner's
+-- current-academic-year academic bills paid for an instant upgrade into the category
+-- (NULL = no gate), and how many days a below-threshold reservation is held.
+ALTER TABLE public.hostel_categories
+  ADD COLUMN IF NOT EXISTS upgrade_threshold_pct numeric
+    CHECK (upgrade_threshold_pct >= 0 AND upgrade_threshold_pct <= 100),
+  ADD COLUMN IF NOT EXISTS upgrade_hold_days integer NOT NULL DEFAULT 5
+    CHECK (upgrade_hold_days BETWEEN 1 AND 60);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_hostel_waitlist_active_upgrade
+  ON public.hostel_waitlist (learner_id, target_hostel_category_id)
+  WHERE entry_kind = 'upgrade' AND status = 'waiting';
+
+ALTER TABLE public.razorpay_webhook_events ENABLE ROW LEVEL SECURITY;
+
+-- accommodation_types: GLOBAL lookup (institution-agnostic).
+-- Originally created institution-scoped in 20260505100001; deduped to one row
+-- per code and institution_id dropped in 20260610100000_accommodation_types_global.sql.
+CREATE TABLE IF NOT EXISTS public.accommodation_types (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_accommodation_types_active
+  ON public.accommodation_types (is_active, sort_order);
+
+-- ============================================================================
+-- hostel_category_upgrade_fees (migration 20260610210000)
+-- Explicit from→to upgrade pricing (room OR mess), per hostel year. Drives the
+-- My Hostel upgrade options + flat-fee upgrade billing.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.hostel_category_upgrade_fees (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  hostel_year_id uuid NOT NULL REFERENCES public.hostel_years(id) ON DELETE CASCADE,
+  from_hostel_category_id uuid REFERENCES public.hostel_categories(id) ON DELETE CASCADE,
+  to_hostel_category_id   uuid REFERENCES public.hostel_categories(id) ON DELETE CASCADE,
+  from_mess_category_id   uuid REFERENCES public.mess_categories(id)  ON DELETE CASCADE,
+  to_mess_category_id     uuid REFERENCES public.mess_categories(id)  ON DELETE CASCADE,
+  amount numeric(12,2) NOT NULL CHECK (amount >= 0),
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  created_by uuid REFERENCES public.profiles(id),
+  updated_by uuid REFERENCES public.profiles(id),
+  CONSTRAINT chk_upgrade_one_kind CHECK (
+    (from_hostel_category_id IS NOT NULL AND to_hostel_category_id IS NOT NULL
+       AND from_mess_category_id IS NULL AND to_mess_category_id IS NULL)
+    OR
+    (from_mess_category_id IS NOT NULL AND to_mess_category_id IS NOT NULL
+       AND from_hostel_category_id IS NULL AND to_hostel_category_id IS NULL)
+  ),
+  CONSTRAINT chk_upgrade_distinct CHECK (
+    (from_hostel_category_id IS NULL OR from_hostel_category_id <> to_hostel_category_id)
+    AND (from_mess_category_id IS NULL OR from_mess_category_id <> to_mess_category_id)
+  )
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_upgrade_fee_pair ON public.hostel_category_upgrade_fees (
+  hostel_year_id,
+  COALESCE(from_hostel_category_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(to_hostel_category_id,   '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(from_mess_category_id,   '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(to_mess_category_id,     '00000000-0000-0000-0000-000000000000'::uuid)
+);
+CREATE INDEX IF NOT EXISTS idx_upgrade_fee_room ON public.hostel_category_upgrade_fees
+  (hostel_year_id, from_hostel_category_id, to_hostel_category_id) WHERE is_active;
+CREATE INDEX IF NOT EXISTS idx_upgrade_fee_mess ON public.hostel_category_upgrade_fees
+  (hostel_year_id, from_mess_category_id, to_mess_category_id) WHERE is_active;
+
+-- 20260611180000: idempotency for housekeeping task generation — one task per
+-- schedule per day (cron + creation trigger both upsert through this).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cleaning_task_schedule_date
+  ON public.hostel_cleaning_tasks (schedule_id, date)
+  WHERE schedule_id IS NOT NULL;
+
+-- =====================================================
+-- 20260711000000: Family Moments engine (2026-06-12)
+-- Campaign-based parent engagement — Father's Day 2026
+-- (NV CBSE + Matric HSS). Tokenized public gift cards.
+-- Full DDL + RLS + storage bucket in the migration file:
+-- supabase/migrations/20260711000000_family_moments_engine.sql
+-- =====================================================
+-- family_moments_campaigns: one row per occasion per institution
+--   (slug UNIQUE, recipient_type father|mother|both, status lifecycle)
+-- family_moments: one row per child per campaign
+--   (token UNIQUE unguessable, content_type auto|text|image,
+--    recipient snapshots, opened/install/push tracking columns)

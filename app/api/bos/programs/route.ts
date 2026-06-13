@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { resolveBosBoardScope } from '@/lib/utils/bos/bos-access';
 
 export async function GET(request: NextRequest) {
   try {
@@ -11,6 +12,10 @@ export async function GET(request: NextRequest) {
     // Accept single institutionId OR comma-separated institutionIds (for CAS Aided+Self).
     const institutionId = searchParams.get('institutionId');
     const institutionIds = searchParams.get('institutionIds');
+    // Presence (any truthy value) toggles board-scoping for non-super-admins.
+    // The value itself is ignored — actual board membership comes from
+    // resolveBosBoardScope, which already handles CAS sibling UUIDs.
+    const applyBoardScope = searchParams.get('boardScopeInstitutionId') != null;
 
     const ids = institutionIds
       ? institutionIds.split(',').filter(Boolean)
@@ -39,8 +44,8 @@ export async function GET(request: NextRequest) {
 
     // Deduplicate by program_id in case Aided+Self share the same program codes.
     const seen = new Set<string>();
-    const formatted = (data || [])
-      .map((p: any) => ({
+    let formatted = (data || [])
+      .map((p: { id: string; program_id: string; program_name: string; display_name: string | null }) => ({
         id: p.id,
         program_code: p.program_id,
         program_name: p.display_name || p.program_name,
@@ -50,6 +55,45 @@ export async function GET(request: NextRequest) {
         seen.add(p.program_code);
         return true;
       });
+
+    if (applyBoardScope && formatted.length > 0) {
+      const scope = await resolveBosBoardScope(user.id);
+
+      // Strict rule: every non-super-admin caller must be an active member
+      // (any member_type) of an active composition whose board governs the
+      // programme via bos_board_programmes. No role-based carve-outs —
+      // principals/HODs/etc. who need access get added to the relevant
+      // composition explicitly. Source of truth is bos_board_programmes.
+      if (!scope.isSuperAdmin) {
+        if (scope.boardsOf.size === 0) {
+          // No active BoS composition → no programmes visible.
+          formatted = [];
+        } else {
+          // bos_board_programmes.programme_code is stored uppercase.
+          const upperCodes = formatted.map((p) => p.program_code.toUpperCase());
+
+          // Service role bypasses the cross-institution RLS barrier on
+          // bos_board_programmes (a Self-Financed user chairing an Aided board
+          // would otherwise be blocked from reading the Aided rows).
+          // Application-level auth is enforced above (boardsOf is the user's
+          // own active memberships).
+          const adminSupabase = createServiceRoleClient();
+          const { data: boardProgs } = await adminSupabase
+            .from('bos_board_programmes')
+            .select('programme_code')
+            .in('board_id', [...scope.boardsOf])
+            .in('programme_code', upperCodes)
+            .eq('is_active', true);
+
+          const allowed = new Set(
+            (boardProgs ?? []).map((p: { programme_code: string }) =>
+              p.programme_code.toUpperCase(),
+            ),
+          );
+          formatted = formatted.filter((p) => allowed.has(p.program_code.toUpperCase()));
+        }
+      }
+    }
 
     return NextResponse.json({ data: formatted, count: formatted.length });
   } catch (error) {

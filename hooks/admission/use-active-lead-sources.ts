@@ -124,5 +124,6 @@ export const FALLBACK_LEAD_SOURCE_LABELS: Record<LeadSourceEnum, string> = {
   inbound_call: 'Inbound Call',
   whatsapp: 'WhatsApp',
   gate_entry: 'Gate Entry',
+  learner_creator_content: 'Learner Creator (Instagram)',
   other: 'Other',
 };

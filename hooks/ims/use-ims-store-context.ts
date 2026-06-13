@@ -24,6 +24,19 @@ export function useImsStoreContext() {
   const institutionId = useStore(useImsActiveStore, (s) => s.institutionId);
   const storeName = useStore(useImsActiveStore, (s) => s.storeName);
   const setActiveStore = useImsActiveStore((s) => s.setActiveStore);
+  const clearActiveStore = useImsActiveStore((s) => s.clearActiveStore);
+
+  // Validate the persisted storeId against the current DB. If it no longer
+  // exists (e.g. stale UUID from a different Supabase project), clear it so
+  // Priority 2 / Priority 3 auto-resolve fires on the next render cycle.
+  const { data: persistedStoreData, isLoading: isValidatingStore } = useImsStore(
+    storeId ?? ''
+  );
+  useEffect(() => {
+    if (storeId && !isValidatingStore && !persistedStoreData) {
+      clearActiveStore();
+    }
+  }, [storeId, isValidatingStore, persistedStoreData, clearActiveStore]);
 
   // A user is "store-admin-like" — i.e. eligible to see the store-picker
   // (Gate D) instead of the dead-end "No Store Assigned" (Gate C) — only when
@@ -91,6 +104,7 @@ export function useImsStoreContext() {
     storeName: storeName ?? null,
     isStoreSelected,
     isResolving:
+      (!!storeId && isValidatingStore) ||
       (shouldUseAssigned && isAssignedLoading) ||
       (shouldAutoResolve && isAutoResolving),
     isSuperAdmin,

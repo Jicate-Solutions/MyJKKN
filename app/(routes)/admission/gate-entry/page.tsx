@@ -48,6 +48,7 @@ import {
 } from '@/components/ui/command';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { AdmissionYearSelect } from '@/components/admission/admission-year-select';
 
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -75,6 +76,7 @@ interface FormData {
   last_name: string;
   phone: string;
   program_id: string; // '' or 'undecided' or actual UUID
+  admission_year_id: string; // '' or actual UUID — auto-filled to current year, editable
   source: 'walk_in' | 'referral';
   // Referral sub-type. Empty when source='walk_in' or before user picks.
   // Mirrors the leads/new form so gate guards see the same UX as the
@@ -89,6 +91,7 @@ const INITIAL_FORM: FormData = {
   last_name: '',
   phone: '',
   program_id: '',
+  admission_year_id: '',
   source: 'walk_in',
   referral_type: '',
   referred_by_id: '',
@@ -97,6 +100,40 @@ const INITIAL_FORM: FormData = {
 
 const PROGRAM_UNDECIDED = '__undecided__';
 const PHONE_REGEX = /^(\+91|0)?[6-9]\d{9}$/;
+
+// Canonical field order — used to find the FIRST error after validation so we
+// can scroll/focus the offending control instead of leaving the user to hunt
+// for the red border. Order mirrors the on-screen layout exactly; if a field
+// is added/reordered above, mirror it here. The `elementId` is the `id="…"`
+// attribute on the input / SelectTrigger / button that should receive focus.
+const FIELD_ERROR_ORDER: { key: string; elementId: string }[] = [
+  { key: 'first_name',       elementId: 'first_name' },
+  { key: 'phone',            elementId: 'phone' },
+  { key: 'institution',      elementId: 'institution_id' },
+  { key: 'referral_type',    elementId: 'referral_type' },
+  { key: 'referred_by_name', elementId: 'referred_by_name' },
+];
+
+function scrollToFirstError(errors: Record<string, string>): void {
+  const first = FIELD_ERROR_ORDER.find((f) => errors[f.key]);
+  if (!first) return;
+  // requestAnimationFrame lets React commit the new red borders / messages
+  // before we scroll — otherwise smooth-scroll can land before the error
+  // text has expanded the field's bounding box.
+  requestAnimationFrame(() => {
+    const el = document.getElementById(first.elementId);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Focus after the smooth-scroll has had time to settle. preventScroll keeps
+    // the browser from jumping to its own focus-into-view position and
+    // overriding our centered scroll.
+    if (!(el as HTMLInputElement | HTMLButtonElement).disabled) {
+      setTimeout(() => {
+        (el as HTMLElement).focus({ preventScroll: true });
+      }, 350);
+    }
+  });
+}
 
 // ─── Page (default export) ────────────────────────────────────────────────
 export default function GateEntryPage() {
@@ -144,6 +181,7 @@ function GateEntryForm() {
   const {
     values: form,
     setValue: setDraftField,
+    setValues: setDraftValues,
     clearDraft,
   } = useFormDraftObject<FormData>(draftKey, INITIAL_FORM);
 
@@ -155,13 +193,26 @@ function GateEntryForm() {
     // a super_admin switching institutions could submit a program_id from the
     // previous campus, which the capture RPC would reject.
     setDraftField('program_id', '');
+    // Same for admission year — it's institution-scoped, so clear it to let
+    // <AdmissionYearSelect autoSelectCurrent> re-pick the new institution's
+    // current year.
+    setDraftField('admission_year_id', '');
     if (!institutionId) {
       setPrograms([]);
       return;
     }
     let cancelled = false;
     setProgramsLoading(true);
-    ProgramService.getPrograms({ institution_id: institutionId, isActive: true })
+    // limit: 1000 — ProgramService.getPrograms() applies pagination with a
+    // default page size of 10 (see lib/services/organization/program-service.ts).
+    // Multiple JKKN institutions have >10 active programmes (Arts & Science Self
+    // has 20), so omitting the limit silently truncates the dropdown. Mirrors
+    // the pattern used by add-counselor-dialog.tsx and marketing/campaigns.
+    ProgramService.getPrograms({
+      institution_id: institutionId,
+      isActive: true,
+      limit: 1000,
+    })
       .then(({ data }) => { if (!cancelled) setPrograms(data ?? []); })
       .catch(() => { if (!cancelled) setPrograms([]); })
       .finally(() => { if (!cancelled) setProgramsLoading(false); });
@@ -231,6 +282,10 @@ function GateEntryForm() {
 
   // Submission
   const [submitting, setSubmitting] = useState(false);
+  // In-flight ref shadows the `submitting` state so a fast double-click can't
+  // race past the React commit before disabled={submitting} kicks in.
+  // Pattern documented in MEMORY.md → feedback_react_query_disabled_prop_alone_isnt_enough.
+  const submittingRef = useRef(false);
   // Errors keyed by form-field OR top-level surface (e.g. 'institution').
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [lastResult, setLastResult] = useState<GateEntryResult | null>(null);
@@ -244,7 +299,9 @@ function GateEntryForm() {
     firstNameRef.current?.focus();
   }, [captureCount]);
 
-  const validate = useCallback((): boolean => {
+  // Returns the errors object directly so callers can both check `.length` AND
+  // know which field failed first (for scroll-to-first-error UX).
+  const validate = useCallback((): Record<string, string> => {
     const e: Record<string, string> = {};
     if (!form.first_name.trim()) e.first_name = 'First name is required';
     const phoneStripped = form.phone.replace(/[\s\-()]/g, '');
@@ -265,11 +322,26 @@ function GateEntryForm() {
       }
     }
     setErrors(e);
-    return Object.keys(e).length === 0;
+    return e;
   }, [form, institutionId]);
 
   const handleSubmit = useCallback(async () => {
-    if (!validate()) return;
+    // Hard guard — ref-based so a rapid double-click that arrives before the
+    // disabled={submitting} attribute is committed still gets rejected.
+    if (submittingRef.current) return;
+    const validationErrors = validate();
+    if (Object.keys(validationErrors).length > 0) {
+      // Scroll the offending field into view + focus it. Without this the
+      // gate guard has to hunt for the red border, which is especially
+      // hard on the long form once the referral block is expanded.
+      scrollToFirstError(validationErrors);
+      const count = Object.keys(validationErrors).length;
+      toast.error(
+        count === 1 ? 'Please fix the highlighted field' : `Please fix ${count} highlighted fields`,
+      );
+      return;
+    }
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const input: GateEntryInput = {
@@ -279,6 +351,7 @@ function GateEntryForm() {
         institution_id:    institutionId,
         program_id:        form.program_id && form.program_id !== PROGRAM_UNDECIDED
                              ? form.program_id : null,
+        admission_year_id: form.admission_year_id || null,
         source:            form.source,
         // Persist the user-chosen referral_type when a referrer was identified
         // (either via picker or free-text); null otherwise so the RPC stores
@@ -309,10 +382,14 @@ function GateEntryForm() {
       // delayed both, which meant the form appeared "stuck" on the prior
       // entry's data for 1.5s).
       //
-      // Only clearDraft() is needed — it sets values back to INITIAL_FORM
-      // AND wipes sessionStorage. The redundant setDraftValues(INITIAL_FORM)
-      // that used to live here was a no-op once the hook's reset ran.
+      // Belt-and-suspenders reset (2026-05-20): clearDraft() alone should be
+      // enough — the hook sets values back to INITIAL_FORM and wipes
+      // sessionStorage. We ALSO call setDraftValues(INITIAL_FORM) explicitly
+      // because some gate kiosks reported the form retaining data after
+      // submit; redundant write defends against any race in the hook's
+      // isCleared flag without changing its public API.
       clearDraft();
+      setDraftValues(INITIAL_FORM);
       setErrors({});
       setReferrerInstitutionId('');
       setReferrerDepartmentId('');
@@ -327,9 +404,10 @@ function GateEntryForm() {
       const msg = err instanceof Error ? err.message : 'Failed to log gate entry';
       toast.error(msg);
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
-  }, [form, institutionId, selectedConsultant, validate, clearDraft]);
+  }, [form, institutionId, selectedConsultant, validate, clearDraft, setDraftValues]);
 
   // Group programmes by degree.degree_name for nicer rendering
   const programsByDegree = useMemo(() => {
@@ -379,7 +457,8 @@ function GateEntryForm() {
               onChange={(e) => setDraftField('first_name', e.target.value)}
               autoComplete="off"
               autoCapitalize="words"
-              className="h-12"
+              className={`h-12 ${errors.first_name ? 'border-rose-500 focus-visible:ring-rose-500' : ''}`}
+              aria-invalid={!!errors.first_name}
               disabled={submitting}
             />
             {errors.first_name && (
@@ -418,7 +497,8 @@ function GateEntryForm() {
             onChange={(e) => setDraftField('phone', e.target.value)}
             autoComplete="off"
             maxLength={15}
-            className="h-12"
+            className={`h-12 ${errors.phone ? 'border-rose-500 focus-visible:ring-rose-500' : ''}`}
+            aria-invalid={!!errors.phone}
             disabled={submitting}
           />
           {errors.phone && (
@@ -463,6 +543,7 @@ function GateEntryForm() {
             </Select>
           ) : (
             <Input
+              id="institution_id"
               value={institutionsLoading ? 'Loading…' : institutionName}
               disabled
               className="h-12 bg-muted/50"
@@ -504,6 +585,23 @@ function GateEntryForm() {
               ))}
             </SelectContent>
           </Select>
+        </div>
+
+        {/* Admission Year — auto-filled to the institution's current year, editable */}
+        <div className="space-y-1.5">
+          <Label htmlFor="admission_year_id">
+            Admission year
+            <span className="text-xs text-muted-foreground ml-1">/ சேர்க்கை ஆண்டு</span>
+          </Label>
+          <AdmissionYearSelect
+            id="admission_year_id"
+            label={null}
+            institutionId={institutionId}
+            value={form.admission_year_id}
+            onChange={(v) => setDraftField('admission_year_id', v)}
+            disabled={submitting}
+            autoSelectCurrent
+          />
         </div>
 
         {/* Source type */}
@@ -556,7 +654,11 @@ function GateEntryForm() {
                 }}
                 disabled={submitting}
               >
-                <SelectTrigger id="referral_type" className="h-12">
+                <SelectTrigger
+                  id="referral_type"
+                  className={`h-12 ${errors.referral_type ? 'border-rose-500' : ''}`}
+                  aria-invalid={!!errors.referral_type}
+                >
                   <SelectValue placeholder="Select referral type" />
                 </SelectTrigger>
                 <SelectContent>
@@ -828,7 +930,8 @@ function GateEntryForm() {
                   placeholder="e.g. Mr. Kumar"
                   autoComplete="off"
                   disabled={submitting || !!form.referred_by_id}
-                  className="h-12"
+                  className={`h-12 ${errors.referred_by_name ? 'border-rose-500 focus-visible:ring-rose-500' : ''}`}
+                  aria-invalid={!!errors.referred_by_name}
                 />
                 {errors.referred_by_name && (
                   <p className="text-xs text-rose-600">{errors.referred_by_name}</p>

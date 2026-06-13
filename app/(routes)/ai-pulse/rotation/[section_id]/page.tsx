@@ -31,6 +31,7 @@ import { AlertCircle } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 import { RotationService } from '@/lib/services/ai-pulse/rotation-service';
 import { SectionRoster } from './_components/section-roster';
+import { RotationQueuePanel } from './_components/rotation-queue-panel';
 
 interface RotationPageProps {
   params: Promise<{ section_id: string }>;
@@ -151,6 +152,9 @@ export default function RotationPage({ params }: RotationPageProps) {
           hasSectionAccess={accessCheck.ok}
           accessDenialReason={accessCheck.reason}
         />
+
+        {/* Lane D — turn-based fairness queue (incharge-gated like the roster). */}
+        {accessCheck.ok && <RotationQueuePanel sectionId={section_id} />}
       </div>
     </ContentLayout>
   );

@@ -41,6 +41,7 @@
 //
 // Created: 2026-05-09 (Build #4 voice memo backend).
 // Updated: 2026-05-09 (multi-provider via ai_model_config).
+// Updated: 2026-05-22 (language-code normalization + Sarvam + orphan recovery).
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -55,6 +56,7 @@ import {
 import {
   transcribeAudio,
   estimateTranscriptionCostInr,
+  normalizeLanguageCode,
 } from '@/lib/services/platform/ai-clients/transcription';
 import {
   analyzeStructured,
@@ -188,13 +190,31 @@ export async function GET(request: NextRequest) {
   const supabase = createServiceRoleClient();
 
   // --- Find candidates ---------------------------------------------
-  // memo_audio_url IS NOT NULL AND status IN ('pending','failed')
-  // Hits the partial index idx_admission_call_logs_memo_pending.
+  // memo_audio_url IS NOT NULL AND (
+  //   status IN ('pending','failed')
+  //   OR (status = 'transcribing' AND updated_at < now - 5 min)
+  // )
+  //
+  // The 'transcribing' branch recovers orphaned soft-locks from crashed
+  // cron runs. The status is set on line ~224 as a soft lock against
+  // concurrent invocation; if the run crashes (OOM, timeout, network
+  // partition) the row stays stuck in 'transcribing' forever. The 5-min
+  // age guard ensures we don't race a still-running invocation (cron
+  // schedule is */5 * * * *, max single-memo duration ≤ 30s in practice).
+  const ORPHAN_AGE_MS = 5 * 60 * 1000;
+  const orphanCutoffIso = new Date(Date.now() - ORPHAN_AGE_MS).toISOString();
+  // Build the OR clause as three equality branches plus a nested AND for the
+  // orphan-recovery branch. Using three top-level branches (eq.pending /
+  // eq.failed / and(eq.transcribing,lt.cutoff)) is friendlier to the
+  // PostgREST parser than .in.(...) when an ISO timestamp (containing ':'
+  // and '.') is in the same expression.
   const { data: candidatesRaw, error: candidatesErr } = await supabase
     .from('admission_call_logs')
     .select('id, institution_id, memo_audio_url')
     .not('memo_audio_url', 'is', null)
-    .in('memo_analyze_status', ['pending', 'failed'])
+    .or(
+      `memo_analyze_status.eq.pending,memo_analyze_status.eq.failed,and(memo_analyze_status.eq.transcribing,updated_at.lt.${orphanCutoffIso})`,
+    )
     .order('created_at', { ascending: true })
     .limit(BATCH_LIMIT);
 
@@ -251,8 +271,10 @@ export async function GET(request: NextRequest) {
         transcript = result.text;
         language = result.language;
 
-        // Best-effort cost estimate. Whisper response_format=verbose_json gives
-        // duration but we don't surface it through the helper yet — leave null.
+        // Cost estimate: pass the audio duration parsed from the provider's
+        // verbose_json `duration` field. Without it the estimator returns null
+        // and the admin Cost panel reports ₹0 even when thousands of calls
+        // fire (the bug receipt this comment replaces — 2026-05-21).
         await recordUsage(
           'voice_memo.transcribe',
           transcribeConfig.provider,
@@ -262,7 +284,7 @@ export async function GET(request: NextRequest) {
             success: true,
             cost_inr: estimateTranscriptionCostInr(
               transcribePricing?.perMinuteInr,
-              null,
+              result.durationSeconds,
             ),
             call_log_id: c.id,
           },
@@ -284,15 +306,24 @@ export async function GET(request: NextRequest) {
       }
 
       // Language guardrail:
-      //   (a) Transcription response.language must be 'en'.
+      //   (a) Transcription response.language must resolve to ISO 'en'.
       //   (b) Transcript must not contain non-Latin scripts.
+      //
+      // The transcription dispatcher already normalizes the language field at
+      // source (Whisper's "English" → "en"; Sarvam's "en-IN" → "en"). Belt-
+      // and-braces: re-normalize here so any future provider that returns a
+      // full-word name or BCP-47 code still passes the guard. The original
+      // bug (100% rejection of English memos, 2026-05-22) was caused by a
+      // raw `language !== 'en'` compare against the unnormalized lowercase
+      // value "english".
+      const normalizedLanguage = normalizeLanguageCode(language);
       const hasNonLatin = NON_LATIN_REGEX.test(transcript);
-      if (language !== 'en' || hasNonLatin) {
+      if (normalizedLanguage !== 'en' || hasNonLatin) {
         await supabase
           .from('admission_call_logs')
           .update({
             memo_transcript: transcript || null,
-            memo_transcript_language: language,
+            memo_transcript_language: normalizedLanguage,
             memo_analyze_status: 'rejected_non_english',
             memo_analyzed_at: new Date().toISOString(),
           })
@@ -307,7 +338,7 @@ export async function GET(request: NextRequest) {
           .from('admission_call_logs')
           .update({
             memo_transcript: transcript || null,
-            memo_transcript_language: language,
+            memo_transcript_language: normalizedLanguage,
             memo_analyze_status: 'failed',
             memo_analyzed_at: new Date().toISOString(),
           })

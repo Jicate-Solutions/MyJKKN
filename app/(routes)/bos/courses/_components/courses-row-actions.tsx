@@ -64,7 +64,14 @@ async function downloadSyllabusPdf(course: BosCourseMaster, institutionName?: st
   const outcomesContent = syllabus.course_learning_outcomes as BosCourseLearnOutcomesContent | undefined;
 
   const totalHours = (course.theory_hours ?? 0) + (course.practical_hours ?? 0) || undefined;
-  const partLabel = [course.course_type, course.course_part_master].filter(Boolean).join(' – ') || undefined;
+  // Prefer COE's composite course_type_code (e.g. "Core-I") so the PDF header
+  // matches the courses table display. Fall back to composing it, then to plain
+  // course_type for pre-trigger rows.
+  const typeDisplay =
+    course.course_type_code
+    ?? (course.course_type && course.course_level ? `${course.course_type}-${course.course_level}` : null)
+    ?? course.course_type;
+  const partLabel = [typeDisplay, course.course_part_master].filter(Boolean).join(' – ') || undefined;
 
   generateCourseSyllabusPDF({
     institution_name: header.institution_name,
@@ -82,6 +89,9 @@ async function downloadSyllabusPdf(course: BosCourseMaster, institutionName?: st
     clos: outcomesContent?.clos ?? [],
     k_values: kValues,
     units: syllabus.course_content?.units ?? [],
+    practical_topics: syllabus.course_content?.is_practical
+      ? (syllabus.course_content?.topics ?? [])
+      : undefined,
     textbooks: syllabus.textbooks?.primary ?? [],
     references: syllabus.textbooks?.references ?? [],
     web_resources: syllabus.web_resources?.resources ?? [],

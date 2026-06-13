@@ -8,6 +8,7 @@ import type {
   BosBulkImportResponse,
 } from '@/types/bos-courses';
 import type { CourseFormInput } from '@/lib/services/bos/courses-schemas';
+import { useAuth } from '@/hooks/use-auth';
 
 export interface CourseFilters {
   institution_id?: string;  // omit to fetch all institutions (super-admin only)
@@ -24,14 +25,25 @@ interface MutateContext {
   institution_code: string;
   regulation_code: string;
   regulation_id?: string;
+  /** Human-readable board code — resolved client-side from the picked board_id
+   *  so the server can persist both keys without a second lookup. */
+  board_code?: string;
 }
 
-const baseKey = ['bos', 'courses'] as const;
+// User-scoped cache root — mirrors use-bos-board-scope / use-bos-compositions.
+// Without partitioning by user.id, the singleton QueryClient
+// (providers/query-client-provider.tsx) serves the previous session's data
+// to the next caller until staleTime expires.
+const baseKey = (userId: string | null | undefined) =>
+  ['bos', 'courses', userId ?? 'anonymous'] as const;
 
 export function useBosCourses(filters: CourseFilters | undefined) {
+  const { profile } = useAuth();
+  const userId = profile?.id ?? null;
+
   return useQuery<BosCourseListResponse>({
-    queryKey: [...baseKey, 'list', filters] as const,
-    enabled: filters !== undefined,  // run even with no institution_id (all-institutions mode)
+    queryKey: [...baseKey(userId), 'list', filters] as const,
+    enabled: !!userId && filters !== undefined,  // run even with no institution_id (all-institutions mode)
     queryFn: async () => {
       const params = new URLSearchParams();
       Object.entries(filters!).forEach(([k, v]) => {
@@ -48,9 +60,12 @@ export function useBosCourses(filters: CourseFilters | undefined) {
 }
 
 export function useBosCourse(id: string | undefined) {
+  const { profile } = useAuth();
+  const userId = profile?.id ?? null;
+
   return useQuery<BosCourseMaster>({
-    queryKey: [...baseKey, 'one', id] as const,
-    enabled: !!id,
+    queryKey: [...baseKey(userId), 'one', id] as const,
+    enabled: !!id && !!userId,
     queryFn: async () => {
       const r = await fetch(`/api/bos/courses-master/${id}`);
       if (!r.ok) {
@@ -66,6 +81,9 @@ export function useBosCourse(id: string | undefined) {
 
 export function useCreateBosCourse() {
   const qc = useQueryClient();
+  const { profile } = useAuth();
+  const userId = profile?.id ?? null;
+
   return useMutation({
     mutationFn: async (vars: { form: CourseFormInput; context: MutateContext }) => {
       const r = await fetch('/api/bos/courses-master', {
@@ -79,18 +97,21 @@ export function useCreateBosCourse() {
       }
       return r.json();
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: baseKey }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: baseKey(userId) }),
   });
 }
 
 export function useUpdateBosCourse() {
   const qc = useQueryClient();
+  const { profile } = useAuth();
+  const userId = profile?.id ?? null;
+
   return useMutation({
-    mutationFn: async (vars: { id: string; form: Partial<CourseFormInput> }) => {
+    mutationFn: async (vars: { id: string; form: Partial<CourseFormInput>; board_code?: string }) => {
       const r = await fetch(`/api/bos/courses-master/${vars.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ form: vars.form }),
+        body: JSON.stringify({ form: vars.form, board_code: vars.board_code }),
       });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
@@ -100,12 +121,15 @@ export function useUpdateBosCourse() {
       }
       return r.json();
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: baseKey }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: baseKey(userId) }),
   });
 }
 
 export function useDeleteBosCourse() {
   const qc = useQueryClient();
+  const { profile } = useAuth();
+  const userId = profile?.id ?? null;
+
   return useMutation({
     mutationFn: async (id: string) => {
       const r = await fetch(`/api/bos/courses-master/${id}`, { method: 'DELETE' });
@@ -115,12 +139,15 @@ export function useDeleteBosCourse() {
         throw new Error(message);
       }
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: baseKey }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: baseKey(userId) }),
   });
 }
 
 export function useImportBosCourses() {
   const qc = useQueryClient();
+  const { profile } = useAuth();
+  const userId = profile?.id ?? null;
+
   return useMutation<BosBulkImportResponse, Error, { rows: unknown[]; context: MutateContext }>({
     mutationFn: async (vars) => {
       const r = await fetch('/api/bos/courses-master/import', {
@@ -134,6 +161,6 @@ export function useImportBosCourses() {
       }
       return r.json();
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: baseKey }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: baseKey(userId) }),
   });
 }

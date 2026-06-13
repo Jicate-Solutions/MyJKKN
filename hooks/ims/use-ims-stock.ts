@@ -29,6 +29,7 @@ export function useImsLowStockItems(storeId: string, institutionId?: string) {
     queryFn: () => ImsStockService.getLowStockItems(storeId, institutionId),
     enabled: !!storeId,
     staleTime: 2 * 60 * 1000,
+    retry: 1,
   });
 }
 

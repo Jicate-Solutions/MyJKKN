@@ -60,7 +60,11 @@ export function SemesterTable({
                     {locked && <Lock className='inline ml-1 h-3 w-3 text-muted-foreground' />}
                   </td>
                   <td className='p-2 font-mono'>{m.course.course_code}</td>
-                  <td className='p-2'>{m.course.course_name}</td>
+                  <td className='p-2 uppercase'>
+                    {m.course.course_type_code
+                      ? `${m.course.course_type_code}-${m.course.course_name}`
+                      : m.course.course_name}
+                  </td>
                   <td className='p-2 text-right'>{m.course.exam_duration ?? '-'}</td>
                   <td className='p-2 text-right'>{m.course.credit != null ? Number(m.course.credit) : '-'}</td>
                   <td className='p-2 text-right'>{m.course.theory_hours ?? '-'}</td>

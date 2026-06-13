@@ -183,7 +183,6 @@ export class ImsIndentService {
           indent_number: indentNumber,
           department_id: data.department_id || null,
           requested_by: userId,
-          requested_at: new Date().toISOString(),
           required_date: data.required_date || null,
           purpose: data.purpose,
           urgency: data.urgency,

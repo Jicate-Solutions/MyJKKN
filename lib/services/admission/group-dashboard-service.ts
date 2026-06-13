@@ -20,7 +20,16 @@ const EMPTY_GROUP_DASHBOARD: GroupDashboardData = {
     total_enrolled: 0,
     total_rejected: 0,
     total_seats: 0,
+    total_filled: 0,
+    total_enrolled_leads: 0,
+    total_seat_filled_learners: 0,
     overall_fill_percentage: 0,
+    total_enquiry: 0,
+    total_enquiry_submitted: 0,
+    total_account: 0,
+    total_reserved: 0,
+    total_admitted: 0,
+    total_rejected_lifecycle: 0,
   },
 };
 
@@ -41,7 +50,12 @@ export class GroupDashboardService {
   static async getGroupDashboard(
     institutionIds?: string[],
     admissionYearId?: string | null,
-    programStartYear?: number | null
+    programStartYear?: number | null,
+    // 2026-05-21: optional date-range filter (IST). NULL on both sides
+    // preserves prior behaviour. Drives the Overview tab's
+    // "All time / Today / Custom range" segmented toggle.
+    fromDate?: string | null,
+    toDate?: string | null
   ): Promise<GroupDashboardData> {
     if (institutionIds !== undefined && institutionIds.length === 0) {
       return EMPTY_GROUP_DASHBOARD;
@@ -66,6 +80,8 @@ export class GroupDashboardService {
       p_institution_ids: resolvedInstitutionIds,
       p_admission_year_id: admissionYearId ?? null,
       p_program_start_year: programStartYear ?? null,
+      p_from_date: fromDate ?? null,
+      p_to_date: toDate ?? null,
     });
 
     if (error) {
@@ -84,7 +100,20 @@ export class GroupDashboardService {
       rejected_learners: number;
       total_seats: number;
       filled_seats: number;
+      // 2026-05-17 (E4): RPC now returns lead-space + learner-space "filled"
+      // side-by-side. enrolled_leads === filled_seats during the rollout window;
+      // seat_filled_learners is the new learner-space count from the dynamic
+      // admission_statuses catalog.
+      enrolled_leads: number;
+      seat_filled_learners: number;
       fill_percentage: number;
+      // 2026-05-20: lifecycle-status counts from the workflow realignment.
+      enquiry_count: number;
+      enquiry_submitted_count: number;
+      account_count: number;
+      reserved_count: number;
+      admitted_count: number;            // = 'admitted' + 'active' per spec
+      rejected_lifecycle_count: number;
     };
 
     const rows = ((data ?? []) as Row[]).map((r): InstitutionAdmissionSummary => ({
@@ -98,14 +127,28 @@ export class GroupDashboardService {
       rejected: Number(r.rejected_learners),
       total_seats: Number(r.total_seats),
       filled_seats: Number(r.filled_seats),
+      enrolled_leads: Number(r.enrolled_leads ?? r.filled_seats ?? 0),
+      seat_filled_learners: Number(r.seat_filled_learners ?? 0),
       fill_percentage: Number(r.fill_percentage),
+      enquiry_count: Number(r.enquiry_count ?? 0),
+      enquiry_submitted_count: Number(r.enquiry_submitted_count ?? 0),
+      account_count: Number(r.account_count ?? 0),
+      reserved_count: Number(r.reserved_count ?? 0),
+      admitted_count: Number(r.admitted_count ?? 0),
+      rejected_lifecycle_count: Number(r.rejected_lifecycle_count ?? 0),
     }));
 
-    rows.sort((a, b) => b.enrolled - a.enrolled);
+    // 2026-05-20: Sort by admitted (lifecycle) rather than legacy funnel-stage
+    // 'enrolled' so the comparison table ranks institutions by the new
+    // workflow's success metric.
+    rows.sort((a, b) => b.admitted_count - a.admitted_count);
 
     // 2026-05-02: Fill Rate uses total_filled (admitted+active+graduated+account)
     // not total_enrolled (active only) — otherwise top card disagrees with the
     // Seat Analytics > Summary tab which shares the same definition.
+    // 2026-05-17 (E4): also aggregate enrolled_leads (lead-space) and
+    // seat_filled_learners (learner-space) so the dashboard can render the
+    // dual-KPI split for the "Filled" card.
     const totals = rows.reduce(
       (acc, s) => ({
         total_leads: acc.total_leads + s.total_leads,
@@ -114,12 +157,28 @@ export class GroupDashboardService {
         total_rejected: acc.total_rejected + s.rejected,
         total_seats: acc.total_seats + s.total_seats,
         total_filled: acc.total_filled + s.filled_seats,
+        total_enrolled_leads: acc.total_enrolled_leads + s.enrolled_leads,
+        total_seat_filled_learners:
+          acc.total_seat_filled_learners + s.seat_filled_learners,
         overall_fill_percentage: 0,
+        // 2026-05-20: lifecycle-status totals — the primary source for
+        // the dashboard's top KPI strip and all-tab analytics.
+        total_enquiry: acc.total_enquiry + s.enquiry_count,
+        total_enquiry_submitted:
+          acc.total_enquiry_submitted + s.enquiry_submitted_count,
+        total_account: acc.total_account + s.account_count,
+        total_reserved: acc.total_reserved + s.reserved_count,
+        total_admitted: acc.total_admitted + s.admitted_count,
+        total_rejected_lifecycle:
+          acc.total_rejected_lifecycle + s.rejected_lifecycle_count,
       }),
       {
         total_leads: 0, total_applied: 0, total_enrolled: 0,
         total_rejected: 0, total_seats: 0, total_filled: 0,
+        total_enrolled_leads: 0, total_seat_filled_learners: 0,
         overall_fill_percentage: 0,
+        total_enquiry: 0, total_enquiry_submitted: 0, total_account: 0,
+        total_reserved: 0, total_admitted: 0, total_rejected_lifecycle: 0,
       }
     );
     totals.overall_fill_percentage =
@@ -194,6 +253,7 @@ export class GroupDashboardService {
       ...r,
       intake: Number(r.intake),
       filled: Number(r.filled),
+      reserved: Number(r.reserved),
       balance: Number(r.balance),
       fill_percentage: Number(r.fill_percentage),
       daily_counts: (r.daily_counts ?? {}) as Record<string, number>,

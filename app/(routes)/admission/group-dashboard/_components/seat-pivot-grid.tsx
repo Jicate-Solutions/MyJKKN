@@ -5,8 +5,12 @@
 // Wide horizontal pivot grid for the Seat Analytics → Daily Pivot sub-tab.
 // Mirrors the user's reference Google Sheet "ADMISSION REPORT YYYY-YY":
 //
-//   Left (sticky):  S NO | COURSE NAME | INTAKE | TOTAL | BALANCE | %
+//   Left (sticky):  S NO | COURSE NAME | INTAKE | RESERVED | ADMITTED | BALANCE | %
 //   Right (scroll): one column per date that has ≥1 admission across the cohort
+//
+// RESERVED is a point-in-time status count (tentative holds), so it is NOT
+// affected by the date-range filter and is NOT subtracted from BALANCE.
+// ADMITTED ("filled") = admitted-or-beyond; BALANCE = INTAKE − ADMITTED.
 //
 // Rows are grouped by `group_label` (e.g. "UG ENGINEERING - I YEAR"),
 // with a group-header row, program rows, and a per-group subtotal row.
@@ -130,6 +134,8 @@ export function SeatPivotGrid({
         (s, r) => s + (perRowTotals.get(rowKey(r))?.filled ?? 0),
         0
       );
+      // Reserved is point-in-time — never date-filtered.
+      const reserved = g.rows.reduce((s, r) => s + r.reserved, 0);
       const dailyTotals: Record<string, number> = {};
       for (const r of g.rows) {
         for (const [d, c] of Object.entries(r.daily_counts)) {
@@ -141,6 +147,7 @@ export function SeatPivotGrid({
       return {
         intake,
         filled,
+        reserved,
         balance: Math.max(intake - filled, 0),
         pct: intake === 0 ? 0 : Math.round((filled / intake) * 10000) / 100,
         dailyTotals,
@@ -154,6 +161,7 @@ export function SeatPivotGrid({
       (s, r) => s + (perRowTotals.get(rowKey(r))?.filled ?? 0),
       0
     );
+    const reserved = rows.reduce((s, r) => s + r.reserved, 0);
     const dailyTotals: Record<string, number> = {};
     for (const r of rows) {
       for (const [d, c] of Object.entries(r.daily_counts)) {
@@ -165,6 +173,7 @@ export function SeatPivotGrid({
     return {
       intake,
       filled,
+      reserved,
       balance: Math.max(intake - filled, 0),
       pct: intake === 0 ? 0 : Math.round((filled / intake) * 10000) / 100,
       dailyTotals,
@@ -204,7 +213,8 @@ export function SeatPivotGrid({
             <th className={`sticky left-0 z-40 ${stickyHeadBg} border-b border-r px-2 py-2 text-center w-12`}>S NO</th>
             <th className={`sticky left-12 z-40 ${stickyHeadBg} border-b border-r px-2 py-2 text-left min-w-[320px]`}>COURSE NAME</th>
             <th className="border-b border-r px-2 py-2 text-right w-16">INTAKE</th>
-            <th className="border-b border-r px-2 py-2 text-right w-16">TOTAL</th>
+            <th className="border-b border-r px-2 py-2 text-right w-16">RESERVED</th>
+            <th className="border-b border-r px-2 py-2 text-right w-16">ADMITTED</th>
             <th className="border-b border-r px-2 py-2 text-right w-16">BALANCE</th>
             <th className="border-b border-r px-2 py-2 text-right w-16">%</th>
             {dateColumns.map((d) => (
@@ -229,7 +239,7 @@ export function SeatPivotGrid({
                 <tr className={GROUP_BG}>
                   <td
                     className={`sticky left-0 z-20 ${GROUP_BG} border-b px-2 py-1 font-semibold`}
-                    colSpan={6 + dateColumns.length}
+                    colSpan={7 + dateColumns.length}
                   >
                     {g.group_label}
                   </td>
@@ -252,6 +262,7 @@ export function SeatPivotGrid({
                         {r.course_short}
                       </td>
                       <td className="border-b border-r px-2 py-1 text-right">{r.intake}</td>
+                      <td className="border-b border-r px-2 py-1 text-right">{r.reserved || ''}</td>
                       <td className="border-b border-r px-2 py-1 text-right">{rowTotals.filled}</td>
                       <td className="border-b border-r px-2 py-1 text-right">{rowTotals.balance}</td>
                       <td className="border-b border-r px-2 py-1 text-right">
@@ -276,6 +287,7 @@ export function SeatPivotGrid({
                   <td className={`sticky left-0 z-20 ${TOTAL_BG} border-b border-r px-2 py-1`} />
                   <td className={`sticky left-12 z-20 ${TOTAL_BG} border-b border-r px-2 py-1 font-semibold`}>TOTAL</td>
                   <td className="border-b border-r px-2 py-1 text-right font-semibold">{totals.intake}</td>
+                  <td className="border-b border-r px-2 py-1 text-right font-semibold">{totals.reserved || ''}</td>
                   <td className="border-b border-r px-2 py-1 text-right font-semibold">{totals.filled}</td>
                   <td className="border-b border-r px-2 py-1 text-right font-semibold">{totals.balance}</td>
                   <td className="border-b border-r px-2 py-1 text-right font-semibold">{totals.pct}%</td>
@@ -297,6 +309,7 @@ export function SeatPivotGrid({
             <td className="sticky left-0 z-20 bg-amber-100 border-r px-2 py-1" />
             <td className="sticky left-12 z-20 bg-amber-100 border-r px-2 py-1">GRAND TOTAL</td>
             <td className="border-r px-2 py-1 text-right">{grandTotal.intake}</td>
+            <td className="border-r px-2 py-1 text-right">{grandTotal.reserved || ''}</td>
             <td className="border-r px-2 py-1 text-right">{grandTotal.filled}</td>
             <td className="border-r px-2 py-1 text-right">{grandTotal.balance}</td>
             <td className="border-r px-2 py-1 text-right">{grandTotal.pct}%</td>

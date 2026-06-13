@@ -295,12 +295,13 @@ export function useGenerateApplicationId() {
 // ============================================
 
 /**
- * Get enquiries (lifecycle_status = 'admitted')
+ * Get enquiries (lifecycle_status = 'enquiry' — the entry-point status post 2026-05-20
+ * workflow realignment; was 'admitted' before the rename)
  */
 export function useEnquiries(filters: Omit<LearnerProfileFilters, 'lifecycle_status'> = {}) {
   return useLearnerProfiles({
     ...filters,
-    lifecycle_status: 'admitted',
+    lifecycle_status: 'enquiry',
   });
 }
 
@@ -345,12 +346,13 @@ export function useGraduates(filters: Omit<LearnerProfileFilters, 'lifecycle_sta
 }
 
 /**
- * Get admission pipeline (enquiry, pending, approved, rejected, waitlisted)
+ * Get admission pipeline (enquiry, enquiry_submitted, pending, approved, account,
+ * reserved, admitted, rejected, waitlisted) — full pre-active funnel.
  */
 export function useAdmissionPipeline(filters: Omit<LearnerProfileFilters, 'lifecycle_status'> = {}) {
   return useLearnerProfiles({
     ...filters,
-    lifecycle_status: ['admitted', 'pending', 'approved', 'rejected', 'waitlisted'],
+    lifecycle_status: ['enquiry', 'enquiry_submitted', 'pending', 'approved', 'account', 'reserved', 'admitted', 'rejected', 'waitlisted'],
   });
 }
 

@@ -38,8 +38,14 @@ export function EngagementProgress({ gates, className }: EngagementProgressProps
       Icon: LogIn,
     },
     {
-      label: 'Responded to ≥ 3 polls',
-      description: 'Champion issues 3–5 polls during the session. Submit at least 3.',
+      label:
+        gates.polls_required === 0
+          ? 'Polls'
+          : `Responded to ≥ ${gates.polls_required} poll${gates.polls_required > 1 ? 's' : ''}`,
+      description:
+        gates.polls_required === 0
+          ? 'No polls were issued this cycle — this gate passes automatically.'
+          : 'Champion issues polls during the session. Respond to count.',
       passed: gates.polls_responded_ok,
       Icon: MessageCircleQuestion,
     },
@@ -51,7 +57,7 @@ export function EngagementProgress({ gates, className }: EngagementProgressProps
     },
     {
       label: 'Passed the quiz',
-      description: 'Quiz opens after the session. Pass mark = 60%.',
+      description: 'Quiz opens after the session. Pass mark is policy-set (default 40% live, 60% async make-up).',
       passed: gates.quiz_passed,
       Icon: ScrollText,
     },

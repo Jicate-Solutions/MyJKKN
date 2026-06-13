@@ -25,7 +25,10 @@ export type ServiceFieldType =
   | 'number'
   | 'boolean'
   | 'textarea'
-  | 'file';
+  | 'file'
+  | 'tms_route'
+  | 'tms_route_stop'
+  | 'passenger_type';
 
 export type ServiceRequestPriority = 'low' | 'normal' | 'high' | 'urgent';
 
@@ -355,7 +358,7 @@ export interface ServiceRequestAnalytics {
 export const serviceTypeFieldSchema = z.object({
   field_key: z.string().min(1).max(100).regex(/^[a-z][a-z0-9_]*$/, 'Must be lowercase with underscores'),
   field_label: z.string().min(1).max(255),
-  field_type: z.enum(['text', 'select', 'date', 'number', 'boolean', 'textarea', 'file']),
+  field_type: z.enum(['text', 'select', 'date', 'number', 'boolean', 'textarea', 'file', 'tms_route', 'tms_route_stop', 'passenger_type']),
   field_options: z.array(z.object({ label: z.string(), value: z.string() })).optional().nullable(),
   is_required: z.boolean().default(false),
   display_order: z.number().int().min(0),

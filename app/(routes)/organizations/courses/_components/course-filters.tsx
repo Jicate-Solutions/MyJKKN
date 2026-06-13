@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import {
   Select,
   SelectContent,
@@ -10,7 +9,7 @@ import {
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { RotateCcw } from 'lucide-react';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { useScopedInstitutionFilter } from '@/hooks/organization/use-scoped-institution-filter';
 import { CoursesSearchParams } from './data-table-schema';
 
 interface CourseFiltersProps {
@@ -24,25 +23,12 @@ export function CourseFilters({
   onFilterChange,
   onClearFilters
 }: CourseFiltersProps) {
-  const [institutions, setInstitutions] = useState<
-    Array<{ id: string; name: string }>
-  >([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    async function loadInstitutions() {
-      try {
-        setLoading(true);
-        const data = await OrganizationService.getInstitutionNames(true);
-        setInstitutions(data);
-      } catch (error) {
-        console.error('Error loading institutions:', error);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadInstitutions();
-  }, []);
+  // Super admins see all institutions + an "All" option; normal users see
+  // only their own and are auto-selected into one (no "All" option).
+  const { institutions, loading, isSuperAdmin } = useScopedInstitutionFilter({
+    selectedInstitutionId: searchParams.institution_id,
+    onFilterChange
+  });
 
   const hasActiveFilters = !!(
     searchParams.institution_id ||
@@ -70,7 +56,9 @@ export function CourseFilters({
                 />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Institutions</SelectItem>
+                {isSuperAdmin && (
+                  <SelectItem value='all'>All Institutions</SelectItem>
+                )}
                 {institutions.map((inst) => (
                   <SelectItem key={inst.id} value={inst.id}>
                     {inst.name}

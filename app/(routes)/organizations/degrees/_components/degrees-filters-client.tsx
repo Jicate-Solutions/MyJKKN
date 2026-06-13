@@ -12,6 +12,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { X } from 'lucide-react';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import type { DegreesSearchParams } from './data-table-schema';
 
 interface DegreesFiltersClientProps {
@@ -21,6 +22,7 @@ interface DegreesFiltersClientProps {
 export function DegreesFiltersClient({ searchParams }: DegreesFiltersClientProps) {
   const router = useRouter();
   const currentSearchParams = useSearchParams();
+  const adapt = useAdaptiveLabels();
 
   const handleFilterChange = useCallback(
     (key: string, value: string | undefined) => {
@@ -55,7 +57,7 @@ export function DegreesFiltersClient({ searchParams }: DegreesFiltersClientProps
         {/* Search */}
         <div className='flex-1'>
           <Input
-            placeholder='Search by name, code, or type...'
+            placeholder={adapt('Search degrees...')}
             defaultValue={searchParams.search || ''}
             onChange={(e) => handleFilterChange('search', e.target.value || undefined)}
             className='w-full'
@@ -87,10 +89,10 @@ export function DegreesFiltersClient({ searchParams }: DegreesFiltersClientProps
           }
         >
           <SelectTrigger className='w-full sm:w-[180px]'>
-            <SelectValue placeholder='Degree Type' />
+            <SelectValue placeholder={adapt('Degree Type')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value='all'>All Types</SelectItem>
+            <SelectItem value='all'>{adapt('All Types')}</SelectItem>
             <SelectItem value='ug'>UG</SelectItem>
             <SelectItem value='pg'>PG</SelectItem>
           </SelectContent>

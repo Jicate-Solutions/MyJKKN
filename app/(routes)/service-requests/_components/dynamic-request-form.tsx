@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -16,6 +16,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { useTmsRoutes, useTmsRouteStops } from '@/hooks/service-requests/use-tms-lookups';
+import { useAuth } from '@/hooks/use-auth';
 import type { ServiceTypeField } from '@/types/service-request';
 
 interface DynamicRequestFormProps {
@@ -36,10 +39,21 @@ function buildDynamicSchema(fields: ServiceTypeField[]) {
       case 'text':
       case 'textarea':
       case 'select':
-      case 'file':
         schema = field.is_required
           ? z.string().min(1, `${field.field_label} is required`)
           : z.string().optional();
+        break;
+      case 'file':
+        schema = field.is_required
+          ? z.any().refine(
+              (val) => {
+                if (typeof val === 'string') return val.length > 0;
+                if (val instanceof FileList) return val.length > 0;
+                return !!val;
+              },
+              `${field.field_label} is required`
+            )
+          : z.any().optional();
         break;
       case 'number':
         schema = field.is_required
@@ -53,6 +67,15 @@ function buildDynamicSchema(fields: ServiceTypeField[]) {
         schema = field.is_required
           ? z.string().min(1, `${field.field_label} is required`)
           : z.string().optional();
+        break;
+      case 'tms_route':
+      case 'tms_route_stop':
+        schema = field.is_required
+          ? z.string().min(1, `${field.field_label} is required`)
+          : z.string().optional();
+        break;
+      case 'passenger_type':
+        schema = z.string().optional();
         break;
       default:
         schema = z.any();
@@ -98,6 +121,163 @@ function getCascadingOptions(
   return { options: filtered, isCascading: true };
 }
 
+async function uploadFileFields(
+  formData: Record<string, any>,
+  fields: ServiceTypeField[]
+): Promise<Record<string, any>> {
+  const supabase = createClientSupabaseClient();
+  const processed = { ...formData };
+
+  for (const field of fields) {
+    if (field.field_type !== 'file') continue;
+    const value = processed[field.field_key];
+
+    if (!value || typeof value === 'string') continue;
+
+    const fileList = value as FileList;
+    if (fileList.length === 0) {
+      processed[field.field_key] = '';
+      continue;
+    }
+
+    const file = fileList[0];
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `${Date.now()}_${safeName}`;
+    const { data, error } = await supabase.storage
+      .from('service-request-attachments')
+      .upload(path, file);
+
+    if (error) throw new Error(`Failed to upload ${field.field_label}: ${error.message}`);
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('service-request-attachments')
+      .getPublicUrl(data.path);
+
+    processed[field.field_key] = publicUrl;
+  }
+
+  return processed;
+}
+
+function TmsRouteFieldControl({
+  field,
+  value,
+  onChange,
+  error,
+}: {
+  field: ServiceTypeField;
+  value: string;
+  onChange: (v: string) => void;
+  error?: string;
+}) {
+  const { data: routes = [], isLoading } = useTmsRoutes();
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={field.field_key}>
+        {field.field_label}
+        {field.is_required && <span className="text-red-500 ml-1">*</span>}
+      </Label>
+      <Select value={value || ''} onValueChange={onChange} disabled={isLoading}>
+        <SelectTrigger id={field.field_key}>
+          <SelectValue
+            placeholder={isLoading ? 'Loading routes…' : field.placeholder || 'Select a route'}
+          />
+        </SelectTrigger>
+        <SelectContent>
+          {routes.map((r) => (
+            <SelectItem key={r.id} value={r.id}>
+              {r.route_number} — {r.route_name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {field.help_text && (
+        <p className="text-xs text-muted-foreground">{field.help_text}</p>
+      )}
+      {error && <p className="text-xs text-red-500">{error}</p>}
+    </div>
+  );
+}
+
+function TmsRouteStopFieldControl({
+  field,
+  routeId,
+  value,
+  onChange,
+  error,
+}: {
+  field: ServiceTypeField;
+  routeId: string | undefined;
+  value: string;
+  onChange: (v: string) => void;
+  error?: string;
+}) {
+  const { data: stops = [], isLoading } = useTmsRouteStops(routeId);
+  const disabled = !routeId || isLoading;
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={field.field_key}>
+        {field.field_label}
+        {field.is_required && <span className="text-red-500 ml-1">*</span>}
+      </Label>
+      <Select value={value || ''} onValueChange={onChange} disabled={disabled}>
+        <SelectTrigger id={field.field_key}>
+          <SelectValue
+            placeholder={
+              !routeId
+                ? 'Select a route first'
+                : isLoading
+                ? 'Loading stops…'
+                : field.placeholder || 'Select a boarding stop'
+            }
+          />
+        </SelectTrigger>
+        <SelectContent>
+          {stops.map((s) => (
+            <SelectItem key={s.id} value={s.id}>
+              {s.stop_name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {field.help_text && (
+        <p className="text-xs text-muted-foreground">{field.help_text}</p>
+      )}
+      {error && <p className="text-xs text-red-500">{error}</p>}
+    </div>
+  );
+}
+
+function PassengerTypeFieldControl({
+  field,
+  value,
+  onChange,
+}: {
+  field: ServiceTypeField;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const { profile } = useAuth() as any;
+  const detected = profile?.learner_id ? 'learner' : 'staff';
+  useEffect(() => {
+    if (value !== detected) onChange(detected);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detected]);
+  return (
+    <div className="space-y-2">
+      <Label>{field.field_label}</Label>
+      <div>
+        <span className="inline-flex items-center rounded-md bg-muted px-2.5 py-1 text-sm font-medium capitalize">
+          {detected === 'learner' ? 'Learner' : 'Staff'}
+        </span>
+      </div>
+      {field.help_text && (
+        <p className="text-xs text-muted-foreground">{field.help_text}</p>
+      )}
+    </div>
+  );
+}
+
 export function DynamicRequestForm({
   fields,
   defaultValues,
@@ -108,6 +288,8 @@ export function DynamicRequestForm({
 }: DynamicRequestFormProps) {
   const sortedFields = [...fields].sort((a, b) => a.display_order - b.display_order);
   const schema = buildDynamicSchema(sortedFields);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   const {
     register,
@@ -122,6 +304,12 @@ export function DynamicRequestForm({
   });
 
   const allValues = watch();
+
+  // The Boarding Stop field cascades off whichever field is the tms_route picker.
+  const routeFieldKey = sortedFields.find((f) => f.field_type === 'tms_route')?.field_key;
+  const selectedRouteId = routeFieldKey
+    ? (allValues[routeFieldKey] as string | undefined)
+    : undefined;
 
   // Track whether the component has finished its initial mount so the cascade
   // reset effect does NOT fire on first render (which would clear pre-populated
@@ -147,6 +335,22 @@ export function DynamicRequestForm({
       .filter((f) => f.field_type === 'select' && !f.field_options?.some((o) => o.value.includes('||')))
       .map((f) => allValues[f.field_key]),
   ]);
+
+  // Clear the boarding-stop field whenever the selected route changes (but not
+  // on first mount, so a pre-filled stop survives the edit flow's initial render).
+  const stopResetMounted = useRef(false);
+  useEffect(() => {
+    if (!stopResetMounted.current) {
+      stopResetMounted.current = true;
+      return;
+    }
+    sortedFields.forEach((field) => {
+      if (field.field_type === 'tms_route_stop') {
+        setValue(field.field_key, '');
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRouteId]);
 
   const renderField = (field: ServiceTypeField) => {
     const error = errors[field.field_key];
@@ -298,7 +502,9 @@ export function DynamicRequestForm({
         );
       }
 
-      case 'file':
+      case 'file': {
+        const existingUrl = defaultValues?.[field.field_key];
+        const isExistingString = typeof existingUrl === 'string' && existingUrl.length > 0;
         return (
           <div key={field.field_key} className="space-y-2">
             <Label htmlFor={field.field_key}>
@@ -310,6 +516,14 @@ export function DynamicRequestForm({
               type="file"
               {...register(field.field_key)}
             />
+            {isExistingString && (
+              <p className="text-xs text-muted-foreground">
+                Current file:{' '}
+                <a href={existingUrl} target="_blank" rel="noopener noreferrer" className="underline text-blue-600">
+                  {existingUrl.split('/').pop()}
+                </a>
+              </p>
+            )}
             {field.help_text && (
               <p className="text-xs text-muted-foreground">{field.help_text}</p>
             )}
@@ -318,29 +532,100 @@ export function DynamicRequestForm({
             )}
           </div>
         );
+      }
+
+      case 'tms_route':
+        return (
+          <TmsRouteFieldControl
+            key={field.field_key}
+            field={field}
+            value={(allValues[field.field_key] as string) || ''}
+            onChange={(v) => setValue(field.field_key, v)}
+            error={errorMessage}
+          />
+        );
+
+      case 'tms_route_stop':
+        return (
+          <TmsRouteStopFieldControl
+            key={field.field_key}
+            field={field}
+            routeId={selectedRouteId}
+            value={(allValues[field.field_key] as string) || ''}
+            onChange={(v) => setValue(field.field_key, v)}
+            error={errorMessage}
+          />
+        );
+
+      case 'passenger_type':
+        return (
+          <PassengerTypeFieldControl
+            key={field.field_key}
+            field={field}
+            value={(allValues[field.field_key] as string) || ''}
+            onChange={(v) => setValue(field.field_key, v)}
+          />
+        );
 
       default:
         return null;
     }
   };
 
+  const hasFileFields = sortedFields.some((f) => f.field_type === 'file');
+  const busy = isSubmitting || isUploading;
+
+  const handleFormSubmit = async (data: Record<string, any>) => {
+    if (!hasFileFields) return onSubmit(data);
+    setUploadError(null);
+    setIsUploading(true);
+    try {
+      const processed = await uploadFileFields(data, sortedFields);
+      onSubmit(processed);
+    } catch (err: any) {
+      setUploadError(err?.message || 'File upload failed');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDraft = async () => {
+    if (!onSaveDraft) return;
+    const data = getValues();
+    if (!hasFileFields) return onSaveDraft(data);
+    setUploadError(null);
+    setIsUploading(true);
+    try {
+      const processed = await uploadFileFields(data, sortedFields);
+      onSaveDraft(processed);
+    } catch (err: any) {
+      setUploadError(err?.message || 'File upload failed');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
       {sortedFields.map(renderField)}
+
+      {uploadError && (
+        <p className="text-sm text-red-500">{uploadError}</p>
+      )}
 
       <div className="flex justify-end gap-3 pt-4">
         {onSaveDraft && (
           <Button
             type="button"
             variant="outline"
-            onClick={() => onSaveDraft(getValues())}
-            disabled={isSubmitting}
+            onClick={handleDraft}
+            disabled={busy}
           >
             Save as Draft
           </Button>
         )}
-        <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? 'Submitting...' : submitLabel}
+        <Button type="submit" disabled={busy}>
+          {isUploading ? 'Uploading files...' : isSubmitting ? 'Submitting...' : submitLabel}
         </Button>
       </div>
     </form>

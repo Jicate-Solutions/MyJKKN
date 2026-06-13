@@ -7,12 +7,14 @@ import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { Flame, Star } from 'lucide-react';
 import type { AdmissionLead } from '@/types/admission';
+import type { AdmissionStatus } from '@/types/admission-status';
 import { DataTableRowActions } from './row-actions';
 import { SourceBadge, OverdueBadge } from './source-badge';
 // BUG-003922 (Isvarya, Joint MD): the "Created" column was rendering MM/DD/YYYY
 // because bare toLocaleDateString() inherits the runtime locale (en-US on Vercel).
 // Route through the canonical DD/MM/YYYY helper.
 import { formatDateDMY } from '@/lib/utils/date-format';
+import { useAdmissionStatuses } from '@/hooks/admission/use-admission-statuses';
 
 export const FUNNEL_STAGES = [
   { value: 'new', label: 'New' },
@@ -42,6 +44,9 @@ export const FUNNEL_STAGES = [
   { value: 'dormant', label: 'Dormant' }
 ];
 
+// FALLBACK color map — used by non-hook contexts (static cell renderers, exports).
+// Dynamic colors from admission_statuses are preferred; use LeadStageBadge
+// or pass the statuses list to getStageColor when inside a React component.
 export function getStageColor(stage: string | null): string {
   const colors: Record<string, string> = {
     new: 'bg-blue-100 text-blue-800',
@@ -73,13 +78,75 @@ export function getStageColor(stage: string | null): string {
   return colors[stage || 'new'] || 'bg-gray-100 text-gray-800';
 }
 
-function getStageLabel(stage: string | null): string {
+/**
+ * Renders a stage badge using the dynamic color from admission_statuses.
+ * Falls back to the static Tailwind color map when the hook hasn't resolved yet
+ * or when the code is not found in the dynamic list.
+ *
+ * Always prefer this component over a raw <Badge className={getStageColor(...)}> in
+ * React render trees — it will automatically pick up colour changes made in the
+ * Admission Statuses admin panel without a deploy.
+ */
+export function LeadStageBadge({ stage }: { stage: string | null | undefined }) {
+  const { data: statuses } = useAdmissionStatuses('lead', { activeOnly: false });
+  const code = stage || 'new';
+  const found = statuses?.find((s: AdmissionStatus) => s.code === code);
+
+  if (found) {
+    return (
+      <Badge
+        variant="outline"
+        className="border capitalize"
+        style={{
+          backgroundColor: `${found.color}18`,
+          color: found.color,
+          borderColor: `${found.color}40`,
+        }}
+      >
+        {found.label}
+      </Badge>
+    );
+  }
+
+  // Fallback: hook not yet resolved or code unknown — use static map
+  return (
+    <Badge className={`${getStageColor(code)} border`} variant="outline">
+      {code.replace(/_/g, ' ')}
+    </Badge>
+  );
+}
+
+/**
+ * Dynamic version of FUNNEL_STAGES: reads from admission_statuses (scope='lead',
+ * active only). Falls back to the hardcoded FUNNEL_STAGES array while the query
+ * is loading or if it returns no rows, so callers never see an empty dropdown.
+ *
+ * Note: this is a hook — only callable from React components / other hooks
+ * (rules of hooks). Cell-level `cell:` callbacks in column defs cannot use
+ * hooks; those should keep using getStageColor + FUNNEL_STAGES directly until
+ * the renderer is migrated to a component.
+ */
+export function useLeadStageOptions(): typeof FUNNEL_STAGES {
+  const { data } = useAdmissionStatuses('lead', { activeOnly: true });
+  if (!data || data.length === 0) return FUNNEL_STAGES;
+  return data.map((s) => ({ value: s.code, label: s.label })) as typeof FUNNEL_STAGES;
+}
+
+// FALLBACK label resolver — accepts an optional dynamic statuses list.
+// When statuses are available (e.g. passed from a hook caller), dynamic labels
+// are preferred. Falls back to the static FUNNEL_STAGES array when not provided.
+export function getStageLabel(stage: string | null, statuses?: AdmissionStatus[]): string {
+  if (statuses?.length) {
+    const found = statuses.find((s) => s.code === stage);
+    if (found) return found.label;
+  }
   const found = FUNNEL_STAGES.find((s) => s.value === stage);
   return found ? found.label : stage?.replace(/_/g, ' ') || 'New';
 }
 
 export function getLeadColumns(
-  attributionsMap: Map<string, string> = new Map()
+  attributionsMap: Map<string, string> = new Map(),
+  currentUser?: { id?: string | null; counselorId?: string | null }
 ): ColumnDef<AdmissionLead>[] {
   return [
   {
@@ -160,11 +227,7 @@ export function getLeadColumns(
     ),
     cell: ({ row }) => {
       const stage = row.getValue('funnel_stage') as string | null;
-      return (
-        <Badge className={getStageColor(stage)} variant="secondary">
-          {getStageLabel(stage)}
-        </Badge>
-      );
+      return <LeadStageBadge stage={stage} />;
     }
   },
   {
@@ -243,6 +306,22 @@ export function getLeadColumns(
         return consultantName
           ? <span className="text-sm">{consultantName} <Badge variant="outline" className="ml-1 text-[10px] px-1 py-0">Consultant</Badge></span>
           : <span className="text-sm text-muted-foreground">No consultant</span>;
+      }
+      // "Assigned to you" — when the row is assigned to the current counselor.
+      // Reporters (correctly-scoped strict counselors) read the assignee column
+      // as "another facilitator is on my lead" because it renders the canonical
+      // counselor display name, which differs from their self-image. Surfacing
+      // an explicit badge resolves the confusion.
+      const assignedToMe =
+        (!!currentUser?.counselorId && lead.counselor_id === currentUser.counselorId) ||
+        (!!currentUser?.id && (lead as any).assigned_counselor_id === currentUser.id);
+      if (assignedToMe) {
+        return (
+          <span className="text-sm">
+            {lead.counselor?.name || 'You'}{' '}
+            <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0">Assigned to you</Badge>
+          </span>
+        );
       }
       return lead.counselor?.name
         ? <span className="text-sm">{lead.counselor.name} <Badge variant="outline" className="ml-1 text-[10px] px-1 py-0">Counselor</Badge></span>

@@ -46,6 +46,7 @@ import {
 import { CyclePhaseBadge } from '../_components/cycle-phase-badge';
 import { CycleProgressStats } from '../_components/cycle-progress-stats';
 import { CoverageHeatmapMini } from '../_components/coverage-heatmap-mini';
+import { CareDashboardSection } from '../_components/care-dashboard-section';
 import type { AuditCycle, AuditFindingView } from '@/lib/types/audit';
 
 function formatDate(iso: string | null | undefined) {
@@ -251,6 +252,9 @@ export default function AuditDashboardPage() {
           findingsClosed={0}
           isLoading={cyclesLoading || rollupLoading || paramsLoading}
         />
+
+        {/* CARE audits — initiative · audience · index · flagged pillars · re-audit due */}
+        <CareDashboardSection />
 
         {/* Coverage heatmap */}
         <CoverageHeatmapMini activeCycleId={activeCycle?.id ?? null} />

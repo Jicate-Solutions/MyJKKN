@@ -142,31 +142,30 @@ function parseExcelRow(row: any[], rowNumber: number): {
   const scholarshipTypeLabel = getCellValue(row[33]);
 
   const accommodationTypeLabel = getCellValue(row[34]);
-  const hostelTypeLabel = getCellValue(row[35]);
-  const foodTypeLabel = getCellValue(row[36]);
+  // hostel_type / food_type columns removed 2026-05-29 — every positional index
+  // below accommodation shifted up by 2 to match the new template layout.
 
-  const lastSchool = getCellValue(row[37]);
-  const boardOfStudyLabel = getCellValue(row[38]);
-  const tenthMaxMarks = getCellValue(row[39]);
-  const tenthObtainedMarks = getCellValue(row[40]);
-  const tenthPercentage = getCellValue(row[41]);
-  const twelfthGroupLabel = getCellValue(row[42]);
-  const twelfthMaxMarks = getCellValue(row[43]);
-  const twelfthObtainedMarks = getCellValue(row[44]);
-  const twelfthPercentage = getCellValue(row[45]);
+  const lastSchool = getCellValue(row[35]);
+  const boardOfStudyLabel = getCellValue(row[36]);
+  const tenthMaxMarks = getCellValue(row[37]);
+  const tenthObtainedMarks = getCellValue(row[38]);
+  const tenthPercentage = getCellValue(row[39]);
+  const twelfthGroupLabel = getCellValue(row[40]);
+  const twelfthMaxMarks = getCellValue(row[41]);
+  const twelfthObtainedMarks = getCellValue(row[42]);
+  const twelfthPercentage = getCellValue(row[43]);
 
-  const medicalCutoff = getCellValue(row[46]);
-  const engineeringCutoff = getCellValue(row[47]);
-  const neetRollNumber = getCellValue(row[48]);
-  const neetScore = getCellValue(row[49]);
+  const medicalCutoff = getCellValue(row[44]);
+  const engineeringCutoff = getCellValue(row[45]);
+  const neetRollNumber = getCellValue(row[46]);
+  const neetScore = getCellValue(row[47]);
 
-  const counselingAppliedLabel = getCellValue(row[50]);
-  const quotaLabel = getCellValue(row[51]);
-  const category = getCellValue(row[52]);
+  const counselingAppliedLabel = getCellValue(row[48]);
+  const quotaLabel = getCellValue(row[49]);
 
-  const referenceType = getCellValue(row[53]);
-  const referenceName = getCellValue(row[54]);
-  const referenceContact = getCellValue(row[55]);
+  const referenceType = getCellValue(row[51]);
+  const referenceName = getCellValue(row[52]);
+  const referenceContact = getCellValue(row[53]);
 
   // Skip completely empty rows
   if (!firstName && !lastName && !studentMobile && !studentEmail) {
@@ -324,24 +323,6 @@ function parseExcelRow(row: any[], rowNumber: number): {
     errors.push({ row: rowNumber, field: 'accommodation_type', message: `Invalid Accommodation Type: "${accommodationTypeLabel}". Valid: ${getValidLabels('accommodation').join(', ')}` });
   }
 
-  // Optional hostel type
-  let hostelType: string | undefined;
-  if (hostelTypeLabel) {
-    hostelType = mapLabelToValue(hostelTypeLabel, 'hostelType') as string | undefined;
-    if (!hostelType) {
-      errors.push({ row: rowNumber, field: 'hostel_type', message: `Invalid Hostel Type: "${hostelTypeLabel}"` });
-    }
-  }
-
-  // Optional food type
-  let foodType: string | undefined;
-  if (foodTypeLabel) {
-    foodType = mapLabelToValue(foodTypeLabel, 'foodType') as string | undefined;
-    if (!foodType) {
-      errors.push({ row: rowNumber, field: 'food_type', message: `Invalid Food Type: "${foodTypeLabel}"` });
-    }
-  }
-
   // Previous education
   if (!lastSchool) {
     errors.push({ row: rowNumber, field: 'last_school', message: 'Last School is required' });
@@ -467,8 +448,6 @@ function parseExcelRow(row: any[], rowNumber: number): {
 
       // Accommodation
       accommodation_type: accommodationType as string,
-      hostel_type: hostelType || null,
-      food_type: foodType || null,
 
       // Education
       last_school: lastSchool,
@@ -485,7 +464,6 @@ function parseExcelRow(row: any[], rowNumber: number): {
       // Counseling
       counseling_applied: counselingApplied || false,
       quota: quota || null,
-      category: category || null,
 
       // Reference
       reference_type: referenceType || null,
@@ -853,7 +831,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
     // no matching admission_years cohort get admission_year_id=null and surface
     // in scripts/audit-admission-year-backfill.ts for ops review.
     const admissionYearKey = (r: any) =>
-      `${r.data.admission_year ?? ''}::${r.institutionId ?? ''}::${r.programId ?? ''}`;
+      `${r.data.admission_year ?? ''}::${r.institutionId ?? ''}`;
     const admissionYearMap = await (async () => {
       const { resolveAdmissionYearIdBulk } = await import('@/lib/services/admission/resolve-admission-year');
       return resolveAdmissionYearIdBulk(
@@ -861,9 +839,28 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
         validatedRows.map((r) => ({
           year: r.data.admission_year ?? null,
           institutionId: r.institutionId,
-          programId: r.programId,
         }))
       );
+    })();
+
+    // Resolve the readable quota label (Excel "Quota" column) → quota_id (FK).
+    // Storage is quota_id only; the legacy `quota` TEXT column is being retired.
+    const resolveQuota = await (async () => {
+      const { buildQuotaResolver } = await import('@/lib/utils/quota-name-resolver');
+      return buildQuotaResolver(supabase as any);
+    })();
+    const resolveCommunity = await (async () => {
+      const { buildCommunityResolver } = await import('@/lib/utils/community-name-resolver');
+      return buildCommunityResolver(supabase as any);
+    })();
+    const resolveCaste = await (async () => {
+      const { buildCasteResolver } = await import('@/lib/utils/caste-name-resolver');
+      return buildCasteResolver(supabase as any);
+    })();
+    // accommodation_type TEXT retired — resolve the label → institution-scoped FK.
+    const resolveAccommodation = await (async () => {
+      const { buildAccommodationTypeResolverMulti } = await import('@/lib/utils/accommodation-type-resolver');
+      return buildAccommodationTypeResolverMulti(supabase as any);
     })();
 
     // ============================================================
@@ -876,8 +873,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
       date_of_birth: data.date_of_birth,
       gender: data.gender,
       religion: data.religion,
-      community: data.community,
-      caste: data.caste,
+      community_category_id: resolveCommunity(data.community),
+      caste_id: resolveCaste(data.caste, resolveCommunity(data.community)),
       aadhar_number: data.aadhar_number,
       blood_group: data.blood_group,
 
@@ -920,10 +917,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
       entry_type: data.entry_type,
       scholarship_type: data.scholarship_type,
 
-      // Accommodation
-      accommodation_type: data.accommodation_type,
-      hostel_type: data.hostel_type,
-      food_type: data.food_type,
+      // Accommodation — accommodation_type TEXT retired; persist the FK only.
+      accommodation_type_id: resolveAccommodation(data.accommodation_type, institutionId),
 
       // Education
       last_school: data.last_school,
@@ -939,15 +934,17 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
 
       // Counseling
       counseling_applied: data.counseling_applied,
-      quota: data.quota,
+      quota_id: resolveQuota(data.quota),
 
       // Reference
       reference_type: data.reference_type,
       reference_name: data.reference_name,
       reference_contact: data.reference_contact,
 
-      // IMPORTANT: Enquiries start with lifecycle_status='admitted'
-      lifecycle_status: 'admitted',
+      // 2026-05-20: Enquiries start with lifecycle_status='enquiry' (was 'admitted'
+      // pre-realignment). 'admitted' is now the post-threshold status applied by
+      // evaluate_learner_status_after_payment.
+      lifecycle_status: 'enquiry',
       is_profile_complete: false,
       created_by: user.id,
       updated_by: user.id

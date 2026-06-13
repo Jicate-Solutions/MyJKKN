@@ -7,7 +7,7 @@
 // assignment is active until effective_until is set.
 //
 // Pattern: extends `lib/admin/policy-shell` (Shape C — LookupConfig). Cloned
-// from `app/(routes)/admin/hr/required-documents/page.tsx` + the HYBRID model
+// from `app/(routes)/hr/admin/required-documents/page.tsx` + the HYBRID model
 // per Q-lock #1: template provides defaults; per-employee override stored on
 // the assignment row.
 //

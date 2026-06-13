@@ -81,11 +81,21 @@ export async function GET(
       );
     }
 
+    // Return empty taxonomy if not found (don't 404).
+    // POs/PSOs now live in bos_programme_outcomes/bos_programme_specific_outcomes tables,
+    // so missing bos_regulation_taxonomies is not an error.
     if (!data) {
-      return NextResponse.json(
-        { error: 'Taxonomy not found for this regulation' },
-        { status: 404 }
-      );
+      return NextResponse.json({
+        id: null,
+        regulation_id: regulationId,
+        institutions_id: null,
+        taxonomy_type: null,
+        k_values: {},
+        pos: {},
+        psos: null,
+        created_at: null,
+        updated_at: null,
+      } as Partial<BosRegulationTaxonomy>);
     }
 
     return NextResponse.json(data as BosRegulationTaxonomy);

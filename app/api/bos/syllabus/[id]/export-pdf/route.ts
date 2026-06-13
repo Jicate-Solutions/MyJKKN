@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { resolveBosAccess, applyInstitutionScope } from '@/lib/utils/bos/bos-access';
+import { resolveBosAccess, applyInstitutionScope, readableInstitutionIds } from '@/lib/utils/bos/bos-access';
 import { BosCourseSyllabus } from '@/types/bos';
 
 /**
@@ -40,14 +40,20 @@ export async function GET(
     const includeReferences = searchParams.get('include_references') !== 'false';
     const includePedagogy = searchParams.get('include_pedagogy') !== 'false';
 
-    // Step 4: Fetch syllabus
+    // Step 4: Fetch syllabus (CAS-aware filter — see syllabus/[id]/route.ts)
     let query = supabase
       .from('bos_course_syllabi')
       .select('*')
       .eq('id', params.id);
 
-    if (!scope.isSuperAdmin) {
-      query = query.eq('institutions_id', scope.institutionsId);
+    const allowedIds = readableInstitutionIds(scope);
+    if (allowedIds !== null) {
+      if (allowedIds.length === 0) {
+        return NextResponse.json({ error: 'Syllabus not found' }, { status: 404 });
+      }
+      query = allowedIds.length === 1
+        ? query.eq('institutions_id', allowedIds[0])
+        : query.in('institutions_id', allowedIds);
     }
 
     const { data: syllabus, error } = await query.maybeSingle();
@@ -211,7 +217,16 @@ function generateOfficalFormat(
       html += `<h3>Unit ${unit.unit_id}: ${unit.unit_title}</h3>`;
       const chapters = unit.chapters as Array<Record<string, unknown>> || [];
       chapters.forEach((chapter: Record<string, unknown>) => {
-        html += `<p><strong>Chapter ${chapter.chapter_number}: ${chapter.title}</strong></p><p>${chapter.sections}</p>`;
+        html += `<p><strong>Chapter ${chapter.chapter_number}: ${chapter.title}</strong></p>`;
+        if (chapter.sections) html += `<p>${chapter.sections}</p>`;
+        const subtopics = chapter.subtopics as Array<Record<string, unknown>> || [];
+        if (subtopics.length > 0) {
+          html += '<ul style="margin: 4px 0 10px 24px; padding-left: 0;">';
+          subtopics.forEach((st: Record<string, unknown>) => {
+            html += `<li><strong>${chapter.chapter_number}.${st.number}</strong> ${st.title ?? ''}</li>`;
+          });
+          html += '</ul>';
+        }
       });
     });
   }

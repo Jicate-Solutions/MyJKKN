@@ -26,7 +26,7 @@ export default async function MeetingsPage({ searchParams }: MeetingsPageProps) 
     board_id: raw.board_id,
     academic_year: raw.academic_year,
     meeting_type: raw.meeting_type,
-    institutionsId: raw.institutionsId,
+    institutionCode: raw.institutionCode,
   }) satisfies MeetingSearchParams;
 
   return (
