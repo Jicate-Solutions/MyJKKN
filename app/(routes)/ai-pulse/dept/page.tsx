@@ -62,12 +62,20 @@ export default function DeptHeatmapPage() {
                   the AI Pulse policy table and can be tuned by a super admin.
                 </p>
               </div>
-              <Link href="/ai-pulse">
-                <Button variant="outline" size="sm">
-                  <ArrowLeft className="mr-2 h-4 w-4" />
-                  AI Pulse Home
-                </Button>
-              </Link>
+              <div className="flex shrink-0 gap-2">
+                <Link href="/ai-pulse/guide">
+                  <Button variant="outline" size="sm">
+                    <Info className="mr-2 h-4 w-4" />
+                    How this works
+                  </Button>
+                </Link>
+                <Link href="/ai-pulse">
+                  <Button variant="outline" size="sm">
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    AI Pulse Home
+                  </Button>
+                </Link>
+              </div>
             </div>
           </CardHeader>
         </Card>
