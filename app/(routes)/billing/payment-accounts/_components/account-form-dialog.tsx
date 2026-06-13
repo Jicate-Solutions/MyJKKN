@@ -199,8 +199,8 @@ export function AccountFormDialog({ open, onOpenChange, institutions, target }: 
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) reset(); onOpenChange(o); }}>
-      <DialogContent className='grid-rows-[auto_minmax(0,1fr)_auto] max-h-[90dvh] w-[calc(100%-2rem)] max-w-[calc(100%-2rem)] sm:max-w-lg'>
-        <DialogHeader>
+      <DialogContent className='flex max-h-[90dvh] flex-col w-[calc(100%-2rem)] max-w-[calc(100%-2rem)] sm:max-w-lg'>
+        <DialogHeader className='shrink-0'>
           <DialogTitle>{TITLES[target.mode]}</DialogTitle>
           <DialogDescription>
             {target.mode === 'draft'
@@ -217,7 +217,7 @@ export function AccountFormDialog({ open, onOpenChange, institutions, target }: 
           </DialogDescription>
         </DialogHeader>
 
-        <div className='min-h-0 space-y-4 overflow-y-auto px-1'>
+        <div className='min-h-0 flex-1 space-y-4 overflow-y-auto px-1'>
           {summaryAcct && (
             <div className='rounded-md border bg-muted/40 p-3 text-sm'>
               <div className='grid grid-cols-3 gap-2'>
@@ -323,7 +323,7 @@ export function AccountFormDialog({ open, onOpenChange, institutions, target }: 
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className='shrink-0'>
           <Button variant='outline' onClick={() => onOpenChange(false)} disabled={pending}>Cancel</Button>
           <Button onClick={handleSubmit} disabled={pending}>
             {pending
