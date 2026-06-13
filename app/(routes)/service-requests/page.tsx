@@ -190,7 +190,7 @@ export default function ServiceRequestsHubPage() {
                     </div>
                   ) : pendingApprovalsData?.data && pendingApprovalsData.data.length > 0 ? (
                     <RequestDataTable
-                      data={pendingApprovalsData.data.map((a: any) => a.service_request).filter(Boolean)}
+                      data={pendingApprovalsData.data as any}
                       showRequester={true}
                     />
                   ) : (

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef, Suspense } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import {
   useBugReports,
   useUpdateBugReportStatus,
@@ -44,7 +45,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import Link from 'next/link';
-import { BugReport, BugReportStatus, BugReportFilters } from '@/types/bugs';
+import { BugReport, BugReportStatus, BugReportCategory, BugReportFilters } from '@/types/bugs';
 import { MoreHorizontalIcon } from '@/components/icons';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { DataTable } from '@/components/ui/data-table';
@@ -167,11 +168,58 @@ const StatCard = ({
   );
 };
 
-export default function AdminBugReportsPage() {
-  const [filters, setFilters] = useState<BugReportFilters>({
-    page: 1,
-    limit: 10
-  });
+function AdminBugReportsContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  // Derive filters from URL params so browser refresh preserves page + filter state
+  const filters = useMemo<BugReportFilters>(
+    () => ({
+      page: Number(searchParams.get('page') ?? '1'),
+      limit: Number(searchParams.get('limit') ?? '10'),
+      status: (searchParams.get('status') as BugReportStatus) || undefined,
+      category: (searchParams.get('category') as BugReportCategory) || undefined,
+      institution_id: searchParams.get('institution_id') || undefined,
+      department_id: searchParams.get('department_id') || undefined,
+      module_name: searchParams.get('module_name') || undefined,
+      sub_module_name: searchParams.get('sub_module_name') || undefined,
+      search: searchParams.get('search') || undefined
+    }),
+    [searchParams]
+  );
+
+  // Mirror of the latest filters, updated synchronously on every write.
+  // router.replace commits async, so consecutive updates (filter click +
+  // pagination + search debounce) must compose against this ref instead of
+  // the not-yet-committed URL — otherwise the later write drops the earlier
+  // one's params (filters "resetting on their own").
+  const filtersRef = useRef(filters);
+  useEffect(() => {
+    filtersRef.current = filters;
+  }, [filters]);
+
+  // Write filter changes back to the URL; router.replace avoids polluting history
+  const setFilters = useCallback(
+    (updater: BugReportFilters | ((prev: BugReportFilters) => BugReportFilters)) => {
+      const nf =
+        typeof updater === 'function' ? updater(filtersRef.current) : updater;
+      filtersRef.current = nf;
+      const params = new URLSearchParams();
+      if (nf.page && nf.page !== 1) params.set('page', String(nf.page));
+      if (nf.limit && nf.limit !== 10) params.set('limit', String(nf.limit));
+      if (nf.status) params.set('status', nf.status);
+      if (nf.category) params.set('category', nf.category);
+      if (nf.institution_id) params.set('institution_id', nf.institution_id);
+      if (nf.department_id) params.set('department_id', nf.department_id);
+      if (nf.module_name) params.set('module_name', nf.module_name);
+      if (nf.sub_module_name) params.set('sub_module_name', nf.sub_module_name);
+      if (nf.search) params.set('search', nf.search);
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [pathname, router]
+  );
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [reportToDelete, setReportToDelete] = useState<string | null>(null);
   const [selectedReports, setSelectedReports] = useState<string[]>([]);
@@ -179,12 +227,18 @@ export default function AdminBugReportsPage() {
   const [bulkStatusUpdateOpen, setBulkStatusUpdateOpen] = useState(false);
   const [bulkStatusValue, setBulkStatusValue] =
     useState<BugReportStatus>('seen');
-  const [searchInput, setSearchInput] = useState('');
+  // Seed from URL so the input reflects an already-active search on mount
+  const [searchInput, setSearchInput] = useState(filters.search ?? '');
   const { isSuperAdmin } = usePermissions();
 
   // Debounce search: update filters.search 300ms after the user stops typing.
-  // This prevents a fetch on every keystroke while keeping the input responsive.
+  // Guard by VALUE (input vs last-written search) rather than a first-mount
+  // ref: a ref guard leaks one write per mount under Strict Mode's double
+  // effect invocation, which rewrote the URL with page:1 ~300ms after every
+  // mount. Comparing values is idempotent — if the input already matches the
+  // URL there is nothing to write, on mount or ever.
   useEffect(() => {
+    if (searchInput.trim() === (filtersRef.current.search ?? '')) return;
     const timer = setTimeout(() => {
       setFilters((prev) => ({
         ...prev,
@@ -194,9 +248,10 @@ export default function AdminBugReportsPage() {
       setSelectedReports([]);
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchInput]);
+  }, [searchInput, setFilters]);
 
-  const { data, isLoading, isFetching, refetch } = useBugReports(filters);
+  const { data, isLoading, isFetching, isPlaceholderData, refetch } =
+    useBugReports(filters);
   const updateStatusMutation = useUpdateBugReportStatus();
   const deleteReportMutation = useDeleteBugReport();
   const bulkDeleteMutation = useBulkDeleteBugReports();
@@ -240,13 +295,15 @@ export default function AdminBugReportsPage() {
       try {
         await updateStatusMutation.mutateAsync({ reportId, status });
         toast.success(`Report status changed to ${status.replace(/_/g, ' ')}.`);
-        refetch();
-        refetchStats(); // Refetch real-time statistics
+        // invalidateQueries in onSuccess already triggers a background refetch;
+        // calling refetch() here again races with it and can cause the pagination
+        // display to jump. Let invalidateQueries handle it.
+        refetchStats();
       } catch (err: any) {
-        toast.error('Could not update the report status.');
+        toast.error(err?.message || 'Could not update the report status.');
       }
     },
-    [updateStatusMutation, refetch, refetchStats]
+    [updateStatusMutation, refetchStats]
   );
 
   const handleDeleteReport = useCallback(async () => {
@@ -257,12 +314,11 @@ export default function AdminBugReportsPage() {
       toast.success('Bug Report Deleted');
       setDeleteConfirmOpen(false);
       setReportToDelete(null);
-      refetch();
-      refetchStats(); // Refetch real-time statistics
+      refetchStats();
     } catch (err) {
       toast.error('Could not delete the bug report.');
     }
-  }, [reportToDelete, deleteReportMutation, refetch, refetchStats]);
+  }, [reportToDelete, deleteReportMutation, refetchStats]);
 
   const handleBulkDelete = useCallback(async () => {
     try {
@@ -272,12 +328,11 @@ export default function AdminBugReportsPage() {
       );
       setBulkDeleteConfirmOpen(false);
       setSelectedReports([]);
-      refetch();
       refetchStats();
     } catch (err: any) {
       toast.error('Could not delete the selected bug reports.');
     }
-  }, [selectedReports, bulkDeleteMutation, refetch, refetchStats]);
+  }, [selectedReports, bulkDeleteMutation, refetchStats]);
 
   const handleBulkStatusUpdate = useCallback(async () => {
     try {
@@ -292,7 +347,6 @@ export default function AdminBugReportsPage() {
       );
       setBulkStatusUpdateOpen(false);
       setSelectedReports([]);
-      refetch();
       refetchStats();
     } catch (err: any) {
       toast.error('Could not update the status of selected bug reports.');
@@ -301,7 +355,6 @@ export default function AdminBugReportsPage() {
     selectedReports,
     bulkStatusValue,
     bulkUpdateStatusMutation,
-    refetch,
     refetchStats
   ]);
 
@@ -535,6 +588,7 @@ export default function AdminBugReportsPage() {
   return (
     <AdminPermissionGuard
       fallback={<div>You do not have permission to view this page.</div>}
+      adminRoles={['super_admin', 'administrator', 'ceo']}
     >
       <ContentLayout title='Bug Reports Analytics'>
         <div className='space-y-6'>
@@ -849,7 +903,7 @@ export default function AdminBugReportsPage() {
                     columns={columns}
                     data={reports}
                     permissions={{
-                      module: 'system',
+                      module: 'system.bugs',
                       actions: { view: true }
                     }}
                     onRefresh={refetch}
@@ -860,7 +914,9 @@ export default function AdminBugReportsPage() {
                       totalItems: metadata?.total ?? 0,
                       onPageChange: handlePageChange,
                       onPageSizeChange: handlePageSizeChange,
-                      isLoading: isLoading,
+                      // Overlay during first load AND while previous-page
+                      // placeholder rows are shown for an in-flight page change
+                      isLoading: isLoading || (isPlaceholderData && isFetching),
                       hasPreviousPage: (filters.page ?? 1) > 1,
                       hasNextPage:
                         (filters.page ?? 1) < (metadata?.totalPages ?? 1)
@@ -986,5 +1042,19 @@ export default function AdminBugReportsPage() {
         </AlertDialogContent>
       </AlertDialog>
     </AdminPermissionGuard>
+  );
+}
+
+export default function AdminBugReportsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className='flex items-center justify-center h-40'>
+          <Loader2 className='h-8 w-8 animate-spin text-primary' />
+        </div>
+      }
+    >
+      <AdminBugReportsContent />
+    </Suspense>
   );
 }

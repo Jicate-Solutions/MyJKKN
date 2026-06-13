@@ -56,10 +56,10 @@ function isNumericId(seg: string): boolean {
 
 /**
  * Humanize an unknown URL segment: `my-page-name` → `My Page Name`.
- * Keeps UUIDs and numeric IDs verbatim so the crumb still disambiguates.
+ * UUIDs and numeric IDs map to "Details" — raw IDs are unreadable in a breadcrumb.
  */
 function humanizeSegment(seg: string): string {
-  if (isUuidLike(seg) || isNumericId(seg)) return seg;
+  if (isUuidLike(seg) || isNumericId(seg)) return 'Details';
   return seg
     .replace(/-/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase());

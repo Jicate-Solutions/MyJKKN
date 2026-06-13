@@ -48,6 +48,8 @@ import {
   formValuesToCreatePayload,
   type SiteFormValues,
 } from '../../_components/sites/site-form';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { NoAccessAlert } from '../../_components/no-access-alert';
 
 const OWNERSHIP_LABELS: Record<string, string> = {
   private: 'Private',
@@ -59,6 +61,14 @@ const OWNERSHIP_LABELS: Record<string, string> = {
 };
 
 export default function SiteDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  return (
+    <PermissionGuard module="internship.sites" action="view" fallback={<NoAccessAlert />}>
+      <SiteDetailPageInner params={params} />
+    </PermissionGuard>
+  );
+}
+
+function SiteDetailPageInner({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { data: site, isLoading, error } = useSite(id);
   const update = useUpdateSite();

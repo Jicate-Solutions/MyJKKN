@@ -54,8 +54,13 @@ export function MaintenanceForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch resources for dropdown
-  const { resources = [], loading: resourcesLoading } = useResources();
+  // Fetch resources for dropdown. ResourceService.getResources defaults
+  // `limit` to 10 when omitted; pass an explicit high cap so users can pick
+  // the 11th+ resource for maintenance logging (same fix as the reservation
+  // ResourceSelector — both are pickers, not paginated lists).
+  const { resources = [], loading: resourcesLoading } = useResources({
+    limit: 1000
+  });
 
   const form = useForm<CreateMaintenanceLogDto>({
     resolver: zodResolver(createMaintenanceLogSchema),

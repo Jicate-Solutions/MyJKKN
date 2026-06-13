@@ -1,0 +1,52 @@
+name: Seed node_modules cache
+
+# GitHub scopes caches created in PR runs to that PR's merge ref — cross-PR
+# reuse only works from a cache created on the BASE branch. Without this
+# seed, every PR's first gate run is a guaranteed cache miss and the
+# node_modules caching in the npm-heavy gates saves nothing.
+# (Found by the Fable 5 advisory reviewer on PR #1358 — its first real
+# finding, MEDIUM, confirmed against GitHub's cache-isolation docs.)
+#
+# Triggers: lockfile changes landing on main (new dependency set = new cache
+# key) + manual dispatch for the initial seed. PR restores keep the cache
+# warm against the 7-day eviction clock.
+#
+# Matrix seeds both Node majors the gates use: 20 (nav/module gates) and
+# 22 (typecheck).
+
+on:
+  push:
+    branches: [main]
+    paths: [package-lock.json]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  seed:
+    name: Seed cache (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        node: ['20', '22']
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Cache node_modules
+        id: nm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node${{ matrix.node }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install (seed)
+        if: steps.nm.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund

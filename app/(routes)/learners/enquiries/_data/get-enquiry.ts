@@ -8,6 +8,7 @@
 
 
 import { createClient } from '@/lib/supabase/server';
+import { accommodationLegacyFromCode } from '@/lib/utils/accommodation-type-resolver';
 
 
 import type { LearnerProfile } from '@/types/learner-profile';
@@ -41,9 +42,10 @@ export async function getEnquiry(id: string): Promise<LearnerProfile | null> {
       academic_year:academic_years(id, academic_year_name, start_date, end_date, is_active),
       regulation:regulations(id, regulation_code, regulation_year, is_active),
       batch:batches(id, batch_name, batch_code),
+      accommodation_ref:accommodation_types!accommodation_type_id(code, name),
       created_by_user:profiles!learners_profiles_created_by_fkey(id, email, full_name),
       updated_by_user:profiles!learners_profiles_updated_by_fkey(id, email, full_name),
-      admission_year_obj:admission_years!admission_year_id(id, admission_year_name, program_start_year, program_end_year)
+      admission_year_obj:admission_years!admission_year_id(id, admission_year_name, year)
     `
     )
     .eq('id', id)
@@ -54,5 +56,16 @@ export async function getEnquiry(id: string): Promise<LearnerProfile | null> {
     throw new Error(`Failed to fetch enquiry: ${error.message}`);
   }
 
-  return data as LearnerProfile | null;
+  // accommodation_type TEXT column is retired — derive the legacy 'HOSTEL'/
+  // 'DAY SCHOLAR' value from the FK so enquiry-detail keeps reading
+  // enquiry.accommodation_type.
+  const row = data as Record<string, unknown> | null;
+  if (row) {
+    row.accommodation_type = accommodationLegacyFromCode(
+      (row.accommodation_ref as { code?: string } | null)?.code,
+    );
+    delete row.accommodation_ref;
+  }
+
+  return row as LearnerProfile | null;
 }

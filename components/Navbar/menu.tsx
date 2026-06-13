@@ -20,12 +20,15 @@ import { filterByPermissions } from '@/lib/navigation/permission-filter';
 import { AuthService } from '@/lib/auth/auth-service';
 import { useEffect, useMemo } from 'react';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionType } from '@/hooks/use-institution-type';
+import { adaptMenuLabels, adaptLabel } from '@/lib/utils/school-label-adapter';
 import {
   useExpandedSidebarModule,
   useExpandedSidebarModuleHydration,
 } from '@/hooks/use-expanded-sidebar-module';
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
 import { useCommitteeMembership } from '@/hooks/events/marathon/use-committee-membership';
+import { useIsHosteler } from '@/hooks/campus-living/use-is-hosteler';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
 import { FavoritesSidebarSection } from '@/components/Favorites/FavoritesSidebarSection';
 import { FavoriteStar } from '@/components/Favorites/FavoriteStar';
@@ -46,6 +49,7 @@ export function Menu({ isOpen }: MenuProps) {
     isLoading: permissionsLoading,
     userProfile
   } = usePermissions();
+  const { institutionType } = useInstitutionType();
   const { isInstalled, canInstall, installApp } = usePWA();
   const { open: openCommandPalette } = useCommandPalette();
   // Wave 2b PR-S2: persist per-section collapsed state to localStorage
@@ -80,6 +84,11 @@ export function Menu({ isOpen }: MenuProps) {
   const marathonEventId = pathname.match(/\/events\/marathon\/([^/]+)/)?.[1] ?? '';
   const { isMember: isMarathonCommitteeMember } = useCommitteeMembership(marathonEventId);
 
+  // Students: the My Hostel sidebar entry is shown only for actual hostel
+  // residents (learners_profiles accommodation = hostel), not every student.
+  const isStudentRole = userProfile?.role === 'student';
+  const { data: isHosteler } = useIsHosteler(isStudentRole);
+
   // Build RolePermissionData from usePermissions (multi-role merged)
   const roleData = useMemo((): RolePermissionData | null => {
     if (!userProfile) return null;
@@ -95,9 +104,25 @@ export function Menu({ isOpen }: MenuProps) {
     // Enrich permissions with dynamic access for assigned team members.
     // Faculty/students assigned to expo events need to see the Expos menu
     // even without a global `admission.marketing.expos.view` permission.
-    let enrichedPermissions = { ...permissions };
+    //
+    // 2026-05-11: counselor roles whose access to the Marketing module was
+    // explicitly revoked must NOT get expo visibility re-granted via
+    // team-membership enrichment. Without this carve-out, an
+    // admission_counselor / learner_counselor / staff_counselor user who
+    // happens to be on any expo team (e.g. MAHENDIRAN S) would have the
+    // Marketing parent menu re-appear in the sidebar because at least one of
+    // its 16 submenus (`/admission/marketing/expos`) becomes accessible. The
+    // expo_counselor role legitimately needs expo access and gets it through
+    // its own `custom_roles.permissions`, so it is intentionally NOT skipped.
+    const enrichedPermissions = { ...permissions };
+    const EXPO_ENRICHMENT_SKIP_ROLES = new Set([
+      'admission_counselor',
+      'learner_counselor',
+      'staff_counselor',
+    ]);
+    const skipExpoEnrichment = EXPO_ENRICHMENT_SKIP_ROLES.has(userProfile.role || '');
 
-    if (isExpoTeamMember) {
+    if (isExpoTeamMember && !skipExpoEnrichment) {
       enrichedPermissions['admission.marketing.expos.view'] = true;
     }
 
@@ -106,11 +131,19 @@ export function Menu({ isOpen }: MenuProps) {
       enrichedPermissions['events.marathon.ops.committee_access'] = true;
     }
 
+    // Students: gate the My Hostel entry on live hostel residency. The role-wide
+    // campus_living.my_hostel.view grant covers every student; overwrite it with
+    // user_is_hosteler() so dayscholars don't get a dead-end menu.
+    if (isStudentRole) {
+      enrichedPermissions['campus_living.my_hostel.view'] =
+        permissions['campus_living.my_hostel.view'] === true && isHosteler === true;
+    }
+
     return {
       role_key: userProfile.role || '',
       permissions: enrichedPermissions
     };
-  }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember, isMarathonCommitteeMember]);
+  }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember, isMarathonCommitteeMember, isStudentRole, isHosteler]);
 
   // Debug: Log permission state for troubleshooting
   if (process.env.NODE_ENV === 'development' && roleData && !permissionsLoading) {
@@ -132,10 +165,17 @@ export function Menu({ isOpen }: MenuProps) {
   // bottom-navbar.tsx. Sections with zero accessible menus (after permission
   // filtering) are dropped, exactly as before.
   const pagesRaw = GetRoleBasedPages(pathname, roleData);
+
+  // Adapt menu labels based on institution type (school → classes/terms, college → programs/semesters)
+  const pagesAdapted = useMemo(
+    () => adaptMenuLabels(pagesRaw, institutionType),
+    [pagesRaw, institutionType]
+  );
+
   const pages = useMemo(() => {
     // Index permission-filtered groups by groupLabel for O(1) lookup
-    const byLabel = new Map<string, (typeof pagesRaw)[number]>();
-    for (const g of pagesRaw) {
+    const byLabel = new Map<string, (typeof pagesAdapted)[number]>();
+    for (const g of pagesAdapted) {
       if (g.groupLabel) byLabel.set(g.groupLabel, g);
     }
 
@@ -154,7 +194,7 @@ export function Menu({ isOpen }: MenuProps) {
     // set but are NOT yet in MODULES (forward-compat: a new section can ship
     // in sidebarMenuLink before being added to MODULES, and shouldn't vanish).
     // These trail at the end. Drop is impossible — surfacing the gap visibly.
-    for (const g of pagesRaw) {
+    for (const g of pagesAdapted) {
       if (g.groupLabel && !matchedLabels.has(g.groupLabel)) {
         ordered.push(g);
       } else if (!g.groupLabel) {
@@ -165,7 +205,7 @@ export function Menu({ isOpen }: MenuProps) {
     }
 
     return ordered;
-  }, [pagesRaw]);
+  }, [pagesAdapted]);
 
   // DEV-only: warn if any group exceeds the flat-item thresholds set by the
   // validator (prevents regression back to cluttered flat lists on new modules).
@@ -183,7 +223,7 @@ export function Menu({ isOpen }: MenuProps) {
   };
 
   return (
-    <div className='overflow-y-auto h-full custom-scrollbar'>
+    <div className='overflow-y-auto overflow-x-hidden h-full custom-scrollbar'>
       {/* Sticky header: search + favorites pin to the top so they remain
           visible while the rest of the sidebar scrolls. The bg-sidebar
           background prevents scrolling content from showing through. */}
@@ -504,7 +544,7 @@ export function Menu({ isOpen }: MenuProps) {
                                         <span className='mr-4'>
                                           <SubIcon size={18} />
                                         </span>
-                                        <span className='max-w-[160px] truncate'>{sub.title}</span>
+                                        <span className='max-w-[160px] truncate'>{adaptLabel(sub.title, institutionType)}</span>
                                       </Link>
                                     </Button>
                                   </li>

@@ -12,6 +12,52 @@
 // fee-structure-service.ts) and surface errors via react-hot-toast.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+
+// -----------------------------------------------------------------------------
+// humanizeFeeStructureCreateError
+// -----------------------------------------------------------------------------
+// The SECURITY DEFINER trigger _fee_structure_community_no_overlap raises
+// SQLSTATE 23505 with a message like:
+//
+//   "Another active fee structure already covers community <uuid> for this
+//    7-dim combination. Archive the existing structure first."
+//
+// That text is exactly what we DON'T want users to see. Translate it into an
+// actionable explanation listing the dimensions they can change to make the
+// new structure unique. Falls back to the raw message for any other error.
+//
+// IMPORTANT: Supabase throws plain JSON objects (not Error instances) when a
+// service does `if (error) throw error` against the destructured response.
+// `instanceof Error` is FALSE for those, so we read via getErrorMessage()
+// which understands the plain-object shape — otherwise the real 23505 text is
+// silently replaced with the generic 'Failed to create fee structure' string
+// and users see no actionable info.
+function humanizeFeeStructureCreateError(err: unknown): string {
+  const raw = getErrorMessage(err) || 'Failed to create fee structure';
+
+  // Detect the community-overlap trigger. Match permissively so we still
+  // catch the message if the trigger ever rewords slightly.
+  if (
+    /already covers community/i.test(raw) ||
+    /7-dim combination/i.test(raw)
+  ) {
+    const uuidMatch = raw.match(
+      /community\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i,
+    );
+    const commHint = uuidMatch ? ` (community ${uuidMatch[1].slice(0, 8)}…)` : '';
+    return [
+      `A fee structure already exists for this exact combination${commHint}.`,
+      '',
+      'To create a NEW one alongside it, change at least ONE of these dimensions:',
+      '• Institution · Degree · Department · Programme',
+      '• Quota · Admission Year',
+      '',
+      'Or archive the existing structure first, then re-save.',
+    ].join('\n');
+  }
+
+  return raw;
+}
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -55,14 +101,34 @@ import {
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { getErrorMessage } from '@/lib/utils';
 import { logActivityForCurrentUser } from '@/lib/utils/activity-logger-client';
 import { AdmissionFeesActivityTemplates } from '@/lib/utils/admission-fees-activity-templates';
 import { FeesStructureDimensionSelector } from './fees-structure-dimension-selector';
 import type {
   AdmissionFeeStructureWithItems,
   FeeStructureMatrixDimensions,
+  FeeItemAppliesTo,
 } from '@/types/admission';
-import type { BillingCategory } from '@/types/billing';
+import type { BillingCategory, BillingCategoryKind } from '@/types/billing';
+
+// Billing-category kinds the admission fee structure does NOT manage. Transport
+// fees are owned by the transport module, so they are not selectable as an
+// admission fee-structure line item. Hostel categories ARE selectable here —
+// beware that campus-living (hostel_category_fees) also bills hostel fees, so
+// avoid configuring the same hostel charge in both places (double-billing).
+// Exported so the clone page applies the same filter.
+export const FEE_STRUCTURE_EXCLUDED_CATEGORY_KINDS: BillingCategoryKind[] = [
+  'transport',
+];
+
+export function filterFeeStructureCategories(
+  categories: BillingCategory[],
+): BillingCategory[] {
+  return categories.filter(
+    (c) => !FEE_STRUCTURE_EXCLUDED_CATEGORY_KINDS.includes(c.kind),
+  );
+}
 
 /**
  * The form's `dims` prop carries the 7 matrix dimensions plus an optional
@@ -115,8 +181,9 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
       department_id:         dims.department_id!,
       programme_id:          dims.programme_id!,
       quota_id:              dims.quota_id!,
-      accommodation_type_id: dims.accommodation_type_id!,
       admission_year_id:     dims.admission_year_id!,
+      gender:                dims.gender,
+      accommodation_type_id: dims.accommodation_type_id,
     };
     FeeStructureService.findByDimensions(sevenDims, dims.community_category_id!)
       .then((s) => {
@@ -124,7 +191,7 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
       })
       .catch((err) => {
         console.error('Failed to load fee structure', err);
-        toast.error(err instanceof Error ? err.message : 'Failed to load fee structure');
+        toast.error(getErrorMessage(err) || 'Failed to load fee structure');
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -136,7 +203,7 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
 
   useEffect(() => {
     BillingCategoryService.getActiveBillingCategories()
-      .then(setCategories)
+      .then((cats) => setCategories(filterFeeStructureCategories(cats)))
       .catch((err) => {
         console.error('Failed to load billing categories', err);
         toast.error('Failed to load billing categories');
@@ -169,7 +236,7 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
     return (
       <div className="text-sm text-muted-foreground py-12 text-center">
         <p>
-          Pick all 7 matrix dimensions to view, edit, or create a fee structure.
+          Pick all 6 matrix dimensions to view, edit, or create a fee structure.
         </p>
       </div>
     );
@@ -191,8 +258,9 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
           department_id:         dims.department_id!,
           programme_id:          dims.programme_id!,
           quota_id:              dims.quota_id!,
-          accommodation_type_id: dims.accommodation_type_id!,
           admission_year_id:     dims.admission_year_id!,
+          gender:                dims.gender,
+          accommodation_type_id: dims.accommodation_type_id,
         }}
         // Leaf hint is optional; absent on /new where the user hasn't drilled
         // into a community yet. The form treats it as a default selection.
@@ -225,7 +293,6 @@ function hasSevenDims(d: DimsWithLeafCommunity): boolean {
     d.department_id &&
     d.programme_id &&
     d.quota_id &&
-    d.accommodation_type_id &&
     d.admission_year_id
   );
 }
@@ -233,13 +300,23 @@ function hasSevenDims(d: DimsWithLeafCommunity): boolean {
 // ===========================================================================
 // NewStructureForm — create flow
 // ===========================================================================
-const itemSchema = z.object({
-  billing_category_id: z.string().min(1),
-  amount: z
-    .number({ invalid_type_error: 'Amount required' })
-    .min(0, 'Amount must be ≥ 0'),
-  is_optional: z.boolean(),
-});
+const itemSchema = z
+  .object({
+    billing_category_id: z.string().min(1),
+    amount: z
+      .number({ invalid_type_error: 'Amount required' })
+      .min(0, 'Amount must be ≥ 0'),
+    is_optional: z.boolean(),
+    applies_to: z.enum(['first_year_only', 'every_year', 'specific_year']),
+    applies_year_of_study: z.number().int().min(1).max(10).nullable(),
+  })
+  .refine(
+    (v) => v.applies_to !== 'specific_year' || v.applies_year_of_study != null,
+    {
+      message: 'Pick a year of study',
+      path: ['applies_year_of_study'],
+    },
+  );
 
 const newSchema = z
   .object({
@@ -361,6 +438,8 @@ export function NewStructureForm({
         billing_category_id: cat.id,
         amount: amount ?? cat.amount ?? 0,
         is_optional: false,
+        applies_to: 'every_year',
+        applies_year_of_study: null,
       },
     ]);
   };
@@ -375,6 +454,23 @@ export function NewStructureForm({
     const next = [...items];
     next[index] = { ...next[index], amount: value };
     form.setValue('items', next);
+  };
+
+  const updateItemApplicability = (
+    index: number,
+    applies_to: FeeItemAppliesTo,
+    applies_year_of_study: number | null,
+  ) => {
+    const next = [...items];
+    next[index] = {
+      ...next[index],
+      applies_to,
+      // Year only meaningful for specific_year; null it out otherwise so a
+      // stale value can't leak through to the insert.
+      applies_year_of_study:
+        applies_to === 'specific_year' ? applies_year_of_study : null,
+    };
+    form.setValue('items', next, { shouldValidate: true });
   };
 
   const onSubmit = async (values: NewFormValues) => {
@@ -396,6 +492,9 @@ export function NewStructureForm({
           amount: it.amount,
           is_optional: it.is_optional,
           sort_order: i,
+          applies_to: it.applies_to,
+          applies_year_of_study:
+            it.applies_to === 'specific_year' ? it.applies_year_of_study : null,
         })),
       });
       toast.success(
@@ -407,7 +506,10 @@ export function NewStructureForm({
       onCreated();
     } catch (err) {
       console.error(err);
-      toast.error(err instanceof Error ? err.message : 'Failed to create fee structure');
+      toast.error(humanizeFeeStructureCreateError(err), {
+        duration: 9000,
+        style: { maxWidth: '520px' },
+      });
     } finally {
       submittingRef.current = false;
       // On success, keep the buttons disabled — the parent navigates away
@@ -508,6 +610,7 @@ export function NewStructureForm({
           onAdd={addItem}
           onRemove={removeItem}
           onAmountChange={updateItemAmount}
+          onApplicabilityChange={updateItemApplicability}
         />
 
         {form.formState.errors.items?.message && (
@@ -593,6 +696,8 @@ interface DraftItem {
   amount: number;
   is_optional: boolean;
   sort_order: number;
+  applies_to: FeeItemAppliesTo;
+  applies_year_of_study: number | null;
 }
 
 function ExistingStructureEditor({
@@ -615,6 +720,8 @@ function ExistingStructureEditor({
         amount: Number(it.amount),
         is_optional: it.is_optional,
         sort_order: it.sort_order,
+        applies_to: it.applies_to ?? 'every_year',
+        applies_year_of_study: it.applies_year_of_study ?? null,
       }))
       .sort((a, b) => a.sort_order - b.sort_order),
   );
@@ -628,8 +735,9 @@ function ExistingStructureEditor({
     department_id: structure.department_id,
     programme_id: structure.programme_id,
     quota_id: structure.quota_id,
-    accommodation_type_id: structure.accommodation_type_id,
     admission_year_id: structure.admission_year_id,
+    gender: structure.gender ?? undefined,
+    accommodation_type_id: structure.accommodation_type_id ?? undefined,
   };
   const [editableDims, setEditableDims] =
     useState<Partial<FeeStructureMatrixDimensions>>(initialDims);
@@ -650,6 +758,8 @@ function ExistingStructureEditor({
           amount: Number(it.amount),
           is_optional: it.is_optional,
           sort_order: it.sort_order,
+          applies_to: it.applies_to ?? 'every_year',
+          applies_year_of_study: it.applies_year_of_study ?? null,
         }))
         .sort((a, b) => a.sort_order - b.sort_order),
     );
@@ -659,11 +769,12 @@ function ExistingStructureEditor({
       department_id: structure.department_id,
       programme_id: structure.programme_id,
       quota_id: structure.quota_id,
-      accommodation_type_id: structure.accommodation_type_id,
       admission_year_id: structure.admission_year_id,
+      gender: structure.gender ?? undefined,
+      accommodation_type_id: structure.accommodation_type_id ?? undefined,
     });
     setEditableCommunityIds(structure.community_category_ids ?? []);
-  }, [structure.id, structure.items, structure.institution_id, structure.degree_id, structure.department_id, structure.programme_id, structure.quota_id, structure.accommodation_type_id, structure.admission_year_id, structure.community_category_ids]);
+  }, [structure.id, structure.items, structure.institution_id, structure.degree_id, structure.department_id, structure.programme_id, structure.quota_id, structure.admission_year_id, structure.gender, structure.accommodation_type_id, structure.community_category_ids]);
 
   const form = useForm<EditFormValues>({
     resolver: zodResolver(editSchema),
@@ -698,7 +809,7 @@ function ExistingStructureEditor({
   const dimsChanged = useMemo(() => {
     const k: Array<keyof FeeStructureMatrixDimensions> = [
       'institution_id', 'degree_id', 'department_id', 'programme_id',
-      'quota_id', 'accommodation_type_id', 'admission_year_id',
+      'quota_id', 'admission_year_id', 'gender', 'accommodation_type_id',
     ];
     return k.some((key) => editableDims[key] !== initialDims[key]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -732,8 +843,27 @@ function ExistingStructureEditor({
         amount: amount ?? cat.amount ?? 0,
         is_optional: false,
         sort_order: prev.length,
+        applies_to: 'every_year',
+        applies_year_of_study: null,
       },
     ]);
+  };
+
+  const updateItemApplicability = (
+    index: number,
+    applies_to: FeeItemAppliesTo,
+    applies_year_of_study: number | null,
+  ) => {
+    setItems((prev) => {
+      const next = [...prev];
+      next[index] = {
+        ...next[index],
+        applies_to,
+        applies_year_of_study:
+          applies_to === 'specific_year' ? applies_year_of_study : null,
+      };
+      return next;
+    });
   };
 
   const removeItem = async (index: number) => {
@@ -754,7 +884,7 @@ function ExistingStructureEditor({
         });
         toast.success('Item removed');
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Failed to remove item');
+        toast.error(getErrorMessage(err) || 'Failed to remove item');
         return;
       }
     }
@@ -774,11 +904,11 @@ function ExistingStructureEditor({
     // Block save if dims are partially filled — all 7 must remain set.
     const dimKeys: Array<keyof FeeStructureMatrixDimensions> = [
       'institution_id', 'degree_id', 'department_id', 'programme_id',
-      'quota_id', 'accommodation_type_id', 'admission_year_id',
+      'quota_id', 'admission_year_id',
     ];
     const missingDim = dimKeys.find((k) => !editableDims[k]);
     if (missingDim) {
-      toast.error(`All 8 matrix dimensions are required (missing: ${missingDim.replace(/_id$/, '')})`);
+      toast.error(`All matrix dimensions are required (missing: ${missingDim.replace(/_id$/, '')})`);
       return;
     }
 
@@ -817,8 +947,9 @@ function ExistingStructureEditor({
             department_id: editableDims.department_id!,
             programme_id: editableDims.programme_id!,
             quota_id: editableDims.quota_id!,
-            accommodation_type_id: editableDims.accommodation_type_id!,
             admission_year_id: editableDims.admission_year_id!,
+            gender: editableDims.gender ?? null,
+            accommodation_type_id: editableDims.accommodation_type_id ?? null,
           } : {}),
           // Only send community list when it actually changed — a no-op diff
           // skips the read-back-and-replace round-trip on the junction.
@@ -838,6 +969,9 @@ function ExistingStructureEditor({
           amount: it.amount,
           is_optional: it.is_optional,
           sort_order: i,
+          applies_to: it.applies_to,
+          applies_year_of_study:
+            it.applies_to === 'specific_year' ? it.applies_year_of_study : null,
         })),
       );
 
@@ -854,7 +988,13 @@ function ExistingStructureEditor({
       toast.success('Fee structure saved');
       onChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save fee structure');
+      // Reuse the humanizer so update-time 23505 collisions (when changing
+      // dims puts the structure into an occupied matrix slot) get the same
+      // actionable multi-line toast the create flow shows.
+      toast.error(humanizeFeeStructureCreateError(err), {
+        duration: 9000,
+        style: { maxWidth: '520px' },
+      });
     } finally {
       setSubmitting(false);
     }
@@ -868,7 +1008,7 @@ function ExistingStructureEditor({
       toast.success('Fee structure archived');
       onChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to archive');
+      toast.error(getErrorMessage(err) || 'Failed to archive');
     } finally {
       setSubmitting(false);
     }
@@ -881,7 +1021,7 @@ function ExistingStructureEditor({
       toast.success('Fee structure activated');
       onChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to activate');
+      toast.error(getErrorMessage(err) || 'Failed to activate');
     } finally {
       setSubmitting(false);
     }
@@ -1043,7 +1183,7 @@ function ExistingStructureEditor({
         <div className="space-y-2 border-t pt-4">
           <label className="text-sm font-medium block">Matrix Dimensions</label>
           <p className="text-xs text-muted-foreground">
-            7 dimensions plus the community list below form the unique key of
+            6 dimensions plus the community list below form the unique key of
             this fee structure. Changing a dimension moves it to a different
             matrix slot.
           </p>
@@ -1080,6 +1220,7 @@ function ExistingStructureEditor({
           onAdd={addItem}
           onRemove={removeItem}
           onAmountChange={updateItemAmount}
+          onApplicabilityChange={updateItemApplicability}
         />
 
         <div className="flex items-center justify-between border-t pt-3">
@@ -1106,13 +1247,24 @@ function ItemsEditor({
   onAdd,
   onRemove,
   onAmountChange,
+  onApplicabilityChange,
 }: {
-  items: ReadonlyArray<{ billing_category_id?: string; amount?: number }>;
+  items: ReadonlyArray<{
+    billing_category_id?: string;
+    amount?: number;
+    applies_to?: FeeItemAppliesTo;
+    applies_year_of_study?: number | null;
+  }>;
   categories: BillingCategory[];
   remainingCategories: BillingCategory[];
   onAdd: (categoryId: string, amount?: number) => void;
   onRemove: (index: number) => void;
   onAmountChange: (index: number, value: number) => void;
+  onApplicabilityChange: (
+    index: number,
+    applies_to: FeeItemAppliesTo,
+    applies_year_of_study: number | null,
+  ) => void;
 }) {
   // Bottom add-row state — picked-but-not-yet-added category + amount.
   // When the category is picked, the amount input pre-fills with the
@@ -1155,39 +1307,90 @@ function ItemsEditor({
         <div className="rounded-md border divide-y">
           {items.map((item, index) => {
             const cat = categories.find((c) => c.id === item.billing_category_id);
+            const appliesTo = item.applies_to ?? 'every_year';
             return (
               <div
                 key={`${item.billing_category_id ?? index}-${index}`}
-                className="flex items-center gap-3 p-2"
+                className="p-2 space-y-2"
               >
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium truncate">
-                    {cat?.category_name ?? 'Unknown category'}
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">
+                      {cat?.category_name ?? 'Unknown category'}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {cat?.frequency}
+                    </div>
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    {cat?.frequency}
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-muted-foreground">₹</span>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={item.amount ?? 0}
+                      onChange={(e) => onAmountChange(index, Number(e.target.value) || 0)}
+                      className="w-32"
+                    />
                   </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onRemove(index)}
+                    title="Remove"
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
                 </div>
-                <div className="flex items-center gap-1">
-                  <span className="text-xs text-muted-foreground">₹</span>
-                  <Input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={item.amount ?? 0}
-                    onChange={(e) => onAmountChange(index, Number(e.target.value) || 0)}
-                    className="w-32"
-                  />
+                <div className="flex items-center gap-2 flex-wrap pl-0.5">
+                  <span className="text-xs text-muted-foreground">Applies</span>
+                  <Select
+                    value={appliesTo}
+                    onValueChange={(v) =>
+                      onApplicabilityChange(
+                        index,
+                        v as FeeItemAppliesTo,
+                        // Leave the year BLANK when switching to specific_year
+                        // (preserve a value the operator already typed). Forcing
+                        // a default of 1 would silently satisfy the Zod refine
+                        // and attach the fee to year 1 unintentionally.
+                        v === 'specific_year' ? item.applies_year_of_study ?? null : null,
+                      )
+                    }
+                  >
+                    <SelectTrigger className="h-8 w-44" aria-label="Fee applies to">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="first_year_only">First year only</SelectItem>
+                      <SelectItem value="every_year">Every year</SelectItem>
+                      <SelectItem value="specific_year">Specific year</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {appliesTo === 'specific_year' && (
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs text-muted-foreground">Year</span>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={10}
+                        step={1}
+                        aria-label="Applies to year of study"
+                        value={item.applies_year_of_study ?? ''}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          onApplicabilityChange(
+                            index,
+                            'specific_year',
+                            raw === '' ? null : Number(raw),
+                          );
+                        }}
+                        className="h-8 w-20"
+                      />
+                    </div>
+                  )}
                 </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onRemove(index)}
-                  title="Remove"
-                >
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
               </div>
             );
           })}

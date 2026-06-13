@@ -34,11 +34,21 @@ export function AcademicYearFilters({
   const [loading, setLoading] = useState(false);
   const { canAccess, isSuperAdmin, userProfile } = usePermissions();
 
+  // entityType:'all' → include schools/all entity types, not just
+  // entity_type='institution'. Super admins: no userId → all institutions.
+  // Normal users: pass userId → only their own accessible institutions.
   useEffect(() => {
+    if (isSuperAdmin === undefined) return;
+    if (!isSuperAdmin && !userProfile?.id) return;
+
     async function loadInstitutions() {
       try {
         setLoading(true);
-        const data = await OrganizationService.getInstitutionNames(true);
+        const data = await OrganizationService.getInstitutionNames(
+          true,
+          isSuperAdmin ? undefined : userProfile?.id,
+          'all'
+        );
         setInstitutions(data);
       } catch (error) {
         logger.error('academic/academic-years', 'Error loading institutions', error);
@@ -47,7 +57,7 @@ export function AcademicYearFilters({
       }
     }
     loadInstitutions();
-  }, []);
+  }, [isSuperAdmin, userProfile?.id]);
 
   // Auto-set institution filter for non-super admin users
   useEffect(() => {

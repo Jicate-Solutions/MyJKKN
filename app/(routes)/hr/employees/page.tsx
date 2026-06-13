@@ -1,12 +1,10 @@
 'use client';
 
 /**
- * HR Non-Staff Workforce — guests, vendors, student TAs, unpaid volunteers.
+ * HR Workforce — all employees from the staff table.
  *
- * Scoped to the hr_employees table only (include_staff=false). Full-time
- * staff are managed at /staff/list — showing them here too produced visible
- * duplication (the two URLs returned the same 393 staff rows). Two URLs,
- * two personas, two data sources, no overlap.
+ * After consolidation (migration 20260524083600), hr_employees has been
+ * dropped. All employee types now live in the staff table.
  */
 
 import Link from 'next/link';
@@ -32,30 +30,23 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { BeatLoader } from 'react-spinners';
-import { UsersRound, Plus, AlertCircle, ArrowRight } from 'lucide-react';
+import { UsersRound, AlertCircle, ArrowRight } from 'lucide-react';
 import { useHREmployees } from '@/hooks/hr/use-employees';
-import type { HRNonStaffEmploymentType } from '@/types/hr';
-import { EMPLOYMENT_TYPE_LABELS } from '@/types/hr';
 
-type NonStaffTypeFilter = HRNonStaffEmploymentType | 'all';
-
-export default function HRNonStaffWorkforcePage() {
+export default function HRWorkforcePage() {
   const [search, setSearch] = useState('');
-  const [employmentType, setEmploymentType] = useState<NonStaffTypeFilter>('all');
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('active');
   const [page, setPage] = useState(1);
 
   const { data, isLoading, error } = useHREmployees({
     search: search || undefined,
-    employment_type: employmentType === 'all' ? undefined : employmentType,
     is_active: activeFilter === 'all' ? undefined : activeFilter === 'active',
     page,
     pageSize: 25,
-    include_staff: false,
   });
 
   return (
-    <ContentLayout title="HR — Non-Staff Workforce">
+    <ContentLayout title="HR — Workforce">
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -71,7 +62,7 @@ export default function HRNonStaffWorkforcePage() {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>Non-Staff Workforce</BreadcrumbPage>
+            <BreadcrumbPage>Workforce</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -81,41 +72,25 @@ export default function HRNonStaffWorkforcePage() {
           <div>
             <h1 className="text-2xl font-semibold flex items-center gap-2">
               <UsersRound className="h-6 w-6" />
-              Non-Staff Workforce
+              HR Workforce
             </h1>
             <p className="text-sm text-muted-foreground">
-              Guest faculty, vendor-monitored workers, student TAs, and unpaid volunteers
-              {data ? ` — ${data.metadata.total} total` : ' — loading…'}
+              All employees registered in the HR module
+              {data ? ` — ${data.metadata.total} total` : ' — loading...'}
             </p>
           </div>
-          <Button asChild>
-            <Link href="/hr/employees/new">
-              <Plus className="mr-2 h-4 w-4" />
-              Add Non-Staff Employee
+          <Button asChild variant="outline" size="sm">
+            <Link href="/staff/list">
+              <ArrowRight className="mr-2 h-4 w-4" />
+              Full Employee Management
             </Link>
           </Button>
         </div>
 
-        {/* Cross-link to staff module — explicit because users expect "Employees"
-            here and we want to redirect that mental model to /staff/list. */}
-        <Card className="bg-muted/40 border-dashed">
-          <CardContent className="py-3 flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">
-              Looking for full-time JKKN staff (393 employees)?
-            </span>
-            <Button asChild variant="outline" size="sm">
-              <Link href="/staff/list">
-                Go to Employee Management
-                <ArrowRight className="ml-2 h-3 w-3" />
-              </Link>
-            </Button>
-          </CardContent>
-        </Card>
-
         {/* Filters */}
         <Card>
           <CardContent className="pt-6 space-y-3">
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-2">
               <Input
                 placeholder="Search name / code / email"
                 value={search}
@@ -124,24 +99,6 @@ export default function HRNonStaffWorkforcePage() {
                   setPage(1);
                 }}
               />
-              <Select
-                value={employmentType}
-                onValueChange={(v) => {
-                  setEmploymentType(v as NonStaffTypeFilter);
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All non-staff types</SelectItem>
-                  <SelectItem value="guest">{EMPLOYMENT_TYPE_LABELS.guest}</SelectItem>
-                  <SelectItem value="student_ta">{EMPLOYMENT_TYPE_LABELS.student_ta}</SelectItem>
-                  <SelectItem value="vendor_monitored">{EMPLOYMENT_TYPE_LABELS.vendor_monitored}</SelectItem>
-                  <SelectItem value="unpaid_volunteer">{EMPLOYMENT_TYPE_LABELS.unpaid_volunteer}</SelectItem>
-                </SelectContent>
-              </Select>
               <Select
                 value={activeFilter}
                 onValueChange={(v) => {
@@ -165,7 +122,7 @@ export default function HRNonStaffWorkforcePage() {
         {/* Results */}
         <Card>
           <CardHeader>
-            <CardTitle>Non-Staff Employees</CardTitle>
+            <CardTitle>Employees</CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading && (
@@ -182,18 +139,11 @@ export default function HRNonStaffWorkforcePage() {
             {data && data.data.length === 0 && (
               <div className="text-center py-12 text-muted-foreground space-y-3">
                 <UsersRound className="h-10 w-10 mx-auto opacity-40" />
-                <p className="font-medium">No non-staff employees yet.</p>
+                <p className="font-medium">No employees found.</p>
                 <p className="text-xs max-w-md mx-auto">
-                  Use this page to onboard guest lecturers, vendor-monitored workers,
-                  paid student TAs, and unpaid volunteer ambassadors. Full-time JKKN
-                  staff are managed at <Link href="/staff/list" className="underline">Employee Management</Link>.
+                  Employees registered in the HR module will appear here. Manage
+                  staff at <Link href="/staff/list" className="underline">Employee Management</Link>.
                 </p>
-                <Button asChild size="sm" className="mt-2">
-                  <Link href="/hr/employees/new">
-                    <Plus className="mr-2 h-3 w-3" />
-                    Add your first non-staff employee
-                  </Link>
-                </Button>
               </div>
             )}
             {data && data.data.length > 0 && (
@@ -203,7 +153,6 @@ export default function HRNonStaffWorkforcePage() {
                     <tr className="text-left text-muted-foreground">
                       <th className="py-2 pr-3">Code</th>
                       <th className="py-2 pr-3">Name</th>
-                      <th className="py-2 pr-3">Type</th>
                       <th className="py-2 pr-3">Designation</th>
                       <th className="py-2 pr-3">Institution</th>
                       <th className="py-2 pr-3">Status</th>
@@ -213,19 +162,14 @@ export default function HRNonStaffWorkforcePage() {
                     {data.data.map((emp) => (
                       <tr key={emp.id} className="border-b hover:bg-muted/40">
                         <td className="py-2 pr-3 font-mono text-xs">
-                          <Link href={`/hr/employees/${emp.id}?source=${emp.source}`} className="underline-offset-2 hover:underline">
-                            {emp.employee_code ?? '—'}
+                          <Link href={`/hr/employees/${emp.id}?source=staff`} className="underline-offset-2 hover:underline">
+                            {emp.employee_code ?? '---'}
                           </Link>
                         </td>
                         <td className="py-2 pr-3">
-                          <Link href={`/hr/employees/${emp.id}?source=${emp.source}`} className="hover:underline">
+                          <Link href={`/hr/employees/${emp.id}?source=staff`} className="hover:underline">
                             {emp.first_name} {emp.last_name ?? ''}
                           </Link>
-                        </td>
-                        <td className="py-2 pr-3">
-                          <Badge variant="secondary">
-                            {EMPLOYMENT_TYPE_LABELS[emp.employment_type as HRNonStaffEmploymentType] ?? emp.employment_type}
-                          </Badge>
                         </td>
                         <td className="py-2 pr-3">{emp.designation_name ?? '—'}</td>
                         <td className="py-2 pr-3">{emp.organization_name ?? '—'}</td>

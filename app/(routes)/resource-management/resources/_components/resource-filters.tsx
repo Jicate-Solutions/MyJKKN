@@ -286,6 +286,7 @@ export function ResourceFiltersComponent({
                       <SelectItem value='occupied'>Occupied</SelectItem>
                       <SelectItem value='maintenance'>Maintenance</SelectItem>
                       <SelectItem value='retired'>Retired</SelectItem>
+                      <SelectItem value='inactive'>Inactive</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

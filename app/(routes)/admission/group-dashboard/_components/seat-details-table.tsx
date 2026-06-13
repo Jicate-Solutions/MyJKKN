@@ -137,7 +137,8 @@ const COLUMN_LABEL: Record<string, string> = {
   program_start_year: 'Start Year',
   program_end_year: 'End Year',
   total_seats: 'Seats',
-  filled_seats: 'Filled',
+  reserved_seats: 'Reserved',
+  filled_seats: 'Admitted',
   balance_seats: 'Balance',
   fill_percentage: 'Fill %',
   last_filled_at: 'Last Filled',
@@ -235,15 +236,26 @@ export function SeatDetailsTable({ rows }: { rows: SeatAnalyticsRow[] }) {
       meta: { label: 'Seats' },
     },
     {
+      accessorKey: 'reserved_seats',
+      header: ({ column }) => (
+        <div className="flex justify-end"><DataTableColumnHeader column={column} title="Reserved" /></div>
+      ),
+      cell: ({ row }) => (
+        <div className="text-right text-xs tabular-nums">{Number(row.original.reserved_seats)}</div>
+      ),
+      sortingFn: (a, b) => Number(a.original.reserved_seats) - Number(b.original.reserved_seats),
+      meta: { label: 'Reserved' },
+    },
+    {
       accessorKey: 'filled_seats',
       header: ({ column }) => (
-        <div className="flex justify-end"><DataTableColumnHeader column={column} title="Filled" /></div>
+        <div className="flex justify-end"><DataTableColumnHeader column={column} title="Admitted" /></div>
       ),
       cell: ({ row }) => (
         <div className="text-right text-xs tabular-nums">{Number(row.original.filled_seats)}</div>
       ),
       sortingFn: (a, b) => Number(a.original.filled_seats) - Number(b.original.filled_seats),
-      meta: { label: 'Filled' },
+      meta: { label: 'Admitted' },
     },
     {
       accessorKey: 'balance_seats',
@@ -313,9 +325,10 @@ export function SeatDetailsTable({ rows }: { rows: SeatAnalyticsRow[] }) {
   const totals = useMemo(() => {
     const seats = filteredRows.reduce((s, r) => s + r.original.total_seats, 0);
     const filled = filteredRows.reduce((s, r) => s + Number(r.original.filled_seats), 0);
+    const reserved = filteredRows.reduce((s, r) => s + Number(r.original.reserved_seats), 0);
     const balance = filteredRows.reduce((s, r) => s + r.original.balance_seats, 0);
     const pct = seats > 0 ? Math.round((filled / seats) * 100) : 0;
-    return { seats, filled, balance, pct };
+    return { seats, filled, reserved, balance, pct };
   }, [filteredRows]);
 
   const uniqueValues = useMemo(() => ({
@@ -336,6 +349,7 @@ export function SeatDetailsTable({ rows }: { rows: SeatAnalyticsRow[] }) {
     program_start_year: r.original.program_start_year,
     program_end_year: r.original.program_end_year,
     total_seats: r.original.total_seats,
+    reserved_seats: Number(r.original.reserved_seats),
     filled_seats: Number(r.original.filled_seats),
     balance_seats: r.original.balance_seats,
     fill_percentage: Number(r.original.fill_percentage),
@@ -438,7 +452,8 @@ export function SeatDetailsTable({ rows }: { rows: SeatAnalyticsRow[] }) {
           of {rows.length} rows
         </span>
         <span>Seats: <span className="font-semibold text-foreground">{totals.seats.toLocaleString()}</span></span>
-        <span>Filled: <span className="font-semibold text-foreground">{totals.filled.toLocaleString()}</span></span>
+        <span>Reserved: <span className="font-semibold text-foreground">{totals.reserved.toLocaleString()}</span></span>
+        <span>Admitted: <span className="font-semibold text-foreground">{totals.filled.toLocaleString()}</span></span>
         <span>Balance: <span className="font-semibold text-foreground">{totals.balance.toLocaleString()}</span></span>
         <span>Fill %: <span className="font-semibold text-foreground">{totals.pct}%</span></span>
       </div>
@@ -499,6 +514,11 @@ export function SeatDetailsTable({ rows }: { rows: SeatAnalyticsRow[] }) {
                 {table.getColumn('total_seats')?.getIsVisible() && (
                   <TableCell className="px-3 py-2 text-right text-xs font-semibold tabular-nums">
                     {totals.seats.toLocaleString()}
+                  </TableCell>
+                )}
+                {table.getColumn('reserved_seats')?.getIsVisible() && (
+                  <TableCell className="px-3 py-2 text-right text-xs font-semibold tabular-nums">
+                    {totals.reserved.toLocaleString()}
                   </TableCell>
                 )}
                 {table.getColumn('filled_seats')?.getIsVisible() && (

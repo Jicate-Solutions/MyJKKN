@@ -1,22 +1,27 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { useCreateHostelBlock } from '@/hooks/campus-living/use-hostel-blocks';
+import { useAmenitiesByScope } from '@/hooks/campus-living/use-amenities';
 import {
   Building2,
   ArrowLeft,
   Save,
-  Loader2
+  Loader2,
+  Star,
 } from 'lucide-react';
 
 
@@ -46,28 +51,56 @@ export default function NewBlockPage() {
     curfew_time_weekend: '22:00',
     visiting_hours_start: '16:00',
     visiting_hours_end: '19:00',
-    amenities: {
-      wifi: false,
-      laundry: false,
-      gym: false,
-      study_room: false,
-      tv_room: false,
-      parking: false,
-    },
   });
+
+  const { amenities: blockAmenities, loading: amenitiesLoading } =
+    useAmenitiesByScope('block');
+  const [selectedAmenityIds, setSelectedAmenityIds] = useState<string[]>([]);
+
+  // Colleges served by this block (hostel_block_institutions). The local
+  // institutions catalog is RLS-scoped (super-admin sees all; scoped admins see
+  // their accessible set). Same source as the edit page's Colleges card.
+  const { data: institutions, isLoading: institutionsLoading } = useQuery<
+    { id: string; name: string }[]
+  >({
+    queryKey: ['institutions', 'for-new-block-colleges'],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('institutions')
+        .select('id, name')
+        .order('name');
+      if (error) throw error;
+      return (data ?? []) as { id: string; name: string }[];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Ordered selection — the FIRST entry is the primary college. Pre-select the
+  // creator's own college once (profile loads after mount); the user can change it.
+  const [selectedInstitutionIds, setSelectedInstitutionIds] = useState<string[]>([]);
+  const didPreselect = useRef(false);
+  useEffect(() => {
+    if (!didPreselect.current && profile?.institution_id) {
+      didPreselect.current = true;
+      setSelectedInstitutionIds([profile.institution_id]);
+    }
+  }, [profile?.institution_id]);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleAmenityToggle = (amenity: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      amenities: {
-        ...prev.amenities,
-        [amenity]: !prev.amenities[amenity as keyof typeof prev.amenities],
-      },
-    }));
+  const toggleAmenity = (id: string) => {
+    setSelectedAmenityIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const toggleInstitution = (id: string) => {
+    setSelectedInstitutionIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -75,8 +108,12 @@ export default function NewBlockPage() {
     setIsSubmitting(true);
 
     try {
+      // hostel-rooms-v2 PR 2 (2026-05-26): hostel_blocks.institution_id dropped;
+      // createBlock grants the selected colleges via the hostel_block_institutions
+      // junction (first selected = primary). Empty = no college linked (block stays
+      // RLS-invisible until granted later) — same as the old super-admin flow.
       const created = await createBlock.mutateAsync({
-        institution_id: profile?.institution_id ?? '',
+        institutionIds: selectedInstitutionIds,
         name: formData.name,
         code: formData.code,
         hostel_type: formData.hostel_type as 'boys' | 'girls' | 'mixed',
@@ -87,11 +124,11 @@ export default function NewBlockPage() {
         curfew_time_weekend: formData.curfew_time_weekend || null,
         visiting_hours_start: formData.visiting_hours_start || null,
         visiting_hours_end: formData.visiting_hours_end || null,
-        amenities: formData.amenities,
         warden_id: null,
         deputy_warden_id: null,
         status: 'active' as const,
         metadata: null,
+        amenityTagIds: selectedAmenityIds,
       });
 
       // BUG-003863: After block creation, route to the rooms management page
@@ -170,7 +207,7 @@ export default function NewBlockPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="hostel_type">Hostel Type *</Label>
+                <Label htmlFor="hostel_type">Type *</Label>
                 <select
                   id="hostel_type"
                   className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -218,6 +255,61 @@ export default function NewBlockPage() {
                   onChange={(e) => handleInputChange('contact_phone', e.target.value)}
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Colleges served */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-blue-600" />
+                Colleges served
+              </CardTitle>
+              <CardDescription>
+                Students from any selected college can be allocated to this block. The first
+                selected college is the <span className="font-medium">primary</span> (you can change
+                it later on the block&apos;s Colleges card). Reserve specific rooms or floors for a
+                cohort under Settings → Program Eligibility → Physical Rooms. Leave empty only if
+                you&apos;ll assign colleges afterwards.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {institutionsLoading ? (
+                <div className="flex items-center text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading colleges…
+                </div>
+              ) : (institutions ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">No colleges available to assign.</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {(institutions ?? []).map((inst) => {
+                    const checked = selectedInstitutionIds.includes(inst.id);
+                    const isPrimary = checked && selectedInstitutionIds[0] === inst.id;
+                    return (
+                      <div
+                        key={inst.id}
+                        className="flex items-center justify-between rounded-lg border p-3"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Label htmlFor={`inst-${inst.id}`} className="cursor-pointer">
+                            {inst.name}
+                          </Label>
+                          {isPrimary && (
+                            <Badge variant="secondary" className="gap-1">
+                              <Star className="h-3 w-3 fill-current" /> Primary
+                            </Badge>
+                          )}
+                        </div>
+                        <Switch
+                          id={`inst-${inst.id}`}
+                          checked={checked}
+                          onCheckedChange={() => toggleInstitution(inst.id)}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -277,20 +369,34 @@ export default function NewBlockPage() {
               <CardDescription>Available facilities in this block</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                {Object.entries(formData.amenities).map(([amenity, enabled]) => (
-                  <div key={amenity} className="flex items-center justify-between rounded-lg border p-3">
-                    <Label htmlFor={`amenity-${amenity}`} className="capitalize cursor-pointer">
-                      {amenity.replace('_', ' ')}
-                    </Label>
-                    <Switch
-                      id={`amenity-${amenity}`}
-                      checked={enabled}
-                      onCheckedChange={() => handleAmenityToggle(amenity)}
-                    />
-                  </div>
-                ))}
-              </div>
+              {amenitiesLoading ? (
+                <div className="flex items-center text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading amenities…
+                </div>
+              ) : blockAmenities.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No block-scoped amenities defined yet. Add them under Settings →
+                  Amenities (set Scope to Block or Both).
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {blockAmenities.map((a) => (
+                    <div
+                      key={a.id}
+                      className="flex items-center justify-between rounded-lg border p-3"
+                    >
+                      <Label htmlFor={`amenity-${a.id}`} className="cursor-pointer">
+                        {a.name}
+                      </Label>
+                      <Switch
+                        id={`amenity-${a.id}`}
+                        checked={selectedAmenityIds.includes(a.id)}
+                        onCheckedChange={() => toggleAmenity(a.id)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 

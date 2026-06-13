@@ -17,11 +17,12 @@ import { STUDENT_BILL_TEMPLATE_HEADERS } from '@/lib/utils/mappings/student-bill
  * Billing Category + Description + Due Date + Amount + Remarks.
  *
  * Dropdowns:
- * - Column B (Billing Category) — populated from active billing_categories
+ * - Column B (Billing Category)        — populated from active billing_categories
+ * - Column G (Academic Year, optional) — populated from active academic_years
  *
  * Sheets:
  * - "Bills"        — main data sheet (frozen header, sample yellow row)
- * - "Lists"        — hidden, holds the Billing Category list for the dropdown
+ * - "Lists"        — hidden, holds the Billing Category + Academic Year lists for the dropdowns
  * - "Instructions" — column-by-column guide
  */
 export async function GET(_request: NextRequest) {
@@ -75,6 +76,16 @@ export async function GET(_request: NextRequest) {
       .map((c) => c.category_name)
       .filter((name): name is string => Boolean(name));
 
+    // Fetch distinct active academic-year names for the (optional) dropdown
+    const { data: acadYearRows } = await supabase
+      .from('academic_years')
+      .select('academic_year_name')
+      .eq('is_active', true)
+      .order('academic_year_name', { ascending: false });
+    const academicYearNames = Array.from(
+      new Set((acadYearRows ?? []).map((r) => r.academic_year_name).filter(Boolean))
+    );
+
     // Workbook
     const workbook = new ExcelJS.Workbook();
 
@@ -87,7 +98,8 @@ export async function GET(_request: NextRequest) {
       { header: STUDENT_BILL_TEMPLATE_HEADERS[2], key: 'bill_description', width: 38 },
       { header: STUDENT_BILL_TEMPLATE_HEADERS[3], key: 'due_date', width: 18 },
       { header: STUDENT_BILL_TEMPLATE_HEADERS[4], key: 'billing_amount', width: 18 },
-      { header: STUDENT_BILL_TEMPLATE_HEADERS[5], key: 'remarks', width: 30 }
+      { header: STUDENT_BILL_TEMPLATE_HEADERS[5], key: 'remarks', width: 30 },
+      { header: STUDENT_BILL_TEMPLATE_HEADERS[6], key: 'academic_year', width: 20 }
     ];
 
     // Header styling — blue background, white text
@@ -113,7 +125,8 @@ export async function GET(_request: NextRequest) {
       bill_description: 'Semester 1 fee',
       due_date: '2026-06-01',
       billing_amount: 25000,
-      remarks: 'Optional remarks'
+      remarks: 'Optional remarks',
+      academic_year: ''
     });
     sheet.getRow(2).font = { name: 'Arial', size: 10, color: { argb: 'FF1F2937' } };
     sheet.getRow(2).fill = {
@@ -147,7 +160,10 @@ export async function GET(_request: NextRequest) {
 
     // ---- Sheet 2: Lists (hidden, source for the Billing Category dropdown)
     const listsSheet = workbook.addWorksheet('Lists');
-    listsSheet.columns = [{ header: 'BillingCategory', key: 'category', width: 32 }];
+    listsSheet.columns = [
+      { header: 'BillingCategory', key: 'category', width: 32 },
+      { header: 'AcademicYear', key: 'academic_year', width: 20 }
+    ];
     listsSheet.getRow(1).font = { bold: true, name: 'Arial', size: 10 };
     listsSheet.getRow(1).fill = {
       type: 'pattern',
@@ -155,6 +171,11 @@ export async function GET(_request: NextRequest) {
       fgColor: { argb: 'FFE5E7EB' }
     };
     categoryNames.forEach((name) => listsSheet.addRow({ category: name }));
+    // Academic years live in column B; write them explicitly so the two
+    // lists of differing length don't collide via addRow().
+    academicYearNames.forEach((name, i) => {
+      listsSheet.getCell(`B${i + 2}`).value = name;
+    });
 
     // Apply data validations to the first 100 data rows
     const validationEndRow = 100;
@@ -196,6 +217,19 @@ export async function GET(_request: NextRequest) {
         errorTitle: 'Invalid Amount',
         error: 'Billing amount must be a positive number (₹).'
       };
+
+      // Column G — Academic Year dropdown (optional, allows blank)
+      if (academicYearNames.length > 0) {
+        sheet.getCell(`G${row}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: [`Lists!$B$2:$B$${academicYearNames.length + 1}`],
+          showErrorMessage: true,
+          errorStyle: 'warning',
+          errorTitle: 'Invalid Academic Year',
+          error: 'Pick an academic year from the dropdown, or leave blank.'
+        };
+      }
     }
 
     // Hide Lists sheet
@@ -222,6 +256,7 @@ export async function GET(_request: NextRequest) {
       '3. OPTIONAL COLUMNS:',
       '   - Bill Description  : Free text shown on the bill.',
       '   - Remarks           : Free text, internal notes.',
+      '   - Academic Year     : Must match an existing academic year name for the student\'s institution (pick from the dropdown). Leave blank for none/Unspecified.',
       '',
       '4. VALIDATION RULES:',
       '   - Roll Number that does not match any active student → row rejected with error.',

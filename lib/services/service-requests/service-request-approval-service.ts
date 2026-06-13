@@ -111,40 +111,21 @@ export class ServiceRequestApprovalService {
       }
     }
 
-    // Find or create the approval record for this step
-    const { data: existingApproval } = await supabase
-      .from('service_request_approvals')
-      .select('*')
-      .eq('service_request_id', requestId)
-      .eq('step_order', currentStep.step_order)
-      .eq('action', 'pending')
-      .maybeSingle();
-
-    const approvalId = existingApproval?.id;
-
-    if (approvalId) {
-      // Update existing approval record
-      await supabase
-        .from('service_request_approvals')
-        .update({
-          approver_id: approverId,
-          action: dto.action,
-          comments: dto.comments || null,
-          acted_at: new Date().toISOString(),
-        })
-        .eq('id', approvalId);
-    } else {
-      // Create new approval record
-      await supabase.from('service_request_approvals').insert({
-        service_request_id: requestId,
-        approval_step_id: currentStep.id,
-        step_order: currentStep.step_order,
-        approver_id: approverId,
-        action: dto.action,
-        comments: dto.comments || null,
-        acted_at: new Date().toISOString(),
-      });
-    }
+    // Always INSERT the action row. We used to look up a placeholder pending
+    // row first and UPDATE it, but RLS on service_request_approvals hides
+    // those placeholders from the actual approver — the lookup silently
+    // returned null and the INSERT branch fired anyway, leaving the orphan
+    // placeholder behind. With placeholder creation removed (see service-
+    // request-service.ts), the approvals table is now strictly an action log.
+    await supabase.from('service_request_approvals').insert({
+      service_request_id: requestId,
+      approval_step_id: currentStep.id,
+      step_order: currentStep.step_order,
+      approver_id: approverId,
+      action: dto.action,
+      comments: dto.comments || null,
+      acted_at: new Date().toISOString(),
+    });
 
     // Process the action
     if (dto.action === 'approved') {
@@ -217,10 +198,26 @@ export class ServiceRequestApprovalService {
           console.error('[service-requests/approvals] Webhook notification failed:', err)
         );
       }
+
+      // Bus Pass Request: write the approved route/stop onto the learner's
+      // profile so the TMS app can read who needs a bus. Privileged cross-table
+      // write → SECURITY DEFINER RPC. Failure is logged, not thrown: the
+      // approval status change already committed above.
+      if (request.service_type?.slug === 'transport-request') {
+        const { error: busPassSyncError } = await supabase.rpc(
+          'sync_bus_pass_to_learner_profile',
+          { p_request_id: request.id }
+        );
+        if (busPassSyncError) {
+          console.error(
+            '[service-requests/approvals] Bus-pass profile sync failed:',
+            busPassSyncError
+          );
+        }
+      }
     } else {
       // Advance to next step
       const nextStepOrder = currentStep.step_order + 1;
-      const nextStep = approvalSteps.find((s: any) => s.step_order === nextStepOrder);
 
       await supabase
         .from('service_requests')
@@ -231,16 +228,11 @@ export class ServiceRequestApprovalService {
         })
         .eq('id', request.id);
 
-      // Create next pending approval record
-      if (nextStep) {
-        await supabase.from('service_request_approvals').insert({
-          service_request_id: request.id,
-          approval_step_id: nextStep.id,
-          step_order: nextStep.step_order,
-          approver_id: approverId, // Placeholder
-          action: 'pending',
-        });
-      }
+      // Pending state for the next step is represented by service_requests
+      // (status='in_review', current_approval_step=N). We no longer insert a
+      // placeholder pending row in service_request_approvals — RLS hid it from
+      // the next approver and caused duplicate-action-row bugs (see comment
+      // above the INSERT in processApproval).
 
       await ServiceRequestTimelineService.addStatusChange(
         request.id,
@@ -392,10 +384,15 @@ export class ServiceRequestApprovalService {
    * Get count of pending approvals for badge display.
    * Matches on role OR explicit user-id assignment (see
    * getPendingApprovalsForUser for the full rationale).
+   *
+   * Optional institutionId pins the count to a single institution; callers
+   * pass profile.institution_id for non-super-admins so the badge agrees
+   * with the inbox list.
    */
   static async getPendingApprovalCount(
     userRole: string,
-    userId: string
+    userId: string,
+    institutionId?: string
   ): Promise<number> {
     const supabase = await getSupabase();
 
@@ -409,12 +406,18 @@ export class ServiceRequestApprovalService {
     const serviceTypeIds = [...new Set(matchingSteps.map((s: any) => s.service_type_id))];
     const stepOrders = [...new Set(matchingSteps.map((s: any) => s.step_order))];
 
-    const { count, error } = await supabase
+    let query = supabase
       .from('service_requests')
       .select('*', { count: 'exact', head: true })
       .in('status', ['submitted', 'in_review'])
       .in('service_type_id', serviceTypeIds)
       .in('current_approval_step', stepOrders);
+
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+
+    const { count, error } = await query;
 
     if (error) {
       console.error('[service-requests/approvals] Failed to count pending:', error);

@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { GoogleOneTap } from '@/components/auth/google-one-tap';
+import Script from 'next/script';
 import { GraduationCap, BookOpen, Users, Award, Brain, AlertTriangle, XCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { BeatLoader } from 'react-spinners';
@@ -505,7 +506,8 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Google One Tap */}
+          {/* Google One Tap — script scoped here so FedCM only fires on the login page */}
+          <Script src='https://accounts.google.com/gsi/client' strategy='lazyOnload' />
           {!isCheckingAuth && <GoogleOneTap />}
         </div>
       </div>

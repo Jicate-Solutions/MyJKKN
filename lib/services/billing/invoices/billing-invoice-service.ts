@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
 import type {
   BillingInvoice,
   CreateInvoiceDto,
@@ -85,7 +86,29 @@ export class BillingInvoiceService {
         }
       }
 
-      return await this.getBillingInvoice((invoice as any).id);
+      const fullInvoice = await this.getBillingInvoice((invoice as any).id);
+
+      const studentNameInvoice = `${fullInvoice.student?.first_name || ''} ${fullInvoice.student?.last_name || ''}`.trim() || 'Unknown';
+      const templateInvoice = BillingActivityTemplates.invoiceCreated(
+        invoiceNumber,
+        studentNameInvoice,
+        grandTotal
+      );
+      logActivityForCurrentUser({
+        ...templateInvoice,
+        resourceId: fullInvoice.id,
+        resourceName: invoiceNumber,
+        institutionId: invoiceData.institution_id,
+        metadata: {
+          sub_type: templateInvoice.sub_type,
+          student_id: invoiceData.student_id,
+          invoice_type: invoiceData.invoice_type,
+          grand_total: grandTotal,
+          item_count: invoiceData.invoice_items.length,
+        },
+      });
+
+      return fullInvoice;
     } catch (error) {
       console.error('Error in createBillingInvoice:', error);
       throw error;
@@ -125,7 +148,19 @@ export class BillingInvoiceService {
         throw new Error(`Failed to update invoice: ${error.message}`);
       }
 
-      return await this.getBillingInvoice(id);
+      const updatedInvoice = await this.getBillingInvoice(id);
+
+      const templateUpdate = BillingActivityTemplates.invoiceUpdated(
+        updatedInvoice.invoice_number || id
+      );
+      logActivityForCurrentUser({
+        ...templateUpdate,
+        resourceId: id,
+        resourceName: updatedInvoice.invoice_number,
+        metadata: { sub_type: templateUpdate.sub_type, updated_fields: Object.keys(invoiceData) },
+      });
+
+      return updatedInvoice;
     } catch (error) {
       console.error('Error in updateBillingInvoice:', error);
       throw error;
@@ -144,6 +179,13 @@ export class BillingInvoiceService {
         console.error('Error deleting invoice:', error);
         throw new Error(`Failed to delete invoice: ${error.message}`);
       }
+
+      const templateDelete = BillingActivityTemplates.invoiceDeleted(id);
+      logActivityForCurrentUser({
+        ...templateDelete,
+        resourceId: id,
+        metadata: { sub_type: templateDelete.sub_type },
+      });
     } catch (error) {
       console.error('Error in deleteBillingInvoice:', error);
       throw error;

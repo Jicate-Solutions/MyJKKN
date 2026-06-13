@@ -20,7 +20,7 @@ export class HostelAllocationService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_allocations')
-        .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email), hostel_blocks(name, code), hostel_rooms(room_number, floor), hostel_beds(bed_number)', { count: 'exact' });
+        .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email, academic:learners_profiles!profiles_learner_id_fkey(institution_id, program_id, semester_id, hostel_category_id, mess_category_id, institution:institutions!fk_learners_profiles_institution(name), program:programs!fk_learners_profiles_program(program_name), semester:semesters!fk_learners_profiles_semester(semester_name), room_category:hostel_categories!learners_profiles_hostel_category_id_fkey(name), mess_category:mess_categories!learners_profiles_mess_category_id_fkey(name))), hostel_blocks(name, code), hostel_rooms(room_number, floor), hostel_beds(bed_number)', { count: 'exact' });
 
       if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
@@ -71,13 +71,47 @@ export class HostelAllocationService {
     }
   }
 
+  // ── Active allocations for admin list (rooms-v2 PR 4b) ────────────
+  // Returns active allocations (check_out_date IS NULL) with all the
+  // joined labels the admin table needs in a single query: learner name,
+  // block name, room number, bed number. Super-admin friendly — no
+  // institution scope by default (RLS handles it).
+  static async getActiveAllocationsForAdmin() {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('hostel_allocations')
+        .select(
+          'id, learner_id, block_id, room_id, bed_id, check_in_date, monthly_fee_at_allocation_inr, fee_status, status, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email), hostel_blocks(id, name, code), hostel_rooms(id, room_number, floor), hostel_beds(id, bed_number)',
+        )
+        .is('check_out_date', null)
+        .order('check_in_date', { ascending: false });
+
+      if (error) {
+        logger.error('campus-living/allocations', 'Failed to fetch active allocations for admin', error);
+        throw error;
+      }
+      return (data ?? []) as unknown as Array<
+        HostelAllocation & {
+          learner: { id: string; full_name: string | null; email: string | null } | null;
+          hostel_blocks: { id: string; name: string; code: string | null } | null;
+          hostel_rooms: { id: string; room_number: string; floor: number | null } | null;
+          hostel_beds: { id: string; bed_number: string | null } | null;
+        }
+      >;
+    } catch (error) {
+      logger.error('campus-living/allocations', 'Unexpected error in getActiveAllocationsForAdmin', error);
+      throw error;
+    }
+  }
+
   // ── Single allocation ─────────────────────────────────────────────
   static async getAllocation(id: string) {
     try {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_allocations')
-        .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email), hostel_blocks(name, code), hostel_rooms(room_number, floor, room_type, ac_status), hostel_beds(bed_number, bed_type)')
+        .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email, academic:learners_profiles!profiles_learner_id_fkey(institution_id, degree_id, department_id, program_id, semester_id, hostel_category_id, mess_category_id, institution:institutions!fk_learners_profiles_institution(name), degree:degrees!fk_learners_profiles_degree(degree_name), department:departments!fk_learners_profiles_department(department_name), program:programs!fk_learners_profiles_program(program_name), semester:semesters!fk_learners_profiles_semester(semester_name), room_category:hostel_categories!learners_profiles_hostel_category_id_fkey(name), mess_category:mess_categories!learners_profiles_mess_category_id_fkey(name))), allocated_by_profile:profiles!hostel_allocations_allocated_by_fkey(full_name), hostel_blocks(name, code), hostel_rooms(room_number, floor, room_type, ac_status), hostel_beds(bed_number, bed_type)')
         .eq('id', id)
         .single();
 
@@ -93,15 +127,25 @@ export class HostelAllocationService {
   }
 
   // ── Allocation by learner ─────────────────────────────────────────
-  static async getAllocationByLearner(learnerId: string, activeOnly = true) {
+  // learnerId is a profiles.id (hostel_allocations.learner_id FKs to profiles).
+  // `statuses` overrides the default active-only filter — pass e.g.
+  // ['active','pending_approval','pending_vacate'] for display surfaces that
+  // should also surface a not-yet-approved (proposed) allocation. Gating callers
+  // (vacate / premium) keep the default active-only behaviour.
+  static async getAllocationByLearner(
+    learnerId: string,
+    activeOnly = true,
+    statuses?: string[]
+  ) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_allocations')
-        .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email), hostel_blocks(name, code), hostel_rooms(room_number, floor), hostel_beds(bed_number)')
+        .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email), hostel_blocks(name, code), hostel_rooms(room_number, room_type, floor), hostel_beds(bed_number, bed_type)')
         .eq('learner_id', learnerId);
 
-      if (activeOnly) query = query.eq('status', 'active');
+      if (statuses && statuses.length > 0) query = query.in('status', statuses);
+      else if (activeOnly) query = query.eq('status', 'active');
       query = query.order('allocation_date', { ascending: false });
 
       const { data, error } = await query;
@@ -209,6 +253,47 @@ export class HostelAllocationService {
       return data as HostelAllocation;
     } catch (error) {
       logger.error('campus-living/allocations', 'Unexpected error in transfer', error);
+      throw error;
+    }
+  }
+
+  // ── Check out (rooms-v2 PR 4b) ────────────────────────────────────
+  // Sets check_out_date + actual_vacate_date so the UNIQUE
+  // (room_id, bed_id) WHERE check_out_date IS NULL constraint frees up
+  // the bed for re-allocation. Status is flipped to 'vacated' so legacy
+  // queries (still filtering on status='active') continue to match
+  // reality. The optional notes are reused via the existing
+  // roommate_preference_notes column to avoid a schema change.
+  static async checkOut(
+    allocationId: string,
+    checkOutDate: string,
+    notes?: string
+  ) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const payload: Record<string, unknown> = {
+        status: 'vacated',
+        check_out_date: checkOutDate,
+        actual_vacate_date: checkOutDate,
+      };
+      if (notes && notes.trim().length > 0) {
+        payload.roommate_preference_notes = notes.trim();
+      }
+
+      const { data, error } = await supabase
+        .from('hostel_allocations')
+        .update(payload)
+        .eq('id', allocationId)
+        .select()
+        .single();
+
+      if (error) {
+        logger.error('campus-living/allocations', 'Failed to check out allocation', error);
+        throw error;
+      }
+      return data as HostelAllocation;
+    } catch (error) {
+      logger.error('campus-living/allocations', 'Unexpected error in checkOut', error);
       throw error;
     }
   }

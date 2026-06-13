@@ -20,7 +20,8 @@ export const meetingSearchParamsSchema = z.object({
     .optional(),
   board_id: z.string().optional(),
   academic_year: z.string().optional(),
-  meeting_type: z.enum(['regular', 'special', 'emergency', 'online']).optional(),
+  meeting_type: z.enum(['regular', 'special', 'emergency', 'online', 'hybrid']).optional(),
+  institutionCode: z.string().optional(),
 });
 
 export type MeetingSearchParams = z.infer<typeof meetingSearchParamsSchema>;

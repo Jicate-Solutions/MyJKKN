@@ -29,11 +29,12 @@ import toast from 'react-hot-toast';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { FeesStructureDimensionSelector } from '../../_components/fees-structure-dimension-selector';
-import { NewStructureForm } from '../../_components/fees-structure-form';
+import { NewStructureForm, filterFeeStructureCategories } from '../../_components/fees-structure-form';
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { FeeStructureMatrixDimensions } from '@/types/admission';
+import { getErrorMessage } from '@/lib/utils';
+import type { FeeStructureMatrixDimensions, FeeItemAppliesTo } from '@/types/admission';
 import type { BillingCategory } from '@/types/billing';
 
 interface RouteProps {
@@ -51,6 +52,8 @@ interface FormItem {
   billing_category_id: string;
   amount: number;
   is_optional: boolean;
+  applies_to: FeeItemAppliesTo;
+  applies_year_of_study: number | null;
 }
 
 // Local prefill shape — matches the optional `initialValues` prop on
@@ -106,19 +109,42 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
           setLoading(false);
           return;
         }
-        setCategories(cats);
+
+        // BUG-003920 — Reporter clicked Clone on rows that have zero items
+        // and/or zero communities (the "top two" duplicates in the list, both
+        // showing Items=0 and Community=—). The clone form's zod schema
+        // requires at least 1 community AND at least 1 item, so the user hit
+        // a validation wall on save with no idea why. Surface the empty-source
+        // condition explicitly here instead of silently rendering an empty
+        // form. The source row itself needs to be fixed (or used as the basis
+        // for a fresh structure via /new) — cloning nothing is a no-op.
+        const sourceItems = source.items ?? [];
+        const sourceCommunities = source.community_category_ids ?? [];
+        if (sourceItems.length === 0 || sourceCommunities.length === 0) {
+          const missing: string[] = [];
+          if (sourceItems.length === 0) missing.push('fee items');
+          if (sourceCommunities.length === 0) missing.push('communities');
+          setSourceName(source.name);
+          setError(
+            `This source fee structure has no ${missing.join(' and no ')} — there is nothing to clone. Open the source structure, add the missing ${missing.join(' and ')}, then try cloning again. Or create a fresh structure from scratch via "New Fee Structure".`,
+          );
+          setLoading(false);
+          return;
+        }
+
+        setCategories(filterFeeStructureCategories(cats));
         setCommunityOptions(comms);
         setSourceName(source.name);
 
-        // Pre-fill all 7 matrix dims from source.
+        // Pre-fill all matrix dims from source (including optional gender).
         setSelectedDims({
           institution_id: source.institution_id,
           degree_id: source.degree_id,
           department_id: source.department_id,
           programme_id: source.programme_id,
           quota_id: source.quota_id,
-          accommodation_type_id: source.accommodation_type_id,
           admission_year_id: source.admission_year_id,
+          gender: source.gender ?? undefined,
         });
 
         // Pre-fill the form values. Adding "(cloned)" to the name avoids
@@ -130,21 +156,23 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
           notes: source.notes ?? '',
           effective_from: source.effective_from ?? '',
           effective_to: source.effective_to ?? '',
-          community_category_ids: source.community_category_ids ?? [],
-          items: source.items
+          community_category_ids: sourceCommunities,
+          items: sourceItems
             .slice()
             .sort((a, b) => a.sort_order - b.sort_order)
             .map((it) => ({
               billing_category_id: it.billing_category_id,
               amount: Number(it.amount),
               is_optional: it.is_optional,
+              applies_to: it.applies_to ?? 'every_year',
+              applies_year_of_study: it.applies_year_of_study ?? null,
             })),
         });
         setLoading(false);
       })
       .catch((err) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : 'Failed to load source structure');
+        setError(getErrorMessage(err) || 'Failed to load source structure');
         setLoading(false);
       });
 
@@ -166,8 +194,7 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
     selectedDims.department_id &&
     selectedDims.programme_id &&
     selectedDims.admission_year_id &&
-    selectedDims.quota_id &&
-    selectedDims.accommodation_type_id
+    selectedDims.quota_id
   );
 
   return (
@@ -243,11 +270,20 @@ function CloneFeeStructurePageContent({ id }: { id: string }) {
           {error && (
             <div className="border border-destructive/50 bg-destructive/5 rounded-md p-4">
               <p className="text-sm text-destructive">{error}</p>
-              <Button asChild variant="outline" size="sm" className="mt-2">
-                <Link href="/admission/settings/fees-structure">
-                  <ArrowLeft className="h-4 w-4 mr-1" /> Back to list
-                </Link>
-              </Button>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button asChild variant="outline" size="sm">
+                  <Link href="/admission/settings/fees-structure">
+                    <ArrowLeft className="h-4 w-4 mr-1" /> Back to list
+                  </Link>
+                </Button>
+                {sourceName && (
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={`/admission/settings/fees-structure/${id}?edit=1`}>
+                      Edit source: {sourceName}
+                    </Link>
+                  </Button>
+                )}
+              </div>
             </div>
           )}
 

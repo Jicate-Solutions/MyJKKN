@@ -53,8 +53,8 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
   const [departments, setDepartments] = useState<Option[]>([]);
   const [programmes, setProgrammes] = useState<Option[]>([]);
   const [years, setYears] = useState<Option[]>([]);
-  const [accommodations, setAccommodations] = useState<Option[]>([]);
   const [quotas, setQuotas] = useState<Option[]>([]);
+  const [accommodations, setAccommodations] = useState<Option[]>([]);
 
   // Global lookups load once
   useEffect(() => {
@@ -67,7 +67,6 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
   useEffect(() => {
     if (!selectedDims.institution_id) {
       setDegrees([]);
-      setAccommodations([]);
       return;
     }
     const instId = selectedDims.institution_id;
@@ -76,9 +75,6 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
         setDegrees(rows.map((d) => ({ id: d.id, name: d.degree_name }))),
       )
       .catch(() => setDegrees([]));
-    LookupService.listAccommodationTypes(instId, true)
-      .then((rows) => setAccommodations(rows.map((r) => ({ id: r.id, name: r.name }))))
-      .catch(() => setAccommodations([]));
   }, [selectedDims.institution_id]);
 
   // Degree change → load departments
@@ -110,16 +106,25 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
       .catch(() => setProgrammes([]));
   }, [selectedDims.department_id]);
 
-  // Programme change → load admission years (filtered by program — fixed in commit 7b9774120)
+  // Institution change → load admission years (institution-wide now)
   useEffect(() => {
-    if (!selectedDims.programme_id) {
+    if (!selectedDims.institution_id) {
       setYears([]);
       return;
     }
-    AdmissionYearService.getAdmissionYearsByProgram(selectedDims.programme_id)
+    AdmissionYearService.getAdmissionYearsByInstitution(selectedDims.institution_id)
       .then((rows) => setYears(rows.map((y) => ({ id: y.id, name: y.admission_year_name }))))
       .catch(() => setYears([]));
-  }, [selectedDims.programme_id]);
+  }, [selectedDims.institution_id]);
+
+  // Accommodation types are a global lookup — load once on mount
+  useEffect(() => {
+    LookupService.listAccommodationTypes(true)
+      .then((rows) =>
+        setAccommodations(rows.map((r) => ({ id: r.id, name: r.name }))),
+      )
+      .catch(() => setAccommodations([]));
+  }, []);
 
   // Cascading change handlers — picking a parent resets the affected descendants
   const setInstitution = (id: string) =>
@@ -161,8 +166,13 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
     onChange({ ...selectedDims, admission_year_id: id });
   const setQuota = (id: string) =>
     onChange({ ...selectedDims, quota_id: id });
-  const setAccommodation = (id: string) =>
-    onChange({ ...selectedDims, accommodation_type_id: id });
+  const setGender = (val: string) =>
+    onChange({ ...selectedDims, gender: val === '__any__' ? undefined : val });
+  const setAccommodation = (val: string) =>
+    onChange({
+      ...selectedDims,
+      accommodation_type_id: val === '__any__' ? undefined : val,
+    });
 
   const handleReset = () => onChange({});
 
@@ -173,7 +183,6 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
     && selectedDims.programme_id
     && selectedDims.admission_year_id
     && selectedDims.quota_id
-    && selectedDims.accommodation_type_id
   );
 
   const missingDims = [
@@ -183,7 +192,6 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
     !selectedDims.programme_id && 'Programme',
     !selectedDims.admission_year_id && 'Admission Year',
     !selectedDims.quota_id && 'Quota',
-    !selectedDims.accommodation_type_id && 'Accommodation',
   ].filter(Boolean);
 
   return (
@@ -192,9 +200,10 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
         <div>
           <h2 className="text-sm font-medium">Select Fee Structure Dimensions</h2>
           <p className="text-xs text-muted-foreground">
-            Pick all 7 dimensions to view, edit, or create the fee structure
-            for that combination. Communities are selected separately in the
-            form below — one structure can cover N communities.
+            Pick the 6 required dimensions to view, edit, or create the fee
+            structure. Gender and Accommodation are optional — leave as
+            &quot;Any&quot; if fees don&apos;t vary by them. Communities are
+            selected in the form below.
           </p>
         </div>
         <Button variant="ghost" size="sm" onClick={handleReset}>
@@ -307,21 +316,21 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
           </Select>
         </div>
 
-        {/* 5. Admission Year (filtered by programme) */}
+        {/* 5. Admission Year (institution-wide) */}
         <div className="space-y-1">
           <Label className="text-xs">5. Admission Year</Label>
           <Select
             value={selectedDims.admission_year_id ?? ''}
             onValueChange={setYear}
-            disabled={!selectedDims.programme_id}
+            disabled={!selectedDims.institution_id}
           >
             <SelectTrigger className="w-full">
               <SelectValue
                 placeholder={
-                  !selectedDims.programme_id
-                    ? 'Pick programme first'
+                  !selectedDims.institution_id
+                    ? 'Pick institution first'
                     : years.length === 0
-                    ? 'No admission years for this programme'
+                    ? 'No admission years for this institution'
                     : 'Select admission year'
                 }
               />
@@ -353,26 +362,34 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
           </Select>
         </div>
 
-        {/* 7. Accommodation Type (institution-scoped) */}
+        {/* 7. Gender (optional) */}
         <div className="space-y-1">
-          <Label className="text-xs">7. Accommodation</Label>
+          <Label className="text-xs">7. Gender <span className="text-muted-foreground">(optional)</span></Label>
+          <Select value={selectedDims.gender ?? ''} onValueChange={setGender}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Any Gender" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__any__">Any Gender</SelectItem>
+              <SelectItem value="MALE">Male</SelectItem>
+              <SelectItem value="FEMALE">Female</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* 8. Accommodation (optional) */}
+        <div className="space-y-1">
+          <Label className="text-xs">8. Accommodation <span className="text-muted-foreground">(optional)</span></Label>
           <Select
             value={selectedDims.accommodation_type_id ?? ''}
             onValueChange={setAccommodation}
             disabled={!selectedDims.institution_id}
           >
             <SelectTrigger className="w-full">
-              <SelectValue
-                placeholder={
-                  !selectedDims.institution_id
-                    ? 'Pick institution first'
-                    : accommodations.length === 0
-                    ? 'No accommodation types'
-                    : 'Select accommodation'
-                }
-              />
+              <SelectValue placeholder="Any Accommodation" />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="__any__">Any Accommodation</SelectItem>
               {accommodations.map((a) => (
                 <SelectItem key={a.id} value={a.id}>
                   {a.name}
@@ -386,7 +403,7 @@ export function FeesStructureDimensionSelector({ selectedDims, onChange }: Props
       {allDimsSelected ? (
         <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded p-2">
           <CheckCircle2 className="h-4 w-4 shrink-0" />
-          <span>All 7 dimensions selected — fee structure form loaded below.</span>
+          <span>All required dimensions selected{selectedDims.gender ? ` · ${selectedDims.gender}` : ''}{selectedDims.accommodation_type_id ? ' · accommodation-specific' : ''} — fee structure form loaded below.</span>
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">

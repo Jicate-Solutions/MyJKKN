@@ -39,7 +39,26 @@ export interface BulkAssignReport {
   planHash?: string;
 }
 
-const MAX_RUN_SIZE = 500;
+// Maximum number of leads accepted in a single underlying RPC call.
+// Exposed for the UI to compute progress / expected batch count. The Distribute
+// panel auto-batches selections larger than this transparently, so users no
+// longer hit the OVER_LIMIT error for the auto-route and round-robin modes.
+export const MAX_RUN_SIZE = 500;
+
+/**
+ * Optional callback used by auto-route and round-robin to report incremental
+ * progress when the selection is auto-batched. Called after each chunk
+ * resolves with the cumulative `done` count out of `total` selected.
+ */
+export type BulkAssignProgressFn = (done: number, total: number) => void;
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    out.push(arr.slice(i, i + size));
+  }
+  return out;
+}
 
 function summarize(results: PerLeadResult[], planHash?: string): BulkAssignReport {
   const successCount = results.filter((r) => r.status === 'assigned').length;
@@ -88,9 +107,12 @@ export class BulkAssignService {
       throw new BulkAssignError('EMPTY_INPUT', 'No leads selected.');
     }
     if (input.leadIds.length > MAX_RUN_SIZE) {
+      // Bulk-one is intentionally NOT auto-batched: it runs sequential per-lead
+      // RPC calls (one stale-check + one assign), so 14k leads = 28k network
+      // hops. Auto-route or round-robin scale much better for large pools.
       throw new BulkAssignError(
         'OVER_LIMIT',
-        `Maximum ${MAX_RUN_SIZE} leads per run. Use filters to narrow your selection.`
+        `Bulk-one is capped at ${MAX_RUN_SIZE} leads per run. For larger pools, use Auto-Route or Round-Robin — those modes auto-batch transparently.`,
       );
     }
 
@@ -161,53 +183,86 @@ export class BulkAssignService {
 
   // -------------------------------------------------------------------------
   // Mode B — Auto-route (calls bulk_route_unassigned_leads RPC)
+  // Auto-batches in chunks of MAX_RUN_SIZE so callers no longer need to
+  // pre-narrow selections. Progress is surfaced via input.onProgress.
   // -------------------------------------------------------------------------
   static async autoRoute(input: {
     leadIds: string[];
     dryRun?: boolean;
     override?: boolean;
     expectedPlanHash?: string | null;
+    onProgress?: BulkAssignProgressFn;
   }): Promise<BulkAssignReport> {
     if (input.leadIds.length === 0) {
       throw new BulkAssignError('EMPTY_INPUT', 'No leads selected.');
     }
-    if (input.leadIds.length > MAX_RUN_SIZE) {
-      throw new BulkAssignError(
-        'OVER_LIMIT',
-        `Maximum ${MAX_RUN_SIZE} leads per run. Use filters to narrow your selection.`
-      );
-    }
+
+    const total = input.leadIds.length;
+    const isDryRun = input.dryRun ?? false;
+
+    // Dry-run only previews the FIRST batch — preview semantics don't make
+    // sense across multiple plan hashes. The UI surfaces this via "Showing
+    // first 500 of N" copy in the InstitutionSummary card.
+    const batches = isDryRun
+      ? [input.leadIds.slice(0, MAX_RUN_SIZE)]
+      : chunk(input.leadIds, MAX_RUN_SIZE);
 
     logger.info('bulk-assign', 'Run started', {
       mode: 'auto-route',
-      leadCount: input.leadIds.length,
-      dryRun: input.dryRun ?? false,
+      leadCount: total,
+      batches: batches.length,
+      dryRun: isDryRun,
     });
     const startedAt = Date.now();
 
-    const { data, error } = await (BulkAssignService.supabase as any).rpc('bulk_route_unassigned_leads', {
-      p_lead_ids: input.leadIds,
-      p_dry_run: input.dryRun ?? false,
-      p_override: input.override ?? false,
-      p_expected_plan_hash: input.expectedPlanHash ?? null,
-    });
+    const allResults: PerLeadResult[] = [];
+    let firstPlanHash: string | undefined;
+    let processed = 0;
 
-    if (error) {
-      logger.error('bulk-assign', 'Run failed', { mode: 'auto-route', code: error.code, error: error.message });
-      throw mapDbError(error);
+    for (let i = 0; i < batches.length; i += 1) {
+      const batchIds = batches[i];
+      // expectedPlanHash only gates batch 0; subsequent batches don't have a
+      // pre-issued hash to compare against, so we pass null.
+      const expected = i === 0 ? input.expectedPlanHash ?? null : null;
+
+      const { data, error } = await (BulkAssignService.supabase as any).rpc(
+        'bulk_route_unassigned_leads',
+        {
+          p_lead_ids: batchIds,
+          p_dry_run: isDryRun,
+          p_override: input.override ?? false,
+          p_expected_plan_hash: expected,
+        },
+      );
+
+      if (error) {
+        logger.error('bulk-assign', 'Run failed', {
+          mode: 'auto-route',
+          batch: i,
+          code: error.code,
+          error: error.message,
+        });
+        throw mapDbError(error);
+      }
+
+      for (const row of (data ?? []) as any[]) {
+        allResults.push({
+          lead_id: row.lead_id,
+          counselor_id: row.counselor_id ?? null,
+          status: row.status as PerLeadResult['status'],
+          reason: row.reason ?? undefined,
+        });
+      }
+
+      if (i === 0) firstPlanHash = data?.[0]?.plan_hash ?? undefined;
+      processed += batchIds.length;
+      input.onProgress?.(processed, total);
     }
 
-    const results: PerLeadResult[] = (data ?? []).map((row: any) => ({
-      lead_id: row.lead_id,
-      counselor_id: row.counselor_id ?? null,
-      status: row.status as PerLeadResult['status'],
-      reason: row.reason ?? undefined,
-    }));
-    const planHash = data?.[0]?.plan_hash ?? undefined;
-
-    const report = summarize(results, planHash);
+    const report = summarize(allResults, firstPlanHash);
     logger.info('bulk-assign', 'Run completed', {
       mode: 'auto-route',
+      batches: batches.length,
       successCount: report.successCount,
       failureCount: report.failureCount,
       durationMs: Date.now() - startedAt,
@@ -217,6 +272,11 @@ export class BulkAssignService {
 
   // -------------------------------------------------------------------------
   // Mode C — Round-robin (calls bulk_round_robin_assign RPC)
+  // Auto-batches in chunks of MAX_RUN_SIZE. Counselor cycling resets at the
+  // start of each batch (the RPC tracks v_idx internally and we can't
+  // currently pass a starting offset). For typical workloads where
+  // batchSize >> counselorCount, the per-counselor totals still average out
+  // within ~1 lead per counselor of perfectly-even distribution.
   // -------------------------------------------------------------------------
   static async roundRobin(input: {
     leadIds: string[];
@@ -228,9 +288,13 @@ export class BulkAssignService {
      * Optional per-run cap on how many leads each counselor receives.
      * NULL/undefined = no cap (cycle until all leads assigned). When set,
      * each counselor stops accepting new leads in this run after they hit
-     * the limit; remaining leads stay unassigned.
+     * the limit; remaining leads stay unassigned. NOTE: the cap is applied
+     * PER BATCH server-side, so with auto-batching a counselor could receive
+     * up to (limit × batchCount) leads total. To enforce a global cap, the
+     * caller must pre-narrow the selection.
      */
     perCounselorLimit?: number | null;
+    onProgress?: BulkAssignProgressFn;
   }): Promise<BulkAssignReport> {
     if (input.leadIds.length === 0) {
       throw new BulkAssignError('EMPTY_INPUT', 'No leads selected.');
@@ -238,46 +302,70 @@ export class BulkAssignService {
     if (input.counselorIds.length === 0) {
       throw new BulkAssignError('EMPTY_INPUT', 'No counselors selected.');
     }
-    if (input.leadIds.length > MAX_RUN_SIZE) {
-      throw new BulkAssignError(
-        'OVER_LIMIT',
-        `Maximum ${MAX_RUN_SIZE} leads per run. Use filters to narrow your selection.`
-      );
-    }
+
+    const total = input.leadIds.length;
+    const isDryRun = input.dryRun ?? false;
+    const batches = isDryRun
+      ? [input.leadIds.slice(0, MAX_RUN_SIZE)]
+      : chunk(input.leadIds, MAX_RUN_SIZE);
 
     logger.info('bulk-assign', 'Run started', {
       mode: 'round-robin',
-      leadCount: input.leadIds.length,
+      leadCount: total,
       counselorCount: input.counselorIds.length,
-      dryRun: input.dryRun ?? false,
+      batches: batches.length,
+      dryRun: isDryRun,
     });
     const startedAt = Date.now();
 
-    const { data, error } = await (BulkAssignService.supabase as any).rpc('bulk_round_robin_assign', {
-      p_lead_ids: input.leadIds,
-      p_counselor_ids: input.counselorIds,
-      p_dry_run: input.dryRun ?? false,
-      p_override: input.override ?? false,
-      p_expected_plan_hash: input.expectedPlanHash ?? null,
-      p_per_counselor_limit: input.perCounselorLimit ?? null,
-    });
+    const allResults: PerLeadResult[] = [];
+    let firstPlanHash: string | undefined;
+    let processed = 0;
 
-    if (error) {
-      logger.error('bulk-assign', 'Run failed', { mode: 'round-robin', code: error.code, error: error.message });
-      throw mapDbError(error);
+    for (let i = 0; i < batches.length; i += 1) {
+      const batchIds = batches[i];
+      const expected = i === 0 ? input.expectedPlanHash ?? null : null;
+
+      const { data, error } = await (BulkAssignService.supabase as any).rpc(
+        'bulk_round_robin_assign',
+        {
+          p_lead_ids: batchIds,
+          p_counselor_ids: input.counselorIds,
+          p_dry_run: isDryRun,
+          p_override: input.override ?? false,
+          p_expected_plan_hash: expected,
+          p_per_counselor_limit: input.perCounselorLimit ?? null,
+        },
+      );
+
+      if (error) {
+        logger.error('bulk-assign', 'Run failed', {
+          mode: 'round-robin',
+          batch: i,
+          code: error.code,
+          error: error.message,
+        });
+        throw mapDbError(error);
+      }
+
+      for (const row of (data ?? []) as any[]) {
+        allResults.push({
+          lead_id: row.lead_id,
+          counselor_id: row.counselor_id ?? null,
+          status: row.status as PerLeadResult['status'],
+          reason: row.reason ?? undefined,
+        });
+      }
+
+      if (i === 0) firstPlanHash = data?.[0]?.plan_hash ?? undefined;
+      processed += batchIds.length;
+      input.onProgress?.(processed, total);
     }
 
-    const results: PerLeadResult[] = (data ?? []).map((row: any) => ({
-      lead_id: row.lead_id,
-      counselor_id: row.counselor_id ?? null,
-      status: row.status as PerLeadResult['status'],
-      reason: row.reason ?? undefined,
-    }));
-    const planHash = data?.[0]?.plan_hash ?? undefined;
-
-    const report = summarize(results, planHash);
+    const report = summarize(allResults, firstPlanHash);
     logger.info('bulk-assign', 'Run completed', {
       mode: 'round-robin',
+      batches: batches.length,
       successCount: report.successCount,
       failureCount: report.failureCount,
       durationMs: Date.now() - startedAt,

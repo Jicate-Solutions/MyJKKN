@@ -12,6 +12,7 @@ import { AcknowledgmentGate } from '@/components/notifications/acknowledgment-ga
 import { AutoTabNav } from '@/components/navigation/auto-tab-nav';
 import { AutoBreadcrumbs } from '@/components/navigation/auto-breadcrumbs';
 import { SentryUserSync } from '@/hooks/use-sentry-user-sync';
+import { Navbar } from '@/components/Navbar/Navbar';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -45,6 +46,7 @@ const Dashboardlayout = ({ children }: DashboardLayoutProps) => {
           without keys.
          */}
         <SentryUserSync key='sentry-user-sync' />
+        <Navbar key='global-navbar' />
         <div key='auto-breadcrumbs' className='px-4 md:px-8 pt-3'>
           <AutoBreadcrumbs />
         </div>

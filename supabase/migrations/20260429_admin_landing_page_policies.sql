@@ -12,7 +12,7 @@
 -- Routes affected
 --   * /admin/         → reads nav.admin.default_landing     (was '/admin/bug-reports')
 --   * /admin/lti/     → reads nav.admin.lti.default_landing (was '/admin/lti/launches')
---   * /admin/pde/     → reads nav.admin.pde.default_landing (was '/admin/pde/assessments')
+--   * /pde/admin/     → reads nav.admin.pde.default_landing (was '/pde/admin/assessments')
 --
 -- Substrate-extending: reuses platform_policies (PR #595, Phase 1.5a) +
 -- fn_get_policy_text(p_key, p_default, p_scope_id) resolver. No new tables.
@@ -59,8 +59,8 @@ INSERT INTO platform_policies (policy_key, scope_type, scope_id, value, descript
     'nav.admin.pde.default_landing',
     'global',
     NULL,
-    '"/admin/pde/assessments"'::jsonb,
-    'Default redirect target when user navigates to /admin/pde/. Tweakable via /admin/landing-pages UI — no deploy needed.',
+    '"/pde/admin/assessments"'::jsonb,
+    'Default redirect target when user navigates to /pde/admin/. Tweakable via /admin/landing-pages UI — no deploy needed.',
     'string',
     false
   )
@@ -94,7 +94,7 @@ BEGIN
   IF fn_get_policy_text('nav.admin.lti.default_landing', '/fallback', NULL) <> '/admin/lti/launches' THEN
     RAISE EXCEPTION 'fn_get_policy_text failed for nav.admin.lti.default_landing';
   END IF;
-  IF fn_get_policy_text('nav.admin.pde.default_landing', '/fallback', NULL) <> '/admin/pde/assessments' THEN
+  IF fn_get_policy_text('nav.admin.pde.default_landing', '/fallback', NULL) <> '/pde/admin/assessments' THEN
     RAISE EXCEPTION 'fn_get_policy_text failed for nav.admin.pde.default_landing';
   END IF;
 END

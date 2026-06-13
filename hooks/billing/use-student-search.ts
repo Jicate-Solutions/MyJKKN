@@ -57,6 +57,7 @@ const SEARCH_WORTHY_FILTER_KEYS: ReadonlyArray<
   'program_id',
   'semester_id',
   'section_id',
+  'accommodation_type',
   'first_name',
   'last_name',
   'roll_number',

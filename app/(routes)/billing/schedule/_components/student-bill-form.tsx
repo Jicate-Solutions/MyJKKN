@@ -67,6 +67,7 @@ import {
   useCreateStudentBill,
   useUpdateStudentBill
 } from '@/hooks/billing/use-student-bills';
+import { useAcademicYears } from '@/hooks/use-academic-years';
 import type { Institution } from '@/types/organizations';
 import type { BillingCategory } from '@/types/billing';
 import type {
@@ -86,6 +87,7 @@ const billingItemSchema = z.object({
 const studentBillSchema = z.object({
   student_id: z.string().min(1, 'Student is required'),
   institution_id: z.string().min(1, 'Institution is required'),
+  academic_year_id: z.string().min(1, 'Academic year is required'),
   due_date: z.date({ required_error: 'Due date is required' }),
   billing_items: z
     .array(billingItemSchema)
@@ -103,12 +105,14 @@ interface StudentBillFormProps {
   bill?: StudentBill;
   preSelectedStudent?: StudentForBilling;
   onSuccess?: () => void;
+  returnTo?: string;
 }
 
 export function StudentBillForm({
   bill,
   preSelectedStudent,
-  onSuccess
+  onSuccess,
+  returnTo,
 }: StudentBillFormProps) {
   const router = useRouter();
   const [institutions, setInstitutions] = useState<Institution[]>([]);
@@ -134,6 +138,7 @@ export function StudentBillForm({
       return {
         student_id: bill.student_id,
         institution_id: bill.institution_id,
+        academic_year_id: bill.academic_year_id || '',
         due_date: bill.due_date ? new Date(bill.due_date) : new Date(),
         billing_items: [
           {
@@ -151,6 +156,7 @@ export function StudentBillForm({
       return {
         student_id: preSelectedStudent.id,
         institution_id: preSelectedStudent.institution_id,
+        academic_year_id: preSelectedStudent.academic_year_id || '',
         due_date: new Date(),
         billing_items: [
           {
@@ -168,6 +174,7 @@ export function StudentBillForm({
       return {
         student_id: '',
         institution_id: '',
+        academic_year_id: '',
         due_date: new Date(),
         billing_items: [
           {
@@ -201,6 +208,11 @@ export function StudentBillForm({
   );
 
   const watchedValues = form.watch();
+
+  const { data: academicYearsData } = useAcademicYears(
+    watchedValues.institution_id || undefined
+  );
+  const academicYears = academicYearsData?.data || [];
 
   // Calculate totals from all billing items
   const calculateTotals = () => {
@@ -243,6 +255,7 @@ export function StudentBillForm({
       const formValues = {
         student_id: bill.student_id,
         institution_id: bill.institution_id,
+        academic_year_id: bill.academic_year_id || '',
         due_date: bill.due_date ? new Date(bill.due_date) : new Date(),
         billing_items: [
           {
@@ -282,6 +295,7 @@ export function StudentBillForm({
       const formValues = {
         student_id: preSelectedStudent.id,
         institution_id: preSelectedStudent.institution_id,
+        academic_year_id: preSelectedStudent.academic_year_id || '',
         due_date: undefined,
         billing_items: [
           {
@@ -312,7 +326,9 @@ export function StudentBillForm({
     try {
       setIsLoadingInstitutions(true);
       const institutionNames = await OrganizationService.getInstitutionNames(
-        true
+        true,
+        undefined,
+        'all'
       );
       setInstitutions(institutionNames as Institution[]);
     } catch (error) {
@@ -345,6 +361,9 @@ export function StudentBillForm({
       } (${student.roll_number || 'N/A'})`
     );
     form.setValue('student_id', student.id);
+    if (student.academic_year_id) {
+      form.setValue('academic_year_id', student.academic_year_id);
+    }
   };
 
   const buildBillDto = (
@@ -371,7 +390,8 @@ export function StudentBillForm({
       remarks: data.overall_remarks,
       is_recurring: data.is_recurring,
       recurrence_pattern: data.recurrence_pattern,
-      number_of_recurrences: data.number_of_recurrences
+      number_of_recurrences: data.number_of_recurrences,
+      academic_year_id: data.academic_year_id || undefined,
     };
   };
 
@@ -387,7 +407,7 @@ export function StudentBillForm({
         if (onSuccess) {
           onSuccess();
         } else {
-          router.push(`/billing/schedule/students/${bill.student_id}`);
+          router.push(returnTo || `/billing/schedule/students/${bill.student_id}`);
         }
         return;
       }
@@ -399,6 +419,8 @@ export function StudentBillForm({
 
       if (onSuccess) {
         onSuccess();
+      } else if (returnTo) {
+        router.push(returnTo);
       } else if (preSelectedStudent) {
         router.push(`/billing/schedule/students/${preSelectedStudent.id}`);
       } else {
@@ -710,6 +732,44 @@ export function StudentBillForm({
               </CardTitle>
             </CardHeader>
             <CardContent className='space-y-4'>
+              <FormField
+                control={form.control}
+                name='academic_year_id'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Academic Year *</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
+                      disabled={!watchedValues.institution_id}
+                    >
+                      <FormControl>
+                        <SelectTrigger className='w-full max-w-sm'>
+                          <SelectValue
+                            placeholder={
+                              !watchedValues.institution_id
+                                ? 'Select a student/institution first'
+                                : 'Select academic year'
+                            }
+                          />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {academicYears.map((ay: any) => (
+                          <SelectItem key={ay.id} value={ay.id}>
+                            {ay.academic_year_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      Which academic year this bill is for. Defaults to the
+                      student&apos;s current year — change it to bill a future year.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <FormField
                 control={form.control}
                 name='due_date'

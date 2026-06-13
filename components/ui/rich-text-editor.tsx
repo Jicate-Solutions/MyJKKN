@@ -273,7 +273,20 @@ export function RichTextEditor({
 
 /**
  * Strips HTML tags and returns plain text.
- * Used for push notifications and plain-text contexts.
+ * Used for push notifications, BoS minutes-PDF/DOCX narrative blocks,
+ * and other plain-text contexts.
+ *
+ * Entity decoding rules:
+ *   • &nbsp; → regular ASCII space. Both jsPDF (Times) and docx render
+ *     leading spaces faithfully, so indented bullet lines in the BoS
+ *     minutes narrative survive intact ("&nbsp; &nbsp; * 100 Marks…"
+ *     becomes "    * 100 Marks…" with the leading indent preserved).
+ *   • &amp; is decoded LAST — decoding it first would double-decode strings
+ *     like "&amp;nbsp;" (intended to *display* as the literal text "&nbsp;")
+ *     into an actual space.
+ *   • Numeric entities (&#NNNN; / &#xHHHH;) are decoded generically so
+ *     editor outputs containing typographic punctuation (smart quotes,
+ *     dashes via &#8217;, &#8211;, etc.) come through correctly.
  */
 export function stripHtml(html: string): string {
   if (!html) return '';
@@ -283,11 +296,24 @@ export function stripHtml(html: string): string {
     .replace(/<\/li>/gi, '\n')
     .replace(/<li>/gi, '• ')
     .replace(/<[^>]+>/g, '')
+    // Decode &amp; FIRST so double-encoded entities like "&amp;nbsp;"
+    // (TipTap escapes ampersands at save time, so user-typed "&nbsp;"
+    // round-trips as "&amp;nbsp;") get unwrapped to "&nbsp;" before the
+    // targeted decoders below run. Without this, "&nbsp;" survives as
+    // literal text in the rendered PDF/DOCX narrative.
     .replace(/&amp;/g, '&')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&hellip;/g, '…')
+    .replace(/&mdash;/g, '—')
+    .replace(/&ndash;/g, '–')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
     .replace(/&#039;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, code) => String.fromCharCode(parseInt(code, 16)))
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }

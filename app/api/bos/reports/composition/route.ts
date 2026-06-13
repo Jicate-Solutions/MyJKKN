@@ -37,7 +37,15 @@ export async function GET(request: NextRequest) {
     if (memErr) throw memErr;
     if (!composition) return NextResponse.json({ error: 'Composition not found' }, { status: 404 });
 
-    return NextResponse.json({ composition, members: members ?? [] });
+    // Resolve board name from COE API
+    let board = null;
+    if (composition.board_id && composition.institutions_id) {
+      const { fetchCoeBoardMap } = await import('@/lib/utils/bos/coe-boards');
+      const boardMap = await fetchCoeBoardMap(composition.institutions_id);
+      board = boardMap.get(composition.board_id) ?? null;
+    }
+
+    return NextResponse.json({ composition: { ...composition, board }, members: members ?? [] });
   } catch (error) {
     console.error('[bos/reports/composition] GET error:', error);
     return NextResponse.json({ error: 'Failed to fetch composition report' }, { status: 500 });

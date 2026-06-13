@@ -63,6 +63,17 @@ export const LEARNER_ROUTES: Record<string, LearnerRoute> = {
     isNew: true,
   },
 
+  'learners-my-marks': {
+    path: '/learners/my-marks',
+    category: 'portal',
+    module: 'learners',
+    feature: 'Marks',
+    permission: 'learners.my-marks.view',
+    description: 'Personal internal assessment marks and semester results',
+    allowedStatuses: ['active', 'graduated'],
+    isNew: true,
+  },
+
   // ========================================
   // CATEGORY: DOMAIN (Domain-specific actions in their modules)
   // ========================================

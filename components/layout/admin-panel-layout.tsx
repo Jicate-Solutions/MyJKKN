@@ -32,9 +32,19 @@ export default function AdminPanelLayout({
         className={cn(
           'min-h-[calc(100vh_-_56px)] bg-background transition-[margin-left] ease-in-out duration-300',
           isOpen === false ? 'lg:ml-[90px]' : 'lg:ml-72',
-          // Add bottom padding on mobile to prevent content overlap with bottom nav
-          isMobile && 'pb-20'
+          // Bottom padding on mobile to prevent content overlap with the
+          // bottom-nav + AttentionBar stack. The bottom-nav is ~76px tall
+          // (icons + label + safe-area) and the AttentionBar pill sits
+          // 8px above it (~54px tall), so the total stack reaches ~138px
+          // up from the viewport bottom. `pb-20` (80px) only cleared the
+          // nav itself, leaving the AttentionBar to obstruct the page's
+          // primary action buttons on workflow pages like
+          // /campus-living/allocations/new — Director + JMD reported
+          // 2026-05-21 (BUG-003930, BUG-003931). `pb-36` (144px) clears
+          // the full stack with ~6px breathing room.
+          isMobile && 'pb-36'
         )}
+        suppressHydrationWarning
       >
         <PushNotificationBanner />
         <Suspense>
@@ -48,6 +58,7 @@ export default function AdminPanelLayout({
           // Hide footer on mobile when bottom nav is present
           isMobile && 'hidden'
         )}
+        suppressHydrationWarning
       >
         <Footer />
       </footer>

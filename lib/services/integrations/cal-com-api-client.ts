@@ -84,6 +84,10 @@ const DEFAULT_BASE_URL =
  */
 const API_VERSION_DEFAULT = '2024-08-13';
 const API_VERSION_SCHEDULES = '2024-06-11';
+// Event-types endpoints are version-gated: the default 2024-08-13 returns 404 on
+// /v2/event-types; Cal.com mounts them under 2024-06-14 (the UpdateEventTypeInput_2024_06_14
+// DTO). Verified live against jicate-booking-api: 2024-08-13→404, 2024-06-14→200.
+const API_VERSION_EVENT_TYPES = '2024-06-14';
 
 const LOG_PREFIX = '[cal-com-api]';
 
@@ -294,7 +298,7 @@ export class CalComApiClient {
    * declared by the orchestrating agents but is NOT forwarded to the API.
    */
   async listEventTypes(_userId?: number): Promise<CalComEventType[]> {
-    return this.get<CalComEventType[]>('/v2/event-types');
+    return this.get<CalComEventType[]>('/v2/event-types', API_VERSION_EVENT_TYPES);
   }
 
   /**
@@ -303,7 +307,7 @@ export class CalComApiClient {
    * or belongs to a different user (Cal.com returns 404 in both cases).
    */
   async getEventType(eventTypeId: number): Promise<CalComEventType> {
-    return this.get<CalComEventType>(`/v2/event-types/${eventTypeId}`);
+    return this.get<CalComEventType>(`/v2/event-types/${eventTypeId}`, API_VERSION_EVENT_TYPES);
   }
 
   /**
@@ -312,7 +316,7 @@ export class CalComApiClient {
    * Required fields: title, slug, lengthInMinutes.
    */
   async createEventType(input: CalComEventTypeCreateInput): Promise<CalComEventType> {
-    return this.post<CalComEventType>('/v2/event-types', input);
+    return this.post<CalComEventType>('/v2/event-types', input, API_VERSION_EVENT_TYPES);
   }
 
   /**
@@ -325,7 +329,7 @@ export class CalComApiClient {
     eventTypeId: number,
     input: Partial<CalComEventTypeCreateInput>,
   ): Promise<CalComEventType> {
-    return this.patch<CalComEventType>(`/v2/event-types/${eventTypeId}`, input);
+    return this.patch<CalComEventType>(`/v2/event-types/${eventTypeId}`, input, API_VERSION_EVENT_TYPES);
   }
 
   /**
@@ -334,7 +338,7 @@ export class CalComApiClient {
    * webhooks linked to this EventType, removes hashed-link rows.
    */
   async deleteEventType(eventTypeId: number): Promise<void> {
-    return this.delete(`/v2/event-types/${eventTypeId}`);
+    return this.delete(`/v2/event-types/${eventTypeId}`, API_VERSION_EVENT_TYPES);
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -493,4 +497,108 @@ export async function getCalClientForUser(
   throw new Error(
     'getCalClientForUser: NotImplemented — import from cal-com-provisioning-service once Phase 1 PR-C is merged.',
   );
+}
+
+// ============================================================================
+// PUBLIC (UNAUTHENTICATED) ENDPOINTS — slots + booking creation
+// ============================================================================
+//
+// Cal.com's slot-listing and booking-creation endpoints are PUBLIC by design —
+// they are what powers any Cal.com booking page where an anonymous visitor
+// books a host. No Authorization header is sent.
+//
+// Version pins verified LIVE against jicate-booking-api (Railway) 2026-06-11:
+//   - GET  /v2/slots     → cal-api-version 2024-09-04 (2024-08-13/06-14 → 404)
+//   - POST /v2/bookings  → cal-api-version 2024-08-13 (probe booking
+//                          tbjEQJry5eZ256fsQa2e9F created + webhook-mirrored)
+//
+// Used by the public routing-form booking routes (app/api/public/booking/*).
+
+const API_VERSION_SLOTS = '2024-09-04';
+
+function buildPublicHeaders(apiVersion: string): HeadersInit {
+  return {
+    'cal-api-version': apiVersion,
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
+}
+
+/**
+ * Available slots keyed by date ("YYYY-MM-DD") → array of { start: ISO }.
+ * Shape verified live: {"data":{"2026-06-12":[{"start":"2026-06-12T04:00:00.000Z"},…]}}
+ */
+export type CalComPublicSlots = Record<string, Array<{ start: string }>>;
+
+/**
+ * GET /v2/slots — public availability for an event type over a date range.
+ *
+ * @param eventTypeId Cal.com EventType id
+ * @param startDate   inclusive "YYYY-MM-DD"
+ * @param endDate     inclusive "YYYY-MM-DD"
+ */
+export async function fetchPublicSlots(
+  eventTypeId: number,
+  startDate: string,
+  endDate: string,
+  baseUrl?: string,
+): Promise<CalComPublicSlots> {
+  const base = (baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, '');
+  const qs = new URLSearchParams({
+    eventTypeId: String(eventTypeId),
+    start: startDate,
+    end: endDate,
+  });
+  const path = `/v2/slots?${qs.toString()}`;
+  const response = await fetch(`${base}${path}`, {
+    method: 'GET',
+    headers: buildPublicHeaders(API_VERSION_SLOTS),
+    cache: 'no-store',
+  });
+  await throwForStatus(response, path);
+  const json = (await response.json()) as CalComV2Response<CalComPublicSlots>;
+  return unwrap(json, path);
+}
+
+/** Input for the public booking-creation endpoint (2024-08-13 shape). */
+export interface CalComPublicBookingCreateInput {
+  /** Slot start, ISO 8601 UTC (must match a slot returned by fetchPublicSlots). */
+  start: string;
+  eventTypeId: number;
+  attendee: {
+    name: string;
+    email: string;
+    /** IANA zone, e.g. "Asia/Kolkata" — controls the attendee's confirmation rendering. */
+    timeZone: string;
+    language?: string;
+  };
+  /**
+   * Stored on the Cal.com booking record only — the BOOKING_CREATED webhook
+   * payload does NOT forward metadata (verified live 2026-06-11), so anything
+   * MyJKKN needs queryable must also be written to meeting_routing_log.
+   */
+  metadata?: Record<string, string>;
+}
+
+/**
+ * POST /v2/bookings — create a booking as an anonymous attendee (public).
+ *
+ * Throws CalComApiError(400) with message "User either already has booking at
+ * this time or is not available" when the slot was taken between slot-listing
+ * and confirmation — callers should surface a "pick another time" state.
+ */
+export async function createPublicBooking(
+  input: CalComPublicBookingCreateInput,
+  baseUrl?: string,
+): Promise<CalComBooking> {
+  const base = (baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, '');
+  const path = '/v2/bookings';
+  const response = await fetch(`${base}${path}`, {
+    method: 'POST',
+    headers: buildPublicHeaders(API_VERSION_DEFAULT),
+    body: JSON.stringify(input),
+  });
+  await throwForStatus(response, path);
+  const json = (await response.json()) as CalComV2Response<CalComBooking>;
+  return unwrap(json, path);
 }

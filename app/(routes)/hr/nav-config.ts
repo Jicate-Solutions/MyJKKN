@@ -24,6 +24,12 @@ const config: ModuleNavConfig = {
       matchPaths: ['/hr'],
     },
     {
+      label: 'Intelligence',
+      icon: 'Brain',
+      href: '/hr/intelligence',
+      matchPaths: ['/hr/intelligence'],
+    },
+    {
       label: 'Recruitment',
       icon: 'UserPlus',
       href: '/hr/recruitment',
@@ -53,12 +59,10 @@ const config: ModuleNavConfig = {
           href: '/hr/recruitment/jobs',
           matchPaths: ['/hr/recruitment/jobs'],
         },
-        {
-          label: 'Candidates',
-          icon: 'Users',
-          href: '/hr/recruitment/candidates',
-          matchPaths: ['/hr/recruitment/candidates'],
-        },
+        // Candidates list page not yet built (only [id] detail exists).
+        // Re-add this nav entry when app/(routes)/hr/recruitment/candidates/page.tsx
+        // ships. Removed 2026-05-11 so the nav-config-href-audit gate ships
+        // as-enforcing.
         {
           label: 'My Submissions',
           icon: 'ClipboardList',
@@ -128,6 +132,18 @@ const config: ModuleNavConfig = {
       icon: 'UserCog',
       href: '/hr/onboarding',
       matchPaths: ['/hr/onboarding'],
+    },
+    {
+      label: 'My Assets',
+      icon: 'Laptop',
+      href: '/hr/my-assets',
+      matchPaths: ['/hr/my-assets'],
+    },
+    {
+      label: 'Offboarding',
+      icon: 'LogOut',
+      href: '/hr/offboarding',
+      matchPaths: ['/hr/offboarding'],
     },
     {
       label: 'Attendance',
@@ -202,10 +218,40 @@ const config: ModuleNavConfig = {
       ],
     },
     {
+      label: 'Performance Reviews',
+      icon: 'ClipboardCheck',
+      href: '/hr/performance-reviews',
+      matchPaths: ['/hr/performance-reviews'],
+      children: [
+        {
+          label: 'My Appraisal',
+          icon: 'ClipboardCheck',
+          href: '/hr/performance-reviews',
+          exact: true,
+        },
+        {
+          label: 'Team Reviews',
+          icon: 'UsersRound',
+          href: '/hr/performance-reviews/team',
+          matchPaths: ['/hr/performance-reviews/team'],
+        },
+      ],
+    },
+    {
       label: 'Policies',
       icon: 'ShieldCheck',
       href: '/hr/policies',
       matchPaths: ['/hr/policies'],
+    },
+    {
+      // 2026-06-10 admin-cluster relocation: /admin/hr → /hr/admin.
+      // No explicit children — the deeper admin pages auto-surface via the
+      // manifest walk (deeperTiersFromManifest), mirroring how the old
+      // /admin auto-nav exposed them.
+      label: 'Admin',
+      icon: 'Settings',
+      href: '/hr/admin',
+      matchPaths: ['/hr/admin'],
     },
   ],
 };

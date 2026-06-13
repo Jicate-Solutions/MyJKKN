@@ -43,6 +43,7 @@ const CSV_FIELDS: Array<{ label: string; value: string }> = [
   { label: 'Featured Tool', value: 'featured_tool' },
   { label: 'Champion at time', value: 'champion_at_time' },
   { label: 'IG Reach', value: 'ig_reach' },
+  { label: 'Verification', value: 'verification' },
   { label: 'Proof URLs', value: 'proof_urls' },
 ];
 
@@ -83,6 +84,17 @@ export async function GET(request: NextRequest) {
 
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Explicit role gate — this export carries placement PII (names, salaries,
+    // proof URLs) across institutions. "Logged in" is NOT sufficient; require
+    // the NAAC-evidence permission (super-admin bypass is built into the RPC).
+    const { data: canExport } = await (supabase as any).rpc('user_has_permission', {
+      user_id: user.id,
+      permission_key: 'aiPulse:naac.evidence_export',
+    });
+    if (!canExport) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     const url = new URL(request.url);

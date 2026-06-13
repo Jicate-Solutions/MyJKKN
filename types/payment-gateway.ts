@@ -64,6 +64,19 @@ export interface PaymentSessionResponse {
   payment_url: string;
   amount: number;
   expires_at: string;
+  // --- Razorpay migration additions (Task 14) ---
+  // `provider` is set for new rows; old HDFC code unconditionally sets it now too.
+  provider?: 'hdfc_smartgateway' | 'razorpay';
+  transaction_ref?: string;
+  // Razorpay-only fields (undefined for HDFC):
+  razorpay_order_id?: string;
+  razorpay_key_id?: string;
+  amount_paise?: number;
+  customer?: {
+    name?: string;
+    email?: string;
+    phone?: string;
+  };
 }
 
 // ============================================================================

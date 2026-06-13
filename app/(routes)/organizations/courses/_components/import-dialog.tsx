@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface ImportDialogProps {
   open: boolean;
@@ -56,6 +57,7 @@ interface ImportResult {
 
 export function ImportDialog({ open, onOpenChange, onImportComplete }: ImportDialogProps) {
   const router = useRouter();
+  const adapt = useAdaptiveLabels();
   const [file, setFile] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -127,7 +129,7 @@ export function ImportDialog({ open, onOpenChange, onImportComplete }: ImportDia
 
       if (response.ok && data.success) {
         toast.success(
-          `Successfully imported ${data.successCount} course${data.successCount !== 1 ? 's' : ''}`
+          `Successfully imported ${data.successCount} ${adapt('course')}${data.successCount !== 1 ? 's' : ''}`
         );
         setResult(data);
 
@@ -144,7 +146,7 @@ export function ImportDialog({ open, onOpenChange, onImportComplete }: ImportDia
       }
     } catch (error) {
       console.error('Import error:', error);
-      toast.error('Failed to import courses. Please try again.');
+      toast.error(`Failed to import ${adapt('courses')}. Please try again.`);
     } finally {
       setImporting(false);
     }
@@ -187,10 +189,10 @@ export function ImportDialog({ open, onOpenChange, onImportComplete }: ImportDia
         <DialogHeader>
           <DialogTitle className='flex items-center gap-2'>
             <Upload className='h-5 w-5' />
-            Import Courses from Excel
+            Import {adapt('Courses')} from Excel
           </DialogTitle>
           <DialogDescription>
-            Upload an Excel file with course data. Use the template for proper
+            Upload an Excel file with {adapt('course')} data. Use the template for proper
             formatting.
           </DialogDescription>
         </DialogHeader>
@@ -397,7 +399,7 @@ export function ImportDialog({ open, onOpenChange, onImportComplete }: ImportDia
               <ul className='text-sm text-muted-foreground space-y-1 list-disc list-inside'>
                 <li>Download the template using the button above</li>
                 <li>
-                  Fill in your course data (Institution Code must use the dropdown)
+                  Fill in your {adapt('course')} data (Institution Code must use the dropdown)
                 </li>
                 <li>Save the file and upload it here</li>
                 <li>Review the import results and fix any errors</li>

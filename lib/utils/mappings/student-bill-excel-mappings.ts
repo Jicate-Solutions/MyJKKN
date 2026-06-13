@@ -15,7 +15,8 @@ export const STUDENT_BILL_TEMPLATE_HEADERS = [
   'Bill Description',
   'Due Date',
   'Billing Amount',
-  'Remarks'
+  'Remarks',
+  'Academic Year (optional)'
 ] as const;
 
 export type StudentBillTemplateHeader = (typeof STUDENT_BILL_TEMPLATE_HEADERS)[number];
@@ -44,6 +45,25 @@ export interface ImportError {
   row: number;
   field?: string;
   message: string;
+  /** Learner identity so the user can tell WHOSE row failed, not just which Excel row. */
+  roll_number?: string;
+  student_name?: string;
+}
+
+/**
+ * One successfully-created bill, echoed back so the post-upload summary can
+ * name the learner and the downloadable report can list exactly what was
+ * committed.
+ */
+export interface ImportSuccessRow {
+  row: number;
+  roll_number: string;
+  student_name: string;
+  billing_category: string;
+  due_date: string;
+  billing_amount: number;
+  academic_year?: string | null;
+  bill_id?: string;
 }
 
 export interface ImportResult {
@@ -52,4 +72,6 @@ export interface ImportResult {
   errorCount: number;
   totalRows: number;
   errors: ImportError[];
+  /** Per-learner detail for committed rows (absent on legacy/error responses). */
+  successes?: ImportSuccessRow[];
 }

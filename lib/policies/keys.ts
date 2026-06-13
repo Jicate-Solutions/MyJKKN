@@ -8,21 +8,27 @@
  * Phase 1.5a (2026-04-29): canonical runtime-config substrate.
  */
 export const POLICY_KEYS = {
-  // HR Attendance (Sprint 5 — Section 17a Round 1-4 decisions)
-  HR_ATT_HOLIDAY_BACKFILL_LOOKBACK_DAYS: 'hr.attendance.holiday_backfill_lookback_days',
-  HR_ATT_AUDIT_RETENTION_YEARS: 'hr.attendance.audit_retention_years',
-  HR_ATT_GEOFENCE_MODE: 'hr.attendance.geofence_mode',
-  HR_ATT_GEOFENCE_RADIUS_M: 'hr.attendance.geofence_radius_m',
-  HR_ATT_AUTO_APPROVE_THRESHOLD_MINUTES: 'hr.attendance.auto_approve_threshold_minutes',
-  HR_ATT_SELF_HEAL_STEP2_CHANNELS: 'hr.attendance.self_heal_step2_channels',
-  HR_ATT_SELF_HEAL_WINDOW_HOURS: 'hr.attendance.self_heal_window_hours',
-  HR_ATT_CLASS_PROXY_DAY_CALC_DEFAULT: 'hr.attendance.class_proxy_day_calc_default',
-  HR_ATT_CROSS_COLLEGE_PROXY_ENABLED: 'hr.attendance.cross_college_proxy_enabled',
-  HR_ATT_TEAM_VIEW_PRIVACY_MODE: 'hr.attendance.team_view_privacy_mode',
-  HR_ATT_MONTHLY_LETTER_MODE: 'hr.attendance.monthly_letter_mode',
-  HR_ATT_LATE_ARRIVAL_ACTION: 'hr.attendance.late_arrival_action',
-  HR_ATT_BIOMETRIC_PRIORITY_OVER_SELF_MARK: 'hr.attendance.biometric_priority_over_self_mark',
-  HR_ATT_MULTI_DAY_PATTERN_DETECTION: 'hr.attendance.multi_day_pattern_detection',
+  // HR Attendance — Sprint 5 keys absorbed into hr.attendance.* nested namespace
+  // by Wave 3 M7 (2026-05-15). Old HR_ATT_* constant names kept as aliases;
+  // their values now point at the new namespaced keys. Sprint 5 service code
+  // that imports HR_ATT_* continues to work unchanged — fn_get_policy resolves
+  // the new key on the same renamed platform_policies row.
+  // Spec: specs/hr-policy-jsonb-structures-2026-05-15.md §"Sprint 5 HR_ATT_* absorption"
+  // Migration: supabase/migrations/20260611_hr_attendance_absorption.sql
+  HR_ATT_HOLIDAY_BACKFILL_LOOKBACK_DAYS: 'hr.attendance.holiday_handling.backfill_lookback_days',
+  HR_ATT_AUDIT_RETENTION_YEARS: 'hr.attendance.audit.retention_years',
+  HR_ATT_GEOFENCE_MODE: 'hr.attendance.geofence.mode',
+  HR_ATT_GEOFENCE_RADIUS_M: 'hr.attendance.geofence.radius_m',
+  HR_ATT_AUTO_APPROVE_THRESHOLD_MINUTES: 'hr.attendance.auto_approve.threshold_minutes',
+  HR_ATT_SELF_HEAL_STEP2_CHANNELS: 'hr.attendance.self_heal.step2_channels',
+  HR_ATT_SELF_HEAL_WINDOW_HOURS: 'hr.attendance.self_heal.window_hours',
+  HR_ATT_CLASS_PROXY_DAY_CALC_DEFAULT: 'hr.attendance.class_proxy.day_calc_default',
+  HR_ATT_CROSS_COLLEGE_PROXY_ENABLED: 'hr.attendance.class_proxy.cross_college_enabled',
+  HR_ATT_TEAM_VIEW_PRIVACY_MODE: 'hr.attendance.team_view.privacy_mode',
+  HR_ATT_MONTHLY_LETTER_MODE: 'hr.attendance.monthly_letter.mode',
+  HR_ATT_LATE_ARRIVAL_ACTION: 'hr.attendance.late_arrival.action',
+  HR_ATT_BIOMETRIC_PRIORITY_OVER_SELF_MARK: 'hr.attendance.biometric.priority_over_self_mark',
+  HR_ATT_MULTI_DAY_PATTERN_DETECTION: 'hr.attendance.pattern_detection.multi_day',
 
   // Cross-cutting
   SUPER_ADMIN_DIGEST_FANOUT_ROLE_KEYS: 'super_admin.digest.fanout_role_keys',
@@ -44,7 +50,7 @@ export const POLICY_KEYS = {
   // Object policy: { tasks: string[], categories: string[] }.
   // Consumed by lib/services/telephony/call-pipeline-service.ts (server-only,
   // pipeline runs in API routes / cron, never client). Director can edit via
-  // /admin/telephony-policies — no deploy needed.
+  // /admission/settings/telephony-policies — no deploy needed.
   TELEPHONY_EXOVOICE_CONFIG: 'telephony.exovoice.config',
 
   // Telephony — CDR sync windowing (object: {default_lookback_days, chunk_max_days})
@@ -81,7 +87,7 @@ export const POLICY_KEYS = {
   WA_BYOW_SYNTHETIC_AUDIT_ENABLED: 'wa_byow.synthetic_audit_enabled',
 
   // Voice Memo Monitor (2026-05-10) — runtime-tunable thresholds for
-  // /admission/counselors/voice-memos. Director-tweakable via /admin/voice-memo-monitor.
+  // /admission/counselors/voice-memos. Director-tweakable via /admission/settings/voice-memo-monitor.
   VOICE_MEMO_MONITOR_WINDOW_HOURS: 'voice_memo_monitor.window_hours',
   VOICE_MEMO_MONITOR_STUCK_THRESHOLD_MINUTES: 'voice_memo_monitor.stuck_threshold_minutes',
   VOICE_MEMO_MONITOR_FAILURE_RATE_RED_PCT: 'voice_memo_monitor.failure_rate_red_pct',
@@ -90,6 +96,217 @@ export const POLICY_KEYS = {
   VOICE_MEMO_MONITOR_REFRESH_INTERVAL_SECONDS: 'voice_memo_monitor.refresh_interval_seconds',
   VOICE_MEMO_MONITOR_COST_ALERT_DAILY_INR: 'voice_memo_monitor.cost_alert_daily_inr',
   VOICE_MEMO_MONITOR_DIRECTOR_DIGEST_CATEGORIES: 'voice_memo_monitor.director_digest_categories',
+
+  // HR gap-closure Wave 1 (Workisy gap-analysis 2026-05-14) —
+  // 20 director-tweakable HR config rows. All seeded as is_system=true
+  // global defaults in migration 20260515000002_seed_hr_gap_policies.sql.
+  // Per-institution override allowed (scope_type='institution', scope_id=<inst>).
+  // Director edits via the HR admin policy UI (Agent β cluster, /admin/hr-policies/*).
+
+  // -- Automation rules --------------------------------------------------------
+  // Array of rule definitions consumed by HR triggers. Empty = no automations.
+  // Consumer: lib/services/hr/automation-engine.ts (Agent γ ships consumer).
+  HR_AUTOMATION_RULES: 'hr.automation_rules',
+
+  // -- Onboarding -------------------------------------------------------------
+  // Object: { pre_joining: string[], d_day: string[], post_joining: string[] }
+  // Consumer: app/(routes)/hr/onboarding/* (Agent β ships UI).
+  HR_ONBOARDING_BUCKET_DEFINITIONS: 'hr.onboarding.bucket_definitions',
+  // Boolean. true = new hires self-mark tasks complete; false = HR admin marks.
+  HR_ONBOARDING_SELF_SERVICE_ENABLED: 'hr.onboarding.self_service_enabled',
+
+  // -- Offboarding ------------------------------------------------------------
+  // Array of step codes rendered in order on the exit checklist.
+  HR_OFFBOARDING_WORKFLOW_STEPS: 'hr.offboarding.workflow_steps',
+
+  // -- Probation --------------------------------------------------------------
+  // Integer months added to joining date when no explicit probation end set.
+  HR_PROBATION_DEFAULT_DURATION_MONTHS: 'hr.probation.default_duration_months',
+
+  // -- Shifts -----------------------------------------------------------------
+  // Array of shift labels available in the work-schedule picker.
+  HR_SHIFTS_TYPES: 'hr.shifts.types',
+  // Boolean. true = configured break window counts as paid working hours.
+  HR_SHIFTS_BREAK_PAID_BY_DEFAULT: 'hr.shifts.break_paid_by_default',
+
+  // -- Attendance (new — distinct from HR_ATT_* attendance-engine keys) ------
+  // Array of marking modes shown on attendance screen (manual/location/selfie/biometric).
+  HR_ATTENDANCE_ALLOWED_MODES: 'hr.attendance.allowed_modes',
+  // Boolean. true = staff can mark from any campus site without flag.
+  // DISTINCT from HR_ATT_CROSS_COLLEGE_PROXY_ENABLED (that one is class-proxy only).
+  HR_ATTENDANCE_ALLOW_MULTI_SITE: 'hr.attendance.allow_multi_site',
+  // Array of channels accepted for attendance marking (web/app/biometric/whatsapp/slack/lens).
+  HR_ATTENDANCE_CHANNELS: 'hr.attendance.channels',
+
+  // -- Assets -----------------------------------------------------------------
+  // Object mapping category -> string[] of items, e.g.
+  // { electronics: ["laptop", "phone"], furniture: ["chair"] }.
+  HR_ASSETS_CATEGORY_DEFINITIONS: 'hr.assets.category_definitions',
+
+  // -- Payroll ----------------------------------------------------------------
+  // Array of component definitions { code, label, kind: "earning"|"deduction", taxable }.
+  // Consumer: lib/services/hr/payroll/payslip-generator.ts (Agent δ ships consumer).
+  HR_PAYROLL_COMPONENT_DEFINITIONS: 'hr.payroll.component_definitions',
+  // Array of disbursement channels (bank_transfer/cheque/cash).
+  HR_PAYROLL_DISBURSEMENT_CHANNELS: 'hr.payroll.disbursement_channels',
+  // Object: { gross: string, net: string, ctc: string } — formula expressions
+  // referencing component codes from HR_PAYROLL_COMPONENT_DEFINITIONS.
+  HR_PAYROLL_FORMULA: 'hr.payroll.formula',
+  // Boolean. true = post-run bank-debit reconciliation fires.
+  HR_PAYROLL_RECONCILIATION_ENABLED: 'hr.payroll.reconciliation_enabled',
+
+  // T4.2 deduction-engine knobs (Director-locked spec 2026-05-15).
+  // Seeded as global rows by 20260626000000_hr_pay_components_and_payslip_line_items.sql.
+  // Editable via /hr/admin/policies/payroll-* UIs (ships in a later T-sprint).
+  // Consumer: lib/services/hr/payroll/deduction-engine.ts.
+  //
+  // tds_slabs: { regime, fiscal_year, slabs:[{upto_inr,rate_pct}], rebate_87a_*, surcharge_thresholds, cess_pct }
+  HR_PAYROLL_TDS_SLABS: 'hr.payroll.tds_slabs',
+  // pf_rate: { employee_pct, employer_pct, ceiling_inr, applies_above_ceiling }
+  HR_PAYROLL_PF_RATE: 'hr.payroll.pf_rate',
+  // esi_rate: { employee_pct, employer_pct, ceiling_inr, applies_above_ceiling }
+  HR_PAYROLL_ESI_RATE: 'hr.payroll.esi_rate',
+  // professional_tax: { state, slabs_monthly:[{upto_inr,amount_inr}], frequency }
+  HR_PAYROLL_PROFESSIONAL_TAX: 'hr.payroll.professional_tax',
+  // standard_deduction: { amount_inr, applies_to_regime, applies_to_old_regime_amount_inr, section }
+  HR_PAYROLL_STANDARD_DEDUCTION: 'hr.payroll.standard_deduction',
+
+  // -- Compliance -------------------------------------------------------------
+  // Object: { employee_contrib_pct, employer_contrib_pct, wage_ceiling_inr, lop_config }.
+  HR_COMPLIANCE_EPF: 'hr.compliance.epf',
+  // Object: { employee_contrib_pct, employer_contrib_pct, wage_ceiling_inr, applicable_below_ceiling_only }.
+  HR_COMPLIANCE_ESI: 'hr.compliance.esi',
+  // Object: per-state-code -> array of { min, max, tax } slab brackets.
+  HR_COMPLIANCE_PT: 'hr.compliance.pt',
+  // Object: per-state-code -> { employee, employer, frequency }.
+  HR_COMPLIANCE_LWF: 'hr.compliance.lwf',
+
+  // -- Dashboard --------------------------------------------------------------
+  // Array of { label, role_keys: string[] } — how HR dashboard widgets cluster roles.
+  HR_DASHBOARD_ROLE_GROUPS: 'hr.dashboard.role_groups',
+
+  // Nav landing pages (super-admin-tunable redirect targets for module roots).
+  // Consumed by app/(routes)/admin/page.tsx + /admin/lti/page.tsx + /pde/admin/page.tsx
+  // + /pde/learn/page.tsx + the 4 sweep hubs added 2026-06-02
+  // (/pde/learn/cases, /pde/admin/rubrics, /pde/admin/accreditation-evidence,
+  // /pde/admin/transcript).
+  // Editable via /admin/landing-pages — zero-deploy redirect retargeting.
+  NAV_ADMIN_DEFAULT_LANDING: 'nav.admin.default_landing',
+  NAV_ADMIN_LTI_DEFAULT_LANDING: 'nav.admin.lti.default_landing',
+  NAV_ADMIN_PDE_DEFAULT_LANDING: 'nav.admin.pde.default_landing',
+  NAV_ADMIN_PDE_RUBRICS_DEFAULT_LANDING: 'nav.admin.pde.rubrics.default_landing',
+  NAV_ADMIN_PDE_ACCREDITATION_EVIDENCE_DEFAULT_LANDING: 'nav.admin.pde.accreditation_evidence.default_landing',
+  NAV_ADMIN_PDE_TRANSCRIPT_DEFAULT_LANDING: 'nav.admin.pde.transcript.default_landing',
+  NAV_LEARN_PDE_DEFAULT_LANDING: 'nav.learn.pde.default_landing',
+  NAV_LEARN_PDE_CASES_DEFAULT_LANDING: 'nav.learn.pde.cases.default_landing',
+  // PDE Module Extraction (2026-06-09): top-level /pde landing.
+  // Consumed by app/(routes)/pde/page.tsx — the new unified PDE module hub.
+  NAV_PDE_DEFAULT_LANDING: 'nav.pde.default_landing',
+
+  // HR Recruitment approvals — viewer-scope enforcement.
+  // Consumed by lib/services/hr/recruitment-service.ts (resolveViewerScope).
+  // Master toggle (boolean) + per-role scope_rules (JSONB object).
+  // Editable via /hr/admin/recruitment-approvals-scope (super-admin UI).
+  HR_RECRUITMENT_APPROVALS_ENFORCE_SCOPING: 'hr.recruitment.approvals.enforce_scoping',
+  HR_RECRUITMENT_APPROVALS_SCOPE_RULES: 'hr.recruitment.approvals.scope_rules',
+
+  // HR Recruitment approvals — role-match enforcement on Approve action.
+  // Consumed by lib/services/hr/recruitment-service.ts (approveCandidate).
+  // Seeded by 20260516120000_seed_recruitment_role_enforcement_policies.sql.
+  // Editable via /hr/admin/recruitment-approvals-scope (super-admin UI).
+  // When enforce_role_match=true, the caller's role_keys must include
+  // approval_chain[current_step].approver_role OR overlap with override_roles
+  // OR the caller must be super_admin. When false (default), today's behavior
+  // is preserved — any user with hr.recruitment.approve can approve any step.
+  HR_RECRUITMENT_APPROVALS_ENFORCE_ROLE_MATCH: 'hr.recruitment.approvals.enforce_role_match',
+  HR_RECRUITMENT_APPROVALS_OVERRIDE_ROLES: 'hr.recruitment.approvals.override_roles',
+
+  // -- Forms (W3-M9 follow-up — workflow engine + notifications) -------------
+  // Object: per-event notification templates rendered by the form-submission
+  // workflow engine. Keys = event name; values = { in_app_title, in_app_body,
+  // whatsapp_body } string templates. Supports placeholders:
+  //   {form_title}, {submitter_name}, {step_label}, {actor_name},
+  //   {reason}, {submission_url}
+  // Consumed by lib/services/hr/form-submission-notifications.ts.
+  // Director can edit copy live via /admin/policies/platform-policies UI.
+  HR_FORMS_NOTIFICATION_TEMPLATES: 'hr.forms.notification_templates',
+
+  // T8.6 Multi-role Dashboard Refinements (2026-05-15) ------------------------
+  // Maps role_key -> ordered array of widget IDs to render on /dashboard.
+  // The "_default" entry is the fallback used when a user's primary role has
+  // no explicit mapping (keeps surface non-empty for new/unknown roles).
+  // Consumed by lib/services/dashboard/widget-config-service.ts; edited via
+  // /admin/dashboard/widget-config (Director-only). No deploy needed.
+  DASHBOARD_ROLE_WIDGETS: 'dashboard.role_widgets',
+
+  // PDE Rubrics — Social & Leadership Trust (Phase 8) -------------------------
+  // 4 rubrics defining the durable-value category AI cannot replicate: working
+  // with humans, leading peers, holding committee positions, organizing
+  // communities. Each row is a JSONB object with evidence_required, min_*
+  // thresholds, validator_role, deliverables, and scoring_band.
+  // Seeded by 20260518_pde_social_leadership_rubrics.sql (scope=global).
+  // Editable via /pde/admin/rubrics/social-leadership (Director-only).
+  // Consumer (future): demonstration-evaluator services will read these via
+  // fn_get_policy to validate Phase-8 submissions. No deploy needed to retune.
+  PDE_RUBRICS_SOCIAL_LEADERSHIP_PEER_MENTOR: 'pde.rubrics.social_leadership.peer_mentor',
+  PDE_RUBRICS_SOCIAL_LEADERSHIP_TEAM_PROJECT_LEAD: 'pde.rubrics.social_leadership.team_project_lead',
+  PDE_RUBRICS_SOCIAL_LEADERSHIP_COMMITTEE_ROLE: 'pde.rubrics.social_leadership.committee_role',
+  PDE_RUBRICS_SOCIAL_LEADERSHIP_COMMUNITY_ORGANIZER: 'pde.rubrics.social_leadership.community_organizer',
+  // PDE Rubrics — Cultural & Civic Literacy (Phase 9, NEP 2020-aligned)
+  // 4 rubric rows that define how JKKN students earn the cultural & civic
+  // literacy slice of their PDE score. Seeded by
+  // supabase/migrations/20260518_pde_cultural_civic_rubrics.sql.
+  // Edited via /pde/admin/rubrics/cultural-civic (Director-only).
+  // Reflects NEP 2020 §4.6-4.7 (IKS + mother-tongue), §4.23 (fundamental
+  // duties / constitutional values), §11.8 (community-service credit).
+  // JKKN-Tamil-Nadu rooted: Tamil is the primary approved language; local-
+  // community contexts include panchayat collaboration + self-help-group
+  // engagement; tradition domains include classical (Bharatanatyam /
+  // Carnatic / Tamil literature) and folk forms.
+  PDE_RUBRICS_CULTURAL_CIVIC_INDIAN_LANGUAGE_PROFICIENCY: 'pde.rubrics.cultural_civic.indian_language_proficiency',
+  PDE_RUBRICS_CULTURAL_CIVIC_LOCAL_COMMUNITY_PROJECT: 'pde.rubrics.cultural_civic.local_community_project',
+  PDE_RUBRICS_CULTURAL_CIVIC_TRADITION_ATTUNEMENT: 'pde.rubrics.cultural_civic.tradition_attunement',
+  PDE_RUBRICS_CULTURAL_CIVIC_CIVIC_ENGAGEMENT: 'pde.rubrics.cultural_civic.civic_engagement',
+  // PDE Rubrics — Embodied Practice (Phase 7) -------------------------------
+  // Per-discipline rubric for hands-on skill demonstrations across JKKN
+  // colleges. Each value is an object with shape:
+  //   { discipline, rubric: [{skill, evidence_required, validator_role,
+  //     scoring_band:[min,max], passing_threshold}],
+  //     min_demonstrations_per_year, validity_period_months }
+  // Edited via /pde/admin/rubrics/embodied (super-admin). Consumed by PDE
+  // demonstration gate logic at runtime — no deploy required to retune.
+  PDE_RUBRICS_EMBODIED_MEDICAL: 'pde.rubrics.embodied.medical',
+  PDE_RUBRICS_EMBODIED_PHARMACY: 'pde.rubrics.embodied.pharmacy',
+  PDE_RUBRICS_EMBODIED_NURSING: 'pde.rubrics.embodied.nursing',
+  PDE_RUBRICS_EMBODIED_DENTAL: 'pde.rubrics.embodied.dental',
+  PDE_RUBRICS_EMBODIED_ENGINEERING: 'pde.rubrics.embodied.engineering',
+
+  // Campus Living — Fractional Occupancy (PR ζ / θ, 2026-05-28) -------------
+  // An unfilled Premium upgrade-vacancy's differential price auto-drops by
+  // FRACTIONAL_OCCUPANCY_EMPTY_VACANCY_DROP_PCT every
+  // FRACTIONAL_OCCUPANCY_EMPTY_VACANCY_DROP_INTERVAL_DAYS days until taken or
+  // the hostel year ends (decision 8). Seeded global rows: 20 / 60.
+  // Consumed by lib/services/campus-living/vacancy-price-drop-service.ts
+  // (server-only — runs in the vacancy-price-drops cron, never client).
+  FRACTIONAL_OCCUPANCY_EMPTY_VACANCY_DROP_PCT: 'fractional_occupancy.empty_vacancy_drop_pct',
+  FRACTIONAL_OCCUPANCY_EMPTY_VACANCY_DROP_INTERVAL_DAYS: 'fractional_occupancy.empty_vacancy_drop_interval_days',
+
+  // Bed Economics — scalar tunables (Bed Economics PR A, 2026-06-07) ---------
+  // Seeded as global system rows by
+  // supabase/migrations/20260607120000_bed_economics_substrate.sql (§3) and read
+  // at runtime by the fn_bed_econ_* RPCs (denominator / mess toggle / sellable
+  // filter / stoplight targets / stale-vacancy window / housekeeping unit cost).
+  // EDIT surface = the super-admin settings panel on the bed-economics dashboard
+  // page (PR B, gear → sheet); storage stays in platform_policies (the single
+  // locked registry). Spec: specs/bed-economics-dashboard-spec-2026-06-07.md §7.1.
+  // Constant strings here MUST match the policy_key values seeded in the migration.
+  BED_ECON_DENOMINATOR: 'bed_econ.denominator',
+  BED_ECON_INCLUDE_MESS_IN_REVENUE: 'bed_econ.include_mess_in_revenue',
+  BED_ECON_SELLABLE_ROOM_PURPOSES: 'bed_econ.sellable_room_purposes',
+  BED_ECON_OCCUPANCY_TARGET_PCT: 'bed_econ.occupancy_target_pct',
+  BED_ECON_COLLECTION_TARGET_PCT: 'bed_econ.collection_target_pct',
+  BED_ECON_STALE_VACANCY_DAYS: 'bed_econ.stale_vacancy_days',
+  BED_ECON_HOUSEKEEPING_COST_PER_ROOM_MONTH: 'bed_econ.housekeeping_cost_per_room_month',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];

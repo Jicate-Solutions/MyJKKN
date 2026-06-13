@@ -6,6 +6,8 @@ import { NextResponse , connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import type { CookieOptions } from '@supabase/ssr';
+import { getStaffScope } from '@/lib/services/staff/staff-scope';
+import { generateSyntheticEmail } from '@/lib/services/staff/synthetic-email';
 
 
 // Create admin client for database operations
@@ -88,10 +90,24 @@ export async function GET(request: NextRequest) {
 
     const isSuperAdmin = userProfile?.is_super_admin || userProfile?.role === 'super_admin';
 
+    // Resolve staff module scope via SECURITY DEFINER RPC.
+    // Defence-in-depth: RLS on public.staff already filters at the DB layer
+    // (Batch A), but the admin-client read path bypasses RLS for performance,
+    // so we MUST replicate the scope rules here. Use the cookie-authenticated
+    // `supabase` client so auth.uid() resolves correctly inside the RPC.
+    const scope = isSuperAdmin
+      ? ('all_institutions' as const)
+      : await getStaffScope(supabase, session.user.id);
+
+    if (scope === 'none') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     console.log('[/api/staff] User access check:', {
       userId: session.user.id,
       email: session.user.email,
       isSuperAdmin,
+      scope,
       profileInstitutionId: userProfile?.institution_id
     });
 
@@ -103,6 +119,58 @@ export async function GET(request: NextRequest) {
       if (userProfile?.institution_id) {
         accessibleInstitutionIds.push(userProfile.institution_id);
         console.log('[/api/staff] Added primary institution:', userProfile.institution_id);
+
+        // CAS expansion: For Arts & Science colleges the COE keeps one
+        // institution mapping to BOTH the Aided and Self-Financing MyJKKN
+        // UUIDs. A user whose profile.institution_id is the Aided UUID
+        // should still see Self-Financed staff (and vice versa), since BOS
+        // workflows like the Principal/Chairman picker need to find a
+        // unique Principal across both arms. Resolve sibling UUIDs via the
+        // shared COE-backed institution resolver (10-min cached).
+        try {
+          const { resolveInstitutionContext } = await import(
+            '@/lib/utils/institutions/institution-resolver'
+          );
+          // Pass the cookie-authenticated SSR client (not supabaseAdmin) —
+          // the resolver's signature expects that type, and the
+          // institutions lookup it does is RLS-readable for any signed-in
+          // user, so no admin escalation is required here.
+          const ctx = await resolveInstitutionContext(
+            userProfile.institution_id,
+            supabase
+          );
+          if (ctx?.myjkkn_institution_ids?.length) {
+            accessibleInstitutionIds = [
+              ...new Set([...accessibleInstitutionIds, ...ctx.myjkkn_institution_ids]),
+            ];
+            console.log(
+              '[/api/staff] Added CAS sibling UUIDs via institution resolver:',
+              ctx.myjkkn_institution_ids
+            );
+          }
+        } catch (err) {
+          // COE unavailable — fall back to counselling_code join on Supabase.
+          console.warn('[/api/staff] COE institution resolver failed; falling back to counselling_code:', err);
+          const { data: inst } = await supabaseAdmin
+            .from('institutions')
+            .select('counselling_code')
+            .eq('id', userProfile.institution_id)
+            .single();
+          if (inst?.counselling_code) {
+            const { data: siblings } = await supabaseAdmin
+              .from('institutions')
+              .select('id')
+              .eq('counselling_code', inst.counselling_code)
+              .eq('is_active', true);
+            if (siblings?.length) {
+              const ids = siblings.map((s: { id: string }) => s.id);
+              accessibleInstitutionIds = [
+                ...new Set([...accessibleInstitutionIds, ...ids]),
+              ];
+              console.log('[/api/staff] Added CAS sibling UUIDs via counselling_code fallback:', ids);
+            }
+          }
+        }
       }
 
       // Additional access: Institutions granted via user_institution_access (for billing module)
@@ -121,8 +189,10 @@ export async function GET(request: NextRequest) {
 
       console.log('[/api/staff] Total accessible institutions:', accessibleInstitutionIds.length);
 
-      // User must have at least their primary institution
-      if (accessibleInstitutionIds.length === 0) {
+      // User must have at least their primary institution — UNLESS they're
+      // own_records scope, where the filter keys on profile_id and the
+      // institution list is irrelevant.
+      if (accessibleInstitutionIds.length === 0 && scope !== 'own_records') {
         console.warn('[/api/staff] User has no institution access');
         return NextResponse.json(
           { error: 'No institution access' },
@@ -136,10 +206,19 @@ export async function GET(request: NextRequest) {
     // Get query parameters
     const searchParams = request.nextUrl.searchParams;
     const institutionId = searchParams.get('institution_id');
+    // institution_ids: comma-separated list for CAS (Aided + SF combined lookup)
+    const institutionIdsRaw = searchParams.get('institution_ids');
+    const institutionIds = institutionIdsRaw
+      ? institutionIdsRaw.split(',').map((s) => s.trim()).filter(Boolean)
+      : null;
     const search = searchParams.get('search');
     const categoryId = searchParams.get('category_id');
+    const categoryName = searchParams.get('category_name');
     const departmentId = searchParams.get('department_id');
+    const roleKey = searchParams.get('role_key');
     const isActive = searchParams.get('isActive');
+    // 2026-05-15: 'true' / 'false' filter for view-only staff visibility.
+    const loginEnabledParam = searchParams.get('login_enabled');
     const limit = parseInt(searchParams.get('limit') || '100');
     const page = parseInt(searchParams.get('page') || '1');
 
@@ -155,18 +234,33 @@ export async function GET(request: NextRequest) {
       { count: 'exact' }
     );
 
-    // Faculty users can only view their own staff record
-    if (!isSuperAdmin && userProfile?.role === 'faculty') {
-      query = query.eq('institution_email', session.user.email);
-      console.log('[/api/staff] Faculty self-only filter applied for:', session.user.email);
+    // Scope branch — replaces the legacy `role === 'faculty'` self-only
+    // shortcut. Source of truth is custom_roles.module_scopes->>'staff'
+    // resolved by get_user_module_scope() (Batch A).
+    if (scope === 'own_records') {
+      // Faculty / own-records roles: only their own staff row, keyed on
+      // staff.profile_id (uuid, 100% populated, links to auth.uid()).
+      query = query.eq('profile_id', session.user.id);
+      console.log('[/api/staff] own_records filter applied for:', session.user.id);
+    } else if (scope === 'own_institution') {
+      if (accessibleInstitutionIds.length > 0) {
+        query = query.in('institution_id', accessibleInstitutionIds);
+      } else {
+        // No institutions in scope = empty result (mirrors prior 403 guard
+        // upstream, but the caller has already passed permission gates).
+        return NextResponse.json({
+          data: [],
+          metadata: { total: 0, page: 1, limit: 0, totalPages: 0 }
+        });
+      }
     }
-    // Filter by user's institution access (skip if super admin or faculty)
-    else if (!isSuperAdmin && accessibleInstitutionIds.length > 0) {
-      query = query.in('institution_id', accessibleInstitutionIds);
-    }
+    // scope === 'all_institutions' (super admin or cross-scope role) =>
+    // no row filter.
 
     // Apply filters
-    if (institutionId) {
+    if (institutionIds && institutionIds.length > 0) {
+      query = query.in('institution_id', institutionIds);
+    } else if (institutionId) {
       query = query.eq('institution_id', institutionId);
     }
 
@@ -180,12 +274,34 @@ export async function GET(request: NextRequest) {
       query = query.eq('category_id', categoryId);
     }
 
+    if (categoryName) {
+      const { data: matchingCats } = await supabaseAdmin
+        .from('employment_categories')
+        .select('id')
+        .ilike('category_name', categoryName);
+      if (matchingCats?.length) {
+        query = query.in('category_id', matchingCats.map((c) => c.id));
+      } else {
+        return NextResponse.json({ data: [], metadata: { total: 0, page: 1, limit: 0, totalPages: 0 } });
+      }
+    }
+
     if (departmentId) {
       query = query.eq('department_id', departmentId);
     }
 
+    if (roleKey) {
+      query = query.eq('role_key', roleKey);
+    }
+
     if (isActive !== null) {
       query = query.eq('is_active', isActive === 'true');
+    }
+
+    if (loginEnabledParam === 'true') {
+      query = query.eq('login_enabled', true);
+    } else if (loginEnabledParam === 'false') {
+      query = query.eq('login_enabled', false);
     }
 
     // Apply pagination
@@ -266,10 +382,32 @@ export async function POST(request: Request) {
 
     const json = await request.json();
 
-    // Validate required fields
-    if (!json.first_name || !json.last_name || !json.email) {
+    // 2026-05-15: view-only / labour staff support. When login_enabled=false
+    // and emails are missing/blank, generate deterministic synthetic emails
+    // server-side as defence-in-depth — direct API callers (curl, scripts,
+    // bulk uploads bypassing the client service) get the same auto-generation
+    // behaviour as the client-side StaffService.createStaff.
+    if (json.login_enabled === false) {
+      if (!json.email || String(json.email).trim() === '') {
+        json.email = generateSyntheticEmail('personal', json.staff_id, json.phone);
+      }
+      if (!json.institution_email || String(json.institution_email).trim() === '') {
+        json.institution_email = generateSyntheticEmail('institution', json.staff_id, json.phone);
+      }
+    }
+
+    // Validate required fields. Email is required ONLY for login-enabled
+    // staff (the synthetic-email block above already populated emails for
+    // view-only staff).
+    if (!json.first_name || !json.last_name) {
       return NextResponse.json(
-        { error: 'Missing required fields: first_name, last_name, email' },
+        { error: 'Missing required fields: first_name, last_name' },
+        { status: 400 }
+      );
+    }
+    if (json.login_enabled !== false && !json.email) {
+      return NextResponse.json(
+        { error: 'Email is required for login-enabled staff' },
         { status: 400 }
       );
     }

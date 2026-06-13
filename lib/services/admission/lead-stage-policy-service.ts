@@ -5,7 +5,7 @@
 // Director's STANDING RULE (memory feedback_policy_decisions_must_be_config_rows.md):
 // every policy decision = config-table row + super_admin UI to write + reader fn.
 //
-// This service backs the admin CRUD UI at /admin/lead-stages-policy. It exposes
+// This service backs the admin CRUD UI at /admission/settings/lead-stages-policy. It exposes
 // plain-English translation helpers following the same pattern as tier-policy-service.ts
 // (PR #748 bar). Every user-visible string is written for non-technical readers.
 //

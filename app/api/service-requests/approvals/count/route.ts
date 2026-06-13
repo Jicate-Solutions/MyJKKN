@@ -13,11 +13,11 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user's role
+    // Get user's role + institution for scoping
     const supabase = await createServerSupabaseClient();
     const { data: profile } = await (supabase as any)
       .from('profiles')
-      .select('role')
+      .select('role, institution_id')
       .eq('id', session.user.id)
       .single();
 
@@ -25,9 +25,27 @@ export async function GET() {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
     }
 
+    // Same scoping rule as /api/service-requests/approvals: cross-institutional
+    // users (super_admin, or roles with institution_scope='all' like CAO)
+    // see every institution; everyone else is pinned to their own.
+    const isSuperAdmin = profile.role === 'super_admin';
+
+    const { data: userCustomRole } = await (supabase as any)
+      .from('custom_roles')
+      .select('institution_scope')
+      .eq('role_key', profile.role)
+      .eq('institution_scope', 'all')
+      .maybeSingle();
+    const isCrossInstitutional = isSuperAdmin || !!userCustomRole;
+
+    const scopeInstitutionId = isCrossInstitutional
+      ? undefined
+      : (profile.institution_id || undefined);
+
     const count = await ServiceRequestApprovalService.getPendingApprovalCount(
       profile.role,
-      session.user.id
+      session.user.id,
+      scopeInstitutionId
     );
 
     return NextResponse.json({ count });

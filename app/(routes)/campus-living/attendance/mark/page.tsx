@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -11,11 +11,16 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
-import { useMarkAttendance } from '@/hooks/campus-living/use-hostel-attendance';
-import { useHostelResidents } from '@/hooks/campus-living/use-hostel-residents';
+import { usePermissions } from '@/hooks/use-permissions';
+import {
+  useMarkAttendance,
+  useMarkableResidents,
+  useMyBlockAccess,
+} from '@/hooks/campus-living/use-hostel-attendance';
 import { useHostelBlocks } from '@/hooks/campus-living/use-hostel-blocks';
-import type { HostelAttendanceStatus } from '@/types/campus-living';
+import type { HostelAttendanceStatus, MarkableResident } from '@/types/campus-living';
 import {
   ArrowLeft,
   ClipboardCheck,
@@ -44,23 +49,56 @@ export default function MarkAttendancePage() {
   const searchParams = useSearchParams();
   const blockParam = searchParams.get('block');
 
-  const [selectedBlock, setSelectedBlock] = useState(blockParam ?? '1');
+  // 'all' = every block; previously defaulted to the literal '1' which is not
+  // a block UUID, so untouched submits failed and the select matched nothing.
+  const [selectedBlock, setSelectedBlock] = useState(blockParam ?? 'all');
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { data: blocksData } = useHostelBlocks(profile?.institution_id ?? '');
   const blocks = blocksData as any;
+
+  // Warden scoping: a user with active user_block_access grants (auto-synced
+  // from hostel_wardens) only sees — and marks — residents of those blocks.
+  // RLS on hostel_attendance/hostel_allocations enforces the same boundary
+  // server-side; this keeps the UI honest about it.
+  const { isSuperAdmin } = usePermissions();
+  const { data: myBlockIds = [] } = useMyBlockAccess();
+  const isBlockScoped = !isSuperAdmin && myBlockIds.length > 0;
+
+  const blockOptions = useMemo(() => {
+    const all = (blocks?.data ?? []) as Array<{ id: string; name: string; code: string }>;
+    return isBlockScoped ? all.filter((b) => myBlockIds.includes(b.id)) : all;
+  }, [blocks?.data, isBlockScoped, myBlockIds]);
+
+  // Keep the selection inside the warden's scope: 'all' collapses to the
+  // single assigned block, and an out-of-scope block resets to the first.
+  useEffect(() => {
+    if (!isBlockScoped) return;
+    if (selectedBlock === 'all' && myBlockIds.length === 1) {
+      setSelectedBlock(myBlockIds[0]);
+    } else if (selectedBlock !== 'all' && !myBlockIds.includes(selectedBlock)) {
+      setSelectedBlock(myBlockIds[0]);
+    }
+  }, [isBlockScoped, myBlockIds, selectedBlock]);
+
   // BUG-003327 fix: was useAttendanceByDate which returns *existing* attendance
   // rows — empty if nothing is marked yet, so the marking UI never appeared.
-  // Now sources the residents that NEED marking. Block-level filter is a
-  // follow-up (ResidentFilters has no block_id; that join lives on
-  // hostel_allocations).
-  const { data: residentsResp, isLoading } = useHostelResidents(
+  // Now sources active residents merged with their active allocation, so the
+  // block filter works and each row carries block/room/bed context.
+  const { data: studentsRaw, isLoading } = useMarkableResidents(
     profile?.institution_id ?? '',
-    { is_active: true }
+    selectedBlock === 'all' ? undefined : selectedBlock
   );
-  const students = (residentsResp as any)?.data as any[] | undefined;
+  // For block-scoped users viewing "All my blocks", drop residents outside
+  // their grants (incl. unallocated ones — those aren't assigned to them).
+  const students = useMemo(() => {
+    if (!isBlockScoped || selectedBlock !== 'all') return studentsRaw;
+    return studentsRaw?.filter(
+      (s) => s.allocation && myBlockIds.includes(s.allocation.block_id)
+    );
+  }, [studentsRaw, isBlockScoped, selectedBlock, myBlockIds]);
   const markAttendance = useMarkAttendance();
 
   const [attendance, setAttendance] = useState<Record<string, AttendanceStatus>>({});
@@ -84,29 +122,49 @@ export default function MarkAttendancePage() {
   const handleSubmit = async () => {
     setIsSubmitting(true);
     try {
+      let skippedNoBlock = 0;
       const records = Object.entries(attendance)
         .filter(([, status]) => !!status)
-        .map(([residentId, status]) => {
+        .flatMap(([residentId, status]) => {
           // residentId is hostel_residents.id; the attendance record needs the
           // underlying learner_id (== profile_id on the resident row).
           const resident = students?.find((s) => s.id === residentId);
-          return {
-          institution_id: profile?.institution_id ?? '',
-          learner_id: resident?.profile_id ?? residentId,
-          block_id: selectedBlock,
-          date: attendanceDate,
-          check_in_time: null,
-          check_out_time: null,
-          evening_status: status as HostelAttendanceStatus,
-          morning_status: null,
-          marked_by: profile?.id ?? null,
-          marking_method: 'manual' as const,
-          is_curfew_violation: false,
-          late_minutes: status === 'late_entry' ? 0 : null,
-          remarks: null,
-          };
+          // Stamp the resident's OWN allocated block — not the page filter —
+          // so "All blocks" submissions land on the right block. Residents
+          // with no active allocation fall back to an explicitly selected
+          // block; with neither, hostel_attendance.block_id (NOT NULL) cannot
+          // be satisfied, so the row is skipped and reported.
+          const blockId =
+            resident?.allocation?.block_id ??
+            (selectedBlock !== 'all' ? selectedBlock : null);
+          if (!blockId) {
+            skippedNoBlock += 1;
+            return [];
+          }
+          return [{
+            institution_id: profile?.institution_id ?? '',
+            learner_id: resident?.profile_id ?? residentId,
+            block_id: blockId,
+            date: attendanceDate,
+            check_in_time: null,
+            check_out_time: null,
+            evening_status: status as HostelAttendanceStatus,
+            morning_status: null,
+            marked_by: profile?.id ?? null,
+            marking_method: 'manual' as const,
+            is_curfew_violation: false,
+            late_minutes: status === 'late_entry' ? 0 : null,
+            remarks: null,
+          }];
         });
-      await markAttendance.mutateAsync(records);
+      if (skippedNoBlock > 0) {
+        toast.warning(
+          `${skippedNoBlock} resident${skippedNoBlock === 1 ? '' : 's'} skipped — no room allocation. Allocate them to a block first or pick a specific block.`
+        );
+      }
+      if (records.length > 0) {
+        await markAttendance.mutateAsync(records);
+      }
     } catch (error) {
       // Error is handled by the mutation hook's onError
     } finally {
@@ -114,11 +172,16 @@ export default function MarkAttendancePage() {
     }
   };
 
-  const filteredStudents = students?.filter((s) =>
-    (s.profile?.full_name ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (s.profile?.email ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (s.id_proof_number ?? '').toLowerCase().includes(searchQuery.toLowerCase())
-  ) ?? [];
+  const filteredStudents = students?.filter((s: MarkableResident) => {
+    const q = searchQuery.toLowerCase();
+    return (
+      (s.profile?.full_name ?? '').toLowerCase().includes(q) ||
+      (s.profile?.email ?? '').toLowerCase().includes(q) ||
+      (s.id_proof_number ?? '').toLowerCase().includes(q) ||
+      (s.allocation?.room?.room_number ?? '').toLowerCase().includes(q) ||
+      (s.allocation?.block?.name ?? '').toLowerCase().includes(q)
+    );
+  }) ?? [];
 
   const markedCount = Object.values(attendance).filter(Boolean).length;
   const presentCount = Object.values(attendance).filter((s) => s === 'present').length;
@@ -164,10 +227,19 @@ export default function MarkAttendancePage() {
                   value={selectedBlock}
                   onChange={(e) => setSelectedBlock(e.target.value)}
                 >
-                  {blocks?.data?.map((b) => (
+                  {(!isBlockScoped || myBlockIds.length > 1) && (
+                    <option value="all">{isBlockScoped ? 'All my blocks' : 'All blocks'}</option>
+                  )}
+                  {blockOptions.map((b) => (
                     <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
                   ))}
                 </select>
+                {isBlockScoped && (
+                  <p className="text-xs text-muted-foreground">
+                    You can mark attendance only for residents of your assigned block
+                    {myBlockIds.length === 1 ? '' : 's'}.
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label>Date</Label>
@@ -238,6 +310,21 @@ export default function MarkAttendancePage() {
                           <p className="font-medium">{student.profile?.full_name ?? 'Unknown'}</p>
                           <p className="text-sm text-muted-foreground">
                             {student.id_proof_number ?? student.profile?.email ?? student.id.slice(0, 8)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {student.allocation
+                              ? [
+                                  student.allocation.block?.name,
+                                  student.allocation.room?.room_number
+                                    ? `Room ${student.allocation.room.room_number}`
+                                    : null,
+                                  student.allocation.bed?.bed_number
+                                    ? `Bed ${student.allocation.bed.bed_number}`
+                                    : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(' · ')
+                              : 'No room allocated'}
                           </p>
                         </div>
                       </div>

@@ -8,9 +8,15 @@ import { AdmissionErrorBoundary } from '@/components/admission';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { GDPIDataTable } from './_components/gdpi-data-table';
 
+// 2026-05-11: tightened from generic 'admission.view' to 'admission.gd_pi.view'.
+// The generic key is granted broadly (including via institution_scope='all'
+// bypass for counselor roles), which meant /admission/gd-pi was accessible
+// to admission_counselor / expo_counselor / learner_counselor / staff_counselor
+// users even though GD-PI is an admin function. A dedicated permission key
+// restricts it to roles explicitly granted that capability.
 function GDPIPageContent() {
   return (
-    <PermissionGuard module="admission" action="view">
+    <PermissionGuard module="admission" action="gd_pi.view">
       <ContentLayout title="GD-PI Management">
         <div className="space-y-6">
           <Breadcrumb>

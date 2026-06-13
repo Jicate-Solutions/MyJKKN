@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     if (
       profileError ||
       !profile ||
-      !['admin', 'super_admin'].includes(profile.role)
+      !['super_admin', 'administrator', 'ceo'].includes(profile.role)
     ) {
       return NextResponse.json(
         { error: 'Admin permissions required to update bug report status' },

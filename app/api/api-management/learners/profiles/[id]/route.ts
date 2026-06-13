@@ -81,20 +81,24 @@ export async function GET(
     // Fetch learner by ID - select all fields except migration fields
     const selectFields = `
       id, application_id, lifecycle_status, first_name, last_name, date_of_birth,
-      gender, religion, community, caste, father_name, father_occupation, father_mobile,
+      gender, religion, father_name, father_occupation, father_mobile,
       mother_name, mother_occupation, mother_mobile, annual_income, last_school,
       board_of_study, tenth_marks, twelfth_marks, medical_cutoff_marks,
       engineering_cutoff_marks, neet_roll_number, neet_score, counseling_applied,
-      counseling_number, scholarship_type, quota, entry_type, student_mobile,
+      counseling_number, scholarship_type, entry_type, student_mobile,
       student_email, permanent_address_street, permanent_address_taluk,
       permanent_address_district, permanent_address_pin_code, permanent_address_state,
-      accommodation_type, hostel_type, food_type, reference_type, reference_name, reference_contact,
+      bus_required, transport_route_id, transport_stop_id, reference_type, reference_name, reference_contact,
       institution_id, degree_id, department_id, program_id, semester_id, section_id,
       academic_year_id, regulation_id, batch_id, roll_number, register_number,
       college_email, student_photo_url, is_profile_complete, created_at, updated_at,
       created_by, updated_by, aadhar_number, enquiry_date, blood_group,
-      admission_year_id,
-      admission_year_obj:admission_years!admission_year_id(program_start_year)
+      admission_year_id, quota_id, community_category_id, caste_id, accommodation_type_id,
+      admission_year_obj:admission_years!admission_year_id(year),
+      quota_obj:quotas!quota_id(name),
+      community_obj:community_categories!community_category_id(code),
+      caste_obj:castes!caste_id(name),
+      accommodation_obj:accommodation_types!accommodation_type_id(name)
     `.trim();
 
     const { data: learnerRaw, error } = await supabase
@@ -111,11 +115,19 @@ export async function GET(
     }
 
     // 2026-05-02 (Phase C-8): Derive legacy admission_year integer from FK join.
-    const ayObj = (learnerRaw as any).admission_year_obj as { program_start_year?: number } | null;
-    const { admission_year_obj: _ay, ...learnerRest } = learnerRaw as any;
+    const ayObj = (learnerRaw as any).admission_year_obj as { year?: number } | null;
+    const quotaObj = (learnerRaw as any).quota_obj as { name?: string } | null;
+    const communityObj = (learnerRaw as any).community_obj as { code?: string } | null;
+    const casteObj = (learnerRaw as any).caste_obj as { name?: string } | null;
+    const accommodationObj = (learnerRaw as any).accommodation_obj as { name?: string } | null;
+    const { admission_year_obj: _ay, quota_obj: _q, community_obj: _c, caste_obj: _cs, accommodation_obj: _acc, ...learnerRest } = learnerRaw as any;
     const learner = {
       ...learnerRest,
-      admission_year: ayObj?.program_start_year ?? null,
+      admission_year: ayObj?.year ?? null,
+      quota: quotaObj?.name ?? null,
+      community: communityObj?.code ?? null,
+      caste: casteObj?.name ?? null,
+      accommodation_type: accommodationObj?.name ?? null,
     };
 
     // Expand related data if requested

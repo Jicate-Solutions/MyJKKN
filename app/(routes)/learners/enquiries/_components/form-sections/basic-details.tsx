@@ -22,6 +22,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ProfileImageUpload } from '../profile-image-upload';
+import { OccupationField } from '@/components/admission/occupation-field';
+import { CommunityField, CasteField } from '@/components/admission/community-caste-selector';
 
 interface BasicDetailsProps {
   form: UseFormReturn<any>;
@@ -43,19 +45,6 @@ export function BasicDetailsSection({ form, onImageFileChange, isStudentView = f
     { value: 'CHRISTIAN', label: 'Christian' },
     { value: 'MUSLIM', label: 'Muslim' },
     { value: 'OTHERS', label: 'Others' }
-  ];
-
-  // Community options
-  const communityOptions = [
-    { value: 'OC', label: 'OC' },
-    { value: 'BC', label: 'BC' },
-    { value: 'BCM', label: 'BCM' },
-    { value: 'MBC', label: 'MBC' },
-    { value: 'DNC', label: 'DNC' },
-    { value: 'BC-CC', label: 'BC-CC' },
-    { value: 'SC', label: 'SC' },
-    { value: 'ST', label: 'ST' },
-    { value: 'SC (A)', label: 'SC (A)' }
   ];
 
   // Blood group options
@@ -239,43 +228,26 @@ export function BasicDetailsSection({ form, onImageFileChange, isStudentView = f
             )}
           />
 
-          <FormField
-            control={form.control}
-            name="community"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Community <span className="text-red-500">*</span></FormLabel>
-                <Select onValueChange={field.onChange} value={field.value || ''}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select community" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {communityOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
+          {/* Community and Caste — separate cells in the 3-col grid so
+              Religion | Community | Caste sit on one row at md:+ widths. */}
+          <CommunityField
+            value={form.watch('community_category_id') ?? ''}
+            onChange={(val) =>
+              form.setValue('community_category_id', val, { shouldDirty: true, shouldValidate: true })
+            }
+            onCascadeReset={() =>
+              form.setValue('caste_id', '', { shouldDirty: true, shouldValidate: true })
+            }
+            required
           />
-
-          <FormField
-            control={form.control}
-            name="caste"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Caste <span className="text-red-500">*</span></FormLabel>
-                <FormControl>
-                  <Input placeholder="Enter caste" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
+          <CasteField
+            communityCategoryId={form.watch('community_category_id') ?? ''}
+            value={form.watch('caste_id') ?? ''}
+            onChange={(val) =>
+              form.setValue('caste_id', val, { shouldDirty: true, shouldValidate: true })
+            }
+            required
+            legacyCasteText={form.watch('caste') ?? ''}
           />
         </div>
 
@@ -350,10 +322,11 @@ export function BasicDetailsSection({ form, onImageFileChange, isStudentView = f
             name="father_occupation"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Father&apos;s Occupation</FormLabel>
-                <FormControl>
-                  <Input placeholder="Enter occupation" {...field} />
-                </FormControl>
+                <OccupationField
+                  label="Father's Occupation"
+                  value={field.value ?? ''}
+                  onChange={field.onChange}
+                />
                 <FormMessage />
               </FormItem>
             )}
@@ -398,10 +371,11 @@ export function BasicDetailsSection({ form, onImageFileChange, isStudentView = f
             name="mother_occupation"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Mother&apos;s Occupation</FormLabel>
-                <FormControl>
-                  <Input placeholder="Enter occupation" {...field} />
-                </FormControl>
+                <OccupationField
+                  label="Mother's Occupation"
+                  value={field.value ?? ''}
+                  onChange={field.onChange}
+                />
                 <FormMessage />
               </FormItem>
             )}

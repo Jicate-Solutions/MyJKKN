@@ -1,5 +1,8 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+# Windows / Git Bash crash dumps
+*.stackdump
+
 # dependencies
 /node_modules
 /.pnp
@@ -10,11 +13,17 @@
 !.yarn/releases
 !.yarn/versions
 
+# This project uses npm exclusively (matches CI / Vercel). Block other PMs' lockfiles.
+bun.lock
+bun.lockb
+pnpm-lock.yaml
+yarn.lock
+
 # testing
 /coverage
 
 # next.js
-/.next/
+.next
 /out/
 
 # production
@@ -26,6 +35,12 @@
 
 # Claude Code
 CLAUDE.md
+
+# Claude Code subagent scratch files (commit message drafts, tsc output captures)
+.commit-msg*.tmp
+.git-commit-msg*.tmp
+.tsc-out*.txt
+tsc-output*.log
 
 # SAML certificates (private keys must never be committed)
 certs/saml/*.pem
@@ -63,6 +78,11 @@ tmpclaude-*
 
 # git worktrees
 .worktrees/
+.claude/worktrees/
+
+# Build logs (test artifacts, not for commit)
+build.log
+build-*.log
 docs/features/mathswork/SAML_PRIVATE_KEY_B64.txt
 docs/features/mathswork/SAML_PUBLIC_CERTIFICATE_B64.txt
 docs/features/mathswork/myjkkn-saml-private.pem
@@ -80,7 +100,25 @@ public/swe-worker-*.js.map
 # Sentry Config File
 .env.sentry-build-plugin
 
+# Razorpay per-institution credential seed file (plaintext secrets — never commit)
+razorpay-accounts.seed.json
+
 # Agent worktrees (created by parallel sub-agent runs in interactive sessions)
 .claude/worktrees/
 
+# /loop & /schedule runtime state — session ID + PID, not feature work
+.claude/scheduled_tasks.lock
+
 .screenshots/
+
+# CodeGraph index (local, per-machine)
+.codegraph/
+
+# MSYS/Cygwin bash crash dumps on Windows
+*.stackdump
+
+.playwright-mcp/
+
+# Python bytecode
+__pycache__/
+*.pyc

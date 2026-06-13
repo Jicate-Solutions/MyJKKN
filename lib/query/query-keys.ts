@@ -11,5 +11,23 @@ export const queryKeys = {
     stats: () => [...queryKeys.bugReports.all, 'stats'] as const,
     reporterStats: (filters: any) =>
       [...queryKeys.bugReports.all, 'reporter-stats', filters] as const
-  }
+  },
+  campusLiving: {
+    all: ['campus-living'] as const,
+    myHostel: {
+      all: ['campus-living', 'my-hostel'] as const,
+      summary: (learnerId: string) =>
+        ['campus-living', 'my-hostel', 'summary', learnerId] as const,
+      fees: (categoryId: string) =>
+        ['campus-living', 'my-hostel', 'fees', categoryId] as const,
+    },
+    hostelFeeResolution: (learnerId: string, hostelYearId: string) =>
+      ['campus-living', 'hostel-fee-resolution', learnerId, hostelYearId] as const,
+    hostelBillGeneration: (hostelYearId: string) =>
+      ['campus-living', 'hostel-bill-generation', hostelYearId] as const,
+  },
+  razorpayAccounts: {
+    all: ['razorpay-accounts'] as const,
+    list: () => [...queryKeys.razorpayAccounts.all, 'list'] as const,
+  },
 } as const;

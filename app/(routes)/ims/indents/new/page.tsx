@@ -7,7 +7,6 @@ import { useAuth } from '@/hooks/use-auth';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import { useCreateImsIndent } from '@/hooks/ims/use-ims-indents';
 import { useImsItemsForSelect } from '@/hooks/ims/use-ims-inventory';
-import { useImsUnitsForSelect } from '@/hooks/ims/use-ims-settings';
 import { useImsDepartmentsForSelect } from '@/hooks/ims/use-ims-departments';
 import type { ImsIndentUrgency } from '@/types/ims/indents';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,6 +30,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
@@ -72,8 +72,6 @@ function NewIndentPageInner() {
   } = useImsDepartmentsForSelect(institutionId);
   const { data: itemsForSelect, isLoading: itemsLoading } =
     useImsItemsForSelect(storeId ?? '', institutionId);
-  const { data: unitsForSelect, isLoading: unitsLoading } =
-    useImsUnitsForSelect();
   const createIndent = useCreateImsIndent();
 
   const handleAddItem = () => {
@@ -328,7 +326,7 @@ function NewIndentPageInner() {
             </div>
           </CardHeader>
           <CardContent>
-            {itemsLoading || unitsLoading ? (
+            {itemsLoading ? (
               <div className="flex items-center justify-center py-8">
                 <BeatLoader color="hsl(var(--primary))" size={10} />
               </div>
@@ -353,9 +351,30 @@ function NewIndentPageInner() {
                       <TableCell>
                         <Select
                           value={item.item_id}
-                          onValueChange={(val) =>
-                            handleItemChange(index, 'item_id', val)
-                          }
+                          onValueChange={(val) => {
+                            const selectedItem = (itemsForSelect || []).find(
+                              (i: { id: string }) => i.id === val
+                            ) as {
+                              id: string;
+                              name: string;
+                              code: string;
+                              indent_unit_id?: string | null;
+                              base_unit_id?: string | null;
+                              indent_unit?: { id: string; name: string; abbreviation: string } | null;
+                              base_unit?: { id: string; name: string; abbreviation: string } | null;
+                            } | undefined;
+                            const autoUnitId =
+                              selectedItem?.indent_unit_id ||
+                              selectedItem?.base_unit_id ||
+                              '';
+                            setItems((prev) =>
+                              prev.map((row, i) =>
+                                i === index
+                                  ? { ...row, item_id: val, unit_id: autoUnitId }
+                                  : row
+                              )
+                            );
+                          }}
                         >
                           <SelectTrigger>
                             <SelectValue placeholder="Select item" />
@@ -386,25 +405,33 @@ function NewIndentPageInner() {
                         />
                       </TableCell>
                       <TableCell>
-                        <Select
-                          value={item.unit_id}
-                          onValueChange={(val) =>
-                            handleItemChange(index, 'unit_id', val)
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select unit" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(unitsForSelect || []).map(
-                              (unit: { id: string; name: string; abbreviation: string }) => (
-                                <SelectItem key={unit.id} value={unit.id}>
-                                  {unit.name} ({unit.abbreviation})
-                                </SelectItem>
-                              )
-                            )}
-                          </SelectContent>
-                        </Select>
+                        {(() => {
+                          const selectedItem = (itemsForSelect || []).find(
+                            (i: { id: string }) => i.id === item.item_id
+                          ) as {
+                            id: string;
+                            indent_unit?: { id: string; name: string; abbreviation: string } | null;
+                            base_unit?: { id: string; name: string; abbreviation: string } | null;
+                          } | undefined;
+                          const unitAbbr =
+                            selectedItem?.indent_unit?.abbreviation ||
+                            selectedItem?.base_unit?.abbreviation;
+                          if (!item.item_id)
+                            return (
+                              <span className="text-muted-foreground text-sm">—</span>
+                            );
+                          if (!unitAbbr)
+                            return (
+                              <span className="text-destructive text-sm">
+                                No unit defined
+                              </span>
+                            );
+                          return (
+                            <Badge variant="outline" className="font-mono">
+                              {unitAbbr}
+                            </Badge>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell>
                         <Input

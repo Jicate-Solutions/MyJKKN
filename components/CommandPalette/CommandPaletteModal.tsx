@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/compone
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 import { usePageSearch } from '@/hooks/use-page-search';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { usePageFavorites } from '@/hooks/use-page-favorites';
 import { ICON_MAP } from '@/lib/navigation/page-registry';
 import { KEYBOARD_SHORTCUTS } from '@/lib/navigation/keyboard-shortcuts';
@@ -320,6 +321,7 @@ function SearchResultItem({
   favorited?: boolean;
 }) {
   const { page } = result;
+  const adapt = useAdaptiveLabels();
   const IconComponent = ICON_MAP[page.iconName] || FileText;
 
   return (
@@ -338,7 +340,7 @@ function SearchResultItem({
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium truncate">{page.title}</span>
+          <span className="text-sm font-medium truncate">{adapt(page.title)}</span>
           {favorited && (
             <Star
               className="h-3 w-3 fill-yellow-400 text-yellow-400 shrink-0"
@@ -376,6 +378,7 @@ function RecentPageItem({
   shortcut?: string;
   onSelect: (path: string) => void;
 }) {
+  const adapt = useAdaptiveLabels();
   const IconComponent = ICON_MAP[recent.iconName] || FileText;
   const timeAgo = getTimeAgo(recent.visitedAt);
 
@@ -394,7 +397,7 @@ function RecentPageItem({
         <IconComponent className="h-4 w-4 text-muted-foreground" />
       </div>
       <div className="flex-1 min-w-0">
-        <span className="text-sm font-medium truncate block">{recent.title}</span>
+        <span className="text-sm font-medium truncate block">{adapt(recent.title)}</span>
         <span className="text-xs text-muted-foreground">{recent.module}</span>
       </div>
       {shortcut ? (

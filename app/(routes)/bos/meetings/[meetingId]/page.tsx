@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState } from 'react';
+import { use, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import {
@@ -27,15 +27,24 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { SearchableSelect } from '@/components/ui/searchable-select';
+import { useQuery } from '@tanstack/react-query';
+import { useBosInstitutionScope } from '@/hooks/bos/use-bos-institution-scope';
 import { AgendaTab } from './_components/agenda-tab';
 import { AttendanceTab } from './_components/attendance-tab';
 import { DocumentsTab } from './_components/documents-tab';
+import { SyllabusTab } from './_components/syllabi-tab';
+import { MembersTab } from './_components/members-tab';
+import { MinutesTab } from './_components/minutes-tab';
 
 import { useBosMeeting, useTransitionBosMeetingStatus } from '@/hooks/bos/use-bos-meetings';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAuth } from '@/hooks/use-auth';
+import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
 import { MeetingStatusStepper } from '../_components/meeting-status-stepper';
 import {
   BosMeetingStatus,
@@ -49,12 +58,12 @@ import { logger } from '@/lib/utils/enhanced-logger';
 
 const TRANSITION_LABELS: Partial<Record<BosMeetingStatus, string>> = {
   principal_approved: 'Submit for Principal Approval',
-  noticed: 'Mark Notice Sent',
-  expert_invited: 'Mark Experts Invited',
-  completed: 'Mark Meeting Completed',
+  noticed: 'Approved',
+  expert_invited: 'Forward to Experts Invite',
+  completed: 'Meeting Finalized',
   minutes_drafted: 'Draft Minutes',
-  minutes_approved: 'Approve Minutes',
-  ratified: 'Record Ratification',
+  minutes_approved: 'Forward to Minutes Approval',
+  ratified: 'Minutes Approved',
 };
 
 // ── Transitions that need extra metadata from the user ────────────────────────
@@ -63,10 +72,30 @@ const METADATA_TRANSITIONS = new Set<BosMeetingStatus>([
   'principal_approved',
   'minutes_approved',
   'ratified',
+  // The entries below are included purely for *confirmation* — they don't
+  // need extra metadata, but each is a non-trivial workflow step:
+  //   • 'noticed'         → triggers post-approval handoff (this is the
+  //                         principal confirming the approval; a misclick
+  //                         shouldn't fire it).
+  //   • 'expert_invited'  → sends invitation requests to external experts
+  //                         (will fan out emails/notifications downstream).
+  //   • 'completed'       → marks the meeting as finished; no rollback.
+  // The TransitionDialog falls through to its generic "Confirm moving this
+  // meeting to ..." branch for any nextStatus that isn't approval /
+  // ratification / minutes-draft, so no dialog code changes are needed.
+  'noticed',
+  'expert_invited',
+  'completed',
 ]);
 
 interface TransitionMetadata {
-  approver?: string;        // for principal_approved, minutes_approved
+  // staff.id of the selected principal/approver. Stored on bos_meetings as
+  // principal_approved_by (UUID FK to staff) for principal_approved and as
+  // minutes_approved_by for minutes_approved. The DB column is what later
+  // gates the "Mark Notice Sent" button: only the user whose auth profile
+  // matches staff.profile_id can advance the workflow further.
+  principal_approved_by?: string;
+  minutes_approved_by?: string;
   ratified_date?: string;   // for ratified
   minutes_summary?: string; // for minutes_drafted
 }
@@ -76,27 +105,99 @@ interface TransitionMetadata {
 interface TransitionDialogProps {
   open: boolean;
   nextStatus: BosMeetingStatus;
+  /** Used to scope the principal lookup to staff in this meeting's institution. */
+  institutionsId: string;
   onConfirm: (meta: TransitionMetadata) => void;
   onCancel: () => void;
   isPending: boolean;
 }
 
-function TransitionDialog({ open, nextStatus, onConfirm, onCancel, isPending }: TransitionDialogProps) {
+// Staff row shape returned by /api/staff (only the fields we use)
+interface PrincipalStaff {
+  id: string;
+  staff_id?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  designation?: string | null;
+}
+
+function buildStaffDisplayName(s: PrincipalStaff): string {
+  const full = `${s.first_name ?? ''} ${s.last_name ?? ''}`.trim();
+  return full || s.staff_id || 'Unnamed';
+}
+
+function TransitionDialog({
+  open,
+  nextStatus,
+  institutionsId,
+  onConfirm,
+  onCancel,
+  isPending,
+}: TransitionDialogProps) {
   const [approver, setApprover] = useState('');
   const [ratifiedDate, setRatifiedDate] = useState('');
   const [minutesSummary, setMinutesSummary] = useState('');
 
+  const isApproval = nextStatus === 'principal_approved' || nextStatus === 'minutes_approved';
+  const isRatification = nextStatus === 'ratified';
+  const isMinutesDraft = nextStatus === 'minutes_drafted';
+
+  // CAS-aware institution scope. The meeting's institutions_id may be one
+  // half of an Aided + Self-Financing pair, but the principal could be
+  // registered under the sibling UUID. useBosInstitutionScope expands the
+  // single id into the full pair via the COE-authoritative resolver, so we
+  // never silently miss data for CAS colleges.
+  const instScope = useBosInstitutionScope(institutionsId);
+
+  // Fetch principals via the dedicated BoS lookup endpoint, NOT /api/staff.
+  // /api/staff applies the staff-module scope, which collapses to 'own_records'
+  // for faculty BoS members — they can only see their own staff row and would
+  // never find a principal. /api/bos/lookup/principals is the designated
+  // exception: BoS-auth gated, service-role staff read, matches on
+  //   role_key = 'principal' OR employment_categories.category_name ILIKE 'Principal%'
+  // and CAS-expands the meeting's institutions_id server-side.
+  const { data: principalsData, isLoading: loadingPrincipals } = useQuery({
+    queryKey: ['bos', 'principals', instScope.csv],
+    queryFn: async () => {
+      const params = new URLSearchParams({ limit: '50' });
+      if (instScope.csv) params.set('institutionsIds', instScope.csv);
+      const res = await fetch(`/api/bos/lookup/principals?${params}`);
+      if (!res.ok) throw new Error('Failed to load principals');
+      return res.json() as Promise<{ data: PrincipalStaff[] }>;
+    },
+    enabled: open && isApproval && !instScope.isLoading && !!instScope.csv,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // Option value = staff.id (opaque UUID — won't collide with cmdk's value
+  // normalization inside a Radix Dialog). Display string is resolved at
+  // submit time so the persisted approver field remains human-readable.
+  const principalOptions = useMemo(() => {
+    return (principalsData?.data ?? []).map((s) => {
+      const name = buildStaffDisplayName(s);
+      const label = s.designation ? `${name} — ${s.designation}` : name;
+      return { value: s.id, label };
+    });
+  }, [principalsData]);
+
   const handleConfirm = () => {
+    // Send the raw staff.id (UUID) — the DB columns principal_approved_by /
+    // minutes_approved_by are typed UUID REFERENCES staff(id). The display
+    // name is derivable from the embedded staff join on the next read; we no
+    // longer denormalize it into the column. Earlier code was sending a
+    // formatted display string under the wrong metadata key (`approver`),
+    // which the API ignored — so principal_approved_by was silently NULL for
+    // every meeting up to this fix.
+    const staffId = approver.trim() || undefined;
     onConfirm({
-      approver: approver.trim() || undefined,
+      principal_approved_by:
+        nextStatus === 'principal_approved' ? staffId : undefined,
+      minutes_approved_by:
+        nextStatus === 'minutes_approved' ? staffId : undefined,
       ratified_date: ratifiedDate || undefined,
       minutes_summary: minutesSummary.trim() || undefined,
     });
   };
-
-  const isApproval = nextStatus === 'principal_approved' || nextStatus === 'minutes_approved';
-  const isRatification = nextStatus === 'ratified';
-  const isMinutesDraft = nextStatus === 'minutes_drafted';
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onCancel(); }}>
@@ -108,12 +209,33 @@ function TransitionDialog({ open, nextStatus, onConfirm, onCancel, isPending }: 
         <div className='space-y-4 py-2'>
           {isApproval && (
             <div className='space-y-2'>
-              <Label>Approved by</Label>
-              <Input
-                placeholder='e.g. Dr. K. Rajamani, Principal'
+              <Label>
+                Approved by <span className='text-destructive'>*</span>
+              </Label>
+              <SearchableSelect
                 value={approver}
-                onChange={(e) => setApprover(e.target.value)}
+                onValueChange={setApprover}
+                options={principalOptions}
+                placeholder={
+                  instScope.isLoading
+                    ? 'Resolving institution…'
+                    : loadingPrincipals
+                      ? 'Loading principals…'
+                      : principalOptions.length === 0
+                        ? 'No principals found for this institution'
+                        : 'Select principal'
+                }
+                searchPlaceholder='Search principal…'
+                loading={instScope.isLoading || loadingPrincipals}
+                disabled={instScope.isLoading || loadingPrincipals || principalOptions.length === 0}
+                className='w-full'
+                modal
               />
+              {instScope.isCAS && !loadingPrincipals && (
+                <p className='text-[11px] text-muted-foreground'>
+                  Searching across both Aided & Self-Financing campuses.
+                </p>
+              )}
             </div>
           )}
           {isRatification && (
@@ -148,7 +270,10 @@ function TransitionDialog({ open, nextStatus, onConfirm, onCancel, isPending }: 
 
         <DialogFooter>
           <Button variant='outline' onClick={onCancel} disabled={isPending}>Cancel</Button>
-          <Button onClick={handleConfirm} disabled={isPending}>
+          <Button
+            onClick={handleConfirm}
+            disabled={isPending || (isApproval && !approver.trim())}
+          >
             {isPending ? 'Updating...' : 'Confirm'}
           </Button>
         </DialogFooter>
@@ -182,18 +307,77 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
   const { meetingId } = use(params);
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const { profile } = useAuth();
+  const bosScope = useBosBoardScope();
   const { data: meeting, isLoading } = useBosMeeting(meetingId);
   const transitionStatus = useTransitionBosMeetingStatus();
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [showTransitionDialog, setShowTransitionDialog] = useState(false);
+  // Email-threshold info dialog state. Surfaced when the user clicks
+  // "Meeting Finalized" (expert_invited → completed) but fewer than half of
+  // the composition members have a successful email send recorded for this
+  // meeting. The dialog points them at the Members tab to send more.
+  const [emailThresholdInfo, setEmailThresholdInfo] = useState<{
+    sent: number;
+    total: number;
+  } | null>(null);
 
   const canEdit = isSuperAdmin || canAccess('academic.bos-meetings', 'edit');
 
   // Open dialog for transitions that need extra metadata; fire directly otherwise
-  const handleTransition = () => {
+  const handleTransition = async () => {
     if (!meeting) return;
     const nextStatus = BOS_MEETING_NEXT_STATUS[meeting.status];
     if (!nextStatus) return;
+
+    // Block draft → principal_approved if no agenda items exist. The server
+    // route enforces the same rule (so we stay correct under stale cache), but
+    // catching it here avoids opening the approver picker for an action that
+    // will fail anyway.
+    if (nextStatus === 'principal_approved' && (meeting.agenda_item_count ?? 0) < 1) {
+      toast.error('Add at least one agenda item before submitting for Principal Approval.');
+      return;
+    }
+
+    // Email-threshold check for "Meeting Finalized" (expert_invited → completed).
+    // We require ≥ 50% of composition members to have a recorded successful
+    // email send for this meeting before allowing finalization. The audit
+    // source is bos_email_send_log via /api/bos/meetings/[id]/email-status —
+    // the same endpoint the Members tab uses to render send-status badges.
+    // Falling below threshold opens an info dialog steering the user to the
+    // Members tab to send more invites; it does NOT itself send anything.
+    if (nextStatus === 'completed') {
+      const compositionMembers =
+        ((meeting as { bos_compositions?: { bos_members?: unknown[] } }).bos_compositions
+          ?.bos_members ?? []) as unknown[];
+      const totalMembers = compositionMembers.length;
+      if (totalMembers > 0) {
+        try {
+          const res = await fetch(`/api/bos/meetings/${meetingId}/email-status`);
+          if (res.ok) {
+            const json = (await res.json()) as {
+              byMemberId?: Record<string, { status: string }>;
+            };
+            const sentCount = Object.values(json.byMemberId ?? {}).filter(
+              (e) => e.status === 'sent',
+            ).length;
+            const pct = sentCount / totalMembers;
+            if (pct < 0.5) {
+              // Park the user-facing reminder; abort further flow until the
+              // user dismisses the info dialog.
+              setEmailThresholdInfo({ sent: sentCount, total: totalMembers });
+              return;
+            }
+          }
+          // If the status endpoint fails (e.g. log table missing), fall
+          // through to the dialog — better to allow finalization than to
+          // hard-block on an infra hiccup. The server-side workflow gates
+          // still apply.
+        } catch (e) {
+          console.warn('[bos/meeting] email-status check failed, proceeding anyway:', e);
+        }
+      }
+    }
 
     if (METADATA_TRANSITIONS.has(nextStatus)) {
       setShowTransitionDialog(true);
@@ -210,7 +394,35 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
     setIsTransitioning(true);
     try {
       await transitionStatus.mutateAsync({ id: meetingId, newStatus: nextStatus, metadata: meta as any });
-      toast.success(`Status updated to: ${BOS_MEETING_STATUS_LABELS[nextStatus]}`);
+
+      // Chain through the hidden 'completed' state: per the 2026-05-20 UX
+      // change, clicking "Meeting Finalized" at expert_invited collapses the
+      // expert_invited → completed → minutes_drafted sequence into a single
+      // user action. The first PATCH lands at 'completed', then we fire a
+      // follow-up to advance straight to 'minutes_drafted' so the stepper
+      // visibly jumps past the Completed step. If the second PATCH fails,
+      // the meeting is left at 'completed' — a super-admin can recover via
+      // the legacy "Draft Minutes" button (the state-machine entry
+      // completed → minutes_drafted is still permitted).
+      if (nextStatus === 'completed') {
+        const followUp = BOS_MEETING_NEXT_STATUS.completed;
+        if (followUp) {
+          try {
+            await transitionStatus.mutateAsync({
+              id: meetingId,
+              newStatus: followUp,
+              metadata: {},
+            });
+            toast.success(`Status updated to: ${BOS_MEETING_STATUS_LABELS[followUp]}`);
+          } catch (chainError) {
+            logger.error('academic/bos', 'Failed to chain to minutes_drafted', chainError);
+            toast.error('Meeting marked completed, but advancing to Minutes Drafted failed. Use Draft Minutes to continue.');
+          }
+        }
+      } else {
+        toast.success(`Status updated to: ${BOS_MEETING_STATUS_LABELS[nextStatus]}`);
+      }
+
       setShowTransitionDialog(false);
     } catch (error) {
       logger.error('academic/bos', 'Failed to transition meeting status', error);
@@ -222,7 +434,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
 
   if (isLoading) {
     return (
-      <div className='max-w-4xl space-y-4'>
+      <div className='w-full space-y-4'>
         <Skeleton className='h-10 w-72' />
         <Skeleton className='h-20 w-full' />
         <Skeleton className='h-32 w-full' />
@@ -233,7 +445,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
 
   if (!meeting) {
     return (
-      <div className='max-w-4xl'>
+      <div className='w-full'>
         <p className='text-muted-foreground'>Meeting not found.</p>
       </div>
     );
@@ -245,31 +457,84 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
   const board = meeting.board as any;
   const composition = (meeting as any).bos_compositions as any;
 
+  // Gate the next-status button. For every transition except the
+  // post-principal-approval step the regular canEdit gate applies. The
+  // principal_approved → noticed step is special: only the staff member who
+  // was recorded as the approver during draft submission may advance it. If
+  // the column is NULL (legacy meeting from before the dialog-bug fix on
+  // 2026-05-19), the button is restricted to super admins so those records
+  // don't get permanently stuck.
+  const approverProfileId = meeting.principal_approved_by_staff?.profile_id ?? null;
+  const canAdvanceFromPrincipalApproved =
+    approverProfileId !== null
+      ? !!profile?.id && profile.id === approverProfileId
+      : isSuperAdmin;
+  // Workflow gate:
+  //   • draft → principal_approved (Submit for Principal Approval): only
+  //     super admin OR a board member of THIS meeting's composition can push.
+  //     memberOf already includes chairmen (chairman is a member record with
+  //     member_type='chairman'), so a single Set check covers both. The
+  //     previous rule allowed any user with the broad edit permission OR any
+  //     principal — too permissive for a workflow-initiating action; tightened
+  //     per UX request on 2026-05-20.
+  //   • principal_approved → noticed: only the recorded approver may advance
+  //   • noticed → expert_invited (Forward to Experts Invite),
+  //     expert_invited → completed (Meeting Finalized),
+  //     minutes_drafted → minutes_approved (Forward to Minutes Approval):
+  //     same tightened rule as the draft submission — super admin OR a board
+  //     member/chairman of this composition. Broad role-perm holders (e.g.
+  //     someone with bos.meetings.edit but no membership) and principals can
+  //     no longer push.
+  //   • minutes_approved → ratified (Minutes Approved): the final
+  //     ratification step belongs to the principal who oversees the academic
+  //     council process. Only super-admin or principal can push — board
+  //     members and chairmen who drafted the minutes are explicitly excluded
+  //     from this one transition.
+  //   • everything else: canEdit
+  const isCompositionMember =
+    !!meeting.composition_id && bosScope.memberOf.has(meeting.composition_id);
+  // Minutes tab is meaningful from the minutes-drafting phase onward. We
+  // explicitly include 'completed' because legacy meetings stuck at that
+  // status (created before the 2026-05-20 skip-chain shipped) still need a
+  // place to draft minutes — without this they'd be locked out of the tab
+  // until a super-admin advances them.
+  const showMinutesTab = ['completed', 'minutes_drafted', 'minutes_approved', 'ratified'].includes(
+    meeting.status,
+  );
+  const canTransitionNext =
+    meeting.status === 'principal_approved'
+      ? canAdvanceFromPrincipalApproved
+      : meeting.status === 'minutes_approved'
+        ? isSuperAdmin || bosScope.isPrincipal
+        : meeting.status === 'draft' ||
+            meeting.status === 'noticed' ||
+            meeting.status === 'expert_invited' ||
+            meeting.status === 'minutes_drafted'
+          ? isSuperAdmin || isCompositionMember
+          : canEdit;
+
   return (
-    <div className='max-w-4xl space-y-6'>
+    <div className='w-full space-y-6'>
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <PageHeader
         title={meeting.meeting_title ?? `Meeting #${meeting.meeting_number}/${meeting.academic_year}`}
         description={board ? `${board.board_name} · ${BOS_MEETING_TYPE_LABELS[meeting.meeting_type]}` : ''}
       >
         <div className='flex items-center gap-2'>
-          <Badge variant='outline'>
-            {BOS_MEETING_STATUS_LABELS[meeting.status]}
-          </Badge>
-          {canEdit && isDraft && (
+          {canEdit && (isDraft || meeting.status === 'principal_approved') && (
             <Button
               size='sm'
               variant='outline'
               onClick={() => router.push(`/bos/meetings/${meetingId}/edit`)}
             >
               <Edit className='mr-2 h-4 w-4' />
-              Edit
+              Edit Schedule & Venue
             </Button>
           )}
-          {canEdit && nextStatus && !isRatified && (
+          {canTransitionNext && nextStatus && !isRatified && (
             <Button
               size='sm'
-              onClick={handleTransition}
+              onClick={() => void handleTransition()}
               disabled={isTransitioning || transitionStatus.isPending}
             >
               <ArrowRight className='mr-2 h-4 w-4' />
@@ -438,11 +703,16 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
                   </Badge>
                 )}
               </TabsTrigger>
+              <TabsTrigger value='members'>Members</TabsTrigger>
               <TabsTrigger value='documents'>Documents</TabsTrigger>
+              <TabsTrigger value='syllabus'>Syllabus</TabsTrigger>
+              {showMinutesTab && (
+                <TabsTrigger value='minutes'>Minutes</TabsTrigger>
+              )}
             </TabsList>
 
             <TabsContent value='agenda'>
-              <AgendaTab meetingId={meetingId} canEdit={canEdit} />
+              <AgendaTab meetingId={meetingId} canEdit={canEdit} meetingStatus={meeting.status} />
             </TabsContent>
 
             <TabsContent value='attendance'>
@@ -451,6 +721,15 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
                 compositionId={meeting.composition_id}
                 institutionsId={meeting.institutions_id}
                 canEdit={canEdit}
+                meetingStatus={meeting.status}
+              />
+            </TabsContent>
+
+            <TabsContent value='members'>
+              <MembersTab
+                meetingId={meetingId}
+                compositionId={meeting.composition_id}
+                meetingStatus={meeting.status}
               />
             </TabsContent>
 
@@ -460,6 +739,37 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
                 compositionId={meeting.composition_id}
               />
             </TabsContent>
+
+            <TabsContent value='syllabus'>
+              <SyllabusTab
+                meetingId={meetingId}
+                boardId={meeting.board_id}
+                regulationId={meeting.regulation_id}
+                compositionId={meeting.composition_id}
+                institutionsId={meeting.institutions_id}
+                meetingStatus={meeting.status}
+                canEdit={canEdit}
+              />
+            </TabsContent>
+
+            {showMinutesTab && (
+              <TabsContent value='minutes'>
+                {/* Force read-only once minutes are approved or the meeting
+                    is ratified: at that point the minutes are formally
+                    accepted by the academic council and editing them would
+                    invalidate the auto-forked V2 syllabi that were created
+                    on that approval. canEdit composed with the status gate
+                    keeps both permission and lifecycle rules in one place. */}
+                <MinutesTab
+                  meeting={meeting}
+                  canEdit={
+                    canEdit &&
+                    meeting.status !== 'minutes_approved' &&
+                    meeting.status !== 'ratified'
+                  }
+                />
+              </TabsContent>
+            )}
           </Tabs>
         </CardContent>
       </Card>
@@ -469,11 +779,49 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
         <TransitionDialog
           open={showTransitionDialog}
           nextStatus={nextStatus}
+          institutionsId={meeting.institutions_id}
           onConfirm={handleTransitionConfirm}
           onCancel={() => setShowTransitionDialog(false)}
           isPending={isTransitioning || transitionStatus.isPending}
         />
       )}
+
+      {/* ── Email-threshold info dialog ───────────────────────────────────
+          Shown when "Meeting Finalized" is clicked but the per-meeting email
+          send log shows fewer than 50% of composition members have a
+          successful send recorded. Pure info — no action wired (the user
+          must navigate to the Members tab themselves and send more emails). */}
+      <Dialog
+        open={!!emailThresholdInfo}
+        onOpenChange={(v) => { if (!v) setEmailThresholdInfo(null); }}
+      >
+        <DialogContent className='max-w-md'>
+          <DialogHeader>
+            <DialogTitle>Email threshold not reached</DialogTitle>
+            <DialogDescription>
+              {emailThresholdInfo && (
+                <>
+                  Only <strong>{emailThresholdInfo.sent}</strong> of{' '}
+                  <strong>{emailThresholdInfo.total}</strong> members
+                  {' '}({Math.round(
+                    (emailThresholdInfo.sent / Math.max(1, emailThresholdInfo.total)) * 100,
+                  )}
+                  %) have a successful meeting-invitation email recorded.
+                  At least <strong>50%</strong> must be notified before this
+                  meeting can be finalized.
+                  <br />
+                  <br />
+                  Open the <strong>Members</strong> tab to send invitations to
+                  the remaining members, then try again.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={() => setEmailThresholdInfo(null)}>OK</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

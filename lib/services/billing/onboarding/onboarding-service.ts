@@ -7,6 +7,7 @@ import type {
 import { AccountTransitionService } from '@/lib/services/admission/account-transition-service';
 import { AdmissionSettingsService } from '@/lib/services/admission/admission-settings-service';
 import { FeeChangeEventService } from '@/lib/services/admission/fee-change-event-service';
+import { getErrorMessage } from '@/lib/utils';
 // FEE_STRUCTURE_CONFIG removed 2026-04-15 — dynamic fee_items flow replaces it.
 
 // ============================================
@@ -44,6 +45,11 @@ export interface OnboardingLearner extends LearnerProfile {
 
 export type PaymentStatus = 'unpaid' | 'partially_paid' | 'fully_paid';
 export type BillStatus = 'generated' | 'not_generated';
+export type OnboardingLifecycleStatus = 'account' | 'admitted' | 'reserved';
+
+export const ONBOARDING_LIFECYCLE_STATUSES: OnboardingLifecycleStatus[] = [
+  'account', 'admitted', 'reserved',
+];
 
 export interface OnboardingFilters {
   search?: string;           // matches name, email, phone, application_id
@@ -51,6 +57,7 @@ export interface OnboardingFilters {
   degree_id?: string;
   department_id?: string;
   program_id?: string;
+  lifecycle_status?: OnboardingLifecycleStatus;
   // NOTE: semester/section filters intentionally absent — onboarding cohort is
   // by design first-semester-only (newly admitted learners), so filtering by
   // them is meaningless. If multi-semester onboarding is ever introduced,
@@ -141,6 +148,7 @@ export class OnboardingService {
       degree_id,
       department_id,
       program_id,
+      lifecycle_status,
       payment_status,
       bill_status,
       page = 1,
@@ -172,7 +180,10 @@ export class OnboardingService {
           `,
           { count: 'exact' }
         )
-        .eq('lifecycle_status', 'account');
+        .in('lifecycle_status', lifecycle_status
+          ? [lifecycle_status]
+          : ONBOARDING_LIFECYCLE_STATUSES
+        );
 
       // Academic filters (Institution → Degree → Department → Programme).
       // Onboarding cohort is first-semester-only, so semester/section omitted.
@@ -322,8 +333,19 @@ export class OnboardingService {
   /**
    * Creates billing_student_bills rows from learner.fee_items (or legacy fields).
    * Returns the number of bills inserted (0 if learner already has bills,
-   * or 0 if no fee data exists). Idempotent — calling twice is a no-op the
-   * second time because the bill-existence guard skips already-billed learners.
+   * 0 if no fee data exists, or 0 for hostellers — see below). Idempotent —
+   * calling twice is a no-op the second time because the bill-existence guard
+   * skips already-billed learners.
+   *
+   * CUTOVER (hostel billing → Campus Living): hostellers
+   * (accommodation_types.code='hostel') are billed via the Campus Living
+   * generation run (campus_living_generate_hostel_year_bills, hostel_year-
+   * stamped). This method returns 0 for them WITHOUT inserting academic bills,
+   * mirroring the `admission_account_transition_with_bills` RPC guard — otherwise
+   * the academic portion double-bills (the dedup index can't bridge a NULL
+   * hostel_year here vs a set one there). A returned 0 is counted as `skipped`
+   * by the bulk-generate caller (hooks/billing/use-onboarding.ts), exactly like
+   * an already-billed or no-fee learner. Day scholars are unaffected.
    */
   static async createBillsFromProfile(learnerId: string): Promise<number> {
     try {
@@ -338,6 +360,23 @@ export class OnboardingService {
 
       if (fetchError) throw fetchError;
       if (!learner) throw new Error(`Learner ${learnerId} not found`);
+
+      // CUTOVER guard — hostellers are billed via Campus Living, not here.
+      // Skip academic bill insertion entirely (return 0 → counted as skipped).
+      if (learner.accommodation_type_id) {
+        const { data: accType, error: accError } = await supabase
+          .from('accommodation_types')
+          .select('code')
+          .eq('id', learner.accommodation_type_id)
+          .single();
+        if (accError) throw accError;
+        if (accType?.code === 'hostel') {
+          console.info(
+            `[billing/onboarding] createBillsFromProfile skipped learner ${learnerId}: hosteller — billed via campus living`
+          );
+          return 0;
+        }
+      }
 
       // Idempotency guard — if learner already has bills, do nothing.
       // Bulk-generate flows rely on this to skip already-billed learners.
@@ -508,67 +547,66 @@ export class OnboardingService {
   // ── 5. markAsApproved (accounts → active) ───────────────────────────────
 
   /**
-   * Accounts team calls this after confirming 100% payment.
-   * Validates lifecycle_status is 'account' and all bills are fully paid,
-   * then transitions lifecycle_status → 'active'.
+   * Accounts team calls this to promote a learner from 'account' → 'active'.
+   *
+   * Plan (2026-05-17): refactored to delegate the paid-percentage threshold
+   * check to the SECURITY DEFINER RPC `evaluate_learner_status_after_payment`,
+   * which is the single source of truth. The threshold is configured per
+   * status in `admission_statuses` (currently 60% on `active`) instead of the
+   * old hardcoded 100% rule.
+   *
+   * Preserved checks (kept on the JS side):
+   *   - lifecycle_status must be 'account'
+   *   - no `pending_review` fee-change event for the learner
+   *
+   * Returns `{ promoted: true }` when the RPC flipped the status, or
+   * `{ promoted: false, reason }` for non-fatal reasons (e.g. learner was
+   * already not in `account`). Throws on hard errors (RPC error, pending
+   * fee-change event, below threshold).
    */
-  static async markAsApproved(learnerId: string): Promise<void> {
-    try {
-      const supabase = this.supabase as any;
+  static async markAsApproved(
+    learnerId: string
+  ): Promise<{ promoted: boolean; reason?: string }> {
+    // Cast to `any` — generated Supabase types lag the new RPC
+    // `evaluate_learner_status_after_payment` (added in Task D1, 2026-05-17).
+    // Same pattern used by sibling methods in this file.
+    const supabase = this.supabase as any;
 
-      // Fetch learner
-      const { data: learner, error: fetchError } = await supabase
-        .from('learners_profiles')
-        .select('id, lifecycle_status')
-        .eq('id', learnerId)
-        .single();
-
-      if (fetchError) throw fetchError;
-      if (!learner) throw new Error(`Learner ${learnerId} not found`);
-
-      if (learner.lifecycle_status !== 'account') {
-        throw new Error(
-          `Cannot approve: learner is '${learner.lifecycle_status}', expected 'account'`
-        );
-      }
-
-      // Plan 5 Task 11: block activation while a fee-change event is pending review.
-      // The reconciliation must complete (approve/reject) before the learner can
-      // transition to 'active' — otherwise bills/credits could go stale.
-      const hasPending = await FeeChangeEventService.hasPendingForLearner(learnerId);
-      if (hasPending) {
-        throw new Error('Cannot activate: a pending fee-change event must be resolved first');
-      }
-
-      // Check all bills are paid
-      const { data: bills, error: billError } = await supabase
-        .from('billing_student_bills')
-        .select('id, balance_amount')
-        .eq('student_id', learnerId);
-
-      if (billError) throw billError;
-
-      const totalBalance = ((bills as any[]) ?? []).reduce(
-        (sum: number, b: any) => sum + Number(b.balance_amount ?? 0),
-        0
-      );
-
-      if (totalBalance > 0) {
-        throw new Error(
-          `Cannot approve: learner has outstanding balance of ₹${totalBalance.toFixed(2)}`
-        );
-      }
-
-      const { error: updateError } = await supabase
-        .from('learners_profiles')
-        .update({ lifecycle_status: 'active', updated_at: new Date().toISOString() })
-        .eq('id', learnerId);
-
-      if (updateError) throw updateError;
-    } catch (error) {
-      console.error('[billing/onboarding] markAsApproved failed:', error);
-      throw error;
+    // 1. Load current lifecycle_status
+    const { data: profile, error: profileErr } = await supabase
+      .from('learners_profiles')
+      .select('id, lifecycle_status')
+      .eq('id', learnerId)
+      .single();
+    if (profileErr) throw new Error(getErrorMessage(profileErr));
+    if (profile.lifecycle_status !== 'account') {
+      return { promoted: false, reason: `Learner is in '${profile.lifecycle_status}', not 'account'.` };
     }
+
+    // 2. Block if fee-change event pending (existing rule, preserved)
+    if (await FeeChangeEventService.hasPendingForLearner(learnerId)) {
+      throw new Error('Cannot approve: fee-change event pending. Resolve first.');
+    }
+
+    // 3. Delegate to SECURITY DEFINER RPC — single source of truth.
+    const { data, error } = await supabase
+      .rpc('evaluate_learner_status_after_payment', { p_learner_id: learnerId });
+    if (error) throw new Error(getErrorMessage(error));
+
+    const result = data as {
+      updated: boolean; from_status?: string; to_status?: string;
+      paid_pct?: number; threshold?: number; reason?: string;
+    };
+
+    if (!result.updated) {
+      if (result.reason === 'below_threshold') {
+        throw new Error(
+          `Cannot approve: paid ${result.paid_pct ?? 0}% — need threshold from settings (active status).`
+        );
+      }
+      return { promoted: false, reason: result.reason ?? 'unknown' };
+    }
+    return { promoted: true };
   }
 
   // ── 6. revertToApproved ──────────────────────────────────────────────────

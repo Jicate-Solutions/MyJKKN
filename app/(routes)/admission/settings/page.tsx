@@ -355,7 +355,7 @@ function AdmissionSettingsPageContent() {
   const totalWeeklyLimit = settings.whatsapp.maxPerWeek + settings.sms.maxPerWeek + settings.email.maxPerWeek;
 
   return (
-    <PermissionGuard module="admission" action="view">
+    <PermissionGuard module="admission" action="settings.view">
       <ContentLayout title="Admission Settings">
         <div className="space-y-6">
           {/* Breadcrumb */}

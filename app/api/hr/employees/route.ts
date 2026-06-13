@@ -6,7 +6,6 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { HRPersonService } from '@/lib/services/hr/employee-service';
-import { CreateEmployeeSchema } from '@/features/hr/employees/types';
 import type { HRPersonFilters, HREmploymentType } from '@/types/hr';
 
 async function getClient() {
@@ -51,7 +50,7 @@ export async function GET(request: NextRequest) {
       search: url.searchParams.get('search') ?? undefined,
       page: url.searchParams.get('page') ? parseInt(url.searchParams.get('page')!, 10) : 1,
       pageSize: url.searchParams.get('pageSize') ? parseInt(url.searchParams.get('pageSize')!, 10) : 25,
-      include_staff: url.searchParams.get('include_staff') === 'false' ? false : undefined,
+      // include_staff removed — all employees are now in staff table
     };
 
     const result = await HRPersonService.list(supabase, filters);
@@ -65,38 +64,5 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
-  await connection();
-  try {
-    const supabase = await getClient();
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const body = await request.json();
-    const validation = CreateEmployeeSchema.safeParse(body);
-    if (!validation.success) {
-      return NextResponse.json(
-        { error: 'Validation failed', details: validation.error.flatten() },
-        { status: 400 }
-      );
-    }
-
-    // NonStaffEmploymentTypeEnum in the Zod schema already rejects 'full_time'.
-    // Full-time employees are managed via the Staff module + hr_staff_details auto-sync.
-    const employee = await HRPersonService.createNonStaffEmployee(supabase, {
-      ...validation.data,
-      created_by: user.id,
-    } as Parameters<typeof HRPersonService.createNonStaffEmployee>[1]);
-
-    return NextResponse.json({ data: employee }, { status: 201 });
-  } catch (err) {
-    console.error('[hr/employees] POST error', err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Unknown error' },
-      { status: 500 }
-    );
-  }
-}
+// POST removed — hr_employees table no longer exists.
+// Non-staff employee creation will be handled through the staff module.

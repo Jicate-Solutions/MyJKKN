@@ -643,7 +643,7 @@ export async function GET(request: NextRequest) {
       byInstitution: {}
     };
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       data: users,
       metadata: {
         total: count || 0,
@@ -653,6 +653,8 @@ export async function GET(request: NextRequest) {
       },
       stats: filteredStats
     });
+    res.headers.set('Cache-Control', 'no-store, must-revalidate');
+    return res;
   } catch (error) {
     console.error('Error in GET /api/users:', error);
     return NextResponse.json(

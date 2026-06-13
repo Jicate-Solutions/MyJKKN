@@ -12,14 +12,20 @@ import { NotificationBell } from '../notifications/notification-bell';
 import { HeaderConnectionBadge } from '../whatsapp/header-connection-badge';
 import { FavoriteStar } from '../Favorites/FavoriteStar';
 import { derivePageInfo } from '@/lib/navigation/derive-page-info';
+import { useInstitutionType } from '@/hooks/use-institution-type';
+import { adaptLabel } from '@/lib/utils/school-label-adapter';
+
 
 interface NavbarProps {
-  title: string;
+  title?: string;
 }
 
 export function Navbar({ title }: NavbarProps) {
   const { profile } = useAuth();
   const pathname = usePathname();
+  // Adapt the header title to the institution type (e.g. "Degrees" → "Streams"
+  // for schools), keeping the navbar consistent with the sidebar and page body.
+  const { institutionType } = useInstitutionType();
 
   // Look up OR derive — every real app route gets a star, even if it's
   // a dynamic [id] route, a deep-link, or a page added after the static
@@ -31,6 +37,8 @@ export function Navbar({ title }: NavbarProps) {
       return null;
     }
   })();
+
+  const resolvedTitle = adaptLabel(title ?? currentPage?.title ?? '', institutionType);
 
   const handleLogout = async () => {
     try {
@@ -45,7 +53,7 @@ export function Navbar({ title }: NavbarProps) {
       <div className='mx-4 sm:mx-8 flex h-14 items-center justify-between'>
         <div className='flex items-center space-x-4 lg:space-x-0'>
           <SheetMenu />
-          <h1 className='font-bold text-foreground text-sm sm:text-base truncate max-w-[180px] sm:max-w-[300px] md:max-w-none'>{title}</h1>
+          <h1 className='font-bold text-foreground text-sm sm:text-base truncate max-w-[180px] sm:max-w-[300px] md:max-w-none'>{resolvedTitle}</h1>
           {currentPage && (
             <FavoriteStar
               pagePath={currentPage.path}

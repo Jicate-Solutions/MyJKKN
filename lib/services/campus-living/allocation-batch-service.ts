@@ -1,0 +1,306 @@
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { logger } from '@/lib/utils/enhanced-logger';
+import type {
+  AllocationBatch,
+  AllocationBatchRow,
+  AllocatePreview,
+  BatchCategoryBreakdown,
+  ProposedAllocation,
+  AutoCategoryOption,
+  AcademicYearOption,
+  AllocationCandidate,
+  AllocationEligibilityExplain,
+} from '@/types/allocation-batch';
+
+const LOG = 'campus-living/allocation-batch';
+
+export class AllocationBatchService {
+  private static get supabase() {
+    return createClientSupabaseClient();
+  }
+
+  // The generated Database type doesn't carry these campus-living RPCs; wrap
+  // .rpc() loosely (each caller validates/casts the result).
+  private static rpcCall(fn: string, args: Record<string, unknown>) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (this.supabase as any).rpc(fn, args) as Promise<{
+      data: unknown;
+      error: { message?: string } | null;
+    }>;
+  }
+
+  // ── Auto-allocation engine RPCs ──
+  static async preview(blockId: string): Promise<AllocatePreview> {
+    const { data, error } = await this.rpcCall('fn_auto_allocate_preview', { p_block_id: blockId });
+    if (error) { logger.error(LOG, 'preview failed', error); throw new Error(error.message || 'Failed to preview allocation'); }
+    const row = Array.isArray(data) ? data[0] : data;
+    return (row ?? { cohort_eligible: 0, no_profile: 0, already_allocated: 0, available_beds: 0, rules_set: false }) as AllocatePreview;
+  }
+
+  static async previewCandidates(blockId: string): Promise<AllocationCandidate[]> {
+    const { data, error } = await this.rpcCall('fn_auto_allocate_candidates', { p_block_id: blockId });
+    if (error) { logger.error(LOG, 'previewCandidates failed', error); throw new Error(error.message || 'Failed to preview candidates'); }
+    return (Array.isArray(data) ? data : []) as AllocationCandidate[];
+  }
+
+  static async generate(blockId: string, hostelYearId: string): Promise<string> {
+    const { data, error } = await this.rpcCall('fn_auto_allocate_classic', { p_block_id: blockId, p_hostel_year_id: hostelYearId });
+    if (error) { logger.error(LOG, 'generate failed', error); throw new Error(error.message || 'Failed to generate allocation batch'); }
+    return data as string;
+  }
+
+  static async approve(batchId: string): Promise<void> {
+    const { error } = await this.rpcCall('fn_approve_allocation_batch', {
+      p_batch_id: batchId,
+    });
+    if (error) {
+      logger.error(LOG, 'approve failed', error);
+      throw new Error(error.message || 'Failed to approve batch');
+    }
+  }
+
+  static async reject(batchId: string): Promise<void> {
+    const { error } = await this.rpcCall('fn_reject_allocation_batch', {
+      p_batch_id: batchId,
+    });
+    if (error) {
+      logger.error(LOG, 'reject failed', error);
+      throw new Error(error.message || 'Failed to reject batch');
+    }
+  }
+
+  // Completely remove a batch (frees beds + deletes its allocations + the batch).
+  static async reset(batchId: string): Promise<void> {
+    const { error } = await this.rpcCall('fn_reset_allocation_batch', {
+      p_batch_id: batchId,
+    });
+    if (error) {
+      logger.error(LOG, 'reset failed', error);
+      throw new Error(error.message || 'Failed to reset batch');
+    }
+  }
+
+  // ── Reads ──
+  static async getBatches(institutionId?: string): Promise<AllocationBatchRow[]> {
+    let q = this.supabase
+      .from('hostel_allocation_batches')
+      .select('*, category:hostel_categories(name), institution:institutions(name), block:hostel_blocks(name)')
+      .order('created_at', { ascending: false });
+    if (institutionId) q = q.eq('institution_id', institutionId);
+    const { data, error } = await q;
+    if (error) {
+      logger.error(LOG, 'getBatches failed', error);
+      throw new Error(error.message || 'Failed to load batches');
+    }
+
+    // Per-room-category rooms/beds across all listed batches in one RPC; a batch
+    // spans multiple room categories, so batches.category_id is not representative.
+    const breakdowns = new Map<string, BatchCategoryBreakdown[]>();
+    const batchIds = (data ?? []).map((r: Record<string, unknown>) => r.id as string);
+    if (batchIds.length > 0) {
+      const { data: bd, error: bdErr } = await this.rpcCall('fn_batch_room_category_breakdown', {
+        p_batch_ids: batchIds,
+      });
+      if (bdErr) {
+        logger.error(LOG, 'getBatches breakdown failed', bdErr);
+      } else {
+        ((bd ?? []) as { batch_id: string; category: string; rooms: number; beds: number }[]).forEach(
+          (row) => {
+            const list = breakdowns.get(row.batch_id) ?? [];
+            list.push({ category: row.category, rooms: row.rooms, beds: row.beds });
+            breakdowns.set(row.batch_id, list);
+          }
+        );
+      }
+    }
+
+    return (data ?? []).map((r: Record<string, unknown>) => {
+      const cat = r.category as { name?: string } | null;
+      const inst = r.institution as { name?: string } | null;
+      const blk = r.block as { name?: string } | null;
+      const { category: _c, institution: _i, block: _b, ...rest } = r;
+      return {
+        ...(rest as AllocationBatch),
+        category_name: cat?.name ?? null,
+        institution_name: inst?.name ?? null,
+        block_name: blk?.name ?? null,
+        category_breakdown: breakdowns.get(r.id as string) ?? [],
+      };
+    });
+  }
+
+  static async getBatch(
+    batchId: string
+  ): Promise<{ batch: AllocationBatchRow | null; allocations: ProposedAllocation[] }> {
+    const { data: b, error: bErr } = await this.supabase
+      .from('hostel_allocation_batches')
+      .select('*, category:hostel_categories(name), institution:institutions(name), block:hostel_blocks(name, total_capacity, current_occupancy)')
+      .eq('id', batchId)
+      .maybeSingle();
+    if (bErr) {
+      logger.error(LOG, 'getBatch failed', bErr);
+      throw new Error(bErr.message || 'Failed to load batch');
+    }
+    let batch: AllocationBatchRow | null = null;
+    if (b) {
+      const r = b as Record<string, unknown>;
+      const cat = r.category as { name?: string } | null;
+      const inst = r.institution as { name?: string } | null;
+      const blk = r.block as { name?: string; total_capacity?: number; current_occupancy?: number } | null;
+      const { category: _c, institution: _i, block: _b, ...rest } = r;
+      batch = {
+        ...(rest as AllocationBatch),
+        category_name: cat?.name ?? null,
+        institution_name: inst?.name ?? null,
+        block_name: blk?.name ?? null,
+        block_total_capacity: blk?.total_capacity ?? null,
+        block_current_occupancy: blk?.current_occupancy ?? null,
+      };
+    }
+
+    const { data: allocs, error: aErr } = await this.supabase
+      .from('hostel_allocations')
+      .select(
+        // Institution + program come off the learner's profile. profiles has
+        // TWO FKs to institutions, so the constraint must be named explicitly;
+        // program is profiles.learner_id -> learners_profiles.program_id -> programs.
+        `id, status,
+         block:hostel_blocks(name),
+         room:hostel_rooms(room_number, floor, category:hostel_categories(name)),
+         bed:hostel_beds(bed_number),
+         learner:profiles!hostel_allocations_learner_id_fkey(
+           full_name, email,
+           institution:institutions!profiles_institution_id_fkey(name),
+           learner_profile:learners_profiles!profiles_learner_id_fkey(
+             semester_id,
+             program:programs!fk_learners_profiles_program(program_name)
+           )
+         )`
+      )
+      .eq('batch_id', batchId);
+    if (aErr) {
+      logger.error(LOG, 'getBatch allocations failed', aErr);
+      throw new Error(aErr.message || 'Failed to load batch allocations');
+    }
+
+    const rawRows = (allocs ?? []).map((a: Record<string, unknown>) => {
+      const block = a.block as { name?: string } | null;
+      const room = a.room as {
+        room_number?: string;
+        floor?: number;
+        category?: { name?: string } | null;
+      } | null;
+      const bed = a.bed as { bed_number?: string } | null;
+      const learner = a.learner as {
+        full_name?: string;
+        email?: string;
+        institution?: { name?: string } | null;
+        learner_profile?: {
+          semester_id?: string | null;
+          program?: { program_name?: string } | null;
+        } | null;
+      } | null;
+      return {
+        id: a.id as string,
+        learner_name: learner?.full_name || learner?.email || '—',
+        learner_institution: learner?.institution?.name ?? null,
+        learner_program: learner?.learner_profile?.program?.program_name ?? null,
+        semester_id: learner?.learner_profile?.semester_id ?? null,
+        block_name: block?.name ?? null,
+        room_number: room?.room_number ?? null,
+        room_category: room?.category?.name ?? null,
+        bed_number: bed?.bed_number ?? null,
+        status: a.status as string,
+      };
+    });
+
+    // learners_profiles.semester_id has no embeddable named FK, so resolve names
+    // in one lightweight follow-up query keyed by the distinct semester ids.
+    const semesterIds = [...new Set(rawRows.map((r) => r.semester_id).filter(Boolean))] as string[];
+    const semesterNames = new Map<string, string>();
+    if (semesterIds.length > 0) {
+      const { data: sems } = await this.supabase
+        .from('semesters')
+        .select('id, semester_name')
+        .in('id', semesterIds);
+      (sems ?? []).forEach((s: Record<string, unknown>) =>
+        semesterNames.set(s.id as string, s.semester_name as string)
+      );
+    }
+
+    // Mess category is not stored on allocations — resolved per learner by the
+    // fee-aware eligibility functions; one RPC covers the whole batch.
+    const messCategories = new Map<string, string>();
+    const { data: mess, error: mErr } = await this.rpcCall('fn_batch_mess_categories', {
+      p_batch_id: batchId,
+    });
+    if (mErr) {
+      logger.error(LOG, 'getBatch mess categories failed', mErr);
+    } else {
+      ((mess ?? []) as { allocation_id: string; mess_category: string | null }[]).forEach((m) => {
+        if (m.mess_category) messCategories.set(m.allocation_id, m.mess_category);
+      });
+    }
+
+    const allocations: ProposedAllocation[] = rawRows
+      .map(({ semester_id, ...r }) => ({
+        ...r,
+        learner_semester: semester_id ? semesterNames.get(semester_id) ?? null : null,
+        mess_category: messCategories.get(r.id) ?? null,
+      }))
+      .sort((x, y) => x.learner_name.localeCompare(y.learner_name));
+
+    return { batch, allocations };
+  }
+
+  // Per-allocation eligibility explanation (why this resident → this room).
+  static async explainAllocation(allocationId: string): Promise<AllocationEligibilityExplain> {
+    const { data, error } = await this.rpcCall('fn_explain_allocation', { p_allocation_id: allocationId });
+    if (error) {
+      logger.error(LOG, 'explainAllocation failed', error);
+      throw new Error(error.message || 'Failed to explain allocation');
+    }
+    return data as AllocationEligibilityExplain;
+  }
+
+  // ── Loaders ──
+  static async getAutoCategories(): Promise<AutoCategoryOption[]> {
+    const { data, error } = await this.supabase
+      .from('hostel_categories')
+      .select('id, name, type')
+      .eq('allocation_mode', 'auto')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true })
+      .order('type', { ascending: true });
+    if (error) throw new Error(error.message || 'Failed to load auto categories');
+    return (data ?? []) as AutoCategoryOption[];
+  }
+
+  // Blocks to fill (the auto-allocate target). Gender comes from hostel_type.
+  static async getBlocks(): Promise<{ id: string; name: string; type: string }[]> {
+    const { data, error } = await this.supabase
+      .from('hostel_blocks')
+      .select('id, name, hostel_type')
+      .order('name', { ascending: true });
+    if (error) throw new Error(error.message || 'Failed to load blocks');
+    return (data ?? []).map((b: Record<string, unknown>) => ({
+      id: b.id as string,
+      name: b.name as string,
+      type: b.hostel_type as string,
+    }));
+  }
+
+  // Hostel years are global (no institution_id) — the campus-living calendar.
+  static async getHostelYears(): Promise<AcademicYearOption[]> {
+    const { data, error } = await this.supabase
+      .from('hostel_years')
+      .select('id, name, is_current')
+      .eq('is_active', true)
+      .order('start_date', { ascending: false });
+    if (error) throw new Error(error.message || 'Failed to load hostel years');
+    return (data ?? []).map((y: Record<string, unknown>) => ({
+      id: y.id as string,
+      label: (y.name as string) + (y.is_current ? ' (current)' : ''),
+    }));
+  }
+}

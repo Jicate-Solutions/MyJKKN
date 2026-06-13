@@ -58,18 +58,39 @@ export class AttendanceRosterService {
 
         const firstPeriod = groupPeriods[0];
 
-        // Validate parameters before query
+        // Validate parameters before query. A missing section_id is EXPECTED for
+        // semester-level timetables (periods span all sections, so there's no
+        // single section to pre-check) — that's a normal skip, not an error.
+        // We still surface a genuinely malformed period (missing timetable/date)
+        // at warn level.
         if (
           !firstPeriod.timetable_id ||
           !firstPeriod.section_id ||
           !firstPeriod.attendance_date
         ) {
-          logger.error('academic/attendance', 'Invalid parameters for attendance check', {
+          const isExpectedNoSection =
+            !!firstPeriod.timetable_id &&
+            !!firstPeriod.attendance_date &&
+            !firstPeriod.section_id;
+          const logParams = {
             timetable_id: firstPeriod.timetable_id,
             section_id: firstPeriod.section_id,
             attendance_date: firstPeriod.attendance_date
-          });
-          // Mark all periods in this group as not marked on error
+          };
+          if (isExpectedNoSection) {
+            logger.debug(
+              'academic/attendance',
+              'Skipping attendance pre-check for semester-level period (no specific section)',
+              logParams
+            );
+          } else {
+            logger.warn(
+              'academic/attendance',
+              'Invalid parameters for attendance check',
+              logParams
+            );
+          }
+          // Mark all periods in this group as not marked.
           groupPeriods.forEach((period) => {
             attendanceMap.set(period.timetable_slot_id, { isMarked: false });
           });

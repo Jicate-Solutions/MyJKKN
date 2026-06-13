@@ -18,8 +18,8 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('bos_meetings')
       .select(`
-        id, meeting_number, meeting_title, academic_year, board_id, scheduled_date,
-        actual_date, status, meeting_type, quorum_met
+        id, meeting_number, meeting_title, academic_year, board_id, institutions_id,
+        scheduled_date, actual_date, status, meeting_type, quorum_met
       `)
       .order('academic_year', { ascending: false })
       .order('meeting_number', { ascending: true });
@@ -30,6 +30,13 @@ export async function GET(request: NextRequest) {
 
     const { data: meetings, error } = await query;
     if (error) throw error;
+
+    // Batch-fetch boards from COE API for all institutions in the result set
+    const institutionIdsInResult = [...new Set((meetings ?? []).map((m: any) => m.institutions_id).filter(Boolean))];
+    const { fetchCoeBoardMaps } = await import('@/lib/utils/bos/coe-boards');
+    const boardMap = institutionIdsInResult.length
+      ? await fetchCoeBoardMaps(institutionIdsInResult)
+      : new Map();
 
     // For each meeting, get attendee count and agenda item count
     const enriched = await Promise.all(
@@ -45,6 +52,7 @@ export async function GET(request: NextRequest) {
         ]);
         return {
           ...m,
+          board: boardMap.get(m.board_id) ?? null,
           attendee_count: attendeeCount ?? 0,
           agenda_item_count: agendaCount ?? 0,
         };

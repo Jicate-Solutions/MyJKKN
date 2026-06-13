@@ -1,8 +1,12 @@
+// hostel-rooms-v2 PR 2 (2026-05-26): institution_id dropped from hostel_residents.
+// Residents are administrative entities; college affiliation flows through
+// their active hostel_allocations row.
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import type {
   HostelResident,
   HostelResidentWithProfile,
+  HostelResidentWithInstitutions,
   CreateHostelResidentDTO,
   UpdateHostelResidentDTO,
   ResidentFilters,
@@ -10,6 +14,11 @@ import type {
 
 export class HostelResidentService {
   // ── List residents with filters ───────────────────────────────────
+  // institutionId parameter retained for API stability (callers still pass
+  // it); when provided, narrows via JOIN through hostel_allocations →
+  // hostel_block_institutions. Residents without any allocation are excluded
+  // from the institution-scoped result, included when institutionId is empty
+  // (super_admin view).
   static async getResidents(
     institutionId: string | undefined,
     filters?: ResidentFilters,
@@ -25,10 +34,36 @@ export class HostelResidentService {
           { count: 'exact' }
         );
 
-      // Guard: empty/undefined institutionId means super_admin view (no filter).
-      // Without this guard, Postgres rejects .eq('institution_id', '') with
-      // "invalid input syntax for type uuid". Caught on prod 2026-04-23.
-      if (institutionId) query = query.eq('institution_id', institutionId);
+      if (institutionId) {
+        // Filter through allocation → block junction.
+        const { data: blockIds } = await supabase
+          .from('hostel_block_institutions')
+          .select('block_id')
+          .eq('institution_id', institutionId);
+        const blockIdList = (blockIds ?? []).map((r) => r.block_id);
+
+        if (blockIdList.length === 0) {
+          return { data: [] as HostelResidentWithProfile[], count: 0 };
+        }
+
+        const { data: allocations } = await supabase
+          .from('hostel_allocations')
+          .select('resident_id')
+          .in('block_id', blockIdList)
+          .not('resident_id', 'is', null);
+        const residentIds = Array.from(
+          new Set(
+            (allocations ?? [])
+              .map((r) => r.resident_id)
+              .filter((v): v is string => Boolean(v)),
+          ),
+        );
+
+        if (residentIds.length === 0) {
+          return { data: [] as HostelResidentWithProfile[], count: 0 };
+        }
+        query = query.in('id', residentIds);
+      }
 
       if (filters?.resident_type) query = query.eq('resident_type', filters.resident_type);
       if (typeof filters?.is_active === 'boolean') query = query.eq('is_active', filters.is_active);
@@ -54,6 +89,86 @@ export class HostelResidentService {
     }
   }
 
+  // ── List residents enriched with derived institution_ids (PR 3) ───
+  // Joins each resident with their active hostel_allocations → block →
+  // hostel_block_institutions to surface the "which college(s) does this
+  // resident belong to?" admin-UI column that PR 2 deleted along with the
+  // dropped hostel_residents.institution_id column.
+  //
+  // Empty derived_institution_ids = no active allocation; UI renders the
+  // "Not allocated" badge.
+  static async getResidentsWithInstitutions(
+    institutionId: string | undefined,
+    filters?: ResidentFilters,
+    page = 1,
+    pageSize = 50
+  ) {
+    const result = await this.getResidents(institutionId, filters, page, pageSize);
+    if (result.data.length === 0) {
+      return { data: [] as HostelResidentWithInstitutions[], count: result.count };
+    }
+
+    const supabase = createClientSupabaseClient();
+
+    // 1. Fetch active allocations for these residents.
+    const residentIds = result.data.map((r) => r.id);
+    const { data: allocations, error: allocError } = await supabase
+      .from('hostel_allocations')
+      .select('resident_id, block_id')
+      .in('resident_id', residentIds)
+      .is('check_out_date', null);
+
+    if (allocError) {
+      logger.warn(
+        'campus-living/residents',
+        'Failed to enrich residents with institutions (allocation lookup); falling back to empty derived list',
+        allocError,
+      );
+      return {
+        data: result.data.map((r) => ({ ...r, derived_institution_ids: [] })) as HostelResidentWithInstitutions[],
+        count: result.count,
+      };
+    }
+
+    const blockIdSet = Array.from(
+      new Set(((allocations ?? []) as Array<{ resident_id: string | null; block_id: string }>)
+        .map((a) => a.block_id)
+        .filter(Boolean)),
+    );
+
+    // 2. Map block → institution_ids via hostel_block_institutions.
+    const blockInstMap = new Map<string, string[]>();
+    if (blockIdSet.length > 0) {
+      const { data: junction } = await supabase
+        .from('hostel_block_institutions')
+        .select('block_id, institution_id')
+        .in('block_id', blockIdSet);
+      for (const row of junction ?? []) {
+        const list = blockInstMap.get(row.block_id) ?? [];
+        list.push(row.institution_id);
+        blockInstMap.set(row.block_id, list);
+      }
+    }
+
+    // 3. Map resident → unique institution_ids (across all active allocations).
+    const residentInstMap = new Map<string, Set<string>>();
+    for (const a of (allocations ?? []) as Array<{ resident_id: string | null; block_id: string }>) {
+      if (!a.resident_id) continue;
+      const insts = blockInstMap.get(a.block_id) ?? [];
+      const existing = residentInstMap.get(a.resident_id) ?? new Set<string>();
+      for (const i of insts) existing.add(i);
+      residentInstMap.set(a.resident_id, existing);
+    }
+
+    return {
+      data: result.data.map((r) => ({
+        ...r,
+        derived_institution_ids: Array.from(residentInstMap.get(r.id) ?? []),
+      })) as HostelResidentWithInstitutions[],
+      count: result.count,
+    };
+  }
+
   // ── Single resident ───────────────────────────────────────────────
   static async getResident(id: string) {
     try {
@@ -77,15 +192,18 @@ export class HostelResidentService {
     }
   }
 
-  // ── Find resident by profile within institution ──────────────────
-  // Used by allocation flow: "does this person already have a resident record here?"
-  static async findByProfile(institutionId: string | undefined, profileId: string) {
+  // ── Find resident by profile ────────────────────────────────────
+  // hostel-rooms-v2 PR 2 (2026-05-26): institution_id dropped from
+  // hostel_residents (UNIQUE constraint is now on profile_id alone).
+  // A person has at most one resident record network-wide.
+  // The first arg (formerly institutionId) is kept positional for callsite
+  // stability but is ignored.
+  static async findByProfile(_institutionId: string | undefined, profileId: string) {
     try {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_residents')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('profile_id', profileId)
         .maybeSingle();
 
@@ -104,7 +222,7 @@ export class HostelResidentService {
   // Allocation flow calls this before creating an allocation to guarantee a resident row.
   static async upsertResident(payload: CreateHostelResidentDTO) {
     try {
-      const existing = await this.findByProfile(payload.institution_id, payload.profile_id);
+      const existing = await this.findByProfile(undefined, payload.profile_id);
       if (existing) return existing;
 
       return await this.createResident(payload);

@@ -10,6 +10,7 @@ import { AlertTriangle } from 'lucide-react';
 const SOURCE_STYLES: Record<string, { bg: string; label: string }> = {
   facebook_ads: { bg: 'bg-blue-100 text-blue-700 border-blue-200', label: 'Facebook' },
   google_ads: { bg: 'bg-red-100 text-red-700 border-red-200', label: 'Google' },
+  youtube_ads: { bg: 'bg-rose-100 text-rose-700 border-rose-200', label: 'YouTube' },
   referral: { bg: 'bg-green-100 text-green-700 border-green-200', label: 'Referral' },
   walk_in: { bg: 'bg-orange-100 text-orange-700 border-orange-200', label: 'Walk-in' },
   education_fair: { bg: 'bg-purple-100 text-purple-700 border-purple-200', label: 'Edu Fair' },
@@ -19,6 +20,7 @@ const SOURCE_STYLES: Record<string, { bg: string; label: string }> = {
   agent: { bg: 'bg-teal-100 text-teal-700 border-teal-200', label: 'Agent' },
   publisher: { bg: 'bg-cyan-100 text-cyan-700 border-cyan-200', label: 'Publisher' },
   admission_form: { bg: 'bg-violet-100 text-violet-700 border-violet-200', label: 'Form' },
+  learner_creator_content: { bg: 'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200', label: 'IG Creator' },
   other: { bg: 'bg-gray-100 text-gray-700 border-gray-200', label: 'Other' },
 };
 

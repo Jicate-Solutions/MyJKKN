@@ -137,6 +137,7 @@ export interface ReservationFilters {
   end_date?: string;
   priority?: ReservationPriority;
   is_recurring?: boolean;
+  institution_id?: string;
 }
 
 // Availability Check

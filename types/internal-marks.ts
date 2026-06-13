@@ -265,6 +265,14 @@ export interface CiaMarkSyncRecord {
   exam_registration_id: string;
   submission_date: string;
   cia_round: number;
+  /**
+   * Assessment / CIA setting id this round belongs to.
+   * Required by the intended unique-key scope (institution → session →
+   * assessment → course → round → learner). Optional in the type until COE
+   * accepts the field on /api/v1/cia-marks/sync — see project memory
+   * `cia-marks-assessment-scope` for the coordination state.
+   */
+  cia_setting_id?: string;
   marks_status: 'Draft' | 'Submitted' | 'Approved' | 'Rejected' | string;
   total_internal_marks: number;
   max_internal_marks: number;
@@ -307,6 +315,9 @@ export interface CiaMarksSyncResponse {
 /**
  * A single learner row in a CIA report — their component marks + total.
  * The `marks` map is keyed by component code (e.g., marks["test_1"] = 18).
+ * `extra_marks` mirrors the write contract (cia_marks JSONB) — when COE
+ * returns it, the proxy flattens it into `marks` so consumers only deal
+ * with one shape.
  */
 export interface CiaReportLearner {
   register_number: string;
@@ -314,6 +325,7 @@ export interface CiaReportLearner {
   roll_number?: string;
   student_id?: string;
   marks: Record<string, number | null>;
+  extra_marks?: Record<string, number | null>;
   total?: number;
   in_words?: string;
 }

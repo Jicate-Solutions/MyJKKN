@@ -34,8 +34,20 @@ export default function StaffPage() {
   const {
     canAccess,
     isSuperAdmin,
-    isLoading: permissionsLoading
+    isLoading: permissionsLoading,
+    getModuleScope
   } = usePermissions();
+
+  // Effective module scope for the current user on the staff module. Mirrors
+  // the SQL `get_user_module_scope('staff')` function so the UI hides
+  // toolbar/filter chrome that would 403 on the API side for `own_records`
+  // users (faculty, librarians, admission counselors, etc.). RLS already
+  // enforces the row filter — this is pure UI polish.
+  // `getModuleScope` returns a string once permissions have loaded; during
+  // the `permissionsLoading` branch above we never reach this calculation,
+  // so it's safe to treat the value as authoritative here.
+  const staffScope = permissionsLoading ? null : getModuleScope('staff');
+  const isOwnRecordsScope = staffScope === 'own_records';
 
   // Filter state for server-side filtering
   const [filters, setFilters] = useState<StaffFiltersType>({
@@ -221,16 +233,22 @@ export default function StaffPage() {
             {/* Action Buttons — gated by permissions:
                   - Download Template / Bulk Upload Images: read-only or edit-level
                   - Bulk Upload Staff: requires create permission
-                  - Create Missing Profiles: super_admin maintenance action */}
-            <div className='flex flex-wrap items-center gap-2 mb-6'>
-              {canViewStaff && <DownloadStaffTemplateButton />}
-              {canCreateStaff && <BulkUploadStaff />}
-              {isSuperAdmin && <CreateMissingProfilesButton />}
-              {canEditStaff && <BulkUploadStaffImages />}
-            </div>
+                  - Create Missing Profiles: super_admin maintenance action
+                Hidden entirely for `own_records` users — their list is
+                a single row, so bulk template/upload/maintenance actions
+                are meaningless. */}
+            {!isOwnRecordsScope && (
+              <div className='flex flex-wrap items-center gap-2 mb-6'>
+                {canViewStaff && <DownloadStaffTemplateButton />}
+                {canCreateStaff && <BulkUploadStaff />}
+                {isSuperAdmin && <CreateMissingProfilesButton />}
+                {canEditStaff && <BulkUploadStaffImages />}
+              </div>
+            )}
 
-            {/* Advanced Search */}
-            {!isLoading && (
+            {/* Advanced Search — meaningless for a one-row table, so we
+                hide it for `own_records` scope. */}
+            {!isLoading && !isOwnRecordsScope && (
               <div className='mb-6'>
                 <AdvancedSearch
                   onSearch={handleSearch}
@@ -289,8 +307,8 @@ export default function StaffPage() {
               </div>
             )}
 
-            {/* Filters */}
-            {!isLoading && (
+            {/* Filters — hidden for `own_records` scope (one-row table) */}
+            {!isLoading && !isOwnRecordsScope && (
               <StaffFilters
                 filters={filters}
                 onFilterChange={handleFilterChange}
@@ -313,6 +331,7 @@ export default function StaffPage() {
                 onPageSizeChange={handlePageSizeChange}
                 onRefresh={handleRefresh}
                 canEdit={canEditStaff}
+                scope={staffScope}
               />
             )}
 

@@ -56,19 +56,21 @@ import {
   Calendar,
   Tag,
   Users,
-  Home,
   Receipt,
   Hash,
   Activity,
   Plus,
   Clock,
   Trash2,
+  UserCircle,
+  Home,
 } from 'lucide-react';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { FeesStructureForm } from '../_components/fees-structure-form';
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { getErrorMessage } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import type {
   AdmissionFeeStructure,
@@ -92,8 +94,8 @@ type DetailRow = AdmissionFeeStructure & {
   department_name: string | null;
   programme_name: string | null;
   quota_name: string | null;
-  community_name: string | null;
   accommodation_name: string | null;
+  community_name: string | null;
   admission_year_name: string | null;
   items: DetailRowItem[];
 };
@@ -122,7 +124,7 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
         if (!row) setError('Fee structure not found.');
         else setStructure(row);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
+      .catch((err) => setError(getErrorMessage(err) || 'Failed to load'))
       .finally(() => setLoading(false));
   }, [id, refreshTick]);
 
@@ -144,7 +146,7 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
       toast.success('Fee structure archived');
       handleChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Archive failed');
+      toast.error(getErrorMessage(err) || 'Archive failed');
     } finally {
       setActionRunning(false);
       setConfirmArchive(false);
@@ -159,7 +161,7 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
       toast.success('Fee structure activated');
       handleChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Activate failed');
+      toast.error(getErrorMessage(err) || 'Activate failed');
     } finally {
       setActionRunning(false);
     }
@@ -173,7 +175,7 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
       toast.success(`Deleted "${structure.name}"`);
       router.push('/admission/settings/fees-structure');
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Delete failed');
+      toast.error(getErrorMessage(err) || 'Delete failed');
       setActionRunning(false);
       setConfirmDelete(false);
     }
@@ -193,8 +195,8 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
         // exact row. The form's editor then surfaces the full community list
         // for the operator to edit.
         community_category_id: structure.community_category_ids?.[0],
-        accommodation_type_id: structure.accommodation_type_id,
         admission_year_id: structure.admission_year_id,
+        gender: structure.gender ?? undefined,
       }
     : null;
 
@@ -392,10 +394,16 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                     }
                   />
                   <DimCard
+                    icon={<UserCircle className="h-4 w-4" />}
+                    label="Gender"
+                    name={structure.gender ?? 'Any Gender'}
+                    id={structure.gender ? '' : 'applies to all'}
+                  />
+                  <DimCard
                     icon={<Home className="h-4 w-4" />}
                     label="Accommodation"
-                    name={structure.accommodation_name}
-                    id={structure.accommodation_type_id}
+                    name={structure.accommodation_name ?? 'Any Accommodation'}
+                    id={structure.accommodation_type_id ? '' : 'applies to all'}
                   />
                 </div>
                 <p className="text-xs text-muted-foreground mt-3">

@@ -1,13 +1,36 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Plus, TrashIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 import { DataTable } from '@/components/data-table/data-table';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { BOS_MEETING_STATUS_LABELS, type BosMeetingStatus } from '@/types/bos';
+
+// Workflow-ordered status list for the toolbar dropdown. Mirrors the order in
+// MeetingStatusTabs so users see consistent sequencing in both UIs (the tabs
+// row above and this dropdown). All three surfaces (tabs, dropdown, URL) share
+// the same `status` URL param, so picking from any one syncs the others.
+const STATUS_FILTER_OPTIONS: BosMeetingStatus[] = [
+  'draft',
+  'principal_approved',
+  'noticed',
+  'expert_invited',
+  'completed',
+  'minutes_drafted',
+  'minutes_approved',
+  'ratified',
+];
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,7 +47,11 @@ import type { MeetingSearchParams } from './data-table-schema';
 import { BosMeeting } from '@/types/bos';
 import { BosMeetingService } from '@/lib/services/bos/bos-meeting-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
+import { bosMeetingKeys } from '@/hooks/bos/use-bos-meetings';
+import { useDataTableRefreshOnInvalidate } from '@/hooks/use-data-table-refresh';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface MeetingDataTableProps {
   search: MeetingSearchParams;
@@ -32,8 +59,28 @@ interface MeetingDataTableProps {
 
 export function MeetingDataTable({ search }: MeetingDataTableProps) {
   const router = useRouter();
+  const currentSearchParams = useSearchParams();
+  const queryClient = useQueryClient();
+
+  // Toolbar status dropdown: writes to the same `status` URL param the tabs
+  // above use, so picking from the dropdown highlights the corresponding tab.
+  // Resetting page=1 prevents landing on an empty page when filtering down.
+  const handleStatusChange = (value: string) => {
+    const params = new URLSearchParams(currentSearchParams?.toString() ?? '');
+    if (value && value !== 'all') {
+      params.set('status', value);
+    } else {
+      params.delete('status');
+    }
+    params.set('page', '1');
+    router.push(`/bos/meetings?${params.toString()}`);
+  };
   const { canAccess, isSuperAdmin, userProfile, isLoading: permissionsLoading } =
     usePermissions();
+  const bosScope = useBosBoardScope();
+
+  // Bridge React-Query invalidations into the fetchDataFn-driven table.
+  const refetchKey = useDataTableRefreshOnInvalidate(bosMeetingKeys.all);
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{
@@ -44,9 +91,15 @@ export function MeetingDataTable({ search }: MeetingDataTableProps) {
 
   const isReady = !permissionsLoading && !!userProfile;
 
+  // Meeting creation is restricted to the board chairman (or super-admin).
+  // The role-permission check stays as the upstream gate, but the chairman
+  // requirement is layered on top — a regular member with create permission
+  // still won't see the button unless they chair an active composition.
   const canCreate = useMemo(
-    () => isSuperAdmin || canAccess('bos.meetings', 'create'),
-    [isSuperAdmin, canAccess]
+    () =>
+      isSuperAdmin ||
+      (canAccess('bos.meetings', 'create') && bosScope.isChairmanIn.size > 0),
+    [isSuperAdmin, canAccess, bosScope.isChairmanIn]
   );
   const canEdit = useMemo(
     () => isSuperAdmin || canAccess('bos.meetings', 'edit'),
@@ -81,6 +134,7 @@ export function MeetingDataTable({ search }: MeetingDataTableProps) {
           academicYear: search.academic_year,
           status: search.status,
           meetingType: search.meeting_type,
+          institutionCode: isSuperAdmin ? search.institutionCode : undefined,
           institutionsId: !isSuperAdmin ? userProfile?.institution_id : undefined,
         });
 
@@ -125,6 +179,7 @@ export function MeetingDataTable({ search }: MeetingDataTableProps) {
       );
       toast.success(`${count} meeting${count > 1 ? 's' : ''} deleted`);
       pendingDelete.resetSelection();
+      queryClient.invalidateQueries({ queryKey: bosMeetingKeys.all });
     } catch (error) {
       logger.error('academic/bos', 'Error deleting meetings', error);
       toast.error('Failed to delete some meetings');
@@ -140,6 +195,24 @@ export function MeetingDataTable({ search }: MeetingDataTableProps) {
     resetSelection: () => void;
   }) => (
     <div className='flex items-center gap-2'>
+      {/* Status dropdown — placed in the DataTable toolbar (after the search
+          input) per UX request. Shares the `status` URL param with the tabs
+          row above, so changes here update the tabs and vice versa. */}
+      <div className='min-w-[180px]'>
+        <Select value={search.status ?? 'all'} onValueChange={handleStatusChange}>
+          <SelectTrigger className='h-8'>
+            <SelectValue placeholder='All Statuses' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='all'>All Statuses</SelectItem>
+            {STATUS_FILTER_OPTIONS.map((statusKey) => (
+              <SelectItem key={statusKey} value={statusKey}>
+                {BOS_MEETING_STATUS_LABELS[statusKey]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
       {canCreate && (
         <Button
           onClick={() => router.push('/bos/meetings/new')}
@@ -207,6 +280,7 @@ export function MeetingDataTable({ search }: MeetingDataTableProps) {
           columnResizingTableId: 'bos-meetings-table',
         }}
         renderToolbarContent={renderCustomToolbar}
+        refetchKey={refetchKey}
       />
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

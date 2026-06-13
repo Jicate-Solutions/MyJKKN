@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -17,6 +17,14 @@ import { useHostelBlocks } from '@/hooks/campus-living/use-hostel-blocks';
 import { useRoomsByBlock } from '@/hooks/campus-living/use-hostel-rooms';
 import { useBedsByRoom } from '@/hooks/campus-living/use-hostel-beds';
 import { useLearnerHostelites } from '@/hooks/campus-living/use-learner-hostelites';
+import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
+import { useCurrentHostelYear } from '@/hooks/campus-living/use-hostel-years';
+import { usePackageForLearner } from '@/hooks/campus-living/use-admission-packages';
+import {
+  useEffectiveRoomCategories,
+  useEffectiveMessCategories,
+  useFeeQuote,
+} from '@/hooks/campus-living/use-allocation-eligibility';
 import {
   ArrowLeft,
   Save,
@@ -27,7 +35,10 @@ import {
   BedDouble,
   Phone,
   Plus,
-  Heart
+  Heart,
+  Info,
+  Receipt,
+  Package,
 } from 'lucide-react';
 
 
@@ -55,6 +66,7 @@ export default function NewAllocationPage() {
     block_id: searchParams.get('block') ?? '',
     room_id: searchParams.get('room') ?? '',
     bed_id: searchParams.get('bed') ?? '',
+    mess_category_id: '',
     allocation_type: 'fresh',
     emergency_contact_name: '',
     emergency_contact_phone: '',
@@ -68,6 +80,88 @@ export default function NewAllocationPage() {
   const blocks = blocksResult?.data;
   const { data: rooms } = useRoomsByBlock(formData.block_id);
   const { data: beds } = useBedsByRoom(formData.room_id);
+
+  // ── PR γ: allocation-time eligibility filter + upfront fee preview ──
+  // Resolve the chosen learner's program, then ask β's resolver which room /
+  // mess categories that program may pick. Empty set ⇒ no eligibility
+  // configured ⇒ fail OPEN (show everything + a subtle hint), never block.
+  const { data: eligibleRoomCategoryIds } = useEffectiveRoomCategories(
+    formData.learner_id || null,
+  );
+  const { data: eligibleMessCategoryIds } = useEffectiveMessCategories(
+    formData.learner_id || null,
+  );
+  const { messCategories } = useActiveMessCategories();
+  const { currentYear } = useCurrentHostelYear();
+
+  // ── PR ε handoff: resolve the learner's admission package (read-only) ──
+  // When the selected learner has a package for the current year, surface it
+  // as a hint and pre-fill the mess select from their package-time choice.
+  // Returns null when the learner has no package — fail-open, never blocks.
+  const { data: learnerPackage } = usePackageForLearner(
+    formData.learner_id || null,
+    currentYear?.id ?? null,
+  );
+
+  // Fail-open gates: only narrow when the resolver returned a non-empty set.
+  const roomFilterActive = (eligibleRoomCategoryIds?.length ?? 0) > 0;
+  const messFilterActive = (eligibleMessCategoryIds?.length ?? 0) > 0;
+
+  // Rooms whose category the learner's program may occupy. When no eligibility
+  // is configured we show all rooms (fail-open) so allocation is never blocked.
+  const visibleRooms = roomFilterActive
+    ? (rooms ?? []).filter(
+        (r) => r.category_id && eligibleRoomCategoryIds!.includes(r.category_id),
+      )
+    : rooms ?? [];
+
+  // Mess categories the program may pick (fail-open to all active categories).
+  const visibleMessCategories = messFilterActive
+    ? messCategories.filter((m) => eligibleMessCategoryIds!.includes(m.id))
+    : messCategories;
+
+  const selectedRoom = (rooms ?? []).find((r) => r.id === formData.room_id) ?? null;
+
+  // Read-only upfront fee quote (δ's /api/campus-living/fee-quote). Estimate at
+  // full occupancy (per-bed rate): activeOccupants = room capacity. PREVIEW
+  // only — it never binds or charges. Disabled until inputs are present.
+  const { data: feeQuote, isLoading: feeLoading, error: feeError } = useFeeQuote(
+    selectedRoom?.category_id && currentYear?.id
+      ? {
+          roomId: formData.room_id,
+          roomCategoryId: selectedRoom.category_id,
+          activeOccupants: Math.max(1, selectedRoom.capacity ?? 1),
+          messCategoryId: formData.mess_category_id || null,
+          hostelYearId: currentYear.id,
+        }
+      : null,
+  );
+  const inr = (n: number) =>
+    new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      maximumFractionDigits: 0,
+    }).format(n);
+
+  // Resolve a mess category id → display name (from the active categories the
+  // page already loads) for the package hint card.
+  const messName = (id: string | null): string | null =>
+    id ? messCategories.find((m) => m.id === id)?.name ?? null : null;
+
+  // Visual pre-fill: seed the mess select from the package's chosen mess, but
+  // only when the warden hasn't already picked one (never clobber a manual
+  // choice). The hint card below always shows the package's mess regardless,
+  // so the truth is visible even if this guard skips the auto-fill.
+  const packageMessId = learnerPackage?.chosen_mess_category_id ?? null;
+  useEffect(() => {
+    if (packageMessId) {
+      setFormData((prev) =>
+        prev.mess_category_id
+          ? prev
+          : { ...prev, mess_category_id: packageMessId },
+      );
+    }
+  }, [packageMessId]);
 
   // Resident search — pulls from `learners_profiles.accommodation_type='HOSTEL'`
   // (the same cohort visible on /campus-living/residents). Previously used the
@@ -100,6 +194,7 @@ export default function NewAllocationPage() {
         block_id: formData.block_id,
         room_id: formData.room_id,
         bed_id: formData.bed_id,
+        mess_category_id: formData.mess_category_id || null,
         allocation_type: formData.allocation_type,
         emergency_contact_name: formData.emergency_contact_name,
         emergency_contact_phone: formData.emergency_contact_phone,
@@ -242,6 +337,49 @@ export default function NewAllocationPage() {
                   )}
                 </div>
 
+                {/* PR ε handoff: admission-package hint. Shows the package the
+                    student was assigned at admission — bundled room category,
+                    flat price, and the mess they chose (pre-filled below).
+                    Appears only when a package is on file; never blocks. */}
+                {formData.learner_id && learnerPackage && (
+                  <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Package className="h-4 w-4 text-primary" />
+                      <p className="text-sm font-medium">Admission package on file</p>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">
+                      <p className="text-muted-foreground">
+                        Package:{' '}
+                        <span className="text-foreground font-medium">
+                          {learnerPackage.pkg.name}
+                        </span>
+                      </p>
+                      <p className="text-muted-foreground">
+                        Bundled mess:{' '}
+                        <span className="text-foreground">
+                          {learnerPackage.pkg.mess_category_name ?? 'Not specified'}
+                        </span>
+                      </p>
+                      <p className="text-muted-foreground">
+                        Bundled room:{' '}
+                        <span className="text-foreground">
+                          {learnerPackage.pkg.room_category_name || '—'}
+                        </span>
+                      </p>
+                      <p className="text-muted-foreground">
+                        Chosen mess:{' '}
+                        <span className="text-foreground">
+                          {messName(learnerPackage.chosen_mess_category_id) || 'Not chosen'}
+                        </span>
+                      </p>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Pre-filled from the student&apos;s admission package. You can
+                      still change the room, bed, and mess below.
+                    </p>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Allocation Type</Label>
@@ -336,10 +474,25 @@ export default function NewAllocationPage() {
                       required
                     >
                       <option value="">Select Room</option>
-                      {rooms?.map((r) => (
+                      {visibleRooms.map((r) => (
                         <option key={r.id} value={r.id}>{r.room_number} ({r.room_type}, capacity {r.capacity})</option>
                       ))}
                     </select>
+                    {/* PR γ: eligibility-filter status. When β returned an
+                        eligible set we narrowed the room list to that program's
+                        room categories. When nothing is configured we fail open
+                        and surface a subtle (non-blocking) hint. */}
+                    {formData.block_id && roomFilterActive && (
+                      <p className="text-xs text-muted-foreground">
+                        Showing rooms eligible for this student&apos;s program.
+                      </p>
+                    )}
+                    {formData.block_id && !roomFilterActive && rooms && rooms.length > 0 && (
+                      <p className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                        <Info className="h-3 w-3" />
+                        No room eligibility configured — showing all rooms.
+                      </p>
+                    )}
                     {/* Empty-state hint — wardens used to hit a dead end here when
                         the selected block had no rooms (BUG-003894 — "no interface
                         to add rooms"). The Manage rooms link above is the path. */}
@@ -373,6 +526,114 @@ export default function NewAllocationPage() {
                     </select>
                   </div>
                 </div>
+
+                {/* PR γ: Mess category — filtered to the program's eligible set
+                    (β), fail-open to all active categories. Optional; drives the
+                    flat mess line in the fee preview below. */}
+                <div className="space-y-2 md:max-w-sm">
+                  <Label>Mess Category</Label>
+                  <select
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    value={formData.mess_category_id}
+                    onChange={(e) => handleChange('mess_category_id', e.target.value)}
+                  >
+                    <option value="">No mess / decide later</option>
+                    {visibleMessCategories.map((m) => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </select>
+                  {formData.learner_id && messFilterActive && (
+                    <p className="text-xs text-muted-foreground">
+                      Showing mess plans eligible for this student&apos;s program.
+                    </p>
+                  )}
+                  {formData.learner_id && !messFilterActive && messCategories.length > 0 && (
+                    <p className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                      <Info className="h-3 w-3" />
+                      No mess eligibility configured — showing all plans.
+                    </p>
+                  )}
+                  {packageMessId && formData.mess_category_id === packageMessId && (
+                    <p className="text-xs text-primary inline-flex items-center gap-1">
+                      <Package className="h-3 w-3" />
+                      Pre-filled from the student&apos;s admission package.
+                    </p>
+                  )}
+                </div>
+
+                {/* PR γ: read-only upfront fee preview (δ's fee-quote API).
+                    Estimate at full occupancy; PREVIEW only — does NOT bind or
+                    charge. Appears once a room with a category is chosen. */}
+                {formData.room_id && selectedRoom?.category_id && (
+                  <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Receipt className="h-4 w-4 text-muted-foreground" />
+                      <p className="text-sm font-medium">
+                        Estimated upfront fee{currentYear?.name ? ` (${currentYear.name})` : ''}
+                      </p>
+                    </div>
+
+                    {!currentYear?.id && (
+                      <p className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                        <Info className="h-3 w-3" />
+                        No current hostel year set — fee preview unavailable.
+                      </p>
+                    )}
+
+                    {currentYear?.id && feeLoading && (
+                      <p className="text-sm text-muted-foreground inline-flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Calculating estimate…
+                      </p>
+                    )}
+
+                    {currentYear?.id && !feeLoading && feeError && (
+                      <p className="text-xs text-amber-700 inline-flex items-center gap-1">
+                        <Info className="h-3 w-3" />
+                        {feeError instanceof Error ? feeError.message : 'Could not compute an estimate for this selection.'}
+                      </p>
+                    )}
+
+                    {currentYear?.id && !feeLoading && !feeError && feeQuote && (
+                      <div className="space-y-2 text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Room base share</span>
+                          <span>{inr(feeQuote.breakdown.base_share)}</span>
+                        </div>
+                        {feeQuote.breakdown.ac_share > 0 && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">AC share</span>
+                            <span>{inr(feeQuote.breakdown.ac_share)}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Mess fee</span>
+                          <span>{inr(feeQuote.breakdown.mess_fee)}</span>
+                        </div>
+                        <div className="flex items-center justify-between border-t pt-2 font-medium">
+                          <span>Total (annual)</span>
+                          <span>{inr(feeQuote.breakdown.total_annual)}</span>
+                        </div>
+                        {feeQuote.prorata && (
+                          <div className="flex items-center justify-between text-muted-foreground">
+                            <span>Pro-rata ({feeQuote.prorata.remaining_months} mo remaining)</span>
+                            <span>{inr(feeQuote.prorata.prorated_total)}</span>
+                          </div>
+                        )}
+                        {feeQuote.breakdown.basis.length > 0 && (
+                          <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground list-disc pl-4">
+                            {feeQuote.breakdown.basis.map((line, i) => (
+                              <li key={i}>{line}</li>
+                            ))}
+                          </ul>
+                        )}
+                        <p className="text-xs text-muted-foreground pt-1">
+                          Estimate at full occupancy. Preview only — this does not bill or reserve the bed.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <Label htmlFor="medical">Medical Conditions (if any)</Label>

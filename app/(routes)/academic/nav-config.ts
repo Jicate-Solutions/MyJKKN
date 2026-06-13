@@ -116,6 +116,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/academic/attendance/mark'],
         },
         {
+          label: 'Day Attendance',
+          icon: 'CalendarCheck',
+          href: '/academic/attendance/day',
+          matchPaths: ['/academic/attendance/day'],
+        },
+        {
           label: 'Pending',
           icon: 'Hourglass',
           href: '/academic/attendance/pending',
@@ -269,6 +275,38 @@ const config: ModuleNavConfig = {
           icon: 'FileStack',
           href: '/academic/privileges/templates',
           matchPaths: ['/academic/privileges/templates'],
+        },
+      ],
+    },
+    {
+      label: 'OBE',
+      icon: 'Target',
+      href: '/academic/obe',
+      matchPaths: ['/academic/obe'],
+      children: [
+        {
+          label: 'Dashboard',
+          icon: 'LayoutDashboard',
+          href: '/academic/obe',
+          exact: true,
+        },
+        {
+          label: 'Regulation Config',
+          icon: 'Settings',
+          href: '/academic/obe/regulation-config',
+          matchPaths: ['/academic/obe/regulation-config'],
+        },
+        {
+          label: 'Program Outcomes',
+          icon: 'Target',
+          href: '/academic/obe/po-pso',
+          matchPaths: ['/academic/obe/po-pso'],
+        },
+        {
+          label: 'CO-PO Mapping',
+          icon: 'Grid3x3',
+          href: '/academic/obe/co-po-mapping',
+          matchPaths: ['/academic/obe/co-po-mapping'],
         },
       ],
     },

@@ -35,7 +35,43 @@ const nextConfig: NextConfig = {
     'samlify',
     'web-push',
     '@react-pdf/renderer',
+    // Chromium binary + puppeteer-core MUST be external on Vercel. Bundling
+    // them into the function trace breaks @sparticuz/chromium's runtime
+    // path resolution and inflates the function past the 50 MB limit. The
+    // result on production: chromium.executablePath() throws, the catch in
+    // notify-members/route.ts swallows it, and the email goes out without
+    // the PDF call letter. Keep externalised — never remove.
+    '@sparticuz/chromium',
+    'puppeteer-core',
+    // `pg` (node-postgres) does dynamic require()s for optional native bindings +
+    // connection internals that webpack/turbopack cannot bundle. Without this it
+    // fails to bundle (dev: "can't resolve 'pg'") and can fail at runtime in prod.
+    // Used by the jicate-booking provision service (Path W) via the auth callback
+    // (PR #1321, already deployed) and the native /meetings/manage + /availability
+    // pages. Same class as @sparticuz/chromium above. Keep externalised.
+    'pg',
   ],
+
+  // Force Vercel's file tracer to copy the Chromium binary into each PDF
+  // route's function output. `serverExternalPackages` above keeps the
+  // package OUT of webpack/turbopack bundling (good — avoids the 50 MB
+  // function-size cap), but tracing then has no static require() to follow
+  // because chromium.executablePath() resolves the binary at runtime via a
+  // computed path. Without this directive the .br/.tar.br files get dropped
+  // from the deployed function, chromium.executablePath() throws ENOENT,
+  // notify-members/route.ts's try/catch swallows the error, and emails ship
+  // with no PDF attachment (symptom seen on jkkn.ai 2026-05-19).
+  //
+  // Pattern verified against COE app's vercel-chromium-fix.md. The `*`
+  // matches the [id] dynamic segment in the App Router file paths.
+  outputFileTracingIncludes: {
+    '/api/bos/meetings/*/notify-members': [
+      './node_modules/@sparticuz/chromium/**/*',
+    ],
+    '/api/bos/meetings/*/preview-pdf': [
+      './node_modules/@sparticuz/chromium/**/*',
+    ],
+  },
 
   // TEMPORARY: Skip type checking during build (pre-existing type errors from
   // Next.js 16 migration — searchParams must be Promise<> in App Router).
@@ -128,10 +164,246 @@ const nextConfig: NextConfig = {
       },
       // PR-A4 (2026-04-17): /admin/pde/naac-evidence → accreditation-evidence/[body]
       // Preserves bookmarks + external links pointing at the NAAC-specific URL.
+      // Destination updated 2026-06-09 to point at the post-extraction path
+      // (/pde/admin/* instead of /admin/pde/*) so this is a 1-hop redirect.
       {
         source: '/admin/pde/naac-evidence',
-        destination: '/admin/pde/accreditation-evidence/naac',
+        destination: '/pde/admin/accreditation-evidence/naac',
         permanent: true
+      },
+      // PDE Module Extraction (2026-06-09): /{admin,faculty,learn}/pde/* → /pde/{admin,faculty,learn}/*
+      // PDE was previously stuffed under 3 role-prefixed surfaces, inheriting
+      // the full /admin/layout.tsx chrome (the 43-chip nav strip Director called
+      // out 2026-06-09). The 3 subtrees now live under a unified /pde/* module.
+      // 308 (permanent) preserves bookmarks + in-flight email links indefinitely.
+      {
+        source: '/admin/pde',
+        destination: '/pde/admin',
+        permanent: true
+      },
+      {
+        source: '/admin/pde/:path*',
+        destination: '/pde/admin/:path*',
+        permanent: true
+      },
+      {
+        source: '/faculty/pde',
+        destination: '/pde/faculty',
+        permanent: true
+      },
+      {
+        source: '/faculty/pde/:path*',
+        destination: '/pde/faculty/:path*',
+        permanent: true
+      },
+      {
+        source: '/learn/pde',
+        destination: '/pde/learn',
+        permanent: true
+      },
+      {
+        source: '/learn/pde/:path*',
+        destination: '/pde/learn/:path*',
+        permanent: true
+      },
+      // Internship URL migration (2026-06-02):
+      // /admin/internship-policy/* → /internships/policy/*
+      // Policy pages moved out of /admin/* into the internship module's own namespace
+      // for module cohesion. 307 (non-permanent) preserves bookmarks while the new
+      // canonical path stabilizes.
+      {
+        source: '/admin/internship-policy',
+        destination: '/internships/policy',
+        permanent: false
+      },
+      {
+        source: '/admin/internship-policy/:path*',
+        destination: '/internships/policy/:path*',
+        permanent: false
+      },
+      // 2026-06-10 admin-cluster relocation — consultants
+      // /admin/consultants/* → /admission/consultants/admin/* ("one module = one
+      // URL prefix"). 307 (non-permanent) preserves bookmarks while the new
+      // canonical path stabilizes.
+      {
+        source: '/admin/consultants',
+        destination: '/admission/consultants/admin',
+        permanent: false
+      },
+      {
+        source: '/admin/consultants/:path*',
+        destination: '/admission/consultants/admin/:path*',
+        permanent: false
+      },
+      // 2026-06-10 admin-cluster relocation — admission (counselors + policies)
+      {
+        source: '/admin/counselors',
+        destination: '/admission/counselors/admin',
+        permanent: false
+      },
+      {
+        source: '/admin/counselors/:path*',
+        destination: '/admission/counselors/admin/:path*',
+        permanent: false
+      },
+      {
+        source: '/admin/lead-stages-policy',
+        destination: '/admission/settings/lead-stages-policy',
+        permanent: false
+      },
+      {
+        source: '/admin/lead-stages-policy/:path*',
+        destination: '/admission/settings/lead-stages-policy/:path*',
+        permanent: false
+      },
+      {
+        source: '/admin/telephony-policies',
+        destination: '/admission/settings/telephony-policies',
+        permanent: false
+      },
+      {
+        source: '/admin/telephony-policies/:path*',
+        destination: '/admission/settings/telephony-policies/:path*',
+        permanent: false
+      },
+      // 2026-06-10 admin-cluster relocation — social → admission CRM
+      {
+        source: '/admin/social',
+        destination: '/admission/social',
+        permanent: false
+      },
+      {
+        source: '/admin/social/:path*',
+        destination: '/admission/social/:path*',
+        permanent: false
+      },
+      // 2026-06-10 admin-cluster relocation — CDC
+      // /admin/cdc/* → /cdc/admin/* (module URL consolidation; 307 non-permanent
+      // preserves bookmarks while the new canonical path stabilizes).
+      {
+        source: '/admin/cdc',
+        destination: '/cdc/admin',
+        permanent: false
+      },
+      {
+        source: '/admin/cdc/:path*',
+        destination: '/cdc/admin/:path*',
+        permanent: false
+      },
+      // 2026-06-10 admin-cluster relocation — HR
+      {
+        source: '/admin/hr',
+        destination: '/hr/admin',
+        permanent: false
+      },
+      {
+        source: '/admin/hr/:path*',
+        destination: '/hr/admin/:path*',
+        permanent: false
+      },
+      // 2026-06-11 admin-cluster relocation wave-2 — departments (HoD assignment)
+      {
+        source: '/admin/departments',
+        destination: '/organizations/departments/hod-assignment',
+        permanent: false
+      },
+      {
+        source: '/admin/departments/:path*',
+        destination: '/organizations/departments/hod-assignment/:path*',
+        permanent: false
+      },
+      // 2026-06-11 admin-cluster relocation wave-2 — lifecycle + ai-query + ai-pulse config
+      {
+        source: '/admin/lifecycle',
+        destination: '/learners/lifecycle',
+        permanent: false
+      },
+      {
+        source: '/admin/lifecycle/:path*',
+        destination: '/learners/lifecycle/:path*',
+        permanent: false
+      },
+      {
+        source: '/admin/ai-query-tools',
+        destination: '/ai-query/admin',
+        permanent: false
+      },
+      {
+        source: '/admin/ai-query-tools/:path*',
+        destination: '/ai-query/admin/:path*',
+        permanent: false
+      },
+      {
+        source: '/admin/config/ai-pulse',
+        destination: '/ai-pulse/admin/policies',
+        permanent: false
+      },
+      {
+        source: '/admin/config/ai-pulse/:path*',
+        destination: '/ai-pulse/admin/policies/:path*',
+        permanent: false
+      },
+      // 2026-06-11 admin-cluster relocation wave-2 — admission (attribution + meta integrations + telephony)
+      {
+        source: '/admin/instagram-attribution',
+        destination: '/admission/social/attribution',
+        permanent: false
+      },
+      {
+        source: '/admin/instagram-attribution/:path*',
+        destination: '/admission/social/attribution/:path*',
+        permanent: false
+      },
+      {
+        source: '/admin/integrations/meta-pixel',
+        destination: '/admission/social/meta-pixel',
+        permanent: false
+      },
+      {
+        source: '/admin/integrations/meta-pixel/:path*',
+        destination: '/admission/social/meta-pixel/:path*',
+        permanent: false
+      },
+      {
+        source: '/admin/integrations/meta-audiences',
+        destination: '/admission/social/meta-audiences',
+        permanent: false
+      },
+      {
+        source: '/admin/integrations/meta-audiences/:path*',
+        destination: '/admission/social/meta-audiences/:path*',
+        permanent: false
+      },
+      {
+        source: '/admin/voice-memo-monitor',
+        destination: '/admission/settings/voice-memo-monitor',
+        permanent: false
+      },
+      {
+        source: '/admin/voice-memo-monitor/:path*',
+        destination: '/admission/settings/voice-memo-monitor/:path*',
+        permanent: false
+      },
+      {
+        source: '/admin/exophone-mapping',
+        destination: '/admission/settings/exophone-mapping',
+        permanent: false
+      },
+      {
+        source: '/admin/exophone-mapping/:path*',
+        destination: '/admission/settings/exophone-mapping/:path*',
+        permanent: false
+      },
+      // 2026-06-11 admin-cluster relocation wave-2 — notifications
+      {
+        source: '/admin/notifications',
+        destination: '/notifications/admin',
+        permanent: false
+      },
+      {
+        source: '/admin/notifications/:path*',
+        destination: '/notifications/admin/:path*',
+        permanent: false
       }
     ];
   },
@@ -268,3 +540,6 @@ export default process.env.CI ? withSentryConfig(nextConfig, {
     },
   }
 }) : nextConfig;
+// Env-var rollout trigger 1780199813 — Meta integration tokens.
+
+// 2026-06-08: Trigger build to pick up updated Meta tokens (JKKN Institutions App 437028995095541)

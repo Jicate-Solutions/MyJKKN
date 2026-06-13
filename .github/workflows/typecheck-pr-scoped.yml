@@ -1,0 +1,119 @@
+name: TypeCheck (PR-scoped)
+
+# Runs `tsc --noEmit` and FAILS only on errors in files this PR touched.
+# Rationale: next.config.ts sets `typescript.ignoreBuildErrors: true` so the
+# Vercel build masks all TS violations. The full-repo type-error count is
+# non-zero today (legacy debt). A repo-wide gate would be too noisy to act on.
+# A PR-scoped gate is the ratchet — new PRs cannot ADD type errors to files
+# they modify. Existing baseline noise is ignored.
+#
+# Catches the PR #856 / #873 bug class: state type changes from string → object
+# but legacy reset sites still pass empty string. The local `setCounterBreakdown('')`
+# at line 579 was visible to tsc but masked by ignoreBuildErrors. This gate
+# would have caught it pre-merge.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck:
+    name: TypeCheck (PR-scoped)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: ${{ !github.event.pull_request.draft }}
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history for base...head diff
+
+      - name: Compute changed TS files (PR scope)
+        id: changed
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Files added/modified by this PR (excluding deletions — no point checking removed files)
+          git diff --name-only --diff-filter=AM "$BASE_SHA"..."$HEAD_SHA" > /tmp/changed-files.txt
+          # Filter to .ts/.tsx only
+          grep -E '\.(ts|tsx)$' /tmp/changed-files.txt > /tmp/changed-ts.txt || true
+          count=$(wc -l < /tmp/changed-ts.txt | tr -d ' ')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "::group::Changed TS files ($count)"
+          head -50 /tmp/changed-ts.txt
+          [ "$count" -gt 50 ] && echo "... and $((count - 50)) more"
+          echo "::endgroup::"
+
+      - name: Skip if no TS changes
+        if: steps.changed.outputs.count == '0'
+        run: echo "::notice::No .ts/.tsx files changed in this PR. Install + typecheck skipped (Actions minutes saved)."
+
+      # Setup/install moved BELOW the changed-files computation (2026-06-12)
+      # so docs/sql/config-only PRs never pay the ~1min npm ci cost.
+      - name: Setup Node
+        if: steps.changed.outputs.count != '0'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          # npm download cache intentionally NOT used: the node_modules cache
+          # (seeded from main) makes it dead weight on hits; lockfile-change
+          # misses pay a one-off cold install instead (rare, acceptable).
+
+      # node_modules cache: keyed on the lockfile — a hit skips npm ci.
+      - name: Cache node_modules
+        if: steps.changed.outputs.count != '0'
+        id: nm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install deps
+        if: steps.changed.outputs.count != '0' && steps.nm.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
+
+      - name: Run tsc + filter to PR-touched files
+        if: steps.changed.outputs.count != '0'
+        run: |
+          set +e
+          npm run typecheck > /tmp/tsc-output.txt 2>&1
+          tsc_exit=$?
+          set -e
+
+          # Build the regex of changed file paths (escaped for grep -E)
+          escaped=$(sed 's/[][\.*^$(){}?+|/]/\\&/g' /tmp/changed-ts.txt | tr '\n' '|' | sed 's/|$//')
+
+          if [ -z "$escaped" ]; then
+            echo "::notice::No changed files to filter against. Pass."
+            exit 0
+          fi
+
+          # tsc errors look like:  path/file.tsx:LINE:COL - error TSnnn: message
+          grep -E "^($escaped):" /tmp/tsc-output.txt > /tmp/scoped-errors.txt || true
+          scoped_count=$(wc -l < /tmp/scoped-errors.txt | tr -d ' ')
+
+          if [ "$scoped_count" -eq 0 ]; then
+            echo "::notice::tsc found errors elsewhere (legacy baseline, ignored) but none in PR-touched files. Pass."
+            echo "(tsc exited $tsc_exit — baseline state, not failing this PR.)"
+            exit 0
+          fi
+
+          echo "::error::tsc found $scoped_count type error(s) in files this PR modified:"
+          echo ""
+          head -50 /tmp/scoped-errors.txt | while IFS= read -r line; do
+            # Convert "path:LINE:COL - error TSnnn: msg" to GH-annotation
+            file=$(echo "$line" | cut -d':' -f1)
+            ln=$(echo "$line" | cut -d':' -f2)
+            msg=$(echo "$line" | cut -d':' -f3-)
+            echo "::error file=$file,line=$ln::$msg"
+          done
+
+          echo ""
+          echo "Note: next.config.ts has \`typescript.ignoreBuildErrors: true\` so the Vercel build will not fail on these. This gate exists BECAUSE of that mask. Fix or downgrade the type before merge."
+          exit 1

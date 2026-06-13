@@ -61,6 +61,13 @@ interface MarkEntryGridProps {
   existingMarks: CiaReportLearner[] | undefined;
   institutionId: string;
   examSessionId: string;
+  /**
+   * CIA setting (assessment) id the selected round belongs to. Forwarded into
+   * every sync record so COE can scope its unique key by assessment, not just
+   * by `cia_round`. Optional only because the COE backend hasn't accepted the
+   * field yet — see `cia-marks-assessment-scope` memory.
+   */
+  ciaSettingId?: string;
   courseOfferingId: string;
   useCourseMax: boolean;
   courseMaxMark: number;
@@ -102,6 +109,7 @@ export function MarkEntryGrid({
   existingMarks,
   institutionId,
   examSessionId,
+  ciaSettingId,
   courseOfferingId,
   useCourseMax,
   courseMaxMark,
@@ -223,22 +231,33 @@ export function MarkEntryGrid({
   }, [rows, components]);
 
   // Summary stats
-  // A row is "complete" only when EVERY component has a non-null mark (0 is valid)
-  // Rows with partial marks (some filled, some empty) are counted as pending
+  // Entry/Edit mode: a row is "complete" only when EVERY component has a
+  // non-null mark (0 is valid). Rows with partial marks are pending.
+  // View mode (alreadySaved): per Option B (spec §5/§7.3) the table renders
+  // null component values as 0, so the summary must follow the same rule —
+  // any saved learner is "entered". Otherwise the card disagrees with the
+  // table when some component columns are NULL in the DB (e.g. a component
+  // was added to the CIA setting after the original save).
   const summaryStats = useMemo(() => {
     const isRowComplete = (r: MarkRow) =>
       components.every((c) => {
         const v = r.marks[c.code];
         return v !== null && v !== undefined;
       });
-    const entered = rows.filter(isRowComplete).length;
+    const hasAnyMark = (r: MarkRow) =>
+      Object.values(r.marks).some((v) => v !== null && v !== undefined);
+
+    const entered = alreadySaved
+      ? rows.filter(hasAnyMark).length
+      : rows.filter(isRowComplete).length;
+
     return {
       total: rows.length,
       entered,
       pending: rows.length - entered,
       absent: 0,
     };
-  }, [rows, components]);
+  }, [rows, components, alreadySaved]);
 
   // Build sync records for submission
   const handleSubmit = useCallback(() => {
@@ -281,6 +300,7 @@ export function MarkEntryGrid({
         exam_registration_id: row.examRegistrationId,
         submission_date: new Date().toISOString(),
         cia_round: round.round,
+        ...(ciaSettingId ? { cia_setting_id: ciaSettingId } : {}),
         marks_status: 'Submitted',
         total_internal_marks: getRowTotal(row),
         max_internal_marks: maxTotal,
@@ -371,6 +391,7 @@ export function MarkEntryGrid({
     validationErrors,
     institutionId,
     examSessionId,
+    ciaSettingId,
     round.round,
     round.round_name,
     components,

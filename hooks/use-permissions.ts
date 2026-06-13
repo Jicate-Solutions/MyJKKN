@@ -5,6 +5,7 @@ import { UserRolesService } from '@/lib/services/users/user-roles-service';
 import { SYSTEM_ROLES, UserRoleAssignment } from '@/types/auth';
 import { Profile, StudentStatus } from '@/types/auth';
 import { useAuth } from './use-auth';
+import { getRolePermissions, applyBOSFallback } from '@/lib/services/bos/bos-role-permissions';
 
 interface UsePermissionsOptions {
   /**
@@ -142,6 +143,12 @@ export function usePermissions(
             }
           }
 
+          // Seed BOS module defaults if the DB role predates the BOS modules
+          applyBOSFallback(
+            mergedPermissions,
+            [...roles.map((r) => r.role_key), userProfile.role].filter(Boolean) as string[]
+          );
+
           return {
             permissions: mergedPermissions,
             isSuperAdmin: false,
@@ -168,6 +175,12 @@ export function usePermissions(
       } else {
         rolePermissions = (role as any).permissions || {};
       }
+
+      // Seed BOS module defaults if the DB role predates the BOS modules
+      applyBOSFallback(
+        rolePermissions as Record<string, boolean>,
+        userProfile.role ? [userProfile.role] : []
+      );
 
       return {
         permissions: rolePermissions,

@@ -1,8 +1,9 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
-import { columns } from './columns';
+import { getCourseColumns } from './columns';
 import type { CoursesSearchParams } from './data-table-schema';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon, Loader2, Upload, Download, ChevronDown, FileSpreadsheet, FileText, FileJson } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -37,6 +38,8 @@ interface CoursesDataTableProps {
 export function CoursesDataTable({ search }: CoursesDataTableProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const label = useAdaptiveLabels();
+  const adapt = useAdaptiveLabels();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<Course[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
@@ -121,7 +124,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
 
       if (successful > 0) {
         toast.success(
-          `Successfully deleted ${successful} course${
+          `Successfully deleted ${successful} ${label('course').toLowerCase()}${
             successful > 1 ? 's' : ''
           }`
         );
@@ -129,7 +132,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
 
       if (failed > 0) {
         toast.error(
-          `Failed to delete ${failed} course${failed > 1 ? 's' : ''}`
+          `Failed to delete ${failed} ${label('course').toLowerCase()}${failed > 1 ? 's' : ''}`
         );
       }
 
@@ -187,7 +190,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success('Courses exported successfully');
+      toast.success(`${adapt('Courses')} exported successfully`);
     } catch (error) {
       console.error('Export error:', error);
       toast.error('Failed to export courses');
@@ -206,7 +209,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success('Courses exported successfully');
+      toast.success(`${adapt('Courses')} exported successfully`);
     } catch (error) {
       console.error('Export error:', error);
       toast.error('Failed to export courses');
@@ -225,7 +228,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      toast.success('Courses exported successfully');
+      toast.success(`${adapt('Courses')} exported successfully`);
     } catch (error) {
       console.error('Export error:', error);
       toast.error('Failed to export courses');
@@ -247,7 +250,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
             className='h-8'
           >
             <Plus className='mr-2 h-4 w-4' />
-            Add Course
+            Add {label("course")}
           </Button>
 
           <Button
@@ -316,7 +319,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
       <DataTable
         key={refreshTrigger}
         fetchDataFn={fetchData}
-        getColumns={() => columns as any}
+        getColumns={() => getCourseColumns(adapt) as any}
         exportConfig={{
           entityName: 'courses',
           columnMapping: {},
@@ -339,8 +342,8 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>
               {selectedForDelete.length > 1
-                ? `Delete ${selectedForDelete.length} Courses`
-                : `Delete Course: ${selectedForDelete[0]?.course_name}`}
+                ? `Delete ${selectedForDelete.length} ${label("course")}s`
+                : `Delete ${label("course")}: ${selectedForDelete[0]?.course_name}`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
@@ -380,8 +383,8 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
               ) : (
                 `Delete ${
                   selectedForDelete.length > 1
-                    ? `${selectedForDelete.length} Courses`
-                    : 'Course'
+                    ? `${selectedForDelete.length} ${label("course")}s`
+                    : label("course")
                 }`
               )}
             </AlertDialogAction>

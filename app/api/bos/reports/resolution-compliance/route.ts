@@ -15,11 +15,11 @@ export async function GET(request: NextRequest) {
     const institutionsId = searchParams.get('institutionsId');
     const academicYear = searchParams.get('academicYear');
 
-    // Fetch agenda items with resolution text across meetings for this board
+    // Fetch meetings matching the filters, then find their agenda items with resolutions.
+    // Note: resolution_text lives on bos_agenda_items, not bos_meetings.
     let meetingQuery = supabase
       .from('bos_meetings')
-      .select('id, meeting_number, meeting_title, academic_year, scheduled_date')
-      .not('resolution_text', 'is', null);
+      .select('id, meeting_number, meeting_title, academic_year, scheduled_date');
 
     if (boardId) meetingQuery = meetingQuery.eq('board_id', boardId);
     if (institutionsId) meetingQuery = meetingQuery.eq('institutions_id', institutionsId);

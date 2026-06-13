@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { Mail, Phone, UserCircle2 } from 'lucide-react';
 
 import {
   Form,
@@ -24,53 +25,70 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Badge } from '@/components/ui/badge';
 
-import { BosMeeting, BOS_MEETING_TYPE_LABELS } from '@/types/bos';
+import { BosMeeting, BOS_MEETING_TYPE_LABELS, BosMember } from '@/types/bos';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAcademicYears } from '@/hooks/use-academic-years';
+import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
 import { BosMeetingService } from '@/lib/services/bos/bos-meeting-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 // ── Types for dropdowns ───────────────────────────────────────────────────────
 
-interface Institution {
-  id: string;
-  name: string;
-}
-
-interface Board {
-  id: string;
-  board_code: string;
-  board_name: string;
-}
-
 interface CompositionOption {
   id: string;
   composition_title: string;
   academic_year: string;
+  board_id: string;
+  institutions_id: string;
   is_active: boolean;
+  board?: { board_code: string; board_name: string } | null;
+}
+
+interface CompositionDetail extends CompositionOption {
+  members?: BosMember[];
 }
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
-const meetingFormSchema = z.object({
+// Schema for creating meetings in draft stage
+const meetingFormSchemaCreate = z.object({
   institutions_id: z.string().min(1),
   board_id: z.string().min(1, 'Board is required'),
   composition_id: z.string().min(1, 'Composition is required'),
-  meeting_type: z.enum(['regular', 'special', 'emergency', 'online']),
-  academic_year: z
-    .string()
-    .regex(/^\d{4}-\d{4}$/, 'Format: YYYY-YYYY')
-    .min(1, 'Academic year is required'),
+  meeting_number: z
+    .number({ invalid_type_error: 'Meeting number is required' })
+    .int('Must be a whole number')
+    .positive('Must be greater than 0'),
+  meeting_type: z.enum(['regular', 'special', 'emergency', 'online', 'hybrid']),
+  academic_year: z.string().min(1, 'Academic year is required'),
   scheduled_date: z.string().min(1, 'Scheduled date is required'),
   scheduled_time: z.string().optional(),
   venue: z.string().optional(),
   agenda_text: z.string().optional(),
 });
 
-export type MeetingFormValues = z.infer<typeof meetingFormSchema>;
+// Schema for editing meetings (allows blank scheduled_date for NULL → populated updates)
+const meetingFormSchemaEdit = z.object({
+  institutions_id: z.string().min(1),
+  board_id: z.string().min(1, 'Board is required'),
+  composition_id: z.string().min(1, 'Composition is required'),
+  meeting_number: z
+    .number({ invalid_type_error: 'Meeting number is required' })
+    .int('Must be a whole number')
+    .positive('Must be greater than 0'),
+  meeting_type: z.enum(['regular', 'special', 'emergency', 'online', 'hybrid']),
+  academic_year: z.string().min(1, 'Academic year is required'),
+  scheduled_date: z.string(),
+  scheduled_time: z.string().optional(),
+  venue: z.string().optional(),
+  agenda_text: z.string().optional(),
+});
+
+export type MeetingFormValues = z.infer<typeof meetingFormSchemaCreate>;
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -79,6 +97,7 @@ interface MeetingFormProps {
   isSubmitting: boolean;
   onSubmit: (data: MeetingFormValues) => void;
   onCancel: () => void;
+  isEditingScheduleOnly?: boolean;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -91,23 +110,28 @@ function deriveAcademicYear(dateStr: string): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: MeetingFormProps) {
-  const { userProfile, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel, isEditingScheduleOnly }: MeetingFormProps) {
+  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  const scope = useBosBoardScope();
 
-  const [institutions, setInstitutions] = useState<Institution[]>([]);
-  const [boards, setBoards] = useState<Board[]>([]);
-  const [loadingBoards, setLoadingBoards] = useState(false);
   const [compositions, setCompositions] = useState<CompositionOption[]>([]);
   const [loadingCompositions, setLoadingCompositions] = useState(false);
-  const [nextMeetingNumber, setNextMeetingNumber] = useState<number | null>(null);
+  const [compositionDetail, setCompositionDetail] = useState<CompositionDetail | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  // `takenNumbers` carries every meeting_number already used in the selected
+  // composition. The form validates the chairman's input against this list
+  // (server enforces the same rule + a DB unique constraint as a race-safety net).
+  const [takenNumbers, setTakenNumbers] = useState<number[]>([]);
+  const [meetingNumberTouched, setMeetingNumberTouched] = useState(false);
 
   const form = useForm<MeetingFormValues>({
-    resolver: zodResolver(meetingFormSchema),
+    resolver: zodResolver(meeting ? meetingFormSchemaEdit : meetingFormSchemaCreate),
     defaultValues: meeting
       ? {
           institutions_id: meeting.institutions_id,
           board_id: meeting.board_id,
           composition_id: meeting.composition_id,
+          meeting_number: meeting.meeting_number,
           meeting_type: meeting.meeting_type,
           academic_year: meeting.academic_year,
           scheduled_date: meeting.scheduled_date ?? '',
@@ -119,6 +143,7 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
           institutions_id: '',
           board_id: '',
           composition_id: '',
+          meeting_number: undefined as unknown as number, // populated once composition is chosen
           meeting_type: 'regular',
           academic_year: '',
           scheduled_date: '',
@@ -128,98 +153,158 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
         },
   });
 
-  // Watch cascade keys
+  const compositionId = form.watch('composition_id');
   const institutionsId = form.watch('institutions_id');
-  const boardId = form.watch('board_id');
-  const academicYear = form.watch('academic_year');
 
-  // Fetch institutions from COE database (for super admin dropdown)
+  const { data: academicYearsData } = useAcademicYears(institutionsId || undefined);
+  const academicYears = academicYearsData?.data ?? [];
+  const academicYearOptions = [
+    ...academicYears.map((ay) => ({ value: ay.academic_year_name, label: ay.academic_year_name })),
+    ...(meeting?.academic_year && !academicYears.some((ay) => ay.academic_year_name === meeting.academic_year)
+      ? [{ value: meeting.academic_year, label: meeting.academic_year }]
+      : []),
+  ];
+
+  // Compositions list — gated by scope.isChairmanIn for non-super-admins.
+  // We fetch active compositions and then filter to the ones the user chairs.
+  // Super-admin: gets every active composition.
   useEffect(() => {
-    fetch('/api/bos/institutions')
+    if (scope.isLoading) return;
+
+    setLoadingCompositions(true);
+    const params = new URLSearchParams();
+    params.set('isActive', 'true');
+    params.set('limit', '100');
+    // Non-super-admin: institution scope is applied server-side automatically.
+    // No need to pass institutionsId — the API derives it from the auth user.
+
+    fetch(`/api/bos/compositions?${params.toString()}`)
       .then((r) => r.json())
-      .then((list: Institution[]) => {
-        setInstitutions(Array.isArray(list) ? list : []);
-        // Non-admin: auto-select the single institution returned
-        if (!meeting && !isSuperAdmin && Array.isArray(list) && list.length === 1) {
-          form.setValue('institutions_id', list[0].id);
+      .then((res) => {
+        const all: CompositionOption[] = (res?.data ?? []).map((c: any) => ({
+          id: c.id,
+          composition_title: c.composition_title,
+          academic_year: c.academic_year,
+          board_id: c.board_id,
+          institutions_id: c.institutions_id,
+          is_active: c.is_active,
+          board: c.board ?? null,
+        }));
+
+        // Chairman-only filter (server already gates POST, but mirror it on the
+        // dropdown so the chairman never sees comps where they're a regular member).
+        // Edit mode is exempt — we always show the composition the meeting was
+        // created against even if the user lost chairman status afterwards.
+        let visible = all;
+        if (!isSuperAdmin && !meeting) {
+          visible = all.filter((c) => scope.isChairmanIn.has(c.id));
+        }
+
+        setCompositions(visible);
+
+        // Auto-select when chairman has exactly one composition.
+        if (!meeting && !form.getValues('composition_id') && visible.length === 1) {
+          form.setValue('composition_id', visible[0].id);
         }
       })
-      .catch((err) => logger.error('academic/bos', 'Failed to fetch institutions', err));
+      .catch((err) => {
+        logger.error('academic/bos', 'Failed to fetch compositions', err);
+        setCompositions([]);
+      })
+      .finally(() => setLoadingCompositions(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [scope.isLoading, isSuperAdmin]);
 
-  // Fast path: set institution from profile immediately (non-admin only)
+  // Composition change → fetch full detail (members + board) and auto-fill
+  // board_id, institutions_id, academic_year.
   useEffect(() => {
-    if (!meeting && !isSuperAdmin && userProfile?.institution_id) {
-      form.setValue('institutions_id', userProfile.institution_id);
-    }
-  }, [userProfile, meeting, isSuperAdmin, form]);
-
-  // Fetch boards when institution changes
-  useEffect(() => {
-    if (!institutionsId) {
-      setBoards([]);
+    if (!compositionId) {
+      setCompositionDetail(null);
       return;
     }
-    setLoadingBoards(true);
-    fetch(`/api/bos/boards?institutionsId=${institutionsId}`)
+    setLoadingDetail(true);
+    fetch(`/api/bos/compositions/${compositionId}`)
       .then(async (r) => {
-        if (!r.ok) throw new Error(`Boards fetch failed: ${r.status}`);
+        if (!r.ok) throw new Error(`Composition fetch failed: ${r.status}`);
         return r.json();
       })
-      .then((list) => setBoards(Array.isArray(list) ? list : []))
-      .catch((err) => {
-        logger.error('academic/bos', 'Failed to fetch boards', err);
-        setBoards([]);
+      .then((data: CompositionDetail) => {
+        setCompositionDetail(data);
+        // Auto-fill cascaded fields. Skip overriding edit-mode values that the
+        // user may not have touched (form values are pre-loaded from meeting).
+        form.setValue('board_id', data.board_id);
+        form.setValue('institutions_id', data.institutions_id);
+        if (!form.getValues('academic_year') && data.academic_year) {
+          form.setValue('academic_year', data.academic_year);
+        }
       })
-      .finally(() => setLoadingBoards(false));
-
-    // Reset downstream when institution changes (edit mode: skip)
-    if (!meeting) {
-      form.setValue('board_id', '');
-      form.setValue('composition_id', '');
-      setCompositions([]);
-    }
+      .catch((err) => {
+        logger.error('academic/bos', 'Failed to fetch composition detail', err);
+        setCompositionDetail(null);
+      })
+      .finally(() => setLoadingDetail(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [institutionsId]);
+  }, [compositionId]);
 
-  // Fetch compositions when board changes
+  // Fetch the suggested next meeting number (and the list of taken numbers
+  // used for client-side duplicate validation) for the selected composition.
+  // - On create: prefill the field with the suggestion unless the chairman
+  //   has already typed an override.
+  // - On edit: never overwrite the persisted value, but still load taken
+  //   numbers so we can flag conflicts if they retype the field.
   useEffect(() => {
-    if (!boardId || !institutionsId) {
-      setCompositions([]);
+    if (!compositionId) {
+      setTakenNumbers([]);
       return;
     }
-    setLoadingCompositions(true);
-    fetch(
-      `/api/bos/compositions?boardId=${boardId}&institutionsId=${institutionsId}&isActive=true&limit=50`
-    )
-      .then((r) => r.json())
-      .then((res) => setCompositions(res.data ?? []))
-      .catch((err) => logger.error('academic/bos', 'Failed to fetch compositions', err))
-      .finally(() => setLoadingCompositions(false));
-
-    // Reset composition selection on board change
-    if (!meeting) form.setValue('composition_id', '');
+    BosMeetingService.getNextMeetingNumber(compositionId)
+      .then(({ nextNumber, takenNumbers: taken }) => {
+        setTakenNumbers(taken);
+        if (!meeting && !meetingNumberTouched) {
+          form.setValue('meeting_number', nextNumber, { shouldValidate: false });
+        }
+      })
+      .catch(() => setTakenNumbers([]));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boardId, institutionsId]);
+  }, [compositionId]);
 
-  // Fetch next meeting number
-  useEffect(() => {
-    if (!boardId || !academicYear || meeting) return;
-    BosMeetingService.getNextMeetingNumber(boardId, academicYear)
-      .then(setNextMeetingNumber)
-      .catch(() => setNextMeetingNumber(null));
-  }, [boardId, academicYear, meeting]);
+  // Pull the chairman row from the members list.
+  const chairman = useMemo<BosMember | null>(() => {
+    if (!compositionDetail?.members?.length) return null;
+    return compositionDetail.members.find((m) => m.member_type === 'chairman' && m.is_active) ?? null;
+  }, [compositionDetail]);
 
-  // Auto-derive academic year from scheduled date
   const handleDateChange = (value: string) => {
     form.setValue('scheduled_date', value);
     if (value && !form.getValues('academic_year')) {
-      form.setValue('academic_year', deriveAcademicYear(value));
+      const derived = deriveAcademicYear(value);
+      const match = academicYearOptions.find((opt) => opt.value === derived);
+      if (match) form.setValue('academic_year', match.value);
     }
   };
 
-  if (permissionsLoading) {
+  // A number is a duplicate when it already exists for this composition AND
+  // it isn't the meeting's own current number (edit-mode self-match is fine).
+  const isDuplicateMeetingNumber = (n: number) =>
+    Number.isFinite(n) &&
+    takenNumbers.includes(n) &&
+    !(meeting && n === meeting.meeting_number);
+
+  // Intercept submit so the inline error appears on the meeting_number field
+  // before we round-trip to the server. The server still enforces the same
+  // rule (DB UNIQUE + explicit 409) — this is just for snappier UX.
+  const handleFormSubmit = (values: MeetingFormValues) => {
+    if (isDuplicateMeetingNumber(values.meeting_number)) {
+      form.setError('meeting_number', {
+        type: 'manual',
+        message: `Meeting ${values.meeting_number} already exists for this composition.`,
+      });
+      return;
+    }
+    onSubmit(values);
+  };
+
+  if (permissionsLoading || scope.isLoading) {
     return (
       <div className='space-y-4'>
         {Array.from({ length: 3 }).map((_, i) => (
@@ -229,277 +314,367 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel }: Meeti
     );
   }
 
+  const compositionOptions = compositions.map((c) => ({
+    value: c.id,
+    label: c.board?.board_name
+      ? `${c.board.board_name} — ${c.composition_title} (${c.academic_year})`
+      : `${c.composition_title} (${c.academic_year})`,
+  }));
+
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6'>
+      <form onSubmit={form.handleSubmit(handleFormSubmit)} className='space-y-6'>
 
-        {/* ── Institution selector (super admin only) ─────────────────── */}
-        {isSuperAdmin && (
-          <Card>
-            <CardHeader>
-              <CardTitle className='text-base'>Institution</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <FormField
-                control={form.control}
-                name='institutions_id'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Institution <span className='text-destructive'>*</span></FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select institution first' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {institutions.map((inst) => (
-                          <SelectItem key={inst.id} value={inst.id}>
-                            {inst.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+        {/* Show message when editing only schedule in principal_approved stage */}
+        {isEditingScheduleOnly && (
+          <Card className='border-amber-200 bg-amber-50'>
+            <CardContent className='pt-4 text-sm text-amber-900'>
+              This meeting is in principal approval stage. You can only update the scheduled date, time, and venue.
             </CardContent>
           </Card>
         )}
 
-        {/* ── Meeting Identity ──────────────────────────────────────────── */}
-        <Card>
-          <CardHeader>
-            <CardTitle className='text-base'>Meeting Details</CardTitle>
-          </CardHeader>
-          <CardContent className='space-y-4'>
-            <div className='grid gap-4 md:grid-cols-2'>
-              {/* Board */}
-              <FormField
-                control={form.control}
-                name='board_id'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Board <span className='text-destructive'>*</span></FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                      disabled={!institutionsId || loadingBoards}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder={
-                            !institutionsId ? 'Select institution first'
-                            : loadingBoards ? 'Loading...'
-                            : 'Select board'
-                          } />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {boards.map((b) => (
-                          <SelectItem key={b.id} value={b.id}>
-                            {b.board_name} ({b.board_code})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+        {/* Two-column layout on xl+: main form (2/3) | sticky chairman side panel (1/3). */}
+        <div className='grid grid-cols-1 gap-6 xl:grid-cols-3'>
 
-              {/* Composition */}
-              <FormField
-                control={form.control}
-                name='composition_id'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Composition <span className='text-destructive'>*</span></FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                      disabled={!boardId || loadingCompositions}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue
-                            placeholder={
-                              !boardId
-                                ? 'Select a board first'
-                                : loadingCompositions
-                                ? 'Loading...'
+          {/* ── Main column ──────────────────────────────────────────── */}
+          <div className='space-y-6 xl:col-span-2'>
+
+            {/* Composition (primary selector) + auto-derived board — hidden in schedule-only edit mode */}
+            {!isEditingScheduleOnly && (
+            <Card>
+              <CardHeader>
+                <CardTitle className='text-base'>Select Composition</CardTitle>
+              </CardHeader>
+              <CardContent className='space-y-4'>
+                <div className='grid gap-4 md:grid-cols-2'>
+                  <FormField
+                    control={form.control}
+                    name='composition_id'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Composition <span className='text-destructive'>*</span></FormLabel>
+                        <SearchableSelect
+                          value={field.value}
+                          onValueChange={field.onChange}
+                          options={compositionOptions}
+                          placeholder={
+                            loadingCompositions
+                              ? 'Loading…'
+                              : compositionOptions.length === 0
+                                ? 'No compositions available'
                                 : 'Select composition'
-                            }
-                          />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {compositions.map((c) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.composition_title} ({c.academic_year})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>
-                      Only active compositions are listed.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+                          }
+                          searchPlaceholder='Search composition…'
+                          loading={loadingCompositions}
+                          disabled={loadingCompositions || compositionOptions.length === 0}
+                          className='w-full'
+                        />
+                        <FormDescription>
+                          {isSuperAdmin
+                            ? 'All active compositions are listed.'
+                            : 'Only compositions where you serve as chairman are listed.'}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-            <div className='grid gap-4 md:grid-cols-2'>
-              {/* Meeting Type */}
-              <FormField
-                control={form.control}
-                name='meeting_type'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Meeting Type <span className='text-destructive'>*</span></FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select type' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {Object.entries(BOS_MEETING_TYPE_LABELS).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* Academic Year */}
-              <FormField
-                control={form.control}
-                name='academic_year'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Academic Year <span className='text-destructive'>*</span></FormLabel>
-                    <FormControl>
-                      <Input placeholder='e.g. 2025-2026' {...field} />
-                    </FormControl>
-                    <FormDescription>Auto-filled from scheduled date.</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            {/* Auto meeting number preview */}
-            {nextMeetingNumber && !meeting && (
-              <div className='flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-2 text-sm'>
-                <span className='text-muted-foreground'>Meeting number:</span>
-                <Badge variant='secondary'>
-                  Meeting {nextMeetingNumber} of {academicYear || '–'}
-                </Badge>
-                <span className='text-xs text-muted-foreground'>(auto-assigned on save)</span>
-              </div>
+                  {/* Auto-derived board summary — mirrors the form-field height. */}
+                  <div>
+                    <div className='mb-2 text-sm font-medium'>Board</div>
+                    <div className='rounded-md border bg-muted/40 px-3 py-2 text-sm'>
+                      {!compositionId ? (
+                        <span className='text-muted-foreground'>Select a composition to view the board</span>
+                      ) : loadingDetail ? (
+                        <Skeleton className='h-4 w-40' />
+                      ) : compositionDetail?.board ? (
+                        <div className='flex flex-col'>
+                          <span className='font-medium leading-tight'>{compositionDetail.board.board_name}</span>
+                          <span className='text-xs text-muted-foreground'>{compositionDetail.board.board_code}</span>
+                        </div>
+                      ) : (
+                        <span className='text-muted-foreground'>—</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
             )}
-          </CardContent>
-        </Card>
 
-        {/* ── Schedule & Venue ─────────────────────────────────────────── */}
-        <Card>
-          <CardHeader>
-            <CardTitle className='text-base'>Schedule &amp; Venue</CardTitle>
-          </CardHeader>
-          <CardContent className='space-y-4'>
-            <div className='grid gap-4 md:grid-cols-3'>
-              {/* Date */}
-              <FormField
-                control={form.control}
-                name='scheduled_date'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Scheduled Date <span className='text-destructive'>*</span></FormLabel>
-                    <FormControl>
-                      <Input
-                        type='date'
-                        {...field}
-                        onChange={(e) => handleDateChange(e.target.value)}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            {/* Meeting Identity — hidden in schedule-only edit mode */}
+            {!isEditingScheduleOnly && (
+            <Card>
+              <CardHeader>
+                <CardTitle className='text-base'>Meeting Details</CardTitle>
+              </CardHeader>
+              <CardContent className='space-y-4'>
+                <div className='grid gap-4 md:grid-cols-3'>
+                  <FormField
+                    control={form.control}
+                    name='meeting_number'
+                    render={({ field }) => {
+                      const fieldValue =
+                        typeof field.value === 'number' && Number.isFinite(field.value)
+                          ? String(field.value)
+                          : '';
+                      return (
+                        <FormItem>
+                          <FormLabel>
+                            Meeting Number <span className='text-destructive'>*</span>
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min={1}
+                              step={1}
+                              inputMode='numeric'
+                              placeholder={compositionId ? 'e.g. 3' : 'Select composition first'}
+                              disabled={!compositionId || loadingDetail}
+                              value={fieldValue}
+                              onChange={(e) => {
+                                setMeetingNumberTouched(true);
+                                const raw = e.target.value;
+                                if (raw === '') {
+                                  field.onChange(undefined);
+                                  return;
+                                }
+                                const parsed = Number(raw);
+                                field.onChange(Number.isFinite(parsed) ? parsed : undefined);
+                              }}
+                              onBlur={(e) => {
+                                field.onBlur();
+                                const parsed = Number(e.target.value);
+                                if (Number.isFinite(parsed) && isDuplicateMeetingNumber(parsed)) {
+                                  form.setError('meeting_number', {
+                                    type: 'manual',
+                                    message: `Meeting ${parsed} already exists for this composition.`,
+                                  });
+                                } else {
+                                  form.clearErrors('meeting_number');
+                                }
+                              }}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            Auto-suggested from the composition. Edit if earlier meetings were
+                            conducted outside the system.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      );
+                    }}
+                  />
 
-              {/* Time */}
-              <FormField
-                control={form.control}
-                name='scheduled_time'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Time</FormLabel>
-                    <FormControl>
-                      <Input type='time' {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                  <FormField
+                    control={form.control}
+                    name='meeting_type'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Meeting Type <span className='text-destructive'>*</span></FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder='Select type' />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {Object.entries(BOS_MEETING_TYPE_LABELS).map(([value, label]) => (
+                              <SelectItem key={value} value={value}>
+                                {label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-              {/* Venue */}
-              <FormField
-                control={form.control}
-                name='venue'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Venue</FormLabel>
-                    <FormControl>
-                      <Input placeholder='e.g. Principal Conference Hall' {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                  <FormField
+                    control={form.control}
+                    name='academic_year'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Academic Year <span className='text-destructive'>*</span></FormLabel>
+                        <SearchableSelect
+                          value={field.value}
+                          onValueChange={field.onChange}
+                          options={academicYearOptions}
+                          placeholder='Select academic year'
+                          searchPlaceholder='Search year…'
+                          disabled={!institutionsId}
+                          className='w-full'
+                        />
+                        <FormDescription>Auto-selected from the composition; adjustable.</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+            )}
+
+            {/* Schedule & Venue */}
+            <Card>
+              <CardHeader>
+                <CardTitle className='text-base'>Schedule &amp; Venue</CardTitle>
+              </CardHeader>
+              <CardContent className='space-y-4'>
+                <div className='grid gap-4 md:grid-cols-3'>
+                  <FormField
+                    control={form.control}
+                    name='scheduled_date'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Scheduled Date <span className='text-destructive'>*</span></FormLabel>
+                        <FormControl>
+                          <Input
+                            type='date'
+                            {...field}
+                            onChange={(e) => handleDateChange(e.target.value)}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='scheduled_time'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Time</FormLabel>
+                        <FormControl>
+                          <Input type='time' {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='venue'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Venue</FormLabel>
+                        <FormControl>
+                          <Input placeholder='e.g. Principal Conference Hall' {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Agenda Overview — hidden in schedule-only edit mode */}
+            {!isEditingScheduleOnly && (
+            <Card>
+              <CardHeader>
+                <CardTitle className='text-base'>Agenda Overview</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <FormField
+                  control={form.control}
+                  name='agenda_text'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormControl>
+                        <Textarea
+                          placeholder='Brief agenda items for the notice (detailed agenda is added after saving)'
+                          className='resize-y min-h-[140px]'
+                          rows={6}
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        This text appears on the meeting notice. Detailed agenda items are managed separately.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </CardContent>
+            </Card>
+            )}
+          </div>
+
+          {/* ── Sidebar (chairman + meeting summary) — hidden in schedule-only edit mode */}
+          {!isEditingScheduleOnly && (
+          <aside className='xl:col-span-1' >
+            <div className='space-y-4 xl:sticky xl:top-6'>
+              <Card>
+                <CardHeader>
+                  <CardTitle className='text-base'>Chairman Details</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {!compositionId ? (
+                    <div className='text-sm text-muted-foreground'>
+                      Select a composition to view chairman information.
+                    </div>
+                  ) : loadingDetail ? (
+                    <div className='space-y-2'>
+                      <Skeleton className='h-4 w-40' />
+                      <Skeleton className='h-4 w-56' />
+                      <Skeleton className='h-4 w-48' />
+                    </div>
+                  ) : chairman ? (
+                    <div className='flex gap-3'>
+                      <div className='flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary'>
+                        <UserCircle2 className='h-6 w-6' />
+                      </div>
+                      <div className='min-w-0 space-y-1 text-sm'>
+                        <div className='font-medium leading-snug break-words'>{chairman.display_name}</div>
+                        {chairman.display_designation && (
+                          <div className='text-muted-foreground break-words'>{chairman.display_designation}</div>
+                        )}
+                        {chairman.display_institution && (
+                          <div className='text-muted-foreground break-words'>{chairman.display_institution}</div>
+                        )}
+                        <div className='space-y-1 pt-1 text-muted-foreground'>
+                          {chairman.email && (
+                            <div className='inline-flex items-center gap-1.5 break-all'>
+                              <Mail className='h-3.5 w-3.5 shrink-0' /> {chairman.email}
+                            </div>
+                          )}
+                          {chairman.contact_no && (
+                            <div className='inline-flex items-center gap-1.5'>
+                              <Phone className='h-3.5 w-3.5 shrink-0' /> {chairman.contact_no}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className='text-sm text-muted-foreground'>
+                      No active chairman found in <code className='rounded bg-muted px-1 text-xs'>bos_members</code> for
+                      this composition. Add a chairman before scheduling a meeting.
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
             </div>
-          </CardContent>
-        </Card>
+          </aside>
+          )}
+        </div>
 
-        {/* ── Agenda Overview ───────────────────────────────────────────── */}
-        <Card>
-          <CardContent className='p-6'>
-            <FormField
-              control={form.control}
-              name='agenda_text'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Agenda Overview</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder='Brief agenda items for the notice (detailed agenda is added after saving)'
-                      className='resize-none'
-                      rows={4}
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    This text appears on the meeting notice. Detailed agenda items are managed separately.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </CardContent>
-        </Card>
-
-        {/* ── Actions ───────────────────────────────────────────────────── */}
-        <div className='flex justify-end gap-3'>
+        {/* ── Actions ───────────────────────────────────────────────── */}
+        <div className='flex flex-col gap-3 border-t pt-4 sm:flex-row sm:justify-end'>
           <Button type='button' variant='outline' onClick={onCancel} disabled={isSubmitting}>
             Cancel
           </Button>
-          <Button type='submit' disabled={isSubmitting}>
+          <Button
+            type='submit'
+            disabled={isSubmitting || (!meeting && !chairman)}
+            title={!meeting && !chairman ? 'Add a chairman to the composition first' : undefined}
+          >
             {isSubmitting ? 'Saving...' : meeting ? 'Update Meeting' : 'Schedule Meeting'}
           </Button>
         </div>

@@ -91,8 +91,7 @@ const COLUMN_MAPPING: Record<string, string[]> = {
 
   // SECTION 9: Accommodation Details
   'accommodation_type': ['Accommodation Type', 'accommodation_type'],
-  'hostel_type': ['Hostel Type', 'hostel_type'],
-  'food_type': ['Food Type', 'food_type'],
+  'bus_required': ['Bus Required', 'bus_required', 'Bus'],
   // SECTION 10: Reference Information
   'reference_type': ['Reference Type', 'reference_type'],
   'reference_name': ['Reference Name', 'reference_name'],
@@ -102,7 +101,6 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'roll_number': ['Roll Number', 'roll_number'],
   'register_number': ['Register Number', 'register_number'],
   'quota': ['Quota', 'quota'],
-  'category': ['Category', 'category'],
   'student_photo_url': ['Photo URL', 'photo_url', 'student_photo_url'],
 };
 

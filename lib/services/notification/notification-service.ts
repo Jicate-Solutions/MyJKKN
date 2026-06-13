@@ -228,6 +228,15 @@ export async function createNotification(
 
   const notification = data as unknown as Notification;
 
+  // Mirror into user_notifications so getNotifications() (which queries that
+  // junction table) can surface this notification in the bell/inbox UI.
+  if (dto.user_id) {
+    const { error: ujError } = await (supabase as any)
+      .from('user_notifications')
+      .insert({ user_id: dto.user_id, notification_id: notification.id });
+    if (ujError) console.error('user_notifications insert failed:', ujError);
+  }
+
   // TODO: Send to external channels (email, SMS, push) based on channels array
   await sendToChannels(notification);
 

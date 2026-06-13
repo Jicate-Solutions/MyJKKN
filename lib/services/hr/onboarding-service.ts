@@ -197,7 +197,7 @@ export class OnboardingService {
    * Convenience: replace one step at the given 1-based order. Used by the
    * admin UI when the user is editing a single step inline (without
    * re-typing the whole steps[] block). Currently unused — exposed for
-   * future inline-edit UI in /admin/hr/onboarding-checklists.
+   * future inline-edit UI in /hr/admin/onboarding-checklists.
    */
   static async updateStep(
     supabase: SupabaseClient,

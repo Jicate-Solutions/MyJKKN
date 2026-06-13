@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { StaffAvatar } from '@/components/staff/staff-avatar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import ReactMarkdown from 'react-markdown';
 import { StaffService } from '@/lib/services/staff/staff-service';
@@ -80,10 +80,6 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
     fetchStaff();
   }, [id, permissionsLoaded, isSuperAdmin, canAccess, router]);
 
-  const getInitials = (firstName: string, lastName: string) => {
-    return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
-  };
-
   // Show loading when permissions or data are loading
   if (permissionsLoading || (loading && permissionsLoaded)) {
     return (
@@ -110,6 +106,11 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
     );
   }
 
+  // Detail-page Edit is purely a UI affordance — RLS + the API's
+  // STAFF_OWN_RECORD_VIOLATION check already prevent unauthorized PATCH.
+  // We hide the button entirely (instead of rendering it disabled) for
+  // users without `staff.edit`, so an `own_records` user viewing their own
+  // row without edit perm doesn't see a button that would 403 on click.
   const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
   // R4.1 — internal mobility: show "Consider for New Role" to users who can create recruitment candidates
   const canCreateRecruitment = isSuperAdmin || canAccess('hr.recruitment', 'create');
@@ -172,17 +173,12 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
                 </Link>
               </Button>
             )}
-            {canEditStaff ? (
+            {canEditStaff && (
               <Button asChild>
                 <Link href={`/staff/list/${id}/edit`}>
                   <PenSquare className='mr-2 h-4 w-4' />
                   Edit Employee
                 </Link>
-              </Button>
-            ) : (
-              <Button variant='outline' disabled className='opacity-50'>
-                <PenSquare className='mr-2 h-4 w-4' />
-                Edit Employee
               </Button>
             )}
           </div>
@@ -195,12 +191,13 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
           </CardHeader>
           <CardContent className='space-y-4'>
             <div className='flex items-center gap-4'>
-              <Avatar className='h-20 w-20'>
-                <AvatarImage src={staff.profile_picture || undefined} />
-                <AvatarFallback className='text-lg'>
-                  {getInitials(staff.first_name, staff.last_name)}
-                </AvatarFallback>
-              </Avatar>
+              <StaffAvatar
+                src={staff.profile_picture}
+                firstName={staff.first_name}
+                lastName={staff.last_name}
+                className='h-20 w-20'
+                fallbackClassName='text-lg'
+              />
               <div className='space-y-1'>
                 <div className='flex items-center gap-2'>
                   <h2 className='text-xl font-semibold'>

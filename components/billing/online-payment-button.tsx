@@ -18,7 +18,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { RazorpayHostedRedirect } from './razorpay-hosted-redirect';
 import type { CreatePaymentSessionDto } from '@/types/payment-gateway';
+
+export interface RazorpayLaunchProps {
+  razorpayKeyId: string;
+  razorpayOrderId: string;
+  amountPaise: number;
+  currency: 'INR';
+  transactionId: string;
+  customer: { name?: string; email?: string; phone?: string };
+  description?: string;
+}
 
 interface OnlinePaymentButtonProps {
   studentId: string;
@@ -30,6 +41,11 @@ interface OnlinePaymentButtonProps {
   variant?: 'default' | 'outline' | 'secondary' | 'ghost' | 'link';
   size?: 'default' | 'sm' | 'lg' | 'icon';
   onSuccess?: () => void;  // Optional: Callback after successful payment initiation
+  // When provided, a Razorpay session is handed to the parent to launch the
+  // checkout OUTSIDE this (closable) subtree. Required when this button lives
+  // inside a dialog that closes on success — otherwise the redirect component
+  // unmounts before it can POST the form to Razorpay's hosted page.
+  onRazorpaySession?: (props: RazorpayLaunchProps) => void;
 }
 
 export function OnlinePaymentButton({
@@ -42,8 +58,10 @@ export function OnlinePaymentButton({
   variant = 'default',
   size = 'default',
   onSuccess,
+  onRazorpaySession,
 }: OnlinePaymentButtonProps) {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [razorpayLaunchProps, setRazorpayLaunchProps] = useState<RazorpayLaunchProps | null>(null);
   const { openPaymentGateway, isOpening } = useOpenPaymentGateway();
 
   const handlePaymentClick = () => {
@@ -59,9 +77,36 @@ export function OnlinePaymentButton({
       bill_amounts: billAmounts,  // Include custom amounts if provided
     };
 
-    await openPaymentGateway(paymentData);
+    const session = await openPaymentGateway(paymentData);
 
-    // Call onSuccess callback if provided
+    // Razorpay flow: hand the launch details up (or mount locally if standalone).
+    if (session?.provider === 'razorpay' && session.razorpay_key_id && session.razorpay_order_id) {
+      const launch: RazorpayLaunchProps = {
+        razorpayKeyId: session.razorpay_key_id,
+        razorpayOrderId: session.razorpay_order_id,
+        amountPaise: session.amount_paise ?? Math.round(session.amount * 100),
+        currency: 'INR',
+        transactionId: session.transaction_id,
+        customer: session.customer ?? {},
+        description: `Bill payment for ${billIds.length} ${billIds.length === 1 ? 'bill' : 'bills'}`,
+      };
+
+      if (onRazorpaySession) {
+        // Parent owns the launcher (renders it above any closable dialog) and
+        // decides when to close. It calls onSuccess/handleClose itself.
+        onRazorpaySession(launch);
+      } else {
+        setRazorpayLaunchProps(launch);
+      }
+
+      // IMPORTANT: do NOT call onSuccess() on the Razorpay path. When this button
+      // is inside a dialog, onSuccess closes it — which would unmount the redirect
+      // component before it can POST the form to Razorpay. The hosted flow fully
+      // navigates the browser to Razorpay, then back to success/failed.
+      return;
+    }
+
+    // HDFC flow: window.location.href already happened inside the hook. Safe to close.
     if (onSuccess) {
       onSuccess();
     }
@@ -105,7 +150,8 @@ export function OnlinePaymentButton({
                   for {billIds.length} {billIds.length === 1 ? 'bill' : 'bills'}
                 </p>
                 <p className="text-sm">
-                  You will be redirected to HDFC SmartGateway to complete the payment securely.
+                  You will be redirected to a secure Razorpay payment page to
+                  complete your payment.
                 </p>
               </div>
             </AlertDialogDescription>
@@ -118,6 +164,13 @@ export function OnlinePaymentButton({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {razorpayLaunchProps && (
+        <RazorpayHostedRedirect
+          {...razorpayLaunchProps}
+          onClose={() => setRazorpayLaunchProps(null)}
+        />
+      )}
     </>
   );
 }

@@ -105,6 +105,8 @@ export async function POST(
         utmSource: meta.utmSource,
         utmMedium: meta.utmMedium,
         utmCampaign: meta.utmCampaign,
+        campaignLinkId: meta.campaignLinkId,
+        sessionId,
         referrerUrl: meta.referrerUrl,
         deviceType,
       },

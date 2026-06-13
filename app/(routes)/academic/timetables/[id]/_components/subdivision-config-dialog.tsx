@@ -114,8 +114,10 @@ export function SubdivisionConfigDialog({
   }, [isOpen]);
 
   // Validate assignments whenever groups change
+  // Updated: 2026-06-10 - Run even when allStudents is empty; otherwise validationResult
+  // stays null and Save silently no-ops (button also locks up after first click)
   useEffect(() => {
-    if (groups.length > 0 && allStudents.length > 0) {
+    if (groups.length > 0) {
       const studentIds = allStudents.map((s) => s.id);
       const result = validateSubdivisionAssignments(groups, studentIds);
       setValidationResult(result);
@@ -175,9 +177,14 @@ export function SubdivisionConfigDialog({
   };
 
   const handleSave = () => {
+    // Updated: 2026-06-10 - Validate synchronously at click time instead of relying on
+    // the effect-computed validationResult, which can be stale or null (e.g. 0 students)
+    const studentIds = allStudents.map((s) => s.id);
+    const result = validateSubdivisionAssignments(groups, studentIds);
+    setValidationResult(result);
     setShowValidation(true);
 
-    if (!validationResult?.isValid) {
+    if (!result.isValid) {
       return;
     }
 

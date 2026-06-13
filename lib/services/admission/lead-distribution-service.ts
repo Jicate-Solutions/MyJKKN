@@ -5,6 +5,7 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { withRetry } from '@/lib/retry';
 import type { LeadSourceEnum } from './source-master-service';
 
 export interface CounselorDistribution {
@@ -240,6 +241,88 @@ export class LeadDistributionService {
       throw error;
     }
     return { leads: (data ?? []) as UnassignedLead[], totalCount: count ?? 0 };
+  }
+
+  // -------------------------------------------------------------------------
+  // listAllUnassignedIds — returns EVERY unassigned lead's id + institution_id
+  // for a source (paginated internally past PostgREST's 1000-row cap). Used
+  // by the Distribute panel's "Select all N leads" affordance so users can
+  // select more than the 200-lead visible window in one action.
+  //
+  // Payload is intentionally tiny (2 fields per row) so even 50k rows is a
+  // few hundred KB. Filters mirror listUnassigned exactly.
+  // -------------------------------------------------------------------------
+  static async listAllUnassignedIds(input: {
+    sourceEnum: LeadSourceEnum;
+    institutionId?: string | null;
+    filters?: {
+      stage?: string;
+      hot?: boolean;
+      search?: string;
+    };
+  }): Promise<Array<{ id: string; institution_id: string | null }>> {
+    const supabase = this.supabase;
+    const { sourceEnum, institutionId, filters = {} } = input;
+
+    const PAGE = 1000;
+    const out: Array<{ id: string; institution_id: string | null }> = [];
+    let offset = 0;
+
+    // Loop until a page returns fewer than PAGE rows — that's the natural
+    // stop condition since the underlying count is consistent for the
+    // duration of the page sequence (we hold no lock; mid-iteration writes
+    // shift the window slightly but won't deadlock the loop).
+    // Hard upper bound at 100 pages (100k rows) prevents runaway loops.
+    //
+    // Each page is wrapped in withRetry() because over ~15 round-trips for a
+    // 14k-row source, any single transient ECONNRESET from a stale Supabase
+    // keep-alive socket would otherwise kill the whole "Select all" action.
+    // See project memory: feedback_supabase_econnreset_use_withretry.
+    for (let safety = 0; safety < 100; safety += 1) {
+      const pageOffset = offset;
+      const rows = await withRetry(async () => {
+        let q = (supabase as any)
+          .from('admission_leads')
+          .select('id, institution_id')
+          .eq('source', sourceEnum)
+          .is('counselor_id', null);
+
+        if (institutionId) q = q.eq('institution_id', institutionId);
+        if (filters.stage) q = q.eq('funnel_stage', filters.stage);
+        if (filters.hot) q = q.eq('is_hot_lead', true);
+        if (filters.search) {
+          q = q.or(
+            `full_name.ilike.%${filters.search}%,email.ilike.%${filters.search}%,phone.ilike.%${filters.search}%`,
+          );
+        }
+
+        q = q
+          .order('created_at', { ascending: false })
+          .range(pageOffset, pageOffset + PAGE - 1);
+
+        const { data, error } = await q;
+        if (error) {
+          // Supabase logical errors (RLS, bad SQL) — throw so withRetry can
+          // re-try once or two then surface. Transient network errors arrive
+          // here as well; withRetry's retry handles both equivalently.
+          throw error;
+        }
+        return (data ?? []) as Array<{
+          id: string;
+          institution_id: string | null;
+        }>;
+      }).catch((err) => {
+        // After 3 retries, log and re-throw so the mutation surfaces it.
+        logger.error('admissions', 'Error listing all unassigned lead IDs', err);
+        throw err;
+      });
+
+      out.push(...rows);
+      if (rows.length < PAGE) break;
+      offset += PAGE;
+    }
+
+    return out;
   }
 
   private static async getRoleKeysByUserIds(

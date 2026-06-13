@@ -7,6 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
 import { EmploymentCategory } from '@/types/staff';
+import { getErrorMessage } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -27,14 +28,36 @@ import {
 } from '@/hooks/staff/use-categories';
 
 const categorySchema = z.object({
-  category_name: z.string().min(2, 'Name must be at least 2 characters'),
+  category_name: z
+    .string()
+    .trim()
+    .min(2, 'Name must be at least 2 characters'),
   description: z.string().optional(),
   is_teaching: z.boolean().default(false),
   shows_extended_profile: z.boolean().default(false),
-  is_active: z.boolean().default(true)
+  is_active: z.boolean().default(true),
+  // Added: 2026-05-15. When off, new staff in this category default to
+  // login_enabled=false (view-only). Per-row override on staff still wins.
+  allows_login: z.boolean().default(true)
 });
 
 type FormValues = z.infer<typeof categorySchema>;
+
+// employment_categories.category_name has a global UNIQUE constraint
+// (employment_categories_category_name_key) because the table is a shared
+// master list across all institutions. Supabase rethrows the resulting 23505
+// as a plain JSON object (not an Error instance), so a naive
+// `err instanceof Error ? err.message : 'Failed…'` catch silently drops the
+// real Postgres message — same trap that hit admission/fees-structure earlier
+// today. Read via getErrorMessage() and translate the constraint name into
+// something the admin can act on.
+function humanizeCategoryError(err: unknown, fallback: string): string {
+  const raw = getErrorMessage(err) || fallback;
+  if (/employment_categories_category_name_key/i.test(raw)) {
+    return 'A category with this name already exists in the shared catalogue. Pick a different name or use the existing category.';
+  }
+  return raw;
+}
 
 interface CategoryFormProps {
   category?: EmploymentCategory;
@@ -55,7 +78,8 @@ export function CategoryForm({ category, isEditing }: CategoryFormProps) {
       description: category?.description || '',
       is_teaching: category?.is_teaching ?? false,
       shows_extended_profile: category?.shows_extended_profile ?? false,
-      is_active: category?.is_active ?? true
+      is_active: category?.is_active ?? true,
+      allows_login: category?.allows_login ?? true
     }
   });
 
@@ -72,9 +96,7 @@ export function CategoryForm({ category, isEditing }: CategoryFormProps) {
       router.push('/staff/category');
     } catch (error) {
       console.error('Form submission error:', error);
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to save category'
-      );
+      toast.error(humanizeCategoryError(error, 'Failed to save category'));
     }
   };
 
@@ -176,6 +198,31 @@ export function CategoryForm({ category, isEditing }: CategoryFormProps) {
                       <FormLabel>Active Status</FormLabel>
                       <div className='text-sm text-muted-foreground'>
                         Disable to temporarily hide this category
+                      </div>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='allows_login'
+                render={({ field }) => (
+                  <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
+                    <div className='space-y-0.5'>
+                      <FormLabel>Login default (new staff can sign in)</FormLabel>
+                      <div className='text-sm text-muted-foreground'>
+                        When off, new staff added to this category default to
+                        &quot;view-only&quot; (no login, no real email needed).
+                        Use this for labour-grade categories like Driver, Security,
+                        Maintenance, Cooking Master, etc. Per-row override on staff
+                        still wins.
                       </div>
                     </div>
                     <FormControl>

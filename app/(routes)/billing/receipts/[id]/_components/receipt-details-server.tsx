@@ -101,6 +101,11 @@ export function ReceiptDetailsServer({ receipt }: ReceiptDetailsServerProps) {
                 </div>
                 <div className='text-green-100'>
                   {formatDate(receipt.receipt_date)}
+                  {receipt.created_at && (
+                    <span className='ml-2 text-green-200 text-sm'>
+                      {format(new Date(receipt.created_at), 'hh:mm a')}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -151,6 +156,11 @@ export function ReceiptDetailsServer({ receipt }: ReceiptDetailsServerProps) {
                     <span>Receipt Date:</span>
                     <span className='font-medium'>
                       {formatDate(receipt.receipt_date)}
+                      {receipt.created_at && (
+                        <span className='text-muted-foreground text-sm ml-1'>
+                          {format(new Date(receipt.created_at), 'hh:mm a')}
+                        </span>
+                      )}
                     </span>
                   </div>
                   {receipt.payment_reference_number && (

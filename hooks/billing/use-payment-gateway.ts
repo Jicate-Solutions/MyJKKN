@@ -95,20 +95,35 @@ export function usePaymentStatus(transactionId: string | null, enabled: boolean 
 }
 
 /**
- * Hook to open HDFC payment gateway
+ * Hook to open the payment gateway. Returns the session so the caller can
+ * decide how to launch: HDFC redirects here, while Razorpay hands the session
+ * to <RazorpayHostedRedirect>, which POSTs a form to Razorpay's hosted checkout
+ * page. The legacy HDFC redirect happens here for backward compatibility when
+ * the caller doesn't intercept the return value.
  */
 export function useOpenPaymentGateway() {
   const { mutateAsync, isPending } = useInitiatePayment();
 
-  const openPaymentGateway = async (data: CreatePaymentSessionDto) => {
+  const openPaymentGateway = async (data: CreatePaymentSessionDto): Promise<PaymentSessionResponse | null> => {
     try {
       const session = await mutateAsync(data);
 
-      // Redirect to HDFC payment gateway
-      window.location.href = session.payment_url;
+      // Razorpay sessions: return to the caller — DO NOT redirect here. The
+      // caller (e.g. OnlinePaymentButton) mounts <RazorpayHostedRedirect> with
+      // these props, which POSTs a form that navigates to Razorpay's hosted page.
+      if (session.provider === 'razorpay') {
+        return session;
+      }
+
+      // HDFC SmartGateway path — redirect to the hosted payment page.
+      if (session.payment_url) {
+        window.location.href = session.payment_url;
+      }
+      return session;
     } catch (error) {
       // Error already handled by mutation
       console.error('[billing/payment] Failed to open payment gateway:', error);
+      return null;
     }
   };
 

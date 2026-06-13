@@ -9,6 +9,10 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { LearnerValidationService, ValidationResult } from './learner-validation-service';
+import { buildQuotaResolver } from '@/lib/utils/quota-name-resolver';
+import { buildCommunityResolver } from '@/lib/utils/community-name-resolver';
+import { buildCasteResolver } from '@/lib/utils/caste-name-resolver';
+import { buildAccommodationTypeResolverMulti } from '@/lib/utils/accommodation-type-resolver';
 
 // Create admin client for database operations
 const supabaseAdmin = createClient(
@@ -122,8 +126,7 @@ const FIELD_LABELS: Record<string, string> = {
   quota: 'Quota',
   student_photo_url: 'Photo URL',
   accommodation_type: 'Accommodation Type',
-  hostel_type: 'Hostel Type',
-  food_type: 'Food Type',
+  bus_required: 'Bus Required',
   reference_type: 'Reference Type',
   reference_name: 'Reference Name',
   reference_contact: 'Reference Contact',
@@ -272,6 +275,15 @@ export class BulkLearnerEditService {
       errors: []
     };
 
+    // Resolve the readable quota label (Excel "Quota" column) → quota_id (FK)
+    // before each update. Storage is quota_id only; the `quota` TEXT column is
+    // being retired.
+    const resolveQuota = await buildQuotaResolver(supabaseAdmin);
+    const resolveCommunity = await buildCommunityResolver(supabaseAdmin);
+    const resolveCaste = await buildCasteResolver(supabaseAdmin);
+    // accommodation_type TEXT retired — resolve the label → institution-scoped FK.
+    const resolveAccommodation = await buildAccommodationTypeResolverMulti(supabaseAdmin);
+
     for (const row of rows) {
       try {
         // Skip rows with validation errors
@@ -339,6 +351,63 @@ export class BulkLearnerEditService {
             fieldsUpdated.push(key);
           }
         });
+
+        // Quota arrives as a readable label; persist the FK (quota_id), not the
+        // legacy TEXT column. Drop the text key either way so it never reaches
+        // the (retired) column; only set quota_id when the label resolves.
+        if (updateData.quota !== undefined) {
+          const qid = resolveQuota(updateData.quota);
+          delete updateData.quota;
+          const qi = fieldsUpdated.indexOf('quota');
+          if (qi !== -1) fieldsUpdated.splice(qi, 1);
+          if (qid) {
+            updateData.quota_id = qid;
+            fieldsUpdated.push('quota_id');
+          }
+        }
+
+        // Community arrives as a readable label; persist the FK
+        // (community_category_id), not the legacy TEXT column.
+        if (updateData.community !== undefined) {
+          const cid = resolveCommunity(updateData.community);
+          delete updateData.community;
+          const ci = fieldsUpdated.indexOf('community');
+          if (ci !== -1) fieldsUpdated.splice(ci, 1);
+          if (cid) {
+            updateData.community_category_id = cid;
+            fieldsUpdated.push('community_category_id');
+          }
+        }
+
+        // Caste arrives as a readable label; persist the FK (caste_id), not the
+        // legacy TEXT column. Resolution is community-scoped (ambiguous names).
+        if (updateData.caste !== undefined) {
+          const cstId = resolveCaste(updateData.caste, updateData.community_category_id);
+          delete updateData.caste;
+          const xi = fieldsUpdated.indexOf('caste');
+          if (xi !== -1) fieldsUpdated.splice(xi, 1);
+          if (cstId) {
+            updateData.caste_id = cstId;
+            fieldsUpdated.push('caste_id');
+          }
+        }
+
+        // Accommodation arrives as a readable label; persist the FK
+        // (accommodation_type_id), not the legacy TEXT column. Resolution is
+        // scoped to the learner's institution.
+        if (updateData.accommodation_type !== undefined) {
+          const aid = resolveAccommodation(
+            updateData.accommodation_type,
+            learnerCheck.learner.institution_id,
+          );
+          delete updateData.accommodation_type;
+          const ai = fieldsUpdated.indexOf('accommodation_type');
+          if (ai !== -1) fieldsUpdated.splice(ai, 1);
+          if (aid) {
+            updateData.accommodation_type_id = aid;
+            fieldsUpdated.push('accommodation_type_id');
+          }
+        }
 
         // Skip if no fields to update
         if (Object.keys(updateData).length === 0) {
@@ -457,7 +526,11 @@ export class BulkLearnerEditService {
           academic_year:academic_years(id, academic_year_name),
           regulation:regulations(id, regulation_year, regulation_code),
           batch:batches(id, batch_name),
-          admission_year_obj:admission_years!admission_year_id(program_start_year)
+          admission_year_obj:admission_years!admission_year_id(year),
+          quota_ref:quotas!quota_id(name),
+          community_ref:community_categories!community_category_id(code),
+          caste_ref:castes!caste_id(name),
+          accommodation_ref:accommodation_types!accommodation_type_id(name)
         `)
         .eq('lifecycle_status', 'active');
 

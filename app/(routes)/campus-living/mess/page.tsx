@@ -16,6 +16,7 @@ import {
   TrendingUp,
   TrendingDown,
   Loader2,
+  Tags,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useCampusLivingOverview } from '@/hooks/campus-living/use-campus-living-dashboard';
@@ -212,6 +213,7 @@ export default function MessDashboardPage() {
             { title: 'Waste Tracking', desc: 'Log and monitor food waste', href: '/campus-living/mess/waste', icon: Trash2 },
             { title: 'Menu Planner', desc: 'Plan weekly menus for all meals', href: '/campus-living/mess/menu', icon: CalendarDays },
             { title: 'Feedback', desc: 'View student ratings and complaints', href: '/campus-living/mess/feedback', icon: Star },
+            { title: 'Mess Categories', desc: 'Manage mess categories shared across institutions', href: '/campus-living/mess/categories', icon: Tags },
           ].map((link) => (
             <Link key={link.href} href={link.href}>
               <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">

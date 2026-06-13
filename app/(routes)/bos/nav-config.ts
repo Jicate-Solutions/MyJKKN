@@ -1,14 +1,38 @@
 import type { ModuleNavConfig } from '@/lib/navigation/nav-config';
 
 /**
- * Board of Studies (BoS) — 5 logical tabs.
+ * Board of Studies (BoS) — 10 logical tabs.
  *
- * Mirrors the BOS_NAV_TABS in layout.tsx but as data for the reachability
- * checker. Each tab is a clickable chip in AutoTabNav.
+ * Mirrors BOS_NAV_TABS in layout.tsx as data for the reachability checker.
+ * Each tab is a clickable chip in AutoTabNav.
  */
 const config: ModuleNavConfig = {
   module: 'bos',
   groups: [
+    {
+      label: 'SOP',
+      icon: 'FileText',
+      href: '/bos/sop',
+      matchPaths: ['/bos/sop'],
+    },
+    {
+      label: 'Taxonomy',
+      icon: 'Layers',
+      href: '/bos/taxonomy',
+      matchPaths: ['/bos/taxonomy'],
+    },
+    {
+      label: 'Courses',
+      icon: 'BookText',
+      href: '/bos/courses',
+      matchPaths: ['/bos/courses'],
+    },
+    {
+      label: 'Course Scheme',
+      icon: 'ListTree',
+      href: '/bos/course-scheme',
+      matchPaths: ['/bos/course-scheme'],
+    },
     {
       label: 'External Experts',
       icon: 'Users',
@@ -16,10 +40,28 @@ const config: ModuleNavConfig = {
       matchPaths: ['/bos/experts'],
     },
     {
+      label: 'Committees',
+      icon: 'UsersRound',
+      href: '/bos/committees',
+      matchPaths: ['/bos/committees'],
+    },
+    {
+      label: 'Member Types',
+      icon: 'UserCog',
+      href: '/bos/member-types',
+      matchPaths: ['/bos/member-types'],
+    },
+    {
       label: 'Compositions',
       icon: 'ClipboardList',
       href: '/bos/compositions',
       matchPaths: ['/bos/compositions'],
+    },
+    {
+      label: 'Syllabus',
+      icon: 'BookOpen',
+      href: '/bos/syllabus',
+      matchPaths: ['/bos/syllabus'],
     },
     {
       label: 'Meetings',

@@ -1,0 +1,143 @@
+name: Apply Supabase migrations
+
+# Closes the longstanding gap surfaced 2026-05-15: 14 merged migrations sat
+# in supabase/migrations/ on main but never reached production because
+# MyJKKN has Vercel auto-deploy for the Next.js app but NO mechanism to
+# `supabase db push` against prod. Director had to manually paste SQL into
+# Studio. This workflow fixes that.
+#
+# Why workflow_dispatch (not push-on-merge):
+# Per feedback_migration_notification_protocol.md, MyJKKN migrations come in
+# four tiers — TIER-0 (safe-additive, just notify), TIER-1 (data-touching,
+# plain-English description before run), TIER-2 (destructive, requires typed
+# approval), TIER-3 (RLS/auth, ephemeral branch dry-run required). Auto-apply
+# on push bypasses these safeguards for TIER-1/TIER-2/TIER-3. Director-
+# triggered apply preserves the protocol:
+#   1. PR is merged (code lands)
+#   2. Director reviews the merged migration's tier classification
+#   3. Director clicks "Run workflow" with typed 'apply' confirmation
+#   4. Workflow runs `supabase db push` (CLI tracks applied migrations, idempotent)
+#   5. Verification queries run; results posted to job summary
+#
+# This is "one-click apply" — not zero-click. Trade-off chosen for safety.
+#
+# Required secret (one-time setup):
+#   SUPABASE_DB_URL — postgres://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
+#   Get from: Supabase Studio → Project Settings → Database → Connection string → URI
+#   Add at: github.com/Jicate-Solutions/MyJKKN/settings/secrets/actions
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_apply:
+        description: "Type 'apply' to confirm migration application to PRODUCTION"
+        required: true
+        type: string
+      dry_run:
+        description: "Dry run only (show diff, don't apply)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  apply-migrations:
+    name: Apply pending migrations
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.confirm_apply == 'apply' }}
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Inventory pending migrations
+        run: |
+          set -euo pipefail
+          echo "## Migration files in repo:"
+          echo ""
+          echo '```'
+          ls -la supabase/migrations/*.sql 2>/dev/null | awk '{print $NF}' | xargs -n1 basename | sort
+          echo '```'
+          echo ""
+          echo "## Total migration files: $(ls supabase/migrations/*.sql 2>/dev/null | wc -l)"
+
+      - name: Dry-run diff (always shown)
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "::error::SUPABASE_DB_URL secret not set. Add it at /settings/secrets/actions."
+            echo "::error::Get the URL from Supabase Studio → Project Settings → Database → Connection string → URI"
+            exit 1
+          fi
+
+          echo "## Migrations that would be applied (CLI tracks state in supabase_migrations.schema_migrations):"
+          echo ""
+          echo '```'
+          supabase db push --db-url "$SUPABASE_DB_URL" --dry-run 2>&1 || true
+          echo '```'
+
+      - name: Apply migrations (skipped if dry_run=true)
+        if: ${{ github.event.inputs.dry_run == 'false' }}
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          echo "## Applying migrations to PRODUCTION..."
+          echo ""
+          supabase db push --db-url "$SUPABASE_DB_URL" --debug
+          echo ""
+          echo "## ✓ Migrations applied successfully"
+
+      - name: Post-apply verification
+        if: ${{ github.event.inputs.dry_run == 'false' }}
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          echo "## Latest 5 applied migrations:"
+          echo ""
+          echo '```'
+          psql "$SUPABASE_DB_URL" -c "SELECT version, name, executed_at FROM supabase_migrations.schema_migrations ORDER BY version DESC LIMIT 5;" 2>&1 || \
+            psql "$SUPABASE_DB_URL" -c "SELECT version FROM supabase_migrations.schema_migrations ORDER BY version DESC LIMIT 5;" 2>&1
+          echo '```'
+          echo ""
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Migration apply workflow result"
+            echo ""
+            if [ "${{ job.status }}" = "success" ]; then
+              if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+                echo "✅ DRY RUN completed — no changes applied. Review the diff above and re-run with \`dry_run: false\` to apply."
+              else
+                echo "✅ Migrations applied to production. Verify via Supabase Studio or rerun this workflow with \`dry_run: true\` to confirm nothing pending."
+              fi
+            else
+              echo "❌ FAILED — review the job logs above. If the apply step itself failed, the failure is transactional within each migration file (Supabase CLI wraps each migration in BEGIN/COMMIT)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  guard-against-missing-confirmation:
+    name: Refuse to run without confirm_apply='apply'
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.confirm_apply != 'apply' }}
+    steps:
+      - run: |
+          echo "::error::Workflow refused to run. The confirm_apply input must be exactly 'apply'."
+          echo "::error::Director: re-run with confirm_apply='apply' and (optionally) dry_run=true to preview."
+          exit 1

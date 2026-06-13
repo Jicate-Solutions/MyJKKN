@@ -72,7 +72,14 @@ export function LiveSessionShell({ cycleId }: LiveSessionShellProps) {
   }
 
   const { cycle, attendance, polls, quiz_open, quiz_async_window_open } = data;
-  const gates = evaluateGates(attendance.engagement_signals, cycle.ends_at);
+  // polls = ALL polls issued this cycle (gate requirement is min(3, issued));
+  // the panel only shows the still-open ones.
+  const gates = evaluateGates(
+    attendance.engagement_signals,
+    cycle.ends_at,
+    polls.length,
+  );
+  const openPolls = polls.filter((p) => !p.closed_at);
   const alreadyJoined = !!attendance.joined_at;
   const heartbeatEnabled =
     alreadyJoined && (cycle.status === 'live' || cycle.status === 'execution');
@@ -120,6 +127,8 @@ export function LiveSessionShell({ cycleId }: LiveSessionShellProps) {
               cycleId={cycle.id}
               meetUrl={cycle.meet_url}
               alreadyJoined={alreadyJoined}
+              joinOpen={data.join_open}
+              joinOpensAt={data.join_opens_at}
             />
           </div>
         </CardContent>
@@ -132,7 +141,7 @@ export function LiveSessionShell({ cycleId }: LiveSessionShellProps) {
       <div className="grid gap-6 lg:grid-cols-2">
         <PollsPanel
           cycleId={cycle.id}
-          polls={polls}
+          polls={openPolls}
           pollsRespondedCount={
             attendance.engagement_signals.polls_responded ?? 0
           }
