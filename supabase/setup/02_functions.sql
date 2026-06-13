@@ -13402,9 +13402,9 @@ ALTER TABLE public.event_payment_transactions
   ADD COLUMN IF NOT EXISTS razorpay_account_id uuid REFERENCES public.razorpay_accounts(id);
 
 CREATE OR REPLACE FUNCTION public.update_razorpay_accounts_updated_at()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER LANGUAGE plpgsql SET search_path = '' AS $$
 BEGIN NEW.updated_at = now(); RETURN NEW; END;
-$$ LANGUAGE plpgsql;
+$$;
 
 CREATE OR REPLACE FUNCTION public.fn_set_razorpay_account(
   p_institution_id uuid, p_key_id text, p_key_secret text, p_webhook_secret text,
@@ -13513,6 +13513,11 @@ REVOKE ALL ON FUNCTION public.fn_deactivate_razorpay_account(uuid, uuid) FROM PU
 GRANT EXECUTE ON FUNCTION public.fn_deactivate_razorpay_account(uuid, uuid) TO service_role;
 REVOKE ALL ON FUNCTION public.fn_deactivate_razorpay_account_by_id(uuid, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_deactivate_razorpay_account_by_id(uuid, uuid) TO service_role;
+
+-- Defense-in-depth: revoke Supabase default broad grants on the credentials table.
+-- Access is service_role-only via RLS + the RPCs above; the app never touches this
+-- table as anon/authenticated.
+REVOKE ALL ON public.razorpay_accounts FROM anon, authenticated;
 
 -- fn_admission_lead_scope (2026-06-03): single-round-trip lead-access resolver
 -- for the service-role admission leads list + [id] detail routes. Delegates to
