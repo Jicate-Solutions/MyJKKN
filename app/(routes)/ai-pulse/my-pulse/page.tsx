@@ -13,6 +13,8 @@
 // Permission gate: aiPulse:view.self (server-side via user_has_permission RPC).
 // Falls through to /unauthorized when key not granted.
 
+import Link from 'next/link';
+import { HelpCircle } from 'lucide-react';
 import { redirect } from 'next/navigation';
 import {
   createClient,
@@ -113,11 +115,20 @@ export default async function AiPulseLearnerPage() {
       />
 
       <div className="space-y-6 mt-4">
-        <div>
-          <h1 className="text-2xl font-bold py-1">My Pulse</h1>
-          <p className="text-sm text-muted-foreground">
-            Your weekly AI Pulse cycle, team, attendance, and submissions.
-          </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold py-1">My Pulse</h1>
+            <p className="text-sm text-muted-foreground">
+              Your weekly AI Pulse cycle, team, attendance, and submissions.
+            </p>
+          </div>
+          <Link
+            href="/ai-pulse/guide"
+            className="shrink-0 inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted"
+          >
+            <HelpCircle className="h-3.5 w-3.5" aria-hidden />
+            How this works
+          </Link>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
