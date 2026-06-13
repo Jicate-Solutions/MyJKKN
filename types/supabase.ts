@@ -75610,15 +75610,15 @@ export type Database = {
           id: string
           institution_id: string
           is_active: boolean
-          key_id: string
-          key_secret_encrypted: string
+          key_id: string | null
+          key_secret_encrypted: string | null
           mid: string | null
           mode: string
           tid: string | null
           updated_at: string
           updated_by: string | null
-          webhook_ref: string
-          webhook_secret_encrypted: string
+          webhook_ref: string | null
+          webhook_secret_encrypted: string | null
         }
         Insert: {
           account_label?: string | null
@@ -75629,15 +75629,15 @@ export type Database = {
           id?: string
           institution_id: string
           is_active?: boolean
-          key_id: string
-          key_secret_encrypted: string
+          key_id?: string | null
+          key_secret_encrypted?: string | null
           mid?: string | null
           mode?: string
           tid?: string | null
           updated_at?: string
           updated_by?: string | null
-          webhook_ref: string
-          webhook_secret_encrypted: string
+          webhook_ref?: string | null
+          webhook_secret_encrypted?: string | null
         }
         Update: {
           account_label?: string | null
@@ -75648,15 +75648,15 @@ export type Database = {
           id?: string
           institution_id?: string
           is_active?: boolean
-          key_id?: string
-          key_secret_encrypted?: string
+          key_id?: string | null
+          key_secret_encrypted?: string | null
           mid?: string | null
           mode?: string
           tid?: string | null
           updated_at?: string
           updated_by?: string | null
-          webhook_ref?: string
-          webhook_secret_encrypted?: string
+          webhook_ref?: string | null
+          webhook_secret_encrypted?: string | null
         }
         Relationships: [
           {
@@ -102597,16 +102597,45 @@ export type Database = {
         Returns: {
           id: string
           institution_id: string
-          key_id: string
+          key_id: string | null
           account_label: string | null
           mode: string
           is_active: boolean
-          webhook_ref: string
+          webhook_ref: string | null
           created_at: string
           fee_head: string | null
           mid: string | null
           tid: string | null
           dba_name: string | null
+          status: string
+        }[]
+      }
+      fn_create_razorpay_draft: {
+        Args: {
+          p_institution_id: string
+          p_fee_head: string | null
+          p_label: string | null
+          p_mid: string | null
+          p_tid: string | null
+          p_dba_name: string | null
+          p_mode?: string
+          p_actor?: string | null
+        }
+        Returns: string
+      }
+      fn_activate_razorpay_account: {
+        Args: {
+          p_account_id: string
+          p_key_id: string
+          p_key_secret: string
+          p_webhook_secret: string
+          p_master_secret: string
+          p_webhook_ref?: string | null
+          p_actor?: string | null
+        }
+        Returns: {
+          id: string
+          webhook_ref: string
         }[]
       }
       fn_deactivate_razorpay_account: {

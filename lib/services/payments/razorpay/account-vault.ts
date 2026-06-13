@@ -39,14 +39,18 @@ function toMode(raw: string | null | undefined): 'test' | 'live' {
   return raw === 'test' ? 'test' : 'live';
 }
 
+export type RazorpayAccountStatus = 'draft' | 'active' | 'inactive';
+
 export interface RazorpayAccountSummary {
   id: string;
   institutionId: string;
-  keyId: string;
+  /** null for a draft (keys not added yet). */
+  keyId: string | null;
   accountLabel: string | null;
   mode: 'test' | 'live';
   isActive: boolean;
-  webhookRef: string;
+  /** null for a draft (webhook URL only exists once activated). */
+  webhookRef: string | null;
   createdAt: string;
   /** billing_categories.kind this account settles; null = institution default. */
   feeHead: string | null;
@@ -54,6 +58,28 @@ export interface RazorpayAccountSummary {
   mid: string | null;
   tid: string | null;
   dbaName: string | null;
+  /** draft = staged, no keys yet; active = routing; inactive = rotated/deactivated. */
+  status: RazorpayAccountStatus;
+}
+
+export interface CreateRazorpayDraftInput {
+  institutionId: string;
+  feeHead?: string | null;
+  label?: string | null;
+  mid?: string | null;
+  tid?: string | null;
+  dbaName?: string | null;
+  mode?: 'test' | 'live';
+  actor?: string | null;
+}
+
+export interface ActivateRazorpayAccountInput {
+  accountId: string;
+  keyId: string;
+  keySecret: string;
+  webhookSecret: string;
+  webhookRef?: string | null;
+  actor?: string | null;
 }
 
 export interface SetRazorpayAccountInput {
@@ -215,12 +241,14 @@ export class RazorpayAccountVault {
       accountLabel: row.account_label,
       mode: toMode(row.mode),
       isActive: row.is_active,
-      webhookRef: row.webhook_ref,
+      webhookRef: row.webhook_ref ?? null,
       createdAt: row.created_at,
       feeHead: row.fee_head ?? null,
       mid: row.mid ?? null,
       tid: row.tid ?? null,
       dbaName: row.dba_name ?? null,
+      status: (row.status ??
+        (row.key_id ? (row.is_active ? 'active' : 'inactive') : 'draft')) as RazorpayAccountStatus,
     }));
   }
 
@@ -254,5 +282,55 @@ export class RazorpayAccountVault {
         `[razorpay-account-vault] fn_deactivate_razorpay_account failed for ${institutionId}: ${error.message}`,
       );
     }
+  }
+
+  /**
+   * Create (or update) a DRAFT account for an (institution, fee_head) slot — no
+   * keys. A draft is inert (the resolver skips key_id IS NULL rows) so the
+   * institution keeps using the env fallback until the draft is activated.
+   * Does NOT require the master secret (nothing to encrypt yet).
+   */
+  static async createDraft(input: CreateRazorpayDraftInput): Promise<{ id: string }> {
+    const supabase = createServiceRoleClient();
+    const { data, error } = await supabase.rpc('fn_create_razorpay_draft', {
+      p_institution_id: input.institutionId,
+      p_fee_head: input.feeHead ?? null,
+      p_label: input.label ?? null,
+      p_mid: input.mid ?? null,
+      p_tid: input.tid ?? null,
+      p_dba_name: input.dbaName ?? null,
+      p_mode: input.mode ?? 'live',
+      p_actor: input.actor ?? null,
+    });
+    if (error) {
+      throw new Error(`[razorpay-account-vault] fn_create_razorpay_draft failed: ${error.message}`);
+    }
+    return { id: data as unknown as string };
+  }
+
+  /**
+   * Activate a draft (or rotate a row in place) by adding encrypted keys. Returns
+   * the webhook_ref to paste into the account's Razorpay dashboard. Deactivates any
+   * other active account in the same (institution, fee_head) slot.
+   */
+  static async activate(input: ActivateRazorpayAccountInput): Promise<{ id: string; webhookRef: string }> {
+    const supabase = createServiceRoleClient();
+    const { data, error } = await supabase.rpc('fn_activate_razorpay_account', {
+      p_account_id: input.accountId,
+      p_key_id: input.keyId,
+      p_key_secret: input.keySecret,
+      p_webhook_secret: input.webhookSecret,
+      p_master_secret: getMasterSecret(),
+      p_webhook_ref: input.webhookRef ?? null,
+      p_actor: input.actor ?? null,
+    });
+    if (error) {
+      throw new Error(`[razorpay-account-vault] fn_activate_razorpay_account failed for ${input.accountId}: ${error.message}`);
+    }
+    const row = (data as Array<Record<string, any>> | null)?.[0];
+    if (!row) {
+      throw new Error('[razorpay-account-vault] fn_activate_razorpay_account returned no row');
+    }
+    return { id: row.id, webhookRef: row.webhook_ref };
   }
 }

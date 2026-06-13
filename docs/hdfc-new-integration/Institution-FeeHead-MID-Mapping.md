@@ -4,8 +4,12 @@
 **Purpose:** Reference map from each HDFC merchant DBA / MID to the MyJKKN
 `(institution_id, fee_head)` routing slot, used to seed `razorpay_accounts`.
 **Status:** CONFIRMED 2026-06-13 (A&S=Self; DENTAL-AHS=Allied Health; Trust=SKIP;
-UF=University Fee). **14 accounts to seed.** Establishment head added (D2 done) —
-the Dental ESTAB account is now routable once estab bills are tagged.
+UF=University Fee). **All 14 accounts are now staged as DRAFTS** in
+`/billing/payment-accounts` (institution + fee-head + MID/TID/DBA set, NO keys —
+inert, those institutions use the env fallback until activated). Establishment head
+added (D2 done). **To go live:** open the panel → each draft row → "Activate" →
+paste that account's key_id / key_secret / webhook_secret → it returns the webhook
+URL to configure in Razorpay. (Or fill the seed template below + run the seeder.)
 
 > Routing reminder: a bill routes to its `(institution_id, billing_categories.kind)`
 > account; if none, to that institution's **default** account (`fee_head = NULL`);

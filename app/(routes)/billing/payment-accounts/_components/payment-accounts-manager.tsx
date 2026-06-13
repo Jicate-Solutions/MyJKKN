@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, Copy, RefreshCw, Power, PlugZap, Loader2 } from 'lucide-react';
+import { Plus, FilePlus2, Copy, RefreshCw, Power, PlugZap, KeyRound, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -20,12 +20,18 @@ import {
   useRazorpayAccounts, useDeactivateRazorpayAccount, useTestRazorpayAccount,
   type RazorpayAccountSummary,
 } from '@/hooks/billing/use-razorpay-accounts';
-import { AccountFormDialog, feeHeadLabel } from './account-form-dialog';
+import { AccountFormDialog, feeHeadLabel, type AccountDialogTarget } from './account-form-dialog';
 
 function webhookUrlFor(webhookRef: string): string {
   const base = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '');
   return `${base}/api/webhooks/razorpay/${webhookRef}`;
 }
+
+const STATUS_BADGE: Record<RazorpayAccountSummary['status'], { label: string; variant: 'default' | 'secondary' | 'outline' }> = {
+  active: { label: 'Active', variant: 'default' },
+  draft: { label: 'Draft — needs keys', variant: 'secondary' },
+  inactive: { label: 'Inactive', variant: 'outline' },
+};
 
 export function PaymentAccountsManager() {
   const { can } = usePermissions();
@@ -36,8 +42,7 @@ export function PaymentAccountsManager() {
   const deactivate = useDeactivateRazorpayAccount();
   const test = useTestRazorpayAccount();
 
-  const [addOpen, setAddOpen] = useState(false);
-  const [rotateFor, setRotateFor] = useState<{ institutionId: string; label: string | null; feeHead: string | null } | null>(null);
+  const [dialog, setDialog] = useState<AccountDialogTarget | null>(null);
   const [deactivateTarget, setDeactivateTarget] = useState<RazorpayAccountSummary | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
 
@@ -45,6 +50,12 @@ export function PaymentAccountsManager() {
     const map = new Map(institutions.map((i) => [i.id, i.name]));
     return (id: string) => map.get(id) ?? id;
   }, [institutions]);
+
+  const counts = useMemo(() => {
+    const c = { active: 0, draft: 0, inactive: 0 };
+    for (const a of accounts ?? []) c[a.status]++;
+    return c;
+  }, [accounts]);
 
   async function copyWebhook(webhookRef: string) {
     try {
@@ -93,15 +104,20 @@ export function PaymentAccountsManager() {
 
   return (
     <div className='space-y-4'>
-      <div className='flex items-center justify-between gap-4'>
+      <div className='flex flex-wrap items-center justify-between gap-4'>
         <p className='text-muted-foreground text-sm'>
-          {accounts?.length ?? 0} account{(accounts?.length ?? 0) === 1 ? '' : 's'} configured.
-          Institutions without an active account use the common (env) account.
+          {counts.active} active · {counts.draft} draft · {counts.inactive} inactive.
+          Drafts and unconfigured institutions use the common (env) account until activated.
         </p>
         {canManage && (
-          <Button onClick={() => { setRotateFor(null); setAddOpen(true); }}>
-            <Plus className='mr-1.5 h-4 w-4' /> Add account
-          </Button>
+          <div className='flex gap-2'>
+            <Button variant='outline' onClick={() => setDialog({ mode: 'draft' })}>
+              <FilePlus2 className='mr-1.5 h-4 w-4' /> Add draft
+            </Button>
+            <Button onClick={() => setDialog({ mode: 'add' })}>
+              <Plus className='mr-1.5 h-4 w-4' /> Add account
+            </Button>
+          </div>
         )}
       </div>
 
@@ -112,7 +128,6 @@ export function PaymentAccountsManager() {
               <TableRow>
                 <TableHead>Institution</TableHead>
                 <TableHead>Fee head</TableHead>
-                <TableHead>Label</TableHead>
                 <TableHead>MID</TableHead>
                 <TableHead>Mode</TableHead>
                 <TableHead>Status</TableHead>
@@ -125,56 +140,66 @@ export function PaymentAccountsManager() {
               {isLoading ? (
                 Array.from({ length: 3 }).map((_, i) => (
                   <TableRow key={i}>
-                    <TableCell colSpan={9}><Skeleton className='h-6 w-full' /></TableCell>
+                    <TableCell colSpan={8}><Skeleton className='h-6 w-full' /></TableCell>
                   </TableRow>
                 ))
               ) : !accounts || accounts.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className='py-8 text-center text-muted-foreground text-sm'>
-                    No institution accounts yet. {canManage ? 'Add one to route that institution to its own Razorpay account.' : ''}
+                  <TableCell colSpan={8} className='py-8 text-center text-muted-foreground text-sm'>
+                    No accounts yet. {canManage ? 'Add a draft to stage an institution’s MID, or add an account directly with keys.' : ''}
                   </TableCell>
                 </TableRow>
               ) : (
-                accounts.map((a) => (
-                  <TableRow key={a.id} className={a.isActive ? '' : 'opacity-60'}>
-                    <TableCell className='font-medium'>{instName(a.institutionId)}</TableCell>
-                    <TableCell>
-                      <Badge variant={a.feeHead ? 'secondary' : 'outline'}>{feeHeadLabel(a.feeHead)}</Badge>
-                    </TableCell>
-                    <TableCell>{a.accountLabel || '—'}</TableCell>
-                    <TableCell className='font-mono text-xs'>{a.mid || '—'}</TableCell>
-                    <TableCell>
-                      <Badge variant={a.mode === 'live' ? 'default' : 'secondary'}>{a.mode}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={a.isActive ? 'default' : 'outline'}>{a.isActive ? 'Active' : 'Inactive'}</Badge>
-                    </TableCell>
-                    <TableCell className='font-mono text-xs'>{a.keyId}</TableCell>
-                    <TableCell>
-                      <Button variant='ghost' size='sm' className='h-7 gap-1 px-2 text-xs' onClick={() => copyWebhook(a.webhookRef)}>
-                        <Copy className='h-3.5 w-3.5' /> Copy URL
-                      </Button>
-                    </TableCell>
-                    <TableCell className='text-right'>
-                      <div className='flex items-center justify-end gap-1'>
-                        <Button variant='ghost' size='sm' className='h-7 gap-1 px-2 text-xs' disabled={testingId === a.id} onClick={() => runTest(a)}>
-                          {testingId === a.id ? <Loader2 className='h-3.5 w-3.5 animate-spin' /> : <PlugZap className='h-3.5 w-3.5' />} Test
-                        </Button>
-                        {canManage && a.isActive && (
-                          <>
-                            <Button variant='ghost' size='sm' className='h-7 gap-1 px-2 text-xs'
-                              onClick={() => { setRotateFor({ institutionId: a.institutionId, label: a.accountLabel, feeHead: a.feeHead }); setAddOpen(true); }}>
-                              <RefreshCw className='h-3.5 w-3.5' /> Rotate
-                            </Button>
-                            <Button variant='ghost' size='sm' className='h-7 gap-1 px-2 text-xs text-destructive' onClick={() => setDeactivateTarget(a)}>
-                              <Power className='h-3.5 w-3.5' /> Deactivate
-                            </Button>
-                          </>
+                accounts.map((a) => {
+                  const badge = STATUS_BADGE[a.status];
+                  return (
+                    <TableRow key={a.id} className={a.status === 'inactive' ? 'opacity-60' : ''}>
+                      <TableCell className='font-medium'>{instName(a.institutionId)}</TableCell>
+                      <TableCell>
+                        <Badge variant={a.feeHead ? 'secondary' : 'outline'}>{feeHeadLabel(a.feeHead)}</Badge>
+                      </TableCell>
+                      <TableCell className='font-mono text-xs'>{a.mid || '—'}</TableCell>
+                      <TableCell><Badge variant={a.mode === 'live' ? 'default' : 'secondary'}>{a.mode}</Badge></TableCell>
+                      <TableCell><Badge variant={badge.variant}>{badge.label}</Badge></TableCell>
+                      <TableCell className='font-mono text-xs'>{a.keyId || '—'}</TableCell>
+                      <TableCell>
+                        {a.webhookRef ? (
+                          <Button variant='ghost' size='sm' className='h-7 gap-1 px-2 text-xs' onClick={() => copyWebhook(a.webhookRef!)}>
+                            <Copy className='h-3.5 w-3.5' /> Copy URL
+                          </Button>
+                        ) : (
+                          <span className='text-muted-foreground text-xs'>—</span>
                         )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
+                      </TableCell>
+                      <TableCell className='text-right'>
+                        <div className='flex items-center justify-end gap-1'>
+                          {canManage && a.status === 'draft' && (
+                            <Button variant='default' size='sm' className='h-7 gap-1 px-2 text-xs'
+                              onClick={() => setDialog({ mode: 'activate', account: a })}>
+                              <KeyRound className='h-3.5 w-3.5' /> Activate
+                            </Button>
+                          )}
+                          {a.status !== 'draft' && (
+                            <Button variant='ghost' size='sm' className='h-7 gap-1 px-2 text-xs' disabled={testingId === a.id} onClick={() => runTest(a)}>
+                              {testingId === a.id ? <Loader2 className='h-3.5 w-3.5 animate-spin' /> : <PlugZap className='h-3.5 w-3.5' />} Test
+                            </Button>
+                          )}
+                          {canManage && a.status === 'active' && (
+                            <>
+                              <Button variant='ghost' size='sm' className='h-7 gap-1 px-2 text-xs'
+                                onClick={() => setDialog({ mode: 'rotate', account: a })}>
+                                <RefreshCw className='h-3.5 w-3.5' /> Rotate
+                              </Button>
+                              <Button variant='ghost' size='sm' className='h-7 gap-1 px-2 text-xs text-destructive' onClick={() => setDeactivateTarget(a)}>
+                                <Power className='h-3.5 w-3.5' /> Deactivate
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>
@@ -183,10 +208,10 @@ export function PaymentAccountsManager() {
 
       {canManage && (
         <AccountFormDialog
-          open={addOpen}
-          onOpenChange={setAddOpen}
+          open={!!dialog}
+          onOpenChange={(o) => { if (!o) setDialog(null); }}
           institutions={institutions.map((i) => ({ id: i.id, name: i.name }))}
-          rotateFor={rotateFor}
+          target={dialog ?? { mode: 'add' }}
         />
       )}
 

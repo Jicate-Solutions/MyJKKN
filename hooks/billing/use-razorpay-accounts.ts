@@ -5,20 +5,23 @@ import { queryKeys } from '@/lib/query/query-keys';
 
 // Mirror of RazorpayAccountSummary (server-only vault type — redeclared here so the
 // client bundle doesn't import the server-only module). No secrets.
+export type RazorpayAccountStatus = 'draft' | 'active' | 'inactive';
+
 export interface RazorpayAccountSummary {
   id: string;
   institutionId: string;
-  keyId: string;
+  keyId: string | null;
   accountLabel: string | null;
   mode: 'test' | 'live';
   isActive: boolean;
-  webhookRef: string;
+  webhookRef: string | null;
   createdAt: string;
   /** billing_categories.kind this account settles; null = institution default. */
   feeHead: string | null;
   mid: string | null;
   tid: string | null;
   dbaName: string | null;
+  status: RazorpayAccountStatus;
 }
 
 export interface UpsertRazorpayAccountInput {
@@ -69,6 +72,57 @@ export function useUpsertRazorpayAccount() {
   return useMutation({
     mutationFn: async (input: UpsertRazorpayAccountInput): Promise<{ id: string; webhookRef: string }> => {
       const res = await fetch('/api/billing/payment-accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      const data = await jsonOrThrow(res);
+      return data.data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.razorpayAccounts.all }),
+  });
+}
+
+export interface CreateRazorpayDraftInput {
+  institutionId: string;
+  feeHead?: string | null;
+  label?: string;
+  mid?: string | null;
+  tid?: string | null;
+  dbaName?: string | null;
+  mode?: 'test' | 'live';
+}
+
+// Create/update a DRAFT account (no keys) — stages the institution↔MID mapping.
+export function useCreateRazorpayDraft() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CreateRazorpayDraftInput): Promise<{ id: string }> => {
+      const res = await fetch('/api/billing/payment-accounts/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      const data = await jsonOrThrow(res);
+      return data.data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.razorpayAccounts.all }),
+  });
+}
+
+export interface ActivateRazorpayAccountInput {
+  accountId: string;
+  keyId: string;
+  keySecret: string;
+  webhookSecret: string;
+}
+
+// Activate a draft (add keys) — returns the webhook_ref to paste into Razorpay.
+export function useActivateRazorpayAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: ActivateRazorpayAccountInput): Promise<{ id: string; webhookRef: string }> => {
+      const res = await fetch('/api/billing/payment-accounts/activate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
