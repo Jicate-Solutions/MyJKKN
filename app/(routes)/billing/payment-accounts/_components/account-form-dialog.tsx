@@ -111,7 +111,7 @@ export function AccountFormDialog({ open, onOpenChange, institutions, rotateFor 
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) reset(); onOpenChange(o); }}>
-      <DialogContent className='sm:max-w-lg'>
+      <DialogContent className='grid-rows-[auto_minmax(0,1fr)_auto] max-h-[90dvh] w-[calc(100%-2rem)] max-w-[calc(100%-2rem)] sm:max-w-lg'>
         <DialogHeader>
           <DialogTitle>{rotateFor ? 'Rotate Razorpay account' : 'Add Razorpay account'}</DialogTitle>
           <DialogDescription>
@@ -121,7 +121,7 @@ export function AccountFormDialog({ open, onOpenChange, institutions, rotateFor 
           </DialogDescription>
         </DialogHeader>
 
-        <div className='space-y-4'>
+        <div className='min-h-0 space-y-4 overflow-y-auto px-1'>
           <div className='space-y-1.5'>
             <Label htmlFor='institution'>Institution</Label>
             {rotateFor ? (
