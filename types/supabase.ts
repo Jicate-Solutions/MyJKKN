@@ -104714,6 +104714,7 @@ export type Database = {
         | "library"
         | "other"
         | "university_fee"
+        | "establishment"
       billing_model_enum:
         | "fixed_monthly"
         | "per_meal"
@@ -106100,6 +106101,7 @@ export const Constants = {
         "library",
         "other",
         "university_fee",
+        "establishment",
       ],
       billing_model_enum: [
         "fixed_monthly",

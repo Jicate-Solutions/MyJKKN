@@ -4,7 +4,8 @@
 **Purpose:** Reference map from each HDFC merchant DBA / MID to the MyJKKN
 `(institution_id, fee_head)` routing slot, used to seed `razorpay_accounts`.
 **Status:** CONFIRMED 2026-06-13 (A&S=Self; DENTAL-AHS=Allied Health; Trust=SKIP;
-UF=University Fee). 13 accounts to seed; establishment (#15) parked on D2.
+UF=University Fee). **14 accounts to seed.** Establishment head added (D2 done) —
+the Dental ESTAB account is now routable once estab bills are tagged.
 
 > Routing reminder: a bill routes to its `(institution_id, billing_categories.kind)`
 > account; if none, to that institution's **default** account (`fee_head = NULL`);
@@ -29,7 +30,7 @@ UF=University Fee). 13 accounts to seed; establishment (#15) parked on D2.
 | 12 | JKKN CLG OF ENG AND TECH-UNIVERSITY FEE | T0iEBcF4dUim9F | 70508978 | 5de4fba1-4564-41ed-8c73-5d948b74b843 | Engineering & Technology | university_fee | ✅ |
 | 13 | JKKN DENTAL CLG AND HOSPITAL-UNI FEE | T0iELW5GyxikQf | 70508979 | e8fbe8aa-c44e-41aa-a44b-39dab2c8b9a5 | Dental | university_fee | ✅ |
 | 14 | SRESAKTHIMAYEIL INS OF NUR AND RES-UF | T0iEV1qA7sBZp9 | 70508980 | 70e54e51-9b98-4e07-9534-a85310609bfd | Nursing & Research | university_fee | ✅ University Fee (confirmed) |
-| 15 | JKKN DENTAL CLG AND HOSPITAL-ESTAB FEE | T0iEeTnTGx8pYe | 70508981 | e8fbe8aa-c44e-41aa-a44b-39dab2c8b9a5 | Dental | establishment | 🔴 head missing (D2) — dormant until added |
+| 15 | JKKN DENTAL CLG AND HOSPITAL-ESTAB FEE | T0iEeTnTGx8pYe | 70508981 | e8fbe8aa-c44e-41aa-a44b-39dab2c8b9a5 | Dental | establishment | ✅ head added (D2); needs estab bills tagged to "Establishment Fee" |
 
 Learner / bill volumes (for prioritising): A&S Self 1630/3550, Engineering 1374/720,
 Pharmacy 943/1153, Dental 594/729, Nursing 447/286, A&S Aided 387/0, AHS 383/164,
@@ -41,8 +42,10 @@ Matric 299/0, NV 157/0, Education 9/7.
 3. ✅ **#10 Trust** → **SKIP** (not seeded; no student bills route there).
 4. ✅ **#14 "UF"** → **University Fee** (`university_fee`).
 
+Done:
+5. ✅ **#15 Establishment** → D2 complete: `establishment` added to `billing_category_kind` + "Establishment Fee" category created (`4b60ed7d-32f4-451e-8c12-8b821f4e01d1`). Included in the seed template below. **Remaining data step:** tag the bills that belong to the Dental establishment MID with the "Establishment Fee" category (via the billing UI), or give the criteria for a backfill — until tagged, those payments route to Dental's default MID.
+
 Still open:
-5. **#15 Establishment** → needs `billing_category_kind='establishment'` + a category + bill tagging (D2) before it routes. Excluded from the seed template below.
 6. **Truncation** → the kit screenshot stops at #15; supply any further rows (other colleges' bus/university/estab, hostel/mess MIDs).
 
 ## fee_head vocabulary
@@ -53,8 +56,8 @@ hostel, transport, exam, library, other, university_fee, mess`. `transport` = "b
 ## Seed file template
 Copy to the gitignored `razorpay-accounts.seed.json` at repo root, fill `keyId` /
 `keySecret` / `webhookSecret` per account from each Razorpay account's dashboard, then
-run `npm run seed:razorpay`. 13 accounts (9 college defaults + 3 university-fee + 1 bus-fee).
-Trust (#10) is skipped and establishment (#15) is excluded until D2.
+run `npm run seed:razorpay`. 14 accounts (9 college defaults + 3 university-fee + 1 bus-fee + 1 establishment).
+Trust (#10) is skipped.
 
 ```json
 [
@@ -70,6 +73,7 @@ Trust (#10) is skipped and establishment (#15) is excluded until D2.
   { "institutionId": "b0b8a724-7c65-4f07-8047-2a38e8100ad5", "feeHead": "transport",     "mid": "T0iE28PvbVFtnj", "tid": "70508977", "dbaName": "JKKN CLG OF ARTS AND SCI AUTO-BUS FEE","label": "Arts & Science — Bus Fee", "mode": "live", "keyId": "<FILL>", "keySecret": "<FILL>", "webhookSecret": "<FILL>" },
   { "institutionId": "5de4fba1-4564-41ed-8c73-5d948b74b843", "feeHead": "university_fee", "mid": "T0iEBcF4dUim9F", "tid": "70508978", "dbaName": "JKKN CLG OF ENG AND TECH-UNIVERSITY FEE","label": "Engineering — University Fee","mode":"live","keyId": "<FILL>", "keySecret": "<FILL>", "webhookSecret": "<FILL>" },
   { "institutionId": "e8fbe8aa-c44e-41aa-a44b-39dab2c8b9a5", "feeHead": "university_fee", "mid": "T0iELW5GyxikQf", "tid": "70508979", "dbaName": "JKKN DENTAL CLG AND HOSPITAL-UNI FEE","label": "Dental — University Fee",   "mode": "live", "keyId": "<FILL>", "keySecret": "<FILL>", "webhookSecret": "<FILL>" },
-  { "institutionId": "70e54e51-9b98-4e07-9534-a85310609bfd", "feeHead": "university_fee", "mid": "T0iEV1qA7sBZp9", "tid": "70508980", "dbaName": "SRESAKTHIMAYEIL INS OF NUR AND RES-UF","label": "Nursing — University Fee",  "mode": "live", "keyId": "<FILL>", "keySecret": "<FILL>", "webhookSecret": "<FILL>" }
+  { "institutionId": "70e54e51-9b98-4e07-9534-a85310609bfd", "feeHead": "university_fee", "mid": "T0iEV1qA7sBZp9", "tid": "70508980", "dbaName": "SRESAKTHIMAYEIL INS OF NUR AND RES-UF","label": "Nursing — University Fee",  "mode": "live", "keyId": "<FILL>", "keySecret": "<FILL>", "webhookSecret": "<FILL>" },
+  { "institutionId": "e8fbe8aa-c44e-41aa-a44b-39dab2c8b9a5", "feeHead": "establishment", "mid": "T0iEeTnTGx8pYe", "tid": "70508981", "dbaName": "JKKN DENTAL CLG AND HOSPITAL-ESTAB FEE","label": "Dental — Establishment Fee","mode": "live", "keyId": "<FILL>", "keySecret": "<FILL>", "webhookSecret": "<FILL>" }
 ]
 ```

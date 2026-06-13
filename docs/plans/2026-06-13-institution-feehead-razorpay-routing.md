@@ -120,8 +120,9 @@ unchanged, now keyed on (institution × fee-head).
 
 ## 6. Open decisions
 - **D1 mixed-head:** approved = route-when-single-head-else-default.
-- **D2 establishment head:** does ESTAB-FEE need a new `billing_category_kind='establishment'`
-  (+ category), or is it an existing head renamed? Needs the list of bills that flow to ESTAB
-  MIDs. Does not block Phases 1–3.
+- **D2 establishment head:** ✅ DONE 2026-06-13. Added `establishment` to
+  `billing_category_kind` (mig 20260613150000) + created "Establishment Fee" category
+  `4b60ed7d-32f4-451e-8c12-8b821f4e01d1` (mig 20260613150100); synced TS types. The Dental
+  ESTAB MID is now routable. Remaining: tag estab bills with the category (operator data step).
 - **D3 seeding inputs:** complete MID list + per-account `key_id`/`key_secret`/`webhook_secret`.
   Needed for Phase 0 + Phase 4 only.
