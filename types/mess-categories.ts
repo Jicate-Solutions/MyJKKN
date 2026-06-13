@@ -3,6 +3,8 @@ export type MessCategoryType = 'boys' | 'girls' | 'mixed';
 export interface MessCategory {
   id: string;
   name: string;
+  /** Stable menu-linkage slug, frozen at creation (matches mess_menus.tier_key). */
+  menu_tier_key?: string | null;
   description: string | null;
   type: MessCategoryType;
   is_active: boolean;

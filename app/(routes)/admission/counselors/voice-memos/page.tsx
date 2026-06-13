@@ -1,6 +1,6 @@
 // app/(routes)/admission/counselors/voice-memos/page.tsx
 // Voice Memo Monitor — director's view of the voice-memo pipeline.
-// Read half. Write half lives at /admin/voice-memo-monitor (super-admin only).
+// Read half. Write half lives at /admission/settings/voice-memo-monitor (super-admin only).
 //
 // Created 2026-05-10 (voice-memo-monitor substrate, Phase 2).
 

@@ -361,7 +361,7 @@ export default function RecruitmentApprovalsPage() {
                             Approval chain not configured — director must backfill
                           </span>
                           <Link
-                            href="/admin/hr/recruitment-maintenance"
+                            href="/hr/admin/recruitment-maintenance"
                             className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
                           >
                             <Settings className="h-3 w-3" />

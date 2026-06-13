@@ -96,9 +96,10 @@ export function usePaymentStatus(transactionId: string | null, enabled: boolean 
 
 /**
  * Hook to open the payment gateway. Returns the session so the caller can
- * decide whether to redirect (HDFC) or mount the Razorpay Checkout.js modal
- * launcher (Razorpay). The legacy HDFC redirect happens here for backward
- * compatibility when the caller doesn't intercept the return value.
+ * decide how to launch: HDFC redirects here, while Razorpay hands the session
+ * to <RazorpayHostedRedirect>, which POSTs a form to Razorpay's hosted checkout
+ * page. The legacy HDFC redirect happens here for backward compatibility when
+ * the caller doesn't intercept the return value.
  */
 export function useOpenPaymentGateway() {
   const { mutateAsync, isPending } = useInitiatePayment();
@@ -107,9 +108,9 @@ export function useOpenPaymentGateway() {
     try {
       const session = await mutateAsync(data);
 
-      // Razorpay sessions: return to the caller — DO NOT redirect. The caller
-      // (e.g. OnlinePaymentButton) mounts <RazorpayCheckoutLauncher> with these
-      // props to open the modal in-page.
+      // Razorpay sessions: return to the caller — DO NOT redirect here. The
+      // caller (e.g. OnlinePaymentButton) mounts <RazorpayHostedRedirect> with
+      // these props, which POSTs a form that navigates to Razorpay's hosted page.
       if (session.provider === 'razorpay') {
         return session;
       }

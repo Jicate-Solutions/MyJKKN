@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { OnlinePaymentButton, type RazorpayLaunchProps } from './online-payment-button';
-import { RazorpayCheckoutLauncher } from './razorpay-checkout-launcher';
+import { RazorpayHostedRedirect } from './razorpay-hosted-redirect';
 import { OnlinePaymentAmountSelector } from './online-payment-amount-selector';
 import { format } from 'date-fns';
 import type { StudentBill } from '@/types/billing-schedule';
@@ -39,8 +39,9 @@ export function PaymentSelectionModal({
   const [selectedBillIds, setSelectedBillIds] = useState<Set<string>>(new Set());
   const [step, setStep] = useState<'select' | 'amount'>('select');
   const [billAmounts, setBillAmounts] = useState<Record<string, number>>({});
-  // Razorpay launcher lives OUTSIDE the <Dialog> so closing the dialog (handleClose)
-  // doesn't unmount it before checkout.js opens the modal.
+  // The Razorpay hosted-redirect component lives OUTSIDE the <Dialog> so closing
+  // the dialog (handleClose) doesn't unmount it before it POSTs the form to
+  // Razorpay's hosted page.
   const [razorpayLaunch, setRazorpayLaunch] = useState<RazorpayLaunchProps | null>(null);
 
   // Filter only unpaid bills
@@ -136,7 +137,7 @@ export function PaymentSelectionModal({
               </DialogTitle>
               <DialogDescription>
                 {step === 'select'
-                  ? 'Choose one or more bills to pay via HDFC SmartGateway'
+                  ? 'Choose one or more bills to pay via Razorpay'
                   : 'Choose to pay the full balance or enter custom amounts'}
               </DialogDescription>
             </div>
@@ -189,19 +190,33 @@ export function PaymentSelectionModal({
                     onCheckedChange={() => handleToggleBill(bill.id)}
                   />
                   <div className="flex-1 space-y-1">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <label
                         htmlFor={`bill-${bill.id}`}
                         className="font-medium cursor-pointer"
                       >
-                        {(bill as any).bill_number}
+                        {bill.item_category?.category_name ??
+                          bill.bill_description ??
+                          'Bill'}
                       </label>
                       <Badge variant={getStatusBadgeVariant(bill.status)}>
-                        {bill.status.toUpperCase()}
+                        {bill.status.replace(/_/g, ' ').toUpperCase()}
                       </Badge>
                     </div>
-                    <div className="text-sm text-muted-foreground">
-                      Due: {format(new Date(bill.due_date), 'dd MMM yyyy')}
+                    {/* Secondary identifiers so the user can tell bills apart:
+                        the description (when it differs from the category) and
+                        the academic year, alongside the due date. */}
+                    {bill.bill_description &&
+                      bill.bill_description !== bill.item_category?.category_name && (
+                        <div className="text-sm text-foreground/80">
+                          {bill.bill_description}
+                        </div>
+                      )}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm text-muted-foreground">
+                      {bill.academic_year?.academic_year_name && (
+                        <span>AY: {bill.academic_year.academic_year_name}</span>
+                      )}
+                      <span>Due: {format(new Date(bill.due_date), 'dd MMM yyyy')}</span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">
@@ -269,8 +284,9 @@ export function PaymentSelectionModal({
                 disabled={selectedBillIds.size === 0 || Object.keys(billAmounts).length === 0}
                 onSuccess={handleClose}
                 onRazorpaySession={(p) => {
-                  // Mount the launcher (sibling of this Dialog) FIRST, then close
-                  // the dialog. The launcher survives the close and opens the modal.
+                  // Mount the redirect component (sibling of this Dialog) FIRST,
+                  // then close the dialog. It survives the close and POSTs the
+                  // form that navigates the browser to Razorpay's hosted page.
                   setRazorpayLaunch(p);
                   handleClose();
                 }}
@@ -282,7 +298,7 @@ export function PaymentSelectionModal({
     </Dialog>
 
     {razorpayLaunch && (
-      <RazorpayCheckoutLauncher
+      <RazorpayHostedRedirect
         {...razorpayLaunch}
         onClose={() => setRazorpayLaunch(null)}
       />

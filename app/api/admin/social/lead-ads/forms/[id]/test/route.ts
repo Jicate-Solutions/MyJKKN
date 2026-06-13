@@ -25,7 +25,7 @@ import type {
   FbLeadgenWebhookValue,
 } from '@/lib/meta/lead-ads-types';
 
-async function requireAdmin() {
+async function requireAdmin(permissionKey: string) {
   const supabase = await createServerClient();
   const {
     data: { user },
@@ -39,10 +39,19 @@ async function requireAdmin() {
     .single();
   if (!profile) return { ok: false as const, status: 403 };
 
-  const allowed =
+  let allowed =
     profile.is_super_admin ||
     profile.role === 'super_admin' ||
     profile.role === 'administrator';
+
+  // 2026-06-11 granular-permission retrofit: roles granted the social.*
+  // key via Role Management pass too.
+  if (!allowed) {
+    const { data: perm } = await supabase.rpc('user_has_permission', {
+      permission_name: permissionKey,
+    });
+    allowed = !!perm;
+  }
   if (!allowed) return { ok: false as const, status: 403 };
 
   return { ok: true as const, userId: user.id, supabase };
@@ -53,7 +62,7 @@ interface RouteCtx {
 }
 
 export async function POST(req: NextRequest, ctx: RouteCtx) {
-  const auth = await requireAdmin();
+  const auth = await requireAdmin('social.lead_ads.manage');
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? 'Unauthorized' : 'Forbidden' },

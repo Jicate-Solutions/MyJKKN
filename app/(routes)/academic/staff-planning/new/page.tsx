@@ -18,6 +18,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useToast } from '@/hooks/use-toast';
 import Loading from '@/components/Loading/Loading';
 import { Button } from '@/components/ui/button';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 /**
  * navMeta — documents that this page is invoked via a button click on the
@@ -33,6 +34,7 @@ export default function NewStaffPlanPage() {
   const [isCheckingPermissions, setIsCheckingPermissions] = useState(true);
   const router = useRouter();
   const { toast } = useToast();
+  const adapt = useAdaptiveLabels();
   const {
     canAccess,
     isSuperAdmin,
@@ -103,7 +105,7 @@ export default function NewStaffPlanPage() {
         <div>
           <h1 className='text-2xl font-bold py-1'>Create Staff Plan</h1>
           <p className='text-sm sm:text-base text-muted-foreground'>
-            Create a new staff plan with course assignments
+            Create a new staff plan with {adapt('course')} assignments
           </p>
         </div>
 

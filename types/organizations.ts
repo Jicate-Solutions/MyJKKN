@@ -58,7 +58,7 @@ export interface UpdateInstitutionDto extends Partial<CreateInstitutionDto> {}
 export interface InstitutionFilters {
   search?: string;
   isActive?: boolean;
-  entityType?: EntityType | 'all'; // Filter by entity type; defaults to 'all' in getInstitutions, 'institution' in getInstitutionNames
+  entityType?: EntityType | 'all' | EntityType[]; // Filter by entity type; single value, 'all' (no filter), or an array (matched with IN). Defaults to 'all' in getInstitutions, 'institution' in getInstitutionNames
   page?: number;
   limit?: number;
   userId?: string; // For applying user-based institution filtering

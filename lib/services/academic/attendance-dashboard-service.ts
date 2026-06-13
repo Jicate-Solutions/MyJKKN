@@ -506,6 +506,8 @@ export class AttendanceDashboardService {
           section_id,
           timetable_data,
           periods,
+          attendance_mode,
+          class_incharge_id,
           start_date,
           end_date,
           institution:institutions(id, name),
@@ -651,6 +653,53 @@ export class AttendanceDashboardService {
 
           const timetableData = timetable.timetable_data as TimetableData | null;
           const periods = timetable.periods as any;
+
+          // Updated: 2026-06-10 - Day-wise (session_wise) classes are NOT
+          // period-based. Generate two session entries (FN/AN) per working day
+          // and skip the period loop entirely; their marked status comes from
+          // daily_session_attendance (folded into markedPeriods below).
+          if (timetable.attendance_mode === 'session_wise') {
+            if (!timetable.section_id) return; // need a section to track sessions
+            // Keys 'FN'/'AN' match the attendance_data session keys that the
+            // generic marked-attendance builder below reads from student_attendance.
+            (['FN', 'AN'] as const).forEach((sess) => {
+              const periodKey = `${date}_${timetable.id}_${sess}`;
+              allScheduledPeriods.set(periodKey, {
+                attendance_date: date,
+                period_name:
+                  sess === 'FN' ? 'Morning Session' : 'Afternoon Session',
+                period_id: sess,
+                start_time: '',
+                end_time: '',
+                course_id: '',
+                course_name: 'Day Attendance',
+                course_code: undefined,
+                institution_id: timetable.institution_id,
+                institution_name:
+                  (timetable.institution as any)?.name || 'Unknown Institution',
+                degree_id: timetable.degree_id,
+                degree_name: (timetable.degree as any)?.degree_name || '',
+                department_id: timetable.department_id,
+                department_name:
+                  (timetable.department as any)?.department_name || '',
+                program_id: timetable.program_id,
+                program_name: (timetable.program as any)?.program_name || '',
+                semester_id: timetable.semester_id,
+                semester_name: (timetable.semesters as any)?.semester_name || '',
+                section_id: timetable.section_id,
+                section_name:
+                  (timetable.sections as any)?.section_name || 'Unknown Section',
+                academic_year_id: timetable.academic_year_id,
+                academic_year_name:
+                  (timetable.academic_year as any)?.academic_year_name || '',
+                assigned_staff: [],
+                primary_staff_name: 'Class Incharge',
+                timetable_id: timetable.id,
+                timetable_name: timetable.timetable_name
+              } as PendingAttendancePeriod);
+            });
+            return;
+          }
 
           if (timetableData && timetableData[dayOfWeek]) {
             Object.entries(timetableData[dayOfWeek]).forEach(
@@ -813,6 +862,10 @@ export class AttendanceDashboardService {
           });
         }
       });
+
+      // Day-wise (session_wise) marks live in student_attendance keyed 'FN'/'AN'
+      // and are already folded into markedPeriods by the generic builder above
+      // (key `${date}_${timetable_id}_${FN|AN}`), so no extra query is needed.
 
       // Step 5: Find pending periods (scheduled but not marked)
       const pendingPeriods: PendingAttendancePeriod[] = [];

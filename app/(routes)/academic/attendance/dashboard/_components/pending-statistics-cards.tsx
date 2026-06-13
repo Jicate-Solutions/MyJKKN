@@ -17,6 +17,7 @@ import {
 import { AttendanceDashboardService } from '@/lib/services/academic/attendance-dashboard-service';
 import type { DashboardFilters } from '@/types/attendance-dashboard';
 import { format } from 'date-fns';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface PendingStatisticsCardsProps {
   filters: {
@@ -49,6 +50,7 @@ export function PendingStatisticsCards({
   canViewAllInstitutions,
   refreshTrigger = 0
 }: PendingStatisticsCardsProps) {
+  const label = useAdaptiveLabels();
   const [stats, setStats] = useState<PendingStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -173,7 +175,7 @@ export function PendingStatisticsCards({
       iconBg: 'bg-orange-500'
     },
     {
-      title: 'Active Sections',
+      title: `Active ${label('Sections')}`,
       value: stats.sections,
       description: 'With scheduled periods',
       icon: Users,

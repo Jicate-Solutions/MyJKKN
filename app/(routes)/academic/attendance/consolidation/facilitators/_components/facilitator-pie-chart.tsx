@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/chart';
 import { PieChart, Pie, Cell } from 'recharts';
 import type { FacilitatorDepartmentBreakdown } from '@/types/attendance';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface Props {
   departmentBreakdown: FacilitatorDepartmentBreakdown[];
@@ -25,6 +26,7 @@ const COLORS = [
 ];
 
 export function FacilitatorPieChart({ departmentBreakdown }: Props) {
+  const label = useAdaptiveLabels();
   const data = departmentBreakdown.map((d) => ({
     name: d.departmentName,
     value: d.totalMarked,
@@ -41,7 +43,7 @@ export function FacilitatorPieChart({ departmentBreakdown }: Props) {
     return (
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm sm:text-base">Periods by Department</CardTitle>
+          <CardTitle className="text-sm sm:text-base">Periods by {label('Department')}</CardTitle>
         </CardHeader>
         <CardContent className="flex items-center justify-center h-40 sm:h-48 text-muted-foreground text-xs sm:text-sm">
           No data for selected filters

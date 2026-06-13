@@ -31,7 +31,7 @@ const SETUP_STEPS = [
     title: 'Add Regulatory Norms',
     description: 'Define student-faculty ratio norms from AICTE, PCI, NMC, and other bodies.',
     icon: FileText,
-    href: '/admin/hr/recruitment-need/norms',
+    href: '/hr/admin/recruitment-need/norms',
     checkKey: 'hasNorms' as const,
   },
   {
@@ -39,7 +39,7 @@ const SETUP_STEPS = [
     title: 'Enter Sanctioned Strength',
     description: 'Add institution program approvals with sanctioned faculty count and intake.',
     icon: Users,
-    href: '/admin/hr/recruitment-need/approvals',
+    href: '/hr/admin/recruitment-need/approvals',
     checkKey: 'hasSanctionedStrength' as const,
   },
   {
@@ -47,7 +47,7 @@ const SETUP_STEPS = [
     title: 'Tag Staff Specializations',
     description: 'Map staff to their specializations so coverage gaps can be computed.',
     icon: BookOpen,
-    href: '/admin/hr/recruitment-need/specializations',
+    href: '/hr/admin/recruitment-need/specializations',
     checkKey: 'hasSpecializations' as const,
   },
 ];

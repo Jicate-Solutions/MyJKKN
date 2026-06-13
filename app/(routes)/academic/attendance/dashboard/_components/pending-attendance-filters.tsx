@@ -33,6 +33,7 @@ import { Label } from '@/components/ui/label';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import type { DashboardFilters } from '@/types/attendance-dashboard';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface PendingAttendanceFiltersProps {
   filters: Partial<DashboardFilters>;
@@ -54,6 +55,7 @@ export function PendingAttendanceFilters({
   dashboardAcademicYearId
 }: PendingAttendanceFiltersProps) {
   const supabase = createClientSupabaseClient();
+  const label = useAdaptiveLabels();
   const [searchTerm, setSearchTerm] = useState(filters.search || '');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
 
@@ -146,11 +148,11 @@ export function PendingAttendanceFilters({
     if (filters.startDate || filters.endDate) activeFilters.push('Date Range');
     if (filters.institutionId && !dashboardInstitutionId) activeFilters.push('Institution');
     if (filters.academicYearId && !dashboardAcademicYearId) activeFilters.push('Academic Year');
-    if (filters.degreeId) activeFilters.push('Degree');
-    if (filters.departmentId) activeFilters.push('Department');
-    if (filters.programId) activeFilters.push('Program');
-    if (filters.semesterId) activeFilters.push('Semester');
-    if (filters.sectionId) activeFilters.push('Section');
+    if (filters.degreeId) activeFilters.push(label('Degree'));
+    if (filters.departmentId) activeFilters.push(label('Department'));
+    if (filters.programId) activeFilters.push(label('Program'));
+    if (filters.semesterId) activeFilters.push(label('Semester'));
+    if (filters.sectionId) activeFilters.push(label('Section'));
     if (filters.staffId) activeFilters.push('Staff');
     return activeFilters;
   };
@@ -505,7 +507,7 @@ export function PendingAttendanceFilters({
                   <div className='space-y-2'>
                     <Label className='flex items-center gap-1'>
                       <GraduationCap className='h-3 w-3' />
-                      Degree
+                      {label('Degree')}
                     </Label>
                     <Select
                       value={filters.degreeId || 'all'}
@@ -517,12 +519,12 @@ export function PendingAttendanceFilters({
                       <SelectTrigger>
                         <SelectValue
                           placeholder={
-                            loadingDegrees ? 'Loading...' : 'All Degrees'
+                            loadingDegrees ? 'Loading...' : label('All Degrees')
                           }
                         />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value='all'>All Degrees</SelectItem>
+                        <SelectItem value='all'>{label('All Degrees')}</SelectItem>
                         {degrees.map((degree) => (
                           <SelectItem key={degree.id} value={degree.id}>
                             {degree.degree_name}
@@ -538,7 +540,7 @@ export function PendingAttendanceFilters({
                   <div className='space-y-2'>
                     <Label className='flex items-center gap-1'>
                       <Building className='h-3 w-3' />
-                      Department
+                      {label('Department')}
                     </Label>
                     <Select
                       value={filters.departmentId || 'all'}
@@ -552,12 +554,12 @@ export function PendingAttendanceFilters({
                           placeholder={
                             loadingDepartments
                               ? 'Loading...'
-                              : 'All Departments'
+                              : label('All Departments')
                           }
                         />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value='all'>All Departments</SelectItem>
+                        <SelectItem value='all'>{label('All Departments')}</SelectItem>
                         {departments.map((department) => (
                           <SelectItem key={department.id} value={department.id}>
                             {department.department_name}
@@ -573,7 +575,7 @@ export function PendingAttendanceFilters({
                   <div className='space-y-2'>
                     <Label className='flex items-center gap-1'>
                       <BookOpen className='h-3 w-3' />
-                      Program
+                      {label('Program')}
                     </Label>
                     <Select
                       value={filters.programId || 'all'}
@@ -585,12 +587,12 @@ export function PendingAttendanceFilters({
                       <SelectTrigger>
                         <SelectValue
                           placeholder={
-                            loadingPrograms ? 'Loading...' : 'All Programs'
+                            loadingPrograms ? 'Loading...' : label('All Programs')
                           }
                         />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value='all'>All Programs</SelectItem>
+                        <SelectItem value='all'>{label('All Programs')}</SelectItem>
                         {programs.map((program) => (
                           <SelectItem key={program.id} value={program.id}>
                             {program.program_name}
@@ -606,7 +608,7 @@ export function PendingAttendanceFilters({
                   <div className='space-y-2'>
                     <Label className='flex items-center gap-1'>
                       <Calendar className='h-3 w-3' />
-                      Semester
+                      {label('Semester')}
                     </Label>
                     <Select
                       value={filters.semesterId || 'all'}
@@ -618,12 +620,12 @@ export function PendingAttendanceFilters({
                       <SelectTrigger>
                         <SelectValue
                           placeholder={
-                            loadingSemesters ? 'Loading...' : 'All Semesters'
+                            loadingSemesters ? 'Loading...' : label('All Semesters')
                           }
                         />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value='all'>All Semesters</SelectItem>
+                        <SelectItem value='all'>{label('All Semesters')}</SelectItem>
                         {semesters.map((semester) => (
                           <SelectItem key={semester.id} value={semester.id}>
                             {semester.semester_name}
@@ -639,7 +641,7 @@ export function PendingAttendanceFilters({
                   <div className='space-y-2'>
                     <Label className='flex items-center gap-1'>
                       <Users className='h-3 w-3' />
-                      Section
+                      {label('Section')}
                     </Label>
                     <Select
                       value={filters.sectionId || 'all'}
@@ -651,12 +653,12 @@ export function PendingAttendanceFilters({
                       <SelectTrigger>
                         <SelectValue
                           placeholder={
-                            loadingSections ? 'Loading...' : 'All Sections'
+                            loadingSections ? 'Loading...' : label('All Sections')
                           }
                         />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value='all'>All Sections</SelectItem>
+                        <SelectItem value='all'>{label('All Sections')}</SelectItem>
                         {sections.map((section) => (
                           <SelectItem key={section.id} value={section.id}>
                             {section.section_name}
@@ -795,7 +797,7 @@ export function PendingAttendanceFilters({
 
           {filters.degreeId && (
             <Badge variant='secondary' className='gap-1'>
-              Degree
+              {label('Degree')}
               <Button
                 variant='ghost'
                 size='sm'
@@ -809,7 +811,7 @@ export function PendingAttendanceFilters({
 
           {filters.departmentId && (
             <Badge variant='secondary' className='gap-1'>
-              Department
+              {label('Department')}
               <Button
                 variant='ghost'
                 size='sm'
@@ -823,7 +825,7 @@ export function PendingAttendanceFilters({
 
           {filters.programId && (
             <Badge variant='secondary' className='gap-1'>
-              Program
+              {label('Program')}
               <Button
                 variant='ghost'
                 size='sm'
@@ -837,7 +839,7 @@ export function PendingAttendanceFilters({
 
           {filters.semesterId && (
             <Badge variant='secondary' className='gap-1'>
-              Semester
+              {label('Semester')}
               <Button
                 variant='ghost'
                 size='sm'
@@ -851,7 +853,7 @@ export function PendingAttendanceFilters({
 
           {filters.sectionId && (
             <Badge variant='secondary' className='gap-1'>
-              Section
+              {label('Section')}
               <Button
                 variant='ghost'
                 size='sm'

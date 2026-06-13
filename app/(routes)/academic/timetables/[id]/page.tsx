@@ -79,6 +79,7 @@ import { SectionService } from '@/lib/services/organization/section-service';
 import { Timetable, DayOfWeek, Period } from '@/types/academics';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Label } from '@/components/ui/label';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 // Import custom hooks (Phase 1)
 import {
@@ -142,6 +143,7 @@ const ALL_DAYS_OF_WEEK: DayOfWeek[] = [
 
 export default function TimetableDetailPage() {
   const router = useRouter();
+  const adapt = useAdaptiveLabels();
 
   // Fix: 2026-02-25 - Use useResolvedRouteId instead of use(params) to avoid
   // Next.js DRP (Dynamic Route Parameter) placeholder issue.
@@ -350,6 +352,16 @@ export default function TimetableDetailPage() {
     isActive: true
   });
   const allStaff = staffQuery.data || [];
+
+  // Resolve the class incharge's display name for the header (day-wise support).
+  const inchargeName = useMemo(() => {
+    const id = (timetable as any)?.class_incharge_id;
+    if (!id) return null;
+    const s = allStaff.find((st: any) => st.id === id);
+    return s
+      ? `${s.first_name} ${s.last_name}${s.staff_id ? ` (${s.staff_id})` : ''}`
+      : null;
+  }, [timetable, allStaff]);
 
   const sectionsQuery = useSections({
     institution_id: timetable?.institution_id,
@@ -1106,19 +1118,41 @@ export default function TimetableDetailPage() {
   // ===================================
 
   const handleExportPDF = useCallback(async () => {
-    if (!timetable || !timetableGridRef.current) {
+    if (!timetable) {
       toast.error('Unable to export timetable');
       return;
     }
 
+    if (selectedPeriods.length === 0) {
+      toast.error('Configure periods before exporting');
+      return;
+    }
+
     try {
-      await exportTimetableToPDF(timetable, timetableFormat, timetableGridRef);
+      await exportTimetableToPDF({
+        timetable,
+        timetableFormat,
+        selectedPeriods,
+        selectedDays,
+        selectedDates,
+        numCycles: timetable?.num_cycles ?? 6,
+        slots,
+        inchargeName
+      });
       toast.success('Timetable exported successfully');
     } catch (error) {
       logger.error('academic/timetables', 'Error exporting PDF', error);
       toast.error('Failed to export timetable');
     }
-  }, [timetable, timetableFormat]);
+  }, [
+    timetable,
+    timetableFormat,
+    selectedPeriods,
+    selectedDays,
+    selectedDates,
+    slots,
+    inchargeName
+  ]);
 
   // ===================================
   // Format Change
@@ -1249,6 +1283,7 @@ export default function TimetableDetailPage() {
           isSuperAdmin={isSuperAdmin}
           hasAttendance={hasAttendance}
           todaysCycle={todaysCycle}
+          inchargeName={inchargeName}
         />
 
         {/* Action Buttons */}
@@ -1713,7 +1748,7 @@ export default function TimetableDetailPage() {
             <div className='py-4 space-y-2'>
               {deleteDialog.data.slotToDelete?.course?.course_name && (
                 <div className='font-medium'>
-                  Course: {deleteDialog.data.slotToDelete.course.course_name}
+                  {adapt('Course')}: {deleteDialog.data.slotToDelete.course.course_name}
                 </div>
               )}
               {deleteDialog.data.slotToDelete?.period && (

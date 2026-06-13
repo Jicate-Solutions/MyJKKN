@@ -355,6 +355,10 @@ export interface CiaViewCourse {
   is_regular: boolean | null;
   semester_code: string | null;
   semester_index: number | null;
+  /** e.g. "CIA + ESE" | "CIA" | "ESE". Used to show only CIA-applicable courses. */
+  evaluation_type?: string | null;
+  /** e.g. "Mark" | "Grade". Internal tab shows mark-typed courses only. */
+  result_type?: string | null;
   rounds: CiaViewCourseRound[];
 }
 

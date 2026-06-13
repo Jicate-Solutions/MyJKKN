@@ -26,7 +26,8 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
-import type { MealType, MessMenu, TierKey } from '@/types/campus-living';
+import type { MealType, MessMenu } from '@/types/campus-living';
+import type { HostelTierKey } from '@/types/campus-living/premium';
 
 const LOG_SCOPE = 'campus-living/mess-rating-gate';
 
@@ -64,7 +65,7 @@ export interface CanRateResult {
     | 'policy_disabled_unauth'
     | 'lookup_error';
   windowEndsUtc?: Date;
-  tierKey?: TierKey | null;
+  tierKey?: HostelTierKey | null;
 }
 
 // ── Policy readers ────────────────────────────────────────────────────────
@@ -114,7 +115,7 @@ async function getWindowHours(institutionId?: string | null): Promise<number> {
  *   - profile has no learner_id link, OR
  *   - no active hostel_allocations row exists for the learner.
  */
-export async function getTierKeyForProfile(profileId: string): Promise<TierKey | null> {
+export async function getTierKeyForProfile(profileId: string): Promise<HostelTierKey | null> {
   try {
     const supabase = createClientSupabaseClient();
     const { data: profile, error: profileErr } = await supabase
@@ -155,7 +156,7 @@ export async function getTierKeyForProfile(profileId: string): Promise<TierKey |
       logger.warn(LOG_SCOPE, 'Failed to fetch hostel_tier_policy', tierErr);
       return null;
     }
-    return ((tier as { tier_key: TierKey | null } | null)?.tier_key) ?? null;
+    return ((tier as { tier_key: HostelTierKey | null } | null)?.tier_key) ?? null;
   } catch (err) {
     logger.error(LOG_SCOPE, 'Unexpected error in getTierKeyForProfile', err);
     return null;

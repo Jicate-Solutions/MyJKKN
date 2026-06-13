@@ -23,6 +23,7 @@ import { LeaveCalendarService } from '@/lib/services/academic/leave-calendar-ser
 import type { LeaveBlockInfo } from '@/types/leaves';
 import { cn } from '@/lib/utils';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface AvailablePeriodsCardsProps {
   periods: AttendancePeriodOption[];
@@ -42,6 +43,7 @@ export function AvailablePeriodsCards({
   isSuperAdmin
 }: AvailablePeriodsCardsProps) {
   const router = useRouter();
+  const label = useAdaptiveLabels();
   const [markedPeriods, setMarkedPeriods] = useState<Set<string>>(new Set());
   const [periodRecordIds, setPeriodRecordIds] = useState<Map<string, string>>(
     new Map()
@@ -335,7 +337,7 @@ export function AvailablePeriodsCards({
                             <CheckCircle className='h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0' />
                             <span className='text-xs text-green-600 dark:text-green-400 font-medium'>
                               {isMultiSection
-                                ? 'All Sections Completed'
+                                ? `All ${label('Sections')} Completed`
                                 : 'Completed'}
                             </span>
                           </div>
@@ -460,8 +462,8 @@ export function AvailablePeriodsCards({
                           <Users className='h-3 w-3 flex-shrink-0' />
                           <span>
                             {period.sections.length === 1
-                              ? `Section ${period.sections[0].section_name || period.sections[0].name || period.section_name || ''}`
-                              : `${period.sections.length} Sections: ${period.sections.map(s => s.section_name || s.name).join(', ')}`
+                              ? `${label('Section')} ${period.sections[0].section_name || period.sections[0].name || period.section_name || ''}`
+                              : `${period.sections.length} ${label('Sections')}: ${period.sections.map(s => s.section_name || s.name).join(', ')}`
                             }
                           </span>
                         </div>
@@ -469,7 +471,7 @@ export function AvailablePeriodsCards({
                         // Single section (section-level timetable - legacy fallback)
                         <div className='bg-blue-50 dark:bg-blue-900/30 px-3 py-2 rounded-md text-center flex items-center justify-center gap-1.5 font-medium text-blue-700 dark:text-blue-300 col-span-1 xs:col-span-2 sm:col-span-1'>
                           <Users className='h-3 w-3 flex-shrink-0' />
-                          <span>Section {period.section_name}</span>
+                          <span>{label('Section')} {period.section_name}</span>
                         </div>
                       ) : null}
                     </div>
@@ -504,7 +506,7 @@ export function AvailablePeriodsCards({
                               {period.period_mode === 'practical'
                                 ? 'Select Batch & Mark Attendance'
                                 : isMultiSection
-                                  ? 'Mark All Sections'
+                                  ? `Mark All ${label('Sections')}`
                                   : 'Mark Attendance'}
                             </span>
                           </>

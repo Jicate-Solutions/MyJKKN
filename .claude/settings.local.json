@@ -270,7 +270,9 @@
       "Bash(break)",
       "mcp__plugin_claude-mem_mcp-search__smart_outline",
       "WebFetch(domain:docs.claude.com)",
-      "mcp__ide__executeCode"
+      "mcp__ide__executeCode",
+      "Bash(gh pr *)",
+      "WebFetch(domain:hdfcbank-collectnow-docs.razorpay.com)"
     ],
     "deny": [],
     "ask": []

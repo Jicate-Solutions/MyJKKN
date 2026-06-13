@@ -6,6 +6,8 @@
 
 ## 📝 Recent Changes
 
+- **2026-07-10** — Fixed pgcrypto search_path bug in 4 SECURITY DEFINER fns (5 instances incl. both `generate_api_key` overloads): `ALTER FUNCTION ... SET search_path = public, extensions` on `create_api_key`, `generate_api_key()`, `generate_api_key(integer)`, `create_staff_auth_profile`, `bulk_sync_applications_to_auth_server` — they call pgcrypto primitives in the `extensions` schema and were failing at runtime with 42883. Migration `20260710120000_fix_sibling_pgcrypto_search_path.sql` (idempotent; body unchanged).
+
 - **2026-05-02** — IMS permission-system audit: full RLS resolution (Part 2 — bugs #1, #2, #3, #5, #6, #7, #8, #9, #10)
   - Continuation of the morning's granular-overrides session (Part 1 below). The `rls-fixer` agent in team `ims-permission-resolve` resolved the remaining 10 RLS/scope bugs flagged by the `scope-reviewer` and `rls-reviewer` audits. All listed open follow-ups from Part 1 are now closed except the deferred UI-layer concerns.
   - **`03_policies.sql` edit #3 (helper-call corrections)**: the `pg_temp.ims_apply_*` helpers in the main IMS RLS block assume every table has an `institution_id` column. Several tables don't — re-running the file on a fresh DB would have crashed or generated globally-permissive policies that regress live state. Replaced helper calls for 7 tables (lines ~5575, 5587-5590, 5595-5597, 5610-5612) with explicit pointers to hand-written DO blocks below + corrected ones for `ims_suppliers` (BUG #5: was global, now inst-scoped) and `ims_unit_conversions` (BUG #9: was global, now child-scoped via `ims_items.institution_id`).
@@ -1538,3 +1540,63 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Tables: `admission_form_templates`, `admission_forms`, `admission_form_sections`, `admission_form_fields`, `admission_form_submissions`, `admission_form_events`
 - Location: `supabase/setup/01_tables.sql` (appended)
 - Purpose: Dynamic public admission form builder with submissions flowing to leads
+
+### Meeting Routing Substrate (2026-06-11)
+- Tables: `meeting_routing_config` (repo-sync of live table), `meeting_routing_log` (round-robin pick audit + visitor answers per routed booking)
+- Column: `jicate_booking_meeting_types.host_profile_id` (links per-counselor Cal.com EventTypes to MyJKKN profiles)
+- Location: `supabase/migrations/20260611170000_meeting_routing_substrate.sql` (applied live via exec_sql 2026-06-11)
+- Purpose: Public routed-booking form at /book/[slug] — MyJKKN-side round-robin (least_loaded on admission_counselors.current_leads) over a headless Cal.com. Writes via service-role only; staff read via RLS.
+
+### Native Scheduling Engine — Phase N1 (2026-06-11)
+- Tables: `meeting_host_schedules`, `meeting_schedule_windows`, `meeting_schedule_overrides`, `meeting_types`, `meeting_bookings`
+- Location: `supabase/migrations/20260611190000_native_scheduling_engine.sql` (applied live via exec_sql 2026-06-11)
+- Purpose: In-house scheduling engine replacing Cal.com (jicate-booking). Times stored as minutes-since-midnight in schedule TZ; gist EXCLUSION constraint `mb_no_double_booking` makes double-booking impossible for confirmed rows (verified live: overlap → 23P01; cancelled rows don't block). Multi-tenant via institution_id. Requires btree_gist extension.
+
+### Meeting Routing Log — native linkage (2026-06-11)
+- Column: `meeting_routing_log.meeting_type_id` (uuid → meeting_types)
+- Location: `supabase/migrations/20260611200000_meeting_routing_log_native_link.sql` (applied live)
+- Purpose: Phase N2 — routed bookings reference native meeting_types; cal_booking_uid column now stores native uids for new rows.
+
+### Universal Booking Substrate — U1 (2026-06-12)
+- Tables: `meeting_host_pages` (public page config: handle UNIQUE + reserved-word CHECK, is_public opt-in, auto_hidden), `meeting_host_google_connections` (per-host Google link, pgp-encrypted refresh token, status active/broken/revoked)
+- Functions: `fn_set_google_cal_token`, `fn_get_google_cal_token`, `fn_clear_google_cal_token` — SECURITY DEFINER, `search_path = public, extensions` (pgcrypto), service_role-ONLY execute (cal-vault pattern)
+- Columns: `meeting_types.location_mode` (in_person/phone/online; admission-counseling set to phone) + `location_text`; `meeting_bookings.video_url`, `google_event_id`, `attendee_profile_id`, `rescheduled_at`, `reschedule_count`, `previous_start_time`
+- Data: `meetings.view` granted to all staff-type roles (exclusion-list: learner/external/vendor/deprecated roles)
+- Location: `supabase/migrations/20260612090000_universal_booking_substrate.sql` (NOT yet applied — ships dark; apply at merge)
+- Purpose: Universal Booking module substrate — anyone books Senior Learners/staff. Spec: specs/universal-booking-module-2026-06-12.md (20 decisions). Public exposure requires opt-in + active Google connection (D20).
+
+### PDE <-> BoS Outcome Connector (2026-06-11)
+- Columns: `pde_demonstrations.bos_syllabus_id` (uuid → bos_course_syllabi, version-pinned at submission), `pde_demonstrations.vac_course_id` (uuid → vac_courses, course-level VAC lane), `pde_demonstrations.clo_refs` (jsonb, learner-proposed CLO numbers), `pde_demonstrations.clo_refs_confirmed` (jsonb, validator-confirmed — attainment reads this only)
+- Policy rows: `pde.obe.po_weight_map` ({"H":1.0,"M":0.5,"L":0.25}), `pde.obe.clo_tag_cap` (2)
+- Location: `supabase/migrations/20260611230000_pde_bos_clo_connector.sql` (applied live via Management API 2026-06-11)
+- Purpose: Link PDE demonstrations to the curriculum outcome they evidence (BoS CLOs for autonomous colleges, VAC courses for all); CLO/PO attainment computed from validated evidence. Spec: specs/pde-bos-outcome-connector-2026-06-11.md
+
+### PDE Curriculum Read RPCs (2026-06-11)
+- Functions: `fn_pde_list_approved_syllabi()`, `fn_pde_get_syllabus_outcomes(uuid[])`, `fn_pde_list_vac_courses()` — all SECURITY DEFINER, REVOKE anon/PUBLIC + GRANT authenticated
+- Location: `supabase/migrations/20260611233000_pde_curriculum_read_rpcs.sql` (applied live via Management API 2026-06-11)
+- Purpose: Scoped curriculum reads for the PDE connector. Live-discovered gap: bos_course_syllabi RLS requires BoS board membership and vac_courses RLS requires user_institution_access — learners/non-BoS validators can't read either. RPCs expose picker-minimal columns, own-institution scoped (admins also pass on outcomes fn).
+
+### VAC Content Migration + Universal Picker (2026-06-12)
+- Data: staging→prod content copy — vac_courses 1→93 (dark), vac_lessons 1→2,717, vac_course_programmes 0→85; via `scripts/vac-migrate-staging-content.sh` (psql pooler, Director-authorized interview decisions in specs/vac-staging-fk-mapping-audit-2026-06-11.md §8)
+- Function: `fn_pde_list_vac_courses()` — now own-institution OR universal (institution_id IS NULL)
+- Index: `vac_courses_code_key` UNIQUE(code) — staging parity + double-run guard
+- Location: `supabase/migrations/20260612084500_vac_universal_picker_and_code_unique.sql` (applied live 2026-06-12)
+
+### PDE Validation SLA Policy (2026-06-12)
+- Policy row: `pde.scoring.validation_sla_days` = 7 (global, number, system, tunable without deploy)
+- Location: `supabase/migrations/20260612190000_pde_validation_sla_policy.sql` (applied live via Management API 2026-06-12)
+- Purpose: Connector PR 2 — bounds time-to-first-acknowledgment for PDE demonstrations (aging badge + latency/coverage KPIs on /pde/admin/demonstrations). CARE audit corrective move A (A3 scored 1).
+
+### Family Moments Engine (2026-06-12)
+- Tables: `family_moments_campaigns` (occasion per institution) + `family_moments` (tokenized card per child per campaign) + storage bucket `family-moments` (public read, permission-gated write)
+- Location: `supabase/migrations/20260711000000_family_moments_engine.sql`
+- RLS: NO anon policies by design — public gift page reads server-side via service role keyed on unguessable token. Teacher writes via `moments.submissions.create`; dashboards via `moments.campaigns.view`.
+- Seed: `scripts/moments/seed-fathers-day.ts` (2 campaigns + 456 pre-seeded auto-cards, NV CBSE + Matric HSS)
+
+### CARE Audit Framework v1.0 (2026-06-12)
+- Data: 20 system rows in `audit_parameter_catalog` — codes `CARE-C1`…`CARE-E5`, parameter_group 1–4 = pillar C/A/R/E, framework_mapping `{"care":"C1"}` (existing body→criterion shape), evidence_required from the framework doc
+- Tables: `care_audit_scores` (cycle_id → audit_cycles CASCADE, scorer_role owner/participant, score 0–4 CHECK, UNIQUE(cycle,code,scorer)), `care_scorer_invites` (token UNIQUE default gen_random_bytes(24) hex, accepted_by claims, 14-day expiry)
+- Functions: `fn_care_create_audit`, `fn_care_list_audits`, `fn_care_get_audit`, `fn_care_upsert_score`, `fn_care_create_invite`, `fn_care_get_invite_context`, `fn_care_submit_participant_scores`, `fn_care_is_cycle_owner` — all SECURITY DEFINER, REVOKE anon/PUBLIC + GRANT authenticated. ALL writes flow through RPCs (audit_cycles INSERT RLS needs audit.cycle.manage but any staff opens a CARE audit; learner second-scorer passes via token, not staff RLS)
+- RLS: both tables SELECT-only direct policies (leadership + own rows); no direct write policies
+- Location: `supabase/migrations/20260612180000_care_audit_framework.sql` (applied live via Management API 2026-06-12)
+- Purpose: Digitize the JKKN CARE Audit Framework v1.0 inside /audit — 20-item 0–4 scoring, two-scorer blind variance, pillar/index/gap-rule math, corrective moves as findings. Spec: specs/care-audit-module-spec-2026-06-12.md

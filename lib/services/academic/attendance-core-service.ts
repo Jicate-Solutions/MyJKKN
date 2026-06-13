@@ -1079,6 +1079,43 @@ export class AttendanceCoreService {
         return false;
       }
 
+      // Updated: 2026-06-10 - Resolve the slot's timetable so we can branch on
+      // attendance_mode. session_wise (school day-wise) attendance is restricted
+      // to the class incharge or an admin/HOD; subject-staff assignment and the
+      // broad faculty permission deliberately do NOT grant access there.
+      const timetableMeta = await this.getTimetableAttendanceMeta(
+        timetableSlotId
+      );
+
+      if (timetableMeta?.attendance_mode === 'session_wise') {
+        // 1. Primary authority: the incharge recorded on the timetable.
+        if (
+          timetableMeta.class_incharge_id &&
+          timetableMeta.class_incharge_id === staffId
+        ) {
+          return true;
+        }
+
+        // 2. Fallback authority: section-level class_incharges (covers
+        //    timetables created before an incharge was set on the row).
+        if (timetableMeta.section_id) {
+          const { data: sectionIncharge } = await this.supabase
+            .from('class_incharges')
+            .select('id')
+            .eq('section_id', timetableMeta.section_id)
+            .eq('staff_id', staffId)
+            .eq('is_active', true)
+            .limit(1);
+          if (sectionIncharge && sectionIncharge.length > 0) {
+            return true;
+          }
+        }
+
+        // 3. Override: admin / HOD with department access.
+        return await this.checkHODDepartmentAccess(timetableSlotId);
+      }
+
+      // period_wise (default / college): existing authorization chain.
       // First check: Is staff specifically assigned to this slot?
       const isAssigned = await this.isStaffAssignedToSlot(
         staffId,
@@ -1108,6 +1145,48 @@ export class AttendanceCoreService {
     } catch (error) {
       logger.error('academic/attendance', 'Error checking attendance permission for slot', error);
       return false;
+    }
+  }
+
+  /**
+   * Updated: 2026-06-10
+   * Resolve the attendance-relevant metadata of the timetable that owns a slot.
+   * Used to branch authorization (and other behaviour) on attendance_mode.
+   */
+  private static async getTimetableAttendanceMeta(
+    timetableSlotId: string
+  ): Promise<{
+    attendance_mode: string;
+    section_id: string | null;
+    class_incharge_id: string | null;
+  } | null> {
+    try {
+      const timetableId =
+        await AttendanceCoreService.getTimetableIdFromSlotInternal(
+          timetableSlotId
+        );
+      if (!timetableId) return null;
+
+      const { data, error } = await this.supabase
+        .from('timetables')
+        .select('attendance_mode, section_id, class_incharge_id')
+        .eq('id', timetableId)
+        .single();
+
+      if (error || !data) return null;
+
+      return {
+        attendance_mode: (data as any).attendance_mode || 'period_wise',
+        section_id: (data as any).section_id || null,
+        class_incharge_id: (data as any).class_incharge_id || null
+      };
+    } catch (error) {
+      logger.error(
+        'academic/attendance',
+        'Error resolving timetable attendance meta',
+        error
+      );
+      return null;
     }
   }
 

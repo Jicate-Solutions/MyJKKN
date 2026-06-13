@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
-async function requireAdmin() {
+async function requireAdmin(permissionKey: string) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -27,17 +27,26 @@ async function requireAdmin() {
     .single();
   if (!profile) return { ok: false as const, status: 403 };
 
-  const allowed =
+  let allowed =
     profile.is_super_admin ||
     profile.role === 'super_admin' ||
     profile.role === 'administrator';
+
+  // 2026-06-11 granular-permission retrofit: roles granted the social.*
+  // key via Role Management pass too.
+  if (!allowed) {
+    const { data: perm } = await supabase.rpc('user_has_permission', {
+      permission_name: permissionKey,
+    });
+    allowed = !!perm;
+  }
   if (!allowed) return { ok: false as const, status: 403 };
 
   return { ok: true as const, supabase };
 }
 
 export async function GET(req: NextRequest) {
-  const auth = await requireAdmin();
+  const auth = await requireAdmin('social.lead_ads.view');
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? 'Unauthorized' : 'Forbidden' },

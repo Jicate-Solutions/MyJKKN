@@ -1,7 +1,7 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
-import { columns } from './columns';
+import { getColumns } from './columns';
 import type { SemestersSearchParams } from './data-table-schema';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { Button } from '@/components/ui/button';
@@ -157,7 +157,7 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
       setDeleteResetFn(null);
     } catch (error) {
       console.error('Error deleting semesters:', error);
-      toast.error('An error occurred while deleting semesters');
+      toast.error(`An error occurred while deleting ${label('semesters')}`);
     } finally {
       setIsDeleting(false);
     }
@@ -183,7 +183,7 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
       toast.success('Export completed successfully');
     } catch (error) {
       console.error('Export error:', error);
-      toast.error('Failed to export semesters');
+      toast.error(`Failed to export ${label('semesters')}`);
     }
   };
 
@@ -293,7 +293,7 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
     <>
       <DataTable
         fetchDataFn={fetchData}
-        getColumns={() => columns as any}
+        getColumns={() => getColumns(adapt) as any}
         exportConfig={{
           entityName: 'semesters',
           columnMapping: {},
@@ -321,7 +321,7 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
             </AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
-              semester{selectedForDelete.length > 1 ? 's' : ''} and all related
+              {label('semester')}{selectedForDelete.length > 1 ? 's' : ''} and all related
               data.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -330,12 +330,12 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
           {selectedForDelete.length > 0 && (
             <div className='my-4 p-3 bg-muted rounded-lg'>
               <div className='text-sm font-medium mb-2'>
-                Semester{selectedForDelete.length > 1 ? 's' : ''} to be deleted:
+                {label('Semester')}{selectedForDelete.length > 1 ? 's' : ''} to be deleted:
               </div>
               <div className='space-y-1 max-h-32 overflow-y-auto'>
                 {selectedForDelete.map((semester) => (
                   <div key={semester.id} className='text-sm'>
-                    • {semester.semester_name} (Semester{' '}
+                    • {semester.semester_name} ({label('Semester')}{' '}
                     {semester.semester_code})
                   </div>
                 ))}

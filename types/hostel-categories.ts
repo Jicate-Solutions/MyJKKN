@@ -15,6 +15,11 @@ export interface HostelCategory {
   allocation_mode: AllocationMode;
   is_active: boolean;
   sort_order: number;
+  /** Min % of current-academic-year academic bills paid for an instant upgrade
+   *  into this category. null = no gate; below it the booking is waitlisted. */
+  upgrade_threshold_pct: number | null;
+  /** Days a below-threshold upgrade reservation is held before auto-expiry. */
+  upgrade_hold_days: number;
   created_at: string;
   updated_at: string;
 }
@@ -26,6 +31,8 @@ export interface CreateHostelCategoryDto {
   allocation_mode?: AllocationMode;
   is_active?: boolean;
   sort_order?: number;
+  upgrade_threshold_pct?: number | null;
+  upgrade_hold_days?: number;
 }
 
 export interface UpdateHostelCategoryDto {
@@ -35,6 +42,8 @@ export interface UpdateHostelCategoryDto {
   allocation_mode?: AllocationMode;
   is_active?: boolean;
   sort_order?: number;
+  upgrade_threshold_pct?: number | null;
+  upgrade_hold_days?: number;
 }
 
 export interface HostelCategoryFilters {

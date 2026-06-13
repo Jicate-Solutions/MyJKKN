@@ -286,14 +286,16 @@ export function LeadsDataTable() {
     { id: string; name: string; count: number }[]
   >([]);
   useEffect(() => {
-    if (!institutionId) {
-      setProgramOptions([]);
-      return;
-    }
     let cancelled = false;
     const ctrl = new AbortController();
+    // No institutionId (global user, no college picked) → omit the param;
+    // the endpoint then returns programs across ALL institutions, so the
+    // Programs filter works without forcing a college selection first.
+    // Non-global users without an institution get [] from the API (fail-closed).
     fetch(
-      `/api/admission/leads/program-counts?institution_id=${encodeURIComponent(institutionId)}`,
+      institutionId
+        ? `/api/admission/leads/program-counts?institution_id=${encodeURIComponent(institutionId)}`
+        : '/api/admission/leads/program-counts',
       { signal: ctrl.signal }
     )
       .then((r) => (r.ok ? r.json() : null))
@@ -640,20 +642,19 @@ export function LeadsDataTable() {
           )}
 
           {/* Programs / Interested Courses chip — also promoted 2026-05-04.
-              Disabled until an institution is in focus (programs are
-              institution-scoped). The horizontal ProgramTabs strip below
-              this row remains as a secondary quick-nav. */}
+              Always enabled (2026-06-10): with no college in focus, the
+              program-counts endpoint returns programs across all accessible
+              institutions, so global users can filter by program without
+              picking a college first. Selecting a college still narrows
+              the option list (programs are institution-scoped). */}
           <Select
             value={programFilter ?? '_all'}
             onValueChange={(value) =>
               handleProgramSelect(value === '_all' ? null : value)
             }
-            disabled={!institutionId}
           >
             <SelectTrigger className="w-full min-w-[120px] sm:w-[180px] h-8 text-xs flex-1 sm:flex-none">
-              <SelectValue
-                placeholder={institutionId ? 'All Programs' : 'Pick college'}
-              />
+              <SelectValue placeholder="All Programs" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="_all">All Programs</SelectItem>
@@ -876,7 +877,10 @@ export function LeadsDataTable() {
         idField="id"
         config={{
           enableUrlState: true,
-          enableDateFilter: false,
+          // Date-wise filter (created_at range) — the toolbar's CalendarDatePicker
+          // feeds from_date/to_date into fetchData, which forwards them as
+          // date_from/date_to to /api/admission/leads/list (day-inclusive, IST).
+          enableDateFilter: true,
           enableExport: true,
           enableRowSelection: true
         }}

@@ -10,7 +10,7 @@
 //
 // Backward-compat exports:
 //   - AssignmentRulesDataTable: aliased to AssignmentRulesCascade (same shape)
-//   - getRuleTypeIcon: still exported (consumed by /admin/counselors/rule-types)
+//   - getRuleTypeIcon: still exported (consumed by /admission/counselors/admin/rule-types)
 // ============================================================================
 
 export {

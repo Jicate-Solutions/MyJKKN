@@ -1,11 +1,29 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Check, X, Minus, Users, BedDouble, AlertTriangle } from 'lucide-react';
+import { Check, X, Minus, Users, BedDouble, AlertTriangle, Filter, RotateCcw } from 'lucide-react';
 import type { AllocationCandidate, BillState } from '@/types/allocation-batch';
+
+const BILL_STATE_LABEL: Record<BillState, string> = {
+  matched: 'Matched',
+  different_year: 'Different year',
+  untagged: 'Untagged',
+  none: 'None',
+};
 
 function BillBadge({ c }: { c: AllocationCandidate }) {
   const fee =
@@ -54,6 +72,52 @@ function Stat({
   );
 }
 
+const ALL = '__all__';
+
+// Distinct, sorted, non-null values of a candidate field — drives a filter dropdown.
+function distinct(
+  candidates: AllocationCandidate[],
+  pick: (c: AllocationCandidate) => string | null
+): string[] {
+  return [...new Set(candidates.map(pick).filter(Boolean) as string[])].sort((a, b) =>
+    a.localeCompare(b)
+  );
+}
+
+// A labelled Select used in the filter bar; first option is always "All".
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  options,
+  allLabel,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  allLabel: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="h-9">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL}>{allLabel}</SelectItem>
+          {options.map((o) => (
+            <SelectItem key={o.value} value={o.value}>
+              {o.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 export function CandidateValidationTable({
   candidates,
   availableBeds,
@@ -61,10 +125,112 @@ export function CandidateValidationTable({
   candidates: AllocationCandidate[];
   availableBeds: number;
 }) {
+  // Summary stats reflect the FULL candidate set (filters only narrow the table).
   const eligible = candidates.filter((c) => c.verdict === 'in').length;
   const excluded = candidates.length - eligible;
   const billReady = candidates.filter((c) => c.current_year_bill_count > 0).length;
   const willPlace = Math.min(eligible, availableBeds);
+
+  // ── Advanced filters ──────────────────────────────────────────────
+  const [search, setSearch] = useState('');
+  const [verdict, setVerdict] = useState(ALL);
+  const [institution, setInstitution] = useState(ALL);
+  const [program, setProgram] = useState(ALL);
+  const [semester, setSemester] = useState(ALL);
+  const [roomCat, setRoomCat] = useState(ALL);
+  const [messCat, setMessCat] = useState(ALL);
+  const [billState, setBillState] = useState(ALL);
+  const [gender, setGender] = useState(ALL);
+
+  // Institution → Program → Semester cascade. The block can serve several
+  // institutions (hostel_block_institutions); picking one narrows the program
+  // list to that institution's cohort, and picking a program narrows semesters.
+  const institutionOpts = useMemo(
+    () => distinct(candidates, (c) => c.institution_name),
+    [candidates]
+  );
+  const programOpts = useMemo(
+    () =>
+      distinct(
+        candidates.filter((c) => institution === ALL || c.institution_name === institution),
+        (c) => c.program_name
+      ),
+    [candidates, institution]
+  );
+  const semesterOpts = useMemo(
+    () =>
+      distinct(
+        candidates.filter(
+          (c) =>
+            (institution === ALL || c.institution_name === institution) &&
+            (program === ALL || c.program_name === program)
+        ),
+        (c) => c.semester_name
+      ),
+    [candidates, institution, program]
+  );
+  const roomCatOpts = useMemo(
+    () => distinct(candidates, (c) => c.resolved_room_category_name),
+    [candidates]
+  );
+  const messCatOpts = useMemo(
+    () => distinct(candidates, (c) => c.resolved_mess_category_name),
+    [candidates]
+  );
+  const genderOpts = useMemo(() => distinct(candidates, (c) => c.gender), [candidates]);
+  const billStateOpts = useMemo(
+    () => distinct(candidates, (c) => c.bill_state) as BillState[],
+    [candidates]
+  );
+
+  // Cascade resets: changing institution clears program+semester; changing
+  // program clears semester — so a stale child selection can't hide all rows.
+  const onInstitutionChange = (v: string) => {
+    setInstitution(v);
+    setProgram(ALL);
+    setSemester(ALL);
+  };
+  const onProgramChange = (v: string) => {
+    setProgram(v);
+    setSemester(ALL);
+  };
+
+  const filtersActive =
+    !!search ||
+    [verdict, institution, program, semester, roomCat, messCat, billState, gender].some(
+      (v) => v !== ALL
+    );
+
+  const resetFilters = () => {
+    setSearch('');
+    setVerdict(ALL);
+    setInstitution(ALL);
+    setProgram(ALL);
+    setSemester(ALL);
+    setRoomCat(ALL);
+    setMessCat(ALL);
+    setBillState(ALL);
+    setGender(ALL);
+  };
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return candidates.filter((c) => {
+      if (q) {
+        const hay = `${c.full_name} ${c.email ?? ''} ${c.program_name ?? ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (verdict !== ALL && c.verdict !== verdict) return false;
+      if (institution !== ALL && c.institution_name !== institution) return false;
+      if (program !== ALL && c.program_name !== program) return false;
+      if (semester !== ALL && c.semester_name !== semester) return false;
+      if (roomCat !== ALL && c.resolved_room_category_name !== roomCat) return false;
+      if (messCat !== ALL && c.resolved_mess_category_name !== messCat) return false;
+      if (billState !== ALL && c.bill_state !== billState) return false;
+      if (gender !== ALL && c.gender !== gender) return false;
+      return true;
+    });
+  }, [candidates, search, verdict, institution, program, semester, roomCat, messCat, billState, gender]);
 
   return (
     <div className="space-y-4">
@@ -96,33 +262,132 @@ export function CandidateValidationTable({
       )}
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Per-student validation</CardTitle>
+        <CardHeader className="gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-base">
+              Per-student validation
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                Showing {filtered.length} of {candidates.length}
+              </span>
+            </CardTitle>
+            {filtersActive && (
+              <Button variant="ghost" size="sm" onClick={resetFilters}>
+                <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> Reset filters
+              </Button>
+            )}
+          </div>
+
+          {/* Advanced filters — one control per meaningful column */}
+          <div className="rounded-md border bg-muted/30 p-3">
+            <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <Filter className="h-3.5 w-3.5" /> Filters
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="space-y-1 sm:col-span-2 lg:col-span-1">
+                <Label className="text-xs text-muted-foreground">Search</Label>
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Name, email or program"
+                  className="h-9"
+                />
+              </div>
+              <FilterSelect
+                label="Verdict"
+                value={verdict}
+                onChange={setVerdict}
+                allLabel="All verdicts"
+                options={[
+                  { value: 'in', label: 'In (eligible)' },
+                  { value: 'out', label: 'Out (excluded)' },
+                ]}
+              />
+              <FilterSelect
+                label="Institution"
+                value={institution}
+                onChange={onInstitutionChange}
+                allLabel="All institutions"
+                options={institutionOpts.map((i) => ({ value: i, label: i }))}
+              />
+              <FilterSelect
+                label="Program"
+                value={program}
+                onChange={onProgramChange}
+                allLabel="All programs"
+                options={programOpts.map((p) => ({ value: p, label: p }))}
+              />
+              <FilterSelect
+                label="Semester"
+                value={semester}
+                onChange={setSemester}
+                allLabel="All semesters"
+                options={semesterOpts.map((s) => ({ value: s, label: s }))}
+              />
+              <FilterSelect
+                label="Room category"
+                value={roomCat}
+                onChange={setRoomCat}
+                allLabel="All room categories"
+                options={roomCatOpts.map((r) => ({ value: r, label: r }))}
+              />
+              <FilterSelect
+                label="Mess category"
+                value={messCat}
+                onChange={setMessCat}
+                allLabel="All mess categories"
+                options={messCatOpts.map((m) => ({ value: m, label: m }))}
+              />
+              <FilterSelect
+                label="Bill status"
+                value={billState}
+                onChange={setBillState}
+                allLabel="All bill states"
+                options={billStateOpts.map((b) => ({ value: b, label: BILL_STATE_LABEL[b] }))}
+              />
+              <FilterSelect
+                label="Gender"
+                value={gender}
+                onChange={setGender}
+                allLabel="All genders"
+                options={genderOpts.map((g) => ({
+                  value: g,
+                  label: g.charAt(0).toUpperCase() + g.slice(1),
+                }))}
+              />
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b text-left text-xs text-muted-foreground">
                 <th className="py-2 pr-3">Student</th>
+                <th className="px-2">Semester</th>
                 <th className="px-2">Acad. year</th>
                 <th className="px-2 text-center">Bill (curr. yr)</th>
                 <th className="px-2 text-center">Profile</th>
                 <th className="px-2 text-center">Gender</th>
                 <th className="px-2 text-center">Not alloc.</th>
-                <th className="px-2 text-center">Phys. rule</th>
+                <th className="px-2 text-center">Phys. access</th>
                 <th className="px-2">Room cat.</th>
                 <th className="px-2">Mess cat.</th>
                 <th className="px-2">Verdict</th>
               </tr>
             </thead>
             <tbody>
-              {candidates.map((c) => {
+              {filtered.map((c) => {
                 const prereqFail = c.stage === 'prerequisite';
                 return (
                   <tr key={c.learner_id} className="border-b align-middle last:border-0">
                     <td className="py-2 pr-3">
                       <div className="font-medium">{c.full_name}</div>
                       <div className="text-xs text-muted-foreground">{c.program_name ?? '—'}</div>
+                      {c.institution_name && (
+                        <div className="text-xs text-muted-foreground/80">{c.institution_name}</div>
+                      )}
+                    </td>
+                    <td className="px-2">
+                      {c.semester_name ?? <span className="text-muted-foreground">—</span>}
                     </td>
                     <td className="px-2">
                       {c.academic_year_id ? (
@@ -158,10 +423,12 @@ export function CandidateValidationTable({
                   </tr>
                 );
               })}
-              {candidates.length === 0 && (
+              {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="py-6 text-center text-sm text-muted-foreground">
-                    No candidates found for this block.
+                  <td colSpan={11} className="py-6 text-center text-sm text-muted-foreground">
+                    {candidates.length === 0
+                      ? 'No candidates found for this block.'
+                      : 'No students match the current filters.'}
                   </td>
                 </tr>
               )}

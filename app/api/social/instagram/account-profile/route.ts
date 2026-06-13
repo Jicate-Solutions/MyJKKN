@@ -3,8 +3,8 @@ export const dynamic = 'force-dynamic';
 /**
  * GET /api/social/instagram/account-profile
  *
- * Fetches the live profile for a single Instagram account via the Graph API,
- * then updates the ig_accounts row with fresh data.
+ * Fetches the live profile for a single Instagram account via the Graph API
+ * (lib/instagram/api-client.ts), then refreshes the ig_accounts row.
  *
  * Query params:
  *   ig_user_id: string        — required; the IG Professional account ID
@@ -12,54 +12,48 @@ export const dynamic = 'force-dynamic';
  *
  * Auth: super_admin OR institution_admin whose institution owns the ig_account.
  *
- * Stub note: lib/instagram/api-client.ts (Agent α) is not yet merged.
- * Direct Graph API calls used here. When Agent α merges, replace the inline
- * fetch with `IgApiClient.getAccountProfile(ig_user_id, token)`.
+ * 2026-06-10 fix: replaced the "Agent α stub"-era inline fetch (v21.0 +
+ * non-existent INSTAGRAM_ACCESS_TOKEN env var) with the real client and the
+ * proven token chain (per-account access_token → META_IG_SYSTEM_USER_TOKEN →
+ * MESSENGER_PAGE_ACCESS_TOKEN → META_PAGE_ACCESS_TOKEN). The ig_accounts
+ * UPDATE now writes only columns that exist (username, account_type,
+ * last_polled_at); display fields (name, biography, counts, …) are returned
+ * live in the response without persistence — response keys are unchanged.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { connection } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { getAccountProfile } from '@/lib/instagram/api-client';
+import type { IgAccountProfile } from '@/lib/instagram/types';
+import { MetaGraphError } from '@/lib/meta/types';
 
-const GRAPH_API = 'https://graph.facebook.com/v21.0';
+const GRAPH_API_VERSION = 'v25.0';
 
-const IG_PROFILE_FIELDS = [
-  'id',
-  'username',
-  'name',
-  'biography',
-  'profile_picture_url',
-  'followers_count',
-  'follows_count',
-  'media_count',
-  'website',
-  'account_type',
-  'ig_id',
-].join(',');
+const IG_ACCOUNT_TYPES = ['BUSINESS', 'CREATOR', 'PERSONAL'] as const;
 
 async function writeLog(
   supabase: ReturnType<typeof createServiceRoleClient>,
   params: {
-    institution_id: string | null;
-    endpoint: string;
-    method: string;
-    request_payload: Record<string, unknown>;
-    response_status: number;
-    response_body: Record<string, unknown>;
+    account_id: string | null;
+    event_type: string;
+    payload: Record<string, unknown>;
+    status: 'success' | 'error';
     error_message: string | null;
   }
 ) {
-  await supabase.from('social_instagram_logs').insert({
-    institution_id: params.institution_id,
-    endpoint: params.endpoint,
-    method: params.method,
-    request_payload: params.request_payload,
-    response_status: params.response_status,
-    response_body: params.response_body,
-    error_message: params.error_message,
-  }).then(() => {}).catch((err: unknown) => {
-    console.warn('[ig-profile] Log write failed (table may not exist yet):', err);
-  });
+  try {
+    await supabase.from('social_instagram_logs').insert({
+      account_id: params.account_id,
+      event_type: params.event_type,
+      payload: params.payload,
+      status: params.status,
+      error_message: params.error_message,
+      occurred_at: new Date().toISOString(),
+    });
+  } catch (err: unknown) {
+    console.warn('[ig-profile] Log write failed:', err);
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -94,7 +88,18 @@ export async function GET(request: NextRequest) {
     const isSuperAdmin = profile?.role === 'super_admin';
     const isInstitutionAdmin = profile?.role === 'institution_admin';
 
+    // 2026-06-11 granular-permission retrofit: roles granted
+    // social.instagram.view via Role Management pass too; the ownership
+    // check against the ig_account's institution below still applies.
+    let hasViewPerm = false;
     if (!isSuperAdmin && !isInstitutionAdmin) {
+      const { data: perm } = await supabase.rpc('user_has_permission', {
+        permission_name: 'social.instagram.view',
+      });
+      hasViewPerm = !!perm;
+    }
+
+    if (!isSuperAdmin && !isInstitutionAdmin && !hasViewPerm) {
       return NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 });
     }
 
@@ -103,7 +108,7 @@ export async function GET(request: NextRequest) {
     // Fetch the ig_accounts row to verify ownership and get institution context
     const { data: igAccount, error: accountError } = await serviceClient
       .from('ig_accounts')
-      .select('ig_user_id, username, institution_id, is_active')
+      .select('id, ig_user_id, username, institution_id, status, access_token')
       .eq('ig_user_id', igUserId)
       .maybeSingle();
 
@@ -130,54 +135,72 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const accessToken = process.env.INSTAGRAM_ACCESS_TOKEN || process.env.META_ACCESS_TOKEN;
+    // Token chain: per-account token first, then the proven env fallbacks
+    // (same chain as the IG metrics poller / drift-check crons).
+    const accessToken =
+      igAccount.access_token ||
+      process.env.META_IG_SYSTEM_USER_TOKEN ||
+      process.env.MESSENGER_PAGE_ACCESS_TOKEN ||
+      process.env.META_PAGE_ACCESS_TOKEN;
     if (!accessToken) {
       return NextResponse.json(
-        { success: false, error: 'INSTAGRAM_ACCESS_TOKEN not configured' },
+        {
+          success: false,
+          error:
+            'Instagram access token not configured (META_IG_SYSTEM_USER_TOKEN / MESSENGER_PAGE_ACCESS_TOKEN / META_PAGE_ACCESS_TOKEN)',
+        },
         { status: 503 }
       );
     }
 
-    // Fetch live profile from Graph API
-    const igRes = await fetch(
-      `${GRAPH_API}/${igUserId}?fields=${IG_PROFILE_FIELDS}&access_token=${accessToken}`
-    );
-    const igData = await igRes.json();
+    // Fetch live profile from Graph API via the real client
+    let igData: IgAccountProfile;
+    try {
+      igData = await getAccountProfile(igUserId, {
+        accessToken,
+        apiVersion: GRAPH_API_VERSION,
+      });
+    } catch (graphError) {
+      const isMetaError = graphError instanceof MetaGraphError;
+      const message = graphError instanceof Error ? graphError.message : 'Unknown Graph API error';
+      const httpStatus = isMetaError && graphError.status >= 400 ? graphError.status : 502;
 
-    if (igData.error) {
       await writeLog(serviceClient, {
-        institution_id: igAccount.institution_id,
-        endpoint: '/api/social/instagram/account-profile',
-        method: 'GET',
-        request_payload: { ig_user_id: igUserId },
-        response_status: igRes.status,
-        response_body: { meta_error: igData.error },
-        error_message: igData.error.message,
+        account_id: igAccount.id,
+        event_type: 'account_profile',
+        payload: {
+          ig_user_id: igUserId,
+          meta_error: isMetaError ? (graphError.payload ?? { message }) : { message },
+        },
+        status: 'error',
+        error_message: message,
       });
 
       return NextResponse.json(
-        { success: false, error: `Meta API error: ${igData.error.message}` },
-        { status: igRes.status >= 400 ? igRes.status : 502 }
+        { success: false, error: `Meta API error: ${message}` },
+        { status: httpStatus }
       );
     }
 
-    // Update ig_accounts with fresh profile data
+    // Update ig_accounts with fresh data — only columns that exist on the
+    // table (see migrations 20260530140000 + 20260609000726).
     const now = new Date().toISOString();
+    const updatePayload: Record<string, unknown> = {
+      username: igData.username || igAccount.username,
+      last_polled_at: now,
+      updated_at: now,
+    };
+    // account_type is NOT NULL with a CHECK constraint — only write valid values.
+    if (
+      igData.account_type &&
+      (IG_ACCOUNT_TYPES as readonly string[]).includes(igData.account_type)
+    ) {
+      updatePayload.account_type = igData.account_type;
+    }
+
     const { error: updateError } = await serviceClient
       .from('ig_accounts')
-      .update({
-        username: igData.username || igAccount.username,
-        name: igData.name || null,
-        biography: igData.biography || null,
-        profile_picture_url: igData.profile_picture_url || null,
-        followers_count: igData.followers_count ?? null,
-        follows_count: igData.follows_count ?? null,
-        media_count: igData.media_count ?? null,
-        website: igData.website || null,
-        account_type: igData.account_type || null,
-        last_synced_at: now,
-        updated_at: now,
-      })
+      .update(updatePayload)
       .eq('ig_user_id', igUserId);
 
     if (updateError) {
@@ -198,18 +221,16 @@ export async function GET(request: NextRequest) {
       website: igData.website || null,
       account_type: igData.account_type || null,
       institution_id: igAccount.institution_id,
-      is_active: igAccount.is_active,
+      is_active: igAccount.status === 'active',
       last_synced_at: now,
       db_update_error: updateError ? updateError.message : null,
     };
 
     await writeLog(serviceClient, {
-      institution_id: igAccount.institution_id,
-      endpoint: '/api/social/instagram/account-profile',
-      method: 'GET',
-      request_payload: { ig_user_id: igUserId },
-      response_status: 200,
-      response_body: { ig_user_id: igData.id, username: igData.username },
+      account_id: igAccount.id,
+      event_type: 'account_profile',
+      payload: { ig_user_id: igData.id, username: igData.username },
+      status: 'success',
       error_message: null,
     });
 

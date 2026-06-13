@@ -24,6 +24,7 @@ import type {
   BatchUpdateAttendanceDto,
   CreateStudentAttendanceDto
 } from '@/types/attendance';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface AttendanceRosterProps {
   rosterData: AttendanceRosterData;
@@ -46,6 +47,7 @@ export function AttendanceRoster({
   const { profile } = useAuth();
   const user = profile;
   const { userProfile, isSuperAdmin } = usePermissions();
+  const label = useAdaptiveLabels();
   const [searchTerm, setSearchTerm] = useState('');
   const [students, setStudents] = useState<AttendanceRosterStudent[]>(
     rosterData.students
@@ -410,7 +412,7 @@ export function AttendanceRoster({
               </TableHead>
               <TableHead>Roll Number</TableHead>
               <TableHead>Student Name</TableHead>
-              <TableHead>Section</TableHead>
+              <TableHead>{label('Section')}</TableHead>
               <TableHead>Status</TableHead>
               {canMarkThisSlot && <TableHead>Action</TableHead>}
             </TableRow>

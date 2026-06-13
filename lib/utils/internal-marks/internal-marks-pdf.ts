@@ -60,13 +60,13 @@ const MARGIN = 10
 // header layout regardless of which college/institution is selected.
 // Detect image format from a data-URL so institutions can store logos as
 // PNG, JPEG, or WebP without the caller needing to know the encoding.
-function detectImageFormat(src: string): string {
+export function detectImageFormat(src: string): string {
 	if (/^data:image\/jpe?g/i.test(src)) return 'JPEG'
 	if (/^data:image\/webp/i.test(src)) return 'WEBP'
 	return 'PNG'
 }
 
-function drawInstitutionBanner(
+export function drawInstitutionBanner(
 	doc: jsPDF,
 	data: {
 		institution_name?: string

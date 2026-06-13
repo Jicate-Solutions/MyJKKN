@@ -406,23 +406,17 @@ export class StudentBillService {
 
   /**
    * Resolve an accommodation-type catalog code (e.g. 'hostel') to the matching
-   * accommodation_type_id(s). Codes repeat across each institution's catalog, so
-   * we resolve across all institutions unless an institution filter narrows it.
+   * accommodation_type_id(s). The catalog is global (one row per code).
    * Returns [] on error (caller forces a no-match).
    */
   private static async resolveAccommodationTypeIds(
-    code: string,
-    institutionId?: string
+    code: string
   ): Promise<string[]> {
     try {
-      let query = (this.supabase as any)
+      const query = (this.supabase as any)
         .from('accommodation_types')
         .select('id')
         .eq('code', code);
-
-      if (institutionId) {
-        query = query.eq('institution_id', institutionId);
-      }
 
       const { data, error } = await query;
       if (error) throw error;
@@ -452,15 +446,17 @@ export class StudentBillService {
       // (otherwise PostgREST returns the bill with student: null instead of
       // excluding it). null = filter inactive; [] = code matched nothing.
       const accommodationTypeIds: string[] | null = filters.accommodation_type
-        ? await this.resolveAccommodationTypeIds(
-            filters.accommodation_type,
-            filters.institution_id
-          )
+        ? await this.resolveAccommodationTypeIds(filters.accommodation_type)
         : null;
 
       // Any filter that targets a column on the embedded learner requires the
-      // INNER-join variant of the select.
-      const hasStudentFilters = hasAcademicFilters || accommodationTypeIds !== null;
+      // INNER-join variant of the select. lifecycle_status lives on
+      // learners_profiles, so it joins the same club as the academic +
+      // accommodation filters.
+      const hasStudentFilters =
+        hasAcademicFilters ||
+        accommodationTypeIds !== null ||
+        !!filters.lifecycle_status;
 
       let query;
 
@@ -498,6 +494,7 @@ export class StudentBillService {
               first_name,
               last_name,
               roll_number,
+              lifecycle_status,
               academic_year_id,
               degree_id,
               department_id,
@@ -553,6 +550,7 @@ export class StudentBillService {
               first_name,
               last_name,
               roll_number,
+              lifecycle_status,
               department:departments(id, department_name),
               semester:semesters(id, semester_name)
             ),
@@ -689,6 +687,10 @@ export class StudentBillService {
           query = query.eq('student.section_id', filters.section_id);
         }
 
+        if (filters.lifecycle_status) {
+          query = query.eq('student.lifecycle_status', filters.lifecycle_status);
+        }
+
         // Accommodation-type code resolved to id(s) above. Empty array means the
         // code matched no catalog row → force a no-match instead of all rows.
         if (accommodationTypeIds !== null) {
@@ -787,6 +789,7 @@ export class StudentBillService {
             roll_number: studentData?.roll_number || '',
             college_email: '', // Not queried to keep it light
             student_mobile: '', // Not queried to keep it light
+            lifecycle_status: studentData?.lifecycle_status || undefined,
             department: studentData?.department || undefined,
             semester: studentData?.semester || undefined
           },

@@ -54,7 +54,7 @@ export interface CandidateFilters extends BaseCandidateFilters {
 // Viewer-scope policy types (platform_policies-driven, 2026-05-11)
 // Seeded by migration 20260511110000_seed_hr_recruitment_approvals_scope_policies.sql
 // Director toggles enforce_scoping + edits scope_rules via
-// /admin/hr/recruitment-approvals-scope (Agent B sister PR).
+// /hr/admin/recruitment-approvals-scope (Agent B sister PR).
 // =====================================================================================
 
 export type ScopeOption = 'all' | 'institution' | 'department' | 'hr_organization' | 'self';
@@ -94,7 +94,7 @@ export class RecruitmentService {
    *
    * SQL functions READ at runtime: fn_get_policy_bool + fn_get_policy.
    * No hardcoded scope decisions in this file — the platform_policies table
-   * is the single source of truth (edited via /admin/hr/recruitment-approvals-scope).
+   * is the single source of truth (edited via /hr/admin/recruitment-approvals-scope).
    *
    * Seeded keys (migration 20260511110000_seed_hr_recruitment_approvals_scope_policies.sql):
    *   - hr.recruitment.approvals.enforce_scoping  (boolean, default false)
@@ -349,10 +349,10 @@ export class RecruitmentService {
     if (!flows || flows.length === 0) {
       throw new Error(
         'No recruitment approval flows configured for this organisation yet. ' +
-        'Open /admin/hr/policies/hr_approval_flows (or /admin/hr → HR Policies) ' +
+        'Open /hr/admin/policies/hr_approval_flows (or /hr/admin → HR Policies) ' +
         'to seed at least one flow with flow_for=recruitment_approval. ' +
         'If you need a quick band-agnostic Teaching Faculty fallback, the ' +
-        '/admin/hr/recruitment-maintenance page can guide you.'
+        '/hr/admin/recruitment-maintenance page can guide you.'
       );
     }
 
@@ -390,10 +390,10 @@ export class RecruitmentService {
         `No approval flow matches this candidate. ` +
         `role_category='${roleCategory}', monthly_salary_band='${monthlySalaryBand ?? 'none (unset)'}'. ` +
         `Either: (a) set this candidate's salary band so an existing flow matches, ` +
-        `or (b) open /admin/hr/policies/hr_approval_flows and add a flow whose ` +
+        `or (b) open /hr/admin/policies/hr_approval_flows and add a flow whose ` +
         `conditions JSONB matches '${roleCategory}' (with or without a band). ` +
         `If you have several legacy candidates stuck the same way, ` +
-        `/admin/hr/recruitment-maintenance can backfill them after the matching flow is created.`
+        `/hr/admin/recruitment-maintenance can backfill them after the matching flow is created.`
       );
     }
 
@@ -524,7 +524,7 @@ export class RecruitmentService {
         throw new Error(
           `Only users with role '${expectedRole}' can approve this step. ` +
             `You have roles: [${userRoles.join(', ') || 'none'}]. ` +
-            `Director can change this policy at /admin/hr/recruitment-approvals-scope.`
+            `Director can change this policy at /hr/admin/recruitment-approvals-scope.`
         );
       }
     }

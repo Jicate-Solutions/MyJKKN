@@ -27,14 +27,15 @@ export type CleaningType =
   | 'disinfection'
   | 'other';
 
+// Mirrors pm_frequency_enum (verified in prod 2026-06-11).
 export type CleaningFrequency =
   | 'daily'
-  | 'twice_daily'
   | 'weekly'
   | 'biweekly'
   | 'monthly'
   | 'quarterly'
-  | 'on_demand';
+  | 'half_yearly'
+  | 'yearly';
 
 export type CleaningTaskStatus =
   | 'scheduled'
@@ -84,8 +85,9 @@ export interface HostelCleaningTask {
 export interface ScheduleFilters {
   block_id?: string;
   is_active?: boolean;
-  // Date range filter applied on the `next_due_at` column. Additive — older
-  // callers pass only block/is_active and continue to work unchanged.
+  // Date range filter applied on `created_at`. (Previously documented/queried
+  // against `next_due_at`, a column that has never existed in prod — any use
+  // of the date filters 42703'd the whole list.)
   // Format: ISO timestamp string (e.g. `2026-05-19T00:00:00Z`).
   date_from?: string;
   date_to?: string;
@@ -127,8 +129,8 @@ export class HousekeepingService {
       if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.is_active !== undefined) query = query.eq('is_active', filters.is_active);
-      if (filters?.date_from) query = query.gte('next_due_at', filters.date_from);
-      if (filters?.date_to) query = query.lte('next_due_at', filters.date_to);
+      if (filters?.date_from) query = query.gte('created_at', filters.date_from);
+      if (filters?.date_to) query = query.lte('created_at', filters.date_to);
 
       const from = (page - 1) * pageSize;
       query = query.order('created_at', { ascending: false }).range(from, from + pageSize - 1);

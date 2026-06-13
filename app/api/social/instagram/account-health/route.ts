@@ -6,15 +6,19 @@ export const dynamic = 'force-dynamic';
  * Returns a health summary across all ig_accounts for an institution (or all
  * institutions for super_admin). Computes active/dormant/disconnected counts
  * and last-poll-age stats without calling the Graph API — derived entirely
- * from the ig_accounts table so it's cheap and fast.
+ * from the ig_accounts table (+ latest ig_account_metrics snapshot for
+ * follower/media counts) so it's cheap and fast.
  *
  * Query params:
  *   institution_id?: string  — required for institution_admin; optional for super_admin
  *
  * Auth: super_admin OR institution_admin scoped to institution_id.
  *
- * ig_accounts table (Agent β): uses columns is_active, last_synced_at, username,
- * ig_user_id, followers_count, media_count.
+ * Schema note (2026-06-10 fix): ig_accounts has `status` (not `is_active`) and
+ * `last_polled_at` (not `last_synced_at`); follower/media counts live in
+ * ig_account_metrics snapshots, not on the account row. The response shape is
+ * unchanged — `is_active` is derived from status === 'active' and
+ * `last_synced_at` maps to last_polled_at.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -27,26 +31,25 @@ const STALE_THRESHOLD_DAYS = 30;    // no sync for 30+ days → effectively disc
 async function writeLog(
   supabase: ReturnType<typeof createServiceRoleClient>,
   params: {
-    institution_id: string | null;
-    endpoint: string;
-    method: string;
-    request_payload: Record<string, unknown>;
-    response_status: number;
-    response_body: Record<string, unknown>;
+    account_id: string | null;
+    event_type: string;
+    payload: Record<string, unknown>;
+    status: 'success' | 'error';
     error_message: string | null;
   }
 ) {
-  await supabase.from('social_instagram_logs').insert({
-    institution_id: params.institution_id,
-    endpoint: params.endpoint,
-    method: params.method,
-    request_payload: params.request_payload,
-    response_status: params.response_status,
-    response_body: params.response_body,
-    error_message: params.error_message,
-  }).then(() => {}).catch((err: unknown) => {
-    console.warn('[ig-health] Log write failed (table may not exist yet):', err);
-  });
+  try {
+    await supabase.from('social_instagram_logs').insert({
+      account_id: params.account_id,
+      event_type: params.event_type,
+      payload: params.payload,
+      status: params.status,
+      error_message: params.error_message,
+      occurred_at: new Date().toISOString(),
+    });
+  } catch (err: unknown) {
+    console.warn('[ig-health] Log write failed:', err);
+  }
 }
 
 interface AccountHealth {
@@ -96,12 +99,23 @@ export async function GET(request: NextRequest) {
     const isSuperAdmin = profile?.role === 'super_admin';
     const isInstitutionAdmin = profile?.role === 'institution_admin';
 
+    // 2026-06-11 granular-permission retrofit: roles granted
+    // social.instagram.view via Role Management pass too (scoped to their
+    // own institution below, same as institution_admin).
+    let hasViewPerm = false;
     if (!isSuperAdmin && !isInstitutionAdmin) {
+      const { data: perm } = await supabase.rpc('user_has_permission', {
+        permission_name: 'social.instagram.view',
+      });
+      hasViewPerm = !!perm;
+    }
+
+    if (!isSuperAdmin && !isInstitutionAdmin && !hasViewPerm) {
       return NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 });
     }
 
-    // institution_admin must have matching institution
-    if (isInstitutionAdmin && institutionId && profile?.institution_id !== institutionId) {
+    // non-super-admins must have matching institution when one is requested
+    if (!isSuperAdmin && institutionId && profile?.institution_id !== institutionId) {
       return NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 });
     }
 
@@ -114,7 +128,7 @@ export async function GET(request: NextRequest) {
 
     let query = serviceClient
       .from('ig_accounts')
-      .select('ig_user_id, username, is_active, last_synced_at, followers_count, media_count, institution_id');
+      .select('id, ig_user_id, username, status, last_polled_at, institution_id');
 
     if (effectiveInstitutionId) {
       query = query.eq('institution_id', effectiveInstitutionId);
@@ -143,35 +157,64 @@ export async function GET(request: NextRequest) {
       };
 
       await writeLog(serviceClient, {
-        institution_id: institutionId,
-        endpoint: '/api/social/instagram/account-health',
-        method: 'GET',
-        request_payload: { institution_id: institutionId },
-        response_status: 200,
-        response_body: { total: 0 },
+        account_id: null,
+        event_type: 'account_health',
+        payload: { institution_id: institutionId, total: 0 },
+        status: 'success',
         error_message: null,
       });
 
       return NextResponse.json({ success: true, data: empty });
     }
 
+    type IgAccountRow = {
+      id: string;
+      ig_user_id: string;
+      username: string;
+      status: string;
+      last_polled_at: string | null;
+      institution_id: string;
+    };
+    const accountRows = accounts as IgAccountRow[];
+
+    // Latest follower/media counts come from ig_account_metrics snapshots
+    // (the account row itself carries no counts). Best-effort: a metrics
+    // fetch failure must not break the health summary.
+    const latestMetrics = new Map<string, { followers: number; media_count: number }>();
+    const { data: metricRows, error: metricsError } = await serviceClient
+      .from('ig_account_metrics')
+      .select('account_id, followers, media_count, snapshot_at')
+      .in('account_id', accountRows.map((a) => a.id))
+      .order('snapshot_at', { ascending: false });
+
+    if (metricsError) {
+      console.warn('[ig-health] Failed to fetch ig_account_metrics (counts will be null):', metricsError);
+    } else {
+      for (const row of (metricRows ?? []) as {
+        account_id: string;
+        followers: number;
+        media_count: number;
+        snapshot_at: string;
+      }[]) {
+        if (!latestMetrics.has(row.account_id)) {
+          latestMetrics.set(row.account_id, {
+            followers: row.followers,
+            media_count: row.media_count,
+          });
+        }
+      }
+    }
+
     const now = Date.now();
     const pollAges: number[] = [];
 
-    const accountHealthList: AccountHealth[] = (accounts as {
-      ig_user_id: string;
-      username: string;
-      is_active: boolean;
-      last_synced_at: string | null;
-      followers_count: number | null;
-      media_count: number | null;
-      institution_id: string;
-    }[]).map((acct) => {
+    const accountHealthList: AccountHealth[] = accountRows.map((acct) => {
+      const isActive = acct.status === 'active';
       let pollAgeHours: number | null = null;
       let healthStatus: AccountHealth['health_status'] = 'never_synced';
 
-      if (acct.last_synced_at) {
-        const syncedAt = new Date(acct.last_synced_at).getTime();
+      if (acct.last_polled_at) {
+        const syncedAt = new Date(acct.last_polled_at).getTime();
         pollAgeHours = (now - syncedAt) / (1000 * 60 * 60);
         pollAges.push(pollAgeHours);
 
@@ -180,22 +223,24 @@ export async function GET(request: NextRequest) {
           healthStatus = 'disconnected';
         } else if (ageDays >= DORMANT_THRESHOLD_DAYS) {
           healthStatus = 'dormant';
-        } else if (acct.is_active) {
+        } else if (isActive) {
           healthStatus = 'healthy';
         } else {
           healthStatus = 'dormant';
         }
       }
 
+      const metrics = latestMetrics.get(acct.id) ?? null;
+
       return {
         ig_user_id: acct.ig_user_id,
         username: acct.username,
-        is_active: acct.is_active,
-        last_synced_at: acct.last_synced_at,
+        is_active: isActive,
+        last_synced_at: acct.last_polled_at,
         poll_age_hours: pollAgeHours !== null ? Math.round(pollAgeHours * 10) / 10 : null,
         health_status: healthStatus,
-        followers_count: acct.followers_count,
-        media_count: acct.media_count,
+        followers_count: metrics ? metrics.followers : null,
+        media_count: metrics ? metrics.media_count : null,
         institution_id: acct.institution_id,
       };
     });
@@ -216,17 +261,16 @@ export async function GET(request: NextRequest) {
     };
 
     await writeLog(serviceClient, {
-      institution_id: institutionId,
-      endpoint: '/api/social/instagram/account-health',
-      method: 'GET',
-      request_payload: { institution_id: institutionId },
-      response_status: 200,
-      response_body: {
+      account_id: null,
+      event_type: 'account_health',
+      payload: {
+        institution_id: institutionId,
         total: summary.total,
         healthy: summary.healthy,
         dormant: summary.dormant,
         disconnected: summary.disconnected,
       },
+      status: 'success',
       error_message: null,
     });
 

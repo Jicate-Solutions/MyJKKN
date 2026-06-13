@@ -35,6 +35,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CategoryFeesSection } from './_components/category-fees-section';
 import { PackageFeesSection } from './_components/package-fees-section';
+import { UpgradeFeesSection } from './_components/upgrade-fees-section';
 
 export default function FeeConfigPage() {
   const { permissions, isSuperAdmin } = usePermissions();
@@ -108,10 +109,14 @@ export default function FeeConfigPage() {
           <Tabs defaultValue="category" className="space-y-4">
             <TabsList>
               <TabsTrigger value="category">Category Fees</TabsTrigger>
+              <TabsTrigger value="upgrade">Upgrade Fees</TabsTrigger>
               <TabsTrigger value="package">Package Fees</TabsTrigger>
             </TabsList>
             <TabsContent value="category">
               <CategoryFeesSection hostelYearId={effectiveYearId} canEdit={canEdit} />
+            </TabsContent>
+            <TabsContent value="upgrade">
+              <UpgradeFeesSection hostelYearId={effectiveYearId} canEdit={canEdit} />
             </TabsContent>
             <TabsContent value="package">
               <PackageFeesSection hostelYearId={effectiveYearId} canEdit={canEdit} />

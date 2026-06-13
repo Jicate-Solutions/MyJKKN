@@ -314,7 +314,10 @@ Please select a different date period that doesn't overlap.`
         selected_dates,
         timetable_format,
         timetable_data,
-        periods
+        periods,
+        // Updated: 2026-06-10 - School day-wise attendance support
+        attendance_mode,
+        class_incharge_id
       } = data;
 
       // Determine timetable type based on section_id
@@ -343,7 +346,12 @@ Please select a different date period that doesn't overlap.`
         selected_dates: selected_dates || null,
         timetable_format: timetable_format || 'regular',
         timetable_data: timetable_data || {}, // Provide empty object as default
-        periods: periods || [] // Provide empty array as default for periods
+        periods: periods || [], // Provide empty array as default for periods
+        // Updated: 2026-06-10 - Attendance behaviour, authoritative on the row.
+        // Defaulted server-side so existing callers stay period_wise.
+        attendance_mode: attendance_mode || 'period_wise',
+        // class_incharge is required on every timetable, independent of mode.
+        class_incharge_id: class_incharge_id || null
       };
 
       const insertData: any = {
@@ -436,7 +444,12 @@ Please select a different date period that doesn't overlap.`
         'template_name',
         'template_description',
         'template_category',
-        'template_tags'
+        'template_tags',
+        // Updated: 2026-06-10 - Reassigning the class incharge does not affect
+        // already-recorded attendance, so it is safe to edit anytime.
+        // NOTE: attendance_mode is deliberately NOT safe — switching modes after
+        // attendance exists would orphan period-keyed data, so it stays locked.
+        'class_incharge_id'
       ];
 
       // Check if any unsafe fields are being modified
@@ -578,7 +591,12 @@ Please select a different date period that doesn't overlap.`
         'template_name',
         'template_description',
         'template_category',
-        'template_tags'
+        'template_tags',
+        // Updated: 2026-06-10 - School day-wise attendance support.
+        // attendance_mode is gated as an unsafe change above (locks after the
+        // first attendance record); class_incharge_id is freely editable.
+        'attendance_mode',
+        'class_incharge_id'
       ];
 
       for (const field of allowedFields) {
@@ -939,7 +957,7 @@ Please select a different date period that doesn't overlap.`
       let query = (this.supabase as any).from('timetables').select(
         `
           *,
-          institution:institution_id(id, name),
+          institution:institution_id(id, name, logo_url, entity_type),
           academic_year:academic_year_id(id, academic_year_name),
           degree:degree_id(id, degree_name),
           program:program_id(id, program_name),
@@ -1089,7 +1107,7 @@ Please select a different date period that doesn't overlap.`
         .select(
           `
           *,
-          institution:institution_id(id, name),
+          institution:institution_id(id, name, logo_url, entity_type),
           academic_year:academic_year_id(id, academic_year_name),
           degree:degree_id(id, degree_name),
           program:program_id(id, program_name),
@@ -2413,7 +2431,7 @@ Please select a different date period that doesn't overlap.`
       let query = (this.supabase as any).from('timetables').select(
         `
           *,
-          institution:institution_id(id, name),
+          institution:institution_id(id, name, logo_url, entity_type),
           academic_year:academic_year_id(id, academic_year_name),
           degree:degree_id(id, degree_name),
           program:program_id(id, program_name),
@@ -2553,7 +2571,7 @@ Please select a different date period that doesn't overlap.`
         .select(
           `
           *,
-          institution:institution_id(id, name),
+          institution:institution_id(id, name, logo_url, entity_type),
           academic_year:academic_year_id(id, academic_year_name),
           degree:degree_id(id, degree_name),
           program:program_id(id, program_name),
@@ -2615,7 +2633,7 @@ Please select a different date period that doesn't overlap.`
         .select(
           `
           *,
-          institution:institution_id(id, name),
+          institution:institution_id(id, name, logo_url, entity_type),
           academic_year:academic_year_id(id, academic_year_name),
           degree:degree_id(id, degree_name),
           program:program_id(id, program_name),
@@ -2653,7 +2671,7 @@ Please select a different date period that doesn't overlap.`
         .select(
           `
           *,
-          institution:institution_id(id, name),
+          institution:institution_id(id, name, logo_url, entity_type),
           academic_year:academic_year_id(id, academic_year_name),
           degree:degree_id(id, degree_name),
           program:program_id(id, program_name),
@@ -2706,7 +2724,7 @@ Please select a different date period that doesn't overlap.`
         .select(
           `
           *,
-          institution:institution_id(id, name),
+          institution:institution_id(id, name, logo_url, entity_type),
           academic_year:academic_year_id(id, academic_year_name),
           degree:degree_id(id, degree_name),
           program:program_id(id, program_name),

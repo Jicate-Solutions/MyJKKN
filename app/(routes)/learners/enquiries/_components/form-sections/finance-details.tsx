@@ -130,14 +130,10 @@ export function FinanceDetailsSection({
   }, []);
 
   useEffect(() => {
-    if (!institutionId) {
-      setAccommodationLookup([]);
-      return;
-    }
-    LookupService.listAccommodationTypes(institutionId, true).then((rows) =>
+    LookupService.listAccommodationTypes(true).then((rows) =>
       setAccommodationLookup(rows.map((r) => ({ id: r.id, code: r.code, name: r.name }))),
     );
-  }, [institutionId]);
+  }, []);
 
   // Resolve a TEXT value (e.g. "Government Quota" or "government" or "GQ")
   // to its FK id by checking against code OR name (case-insensitive trim).

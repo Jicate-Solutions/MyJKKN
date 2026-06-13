@@ -36,6 +36,15 @@ the rules resolve for them.
 Out of scope: the fee-band → category rules themselves, the residents bill-generation flow, and any
 change to mess *bookings* (daily meals) — only the learner's mess **category** field is set.
 
+> **Follow-up (2026-06-09, migration `20260609120000_auto_allocate_fail_open_physical_rooms_institution_order`):**
+> The CATEGORY strictness above (decisions #2/#3/#5) is **unchanged**. Two separate axes changed:
+> (a) the **physical-room** gate flipped fail-closed → **fail-open** — a room covered by an active
+> physical-room rule stays restricted to matching learners; a room with **no** covering rule is open to
+> every eligible learner of a block-served institution. The generator's "block needs rules" hard error and
+> the page's "set rules first" guard were removed. (b) The generator cohort now fills in
+> **institution-priority order** (`is_primary` institution first, then institution name, then learner A→Z),
+> so earlier institutions get first pick of shared/no-rule rooms.
+
 ## 3. Behaviour
 
 **Cohort** (both preview & generate): hostellers (`accommodation_type='hostel'`) in the block's served

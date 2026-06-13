@@ -18,14 +18,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { Eye, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useEligibility } from '@/hooks/campus-living/use-program-eligibility';
 import { ProgramEligibilityFormDialog } from './form-dialog';
+import { EligibilityDetailDialog } from './eligibility-detail-dialog';
 import type { ProgramEligibilityRow } from '@/types/program-eligibility';
 
 export function EligibilityRowActions({ row }: { row: ProgramEligibilityRow }) {
   const { deleteEligibility } = useEligibility(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -52,6 +54,9 @@ export function EligibilityRowActions({ row }: { row: ProgramEligibilityRow }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align='end'>
+          <DropdownMenuItem onClick={() => setDetailOpen(true)}>
+            <Eye className='h-4 w-4 mr-2' /> View details
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setEditOpen(true)}>
             <Pencil className='h-4 w-4 mr-2' /> Edit
           </DropdownMenuItem>
@@ -63,6 +68,12 @@ export function EligibilityRowActions({ row }: { row: ProgramEligibilityRow }) {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <EligibilityDetailDialog
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        row={row}
+      />
 
       <ProgramEligibilityFormDialog
         open={editOpen}

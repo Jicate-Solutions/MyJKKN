@@ -15,7 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Loader2, Check, X, Trash2, Users, DoorOpen, BedDouble, Building2 } from 'lucide-react';
+import { Loader2, Check, X, Trash2, Users, DoorOpen, BedDouble, Building2, Eye } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +32,8 @@ import {
   useAllocationBatch,
   useAllocationBatchActions,
 } from '@/hooks/campus-living/use-allocation-batches';
+import type { ProposedAllocation } from '@/types/allocation-batch';
+import { AllocationDetailDialog } from './_components/allocation-detail-dialog';
 
 export const navMeta = { invokedFrom: '/campus-living/allocations/batches' } as const;
 
@@ -54,6 +56,7 @@ export default function AllocationBatchDetailPage({
   const [acting, setActing] = useState<'approve' | 'reject' | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [detail, setDetail] = useState<ProposedAllocation | null>(null);
 
   const batch = data?.batch ?? null;
   const allocations = data?.allocations ?? [];
@@ -235,10 +238,14 @@ export default function AllocationBatchDetailPage({
                       <TableHead>Learner</TableHead>
                       <TableHead>Institution</TableHead>
                       <TableHead>Program</TableHead>
+                      <TableHead>Semester</TableHead>
                       <TableHead>Block</TableHead>
                       <TableHead>Room</TableHead>
+                      <TableHead>Room Category</TableHead>
+                      <TableHead>Mess Category</TableHead>
                       <TableHead>Bed</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Details</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -247,13 +254,21 @@ export default function AllocationBatchDetailPage({
                         <TableCell className="font-medium">{a.learner_name}</TableCell>
                         <TableCell>{a.learner_institution ?? '—'}</TableCell>
                         <TableCell>{a.learner_program ?? '—'}</TableCell>
+                        <TableCell>{a.learner_semester ?? '—'}</TableCell>
                         <TableCell>{a.block_name ?? '—'}</TableCell>
                         <TableCell>{a.room_number ?? '—'}</TableCell>
+                        <TableCell>{a.room_category ?? '—'}</TableCell>
+                        <TableCell>{a.mess_category ?? '—'}</TableCell>
                         <TableCell>{a.bed_number ?? '—'}</TableCell>
                         <TableCell>
                           <Badge variant="outline" className="capitalize">
                             {a.status.replace('_', ' ')}
                           </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="sm" onClick={() => setDetail(a)}>
+                            <Eye className="mr-1.5 h-4 w-4" /> Details
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -296,6 +311,15 @@ export default function AllocationBatchDetailPage({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <AllocationDetailDialog
+          open={!!detail}
+          onOpenChange={(o) => {
+            if (!o) setDetail(null);
+          }}
+          allocationId={detail?.id ?? null}
+          learnerName={detail?.learner_name ?? ''}
+        />
       </div>
     </ContentLayout>
   );

@@ -116,6 +116,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/academic/attendance/mark'],
         },
         {
+          label: 'Day Attendance',
+          icon: 'CalendarCheck',
+          href: '/academic/attendance/day',
+          matchPaths: ['/academic/attendance/day'],
+        },
+        {
           label: 'Pending',
           icon: 'Hourglass',
           href: '/academic/attendance/pending',

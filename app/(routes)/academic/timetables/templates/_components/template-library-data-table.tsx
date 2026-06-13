@@ -51,6 +51,7 @@ import {
 import { TemplateRowActions } from './template-row-actions';
 import { LoadingSkeleton } from '@/components/loading-skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface TemplateLibraryDataTableProps {
   search: Record<string, string>;
@@ -60,6 +61,7 @@ export function TemplateLibraryDataTable({
   search
 }: TemplateLibraryDataTableProps) {
   const router = useRouter();
+  const adapt = useAdaptiveLabels();
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
@@ -143,7 +145,7 @@ export function TemplateLibraryDataTable({
     {
       accessorKey: 'program.program_name',
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title='Program' />
+        <DataTableColumnHeader column={column} title={adapt('Program')} />
       ),
       cell: ({ row }) => {
         const template = row.original;
@@ -160,14 +162,14 @@ export function TemplateLibraryDataTable({
     {
       accessorKey: 'semesters',
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title='Semester' />
+        <DataTableColumnHeader column={column} title={adapt('Semester')} />
       ),
       cell: ({ row }) => {
         const template = row.original;
         return (
           <div className='space-y-1'>
             <Badge variant='secondary'>
-              {template.semesters?.semester_name || 'Semester'}
+              {template.semesters?.semester_name || adapt('Semester')}
               {template.sections?.section_name && ` - ${template.sections.section_name}`}
             </Badge>
           </div>

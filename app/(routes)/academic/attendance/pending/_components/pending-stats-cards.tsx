@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import type { ElementType } from 'react';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 type StatCard = {
   label: string
@@ -53,6 +54,7 @@ export function PendingStatsCards({
   startDate,
   endDate,
 }: PendingStatsCardsProps) {
+  const label = useAdaptiveLabels();
   const cardCount = isFaculty ? 5 : 6;
   const gridClass = isFaculty
     ? 'grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-5'
@@ -106,7 +108,7 @@ export function PendingStatsCards({
       description: 'needs marking today',
     },
     {
-      label: 'Sections Affected',
+      label: `${label('Sections')} Affected`,
       icon: GraduationCap,
       iconBg: 'bg-purple-500',
       bgGradient: 'from-purple-50 to-purple-100',
@@ -163,7 +165,7 @@ export function PendingStatsCards({
       description: 'needs marking today',
     },
     {
-      label: 'Sections Affected',
+      label: `${label('Sections')} Affected`,
       icon: GraduationCap,
       iconBg: 'bg-purple-500',
       bgGradient: 'from-purple-50 to-purple-100',

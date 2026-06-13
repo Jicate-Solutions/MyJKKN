@@ -9,7 +9,7 @@
 //   - pde.scoring.validator_audit_threshold     (number 0..1)
 //   - pde.scoring.ai_deliverable_credit_policy  (object: mode + min_agency_score + require_disclosure)
 //
-// Pattern mirrors /admin/hr/policies/_shared/policy-editor-shell.tsx,
+// Pattern mirrors /hr/admin/policies/_shared/policy-editor-shell.tsx,
 // adapted for global-scope (no institution selector, no draft/publish — flat
 // save). When per-institution overrides are introduced, this page can swap
 // to PolicyEditorShell.
