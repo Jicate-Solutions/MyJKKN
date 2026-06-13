@@ -23,6 +23,7 @@
 // ============================================================================
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 
 import {
   ShieldAlert,
@@ -38,6 +39,8 @@ import {
   UserCheck,
   BarChart3,
   Cog,
+  ArrowRight,
+  BookText,
 } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -64,6 +67,40 @@ const TIMELINE: Array<{
   { when: 'Monday', title: 'Faculty pick the best', body: 'Faculty score the work and pick the top 2 “Gold” teams per department.', Icon: Trophy },
 ];
 
+// "Why this matters" + a one-tap jump to the screen this persona works in.
+// href/label optional — Class Incharge has no single console, so it shows the
+// why line only.
+function LaneStart({ why, href, label }: { why: string; href?: string; label?: string }) {
+  return (
+    <div className="rounded-lg border bg-primary/5 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-sm">
+        <span className="font-medium">Why this matters: </span>
+        <span className="text-muted-foreground">{why}</span>
+      </p>
+      {href && label && (
+        <Button asChild size="sm" className="shrink-0 print:hidden">
+          <Link href={href}>
+            {label}
+            <ArrowRight className="h-4 w-4 ml-1.5" aria-hidden />
+          </Link>
+        </Button>
+      )}
+    </div>
+  );
+}
+
+// Plain-language glossary — shown to every lane so undefined nouns
+// (Domain-Sync, Gold, NAAC…) get decoded once, up front.
+const GLOSSARY: Array<[string, string]> = [
+  ['Cycle', 'One week of AI Pulse — a Thursday session plus the work that follows.'],
+  ['Engaged', 'A student who passed all four gates that week: joined on time, answered polls, stayed to the end, passed the quiz.'],
+  ['Gold Standard', 'The top 2 team projects per department, chosen by faculty on Monday.'],
+  ['Domain-Sync', 'The thing a team builds and submits each week using that week’s AI tool.'],
+  ['Champion', 'The staff member who runs AI Pulse — sets up the week and hosts Thursday.'],
+  ['Async make-up', 'A 48-hour window after the session to take the quiz if you missed it live.'],
+  ['NAAC', 'The national college-accreditation body — Gold work becomes evidence for it.'],
+];
+
 function GuideImage({ src, alt, caption }: { src: string; alt: string; caption: string }) {
   return (
     <figure className="my-3">
@@ -76,6 +113,19 @@ function GuideImage({ src, alt, caption }: { src: string; alt: string; caption: 
   );
 }
 
+// A clickable jump-to-the-screen link. Opens in the same tab; the guide is a
+// reference users leave and come back to via the Guide chip.
+function GuideLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className="font-medium text-primary underline underline-offset-2 hover:no-underline"
+    >
+      {children}
+    </Link>
+  );
+}
+
 function SectionHeading({ Icon, children }: { Icon: React.ComponentType<{ className?: string }>; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2 mb-3">
@@ -85,7 +135,7 @@ function SectionHeading({ Icon, children }: { Icon: React.ComponentType<{ classN
   );
 }
 
-function NumberedList({ items }: { items: Array<{ title: string; body: string }> }) {
+function NumberedList({ items }: { items: Array<{ title: string; body: React.ReactNode }> }) {
   return (
     <ol className="space-y-2.5">
       {items.map((c, i) => (
@@ -110,6 +160,11 @@ function NumberedList({ items }: { items: Array<{ title: string; body: string }>
 function StudentLane() {
   return (
     <div className="space-y-6">
+      <LaneStart
+        why="Every engaged week adds to your streak and your AI skills profile — and the best team work gets shown across the whole institution."
+        href="/ai-pulse/my-pulse"
+        label="Go to My Pulse"
+      />
       <p className="text-sm leading-relaxed">
         Each week you join a short online session about one AI tool, then your
         team uses it to build something for your department. Here&apos;s how to
@@ -119,10 +174,10 @@ function StudentLane() {
       <section>
         <SectionHeading Icon={Radio}>How to join</SectionHeading>
         <p className="text-sm text-muted-foreground">
-          Go to <strong>My Pulse</strong> and press the green{' '}
-          <strong>Open Live Session</strong> button — not the meeting link
-          someone shares. Only this button records that you attended. It opens
-          15 minutes before the session starts.
+          Go to <GuideLink href="/ai-pulse/my-pulse">My Pulse</GuideLink> and
+          press the green <strong>Open Live Session</strong> button — not the
+          meeting link someone shares. Only this button records that you
+          attended. It opens 15 minutes before the session starts.
         </p>
         <GuideImage
           src="/images/ai-pulse-guide/my-pulse-card.png"
@@ -163,10 +218,15 @@ function StudentLane() {
 function ChampionLane() {
   return (
     <div className="space-y-6">
+      <LaneStart
+        why="A fully set-up week is the difference between real engagement and a week that scores 0%."
+        href="/ai-pulse/admin/cycles"
+        label="Open Champion · Cycles"
+      />
       <p className="text-sm leading-relaxed">
         You set up each week and host the Thursday session. Open{' '}
-        <strong>AI Pulse → Champion · Cycles</strong> and click this week&apos;s
-        cycle. Fill the form top to bottom:
+        <GuideLink href="/ai-pulse/admin/cycles">Champion · Cycles</GuideLink>{' '}
+        and click this week&apos;s cycle. Fill the form top to bottom:
       </p>
       <NumberedList
         items={[
@@ -190,12 +250,17 @@ function ChampionLane() {
 function FacultyLane() {
   return (
     <div className="space-y-6">
+      <LaneStart
+        why="Your picks are the only work that counts as Gold for accreditation — your judgement is the scoreboard."
+        href="/ai-pulse/lab"
+        label="Open the Lab"
+      />
       <p className="text-sm leading-relaxed">
         On Monday you judge the week&apos;s work and pick the best teams.
       </p>
       <NumberedList
         items={[
-          { title: 'Open the Lab', body: 'Go to AI Pulse → Lab. It opens on the most recent session whose Thursday has passed.' },
+          { title: 'Open the Lab', body: <>Go to <GuideLink href="/ai-pulse/lab">Lab</GuideLink>. It opens on the most recent session whose Thursday has passed.</> },
           { title: 'Read each team’s submission', body: 'Judge it against the week’s stated challenge — does it actually solve the problem?' },
           { title: 'Score and pick the top 2 per department', body: 'These become the “Gold Standard” teams.' },
         ]}
@@ -212,6 +277,7 @@ function FacultyLane() {
 function InchargeLane() {
   return (
     <div className="space-y-6">
+      <LaneStart why="Your section only gets counted if attendance is marked — you keep everyone on the board." />
       <p className="text-sm leading-relaxed">
         You keep your section&apos;s participation on track.
       </p>
@@ -229,12 +295,17 @@ function InchargeLane() {
 function HodLane() {
   return (
     <div className="space-y-6">
+      <LaneStart
+        why="The heatmap is your early warning — a row of misses is where you step in before it becomes a problem."
+        href="/ai-pulse/dept"
+        label="Open the Heatmap"
+      />
       <p className="text-sm leading-relaxed">
         You watch how your department is taking part, week over week.
       </p>
       <NumberedList
         items={[
-          { title: 'Open the heatmap', body: 'Go to AI Pulse → Dept. Each row is a department; each cell is a week. Green = engaged, faded = missed.' },
+          { title: 'Open the heatmap', body: <>Go to <GuideLink href="/ai-pulse/dept">Dept</GuideLink>. Each row is a department; each cell is a week. Green = engaged, faded = missed.</> },
           { title: 'Spot the pattern', body: 'A row of misses for your department is the signal to step in — the system tiers this from a nudge to a flag.' },
           { title: 'Intervene', body: 'Use the intervene action to start an HOD conversation when a department keeps missing.' },
         ]}
@@ -246,14 +317,19 @@ function HodLane() {
 function AdminLane() {
   return (
     <div className="space-y-6">
+      <LaneStart
+        why="These settings shape how the whole program behaves and stays fair."
+        href="/ai-pulse/admin/policies"
+        label="Open Policies"
+      />
       <p className="text-sm leading-relaxed">
         You set the rules the whole program runs on, and keep it honest.
       </p>
       <NumberedList
         items={[
-          { title: 'Policies', body: 'AI Pulse → Admin · Policies sets session times, pass marks, the join doors-open window, and consequence thresholds.' },
-          { title: 'Anomalies', body: 'Review flagged activity (unusual scores, reach, or rotation) at Champion · Anomalies.' },
-          { title: 'NAAC evidence', body: 'Export the accreditation evidence pack when needed.' },
+          { title: 'Policies', body: <><GuideLink href="/ai-pulse/admin/policies">Admin · Policies</GuideLink> sets session times, pass marks, the join doors-open window, and consequence thresholds.</> },
+          { title: 'Anomalies', body: <>Review flagged activity (unusual scores, reach, or rotation) at <GuideLink href="/ai-pulse/admin/anomalies">Champion · Anomalies</GuideLink>.</> },
+          { title: 'NAAC evidence', body: <>Export the accreditation evidence pack at <GuideLink href="/ai-pulse/evidence/naac">NAAC Evidence</GuideLink> when needed.</> },
         ]}
       />
       <section>
@@ -442,11 +518,25 @@ export default function AiPulseGuidePage() {
           <ActiveContent />
         </section>
 
+        {/* Words to know — shared glossary so jargon is decoded once */}
+        <section>
+          <SectionHeading Icon={BookText}>Words to know</SectionHeading>
+          <dl className="grid gap-x-6 gap-y-2.5 sm:grid-cols-2">
+            {GLOSSARY.map(([term, def]) => (
+              <div key={term} className="text-sm">
+                <dt className="font-medium">{term}</dt>
+                <dd className="text-muted-foreground">{def}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+
         <p className="text-xs text-muted-foreground border-t pt-4">
           {showSwitcher
             ? 'Switch roles with the buttons above. '
             : ''}
           Use <strong>Download PDF</strong> at the top to save or share this guide.
+          {' '}A Tamil version is planned — English only for now.
         </p>
       </div>
     </ContentLayout>
