@@ -12,12 +12,26 @@
 // Hidden while permissions load (no flash) and for a viewer with no lane.
 // ============================================================================
 
+import { useQuery } from '@tanstack/react-query';
 import { GuideLauncher } from './guide-launcher';
 import { GUIDES } from '@/lib/campus-living/guide/content';
 import { useGuideLane } from '@/lib/campus-living/guide/use-guide-lane';
+import {
+  getCompletedSteps,
+  toggleStep,
+  logGuideEvent,
+} from '@/lib/campus-living/guide/actions';
 
 export function CampusLivingGuideFab() {
   const { own, isLoading } = useGuideLane();
+  // Shared queryKey with the full page → checking a step on either surface
+  // reflects after refetch; the FAB shows a live "steps remaining" badge.
+  const { data: completed } = useQuery({
+    queryKey: ['campus-living-guide-progress', own],
+    queryFn: () => getCompletedSteps(own),
+    enabled: !isLoading,
+    staleTime: 60_000,
+  });
   if (isLoading) return null;
   return (
     <GuideLauncher
@@ -25,6 +39,10 @@ export function CampusLivingGuideFab() {
       basePath="/campus-living/my-hostel/guide"
       variant="fab"
       className="left-4 right-auto"
+      trackProgress
+      initialCompleted={completed ?? []}
+      onToggleStep={toggleStep}
+      onEvent={logGuideEvent}
     />
   );
 }
