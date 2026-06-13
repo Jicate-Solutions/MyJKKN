@@ -16,6 +16,7 @@
 
 import { Suspense } from 'react';
 import { CampusLivingResidentGuard } from './_components/resident-route-guard';
+import { CampusLivingGuideFab } from '@/components/campus-living/guide/campus-living-guide-fab';
 
 interface CLLayoutProps {
   children: React.ReactNode;
@@ -33,6 +34,9 @@ export default function CampusLivingLayout({ children }: CLLayoutProps) {
       >
         <CampusLivingResidentGuard>{children}</CampusLivingResidentGuard>
       </Suspense>
+      {/* "?Help" FAB on every campus-living screen (offset from the global
+          bug/lightning FABs). Resolves the viewer's lane client-side. */}
+      <CampusLivingGuideFab />
     </div>
   );
 }
