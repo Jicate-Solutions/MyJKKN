@@ -48,6 +48,12 @@ export interface RazorpayAccountSummary {
   isActive: boolean;
   webhookRef: string;
   createdAt: string;
+  /** billing_categories.kind this account settles; null = institution default. */
+  feeHead: string | null;
+  /** HDFC reconciliation references (no secrets). */
+  mid: string | null;
+  tid: string | null;
+  dbaName: string | null;
 }
 
 export interface SetRazorpayAccountInput {
@@ -60,6 +66,12 @@ export interface SetRazorpayAccountInput {
   /** Optional fixed webhook_ref; omit to auto-generate. */
   webhookRef?: string | null;
   actor?: string | null;
+  /** Fee head (billing_categories.kind) this account settles; null/omit = institution default. */
+  feeHead?: string | null;
+  /** HDFC reconciliation references. */
+  mid?: string | null;
+  tid?: string | null;
+  dbaName?: string | null;
 }
 
 export class RazorpayAccountVault {
@@ -74,12 +86,20 @@ export class RazorpayAccountVault {
     return !!s && s.trim().length > 0;
   }
 
-  /** Active account credentials for an institution, or null if none configured. */
-  static async getForInstitution(institutionId: string): Promise<RazorpayCredentials | null> {
+  /**
+   * Active account credentials for an institution + fee head, or null if none.
+   * Resolves the most specific active account: exact fee_head -> institution
+   * default (fee_head NULL). A null/omitted feeHead returns only the default.
+   */
+  static async getForInstitution(
+    institutionId: string,
+    feeHead?: string | null,
+  ): Promise<RazorpayCredentials | null> {
     const supabase = createServiceRoleClient();
     const { data, error } = await supabase.rpc('fn_get_razorpay_account', {
       p_institution_id: institutionId,
       p_master_secret: getMasterSecret(),
+      p_fee_head: feeHead ?? null,
     });
     if (error) {
       throw new Error(
@@ -164,6 +184,10 @@ export class RazorpayAccountVault {
       p_webhook_ref: input.webhookRef ?? null,
       p_master_secret: getMasterSecret(),
       p_actor: input.actor ?? null,
+      p_fee_head: input.feeHead ?? null,
+      p_mid: input.mid ?? null,
+      p_tid: input.tid ?? null,
+      p_dba_name: input.dbaName ?? null,
     });
     if (error) {
       throw new Error(
@@ -193,10 +217,32 @@ export class RazorpayAccountVault {
       isActive: row.is_active,
       webhookRef: row.webhook_ref,
       createdAt: row.created_at,
+      feeHead: row.fee_head ?? null,
+      mid: row.mid ?? null,
+      tid: row.tid ?? null,
+      dbaName: row.dba_name ?? null,
     }));
   }
 
-  /** Deactivate an institution's active account (idempotent). */
+  /**
+   * Deactivate a SPECIFIC account by id (idempotent). Preferred over the
+   * institution-wide deactivate now that an institution may hold several
+   * accounts (one per fee head) — deactivating "the institution" is ambiguous.
+   */
+  static async deactivateById(accountId: string, actor?: string | null): Promise<void> {
+    const supabase = createServiceRoleClient();
+    const { error } = await supabase.rpc('fn_deactivate_razorpay_account_by_id', {
+      p_account_id: accountId,
+      p_actor: actor ?? null,
+    });
+    if (error) {
+      throw new Error(
+        `[razorpay-account-vault] fn_deactivate_razorpay_account_by_id failed for ${accountId}: ${error.message}`,
+      );
+    }
+  }
+
+  /** Deactivate an institution's active DEFAULT account (legacy; idempotent). */
   static async deactivate(institutionId: string, actor?: string | null): Promise<void> {
     const supabase = createServiceRoleClient();
     const { error } = await supabase.rpc('fn_deactivate_razorpay_account', {

@@ -18,33 +18,64 @@ interface InstitutionOption {
   name: string;
 }
 
+// Routing slot for an account. '__default__' = the institution's general account
+// (fee_head NULL). Other values are billing_categories.kind values; 'establishment'
+// is included ahead of the enum for the HDFC estab-fee MIDs.
+const DEFAULT_HEAD = '__default__';
+const FEE_HEAD_OPTIONS: { value: string; label: string }[] = [
+  { value: DEFAULT_HEAD, label: 'Default — all other fees' },
+  { value: 'transport', label: 'Transport / Bus Fee' },
+  { value: 'university_fee', label: 'University Fee' },
+  { value: 'establishment', label: 'Establishment Fee' },
+  { value: 'hostel', label: 'Hostel Fee' },
+  { value: 'mess', label: 'Mess Fee' },
+  { value: 'tuition', label: 'Tuition Fee' },
+  { value: 'exam', label: 'Exam Fee' },
+  { value: 'application_fee', label: 'Application Fee' },
+  { value: 'library', label: 'Library Fee' },
+  { value: 'other', label: 'Other' },
+];
+export function feeHeadLabel(feeHead: string | null): string {
+  if (!feeHead) return 'Default';
+  return FEE_HEAD_OPTIONS.find((o) => o.value === feeHead)?.label ?? feeHead;
+}
+
 interface AccountFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   institutions: InstitutionOption[];
-  /** When set, the form is in "rotate" mode for this institution (locked picker). */
-  rotateFor?: { institutionId: string; label: string | null } | null;
+  /** When set, the form is in "rotate" mode for this (institution, fee-head) slot (locked pickers). */
+  rotateFor?: { institutionId: string; label: string | null; feeHead: string | null } | null;
 }
 
 export function AccountFormDialog({ open, onOpenChange, institutions, rotateFor }: AccountFormDialogProps) {
   const upsert = useUpsertRazorpayAccount();
 
   const [institutionId, setInstitutionId] = useState('');
+  const [feeHead, setFeeHead] = useState<string>(DEFAULT_HEAD);
   const [keyId, setKeyId] = useState('');
   const [keySecret, setKeySecret] = useState('');
   const [webhookSecret, setWebhookSecret] = useState('');
   const [label, setLabel] = useState('');
   const [mode, setMode] = useState<'test' | 'live'>('live');
+  const [mid, setMid] = useState('');
+  const [tid, setTid] = useState('');
+  const [dbaName, setDbaName] = useState('');
 
   const effectiveInstitutionId = rotateFor?.institutionId ?? institutionId;
+  const effectiveHead = rotateFor ? (rotateFor.feeHead ?? DEFAULT_HEAD) : feeHead;
 
   function reset() {
     setInstitutionId('');
+    setFeeHead(DEFAULT_HEAD);
     setKeyId('');
     setKeySecret('');
     setWebhookSecret('');
     setLabel('');
     setMode('live');
+    setMid('');
+    setTid('');
+    setDbaName('');
   }
 
   async function handleSubmit() {
@@ -61,6 +92,10 @@ export function AccountFormDialog({ open, onOpenChange, institutions, rotateFor 
         webhookSecret: webhookSecret.trim(),
         label: label.trim() || undefined,
         mode,
+        feeHead: effectiveHead === DEFAULT_HEAD ? null : effectiveHead,
+        mid: mid.trim() || null,
+        tid: tid.trim() || null,
+        dbaName: dbaName.trim() || null,
       });
       const url = `${process.env.NEXT_PUBLIC_APP_URL || window.location.origin}/api/webhooks/razorpay/${result.webhookRef}`;
       toast.success('Account saved. Configure this webhook URL in the Razorpay dashboard:', {
@@ -106,6 +141,26 @@ export function AccountFormDialog({ open, onOpenChange, institutions, rotateFor 
           </div>
 
           <div className='space-y-1.5'>
+            <Label htmlFor='feeHead'>Fee head</Label>
+            {rotateFor ? (
+              <Input value={feeHeadLabel(rotateFor.feeHead ?? null)} disabled />
+            ) : (
+              <Select value={feeHead} onValueChange={setFeeHead}>
+                <SelectTrigger id='feeHead'><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {FEE_HEAD_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <p className='text-muted-foreground text-xs'>
+              Which fee this MID settles. &quot;Default&quot; catches every fee without its own account.
+              Bills route by their category to the matching head, else this institution&apos;s Default.
+            </p>
+          </div>
+
+          <div className='space-y-1.5'>
             <Label htmlFor='label'>Label (optional)</Label>
             <Input id='label' value={label} onChange={(e) => setLabel(e.target.value)} placeholder='e.g. JKKN Arts & Science' />
           </div>
@@ -137,6 +192,18 @@ export function AccountFormDialog({ open, onOpenChange, institutions, rotateFor 
             <Input id='webhookSecret' type='password' value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} autoComplete='new-password' />
             <p className='text-muted-foreground text-xs'>
               Use the same string you set on this account&apos;s webhook in the Razorpay dashboard.
+            </p>
+          </div>
+
+          <div className='space-y-1.5'>
+            <Label>HDFC reconciliation (optional)</Label>
+            <div className='grid grid-cols-2 gap-3'>
+              <Input value={mid} onChange={(e) => setMid(e.target.value)} placeholder='MID' autoComplete='off' />
+              <Input value={tid} onChange={(e) => setTid(e.target.value)} placeholder='TID' autoComplete='off' />
+            </div>
+            <Input value={dbaName} onChange={(e) => setDbaName(e.target.value)} placeholder='DBA name (as in the HDFC live kit)' autoComplete='off' />
+            <p className='text-muted-foreground text-xs'>
+              Reference only — for matching this account to the HDFC dashboard. Routing uses the Key ID.
             </p>
           </div>
         </div>

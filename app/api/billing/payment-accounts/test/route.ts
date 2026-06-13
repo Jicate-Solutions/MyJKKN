@@ -15,10 +15,11 @@ export const POST = withAuth(
   async (request) => {
     const body = await request.json().catch(() => null);
     const institutionId = body?.institutionId as string | undefined;
+    const feeHead = (body?.feeHead as string | null | undefined) ?? null;
 
     let creds;
     try {
-      creds = await resolveRazorpayCredentials({ institutionId });
+      creds = await resolveRazorpayCredentials({ institutionId, feeHead });
     } catch (err) {
       return NextResponse.json(
         { success: false, error: 'no_credentials', message: err instanceof Error ? err.message : 'No credentials' },

@@ -27,7 +27,8 @@ export const POST = withAuth(
       return NextResponse.json({ success: false, error: 'invalid_body' }, { status: 400 });
     }
 
-    const { institutionId, keyId, keySecret, webhookSecret, label, mode } = body as Record<string, string>;
+    const { institutionId, keyId, keySecret, webhookSecret, label, mode, feeHead, mid, tid, dbaName } =
+      body as Record<string, string>;
     const missing = ['institutionId', 'keyId', 'keySecret', 'webhookSecret'].filter(
       (k) => !body[k] || String(body[k]).trim().length === 0,
     );
@@ -49,10 +50,15 @@ export const POST = withAuth(
       label: label ?? null,
       mode: (mode as 'test' | 'live') ?? 'live',
       actor: auth.user.id,
+      feeHead: feeHead?.trim() || null,
+      mid: mid?.trim() || null,
+      tid: tid?.trim() || null,
+      dbaName: dbaName?.trim() || null,
     });
 
     logger.info('billing/payment-accounts', 'Razorpay account upserted', {
       institutionId,
+      feeHead: feeHead?.trim() || null,
       accountId: result.id,
       actor: auth.user.id,
     });
