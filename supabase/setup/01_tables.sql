@@ -4937,13 +4937,16 @@ CREATE TABLE IF NOT EXISTS public.hostel_program_eligibility (
   CONSTRAINT chk_prog_elig_has_category CHECK (room_category_id IS NOT NULL OR mess_category_id IS NOT NULL)
 );
 
--- One row per band (institution, program, quota, fee_min, fee_max).
+-- One row per band PER GENDER (institution, program, quota, fee_min, fee_max, hostel_type).
+-- hostel_type is part of the key so a fee tier can hold a boys row AND a girls row;
+-- categories are gender-typed and the resolver filters bands by hostel_type.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_prog_elig_band ON public.hostel_program_eligibility (
   institution_id,
   COALESCE(program_id, '00000000-0000-0000-0000-000000000000'::uuid),
   COALESCE(quota_id,   '00000000-0000-0000-0000-000000000000'::uuid),
   COALESCE(fee_min, -1),
-  COALESCE(fee_max, -1)
+  COALESCE(fee_max, -1),
+  hostel_type
 );
 CREATE INDEX IF NOT EXISTS idx_prog_elig_resolve
   ON public.hostel_program_eligibility (institution_id, program_id, quota_id, is_active);

@@ -96,7 +96,7 @@ export class ProgramEligibilityService {
       logger.error(LOG, 'Database error creating eligibility', error);
       throw new Error(
         error.code === '23505'
-          ? 'A rule already exists for this institution / program / quota / fee band.'
+          ? 'A rule already exists for this institution / program / quota / fee band / gender.'
           : error.message || 'Failed to create eligibility'
       );
     }
@@ -115,7 +115,7 @@ export class ProgramEligibilityService {
       logger.error(LOG, 'Database error updating eligibility', error);
       throw new Error(
         error.code === '23505'
-          ? 'A rule already exists for this institution / program / quota / fee band.'
+          ? 'A rule already exists for this institution / program / quota / fee band / gender.'
           : error.message || 'Failed to update eligibility'
       );
     }
