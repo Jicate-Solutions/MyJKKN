@@ -45,7 +45,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import Link from 'next/link';
-import { BugReport, BugReportStatus, BugReportFilters } from '@/types/bugs';
+import { BugReport, BugReportStatus, BugReportCategory, BugReportFilters } from '@/types/bugs';
 import { MoreHorizontalIcon } from '@/components/icons';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { DataTable } from '@/components/ui/data-table';
@@ -179,7 +179,7 @@ function AdminBugReportsContent() {
       page: Number(searchParams.get('page') ?? '1'),
       limit: Number(searchParams.get('limit') ?? '10'),
       status: (searchParams.get('status') as BugReportStatus) || undefined,
-      category: searchParams.get('category') || undefined,
+      category: (searchParams.get('category') as BugReportCategory) || undefined,
       institution_id: searchParams.get('institution_id') || undefined,
       department_id: searchParams.get('department_id') || undefined,
       module_name: searchParams.get('module_name') || undefined,
