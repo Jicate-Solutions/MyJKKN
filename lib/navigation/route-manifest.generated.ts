@@ -1595,6 +1595,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/billing/apportionment",
+        "label": "Apportionment",
+        "iconName": "Wallet",
+        "children": [
+          {
+            "path": "/billing/apportionment/rules",
+            "label": "Rules",
+            "iconName": "Wallet",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/billing/categories",
         "label": "Categories",
         "iconName": "Wallet",

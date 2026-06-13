@@ -145,6 +145,10 @@ const NAV_EXCLUDE = new Set<string>([
   // Every entry below has a parent list page that IS chip-reachable.
   // ────────────────────────────────────────────────────────────
 
+  // Billing apportionment rules — button-invoked ("Default Rules") from the
+  // chip-reachable parent /billing/apportionment list page.
+  '/billing/apportionment/rules',
+
   // Academic /new forms
   '/academic/batches/new',
   '/academic/leaves/new',
