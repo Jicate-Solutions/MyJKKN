@@ -49,6 +49,9 @@ See `docs/plans/` for implementation plans and `docs/modules/` for per-module do
 2. Add a one-line entry to the appropriate section above
 3. Link using relative paths (`../specs/foo.md` or `fixes/bar.md`)
 
+### AI Pulse (2026-06-13)
+- `docs/modules/ai-pulse/2026-06-13-GUIDE-champion-admin-handbook.md` — Champion & Admin handbook: weekly rhythm, pre-Thursday checklist, 4-AND gate, roles, troubleshooting. In-app twin at /ai-pulse/admin/guide — keep both in sync.
+
 ### CARE Audit (2026-06-12)
 - `docs/guides/2026-06-12-GUIDE-care-audit-framework.md` — JKKN CARE Audit Framework v1.0 (canonical, Director-authored): 20-item Clarity/Appreciation/Recognition/Empowerment audit, 0–4 scale, CARE Index /80, gap rules, cadence table. Audit any initiative against THIS, don't re-derive.
 - `docs/modules/pde/2026-06-12-AUDIT-care-pde-demonstrations.md` — first application: PDE demonstrations pre-pilot audit (CARE Index 34/80; Appreciation 5/20 critical; corrective moves feed connector PR 2 + pilot rituals).
