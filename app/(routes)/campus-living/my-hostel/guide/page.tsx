@@ -19,18 +19,27 @@
 // by CampusLivingResidentGuard, so the guide lives here and every resident-lane
 // link stays inside that allow-list (see content.ts).
 //
-// PROGRESS LAYER OFF for now: trackProgress=false + no toggle/event props →
-// the renderers degrade to the plain (uncheckable) guide. Turning it on needs
-// the guide_progress / guide_events tables + server actions (a follow-up).
+// PROGRESS LAYER ON: each step is a checkbox, progress persists per user
+// (guide_progress), and every interaction fires a GuideEvent (guide_events) —
+// the funnel that answers "do guide users adopt more?". Server actions are
+// called from this client component (getCompletedSteps via React Query;
+// toggleStep / logGuideEvent passed down). All fail-soft — a progress hiccup
+// never blocks the guide.
 // ============================================================================
 
 import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Skeleton } from '@/components/ui/skeleton';
 
 import { GUIDES } from '@/lib/campus-living/guide/content';
+import {
+  getCompletedSteps,
+  toggleStep,
+  logGuideEvent,
+} from '@/lib/campus-living/guide/actions';
 import {
   isGuidePersona,
   type GuideBook,
@@ -69,17 +78,29 @@ function GuideInner() {
   const persona: GuidePersona =
     requested && visible.includes(requested) ? requested : own;
 
+  // Persisted completion for the active lane (server action via React Query).
+  const { data: completed, isFetched: progressLoaded } = useQuery({
+    queryKey: ['campus-living-guide-progress', persona],
+    queryFn: () => getCompletedSteps(persona),
+    staleTime: 60_000,
+  });
+
   return (
     <ContentLayout title="Campus Living — Guide">
       <GuideView
-        key={persona}
+        // Re-key on persona AND once progress lands, so the renderer's
+        // mount-time progress seed picks up the real completed set.
+        key={`${persona}:${progressLoaded ? 'p' : 'n'}`}
         guides={GUIDES as GuideBook}
         persona={persona}
         visiblePersonas={visible}
         scopeId={null}
         basePath={BASE_PATH}
         scopeFallbackHref={PERSONA_HOME[own]}
-        trackProgress={false}
+        trackProgress
+        initialCompleted={completed ?? []}
+        onToggleStep={toggleStep}
+        onEvent={logGuideEvent}
       />
     </ContentLayout>
   );
