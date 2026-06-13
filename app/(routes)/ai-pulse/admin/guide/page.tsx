@@ -2,73 +2,140 @@
 
 // app/(routes)/ai-pulse/admin/guide/page.tsx
 // ============================================================================
-// AI PULSE — CHAMPION & ADMIN GUIDE (in-app handbook)
+// AI PULSE — HOW IT WORKS (in-app guide for Champions, scorers & admins)
 //
-// Created 2026-06-13 on Director request: "do we have a guidebook on how to
-// use this module? can we add it as instruction for the admins?" First in-app
-// module guide on the platform — canonical copy lives at
-// docs/modules/ai-pulse/2026-06-13-GUIDE-champion-admin-handbook.md; keep the
-// two in sync when the weekly flow changes.
+// Director brief 2026-06-13: in-app only (no separate written handbook); must
+// be intuitive enough for a 12th-grader; downloadable as PDF to share; show
+// real screenshots. First in-app module guide on the platform.
 //
-// Permission gate: super_admin OR aiPulse:cycles.manage OR aiPulse:lab.score
-// (Champions + faculty scorers). Explicit denied state — rule #27, never a
-// silent redirect. Pattern: lab/page.tsx gate shape.
+// PDF = browser print (window.print, the counselor-briefing pattern). A scoped
+// @media print block isolates this guide from the app shell so the PDF is
+// clean. Screenshots live in /public/images/ai-pulse-guide/ (recapture when
+// the matching screens change).
+//
+// Permission gate: super_admin OR aiPulse:cycles.manage OR aiPulse:lab.score,
+// with an explicit denied state (rule #27 — never a silent redirect).
 // ============================================================================
 
-import Link from 'next/link';
-import { ShieldAlert, BookOpen, CalendarClock, ListChecks, Users, Wrench, Gauge } from 'lucide-react';
+import {
+  ShieldAlert,
+  Download,
+  CalendarClock,
+  Rocket,
+  Radio,
+  Trophy,
+  ClipboardList,
+  Eye,
+  Users,
+  Cog,
+  HelpCircle,
+} from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePermissions } from '@/hooks/use-permissions';
 
-const RHYTHM: Array<{ when: string; what: string; who: string }> = [
-  { when: 'Daily ~6:53 AM', what: "Next Thursday's cycle is created automatically (empty shell)", who: 'Automatic' },
-  { when: 'Friday ~8:07 AM', what: 'Teams auto-drawn for the upcoming cycle — everyone gets a turn', who: 'Automatic' },
-  { when: 'Before Thursday', what: 'Champion fills in the cycle (checklist below)', who: 'Champion' },
-  { when: 'Thursday 6:40 PM', what: 'Join button unlocks (15 min before start — policy-set)', who: 'Learners' },
-  { when: 'Thursday 6:55–7:30 PM', what: 'Live session — status flips to "live" by the clock', who: 'Champion hosts' },
-  { when: '7:30–8:30 PM', what: 'Quiz live window (60 minutes)', who: 'Learners' },
-  { when: 'Until Saturday 7:30 PM', what: 'Quiz async make-up window (48h, harder pass mark)', who: 'Learners' },
-  { when: 'Sunday ~6:53 AM', what: 'Every gate-passer gets an automatic acknowledgment notification', who: 'Automatic' },
-  { when: 'Monday', what: 'Offline Lab — faculty score and pick Top-2 Gold per department', who: 'Faculty scorers' },
-  { when: 'After Lab', what: "Gold appears on learners' My Pulse; Top-2 publish to dept Instagram within 24h", who: 'Teams' },
+// --- The week, as four beats (truer than 7 equal days) ---------------------
+const TIMELINE: Array<{
+  when: string;
+  title: string;
+  body: string;
+  Icon: React.ComponentType<{ className?: string }>;
+  hero?: boolean;
+}> = [
+  {
+    when: 'Mon–Wed',
+    title: 'Get the week ready',
+    body: 'The Champion fills in this week’s session: the tool, the topic, the challenge, the meeting link and the quiz.',
+    Icon: ClipboardList,
+  },
+  {
+    when: 'Thursday 6:55 PM',
+    title: 'Live session',
+    body: 'Everyone joins one online session for 35 minutes. Students earn “engaged” by joining on time, staying, and passing the quiz.',
+    Icon: Radio,
+    hero: true,
+  },
+  {
+    when: 'Fri–Sun',
+    title: 'Teams build',
+    body: 'Teams use the tool on this week’s challenge and post their work. Students who missed Thursday can still take the quiz for 48 hours.',
+    Icon: Rocket,
+  },
+  {
+    when: 'Monday',
+    title: 'Faculty pick the best',
+    body: 'Faculty score the work in the Lab and pick the top 2 “Gold” teams per department. Winners show up for everyone to see.',
+    Icon: Trophy,
+  },
 ];
 
-const CHECKLIST: Array<{ step: string; detail: string }> = [
-  { step: '1 · Featured tool', detail: 'Pick from the 9-tool catalog (Lovable, Cursor, GitHub Copilot, Gemini, ChatGPT, Sora, n8n, Perplexity, Claude).' },
-  { step: '2 · Briefing topic', detail: 'One line for what the session covers.' },
-  { step: '3 · This week’s challenge', detail: 'What teams must build and submit. Shown to every learner on My Pulse and judged by faculty on Monday — without it, Gold has no stated brief.' },
-  { step: '4 · Meeting link', detail: 'Paste the Microsoft Teams link (Teams preferred — 1000-participant capacity). Without it the Join button still records attendance but opens nothing.' },
-  { step: '5 · Quiz', detail: 'Author it on the cycle’s Quiz page — the AI-suggest button drafts questions from the topic. If you forget, the week honestly reports 0% engaged (Director decision, 2026-06-12).' },
-  { step: '6 · You said, we changed', detail: 'Read last week’s anonymous learner feedback (bottom of the cycle page) and answer the main theme in one line — it shows on every learner’s My Pulse.' },
+// --- The Champion's pre-Thursday checklist ---------------------------------
+const CHECKLIST: Array<{ n: number; title: string; body: string }> = [
+  { n: 1, title: 'Pick the featured tool', body: 'Choose this week’s AI tool from the list (Lovable, Cursor, Gemini, ChatGPT, and more).' },
+  { n: 2, title: 'Write the briefing topic', body: 'One short line for what the session will cover.' },
+  { n: 3, title: 'Write this week’s challenge', body: 'What every team must build and submit. Students see this, and faculty judge the winners against it. Skip it and there’s nothing to judge.' },
+  { n: 4, title: 'Paste the meeting link', body: 'Use a Microsoft Teams link — Teams allows up to 1,000 people in one call.' },
+  { n: 5, title: 'Create the quiz', body: 'Open the cycle’s Quiz page and use the ✨ suggest button to draft questions. If you forget, the whole week shows 0% engaged — on purpose.' },
+  { n: 6, title: 'Answer last week’s feedback', body: 'Read the anonymous comments at the bottom of the page and reply in one line in “You said, we changed.” Students see it.' },
 ];
 
-const GATES: Array<{ gate: string; detail: string }> = [
-  { gate: 'Joined on time', detail: 'Pressed Join within the late threshold (policy, default 10 min).' },
-  { gate: 'Polls', detail: 'Responded to the required number. Until the polls feature ships, no polls exist — this gate auto-passes and says so on screen.' },
-  { gate: 'Stayed to the end', detail: 'The page heartbeats while open (5-minute tolerance). Learners must keep the live page open in a visible tab.' },
-  { gate: 'Passed the quiz', detail: 'Pass mark is policy-set: default 40% in the live window, 60% in the async make-up.' },
+const ROLES: Array<{ role: string; does: string }> = [
+  { role: 'Champion', does: 'Sets up each week and hosts the Thursday session.' },
+  { role: 'Class Incharge', does: 'Marks team attendance and follows up on absences.' },
+  { role: 'Faculty scorer', does: 'On Monday, scores the work and picks the Gold teams.' },
+  { role: 'HOD / Principal', does: 'Watches their department’s weekly participation.' },
+  { role: 'Admin', does: 'Sets the timings and rules; reviews flagged activity.' },
 ];
 
-const TROUBLESHOOTING: Array<{ symptom: string; fix: string }> = [
-  { symptom: 'Cycle not showing on My Pulse', fix: 'Hand-made cycle missing start_date — recreate via the console, or set start_date.' },
-  { symptom: 'Zero engagement despite real attendance', fix: 'Quiz never authored, or learners were given the raw meeting URL. Share the My Pulse → Open Live Session path, never the bare link.' },
-  { symptom: 'Lab console empty on Monday', fix: 'Teams are drawn Friday for the upcoming cycle — expected for a cycle that had no draw before it.' },
-  { symptom: 'Join button locked', fix: 'Before doors-open (6:40 PM) or after session end — expected, policy join_doors_open_minutes.' },
-  { symptom: 'Quiz won’t open for a learner', fix: 'Outside both windows (60 min live / 48 h async) — expected; windows are policy-set.' },
+const AUTOMATIC = [
+  'Creating next Thursday’s session',
+  'Drawing the teams every Friday',
+  'Turning the session “live” and then “finished” by the clock',
+  'Thanking every student who passed all the gates',
+  'Sending the Director the weekly summary',
 ];
 
-export default function AiPulseAdminGuidePage() {
+const TROUBLE: Array<{ q: string; a: string }> = [
+  { q: 'A student says nothing happened when they attended', a: 'They probably opened the meeting link directly. Tell them to go through My Pulse → Open Live Session — that page is what records attendance.' },
+  { q: 'The week shows 0% engaged', a: 'Usually the quiz was never created. Passing the quiz is one of the four required gates.' },
+  { q: 'The Monday Lab is empty', a: 'Teams are drawn on Friday for the upcoming week, so a session that had no draw before it will have no teams.' },
+  { q: 'The Join button is greyed out', a: 'It only turns on 15 minutes before the session and turns off when the session ends.' },
+];
+
+const PRINT_CSS = `
+@media print {
+  body * { visibility: hidden; }
+  #ai-pulse-guide-print, #ai-pulse-guide-print * { visibility: visible; }
+  #ai-pulse-guide-print {
+    position: absolute; left: 0; top: 0; width: 100%;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+}
+`;
+
+function GuideImage({ src, alt, caption }: { src: string; alt: string; caption: string }) {
+  return (
+    <figure className="my-3">
+      <div className="overflow-hidden rounded-lg border bg-muted/30">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt={alt} className="w-full h-auto block" />
+      </div>
+      <figcaption className="mt-1.5 text-xs text-muted-foreground">{caption}</figcaption>
+    </figure>
+  );
+}
+
+export default function AiPulseGuidePage() {
   const { isSuperAdmin, can, isLoading } = usePermissions();
   const canView =
     isSuperAdmin || can('aiPulse:cycles.manage') || can('aiPulse:lab.score');
@@ -88,8 +155,8 @@ export default function AiPulseAdminGuidePage() {
           <ShieldAlert className="h-4 w-4" />
           <AlertTitle>You don&apos;t have access to the module guide.</AlertTitle>
           <AlertDescription>
-            This handbook is for AI Pulse Champions, faculty scorers, and
-            admins. If you believe this is a mistake, ask an admin to grant{' '}
+            This guide is for AI Pulse Champions, faculty scorers, and admins.
+            If you believe this is a mistake, ask an admin to grant{' '}
             <code className="bg-muted px-1 rounded">aiPulse:cycles.manage</code>{' '}
             or <code className="bg-muted px-1 rounded">aiPulse:lab.score</code>.
           </AlertDescription>
@@ -100,163 +167,213 @@ export default function AiPulseAdminGuidePage() {
 
   return (
     <ContentLayout title="AI Pulse — Guide">
+      <style>{PRINT_CSS}</style>
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'AI Pulse', href: '/ai-pulse' },
           { label: 'Guide' },
         ]}
+        className="print:hidden"
       />
 
-      <div className="mt-4 space-y-6 max-w-4xl">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <BookOpen className="h-4 w-4 text-primary" aria-hidden />
-              <CardTitle className="text-base">What AI Pulse is</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="text-sm space-y-2">
-            <p>
-              A weekly institutional AI-literacy rhythm: every Thursday evening
-              all colleges join one live briefing on a featured AI tool, teams
-              practice with it during the week on a stated challenge, publish
-              proof publicly, and faculty pick the best work each Monday. The
-              platform measures <strong>engaged attendance</strong> (not just
-              presence) and turns the best work into recognition and
-              accreditation evidence.
+      <div id="ai-pulse-guide-print" className="mt-4 max-w-4xl space-y-8">
+        {/* Header + download */}
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold">AI Pulse — How it works</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              A simple guide for Champions, faculty, and admins. Every week is
+              called a <strong>cycle</strong>.
             </p>
-          </CardContent>
-        </Card>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="print:hidden shrink-0"
+            onClick={() => window.print()}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Download PDF
+          </Button>
+        </div>
 
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <CalendarClock className="h-4 w-4 text-primary" aria-hidden />
-              <CardTitle className="text-base">The weekly rhythm</CardTitle>
-            </div>
-            <CardDescription>
-              Automatic steps need nobody — don&apos;t do them by hand.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="py-1.5 pr-3 font-medium">When</th>
-                    <th className="py-1.5 pr-3 font-medium">What happens</th>
-                    <th className="py-1.5 font-medium">Who</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {RHYTHM.map((r) => (
-                    <tr key={r.when} className="border-b last:border-0 align-top">
-                      <td className="py-1.5 pr-3 whitespace-nowrap font-medium">{r.when}</td>
-                      <td className="py-1.5 pr-3">{r.what}</td>
-                      <td className="py-1.5 text-muted-foreground whitespace-nowrap">{r.who}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+        {/* What is it */}
+        <section>
+          <p className="text-sm leading-relaxed">
+            AI Pulse is a weekly habit that helps every student get better with
+            AI tools. Each Thursday evening, all colleges join one online
+            session about one AI tool. During the week, teams use that tool to
+            build something real for their department and post it publicly. On
+            Monday, faculty pick the best work. The platform quietly measures
+            who truly took part — not just who showed up.
+          </p>
+        </section>
 
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <ListChecks className="h-4 w-4 text-primary" aria-hidden />
-              <CardTitle className="text-base">
-                The Champion&apos;s pre-Thursday checklist
-              </CardTitle>
-            </div>
-            <CardDescription>
-              All on{' '}
-              <Link href="/ai-pulse/admin/cycles" className="underline">
-                Champion · Cycles
-              </Link>{' '}
-              → this week&apos;s cycle.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ul className="space-y-2">
-              {CHECKLIST.map((c) => (
-                <li key={c.step} className="text-sm">
-                  <span className="font-medium">{c.step}.</span>{' '}
-                  <span className="text-muted-foreground">{c.detail}</span>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
+        {/* Weekly rhythm */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <CalendarClock className="h-5 w-5 text-primary" aria-hidden />
+            <h2 className="text-lg font-semibold">The week at a glance</h2>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {TIMELINE.map((t) => (
+              <div
+                key={t.when}
+                className={
+                  t.hero
+                    ? 'rounded-xl border-2 border-primary bg-primary/5 p-4'
+                    : 'rounded-xl border bg-card p-4'
+                }
+              >
+                <t.Icon
+                  className={
+                    t.hero
+                      ? 'h-6 w-6 text-primary mb-2'
+                      : 'h-6 w-6 text-muted-foreground mb-2'
+                  }
+                  aria-hidden
+                />
+                <p
+                  className={
+                    t.hero
+                      ? 'text-xs font-semibold uppercase tracking-wide text-primary'
+                      : 'text-xs font-semibold uppercase tracking-wide text-muted-foreground'
+                  }
+                >
+                  {t.when}
+                </p>
+                <p className="font-medium text-sm mt-0.5">{t.title}</p>
+                <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+                  {t.body}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
 
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Gauge className="h-4 w-4 text-primary" aria-hidden />
-              <CardTitle className="text-base">
-                How a learner earns &ldquo;engaged&rdquo; (the 4-AND gate)
-              </CardTitle>
-            </div>
-            <CardDescription>
-              All four must pass. Learners watch the lights turn green on the
-              live page. The engaged-attendance rate is the Phase-2 pilot
-              metric (≥70%).
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ul className="space-y-2">
-              {GATES.map((g) => (
-                <li key={g.gate} className="text-sm">
-                  <span className="font-medium">{g.gate}:</span>{' '}
-                  <span className="text-muted-foreground">{g.detail}</span>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
+        {/* Champion checklist + screenshot */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <ClipboardList className="h-5 w-5 text-primary" aria-hidden />
+            <h2 className="text-lg font-semibold">
+              If you&apos;re the Champion: 6 things before Thursday
+            </h2>
+          </div>
+          <p className="text-sm text-muted-foreground mb-3">
+            Open <strong>AI Pulse → Champion · Cycles</strong> and click this
+            week&apos;s cycle. You&apos;ll see this form — fill it in top to
+            bottom:
+          </p>
+          <ol className="space-y-2.5">
+            {CHECKLIST.map((c) => (
+              <li key={c.n} className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-semibold">
+                  {c.n}
+                </span>
+                <span className="text-sm">
+                  <span className="font-medium">{c.title}.</span>{' '}
+                  <span className="text-muted-foreground">{c.body}</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+          <GuideImage
+            src="/images/ai-pulse-guide/champion-checklist.png"
+            alt="The cycle setup form showing featured tool, briefing topic, meeting link, this week's challenge, and you-said-we-changed fields"
+            caption="The cycle setup form. Each field above maps to a step in the checklist."
+          />
+        </section>
 
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Users className="h-4 w-4 text-primary" aria-hidden />
-              <CardTitle className="text-base">Roles at a glance</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="text-sm space-y-1.5">
-            <p><span className="font-medium">Champion / co-Champion</span> — owns the checklist, hosts Thursday, answers feedback.</p>
-            <p><span className="font-medium">Class Incharge</span> — marks per-team attendance, handles absence escalations.</p>
-            <p><span className="font-medium">Faculty scorers</span> — Monday Lab: score teams, pick Top-2 Gold per department at <Link href="/ai-pulse/lab" className="underline">Lab</Link>.</p>
-            <p><span className="font-medium">HOD / Principal</span> — department compliance heatmap at <Link href="/ai-pulse/dept" className="underline">Dept</Link>.</p>
-            <p><span className="font-medium">Admins</span> — thresholds and session times at <Link href="/ai-pulse/admin/policies" className="underline">Admin · Policies</Link>; anomaly review at <Link href="/ai-pulse/admin/anomalies" className="underline">Champion · Anomalies</Link>.</p>
-          </CardContent>
-        </Card>
+        {/* What learners see */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <Eye className="h-5 w-5 text-primary" aria-hidden />
+            <h2 className="text-lg font-semibold">What your students see</h2>
+          </div>
+          <p className="text-sm text-muted-foreground mb-1">
+            On <strong>My Pulse</strong>, each student sees this week&apos;s
+            card — the challenge, your reply to last week&apos;s feedback, and a
+            green <strong>Open Live Session</strong> button. They must use this
+            button (not the raw meeting link) so attendance is recorded.
+          </p>
+          <GuideImage
+            src="/images/ai-pulse-guide/my-pulse-card.png"
+            alt="A student's My Pulse card showing the challenge, the you-said-we-changed reply, and the Open Live Session button"
+            caption="The student's weekly card on My Pulse."
+          />
+          <p className="text-sm text-muted-foreground mt-4 mb-1">
+            During the session, the student watches four lights. They count as{' '}
+            <strong>“engaged”</strong> only when <strong>all four</strong> turn
+            green: joined on time, answered the polls, stayed to the end, and
+            passed the quiz. (If no polls were set, that light passes on its
+            own.)
+          </p>
+          <GuideImage
+            src="/images/ai-pulse-guide/engagement-gates.png"
+            alt="The four engagement gates: joined on time, polls, stayed until the end, passed the quiz"
+            caption="The four gates. “Engaged” needs all four — this is the number the pilot is judged on (target 70%)."
+          />
+        </section>
 
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Wrench className="h-4 w-4 text-primary" aria-hidden />
-              <CardTitle className="text-base">Troubleshooting</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <ul className="space-y-2">
-              {TROUBLESHOOTING.map((t) => (
-                <li key={t.symptom} className="text-sm">
-                  <span className="font-medium">{t.symptom}</span>
-                  <span className="text-muted-foreground"> — {t.fix}</span>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
+        {/* Roles */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <Users className="h-5 w-5 text-primary" aria-hidden />
+            <h2 className="text-lg font-semibold">Who does what</h2>
+          </div>
+          <ul className="space-y-1.5">
+            {ROLES.map((r) => (
+              <li key={r.role} className="text-sm">
+                <span className="font-medium">{r.role}</span>
+                <span className="text-muted-foreground"> — {r.does}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
 
-        <p className="text-xs text-muted-foreground">
-          Canonical copy: docs/modules/ai-pulse/2026-06-13-GUIDE-champion-admin-handbook.md
-          — keep both in sync when the weekly flow changes. Only faculty-picked
-          Gold carries score weight into NAAC evidence and the PDE Agency Index;
-          self-reported metrics never do.
+        {/* Automatic */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <Cog className="h-5 w-5 text-primary" aria-hidden />
+            <h2 className="text-lg font-semibold">
+              The system does these for you
+            </h2>
+          </div>
+          <p className="text-sm text-muted-foreground mb-2">
+            You never have to do these by hand:
+          </p>
+          <ul className="grid gap-1.5 sm:grid-cols-2">
+            {AUTOMATIC.map((a) => (
+              <li key={a} className="text-sm flex items-start gap-2">
+                <span className="text-green-600 mt-0.5">✓</span>
+                <span className="text-muted-foreground">{a}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        {/* Troubleshooting */}
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <HelpCircle className="h-5 w-5 text-primary" aria-hidden />
+            <h2 className="text-lg font-semibold">If something looks wrong</h2>
+          </div>
+          <div className="space-y-3">
+            {TROUBLE.map((t) => (
+              <div key={t.q} className="rounded-lg border bg-card p-3">
+                <p className="text-sm font-medium">{t.q}</p>
+                <p className="text-sm text-muted-foreground mt-1">{t.a}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <p className="text-xs text-muted-foreground border-t pt-4">
+          Only the Gold teams faculty pick count toward NAAC evidence and the
+          PDE Agency Index — numbers a team reports about itself never do. Use
+          the <strong>Download PDF</strong> button at the top to save or share
+          this guide.
         </p>
       </div>
     </ContentLayout>
