@@ -2,9 +2,13 @@
 
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, FilePlus2, Copy, RefreshCw, Power, PlugZap, KeyRound, Pencil, Trash2, Loader2 } from 'lucide-react';
+import { Plus, FilePlus2, Search, Filter, X, Copy, RefreshCw, Power, PlugZap, KeyRound, Pencil, Trash2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -21,6 +25,10 @@ import {
   type RazorpayAccountSummary,
 } from '@/hooks/billing/use-razorpay-accounts';
 import { AccountFormDialog, feeHeadLabel, type AccountDialogTarget } from './account-form-dialog';
+import { AccountDetailsDialog } from './account-details-dialog';
+
+const ALL = '__all__';
+const NULL_HEAD = '__default__';
 
 function webhookUrlFor(webhookRef: string): string {
   const base = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '');
@@ -46,7 +54,15 @@ export function PaymentAccountsManager() {
   const [dialog, setDialog] = useState<AccountDialogTarget | null>(null);
   const [deactivateTarget, setDeactivateTarget] = useState<RazorpayAccountSummary | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<RazorpayAccountSummary | null>(null);
+  const [detailsTarget, setDetailsTarget] = useState<RazorpayAccountSummary | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
+
+  const [showFilters, setShowFilters] = useState(false);
+  const [search, setSearch] = useState('');
+  const [fInstitution, setFInstitution] = useState(ALL);
+  const [fFeeHead, setFFeeHead] = useState(ALL);
+  const [fStatus, setFStatus] = useState(ALL);
+  const [fMode, setFMode] = useState(ALL);
 
   const instName = useMemo(() => {
     const map = new Map(institutions.map((i) => [i.id, i.name]));
@@ -58,6 +74,42 @@ export function PaymentAccountsManager() {
     for (const a of accounts ?? []) c[a.status]++;
     return c;
   }, [accounts]);
+
+  const institutionOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const a of accounts ?? []) if (!seen.has(a.institutionId)) seen.set(a.institutionId, instName(a.institutionId));
+    return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [accounts, instName]);
+
+  const feeHeadOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const a of accounts ?? []) set.add(a.feeHead ?? NULL_HEAD);
+    return [...set].sort();
+  }, [accounts]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (accounts ?? []).filter((a) => {
+      if (fInstitution !== ALL && a.institutionId !== fInstitution) return false;
+      if (fFeeHead !== ALL && (a.feeHead ?? NULL_HEAD) !== fFeeHead) return false;
+      if (fStatus !== ALL && a.status !== fStatus) return false;
+      if (fMode !== ALL && a.mode !== fMode) return false;
+      if (q) {
+        const hay = [a.accountLabel, a.mid, a.tid, a.dbaName, a.keyId, instName(a.institutionId)]
+          .filter(Boolean).join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [accounts, search, fInstitution, fFeeHead, fStatus, fMode, instName]);
+
+  const activeFilterCount =
+    (fInstitution !== ALL ? 1 : 0) + (fFeeHead !== ALL ? 1 : 0) +
+    (fStatus !== ALL ? 1 : 0) + (fMode !== ALL ? 1 : 0) + (search.trim() ? 1 : 0);
+
+  function clearFilters() {
+    setSearch(''); setFInstitution(ALL); setFFeeHead(ALL); setFStatus(ALL); setFMode(ALL);
+  }
 
   async function copyWebhook(webhookRef: string) {
     try {
@@ -120,20 +172,86 @@ export function PaymentAccountsManager() {
     <div className='space-y-4'>
       <div className='flex flex-wrap items-center justify-between gap-4'>
         <p className='text-muted-foreground text-sm'>
-          {counts.active} active · {counts.draft} draft · {counts.inactive} inactive.
+          {counts.active} active · {counts.draft} draft · {counts.inactive} inactive
+          {activeFilterCount > 0 ? ` · showing ${filtered.length} of ${accounts?.length ?? 0}` : ''}.
           Drafts and unconfigured institutions use the common (env) account until activated.
         </p>
-        {canManage && (
-          <div className='flex gap-2'>
-            <Button variant='outline' onClick={() => setDialog({ mode: 'draft' })}>
-              <FilePlus2 className='mr-1.5 h-4 w-4' /> Add draft
-            </Button>
-            <Button onClick={() => setDialog({ mode: 'add' })}>
-              <Plus className='mr-1.5 h-4 w-4' /> Add account
-            </Button>
-          </div>
-        )}
+        <div className='flex gap-2'>
+          <Button variant={showFilters || activeFilterCount ? 'secondary' : 'outline'} onClick={() => setShowFilters((s) => !s)}>
+            <Filter className='mr-1.5 h-4 w-4' /> Filters{activeFilterCount ? ` (${activeFilterCount})` : ''}
+          </Button>
+          {canManage && (
+            <>
+              <Button variant='outline' onClick={() => setDialog({ mode: 'draft' })}>
+                <FilePlus2 className='mr-1.5 h-4 w-4' /> Add draft
+              </Button>
+              <Button onClick={() => setDialog({ mode: 'add' })}>
+                <Plus className='mr-1.5 h-4 w-4' /> Add account
+              </Button>
+            </>
+          )}
+        </div>
       </div>
+
+      {showFilters && (
+        <Card>
+          <CardContent className='flex flex-wrap items-end gap-3 p-4'>
+            <div className='min-w-[200px] flex-1 space-y-1.5'>
+              <label className='text-muted-foreground text-xs'>Search</label>
+              <div className='relative'>
+                <Search className='text-muted-foreground absolute left-2 top-2.5 h-4 w-4' />
+                <Input className='pl-8' placeholder='Label, MID, TID, DBA, Key ID…' value={search} onChange={(e) => setSearch(e.target.value)} />
+              </div>
+            </div>
+            <div className='space-y-1.5'>
+              <label className='text-muted-foreground text-xs'>Institution</label>
+              <Select value={fInstitution} onValueChange={setFInstitution}>
+                <SelectTrigger className='w-[200px]'><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>All institutions</SelectItem>
+                  {institutionOptions.map(([id, name]) => (<SelectItem key={id} value={id}>{name}</SelectItem>))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className='space-y-1.5'>
+              <label className='text-muted-foreground text-xs'>Fee head</label>
+              <Select value={fFeeHead} onValueChange={setFFeeHead}>
+                <SelectTrigger className='w-[170px]'><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>All fee heads</SelectItem>
+                  {feeHeadOptions.map((h) => (<SelectItem key={h} value={h}>{feeHeadLabel(h === NULL_HEAD ? null : h)}</SelectItem>))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className='space-y-1.5'>
+              <label className='text-muted-foreground text-xs'>Status</label>
+              <Select value={fStatus} onValueChange={setFStatus}>
+                <SelectTrigger className='w-[140px]'><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>All statuses</SelectItem>
+                  <SelectItem value='active'>Active</SelectItem>
+                  <SelectItem value='draft'>Draft</SelectItem>
+                  <SelectItem value='inactive'>Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className='space-y-1.5'>
+              <label className='text-muted-foreground text-xs'>Mode</label>
+              <Select value={fMode} onValueChange={setFMode}>
+                <SelectTrigger className='w-[120px]'><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>All modes</SelectItem>
+                  <SelectItem value='live'>Live</SelectItem>
+                  <SelectItem value='test'>Test</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {activeFilterCount > 0 && (
+              <Button variant='ghost' onClick={clearFilters}><X className='mr-1.5 h-4 w-4' /> Clear</Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent className='p-0'>
@@ -163,12 +281,28 @@ export function PaymentAccountsManager() {
                     No accounts yet. {canManage ? 'Add a draft to stage an institution’s MID, or add an account directly with keys.' : ''}
                   </TableCell>
                 </TableRow>
+              ) : filtered.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className='py-8 text-center text-muted-foreground text-sm'>
+                    No accounts match the filters.{' '}
+                    <button type='button' className='text-primary underline underline-offset-2' onClick={clearFilters}>Clear filters</button>
+                  </TableCell>
+                </TableRow>
               ) : (
-                accounts.map((a) => {
+                filtered.map((a) => {
                   const badge = STATUS_BADGE[a.status];
                   return (
                     <TableRow key={a.id} className={a.status === 'inactive' ? 'opacity-60' : ''}>
-                      <TableCell className='font-medium'>{instName(a.institutionId)}</TableCell>
+                      <TableCell className='font-medium'>
+                        <button
+                          type='button'
+                          className='text-left underline-offset-2 hover:text-primary hover:underline'
+                          onClick={() => setDetailsTarget(a)}
+                          title='View details'
+                        >
+                          {instName(a.institutionId)}
+                        </button>
+                      </TableCell>
                       <TableCell>
                         <Badge variant={a.feeHead ? 'secondary' : 'outline'}>{feeHeadLabel(a.feeHead)}</Badge>
                       </TableCell>
@@ -239,6 +373,13 @@ export function PaymentAccountsManager() {
           target={dialog ?? { mode: 'add' }}
         />
       )}
+
+      <AccountDetailsDialog
+        open={!!detailsTarget}
+        onOpenChange={(o) => { if (!o) setDetailsTarget(null); }}
+        account={detailsTarget}
+        institutionName={detailsTarget ? instName(detailsTarget.institutionId) : ''}
+      />
 
       <AlertDialog open={!!deactivateTarget} onOpenChange={(o) => { if (!o) setDeactivateTarget(null); }}>
         <AlertDialogContent>
