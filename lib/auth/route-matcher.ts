@@ -1,3 +1,4 @@
+// SDK multi-agent reviewer pilot 2026-06-14 — deep-path trigger. Will not merge as-is.
 /**
  * Route Matcher - Optimized route matching with trie data structure
  * Provides O(1) lookup for protected route configurations
