@@ -132,12 +132,17 @@ jobs:
             echo "::warning::No review file produced — advisory, ending green."
             exit 0
           fi
-          EXISTING_ID=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
-            --paginate --jq '.[] | select(.body | startswith("<!-- claude-deep-review-sdk -->")) | .id' 2>/dev/null | tail -n1 || echo "")
-          if [ -n "$EXISTING_ID" ]; then
-            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$EXISTING_ID" -F body=@/tmp/claude-review.md > /dev/null
-            echo "::notice::Updated comment #$EXISTING_ID"
-          else
+          # All marker comments (oldest first). Update the FIRST, delete the rest
+          # so duplicates can never accumulate as stale reviews.
+          mapfile -t IDS < <(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            --paginate --jq '.[] | select(.body | startswith("<!-- claude-deep-review-sdk -->")) | .id' 2>/dev/null || true)
+          if [ "${#IDS[@]}" -eq 0 ]; then
             gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/claude-review.md
             echo "::notice::Posted new comment"
+          else
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/${IDS[0]}" -F body=@/tmp/claude-review.md > /dev/null
+            echo "::notice::Updated comment #${IDS[0]}"
+            for stale in "${IDS[@]:1}"; do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$stale" > /dev/null && echo "::notice::Deleted stale duplicate #$stale"
+            done
           fi
