@@ -43,6 +43,32 @@ export function rcltpMetadata(
 }
 
 /**
+ * CLIENT → SERVER bridge for the Phase 3 student-affecting write routes.
+ * Browser-only (uses a relative path resolved against the page origin; same-origin
+ * cookies authenticate the call). POSTs JSON, unwraps the standard
+ * `{ success, data }` envelope, and throws the server's message on failure
+ * (including the honest "awaiting EKSAQ content" 501 from group-B gated routes).
+ * Keeping this in one place means every rcltp service calls its route identically.
+ */
+export async function rcltpPostJson<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  let json: { success?: boolean; data?: T; message?: string; error?: string } | null = null;
+  try {
+    json = await res.json();
+  } catch {
+    json = null;
+  }
+  if (!res.ok || !json || json.success === false) {
+    throw new Error(json?.message || json?.error || `RCLTP request failed (${res.status})`);
+  }
+  return json.data as T;
+}
+
+/**
  * Student-affecting writes are forbidden on the client by RLS (migration §6):
  * students have NO write policy on any rcltp_ table. Every such write MUST go
  * through a server-side service-role API route that verifies identity and sets

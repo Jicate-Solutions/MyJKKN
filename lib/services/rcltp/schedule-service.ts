@@ -32,7 +32,7 @@ import type {
 import {
   rcltpRange,
   rcltpMetadata,
-  rcltpServerWriteRequired,
+  rcltpPostJson,
   rcltpAwaitingEksaqContent,
 } from './rcltp-helpers';
 
@@ -205,8 +205,13 @@ export class RcltpScheduleService {
    * server-side only (service-role), never from the client (migration §6.10).
    */
   static async recordPracticeCompletion(
-    _assignmentId: string
+    assignmentId: string,
+    exercisesCompleted?: number
   ): Promise<RcltpPracticeAssignment> {
-    return rcltpServerWriteRequired('POST /api/rcltp/practice/:id/complete');
+    // Server route derives the learner from the session, verifies ownership, then writes.
+    return rcltpPostJson<RcltpPracticeAssignment>(
+      `/api/rcltp/practice/${assignmentId}/complete`,
+      { exercises_completed: exercisesCompleted }
+    );
   }
 }

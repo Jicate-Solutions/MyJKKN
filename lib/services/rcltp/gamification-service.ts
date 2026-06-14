@@ -26,7 +26,7 @@ import type {
   CreateRcltpBadgeDto,
   UpdateRcltpBadgeDto,
 } from '@/types/rcltp';
-import { rcltpRange, rcltpMetadata, rcltpServerWriteRequired } from './rcltp-helpers';
+import { rcltpRange, rcltpMetadata, rcltpPostJson } from './rcltp-helpers';
 
 export class RcltpGamificationService {
   private static supabase = createClientSupabaseClient();
@@ -191,24 +191,39 @@ export class RcltpGamificationService {
   // they are invoked from the Phase-3 server score-flow, never the client.
   // -------------------------------------------------------------------------
 
-  /** Award a badge to a learner — server-side only (a student cannot self-award). */
+  /**
+   * Award a badge via the server-side route (fn_rcltp_award_badge, service_role
+   * only). The route is gated rcltp.assessment.manage — a student (assessment.take
+   * only) gets 403, so a learner can never self-award (E2). The institution is
+   * derived server-side from the learner record (not passed), preventing cross-tenant
+   * awards. Returns { learner_badge_id, already_earned } (idempotent).
+   */
   static async awardBadge(
-    _learnerId: string,
-    _badgeSlug: string,
-    _evidence?: string
-  ): Promise<RcltpLearnerBadge> {
-    return rcltpServerWriteRequired(
-      'POST /api/rcltp/gamification/award (server-side fn_rcltp_award_badge)'
+    learnerId: string,
+    badgeSlug: string,
+    evidence?: string
+  ): Promise<{ learner_badge_id: string | null; already_earned: boolean }> {
+    return rcltpPostJson<{ learner_badge_id: string | null; already_earned: boolean }>(
+      '/api/rcltp/gamification/award',
+      { learner_id: learnerId, badge_slug: badgeSlug, evidence }
     );
   }
 
-  /** Update a learner's streak — server-side only (same-day re-log is a no-op DB-side). */
+  /**
+   * Update a learner's streak via the server-side route (fn_rcltp_update_streak,
+   * service_role only; same-day re-log is a no-op DB-side). Gated
+   * rcltp.assessment.manage at the route (students cannot self-update); the
+   * institution is derived server-side from the learner record.
+   */
   static async updateStreak(
-    _learnerId: string,
-    _streakType: string
-  ): Promise<RcltpStreak> {
-    return rcltpServerWriteRequired(
-      'POST /api/rcltp/gamification/streak (server-side fn_rcltp_update_streak)'
-    );
+    learnerId: string,
+    streakType: string,
+    loggedDate?: string
+  ): Promise<{ updated: boolean }> {
+    return rcltpPostJson<{ updated: boolean }>('/api/rcltp/gamification/streak', {
+      learner_id: learnerId,
+      streak_type: streakType,
+      logged_date: loggedDate,
+    });
   }
 }
