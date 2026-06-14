@@ -18,7 +18,7 @@
  * itself try/caught to LEARNER_ONLY, so the common path always yields ≥1 lane.
  */
 import { resolveGuideAccess } from "@/lib/guide/resolve-persona";
-import { composeLane } from "@/lib/guide/registry";
+import { composeLane, PLATFORM_OVERVIEW_LANE } from "@/lib/guide/registry";
 import { filterLaneSections } from "@/lib/guide/filter";
 import type { CanonicalPersona, PersonaGuide } from "@/lib/guide/types";
 import { PlatformGuideFab } from "@/components/guide/platform-guide-fab";
@@ -38,6 +38,11 @@ export async function PlatformGuideFabMount() {
     filterLaneSections(composeLane(p), access.can)
   );
 
+  // The route-fallback OVERVIEW lane (opened on routes no module guide owns, and
+  // as the FAB's floor). It carries no gated sections, so filtering is a no-op —
+  // run it through anyway so the contract stays uniform if that ever changes.
+  const overview: PersonaGuide = filterLaneSections(PLATFORM_OVERVIEW_LANE, access.can);
+
   // Pre-load completed steps for each visible lane (parallel; fail-soft per lane).
   const completedEntries = await Promise.all(
     access.visible.map(async (p) => [p, await getCompletedSteps(p)] as const)
@@ -48,6 +53,7 @@ export async function PlatformGuideFabMount() {
   return (
     <PlatformGuideFab
       lanes={lanes}
+      overview={overview}
       own={access.own}
       scopeId={access.scopeId}
       basePath="/guide"
