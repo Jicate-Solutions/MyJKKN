@@ -41,8 +41,20 @@ export const GUIDES: GuideBook = {
               action: "Open **My Pulse** and press the green **Open Live Session** button.",
               detail:
                 "Use this button — not a meeting link someone shares. Only this records that you attended. It unlocks 15 minutes before the session starts.",
+              prerequisite:
+                "You must be enrolled in a section first — your Class Incharge adds you. If My Pulse says you're not on a team yet, ask them.",
+              platforms: {
+                web: "left sidebar → AI Pulse → My Pulse",
+                mobile: "tap More (⋯) in the bottom bar → AI Pulse → My Pulse",
+              },
               link: { label: "Go to My Pulse", href: "/ai-pulse/my-pulse" },
-              image: { src: `${IMG}/my-pulse-card.png`, alt: "The My Pulse card with the Open Live Session button", width: 912, height: 728 },
+              image: {
+                src: `${IMG}/my-pulse-card.png`,
+                alt: "The My Pulse card with the Open Live Session button",
+                width: 912,
+                height: 728,
+                highlight: { x: 4, y: 83, width: 39, height: 11, label: "Tap here" },
+              },
             },
           ],
         },
@@ -55,7 +67,13 @@ export const GUIDES: GuideBook = {
               detail:
                 "You count as engaged only when all four lights turn green: joined on time, answered the polls, stayed to the end, and passed the quiz. If there were no polls that week, that light passes on its own.",
               tip: "Missed the live session? You can still take the quiz for 48 hours (the async make-up window).",
-              image: { src: `${IMG}/engagement-gates.png`, alt: "The four engagement gates", width: 1856, height: 704 },
+              image: {
+                src: `${IMG}/engagement-gates.png`,
+                alt: "The four engagement gates",
+                width: 1856,
+                height: 704,
+                highlight: { x: 2, y: 26, width: 34, height: 50, label: "All 4 turn green" },
+              },
             },
           ],
         },
@@ -92,8 +110,11 @@ export const GUIDES: GuideBook = {
             {
               action: "Open **Champion · Cycles** and click this week's cycle.",
               detail: "Everything below is one form — fill it top to bottom.",
+              platforms: {
+                web: "left sidebar → AI Pulse → Champion · Cycles",
+                mobile: "tap More (⋯) in the bottom bar → AI Pulse → Champion · Cycles",
+              },
               link: { label: "Open Champion · Cycles", href: "/ai-pulse/admin/cycles" },
-              image: { src: `${IMG}/champion-checklist.png`, alt: "The cycle setup form", width: 1856, height: 1940 },
             },
             {
               action: "Pick the **featured tool** and write the **briefing topic**.",
@@ -103,6 +124,13 @@ export const GUIDES: GuideBook = {
               action: "Write **this week's challenge**.",
               detail: "What every team must build and submit. Students see it; faculty judge against it.",
               tip: "Skip the challenge and there's nothing for faculty to judge on Monday.",
+              image: {
+                src: `${IMG}/champion-checklist.png`,
+                alt: "The cycle setup form, with the This week's challenge field",
+                width: 1856,
+                height: 1940,
+                highlight: { x: 2, y: 53, width: 96, height: 10, label: "This field" },
+              },
             },
             {
               action: "Paste the **meeting link** (Microsoft Teams).",
@@ -140,6 +168,10 @@ export const GUIDES: GuideBook = {
           steps: [
             {
               action: "Open the **Lab** — it lands on the most recent session whose Thursday has passed.",
+              platforms: {
+                web: "left sidebar → AI Pulse → Lab",
+                mobile: "tap More (⋯) in the bottom bar → AI Pulse → Lab",
+              },
               link: { label: "Open the Lab", href: "/ai-pulse/lab" },
             },
             {
@@ -173,6 +205,10 @@ export const GUIDES: GuideBook = {
             {
               action: "Open **Dept** — each row is a department, each cell is a week.",
               detail: "Green = engaged, faded = missed.",
+              platforms: {
+                web: "left sidebar → AI Pulse → Dept",
+                mobile: "tap More (⋯) in the bottom bar → AI Pulse → Dept",
+              },
               link: { label: "Open the Heatmap", href: "/ai-pulse/dept" },
             },
             {
