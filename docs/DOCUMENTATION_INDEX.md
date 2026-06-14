@@ -52,3 +52,6 @@ See `docs/plans/` for implementation plans and `docs/modules/` for per-module do
 ### CARE Audit (2026-06-12)
 - `docs/guides/2026-06-12-GUIDE-care-audit-framework.md` — JKKN CARE Audit Framework v1.0 (canonical, Director-authored): 20-item Clarity/Appreciation/Recognition/Empowerment audit, 0–4 scale, CARE Index /80, gap rules, cadence table. Audit any initiative against THIS, don't re-derive.
 - `docs/modules/pde/2026-06-12-AUDIT-care-pde-demonstrations.md` — first application: PDE demonstrations pre-pilot audit (CARE Index 34/80; Appreciation 5/20 critical; corrective moves feed connector PR 2 + pilot rituals).
+
+### PDE taxonomy split (2026-06-14)
+- `docs/modules/pde/2026-06-14-DECISION-pde-category-taxonomy-split.md` — 🟡 **DECISION REQUIRED** (Director). PDE has 3 category vocabularies: durable-value (7, live spine, `pde_demonstrations.category_key`, 0 rows), capability (8, separate skill tree, `pde_capabilities.category`, 1 stray row), faculty filter (3-chip mock stub). They're orthogonal axes, not rival labels. Options A (collapse to one) / B (two explicit axes, recommended) / C (do nothing). Cheapest to fix NOW (no data to migrate). Resolves friction X1.
