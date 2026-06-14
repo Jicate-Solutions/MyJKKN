@@ -12,6 +12,11 @@
 import { GUIDES } from "@/lib/ai-pulse/guide/content";
 import { GuideLauncher } from "@/components/ai-pulse/guide/guide-launcher";
 import { detectLane } from "@/lib/ai-pulse/guide/detect-lane";
+import {
+  getCompletedSteps,
+  toggleStep,
+  logGuideEvent,
+} from "@/lib/ai-pulse/guide/actions";
 
 export default async function AiPulseLayout({
   children,
@@ -19,6 +24,10 @@ export default async function AiPulseLayout({
   children: React.ReactNode;
 }) {
   const { persona, scopeId } = await detectLane();
+  // The FAB drawer shares the viewer's progress: seed it with the persisted
+  // completed set (fail-soft → []) and pass the fail-soft actions so checking a
+  // step in the drawer persists and updates the "steps remaining" badge live.
+  const completed = await getCompletedSteps(persona);
   return (
     <>
       {children}
@@ -28,6 +37,10 @@ export default async function AiPulseLayout({
         scopeId={scopeId}
         variant="fab"
         className="left-4 right-auto"
+        trackProgress
+        initialCompleted={completed}
+        onToggleStep={toggleStep}
+        onEvent={logGuideEvent}
       />
     </>
   );

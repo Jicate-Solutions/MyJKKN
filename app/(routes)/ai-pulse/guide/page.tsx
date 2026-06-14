@@ -12,8 +12,11 @@
 //   3. Wrapped in the app's ContentLayout + a scoped @media print block so the
 //      Download/Print button yields a clean PDF (no app shell).
 //
-// TRACK_PROGRESS is OFF: the static guide ships now; the DB-backed adoption
-// layer (guide_progress / guide_events + actions.ts) is a documented follow-up.
+// ADOPTION LAYER ON: each step is checkable, completion persists per user
+// (guide_progress) and every interaction emits a GuideEvent (guide_events) —
+// the funnel that answers "do guide users adopt more?". This server page awaits
+// the completed set (so it's correct at first paint) and hands the three
+// fail-soft server actions to GuideView. Mirrors campus-living PR #1379.
 // ============================================================================
 
 import { ContentLayout } from "@/components/layout/content-layout";
@@ -25,6 +28,11 @@ import {
 } from "@/lib/ai-pulse/guide/types";
 import { GuideView } from "@/components/ai-pulse/guide/GuideView";
 import { detectLane } from "@/lib/ai-pulse/guide/detect-lane";
+import {
+  getCompletedSteps,
+  toggleStep,
+  logGuideEvent,
+} from "@/lib/ai-pulse/guide/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +77,11 @@ export default async function AiPulseGuidePage({
   const requested = isGuidePersona(requestedRaw) ? requestedRaw : null;
   const persona = requested && visible.includes(requested) ? requested : own;
 
+  // Persisted completion for the active lane, resolved server-side (fail-soft →
+  // [] for logged-out / errors) so initialCompleted is correct at first paint —
+  // no client re-seed needed (unlike the client-page variant in campus-living).
+  const completed = await getCompletedSteps(persona);
+
   return (
     <ContentLayout title="AI Pulse — Guide">
       <style>{PRINT_CSS}</style>
@@ -90,7 +103,10 @@ export default async function AiPulseGuidePage({
           visiblePersonas={visible}
           scopeId={scopeId}
           basePath={BASE_PATH}
-          trackProgress={false}
+          trackProgress
+          initialCompleted={completed}
+          onToggleStep={toggleStep}
+          onEvent={logGuideEvent}
         />
       </div>
     </ContentLayout>
