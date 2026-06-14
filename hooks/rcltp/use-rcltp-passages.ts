@@ -22,6 +22,7 @@ import type {
   UpdateRcltpPassageDto,
   CreateRcltpPartBQuestionDto,
   UpdateRcltpPartBQuestionDto,
+  UpdateRcltpQuestionReviewDto,
 } from '@/types/rcltp';
 
 export const rcltpPassageKeys = {
@@ -154,5 +155,22 @@ export function useDeleteRcltpQuestion() {
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: rcltpQuestionKeys.all }),
     onError: (e: any) => toast.error(e?.message || 'Failed to delete question'),
+  });
+}
+
+// Question review (D6): staff approves/retires an AI-generated question.
+export function useReviewRcltpQuestion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      input,
+    }: {
+      id: string;
+      input: UpdateRcltpQuestionReviewDto;
+    }) => RcltpPassagesService.reviewQuestion(id, input),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: rcltpQuestionKeys.all }),
+    onError: (e: any) => toast.error(e?.message || 'Failed to save question review'),
   });
 }

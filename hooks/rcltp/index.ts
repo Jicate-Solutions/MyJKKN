@@ -7,3 +7,4 @@ export * from './use-rcltp-assessments';
 export * from './use-rcltp-results';
 export * from './use-rcltp-vbb';
 export * from './use-rcltp-schedule';
+export * from './use-rcltp-gamification';
