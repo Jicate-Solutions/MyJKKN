@@ -17,12 +17,11 @@
 import "server-only";
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { CANONICAL_PERSONAS, type CanonicalPersona } from "@/lib/guide/types";
 import {
-  CANONICAL_PERSONAS,
   PERSONA_REQUIRES,
   PARENT_ROLE_KEYS,
   EXTERNAL_ROLE_KEYS,
-  type CanonicalPersona,
 } from "@/lib/guide/registry";
 
 export interface GuideAccess {
