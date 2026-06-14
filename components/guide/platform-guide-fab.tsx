@@ -20,8 +20,11 @@
  * signed-in page — not just the instrumented modules.
  *
  * Mounted bottom-LEFT (left-4 right-auto) so it never stacks on the global
- * bug-reporter / work-pulse FABs (bottom-right). Hidden on non-app surfaces
- * (auth / public / onboarding) so it only appears where a signed-in user works.
+ * bug-reporter / work-pulse FABs (bottom-right). On mobile/tablet it sits higher
+ * (bottom-36 ≈ 144px) to clear the lg:hidden BottomNavbar + AttentionBar stack
+ * (which the page itself pads pb-36 to clear); on lg+ there is no bottom nav, so
+ * it drops to bottom-4. Hidden on non-app surfaces (auth / public / onboarding)
+ * so it only appears where a signed-in user works.
  */
 
 import * as React from "react";
@@ -168,7 +171,7 @@ export function PlatformGuideFab({
         }}
         aria-label={remaining > 0 ? `Help — ${remaining} setup steps left` : "Help"}
         className={cx(
-          "group fixed bottom-4 left-4 right-auto z-40 flex items-center gap-2 rounded-full bg-primary px-3.5 py-3 text-primary-foreground shadow-lg",
+          "group fixed bottom-36 left-4 right-auto z-40 lg:bottom-4 flex items-center gap-2 rounded-full bg-primary px-3.5 py-3 text-primary-foreground shadow-lg",
           "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         )}
       >
