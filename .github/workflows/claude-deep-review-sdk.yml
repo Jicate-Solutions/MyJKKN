@@ -54,7 +54,7 @@ jobs:
           git fetch origin "$BASE_REF" --quiet
           CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD")
           DOCS_REGEX='^(docs|specs)/.*\.(md|mdx|txt|png|jpe?g|gif|svg|pdf)$|^\.screenshots/|^(README\.md|CHANGELOG\.md|LICENSE)$|\.md$'
-          RISK_REGEX='^(supabase/migrations/|supabase/setup/|lib/auth/|app/auth/|app/api/auth/|(middleware|proxy)\.ts$|utils/supabase/|lib/services/school-defaults-service\.ts)'
+          RISK_REGEX='^(supabase/migrations/|supabase/setup/|lib/auth/|app/auth/|app/api/auth/|(middleware|proxy)\.ts$|utils/supabase/|lib/services/school-defaults-(admin-)?service\.ts)'
           MONEY_REGEX='(^|[/_.-])(fees?|billing|payments?|invoices?|scholarships?|payroll)([/_.-]|$)'
           NON_DOCS=$(echo "$CHANGED" | grep -vE "$DOCS_REGEX" || true)
           DEEP=$( { echo "$NON_DOCS" | grep -E "$RISK_REGEX" || true; echo "$NON_DOCS" | grep -iE "$MONEY_REGEX" || true; } | grep -ivE '\.(png|jpe?g|gif|svg|webp)$' | grep -v '^$' | sort -u || true )

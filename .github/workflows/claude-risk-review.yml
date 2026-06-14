@@ -86,7 +86,7 @@ jobs:
           # renamed upstream — keep both), and real auth entry points live
           # under app/auth/ (callback, authorize, login) as well as
           # app/api/auth/. Deliberately dumb and auditable — tune by editing.
-          RISK_REGEX='^(supabase/migrations/|supabase/setup/|lib/auth/|app/auth/|app/api/auth/|(middleware|proxy)\.ts$|utils/supabase/|lib/services/school-defaults-service\.ts)'
+          RISK_REGEX='^(supabase/migrations/|supabase/setup/|lib/auth/|app/auth/|app/api/auth/|(middleware|proxy)\.ts$|utils/supabase/|lib/services/school-defaults-(admin-)?service\.ts)'
           # Money terms bounded to path segments: bare 'fee' would match
           # feedback/feeder (29 files in this repo) and misroute them deep.
           MONEY_REGEX='(^|[/_.-])(fees?|billing|payments?|invoices?|scholarships?|payroll)([/_.-]|$)'
