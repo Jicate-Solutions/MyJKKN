@@ -1,0 +1,104 @@
+name: JKKN Conventions (advisory)
+
+# Two advisory, delta-only convention checks. Both are pure git/grep with NO
+# personal secret (only the auto GITHUB_TOKEN, to post a comment) — so unlike the
+# SDK reviewer they need no base-ref hardening; a malicious PR editing them could
+# at most post a comment with the repo-scoped token.
+#
+#  1. Terminology — flags NEW user-facing copy that uses non-JKKN terms, against
+#     the canonical dictionary in .claude/skills/jkkn-terminologies (CRITICAL/
+#     zero-tolerance tier, the Director's chosen scope). Delta-only + UI-scope so
+#     it never flags the legacy backlog or code identifiers.
+#  2. Smart-guide coverage — when a PR adds pages under a module that HAS a smart
+#     guide without updating the guide, nudges the author to run /smart-guide.
+#
+# Both ADVISORY — post/update one comment each, never block. Run alongside the
+# other reviewers.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+
+concurrency:
+  group: jkkn-conventions-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  terminology:
+    name: JKKN terminology (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: ${{ !github.event.pull_request.draft }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Run delta terminology check
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$BASE_SHA" --quiet || true
+          python scripts/ci/check-terminology-delta.py "$BASE_SHA" "$HEAD_SHA" > /tmp/term.md || true
+          echo "report bytes: $(wc -c < /tmp/term.md)"
+      - name: Post comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MARKER: "<!-- jkkn-terminology -->"
+        run: |
+          set -euo pipefail
+          if ! grep -q '[^[:space:]]' /tmp/term.md; then
+            echo "::notice::No new terminology issues — nothing to post."; exit 0
+          fi
+          mapfile -t IDS < <(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            --paginate --jq ".[] | select(.body | startswith(\"$MARKER\")) | .id" 2>/dev/null || true)
+          if [ "${#IDS[@]}" -eq 0 ]; then
+            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/term.md
+          else
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/${IDS[0]}" -F body=@/tmp/term.md > /dev/null
+            for s in "${IDS[@]:1}"; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$s" >/dev/null 2>&1 || true; done
+          fi
+
+  smart-guide:
+    name: Smart-guide coverage (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: ${{ !github.event.pull_request.draft }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Run smart-guide coverage check
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$BASE_SHA" --quiet || true
+          bash scripts/ci/check-smart-guide-coverage.sh /tmp/guide.md "$BASE_SHA" "$HEAD_SHA" || true
+          echo "report bytes: $(wc -c < /tmp/guide.md 2>/dev/null || echo 0)"
+      - name: Post comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MARKER: "<!-- jkkn-smart-guide -->"
+        run: |
+          set -euo pipefail
+          if [ ! -s /tmp/guide.md ]; then
+            echo "::notice::No smart-guide coverage gaps — nothing to post."; exit 0
+          fi
+          mapfile -t IDS < <(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            --paginate --jq ".[] | select(.body | startswith(\"$MARKER\")) | .id" 2>/dev/null || true)
+          if [ "${#IDS[@]}" -eq 0 ]; then
+            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/guide.md
+          else
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/${IDS[0]}" -F body=@/tmp/guide.md > /dev/null
+            for s in "${IDS[@]:1}"; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$s" >/dev/null 2>&1 || true; done
+          fi
