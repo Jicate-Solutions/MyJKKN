@@ -57,6 +57,12 @@ export const POST = withAuth(
     }
 
     const audioPath = typeof body.audio_path === 'string' ? body.audio_path : null;
+    // Defense in depth: an audio_path must live under THIS learner's own folder.
+    // The upload-url route mints paths as `institution/learner/assessment/...`, so
+    // this prevents a student attaching another learner's recording to their row.
+    if (audioPath && !audioPath.startsWith(`${auth.user.institution_id}/${learnerId}/`)) {
+      return forbiddenResponse('audio_path is outside your scope');
+    }
     const now = new Date().toISOString();
 
     const { data: rec, error: rErr } = await admin
