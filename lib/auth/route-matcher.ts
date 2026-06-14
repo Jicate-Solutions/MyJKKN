@@ -1,3 +1,4 @@
+// CI smoke test 2026-06-14: confirm Opus 4.8 reviewer posts (fable was erroring). Will close, not merge.
 /**
  * Route Matcher - Optimized route matching with trie data structure
  * Provides O(1) lookup for protected route configurations
