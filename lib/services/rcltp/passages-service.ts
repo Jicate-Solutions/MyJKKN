@@ -33,7 +33,7 @@ import type {
 import {
   rcltpRange,
   rcltpMetadata,
-  rcltpServerWriteRequired,
+  rcltpPostJson,
   rcltpAwaitingEksaqContent,
 } from './rcltp-helpers';
 
@@ -256,9 +256,14 @@ export class RcltpPassagesService {
    */
   static async serveNextPassageForLearner(
     _learnerId: string,
-    _gradeLevel?: number
+    gradeLevel?: number
   ): Promise<RcltpPassage> {
-    return rcltpServerWriteRequired('POST /api/rcltp/passages/next');
+    // The server route derives the learner from the session (NEVER a passed id),
+    // logs exposure, and applies the served-level guardrail; we forward only the
+    // optional grade hint. _learnerId is kept for call-site compatibility.
+    return rcltpPostJson<RcltpPassage>('/api/rcltp/passages/next', {
+      grade_level: gradeLevel,
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -301,8 +306,13 @@ export class RcltpPassagesService {
    * prompt + EKSAQ competency/band alignment guardrails are awaiting EKSAQ content.
    */
   static async generatePartBQuestions(
-    _passageId: string
+    passageId: string
   ): Promise<RcltpPartBQuestion[]> {
-    return rcltpAwaitingEksaqContent('AI comprehension-question generation');
+    // The route + LLM client wiring exist; the passage→question prompt + EKSAQ
+    // competency/band guardrails are content-gated, so this currently throws the
+    // route's honest "awaiting EKSAQ content" message until that content lands.
+    return rcltpPostJson<RcltpPartBQuestion[]>('/api/rcltp/questions/generate', {
+      passage_id: passageId,
+    });
   }
 }

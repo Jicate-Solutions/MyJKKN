@@ -33,7 +33,7 @@ import type {
 import {
   rcltpRange,
   rcltpMetadata,
-  rcltpServerWriteRequired,
+  rcltpPostJson,
 } from './rcltp-helpers';
 
 export class RcltpAssessmentsService {
@@ -235,44 +235,52 @@ export class RcltpAssessmentsService {
   }
 
   // -------------------------------------------------------------------------
-  // DEFERRED — student-affecting writes → server-side service-role routes
-  // (migration §6: students have NO write policy on any rcltp_ table).
+  // STUDENT-AFFECTING WRITES — Phase 3: wired to the server-side service-role
+  // routes. Students have NO write policy in RLS (§6); each route derives the
+  // learner from the session, verifies ownership + institution, then writes via
+  // service-role. The client never writes these tables directly.
   // -------------------------------------------------------------------------
 
-  /** Student opens a scheduled sitting (status transition). Server-side only. */
-  static async startAssessment(_assessmentId: string): Promise<RcltpAssessment> {
-    return rcltpServerWriteRequired('POST /api/rcltp/assessments/:id/start');
+  /** Student opens a scheduled sitting → POST /api/rcltp/assessments/:id/start. */
+  static async startAssessment(assessmentId: string): Promise<RcltpAssessment> {
+    return rcltpPostJson<RcltpAssessment>(`/api/rcltp/assessments/${assessmentId}/start`);
   }
 
-  /** Student submits a sitting (status + submitted_at transition). Server-side only. */
-  static async submitAssessment(_assessmentId: string): Promise<RcltpAssessment> {
-    return rcltpServerWriteRequired('POST /api/rcltp/assessments/:id/submit');
+  /** Student submits a sitting → POST /api/rcltp/assessments/:id/submit. */
+  static async submitAssessment(assessmentId: string): Promise<RcltpAssessment> {
+    return rcltpPostJson<RcltpAssessment>(`/api/rcltp/assessments/${assessmentId}/submit`);
   }
 
-  /** Student uploads Part A audio (creates a recording row). Server-side only. */
+  /** Student uploads Part A audio (creates a recording row) → POST .../recording. */
   static async uploadRecording(
-    _assessmentId: string,
-    _audio?: unknown
+    assessmentId: string,
+    audio?: unknown
   ): Promise<RcltpPartARecording> {
-    return rcltpServerWriteRequired('POST /api/rcltp/assessments/:id/recording');
+    const audio_path = typeof audio === 'string' ? audio : undefined;
+    return rcltpPostJson<RcltpPartARecording>(
+      `/api/rcltp/assessments/${assessmentId}/recording`,
+      { audio_path }
+    );
   }
 
-  /** Student records Part B answers (is_correct/score set server-side). Server-side only. */
+  /** Student records Part B answers (raw capture; grading is server-side) → .../responses. */
   static async recordResponses(
-    _assessmentId: string,
-    _responses?: unknown
+    assessmentId: string,
+    responses?: unknown
   ): Promise<void> {
-    return rcltpServerWriteRequired('POST /api/rcltp/assessments/:id/responses');
+    await rcltpPostJson<unknown>(
+      `/api/rcltp/assessments/${assessmentId}/responses`,
+      { responses }
+    );
   }
 
   // -------------------------------------------------------------------------
-  // DEFERRED — voice/engine scoring → server-side (writes integrity fields)
+  // VOICE/ENGINE SCORING — Phase 3 route exists; the scoring engine + composite
+  // formula are EKSAQ content, so the route returns an honest "awaiting EKSAQ" gate.
   // -------------------------------------------------------------------------
 
-  /** Run the voice-scoring engine over a recording and persist engine scores. Server-side only. */
-  static async scoreRecording(
-    _recordingId: string
-  ): Promise<RcltpPartARecording> {
-    return rcltpServerWriteRequired('POST /api/rcltp/recordings/:id/score');
+  /** Run the voice-scoring engine over a recording → POST /api/rcltp/recordings/:id/score. */
+  static async scoreRecording(recordingId: string): Promise<RcltpPartARecording> {
+    return rcltpPostJson<RcltpPartARecording>(`/api/rcltp/recordings/${recordingId}/score`);
   }
 }

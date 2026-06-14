@@ -28,7 +28,7 @@ import type {
 import {
   rcltpRange,
   rcltpMetadata,
-  rcltpServerWriteRequired,
+  rcltpPostJson,
   rcltpAwaitingEksaqContent,
 } from './rcltp-helpers';
 
@@ -171,9 +171,11 @@ export class RcltpVbbService {
    */
   static async recordVbbProgress(
     _learnerId: string,
-    _payload?: unknown
+    payload?: { stage?: string; score?: number; completion_rate?: number; week_of?: string }
   ): Promise<RcltpVbbProgress> {
-    return rcltpServerWriteRequired('POST /api/rcltp/vbb/progress');
+    // The server route derives the learner from the session (NEVER a passed id);
+    // we forward only the progress payload. _learnerId kept for call-site compatibility.
+    return rcltpPostJson<RcltpVbbProgress>('/api/rcltp/vbb/progress', payload ?? {});
   }
 
   // -------------------------------------------------------------------------
