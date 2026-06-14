@@ -80,6 +80,14 @@ export type RcltpPracticeStatus =
   | 'completed'
   | 'missed';
 
+/** rcltp_content_level — v2 5-tier content-complexity ladder (within grade). Fixed pedagogical ladder. */
+export type RcltpContentLevel =
+  | 'letters'
+  | 'words'
+  | 'sentences'
+  | 'paragraphs'
+  | 'analytical';
+
 // ---------------------------------------------------------------------------
 // 2. ROW INTERFACES (one per table — what a SELECT * returns)
 // ---------------------------------------------------------------------------
@@ -95,6 +103,7 @@ export interface RcltpPassage {
   source: RcltpPassageSource;
   word_count: number | null;
   difficulty: number | null;
+  content_level: RcltpContentLevel | null;
   status: RcltpPassageStatus;
   ai_meta: Json | null;
   is_active: boolean;
@@ -117,6 +126,13 @@ export interface RcltpPartBQuestion {
   max_score: number;
   order_index: number;
   is_active: boolean;
+  // v2 review-state (reuses the passage source/status enums): AI-generated
+  // questions land source='ai_generated', status='draft'; a teacher approves.
+  source: RcltpPassageSource;
+  status: RcltpPassageStatus;
+  ai_meta: Json | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -239,6 +255,8 @@ export interface RcltpStudentJourney {
   learner_id: string;
   dimension: RcltpDimension;
   current_band: RcltpBand | null;
+  /** v2 (E3): continuously-nudged SERVED content level — distinct from current_band (official, cycle-changed). */
+  served_content_level: RcltpContentLevel | null;
   since: string | null;
   exercises_completed: number;
   progression_log: Json | null;
@@ -315,6 +333,55 @@ export interface RcltpAssessmentSchedule {
 }
 
 // ---------------------------------------------------------------------------
+// 2b. v2 "Adaptive Reading" — gamification rows (D5/E2). Earned badges + streaks
+//     are SERVER-AWARDED ONLY (fn_rcltp_award_badge / fn_rcltp_update_streak);
+//     there are no client write helpers for them (see gamification-service).
+// ---------------------------------------------------------------------------
+
+/** rcltp_badges — badge catalog. institution_id NULL = global/shared; admin-CRUDable. */
+export interface RcltpBadge {
+  id: string;
+  institution_id: string | null;
+  slug: string;
+  name: string;
+  description: string | null;
+  icon_url: string | null;
+  category: string | null;
+  points: number;
+  criteria: Json | null;
+  is_system: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+/** rcltp_learner_badges — earned badges (UNIQUE learner+badge). Server-awarded only. */
+export interface RcltpLearnerBadge {
+  id: string;
+  learner_id: string;
+  badge_id: string;
+  institution_id: string | null;
+  earned_at: string;
+  evidence: string | null;
+}
+
+/** rcltp_streaks — per-learner streak (UNIQUE learner+streak_type). Server-updated only. */
+export interface RcltpStreak {
+  id: string;
+  learner_id: string;
+  institution_id: string | null;
+  streak_type: string;
+  current_streak: number;
+  longest_streak: number;
+  last_logged_date: string | null;
+  total_days_logged: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---------------------------------------------------------------------------
 // 3. PAGINATION + LIST RESPONSE (matches MyJKKN convention: {data, metadata})
 // ---------------------------------------------------------------------------
 
@@ -345,6 +412,7 @@ export interface RcltpPassageFilters extends RcltpPaginationFilters {
   institution_id?: string;
   language?: string;
   grade_level?: number;
+  content_level?: RcltpContentLevel;
   status?: RcltpPassageStatus;
   source?: RcltpPassageSource;
   is_active?: boolean;
@@ -356,6 +424,8 @@ export interface RcltpPartBQuestionFilters extends RcltpPaginationFilters {
   institution_id?: string;
   competency_id?: string;
   is_active?: boolean;
+  status?: RcltpPassageStatus;
+  source?: RcltpPassageSource;
 }
 
 export interface RcltpAssessmentFilters extends RcltpPaginationFilters {
@@ -454,6 +524,7 @@ export interface CreateRcltpPassageDto {
   source?: RcltpPassageSource;
   word_count?: number | null;
   difficulty?: number | null;
+  content_level?: RcltpContentLevel | null;
   status?: RcltpPassageStatus;
   ai_meta?: Json | null;
   is_active?: boolean;
@@ -552,3 +623,51 @@ export interface CreateRcltpScheduleDto {
 export type UpdateRcltpScheduleDto = Partial<
   Omit<CreateRcltpScheduleDto, 'institution_id' | 'academic_year_id' | 'cycle_no'>
 >;
+
+// ---------------------------------------------------------------------------
+// 6. v2 "Adaptive Reading" — filters + write DTOs
+//    (Earned-badge/streak rows have NO write DTO — server-awarded only.)
+// ---------------------------------------------------------------------------
+
+export interface RcltpBadgeFilters extends RcltpPaginationFilters {
+  /** When set, returns this institution's rows AND global (institution_id NULL) rows. */
+  institution_id?: string;
+  category?: string;
+  is_active?: boolean;
+  search?: string;
+}
+
+export interface RcltpLearnerBadgeFilters extends RcltpPaginationFilters {
+  institution_id?: string;
+  learner_id?: string;
+  badge_id?: string;
+}
+
+export interface RcltpStreakFilters extends RcltpPaginationFilters {
+  institution_id?: string;
+  learner_id?: string;
+  streak_type?: string;
+}
+
+// 6.1 Badge catalog (staff with rcltp.reward.config; global rows = admin only)
+export interface CreateRcltpBadgeDto {
+  institution_id?: string | null;
+  slug: string;
+  name: string;
+  description?: string | null;
+  icon_url?: string | null;
+  category?: string | null;
+  points?: number;
+  criteria?: Json | null;
+  is_active?: boolean;
+}
+export type UpdateRcltpBadgeDto = Partial<Omit<CreateRcltpBadgeDto, 'slug'>>;
+
+// 6.2 Question review (D6): staff with rcltp.question.approve promotes an
+//     AI-generated question (status 'draft' -> 'approved'/'retired') + stamps reviewer.
+export interface UpdateRcltpQuestionReviewDto {
+  status?: RcltpPassageStatus;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  ai_meta?: Json | null;
+}

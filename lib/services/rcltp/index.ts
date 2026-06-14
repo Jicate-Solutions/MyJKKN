@@ -9,3 +9,4 @@ export * from './results-service';
 export * from './vbb-service';
 export * from './schedule-service';
 export * from './policies-service';
+export * from './gamification-service';

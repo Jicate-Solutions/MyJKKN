@@ -28,6 +28,7 @@ import type {
   UpdateRcltpPassageDto,
   CreateRcltpPartBQuestionDto,
   UpdateRcltpPartBQuestionDto,
+  UpdateRcltpQuestionReviewDto,
 } from '@/types/rcltp';
 import {
   rcltpRange,
@@ -61,6 +62,8 @@ export class RcltpPassagesService {
       if (filters.language) query = query.eq('language', filters.language);
       if (filters.grade_level !== undefined)
         query = query.eq('grade_level', filters.grade_level);
+      if (filters.content_level)
+        query = query.eq('content_level', filters.content_level);
       if (filters.status) query = query.eq('status', filters.status);
       if (filters.source) query = query.eq('source', filters.source);
       if (filters.is_active !== undefined)
@@ -156,6 +159,8 @@ export class RcltpPassagesService {
         query = query.eq('competency_id', filters.competency_id);
       if (filters.is_active !== undefined)
         query = query.eq('is_active', filters.is_active);
+      if (filters.status) query = query.eq('status', filters.status);
+      if (filters.source) query = query.eq('source', filters.source);
 
       query = query.range(from, to).order('order_index', { ascending: true });
 
@@ -263,5 +268,41 @@ export class RcltpPassagesService {
   /** AI passage generation (age-appropriate, per grade/language). Awaiting EKSAQ seed passages + guardrails. */
   static async generatePassage(_params: unknown): Promise<RcltpPassage> {
     return rcltpAwaitingEksaqContent('AI passage generation');
+  }
+
+  // -------------------------------------------------------------------------
+  // QUESTION REVIEW (D6) — staff promotes an AI-generated question to approved.
+  // RLS: rcltp.question.approve / rcltp.config.manage (a legitimate client write).
+  // -------------------------------------------------------------------------
+  static async reviewQuestion(
+    id: string,
+    input: UpdateRcltpQuestionReviewDto
+  ): Promise<RcltpPartBQuestion> {
+    const { data, error } = await (this.supabase as any)
+      .from('rcltp_part_b_questions')
+      .update({
+        ...input,
+        reviewed_at: input.reviewed_at ?? new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    toast.success('Question review saved');
+    return data as RcltpPartBQuestion;
+  }
+
+  /**
+   * Auto-generate comprehension questions from a passage (D6). Reuses the
+   * production LLM pattern (work-pulse/analyze) via a Phase-3 server route
+   * POST /api/rcltp/questions/generate; generated questions land
+   * source='ai_generated', status='draft' for teacher review. The passage->question
+   * prompt + EKSAQ competency/band alignment guardrails are awaiting EKSAQ content.
+   */
+  static async generatePartBQuestions(
+    _passageId: string
+  ): Promise<RcltpPartBQuestion[]> {
+    return rcltpAwaitingEksaqContent('AI comprehension-question generation');
   }
 }
