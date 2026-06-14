@@ -40,6 +40,7 @@ import {
 import { useGuideProgress } from "@/lib/guide/use-progress";
 import { GuideDrawer } from "@/components/guide/guide-drawer";
 import { pickGuideLane } from "@/lib/guide/pick-lane";
+import { matchModuleRoute } from "@/lib/guide/route-map";
 
 function cx(...c: Array<string | false | null | undefined>) {
   return c.filter(Boolean).join(" ");
@@ -142,6 +143,15 @@ export function PlatformGuideFab({
     [pathname, byPersona, own, overview]
   );
 
+  // The module whose page we're on — scopes the drawer's "Open full guide" link
+  // to THAT module only. Null whenever the contextual lane is the generic
+  // overview (a guide-less route, or a module with no content for this viewer),
+  // so "Open full guide" then opens the un-scoped overview/full guide.
+  const moduleId = React.useMemo<string | null>(
+    () => (guide === overview ? null : matchModuleRoute(pathname)?.module ?? null),
+    [guide, overview, pathname]
+  );
+
   // ── Progress (shared between FAB badge + drawer). Hooks MUST run before any
   //    early return, so this is computed unconditionally. The overview lane
   //    carries persona "learner" (its keys are namespace-disjoint from the
@@ -194,6 +204,7 @@ export function PlatformGuideFab({
         key={guide === overview ? "overview" : guide.persona}
         guide={guide}
         basePath={basePath}
+        moduleId={moduleId}
         scopeId={scopeId}
         open={open}
         onClose={() => setOpen(false)}

@@ -24,9 +24,19 @@
 // Download/Print button yields a clean PDF (no app shell).
 // ============================================================================
 
+import Link from "next/link";
+import { ArrowRight } from "lucide-react";
 import { ContentLayout } from "@/components/layout/content-layout";
 import { PageBreadcrumb } from "@/components/navigation";
-import { composeGuideBook, FILLED_PERSONAS } from "@/lib/guide/registry";
+import {
+  composeGuideBook,
+  composeModuleLane,
+  FILLED_PERSONAS,
+  isModule,
+  moduleGlossary,
+  moduleLabel,
+  modulePersonas,
+} from "@/lib/guide/registry";
 import { filterLaneSections } from "@/lib/guide/filter";
 import {
   isCanonicalPersona,
@@ -57,9 +67,9 @@ const PRINT_CSS = `
 export default async function PlatformGuidePage({
   searchParams,
 }: {
-  searchParams: Promise<{ persona?: string }>;
+  searchParams: Promise<{ persona?: string; module?: string }>;
 }) {
-  const { persona: requestedRaw } = await searchParams;
+  const { persona: requestedRaw, module: moduleRaw } = await searchParams;
   const access = await resolveGuideAccess();
 
   // Switch only to a lane the viewer is permitted to see; else their own lane.
@@ -74,34 +84,88 @@ export default async function PlatformGuidePage({
   const lanes = Object.fromEntries(
     CANONICAL_PERSONAS.map((p) => [p, filterLaneSections(base.lanes[p], access.can)])
   ) as Record<CanonicalPersona, PersonaGuide>;
-  const guides: GuideBook = { ...base, lanes };
 
-  // Switcher: offer only lanes a module actually fills + the viewer's own, so a
-  // viewer never sees several identical overview-only tabs (parent / external /
-  // platform-admin fall back to the overview until a module fills them).
+  // ── MODULE SCOPE ──────────────────────────────────────────────────────────
+  // When the Help FAB opens this page from a module's own page it passes
+  // `?module=<id>`, so "Open full guide" shows ONLY that module's guide (its
+  // sections for this persona): the drawer is contextual, so its expand button
+  // stays contextual. The always-visible nav "Guide" item carries the full
+  // cross-module guide. Fail-soft: an unknown module — or one this persona
+  // doesn't fill / can't see — falls back to the full role lane (never empty).
+  const scopedModule = isModule(moduleRaw) ? moduleRaw! : null;
+  let moduleScope: string | null = null;
+  if (scopedModule) {
+    const ml = composeModuleLane(scopedModule, persona);
+    const scoped = ml ? filterLaneSections(ml, access.can) : null;
+    if (scoped && scoped.sections.length > 0) {
+      lanes[persona] = scoped;
+      moduleScope = scopedModule;
+    }
+  }
+
+  const guides: GuideBook = {
+    ...base,
+    lanes,
+    // In module scope, show only THAT module's glossary (not the merged
+    // cross-module one) so "module only" holds for "Words to know" too.
+    glossary: moduleScope ? moduleGlossary(moduleScope) : base.glossary,
+  };
+
+  // Switcher: in module scope → the roles THIS module fills (switching role then
+  // stays inside the module); otherwise → any lane a module actually fills, so a
+  // viewer never sees several identical overview-only tabs. Always within what
+  // the viewer may see, plus their current lane.
+  const moduleFills = moduleScope ? modulePersonas(moduleScope) : null;
   const switcherPersonas = access.visible.filter(
-    (p) => FILLED_PERSONAS.has(p) || p === persona
+    (p) => (moduleFills ? moduleFills.includes(p) : FILLED_PERSONAS.has(p)) || p === persona
   );
 
   const initialCompleted = await getCompletedSteps(persona);
+  const pageTitle = moduleScope ? `${moduleLabel(moduleScope)} guide` : "Platform Guide";
 
   return (
-    <ContentLayout title="Platform Guide">
+    <ContentLayout title={pageTitle}>
       <style>{PRINT_CSS}</style>
       <PageBreadcrumb
-        items={[{ label: "Home", href: "/" }, { label: "Guide" }]}
+        items={
+          moduleScope
+            ? [
+                { label: "Home", href: "/" },
+                { label: "Guide", href: BASE_PATH },
+                { label: moduleLabel(moduleScope) },
+              ]
+            : [{ label: "Home", href: "/" }, { label: "Guide" }]
+        }
         className="print:hidden"
       />
+      {moduleScope && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/40 px-4 py-2.5 text-sm print:hidden">
+          <span>
+            Showing the <strong>{moduleLabel(moduleScope)}</strong> guide for this page.
+          </span>
+          <Link
+            href={BASE_PATH}
+            className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+          >
+            View the full platform guide
+            <ArrowRight className="size-3.5" aria-hidden />
+          </Link>
+        </div>
+      )}
       <div id="platform-guide-print" className="mt-4 max-w-4xl">
         <GuideView
-          // Remount per lane so progress state + the guide_open/lane_complete
-          // refs re-seed (a ?persona= switch is a soft nav otherwise).
-          key={persona}
+          // Remount per lane AND per module scope so progress state + the
+          // guide_open/lane_complete refs re-seed (a ?persona= / ?module= switch
+          // is a soft nav otherwise).
+          key={`${moduleScope ?? "all"}:${persona}`}
           guides={guides}
           persona={persona}
           visiblePersonas={switcherPersonas}
           scopeId={access.scopeId}
           basePath={BASE_PATH}
+          // Preserve module scope when switching roles, so the switcher stays in
+          // the module instead of jumping to the full cross-module guide.
+          personaParam={moduleScope ? `module=${moduleScope}` : undefined}
           trackProgress
           initialCompleted={initialCompleted}
           onToggleStep={toggleStep}

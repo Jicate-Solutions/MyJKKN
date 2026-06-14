@@ -228,6 +228,9 @@ interface GuideViewProps {
   scopeId?: string | null;
   /** Base path of the guide route, e.g. "/guide" — drives the switcher URL. */
   basePath: string;
+  /** Extra query appended to switcher URLs (e.g. "module=ai-pulse") so a
+   *  module scope survives a role switch. Omit for the full cross-module guide. */
+  personaParam?: string;
   /** Where scope-bound links fall back to when no scope is in context. */
   scopeFallbackHref?: string | null;
   /* ── adoption layer (all optional) ── */
@@ -247,6 +250,7 @@ export function GuideView({
   visiblePersonas,
   scopeId,
   basePath,
+  personaParam,
   scopeFallbackHref = null,
   trackProgress = false,
   initialCompleted,
@@ -299,7 +303,7 @@ export function GuideView({
                   aria-pressed={active}
                   onClick={() => {
                     progress.emit({ name: "lane_switch", surface: "page", context: p });
-                    router.push(`${basePath}?persona=${p}`);
+                    router.push(`${basePath}?persona=${p}${personaParam ? `&${personaParam}` : ""}`);
                   }}
                   className={
                     active

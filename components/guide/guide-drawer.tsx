@@ -202,6 +202,10 @@ interface GuideDrawerProps {
   guide: PersonaGuide;
   /** Base path of the full-page guide, for the "Open full guide" link. */
   basePath: string;
+  /** Module namespace of the page this drawer opened on (e.g. "ai-pulse"), so
+   *  "Open full guide" scopes the full page to THIS module only. Null/undefined
+   *  on the overview / guide-less pages → the full guide opens un-scoped. */
+  moduleId?: string | null;
   scopeId?: string | null;
   open: boolean;
   onClose: () => void;
@@ -215,6 +219,7 @@ interface GuideDrawerProps {
 export function GuideDrawer({
   guide,
   basePath,
+  moduleId,
   scopeId,
   open,
   onClose,
@@ -340,7 +345,7 @@ export function GuideDrawer({
             </div>
           )}
           <div className="mt-3.5 flex flex-wrap items-center gap-2">
-            <Link href={`${basePath}?persona=${guide.persona}`} onClick={onClose} className="inline-flex h-9 items-center gap-2 rounded-md border px-3 text-[0.8rem] font-medium hover:bg-muted">
+            <Link href={`${basePath}?persona=${guide.persona}${moduleId ? `&module=${encodeURIComponent(moduleId)}` : ""}`} onClick={onClose} className="inline-flex h-9 items-center gap-2 rounded-md border px-3 text-[0.8rem] font-medium hover:bg-muted">
               <ExternalLink className="size-3.5 text-primary" /> Open full guide
             </Link>
             {guide.pdfPath && (
