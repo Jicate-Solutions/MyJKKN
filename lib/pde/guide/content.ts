@@ -63,6 +63,12 @@ export const GUIDES: GuideBook = {
               action: 'Open **My Demonstrations** — your hub for every skill you submit.',
               detail:
                 'Drafts, submitted work, scores, and validator feedback all live here.',
+              prerequisite:
+                "Your programme must have PDE switched on. If you don't see **PDE** in the menu, ask your department coordinator to enable it for your class.",
+              platforms: {
+                web: 'Left sidebar → **PDE** → **Learner** → **My Demonstrations**.',
+                mobile: 'Tap the menu (**☰**) at the top, then **PDE → My Demonstrations** — PDE lives in the side menu, not the bottom bar.',
+              },
               link: { label: 'Take me there', href: '/pde/learn/demonstrations' },
             },
             {
@@ -70,6 +76,13 @@ export const GUIDES: GuideBook = {
               detail:
                 'Evidence can be a video, an OSCE score, a written write-up, a GitHub repo, a simulator pass, or an external credential.',
               tip: 'First pick which of the seven durable-value categories the skill fits: Judgment, Embodied Practice, Problem Finding, Accountability, Social & Leadership, Cultural & Civic, or Credential.',
+              image: {
+                src: '/pde/guides/learner-new-demonstration.png',
+                alt: 'My Demonstrations page with the New demonstration button highlighted at the top right.',
+                width: 1440,
+                height: 900,
+                highlight: { x: 84, y: 35, width: 13, height: 4, label: 'New demonstration' },
+              },
               link: { label: 'Take me there', href: '/pde/learn/demonstrations/new' },
             },
             {
@@ -188,6 +201,8 @@ export const GUIDES: GuideBook = {
               action: 'Open your **Faculty Impact Dashboard** for at-a-glance metrics.',
               detail:
                 'Enrolled learners, who is active this week, completion rates, and engagement scores.',
+              prerequisite:
+                'You need the **PDE faculty (validator) role**. If this page is blocked, ask your administrator to grant it.',
               link: { label: 'Go to Dashboard', href: '/pde/faculty/dashboard' },
             },
             {
@@ -350,6 +365,8 @@ export const GUIDES: GuideBook = {
               action: 'Define the **skill tree** in Capabilities.',
               detail:
                 'Capabilities are the skills learners demonstrate. Add each with a name, capability category (AI Fluency, Domain AI, Technical, and so on), level (1–5), and whether it is core or elective.',
+              prerequisite:
+                'You need **PDE admin access** (Super Admin, IQAC, or a lifecycle lead). If a page is blocked, ask for the PDE admin role.',
               link: { label: 'Capability Management', href: '/pde/admin/capabilities' },
             },
             {
