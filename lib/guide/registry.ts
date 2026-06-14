@@ -30,7 +30,44 @@ import { CANONICAL_PERSONAS } from "./types";
 // Existing per-module guides — read VERBATIM, never mutated.
 import { GUIDES as AI_PULSE_GUIDES, REQUIRES as AI_PULSE_REQUIRES } from "../ai-pulse/guide/content";
 import { GUIDES as CAMPUS_GUIDES, REQUIRES as CAMPUS_REQUIRES } from "../campus-living/guide/content";
-import { GUIDES as PDE_GUIDES } from "../pde/guide/content";
+import { GUIDES as PDE_GUIDES, REQUIRES as PDE_REQUIRES } from "../pde/guide/content";
+
+/* ────────────────────────────────────────────────────────────────────────
+ * PERSONA ACCESS — which permission keys grant each canonical persona (OR'd
+ * within a lane). Built from the modules' OWN REQUIRES maps so these keys can
+ * never drift from the section-level gating below. Consumed by the server
+ * resolver (lib/guide/resolve-persona.ts). Rules the resolver layers on top:
+ *   - learner is OPEN (everyone, incl. logged-out).
+ *   - platform-admin is super-admin only (is_super_admin RPC).
+ *   - parent / external are ROLE-based (profiles.role ∈ the lists below).
+ *   - an empty array = "not grantable by permission" → fail-CLOSED (the lane is
+ *     never visible unless one of the rules above grants it).
+ * Permission keys are OPAQUE strings (AI Pulse uses ':' , others use '.').
+ * ──────────────────────────────────────────────────────────────────────── */
+export const PERSONA_REQUIRES: Record<CanonicalPersona, string[]> = {
+  learner: [],
+  facilitator: [AI_PULSE_REQUIRES.faculty, PDE_REQUIRES.faculty],
+  "unit-lead": [AI_PULSE_REQUIRES.champion, CAMPUS_REQUIRES.warden, CAMPUS_REQUIRES.mess],
+  coordinator: [AI_PULSE_REQUIRES.incharge],
+  supervisor: [AI_PULSE_REQUIRES.hod],
+  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin],
+  "platform-admin": [],
+  parent: [],
+  external: [],
+};
+
+/** profiles.role values that map to the Parent lane. */
+export const PARENT_ROLE_KEYS: readonly string[] = ["parent"];
+
+/** profiles.role values that map to the External (partner/visitor) lane.
+ *  Best-effort: an omission only UNDER-shows the lane (fail-closed / safe). */
+export const EXTERNAL_ROLE_KEYS: readonly string[] = [
+  "mess_caterer",
+  "maintenance_vendor",
+  "accreditation_officer",
+  "external_auditor_timeboxed",
+  "lead_auditor",
+];
 
 /* ────────────────────────────────────────────────────────────────────────
  * a. CANONICAL_LANES — registry-defined lane metadata per canonical persona.
