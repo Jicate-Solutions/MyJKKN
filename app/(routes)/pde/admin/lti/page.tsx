@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
-import { Settings, TestTube, CheckCircle, XCircle, Plus, Save, Trash2, RefreshCw, ArrowRight } from 'lucide-react';
+import { Settings, TestTube, CheckCircle, XCircle, Plus, Save, Trash2, RefreshCw, AlertTriangle } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 interface LTIToolConfig {
@@ -114,6 +114,24 @@ export default function LTIConfigPage() {
           <Button onClick={() => setShowForm(!showForm)}><Plus className="w-4 h-4 mr-1" /> Register Tool</Button>
         </div>
 
+        {/* Phase-4 limitation banner — promoted from a dashed footer card so it
+            can't be missed: tool registration works today, but the full LTI 1.3
+            handshake is not yet available. */}
+        <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm dark:border-amber-800 dark:bg-amber-950">
+          <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+          <div>
+            <p className="font-semibold text-amber-900 dark:text-amber-200">
+              Phase 4 — not fully available yet
+            </p>
+            <p className="mt-1 text-amber-800 dark:text-amber-300">
+              This page manages LTI tool registration. The full LTI 1.3
+              handshake — OIDC login, JWT validation, and Assignment &amp; Grade
+              Services (AGS) grade passback — is still in development. Registered
+              tools won&apos;t launch end-to-end until Phase 4 ships.
+            </p>
+          </div>
+        </div>
+
         <div className="flex items-center gap-3">
           <Badge variant={tools.some(t => t.is_active) ? 'default' : 'secondary'} className="gap-1">
             {tools.some(t => t.is_active) ? <><CheckCircle className="w-3.5 h-3.5" /> Connected</> : <><XCircle className="w-3.5 h-3.5" /> No Active Tools</>}
@@ -190,7 +208,6 @@ export default function LTIConfigPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-dashed"><CardContent className="pt-4"><div className="flex items-start gap-3 text-sm"><ArrowRight className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-0.5" /><div><p className="font-medium text-muted-foreground">Phase 4: Full LTI 1.3 Handshake</p><p className="text-muted-foreground text-xs mt-1">This page manages tool registration. Full OIDC login, JWT validation, and AGS will be built in Phase 4.</p></div></div></CardContent></Card>
       </div>
     </ContentLayout>
     </PermissionGuard>

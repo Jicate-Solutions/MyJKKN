@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/table';
 import { Inbox } from 'lucide-react';
 import { PDEValidatorService } from '@/lib/services/pde-validator-service';
+import { ClickableDemoRow } from './_components/ClickableDemoRow';
 
 export const dynamic = 'force-dynamic';
 
@@ -179,7 +180,10 @@ export default async function PdeDemonstrationsInboxPage() {
                 </TableHeader>
                 <TableBody>
                   {pending.map((row) => (
-                    <TableRow key={row.id}>
+                    <ClickableDemoRow
+                      key={row.id}
+                      href={`/pde/admin/demonstrations/${row.id}`}
+                    >
                       <TableCell className="font-mono text-xs">
                         {row.learner_id.slice(0, 8)}…
                       </TableCell>
@@ -206,7 +210,7 @@ export default async function PdeDemonstrationsInboxPage() {
                           Validate →
                         </Link>
                       </TableCell>
-                    </TableRow>
+                    </ClickableDemoRow>
                   ))}
                 </TableBody>
               </Table>
