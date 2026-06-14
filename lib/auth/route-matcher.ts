@@ -1,3 +1,4 @@
+// SDK reviewer production smoke test 2026-06-14 — base-ref path. Will not merge.
 /**
  * Route Matcher - Optimized route matching with trie data structure
  * Provides O(1) lookup for protected route configurations
