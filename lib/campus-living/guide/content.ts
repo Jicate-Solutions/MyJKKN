@@ -71,7 +71,8 @@ export const GUIDES: GuideBook = {
             },
             {
               action: 'Pay at least **30% of your year fee** (your minimum due) by **Monday 6:00 PM**.',
-              tip: 'Paying the upgrade fee alone does NOT confirm your upgrade — the minimum due does.',
+              prerequisite:
+                'Paying the upgrade fee alone does NOT confirm your upgrade — only the minimum due does. Miss it and your spot goes to the waiting list.',
             },
             {
               action: 'You’re confirmed once the minimum due is paid.',
