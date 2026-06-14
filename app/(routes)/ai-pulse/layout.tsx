@@ -12,6 +12,7 @@
 import { GUIDES } from "@/lib/ai-pulse/guide/content";
 import { GuideLauncher } from "@/components/ai-pulse/guide/guide-launcher";
 import { detectLane } from "@/lib/ai-pulse/guide/detect-lane";
+import { logGuideEvent } from "@/lib/ai-pulse/guide/actions";
 
 export default async function AiPulseLayout({
   children,
@@ -28,6 +29,7 @@ export default async function AiPulseLayout({
         scopeId={scopeId}
         variant="fab"
         className="left-4 right-auto"
+        onEvent={logGuideEvent}
       />
     </>
   );
