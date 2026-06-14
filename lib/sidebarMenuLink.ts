@@ -1899,7 +1899,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/learn/channels', label: 'Channels', active: pathname.startsWith('/learn/channels') },
             { href: '/learn/profile', label: 'Profile', active: pathname === '/learn/profile' },
             { href: '/learn/leaderboard', label: 'Leaderboard', active: pathname === '/learn/leaderboard' },
-            { href: '/pde/guide', label: 'Guide', active: pathname.startsWith('/pde/guide') },
+            { href: '/guide', label: 'Guide', active: pathname.startsWith('/guide') },
           ]
         },
         {
@@ -1914,7 +1914,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/pde/faculty/demonstrations', label: 'Demonstrations', active: pathname === '/pde/faculty/demonstrations' },
             { href: '/pde/faculty/cases', label: 'Clinical Cases', active: pathname.startsWith('/pde/faculty/cases') },
             { href: '/pde/faculty/analytics', label: 'Analytics', active: pathname === '/pde/faculty/analytics' },
-            { href: '/pde/guide', label: 'Guide', active: pathname.startsWith('/pde/guide') },
+            { href: '/guide', label: 'Guide', active: pathname.startsWith('/guide') },
           ]
         },
         {
@@ -1930,7 +1930,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/pde/admin/engagement', label: 'Engagement', active: pathname === '/pde/admin/engagement' },
             { href: '/pde/admin/at-risk', label: 'At-Risk', active: pathname === '/pde/admin/at-risk' },
             { href: '/pde/admin/lti', label: 'LTI Config', active: pathname === '/pde/admin/lti' },
-            { href: '/pde/guide', label: 'Guide', active: pathname.startsWith('/pde/guide') },
+            { href: '/guide', label: 'Guide', active: pathname.startsWith('/guide') },
           ]
         }
       ]
