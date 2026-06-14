@@ -1098,6 +1098,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/ai-query',
           icon: Sparkles,
           submenus: []
+        },
+        {
+          href: '/guide',
+          label: 'Guide',
+          active: pathname === '/guide' || pathname.startsWith('/guide/'),
+          icon: BookOpen,
+          submenus: []
         }
       ]
     },
@@ -2350,6 +2357,9 @@ export function GetRoleBasedPages(
           if (menu.href === '/admin/bug-reports' && menu.submenus.length > 0) {
             return true;
           }
+
+          // Platform Guide is always visible for all users (universal in-app help)
+          if (menu.href === '/guide') return true;
 
           // Check if menu requires super admin
           if ((menu as any).requiresSuperAdmin) {
