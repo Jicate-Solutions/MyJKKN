@@ -93,6 +93,7 @@ function LaneStart({ why, href, label }: { why: string; href?: string; label?: s
 // (Domain-Sync, Gold, NAAC…) get decoded once, up front.
 const GLOSSARY: Array<[string, string]> = [
   ['Cycle', 'One week of AI Pulse — a Thursday session plus the work that follows.'],
+  ['Attendance', 'Recorded automatically from the four gates during the live session — there’s no register to sign. A Class Incharge can also mark a team present/absent by hand.'],
   ['Engaged', 'A student who passed all four gates that week: joined on time, answered polls, stayed to the end, passed the quiz.'],
   ['Gold Standard', 'The top 2 team projects per department, chosen by faculty on Monday.'],
   ['Domain-Sync', 'The thing a team builds and submits each week using that week’s AI tool.'],
@@ -187,13 +188,20 @@ function StudentLane() {
       </section>
 
       <section>
-        <SectionHeading Icon={Award}>How you get marked “engaged”</SectionHeading>
+        <SectionHeading Icon={Award}>How attendance is tracked</SectionHeading>
         <p className="text-sm text-muted-foreground mb-1">
-          You count as <strong>engaged</strong> only when{' '}
+          <strong>There&apos;s no register to sign.</strong> Your attendance is
+          recorded automatically from what you do in the session — so just take
+          part. You count as <strong>engaged</strong> only when{' '}
           <strong>all four</strong> lights turn green: you joined on time,
           answered the polls, stayed to the end, and passed the quiz. (If there
           were no polls that week, that light passes on its own.) Missed the
           live session? You can still take the quiz for 48 hours.
+        </p>
+        <p className="text-xs text-muted-foreground mb-1">
+          Important: this only works if you join through the{' '}
+          <strong>Open Live Session</strong> button on My Pulse — a meeting link
+          opened any other way records nothing.
         </p>
         <GuideImage
           src="/images/ai-pulse-guide/engagement-gates.png"
@@ -277,13 +285,16 @@ function FacultyLane() {
 function InchargeLane() {
   return (
     <div className="space-y-6">
-      <LaneStart why="Your section only gets counted if attendance is marked — you keep everyone on the board." />
+      <LaneStart why="The system counts each learner automatically — your job is the exceptions: excuse genuine absences and chase the misses." />
       <p className="text-sm leading-relaxed">
-        You keep your section&apos;s participation on track.
+        Each learner&apos;s attendance is recorded{' '}
+        <strong>automatically</strong> from the four gates during the live
+        session — you don&apos;t take a roll-call. Your role is the team-level
+        overlay on top of that:
       </p>
       <NumberedList
         items={[
-          { title: 'Mark attendance', body: 'Record which teams took part in the live and follow-up activities.' },
+          { title: 'Mark or adjust team attendance', body: 'Set a team Present, Absent, or Excused when the automatic record needs a human correction (e.g. someone took part offline).' },
           { title: 'Follow up on absences', body: 'When a learner misses, the system flags it — chase it up or escalate to the Champion and HOD.' },
           { title: 'Teams are drawn for you', body: 'The Friday draw assigns teams automatically — “everyone gets a turn.” You don’t pick them by hand.' },
         ]}
