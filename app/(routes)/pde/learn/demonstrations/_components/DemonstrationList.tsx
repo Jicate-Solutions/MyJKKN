@@ -177,18 +177,18 @@ export function DemonstrationList({ initialRows, initialError }: DemonstrationLi
         method: 'POST',
       });
       if (!res.ok) {
-        // Fallback: T1.1 ships only POST /demonstrations; withdraw endpoint
-        // lands in T1.2. For now, surface a friendly note + ask the learner
-        // to refresh once the endpoint is live.
+        // Self-service withdraw isn't available for this submission yet. Show a
+        // friendly, actionable message instead of leaking the HTTP status or any
+        // implementation detail to the learner.
         if (res.status === 404) {
           toast(
-            'Withdraw endpoint ships in T1.2. Mark as withdrawn manually via support for now.',
+            'This submission can’t be withdrawn here yet — please contact support to withdraw it.',
             { icon: 'ℹ️' }
           );
           return;
         }
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Request failed (${res.status})`);
+        throw new Error(body.error || 'Sorry, we couldn’t withdraw this submission. Please try again or contact support.');
       }
       const { data } = (await res.json()) as { data: PDEDemonstration };
       setRows((prev) => prev.map((r) => (r.id === id ? data : r)));

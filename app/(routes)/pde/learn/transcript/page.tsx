@@ -10,6 +10,9 @@
  */
 
 import { redirect } from 'next/navigation';
+import { AlertCircle } from 'lucide-react';
+import { ContentLayout } from '@/components/layout/content-layout';
+import { Card, CardContent } from '@/components/ui/card';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { PDETranscriptService } from '@/lib/services/pde-transcript-service';
 import { TranscriptDocument } from './_components/TranscriptDocument';
@@ -39,13 +42,20 @@ export default async function LearnerTranscriptPage() {
 
   if (!data) {
     return (
-      <div style={{ padding: 40, fontFamily: 'system-ui, sans-serif' }}>
-        <h1 style={{ fontSize: 20, marginBottom: 8 }}>Transcript unavailable</h1>
-        <p>
-          We couldn&apos;t find a learner profile linked to your account. If you believe this is an
-          error, please contact your PDE coordinator.
-        </p>
-      </div>
+      <ContentLayout title="My PDE Transcript">
+        <Card className="border-rose-200 bg-rose-50/40">
+          <CardContent className="py-6 flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-rose-600 mt-0.5 shrink-0" />
+            <div>
+              <p className="font-medium text-rose-800">Transcript unavailable</p>
+              <p className="text-sm text-rose-700 mt-1">
+                We couldn&apos;t find a learner profile linked to your account. If you believe this
+                is an error, please contact your PDE coordinator.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </ContentLayout>
     );
   }
 

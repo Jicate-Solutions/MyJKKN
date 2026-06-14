@@ -19,9 +19,11 @@
 // =====================================================================
 
 import { useMemo } from 'react';
+import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { TrendingUp, Sparkles, Target, AlertCircle, Info } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { TrendingUp, Sparkles, Target, AlertCircle, Info, PlusCircle } from 'lucide-react';
 import {
   PDE_CATEGORY_KEYS,
   PDE_CATEGORY_LABELS,
@@ -276,6 +278,12 @@ export function PeerRelativeCard({ data }: PeerRelativeCardProps) {
                 peers across the seven durable-value categories. Your scores
                 appear here once faculty validate your evidence.
               </p>
+              <Link href="/pde/learn/demonstrations/new" className="mt-3 inline-block">
+                <Button className="bg-[#0b6d41] hover:bg-[#0b6d41]/90">
+                  <PlusCircle className="mr-2 h-4 w-4" />
+                  Start your first demonstration
+                </Button>
+              </Link>
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
