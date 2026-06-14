@@ -104,6 +104,16 @@ export default function FacultyAnalyticsPage() {
           </Select>
         </div>
 
+        {/* Explains the "No data" states below: collection is pending, not broken. */}
+        <div className="flex items-start gap-2 rounded-md border border-[#0b6d41]/20 bg-[#0b6d41]/5 px-3 py-2 text-sm text-muted-foreground">
+          <BarChart3 className="h-4 w-4 mt-0.5 shrink-0 text-[#0b6d41]" />
+          <span>
+            Analytics populate as learners interact with the PDE system. Empty or
+            &ldquo;No data&rdquo; panels below mean collection is still in progress,
+            not that anything is wrong.
+          </span>
+        </div>
+
         {/* Tab Navigation */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="grid w-full grid-cols-4">

@@ -46,6 +46,10 @@ export default function FacultyAssessmentsPage() {
   );
 
   const courses = coursesData?.data || [];
+  const selectedCourse = courses.find(
+    (c: { id: string; name: string }) => c.id === selectedCourseId
+  );
+  const assessmentCount = assessments?.length ?? 0;
 
   return (
     <ContentLayout title="My Assessments">
@@ -102,13 +106,26 @@ export default function FacultyAssessmentsPage() {
           </CardContent>
         </Card>
 
+        {/* Result summary — clarifies the list is scoped to the chosen course */}
+        {selectedCourseId && !loadingAssessments && assessmentCount > 0 && (
+          <p className="px-1 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">{assessmentCount}</span>{' '}
+            assessment{assessmentCount !== 1 ? 's' : ''}
+            {selectedCourse ? ` in ${selectedCourse.name}` : ''}
+          </p>
+        )}
+
         {/* Assessments Table */}
         <Card className="bg-[#fbfbee]/30 dark:bg-card">
           <CardContent className="p-0">
             {!selectedCourseId ? (
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <ClipboardList className="h-12 w-12 text-muted-foreground/40 mb-4" />
-                <p className="text-muted-foreground">Select a course to view its assessments</p>
+                <h3 className="text-lg font-medium mb-1">Choose a course to begin</h3>
+                <p className="text-sm text-muted-foreground max-w-md">
+                  Assessments are organised by course. Pick one from the filter above
+                  to see its assessments, submissions, and performance.
+                </p>
               </div>
             ) : loadingAssessments ? (
               <div className="flex justify-center p-8">
@@ -117,7 +134,13 @@ export default function FacultyAssessmentsPage() {
             ) : !assessments || assessments.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <FileText className="h-12 w-12 text-muted-foreground/40 mb-4" />
-                <p className="text-muted-foreground mb-4">No assessments found for this course</p>
+                <h3 className="text-lg font-medium mb-1">
+                  No assessments yet{selectedCourse ? ` in ${selectedCourse.name}` : ' for this course'}
+                </h3>
+                <p className="text-sm text-muted-foreground mb-4 max-w-md">
+                  This course has no assessments. Create the first one, or pick a
+                  different course from the filter above.
+                </p>
                 <Button asChild variant="outline">
                   <Link href={`/pde/admin/assessments/create?courseId=${selectedCourseId}`}>
                     <Plus className="mr-2 h-4 w-4" />
