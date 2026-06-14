@@ -480,11 +480,11 @@ export function DemonstrationForm() {
                   setForm((prev) => ({ ...prev, bos_syllabus_id: v, clo_refs: [] }))
                 }
               >
-                <SelectTrigger id="bos_syllabus">
+                <SelectTrigger id="bos_syllabus" disabled={loadingCurriculum}>
                   <SelectValue
                     placeholder={
                       loadingCurriculum
-                        ? 'Loading syllabi…'
+                        ? 'Loading courses…'
                         : 'Pick the BoS-approved course this evidence belongs to'
                     }
                   />
@@ -570,7 +570,7 @@ export function DemonstrationForm() {
                 value={form.vac_course_id || undefined}
                 onValueChange={(v) => setForm((prev) => ({ ...prev, vac_course_id: v }))}
               >
-                <SelectTrigger id="vac_course">
+                <SelectTrigger id="vac_course" disabled={loadingCurriculum}>
                   <SelectValue
                     placeholder={
                       loadingCurriculum
@@ -602,9 +602,14 @@ export function DemonstrationForm() {
         </div>
 
         {showRubricHint && (
-          <p className="text-xs text-muted-foreground italic">
-            No rubric required for this category yet — describe your evidence below and a reviewer will score free-form.
-          </p>
+          <div className="rounded-md border border-border/60 bg-muted/30 p-3 flex items-start gap-2 text-xs text-muted-foreground">
+            <BookOpenCheck className="h-4 w-4 mt-0.5 shrink-0 text-[#0b6d41]" />
+            <p>
+              <span className="font-medium text-foreground">No rubric for this category.</span>{' '}
+              That&apos;s expected — your validator scores this demonstration free-form. Just
+              describe your evidence below.
+            </p>
+          </div>
         )}
 
         {/* --- Skill name --- */}
