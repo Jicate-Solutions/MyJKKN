@@ -86,7 +86,8 @@ def main():
         key = (f, ln, term.lower())
         if key in seen: continue
         seen.add(key)
-        rows.append(f"| `{f}:{ln}` | **{term}** → `{repl}` | {snippet.replace('|','\\|')} |")
+        safe = snippet.replace("|", "\\|")   # escape table delimiter (no backslash in f-string expr — py3.11)
+        rows.append(f"| `{f}:{ln}` | **{term}** → `{repl}` | {safe} |")
 
     print("<!-- jkkn-terminology -->")
     print("## 🗣️ JKKN Terminology (advisory)\n")
