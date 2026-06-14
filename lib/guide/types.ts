@@ -353,6 +353,49 @@ export function nextUndoneStep(
   return null;
 }
 
+/* ── Onboarding entry (the "Start / Resume onboarding" control) ───────────────
+ * The start-vs-resume-vs-replay decision is derived PURELY from saved progress,
+ * never from a "is this the first login" flag — that is what lets a returning
+ * user who SKIPPED onboarding pick it up now (empty/partial set → start/resume),
+ * and a finished user replay it. */
+export type OnboardingKind = "start" | "resume" | "replay";
+
+export interface OnboardingCta {
+  kind: OnboardingKind;
+  /** Human label for the control, e.g. "Resume onboarding". */
+  label: string;
+  /** Steps still to do in the lane (0 when complete). */
+  remaining: number;
+  /** Where the control jumps to: the next undone step, or — on replay — the
+   *  lane's first step. Null only for a truly empty lane. */
+  target: NextStep | null;
+  complete: boolean;
+}
+
+export function onboardingCta(
+  lane: PersonaGuide,
+  completed: ReadonlySet<string>
+): OnboardingCta {
+  const lp = laneProgress(lane, completed);
+  const next = nextUndoneStep(lane, completed);
+  if (lp.done === 0) {
+    return { kind: "start", label: "Start onboarding", remaining: lp.total, target: next, complete: false };
+  }
+  if (next) {
+    return { kind: "resume", label: "Resume onboarding", remaining: lp.total - lp.done, target: next, complete: false };
+  }
+  // Lane complete → offer a replay from the first step (re-seed against empty).
+  return { kind: "replay", label: "Replay walkthrough", remaining: 0, target: nextUndoneStep(lane, new Set()), complete: true };
+}
+
+/** Synthetic progress key marking that a viewer has seen a module's first-entry
+ *  welcome. Stored in the SAME `guide_progress` table as real steps (so it syncs
+ *  across devices) but excluded from `laneStepKeys`, so it never inflates lane
+ *  progress or becomes a `nextUndoneStep`. */
+export function welcomeSeenKey(moduleKey: string): string {
+  return `__welcome__:${moduleKey}`;
+}
+
 /* ── Instrumentation ─────────────────────────────────────────────────────── */
 
 /** Every meaningful guide interaction, for MEASURING adoption. The host app's
@@ -368,13 +411,15 @@ export type GuideEventName =
   | "lane_complete" // every step in a lane done
   | "pdf_download" // PDF button used
   | "nudge_click" // a GuideNudge / NextStepWidget CTA tapped
-  | "guide_dismiss"; // drawer / first-run closed
+  | "onboarding_start" // the Start/Resume onboarding launcher was used
+  | "welcome_shown" // a per-module first-entry welcome card was displayed
+  | "guide_dismiss"; // drawer / first-run / welcome closed
 
 export interface GuideEvent {
   name: GuideEventName;
   persona: CanonicalPersona;
   /** Surface that emitted it. */
-  surface: "page" | "drawer" | "launcher" | "nudge" | "widget";
+  surface: "page" | "drawer" | "launcher" | "nudge" | "widget" | "onboarding" | "welcome";
   /** Step key when relevant (complete / uncomplete / link click). */
   stepKey?: string;
   /** Where the emitter was rendered, for funnel analysis (e.g. a route). */
@@ -396,6 +441,8 @@ export const GUIDE_EVENT_NAMES: readonly GuideEventName[] = [
   "lane_complete",
   "pdf_download",
   "nudge_click",
+  "onboarding_start",
+  "welcome_shown",
   "guide_dismiss",
 ] as const;
 
@@ -405,4 +452,6 @@ export const GUIDE_SURFACES: readonly GuideEvent["surface"][] = [
   "launcher",
   "nudge",
   "widget",
+  "onboarding",
+  "welcome",
 ] as const;

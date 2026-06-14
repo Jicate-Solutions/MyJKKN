@@ -13,6 +13,7 @@
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { GuideAdoptionMount } from '@/components/guide/guide-adoption-mount';
 import { DashboardErrorBoundary } from '@/components/dashboard/dashboard-error-boundary';
 import { getDashboardMetrics } from '@/lib/services/dashboard/dashboard-metrics-service';
 import { HeroStrip } from '@/components/dashboard/hero-strip';
@@ -310,6 +311,12 @@ export default async function DashboardV2Page({
             }
           ]}
         />
+
+        {/* Platform Smart Guide — adoption surfaces (Start/Resume + next step).
+            Fail-soft server mount; renders nothing if the viewer has no lane. */}
+        <Suspense fallback={null}>
+          <GuideAdoptionMount />
+        </Suspense>
 
         {/* Today's Focus (actionability upgrade #2, 2026-04-21) — director only.
             Derives the single most-important thing to act on from current OHS

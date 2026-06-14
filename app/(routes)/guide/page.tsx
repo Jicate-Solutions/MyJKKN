@@ -26,7 +26,7 @@
 
 import { ContentLayout } from "@/components/layout/content-layout";
 import { PageBreadcrumb } from "@/components/navigation";
-import { composeGuideBook } from "@/lib/guide/registry";
+import { composeGuideBook, FILLED_PERSONAS } from "@/lib/guide/registry";
 import { filterLaneSections } from "@/lib/guide/filter";
 import {
   isCanonicalPersona,
@@ -76,6 +76,13 @@ export default async function PlatformGuidePage({
   ) as Record<CanonicalPersona, PersonaGuide>;
   const guides: GuideBook = { ...base, lanes };
 
+  // Switcher: offer only lanes a module actually fills + the viewer's own, so a
+  // viewer never sees several identical overview-only tabs (parent / external /
+  // platform-admin fall back to the overview until a module fills them).
+  const switcherPersonas = access.visible.filter(
+    (p) => FILLED_PERSONAS.has(p) || p === persona
+  );
+
   const initialCompleted = await getCompletedSteps(persona);
 
   return (
@@ -92,7 +99,7 @@ export default async function PlatformGuidePage({
           key={persona}
           guides={guides}
           persona={persona}
-          visiblePersonas={access.visible}
+          visiblePersonas={switcherPersonas}
           scopeId={access.scopeId}
           basePath={BASE_PATH}
           trackProgress

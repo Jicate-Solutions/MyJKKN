@@ -318,6 +318,14 @@ export const pdeGuide: ModuleGuide = {
  * ──────────────────────────────────────────────────────────────────────── */
 export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide];
 
+/** Canonical personas at least one module contributes real sections to. A
+ *  persona NOT in this set is sparse (composeLane returns the platform-overview
+ *  fallback for it), so the /guide switcher omits it — except the viewer's own
+ *  lane — to avoid offering several identical overview-only tabs. */
+export const FILLED_PERSONAS: ReadonlySet<CanonicalPersona> = new Set(
+  REGISTRY.flatMap((m) => Object.keys(m.lanes) as CanonicalPersona[])
+);
+
 /* ────────────────────────────────────────────────────────────────────────
  * e. composeLane — merge every module fragment's sections for one persona,
  *    namespacing each section's step keys by module so two modules can't
