@@ -8,3 +8,4 @@ export * from './assessments-service';
 export * from './results-service';
 export * from './vbb-service';
 export * from './schedule-service';
+export * from './policies-service';
