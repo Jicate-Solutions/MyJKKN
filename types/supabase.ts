@@ -75605,46 +75605,58 @@ export type Database = {
           account_label: string | null
           created_at: string
           created_by: string | null
+          dba_name: string | null
+          fee_head: string | null
           id: string
           institution_id: string
           is_active: boolean
-          key_id: string
-          key_secret_encrypted: string
+          key_id: string | null
+          key_secret_encrypted: string | null
+          mid: string | null
           mode: string
+          tid: string | null
           updated_at: string
           updated_by: string | null
-          webhook_ref: string
-          webhook_secret_encrypted: string
+          webhook_ref: string | null
+          webhook_secret_encrypted: string | null
         }
         Insert: {
           account_label?: string | null
           created_at?: string
           created_by?: string | null
+          dba_name?: string | null
+          fee_head?: string | null
           id?: string
           institution_id: string
           is_active?: boolean
-          key_id: string
-          key_secret_encrypted: string
+          key_id?: string | null
+          key_secret_encrypted?: string | null
+          mid?: string | null
           mode?: string
+          tid?: string | null
           updated_at?: string
           updated_by?: string | null
-          webhook_ref: string
-          webhook_secret_encrypted: string
+          webhook_ref?: string | null
+          webhook_secret_encrypted?: string | null
         }
         Update: {
           account_label?: string | null
           created_at?: string
           created_by?: string | null
+          dba_name?: string | null
+          fee_head?: string | null
           id?: string
           institution_id?: string
           is_active?: boolean
-          key_id?: string
-          key_secret_encrypted?: string
+          key_id?: string | null
+          key_secret_encrypted?: string | null
+          mid?: string | null
           mode?: string
+          tid?: string | null
           updated_at?: string
           updated_by?: string | null
-          webhook_ref?: string
-          webhook_secret_encrypted?: string
+          webhook_ref?: string | null
+          webhook_secret_encrypted?: string | null
         }
         Relationships: [
           {
@@ -102540,6 +102552,10 @@ export type Database = {
           p_webhook_ref: string | null
           p_master_secret: string
           p_actor?: string | null
+          p_fee_head?: string | null
+          p_mid?: string | null
+          p_tid?: string | null
+          p_dba_name?: string | null
         }
         Returns: {
           id: string
@@ -102547,7 +102563,7 @@ export type Database = {
         }[]
       }
       fn_get_razorpay_account: {
-        Args: { p_institution_id: string; p_master_secret: string }
+        Args: { p_institution_id: string; p_master_secret: string; p_fee_head?: string | null }
         Returns: {
           id: string
           key_id: string
@@ -102581,16 +102597,72 @@ export type Database = {
         Returns: {
           id: string
           institution_id: string
-          key_id: string
+          key_id: string | null
           account_label: string | null
           mode: string
           is_active: boolean
-          webhook_ref: string
+          webhook_ref: string | null
           created_at: string
+          fee_head: string | null
+          mid: string | null
+          tid: string | null
+          dba_name: string | null
+          status: string
+        }[]
+      }
+      fn_create_razorpay_draft: {
+        Args: {
+          p_institution_id: string
+          p_fee_head: string | null
+          p_label: string | null
+          p_mid: string | null
+          p_tid: string | null
+          p_dba_name: string | null
+          p_mode?: string
+          p_actor?: string | null
+        }
+        Returns: string
+      }
+      fn_activate_razorpay_account: {
+        Args: {
+          p_account_id: string
+          p_key_id: string
+          p_key_secret: string
+          p_webhook_secret: string
+          p_master_secret: string
+          p_webhook_ref?: string | null
+          p_actor?: string | null
+        }
+        Returns: {
+          id: string
+          webhook_ref: string
         }[]
       }
       fn_deactivate_razorpay_account: {
         Args: { p_institution_id: string; p_actor?: string | null }
+        Returns: undefined
+      }
+      fn_deactivate_razorpay_account_by_id: {
+        Args: { p_account_id: string; p_actor?: string | null }
+        Returns: undefined
+      }
+      fn_update_razorpay_account_meta: {
+        Args: {
+          p_account_id: string
+          p_label: string | null
+          p_mid: string | null
+          p_tid: string | null
+          p_dba_name: string | null
+          p_mode?: string | null
+          p_institution_id?: string | null
+          p_fee_head?: string | null
+          p_change_slot?: boolean
+          p_actor?: string | null
+        }
+        Returns: undefined
+      }
+      fn_delete_razorpay_account_by_id: {
+        Args: { p_account_id: string; p_actor?: string | null }
         Returns: undefined
       }
       fn_set_referral_eligibility: {
@@ -104690,6 +104762,7 @@ export type Database = {
         | "library"
         | "other"
         | "university_fee"
+        | "establishment"
       billing_model_enum:
         | "fixed_monthly"
         | "per_meal"
@@ -106076,6 +106149,7 @@ export const Constants = {
         "library",
         "other",
         "university_fee",
+        "establishment",
       ],
       billing_model_enum: [
         "fixed_monthly",
