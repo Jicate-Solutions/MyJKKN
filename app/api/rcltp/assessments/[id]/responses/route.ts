@@ -1,9 +1,10 @@
 /**
  * POST /api/rcltp/assessments/:id/responses
- * RCLTP v2 Phase 3 — student records Part B answers (raw capture).
- * IMPORTANT: this persists the learner's RAW answers only. is_correct / score
- * stay NULL and auto_graded = false — grading a response is part of the EKSAQ
- * scoring step (gated). We never fabricate grades here.
+ * RCLTP v2 Phase 3 — student records Part B answers (raw capture, LAST-WINS).
+ * Upserts on (assessment_id, question_id): re-answering a question before submit
+ * OVERWRITES the prior answer (one authoritative row per question). is_correct /
+ * score stay NULL and auto_graded = false — grading is the EKSAQ scoring step
+ * (gated). We never fabricate grades here.
  * Gate: rcltp.assessment.take. Ownership: parent assessment → session learner.
  * Status-guarded (open sittings only); question_ids validated against the assessment's
  * passage (approved + in-tenant/global) so no foreign/draft question can be referenced.
@@ -89,7 +90,13 @@ export const POST = withAuth(
       );
     }
 
-    const rows = responses.map((r) => ({
+    // Last-wins WITHIN a single payload too: collapse duplicate question_ids
+    // (keep the last) so the upsert never hits the same conflict target twice
+    // in one statement (Postgres rejects that with a runtime error otherwise).
+    const byQuestion = new Map<string, (typeof responses)[number]>();
+    for (const r of responses) byQuestion.set(r.question_id as string, r);
+
+    const rows = Array.from(byQuestion.values()).map((r) => ({
       assessment_id: assessmentId,
       question_id: r.question_id,
       institution_id: auth.user.institution_id,
@@ -98,9 +105,11 @@ export const POST = withAuth(
       auto_graded: false,
     }));
 
+    // LAST-WINS: upsert on the (assessment_id, question_id) unique key so a
+    // re-answer overwrites rather than appending a duplicate row.
     const { data, error: iErr } = await admin
       .from('rcltp_part_b_responses')
-      .insert(rows)
+      .upsert(rows, { onConflict: 'assessment_id,question_id' })
       .select();
     if (iErr) return handleSupabaseError(iErr);
     return successResponse(data);
