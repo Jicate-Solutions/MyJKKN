@@ -2,7 +2,7 @@ name: Claude Risk Review (advisory)
 
 # Path-glob risk router + Claude (Fable 5) reviewers on EVERY substantive PR.
 #
-# Tier model (upgraded 2026-06-11 per Director: "ignore the cost — use fable
+# Tier model (upgraded 2026-06-11 per Director: "ignore the cost — use the best available model
 # and ultracode if it helps the build"):
 #   skip      docs/screenshots-only PRs   → no review (noise, not cost)
 #   standard  every other PR              → one Fable 5 adversarial skeptic
@@ -32,7 +32,7 @@ name: Claude Risk Review (advisory)
 # share the Max subscription's limits with interactive sessions (accepted
 # per Director 2026-06-11).
 #
-# Model: claude-fable-5 (swap --model below if the plan can't access it in CI).
+# Model: claude-opus-4-8 (swap --model below if the plan can't access it in CI).
 # MAX_THINKING_TOKENS raises reasoning depth — cost deliberately ignored.
 # First deep-tier run: check the action transcript that subagents actually
 # spawned (tool names Task/Agent vary by runtime; prompt has a degraded-mode
@@ -168,7 +168,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: |
-            --model claude-fable-5
+            --model claude-opus-4-8
             --allowedTools "Read,Grep,Glob,Write,Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
           prompt: |
             You are an adversarial reviewer for a production multi-tenant
@@ -223,7 +223,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: |
-            --model claude-fable-5
+            --model claude-opus-4-8
             --allowedTools "Read,Grep,Glob,Write,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Task,Agent,Workflow"
           prompt: |
             ultracode: run a multi-agent adversarial review panel on this

@@ -5044,6 +5044,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/pde/guide",
+        "label": "Guide",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/pde/learn",
         "label": "Learn",
         "iconName": "FileText",

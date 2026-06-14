@@ -15,10 +15,20 @@
  *
  * Behaviour at /pde itself is handled by app/(routes)/pde/page.tsx — a
  * config-driven redirect via platform_policies (nav.pde.default_landing).
+ *
+ * The "?Help" Smart Guide FAB rides here so it appears on every PDE screen
+ * (learner, faculty, admin). It resolves the viewer's lane client-side and is
+ * offset bottom-left so it never stacks on the global bug/lightning FABs.
  */
 
 import type { ReactNode } from 'react';
+import { PdeGuideFab } from '@/components/pde/guide/pde-guide-fab';
 
 export default function PdeLayout({ children }: { children: ReactNode }) {
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      <PdeGuideFab />
+    </>
+  );
 }

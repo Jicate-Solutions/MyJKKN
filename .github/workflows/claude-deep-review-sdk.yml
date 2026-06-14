@@ -1,0 +1,156 @@
+name: Claude Deep Review (SDK multi-agent)
+
+# True multi-agent PR reviewer on the Claude Agent SDK: three genuinely
+# independent lens agents in parallel + a judge. The real dynamic workflow the
+# prompt-driven claude-risk-review.yml deep tier could only simulate (verified
+# on PR #1383: that one was 1 agent / 7 turns / 0 spawns; this one runs 3
+# concurrent agents with staggered completion and distinct findings).
+#
+# Judging is NOT a 2-of-3 gate: the lenses have disjoint mandates, so the judge
+# keeps full severity for any line-tied finding (even single-lens) and uses
+# agreement only to raise confidence. (See the script header.)
+#
+# Auth: CLAUDE_CODE_OAUTH_TOKEN (Claude Max). No API key. Draws from the Max
+# monthly Agent SDK credit pool, separate from interactive usage.
+#
+# SECURITY (hardened over PR #1383 by the reviewer reviewing itself):
+#  - Runs the TRUSTED base-ref copy of the script, NEVER the PR head copy — a
+#    malicious same-repo branch cannot rewrite the script to exfiltrate the
+#    token (the pwn_request vector). Fork PRs get no secret at all (token check).
+#  - Agents have no file tools; the whole script is crash-guarded to an explicit
+#    inconclusive review (never a silent green pass).
+# Advisory — posts a comment, never blocks.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+
+concurrency:
+  group: claude-deep-review-sdk-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  route:
+    name: Deep-tier router
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    if: ${{ !github.event.pull_request.draft }}
+    outputs:
+      deep: ${{ steps.classify.outputs.deep }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Classify
+        id: classify
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$BASE_REF" --quiet
+          CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD")
+          DOCS_REGEX='^(docs|specs)/.*\.(md|mdx|txt|png|jpe?g|gif|svg|pdf)$|^\.screenshots/|^(README\.md|CHANGELOG\.md|LICENSE)$|\.md$'
+          RISK_REGEX='^(supabase/migrations/|supabase/setup/|lib/auth/|app/auth/|app/api/auth/|(middleware|proxy)\.ts$|utils/supabase/)'
+          MONEY_REGEX='(^|[/_.-])(fees?|billing|payments?|invoices?|scholarships?|payroll)([/_.-]|$)'
+          NON_DOCS=$(echo "$CHANGED" | grep -vE "$DOCS_REGEX" || true)
+          DEEP=$( { echo "$NON_DOCS" | grep -E "$RISK_REGEX" || true; echo "$NON_DOCS" | grep -iE "$MONEY_REGEX" || true; } | grep -ivE '\.(png|jpe?g|gif|svg|webp)$' | grep -v '^$' | sort -u || true )
+          if [[ -n "$DEEP" ]]; then echo "deep=true" >> "$GITHUB_OUTPUT"; else echo "deep=false" >> "$GITHUB_OUTPUT"; fi
+          echo "::notice::deep=$([[ -n "$DEEP" ]] && echo true || echo false)"
+
+  deep-review:
+    name: SDK multi-agent review
+    needs: route
+    if: needs.route.outputs.deep == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Check token
+        id: token
+        env:
+          HAS_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: |
+          echo "has_token=$HAS_TOKEN" >> "$GITHUB_OUTPUT"
+          [ "$HAS_TOKEN" = "true" ] || echo "::notice::No CLAUDE_CODE_OAUTH_TOKEN — skipping."
+
+      - name: Setup Node
+        if: steps.token.outputs.has_token == 'true'
+        uses: actions/setup-node@v4
+        with: { node-version: '22' }
+
+      - name: Install SDK + stage TRUSTED base-ref script
+        id: stage
+        if: steps.token.outputs.has_token == 'true'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$BASE_REF" --quiet
+          mkdir -p /tmp/reviewer && cd /tmp/reviewer
+          npm init -y >/dev/null 2>&1
+          npm install @anthropic-ai/claude-agent-sdk @anthropic-ai/claude-code --no-audit --no-fund
+          # SECURITY: the script that runs with the token MUST be the trusted
+          # base-branch version, not the PR's (a branch could rewrite it to leak
+          # the token). No PR-head fallback — skip safely if absent on base.
+          if git -C "$GITHUB_WORKSPACE" show "origin/$BASE_REF:.github/scripts/deep-review.mjs" > /tmp/reviewer/deep-review.mjs 2>/dev/null \
+             && [ -s /tmp/reviewer/deep-review.mjs ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Staged trusted base-ref reviewer script ($(wc -c < /tmp/reviewer/deep-review.mjs) bytes)."
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::deep-review.mjs not on $BASE_REF yet — skipping (no untrusted PR-head fallback)."
+          fi
+
+      - name: Generate PR diff
+        if: steps.token.outputs.has_token == 'true' && steps.stage.outputs.run == 'true'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$BASE_REF" --quiet
+          git diff "origin/$BASE_REF...HEAD" > /tmp/pr.diff
+          echo "diff bytes: $(wc -c < /tmp/pr.diff)"
+
+      - name: Run multi-agent review
+        if: steps.token.outputs.has_token == 'true' && steps.stage.outputs.run == 'true'
+        continue-on-error: true   # advisory — never redden the PR
+        timeout-minutes: 25
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          DIFF_FILE: /tmp/pr.diff
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          APP_CONTEXT: "a production multi-tenant college ERP (MyJKKN)"
+        run: |
+          export PATH="/tmp/reviewer/node_modules/.bin:$PATH"
+          node /tmp/reviewer/deep-review.mjs
+
+      - name: Post review comment (idempotent, self-dedup)
+        if: steps.token.outputs.has_token == 'true' && steps.stage.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ ! -s /tmp/claude-review.md ]; then
+            echo "::warning::No review file produced — advisory, ending green."
+            exit 0
+          fi
+          mapfile -t IDS < <(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            --paginate --jq '.[] | select(.body | startswith("<!-- claude-deep-review-sdk -->")) | .id' 2>/dev/null || true)
+          if [ "${#IDS[@]}" -eq 0 ]; then
+            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/claude-review.md
+            echo "::notice::Posted new comment"
+          else
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/${IDS[0]}" -F body=@/tmp/claude-review.md > /dev/null
+            echo "::notice::Updated comment #${IDS[0]}"
+            for stale in "${IDS[@]:1}"; do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$stale" > /dev/null 2>&1 && echo "::notice::Deleted stale #$stale" || echo "::notice::Stale #$stale already gone"
+            done
+          fi
