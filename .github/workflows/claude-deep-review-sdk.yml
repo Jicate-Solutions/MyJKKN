@@ -81,9 +81,18 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install Agent SDK + CLI
+      - name: Install Agent SDK + CLI (isolated dir)
         if: steps.token.outputs.has_token == 'true'
-        run: npm install -g @anthropic-ai/claude-agent-sdk @anthropic-ai/claude-code
+        run: |
+          set -euo pipefail
+          # Isolated install dir so ESM `import` resolves the SDK from a local
+          # node_modules (global -g installs are invisible to ESM imports), and
+          # so we never touch the repo's own package.json / node_modules.
+          mkdir -p /tmp/reviewer
+          cd /tmp/reviewer
+          npm init -y >/dev/null 2>&1
+          npm install @anthropic-ai/claude-agent-sdk @anthropic-ai/claude-code --no-audit --no-fund
+          cp "$GITHUB_WORKSPACE/.github/scripts/deep-review.mjs" /tmp/reviewer/deep-review.mjs
 
       - name: Generate PR diff
         if: steps.token.outputs.has_token == 'true'
@@ -101,12 +110,16 @@ jobs:
         timeout-minutes: 25
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          NODE_PATH: /usr/local/lib/node_modules
           DIFF_FILE: /tmp/pr.diff
+          REPO_DIR: ${{ github.workspace }}    # agents read the real repo here
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
           APP_CONTEXT: "a production multi-tenant college ERP (MyJKKN)"
-        run: node .github/scripts/deep-review.mjs
+        # Run from the isolated dir so the SDK import resolves; agents still see
+        # the repo via REPO_DIR -> options.cwd. .bin on PATH so the SDK finds the CLI.
+        run: |
+          export PATH="/tmp/reviewer/node_modules/.bin:$PATH"
+          node /tmp/reviewer/deep-review.mjs
 
       - name: Post review comment (idempotent)
         if: steps.token.outputs.has_token == 'true'

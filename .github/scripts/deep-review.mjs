@@ -65,6 +65,9 @@ async function runAgent(prompt, label) {
     prompt,
     options: {
       model: MODEL,
+      // Agents read the real repo here; the script itself lives elsewhere
+      // (where the SDK is installed), so cwd must be set explicitly.
+      cwd: process.env.REPO_DIR || process.cwd(),
       // Read-only repo access; the diff is already inline. No Bash/Write — these
       // agents must not mutate the runner or run arbitrary commands on an
       // untrusted diff.
