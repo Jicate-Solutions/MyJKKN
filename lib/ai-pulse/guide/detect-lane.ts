@@ -12,6 +12,7 @@
  * participant guide, and `denied` only fires if even that were gated.
  */
 import "server-only";
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { GUIDES } from "./content";
 import { GUIDE_PERSONAS, type GuidePersona } from "./types";
@@ -33,7 +34,12 @@ const PRIORITY: readonly GuidePersona[] = [
   "student",
 ] as const;
 
-export async function detectLane(): Promise<DetectedLane> {
+/**
+ * Wrapped in React cache() so the per-request result is deduped: the AI Pulse
+ * layout (FAB) and the guide page both call this within one request and now
+ * share a single resolution instead of re-running the permission RPCs twice.
+ */
+export const detectLane = cache(async function detectLane(): Promise<DetectedLane> {
   try {
     return await detectLaneInner();
   } catch {
@@ -43,7 +49,7 @@ export async function detectLane(): Promise<DetectedLane> {
     const visible = GUIDE_PERSONAS.filter((p) => !GUIDES.lanes[p].requires);
     return { persona: visible[0] ?? "student", scopeId: null, visible, denied: false };
   }
-}
+});
 
 async function detectLaneInner(): Promise<DetectedLane> {
   const supabase = await createClient();
@@ -74,12 +80,17 @@ async function detectLaneInner(): Promise<DetectedLane> {
     }
   };
 
-  // Resolve visibility per lane. Undefined `requires` = open lane.
-  const visible: GuidePersona[] = [];
-  for (const p of GUIDE_PERSONAS) {
-    const req = GUIDES.lanes[p].requires;
-    if (isSuper || !req || (await can(req))) visible.push(p);
-  }
+  // Resolve visibility per lane. Undefined `requires` = open lane. Super-admins
+  // skip the RPCs entirely; otherwise resolve all gated lanes' permission checks
+  // in PARALLEL (one round-trip's latency, not N serial ones).
+  const allowByPersona = await Promise.all(
+    GUIDE_PERSONAS.map(async (p) => {
+      const req = GUIDES.lanes[p].requires;
+      if (isSuper || !req) return true;
+      return can(req);
+    })
+  );
+  const visible = GUIDE_PERSONAS.filter((_, i) => allowByPersona[i]);
 
   // Own lane = the most specific visible lane (PRIORITY order).
   const own = PRIORITY.find((p) => visible.includes(p)) ?? "student";
