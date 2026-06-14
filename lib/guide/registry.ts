@@ -181,6 +181,28 @@ export const PLATFORM_OVERVIEW: PersonaGuide = {
   ],
 };
 
+/**
+ * PLATFORM_OVERVIEW_LANE — the route-fallback OVERVIEW lane shown by the platform
+ * Help FAB on any route NO guide module owns (dashboards, settings, modules
+ * without a guide yet) and as the ultimate safety net. It is the
+ * PLATFORM_OVERVIEW content under a neutral, persona-agnostic identity — so a
+ * viewer on a generic page gets "how to get around MyJKKN", not some module's
+ * lane they merely qualify for. See lib/guide/pick-lane.ts.
+ *
+ * persona is "learner" (the OPEN, ungated lane): its progress/events validate
+ * against the canonical allow-list (lib/guide/actions.ts) and it never leaks a
+ * gated persona to the client. Its step keys (`what-is-this:0`, `where-do-i-go:0`)
+ * are un-namespaced, so they never collide with the module-namespaced learner
+ * steps (`ai-pulse:…`, `pde:…`) — overview progress and learner-module progress
+ * stay disjoint while sharing the one learner bucket.
+ */
+export const PLATFORM_OVERVIEW_LANE: PersonaGuide = {
+  ...PLATFORM_OVERVIEW,
+  persona: "learner",
+  title: "Find your way around",
+  tagline: "New here, or on a page without its own guide? Start with the basics.",
+};
+
 /* ────────────────────────────────────────────────────────────────────────
  * c. MODULE FRAGMENTS — remap each module's existing lanes onto canonical
  *    personas, tagging section.requires per the gating rules.

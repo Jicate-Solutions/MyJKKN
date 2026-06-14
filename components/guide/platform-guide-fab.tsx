@@ -12,10 +12,12 @@
  *   - `own`: the viewer's default lane (highest-priority lane they can see),
  *   - nothing else about permissions.
  *
- * "Match the page you're on" (the locked rule): usePathname() → which module owns
- * this route (route-map, pure) → open the highest-priority VISIBLE persona that
- * module contributes to; off a guide module, open `own`; if the chosen lane has
- * no content, fall back to the first lane that does (the overview).
+ * "Match the page you're on" (the locked rule): usePathname() → pickGuideLane
+ * (pure) → on a guide module's route, the highest-priority VISIBLE persona that
+ * module contributes to (else the viewer's own lane); on a route NO module owns,
+ * the generic platform OVERVIEW lane ("how to get around"), not an unrelated
+ * module lane. The overview is also the floor, so the FAB is useful on every
+ * signed-in page — not just the instrumented modules.
  *
  * Mounted bottom-LEFT (left-4 right-auto) so it never stacks on the global
  * bug-reporter / work-pulse FABs (bottom-right). Hidden on non-app surfaces
@@ -34,29 +36,11 @@ import {
 } from "@/lib/guide/types";
 import { useGuideProgress } from "@/lib/guide/use-progress";
 import { GuideDrawer } from "@/components/guide/guide-drawer";
-import { matchModuleRoute } from "@/lib/guide/route-map";
+import { pickGuideLane } from "@/lib/guide/pick-lane";
 
 function cx(...c: Array<string | false | null | undefined>) {
   return c.filter(Boolean).join(" ");
 }
-
-/**
- * Persona priority (most-specific / highest-altitude first) — mirrors the server
- * resolver's PRIORITY. Kept here (not imported) because the resolver is
- * server-only; this is the read-only client counterpart for picking the most
- * relevant lane among several the viewer can see on a given route.
- */
-const PRIORITY: readonly CanonicalPersona[] = [
-  "platform-admin",
-  "module-admin",
-  "supervisor",
-  "unit-lead",
-  "facilitator",
-  "coordinator",
-  "parent",
-  "external",
-  "learner",
-] as const;
 
 /**
  * Route prefixes that are NOT part of the signed-in app shell — the FAB stays
@@ -104,6 +88,9 @@ function isHiddenRoute(pathname: string): boolean {
 interface PlatformGuideFabProps {
   /** Visible composed + server-filtered lanes, one per visible canonical persona. */
   lanes: PersonaGuide[];
+  /** The generic platform OVERVIEW lane — opened on routes no module guide owns
+   *  (and as the final fallback). Always provided by the server mount. */
+  overview: PersonaGuide;
   /** The viewer's default lane (highest-priority visible). */
   own: CanonicalPersona;
   /** Current scope id, for resolving `:scopeId` deep-links (none at platform level today). */
@@ -120,6 +107,7 @@ interface PlatformGuideFabProps {
 
 export function PlatformGuideFab({
   lanes,
+  overview,
   own,
   scopeId = null,
   basePath = "/guide",
@@ -139,65 +127,36 @@ export function PlatformGuideFab({
     return m;
   }, [lanes]);
 
-  const hasContent = React.useCallback(
-    (p: CanonicalPersona): boolean => {
-      const lane = byPersona.get(p);
-      return !!lane && lane.sections.length > 0;
-    },
-    [byPersona]
+  /**
+   * The lane to open, per "match the page you're on" (pure — see pick-lane.ts):
+   * on a guide module's route, the highest-priority VISIBLE persona that module
+   * fills (else `own`); on a route no module owns, the generic OVERVIEW lane.
+   * Never null — the overview is the floor — so the FAB shows on every signed-in
+   * page. Recomputed on route change so re-opening on a new page re-matches.
+   */
+  const guide = React.useMemo<PersonaGuide>(
+    () => pickGuideLane({ pathname, lanes: byPersona, own, overview }),
+    [pathname, byPersona, own, overview]
   );
 
-  /**
-   * The lane to open, per "match the page you're on":
-   *   1. route → module → highest-priority VISIBLE persona that module fills,
-   *   2. else `own`,
-   *   3. if that lane has no content, the first visible lane that does (overview).
-   * Recomputed when the route changes so re-opening on a new page picks the
-   * lane for THAT page.
-   */
-  const activePersona = React.useMemo<CanonicalPersona | null>(() => {
-    const candidates: CanonicalPersona[] = [];
-
-    const mod = matchModuleRoute(pathname);
-    if (mod) {
-      // highest-priority visible persona this module contributes to
-      const visibleForModule = PRIORITY.filter(
-        (p) => mod.personas.includes(p) && byPersona.has(p)
-      );
-      candidates.push(...visibleForModule);
-    }
-
-    // viewer's own lane next
-    if (byPersona.has(own)) candidates.push(own);
-
-    // any visible lane, in priority order — the overview safety net
-    for (const p of PRIORITY) if (byPersona.has(p)) candidates.push(p);
-
-    // first candidate WITH content; else first candidate at all; else null
-    const withContent = candidates.find((p) => hasContent(p));
-    if (withContent) return withContent;
-    return candidates[0] ?? null;
-  }, [pathname, byPersona, own, hasContent]);
-
-  const guide = activePersona ? byPersona.get(activePersona) ?? null : null;
-
   // ── Progress (shared between FAB badge + drawer). Hooks MUST run before any
-  //    early return, so this is computed unconditionally with safe fallbacks. ──
-  const progressPersona: CanonicalPersona = activePersona ?? own;
+  //    early return, so this is computed unconditionally. The overview lane
+  //    carries persona "learner" (its keys are namespace-disjoint from the
+  //    learner MODULE lane), so progress for both resolves cleanly. ──
+  const progressPersona: CanonicalPersona = guide.persona;
   const progress = useGuideProgress({
     persona: progressPersona,
     surface: "launcher",
-    initialCompleted: activePersona ? initialCompleted?.[activePersona] : undefined,
+    initialCompleted: initialCompleted?.[progressPersona],
     onToggle: onToggleStep,
     onEvent,
   });
 
-  const lp = guide ? laneProgress(guide, progress.completed) : null;
-  const remaining = trackProgress && lp && !lp.complete ? lp.total - lp.done : 0;
+  const lp = laneProgress(guide, progress.completed);
+  const remaining = trackProgress && !lp.complete ? lp.total - lp.done : 0;
 
-  // Early returns AFTER all hooks (invariant: hooks before returns).
+  // Early return AFTER all hooks (invariant: hooks before returns).
   if (isHiddenRoute(pathname)) return null;
-  if (!guide) return null;
 
   return (
     <>
@@ -229,7 +188,7 @@ export function PlatformGuideFab({
           so its internal section open-state + progress wiring reset to the new
           lane (invariant: keyed switchable render). */}
       <GuideDrawer
-        key={progressPersona}
+        key={guide === overview ? "overview" : guide.persona}
         guide={guide}
         basePath={basePath}
         scopeId={scopeId}
