@@ -1,3 +1,4 @@
+// smoke test 2026-06-14 — exercise deep routing for this service. Will not merge.
 /**
  * School Defaults Service
  *
