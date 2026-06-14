@@ -24,6 +24,7 @@ import {
   type GuideBook,
 } from "@/lib/ai-pulse/guide/types";
 import { GuideView } from "@/components/ai-pulse/guide/GuideView";
+import { logGuideEvent } from "@/lib/ai-pulse/guide/actions";
 import { detectLane } from "@/lib/ai-pulse/guide/detect-lane";
 
 export const dynamic = "force-dynamic";
@@ -91,6 +92,7 @@ export default async function AiPulseGuidePage({
           scopeId={scopeId}
           basePath={BASE_PATH}
           trackProgress={false}
+          onEvent={logGuideEvent}
         />
       </div>
     </ContentLayout>

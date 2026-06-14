@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import type { Metadata, Viewport } from 'next';
 import { Poppins, Noto_Sans_Tamil, DM_Serif_Display, IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google';
 import './globals.css';
@@ -9,6 +10,7 @@ import { AuthProvider } from '@/hooks/use-auth-provider';
 import { ReactQueryProvider } from '@/providers/query-client-provider';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import { PreviewBanner } from '@/components/layout/preview-banner';
+import { PlatformGuideFabMount } from '@/components/guide/platform-guide-fab-mount';
 
 const poppins = Poppins({
   weight: ['100', '200', '300', '400', '500', '600', '700', '800', '900'],
@@ -237,6 +239,18 @@ export default function RootLayout({
                     cookie is active. Non-dismissible by design. */}
                 <PreviewBanner />
                 <PushNotificationProvider>{children}</PushNotificationProvider>
+                {/* ONE route-aware platform Help FAB (replaces the 3 per-module
+                    FABs). Server-resolves the viewer's visible+filtered lanes,
+                    then the client FAB picks the lane for the current route and
+                    hides itself on auth/public/onboarding surfaces. Mounted here
+                    (root server layout) because app/(routes)/layout.tsx is a
+                    client component and can't run the server-only resolver. */}
+                {/* Suspense-isolated: the mount reads auth cookies (dynamic);
+                    wrapping it keeps the static shell of public pages prerenderable
+                    instead of forcing the whole tree dynamic. */}
+                <Suspense fallback={null}>
+                  <PlatformGuideFabMount />
+                </Suspense>
                 <InstallPromptBanner />
                 <SpeedInsights />
               </PWAProvider>

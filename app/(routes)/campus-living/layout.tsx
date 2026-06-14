@@ -16,7 +16,6 @@
 
 import { Suspense } from 'react';
 import { CampusLivingResidentGuard } from './_components/resident-route-guard';
-import { CampusLivingGuideFab } from '@/components/campus-living/guide/campus-living-guide-fab';
 
 interface CLLayoutProps {
   children: React.ReactNode;
@@ -34,9 +33,9 @@ export default function CampusLivingLayout({ children }: CLLayoutProps) {
       >
         <CampusLivingResidentGuard>{children}</CampusLivingResidentGuard>
       </Suspense>
-      {/* "?Help" FAB on every campus-living screen (offset from the global
-          bug/lightning FABs). Resolves the viewer's lane client-side. */}
-      <CampusLivingGuideFab />
+      {/* The per-module "?Help" FAB was removed — the ONE route-aware platform
+          guide FAB (root layout) now covers every screen, campus-living
+          included. The campus-living guide PAGE is untouched. */}
     </div>
   );
 }

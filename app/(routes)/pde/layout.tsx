@@ -1,5 +1,3 @@
-'use client';
-
 /**
  * PDE Module — top-level layout shell.
  *
@@ -16,19 +14,15 @@
  * Behaviour at /pde itself is handled by app/(routes)/pde/page.tsx — a
  * config-driven redirect via platform_policies (nav.pde.default_landing).
  *
- * The "?Help" Smart Guide FAB rides here so it appears on every PDE screen
- * (learner, faculty, admin). It resolves the viewer's lane client-side and is
- * offset bottom-left so it never stacks on the global bug/lightning FABs.
+ * The per-module "?Help" Smart Guide FAB that previously rode here has been
+ * REPLACED by the ONE route-aware platform FAB in the root layout
+ * (components/guide/platform-guide-fab-mount.tsx), so help is one tap away on
+ * every PDE screen via that single platform FAB. The PDE guide PAGE (/pde/guide)
+ * is untouched. With the FAB gone this shell is a plain pass-through.
  */
 
 import type { ReactNode } from 'react';
-import { PdeGuideFab } from '@/components/pde/guide/pde-guide-fab';
 
 export default function PdeLayout({ children }: { children: ReactNode }) {
-  return (
-    <>
-      {children}
-      <PdeGuideFab />
-    </>
-  );
+  return <>{children}</>;
 }
