@@ -598,31 +598,38 @@ function questStatusBadge(status: string) {
 }
 
 function riskBadge(level: RiskLevel) {
-  const config: Record<RiskLevel, { label: string; className: string }> = {
+  const config: Record<
+    RiskLevel,
+    { label: string; className: string; hint: string }
+  > = {
     critical: {
       label: 'Critical',
       className:
         'bg-red-100 text-red-800 border-red-200 dark:bg-red-900 dark:text-red-200',
+      hint: 'Critical — most urgent: long inactivity and/or very low scores',
     },
     warning: {
       label: 'Warning',
       className:
         'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900 dark:text-yellow-200',
+      hint: 'Warning — needs attention soon: some inactivity or declining scores',
     },
     struggling: {
       label: 'Struggling',
       className:
         'bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900 dark:text-orange-200',
+      hint: 'Struggling — early signal: minor inactivity or mixed performance',
     },
     on_track: {
       label: 'On Track',
       className:
         'bg-green-100 text-green-800 border-green-200 dark:bg-green-900 dark:text-green-200',
+      hint: 'On Track — no risk signals detected',
     },
   };
   const c = config[level] || config.on_track;
   return (
-    <Badge variant="outline" className={c.className}>
+    <Badge variant="outline" className={c.className} title={c.hint}>
       {c.label}
     </Badge>
   );
@@ -1067,9 +1074,12 @@ export default function FacultyImpactDashboardPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {/* Summary badges */}
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="flex items-center gap-1">
+                {/* Summary badges double as a colour legend for the Risk column. */}
+                <div className="flex flex-wrap items-center gap-4 mb-1">
+                  <div
+                    className="flex items-center gap-1"
+                    title="Critical — most urgent: long inactivity and/or very low scores"
+                  >
                     <div className="w-3 h-3 rounded-full bg-red-500" />
                     <span className="text-sm">
                       Critical:{' '}
@@ -1078,7 +1088,10 @@ export default function FacultyImpactDashboardPage() {
                       ).length}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div
+                    className="flex items-center gap-1"
+                    title="Warning — needs attention soon: some inactivity or declining scores"
+                  >
                     <div className="w-3 h-3 rounded-full bg-yellow-500" />
                     <span className="text-sm">
                       Warning:{' '}
@@ -1087,7 +1100,10 @@ export default function FacultyImpactDashboardPage() {
                       ).length}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div
+                    className="flex items-center gap-1"
+                    title="Struggling — early signal: minor inactivity or mixed performance"
+                  >
                     <div className="w-3 h-3 rounded-full bg-orange-500" />
                     <span className="text-sm">
                       Struggling:{' '}
@@ -1097,6 +1113,10 @@ export default function FacultyImpactDashboardPage() {
                     </span>
                   </div>
                 </div>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Risk colours, most to least urgent: red (Critical) → yellow
+                  (Warning) → orange (Struggling). Hover a colour for what it means.
+                </p>
 
                 {atRiskLoading ? (
                   <div className="space-y-3">
@@ -1150,15 +1170,24 @@ export default function FacultyImpactDashboardPage() {
                           <TableCell>{riskBadge(learner.risk_level)}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center gap-1 justify-end">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 text-xs"
-                                title="Send encouragement nudge"
+                              {/* Nudge is not yet wired to a messaging endpoint.
+                                  Disable it (rather than leave a silent dead button)
+                                  and explain via tooltip until the backend exists. */}
+                              <span
+                                className="inline-flex"
+                                title="Nudges coming soon — learner messaging is not yet available"
                               >
-                                <Mail className="h-3 w-3 mr-1" />
-                                Nudge
-                              </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 text-xs"
+                                  disabled
+                                  aria-label="Send encouragement nudge (coming soon)"
+                                >
+                                  <Mail className="h-3 w-3 mr-1" />
+                                  Nudge
+                                </Button>
+                              </span>
                               <Link
                                 href={`/vac/progress?user=${learner.learner_id}`}
                               >

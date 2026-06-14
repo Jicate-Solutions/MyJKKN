@@ -130,7 +130,15 @@ export default function FacultyQuestsPage() {
                 <TableBody>
                   {quests.map((quest: PDEQuest) => {
                     const statusConf = STATUS_CONFIG[quest.status] || STATUS_CONFIG.open;
-                    const enrolledCount = (quest as PDEQuest & { enrolled_count?: number }).enrolled_count || 0;
+                    const questExtra = quest as PDEQuest & {
+                      enrolled_count?: number;
+                      submission_count?: number;
+                    };
+                    const enrolledCount = questExtra.enrolled_count || 0;
+                    const submissionCount =
+                      typeof questExtra.submission_count === 'number'
+                        ? questExtra.submission_count
+                        : undefined;
                     return (
                       <TableRow key={quest.id} className="hover:bg-muted/50">
                         <TableCell>
@@ -152,7 +160,27 @@ export default function FacultyQuestsPage() {
                           </span>
                         </TableCell>
                         <TableCell className="text-center">{enrolledCount}</TableCell>
-                        <TableCell className="text-center">--</TableCell>
+                        <TableCell className="text-center">
+                          {/* The quest-list API doesn't include a submission count,
+                              so link through to the quest where submissions are shown
+                              instead of a dead "--" placeholder. */}
+                          {typeof submissionCount === 'number' ? (
+                            <Link
+                              href={`/learn/quests/${quest.id}`}
+                              className="font-medium text-[#0b6d41] hover:underline"
+                            >
+                              {submissionCount}
+                            </Link>
+                          ) : (
+                            <Link
+                              href={`/learn/quests/${quest.id}`}
+                              className="text-xs text-[#0b6d41] hover:underline inline-flex items-center gap-1"
+                            >
+                              <FileCheck className="h-3 w-3" />
+                              View
+                            </Link>
+                          )}
+                        </TableCell>
                         <TableCell className="text-center">
                           <Badge variant="outline" className={cn('text-xs', statusConf.color)}>
                             {statusConf.label}

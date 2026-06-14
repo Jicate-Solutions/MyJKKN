@@ -8,6 +8,16 @@ import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { AlertCircle, Eye, Archive, Send, Undo2 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import {
@@ -40,6 +50,7 @@ export default function EditClinicalCasePage() {
   const transition = useTransitionFacultyCase();
   const { data: coursesData } = useVACCourses();
   const [actionError, setActionError] = useState<string | null>(null);
+  const [showPublishConfirm, setShowPublishConfirm] = useState(false);
 
   if (isLoading) {
     return (
@@ -135,17 +146,18 @@ export default function EditClinicalCasePage() {
       );
       if (!ok) return;
     }
-    if (status === 'published') {
-      const ok = window.confirm(
-        `Publish "${c.title}"? Once published, learners can attempt this case. Any future content edit will bump the version (existing submissions retain their version snapshot).`
-      );
-      if (!ok) return;
-    }
+    // Publish is confirmed via the AlertDialog below (handlePublishConfirmed),
+    // so it does not prompt here.
     try {
       await transition.mutateAsync({ id: c.id, status });
     } catch (e: any) {
       setActionError(e?.message || 'Transition failed.');
     }
+  };
+
+  const handlePublishConfirmed = async () => {
+    setShowPublishConfirm(false);
+    await handleTransition('published');
   };
 
   return (
@@ -190,7 +202,7 @@ export default function EditClinicalCasePage() {
             ) : null}
             {c.status === 'draft' ? (
               <Button
-                onClick={() => handleTransition('published')}
+                onClick={() => setShowPublishConfirm(true)}
                 disabled={transition.isPending}
                 className="bg-[#0b6d41] hover:bg-[#0b6d41]/90"
               >
@@ -255,6 +267,31 @@ export default function EditClinicalCasePage() {
           />
         )}
       </div>
+
+      <AlertDialog open={showPublishConfirm} onOpenChange={setShowPublishConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Publish this case?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Publish — learners will see it immediately. You can still edit after
+              (editing a published case bumps the version; past submissions stay
+              pinned to the version they took).
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={transition.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handlePublishConfirmed}
+              disabled={transition.isPending}
+              className="bg-[#0b6d41] hover:bg-[#0b6d41]/90"
+            >
+              Publish
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </ContentLayout>
   );
 }

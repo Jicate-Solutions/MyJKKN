@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -50,8 +50,17 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   revision_requested: { label: 'Revision Requested', color: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300' },
 };
 
+// Triage order: Pending first, then items awaiting follow-up, then resolved.
+const STATUS_SORT_ORDER: Record<string, number> = {
+  pending: 0,
+  revision_requested: 1,
+  reviewed: 2,
+  approved: 3,
+};
+
 export default function FacultyDemonstrationsPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
   const { data: capabilities, isLoading: loadingCapabilities } = useCapabilities(
     categoryFilter || undefined
   );
@@ -62,6 +71,19 @@ export default function FacultyDemonstrationsPage() {
   const isLoading = false;
 
   const pendingCount = demonstrations.filter((d) => d.status === 'pending').length;
+
+  // Apply the status filter, then sort so Pending demonstrations always surface
+  // first — faculty triage the queue top-down instead of scanning manually.
+  const visibleDemonstrations = useMemo(() => {
+    const filtered =
+      statusFilter === 'all'
+        ? demonstrations
+        : demonstrations.filter((d) => d.status === statusFilter);
+    return [...filtered].sort(
+      (a, b) =>
+        (STATUS_SORT_ORDER[a.status] ?? 9) - (STATUS_SORT_ORDER[b.status] ?? 9)
+    );
+  }, [demonstrations, statusFilter]);
 
   return (
     <ContentLayout title="Capability Demonstrations">
@@ -86,32 +108,58 @@ export default function FacultyDemonstrationsPage() {
             </p>
           </div>
           {pendingCount > 0 && (
-            <Badge className="bg-[#ffde59] text-amber-900 border-amber-300 text-sm px-3 py-1">
-              {pendingCount} pending review{pendingCount !== 1 ? 's' : ''}
-            </Badge>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('pending')}
+              title="Show only pending demonstrations"
+              className="focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 rounded-full"
+            >
+              <Badge className="bg-[#ffde59] text-amber-900 border-amber-300 text-sm px-3 py-1 cursor-pointer hover:brightness-95">
+                {pendingCount} pending review{pendingCount !== 1 ? 's' : ''}
+              </Badge>
+            </button>
           )}
         </div>
 
         {/* Filter */}
         <Card className="bg-[#fbfbee]/30 dark:bg-card">
           <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-muted-foreground">
-                Filter by capability category:
-              </span>
-              <Select value={categoryFilter || 'all'} onValueChange={(v) => setCategoryFilter(v === 'all' ? '' : v)}>
-                <SelectTrigger className="w-[240px]">
-                  <SelectValue placeholder="All Categories" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Categories</SelectItem>
-                  <SelectItem value="technical">Technical</SelectItem>
-                  <SelectItem value="analytical">Analytical</SelectItem>
-                  <SelectItem value="creative">Creative</SelectItem>
-                  <SelectItem value="leadership">Leadership</SelectItem>
-                  <SelectItem value="communication">Communication</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-6">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium text-muted-foreground">
+                  Filter by capability category:
+                </span>
+                <Select value={categoryFilter || 'all'} onValueChange={(v) => setCategoryFilter(v === 'all' ? '' : v)}>
+                  <SelectTrigger className="w-[240px]">
+                    <SelectValue placeholder="All Categories" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Categories</SelectItem>
+                    <SelectItem value="technical">Technical</SelectItem>
+                    <SelectItem value="analytical">Analytical</SelectItem>
+                    <SelectItem value="creative">Creative</SelectItem>
+                    <SelectItem value="leadership">Leadership</SelectItem>
+                    <SelectItem value="communication">Communication</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium text-muted-foreground">
+                  Status:
+                </span>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="w-[200px]">
+                    <SelectValue placeholder="All Statuses" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Statuses</SelectItem>
+                    <SelectItem value="pending">Pending Review</SelectItem>
+                    <SelectItem value="revision_requested">Revision Requested</SelectItem>
+                    <SelectItem value="reviewed">Reviewed</SelectItem>
+                    <SelectItem value="approved">Approved</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -123,14 +171,25 @@ export default function FacultyDemonstrationsPage() {
               <div className="flex justify-center p-8">
                 <BeatLoader color="#0b6d41" />
               </div>
-            ) : demonstrations.length === 0 ? (
+            ) : visibleDemonstrations.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <Sparkles className="h-12 w-12 text-muted-foreground/40 mb-4" />
-                <h3 className="text-lg font-medium mb-1">No pending demonstrations</h3>
-                <p className="text-sm text-muted-foreground max-w-md">
-                  When Learners submit capability demonstrations, they will appear here for your review.
-                  You can approve, provide feedback, or request revisions.
-                </p>
+                {demonstrations.length === 0 ? (
+                  <>
+                    <h3 className="text-lg font-medium mb-1">No pending demonstrations</h3>
+                    <p className="text-sm text-muted-foreground max-w-md">
+                      When Learners submit capability demonstrations, they will appear here for your review.
+                      You can approve, provide feedback, or request revisions.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <h3 className="text-lg font-medium mb-1">No demonstrations match your filters</h3>
+                    <p className="text-sm text-muted-foreground max-w-md">
+                      Try a different status or category.
+                    </p>
+                  </>
+                )}
               </div>
             ) : (
               <Table>
@@ -145,7 +204,7 @@ export default function FacultyDemonstrationsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {demonstrations.map((demo) => {
+                  {visibleDemonstrations.map((demo) => {
                     const statusConf = STATUS_CONFIG[demo.status] || STATUS_CONFIG.pending;
                     return (
                       <TableRow key={demo.id} className="hover:bg-muted/50">
