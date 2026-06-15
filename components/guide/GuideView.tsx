@@ -60,26 +60,27 @@ function renderInline(text: string): React.ReactNode {
 }
 
 function StartHere({ why, href, label }: { why?: string; href?: string | null; label?: string }) {
-  if (!why && !(href && label)) return null;
+  const cta =
+    href && label ? (
+      <Link
+        href={href}
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+      >
+        {label}
+        <ArrowRight className="size-4" aria-hidden />
+      </Link>
+    ) : null;
+  // No "why" copy → render the start-here button BARE, not in a bordered card.
+  // (A card with an empty left half + one floating button reads as a broken
+  // layout — the card only earns its border when it carries the "why" text.)
+  if (!why) return cta;
   return (
     <div className="flex flex-col gap-3 rounded-xl border bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
-      {why ? (
-        <p className="text-sm">
-          <span className="font-medium">Why this matters: </span>
-          <span className="text-muted-foreground">{why}</span>
-        </p>
-      ) : (
-        <span />
-      )}
-      {href && label && (
-        <Link
-          href={href}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
-        >
-          {label}
-          <ArrowRight className="size-4" aria-hidden />
-        </Link>
-      )}
+      <p className="text-sm">
+        <span className="font-medium">Why this matters: </span>
+        <span className="text-muted-foreground">{why}</span>
+      </p>
+      {cta}
     </div>
   );
 }
@@ -322,9 +323,9 @@ export function GuideView({
       {/* Header + Download PDF */}
       <header className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="inline-flex items-center gap-2 rounded-full bg-primary/12 px-3 py-1 text-sm font-semibold text-primary">
-            {content.title}
-          </span>
+          {/* The persona IS the headline — the loudest line should say the most,
+              and switching roles visibly changes it (not just a small pill). */}
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{content.title}</h1>
           {content.pdfPath ? (
             <a
               href={content.pdfPath}
@@ -351,8 +352,7 @@ export function GuideView({
             </button>
           )}
         </div>
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">How to use this</h1>
-        <p className="text-base text-muted-foreground">{content.tagline}</p>
+        <p className="text-base text-foreground/70">{content.tagline}</p>
       </header>
 
       {/* Why it matters + Start here */}
@@ -362,15 +362,23 @@ export function GuideView({
       {trackProgress && lp.total > 0 && (
         <section className={cx("rounded-xl border p-4", lp.complete ? "border-primary/40 bg-primary/5" : "bg-card")}>
           <div className="flex items-center justify-between text-sm">
-            <span className="font-medium">{lp.complete ? "You're all set up 🎉" : `${lp.done} of ${lp.total} done`}</span>
-            <span className="text-muted-foreground">{lp.percent}%</span>
+            {/* A fresh "0 of N done · 0%" frames the guide as an unfinished chore.
+                On the zero-state, invite instead of scoring. */}
+            <span className="font-medium">
+              {lp.complete
+                ? "You're all set up 🎉"
+                : lp.done === 0
+                  ? `${lp.total} quick steps — start whenever you like`
+                  : `${lp.done} of ${lp.total} done`}
+            </span>
+            {lp.done > 0 && <span className="text-muted-foreground">{lp.percent}%</span>}
           </div>
           <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
             <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${lp.percent}%` }} />
           </div>
           {!lp.complete && next && (
             <a href={`#${next.sectionId}`} className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline">
-              Resume: {next.sectionTitle}
+              {lp.done === 0 ? "Start" : "Resume"}: {next.sectionTitle}
               <ArrowRight className="size-3.5" aria-hidden />
             </a>
           )}

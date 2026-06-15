@@ -130,13 +130,16 @@ function StepRow({
           </div>
         )}
         {step.link && href && (
+          // Tinted/filled so a "take me there" deep-link reads as an ACTION,
+          // visibly distinct from the plain-bordered section accordions (which
+          // expand in place). Same shape was ambiguous between the two.
           <Link
             href={href}
             onClick={onLinkClick}
-            className="flex h-11 w-full items-center justify-between rounded-lg border px-3 text-[0.9rem] font-medium hover:bg-muted"
+            className="flex h-11 w-full items-center justify-between rounded-lg border border-primary/30 bg-primary/10 px-3 text-[0.9rem] font-semibold text-primary transition-colors hover:bg-primary/15"
           >
             <span>{step.link.label}</span>
-            <ArrowRight className="size-4 text-primary" aria-hidden />
+            <ArrowRight className="size-4" aria-hidden />
           </Link>
         )}
       </div>
