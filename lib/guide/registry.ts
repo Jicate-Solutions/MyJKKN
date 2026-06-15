@@ -31,6 +31,7 @@ import { CANONICAL_PERSONAS } from "./types";
 import { GUIDES as AI_PULSE_GUIDES, REQUIRES as AI_PULSE_REQUIRES } from "../ai-pulse/guide/content";
 import { GUIDES as CAMPUS_GUIDES, REQUIRES as CAMPUS_REQUIRES } from "../campus-living/guide/content";
 import { GUIDES as PDE_GUIDES, REQUIRES as PDE_REQUIRES } from "../pde/guide/content";
+import { GUIDES as ADMISSION_GUIDES, REQUIRES as ADMISSION_REQUIRES } from "../admission/guide/content";
 
 /* ────────────────────────────────────────────────────────────────────────
  * PERSONA ACCESS — which permission keys grant each canonical persona (OR'd
@@ -48,9 +49,9 @@ export const PERSONA_REQUIRES: Record<CanonicalPersona, string[]> = {
   learner: [],
   facilitator: [AI_PULSE_REQUIRES.faculty, PDE_REQUIRES.faculty],
   "unit-lead": [AI_PULSE_REQUIRES.champion, CAMPUS_REQUIRES.warden, CAMPUS_REQUIRES.mess],
-  coordinator: [AI_PULSE_REQUIRES.incharge],
+  coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor],
   supervisor: [AI_PULSE_REQUIRES.hod],
-  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin],
+  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, ADMISSION_REQUIRES.admin],
   "platform-admin": [],
   parent: [],
   external: [],
@@ -316,7 +317,27 @@ export const pdeGuide: ModuleGuide = {
 /* ────────────────────────────────────────────────────────────────────────
  * d. REGISTRY — order matters: sections merge in this order per persona.
  * ──────────────────────────────────────────────────────────────────────── */
-export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide];
+/* ── Admission ─────────────────────────────────────────────
+ * counsellor→coordinator, admin→module-admin. No learner lane (all users are
+ * staff). Each lane section-gated by its own Admission key (fail-closed).
+ * ──────────────────────────────────────────────────────────── */
+export const admissionGuide: ModuleGuide = {
+  module: "admission",
+  basePath: "/admission",
+  lanes: {
+    coordinator: {
+      sections: withRequires(ADMISSION_GUIDES.lanes.counsellor.sections, ADMISSION_REQUIRES.counsellor),
+      startHere: ADMISSION_GUIDES.lanes.counsellor.startHere,
+    },
+    "module-admin": {
+      sections: withRequires(ADMISSION_GUIDES.lanes.admin.sections, ADMISSION_REQUIRES.admin),
+      startHere: ADMISSION_GUIDES.lanes.admin.startHere,
+    },
+  },
+  routes: [],
+};
+
+export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, admissionGuide];
 
 /** Canonical personas at least one module contributes real sections to. A
  *  persona NOT in this set is sparse (composeLane returns the platform-overview
@@ -337,6 +358,7 @@ const MODULE_LABELS: Record<string, string> = {
   "ai-pulse": "AI Pulse",
   "campus-living": "Campus Living",
   pde: "PDE",
+  admission: "Admission",
 };
 
 /** Human label for a module namespace; falls back to the raw id if unknown. */
@@ -361,6 +383,7 @@ const MODULE_GLOSSARIES: Record<string, GlossaryTerm[]> = {
   "ai-pulse": AI_PULSE_GUIDES.glossary ?? [],
   "campus-living": CAMPUS_GUIDES.glossary ?? [],
   pde: PDE_GUIDES.glossary ?? [],
+  admission: ADMISSION_GUIDES.glossary ?? [],
 };
 
 /** "Words to know" terms for one module; empty array if module unknown. */
