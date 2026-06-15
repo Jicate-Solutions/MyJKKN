@@ -185,6 +185,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/learners', 'Learners'],
   ['/moments', 'Learners'], // Family Moments — parent engagement (Father's Day 2026)
   ['/academic', 'Academic'],
+  ['/rcltp', 'Academic'], // EKSAQ RCLTP reading-assessment module (rcltp.* perms)
   ['/faculty', 'Academic'],
   ['/billing', 'Billing'],
   ['/health', 'Health'],
