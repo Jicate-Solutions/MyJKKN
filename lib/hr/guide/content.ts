@@ -8,7 +8,9 @@
  * Three lanes, authored from the REAL production routes (jicate/main):
  *   - employee  (ungated baseline)   → self-service: apply leave, balance, propose a hire
  *   - manager   (hr.leave.approve)   → approve their queue: leave + recruitment chains
- *   - hr-admin  (hr.employees.view)  → runs the module: workforce, policies, dashboard
+ *   - hr-admin  (hr.policies.view)   → runs the module: workforce, BOTH policy
+ *                                      systems, the full /hr/admin/* config hub,
+ *                                      payroll, performance, compliance, forms
  *
  * ACCURACY NOTES (verified against page code, not assumed):
  *   - /hr/leave/apply auto-resolves the signed-in employee + active academic year
@@ -39,7 +41,17 @@ import type { GuideBook } from './types';
  */
 export const REQUIRES = {
   manager: 'hr.leave.approve',
-  'hr-admin': 'hr.employees.view',
+  // hr-admin gate — CHANGED 2026-06-15 from 'hr.employees.view' → 'hr.policies.view'.
+  // The admin lane now covers the WHOLE /hr/admin/* config surface (two policy
+  // systems, onboarding/docs, recruitment chains, payroll, performance, compliance,
+  // forms). hr.policies.view is the one real, role-grantable key that gates BOTH
+  // policy systems' config (verified: /hr/policies AND most /hr/admin/policies
+  // editors compose `hr.policies.view`). hr.employees.view was a fail-OPEN gate —
+  // a workforce-only viewer could be shown the config lane yet be blocked from
+  // every /hr/admin/* target. The deeper config screens are super_admin /
+  // administrator ROLE-gated (no permission key spans them), so each role-gated
+  // section carries an explicit super-admin prerequisite note instead of a key.
+  'hr-admin': 'hr.policies.view',
 } as const;
 
 export const GUIDES: GuideBook = {
@@ -276,7 +288,12 @@ export const GUIDES: GuideBook = {
       journey: [
         'Read the command-centre dashboard',
         'Manage the workforce list',
-        'Maintain the policy catalogue',
+        'Know the two policy systems and when to use each',
+        'Set onboarding, documents and shift templates',
+        'Configure recruitment needs and approval chains',
+        'Run payroll, performance, promotions and training',
+        'Handle compliance: memos, discipline and exits',
+        'Build custom HR forms',
         'Oversee leave and recruitment chains',
       ],
       sections: [
@@ -333,19 +350,191 @@ export const GUIDES: GuideBook = {
         },
         {
           id: 'policies',
-          title: 'Maintain the policy catalogue',
+          title: 'Know the two policy systems',
           steps: [
             {
-              action: 'Open **Policies** to manage every HR policy table.',
+              action: 'Learn that HR has **two separate policy systems** — and which to use when.',
               detail:
-                'Policies are grouped by category. They drive leave entitlements, approval chains, salary bands, and more — change a policy and the rest of HR follows it.',
+                'System 1, **Policies**, is a set of about 19 simple tables you fill in (leave types, approval flows, pay scales, allowances, holidays, and so on) — these drive the automation. System 2, the **HR Manual**, is where you write the policy text staff actually read. They overlap in subject (both cover leave, pay scales, code of conduct), but the tables run the calculations while the Manual is the published wording.',
+              tip: 'Admins constantly look in the wrong one. If a leave balance calculates wrong, fix the table under Policies; if the wording of the rule is wrong, edit the HR Manual.',
+            },
+            {
+              action: 'Open **Policies** to manage the configuration tables.',
+              detail:
+                'About 19 tables grouped into seven categories — Leave & Approval, Compensation, Schedule & Holidays, Onboarding, Discipline & Compliance, Development, and Engagement & Feedback. Each drives a real behaviour: leave entitlements, approval chains, salary bands, public holidays, and more. Every edit is versioned (valid-from / valid-until) with history, diffs, and restore.',
+              tip: 'In-flight leave and recruitment keep a frozen snapshot of the rules they started under, so editing a policy never changes a request that is already moving.',
               link: { label: 'Take me there', href: '/hr/policies' },
             },
             {
-              action: 'Click a policy tile to view and edit its rows.',
+              action: 'Open the **HR Manual** to edit the published policy text.',
               detail:
-                'Each policy is versioned: editing creates a new version (valid-from / valid-until), and you can view the change history, see diffs, and restore an earlier version.',
-              tip: 'In-flight leave and recruitment keep a frozen snapshot of the rules they started under, so editing a policy never changes a request that is already moving.',
+                'A set of editors — institution details, facilities, working schedule, welfare, roles, joining and resignation, reimbursement, performance review, and more. You edit as a draft and publish; the staff-facing HR Manual re-renders itself from what you publish.',
+              prerequisite:
+                'Some Manual editors — pay scales, allowances, code of conduct, disciplinary action, grievance cell, promotion policy — are restricted to super-admins. If an editor is blocked, ask your platform admin.',
+              link: { label: 'Take me there', href: '/hr/admin/policies' },
+            },
+            {
+              action: 'Use the **Leave** editors in the HR Manual for the detailed leave wording.',
+              detail:
+                'A sub-hub with separate editors for casual, vacation, half-pay, compensatory, marriage, on-duty, and holidays / loss-of-pay — the prose side of the leave rules whose numbers live in the Policies tables.',
+              link: { label: 'Take me there', href: '/hr/admin/policies/leave' },
+            },
+          ],
+        },
+        {
+          id: 'onboarding-documents',
+          title: 'Set up onboarding, documents and shifts',
+          steps: [
+            {
+              action: 'Set the **Required Documents** every new hire must submit.',
+              detail:
+                'The documents demanded at joining — PAN, Aadhaar, certificates — which you can vary by employment type. Onboarding checks each new joiner against this list.',
+              prerequisite:
+                'The /hr/admin configuration screens are restricted to super-admins (and, for some, the administrator role). If a screen is blocked, ask your platform admin — HR policy access alone is not enough to open them.',
+              link: { label: 'Take me there', href: '/hr/admin/required-documents' },
+            },
+            {
+              action: 'Build **Onboarding Checklists** — the joining steps for each role.',
+              detail:
+                'Step-by-step joining workflows you assign per role category, so every new joiner is taken through the same setup.',
+              link: { label: 'Take me there', href: '/hr/admin/onboarding-checklists' },
+            },
+            {
+              action: 'Define **Shift Templates** for attendance scheduling.',
+              detail:
+                'Reusable working-hour patterns that attendance and scheduling draw from — set a shift once and apply it to many people.',
+              link: { label: 'Take me there', href: '/hr/admin/shift-templates' },
+            },
+          ],
+        },
+        {
+          id: 'recruitment-config',
+          title: 'Configure recruitment and approval chains',
+          steps: [
+            {
+              action: 'Open **Recruitment Maintenance** to backfill a missing approval chain.',
+              detail:
+                'This is the screen that clears the red "Approval chain not configured" badge a candidacy can show. Until an admin sets the chain here, no one can approve that candidate.',
+              prerequisite:
+                'The recruitment-config screens are restricted to super-admins. If a screen is blocked, ask your platform admin.',
+              tip: 'When a manager reports they cannot approve a candidate, this is almost always where the fix is.',
+              link: { label: 'Take me there', href: '/hr/admin/recruitment-maintenance' },
+            },
+            {
+              action: 'Set **who approves each step** in Recruitment Approval Scope.',
+              detail:
+                'Configure which role signs off at each stage of the recruitment chain, so candidacies route to the right approvers automatically.',
+              link: { label: 'Take me there', href: '/hr/admin/recruitment-approvals-scope' },
+            },
+            {
+              action: 'Tune the **Recruitment Need** signals that decide when to hire.',
+              detail:
+                'A hub of settings — staffing norms, counting weights for adjunct and visiting staff, red/amber/green thresholds, regulatory bodies (AICTE, UGC, DCI, INC, PCI), and per-programme allocations — that together work out where you are short-staffed.',
+              link: { label: 'Take me there', href: '/hr/admin/recruitment-need' },
+            },
+          ],
+        },
+        {
+          id: 'payroll',
+          title: 'Run payroll',
+          steps: [
+            {
+              action: 'Open **Payroll Periods** to prepare, review, and approve each pay run.',
+              detail:
+                'Each pay period moves through a multi-stage workflow from preparation to approval. Open a period to work it, or create the next one.',
+              prerequisite:
+                'Payroll is restricted to super-admins. If it is blocked, ask your platform admin.',
+              link: { label: 'Take me there', href: '/hr/admin/payroll/periods' },
+            },
+            {
+              action: 'Check **Payroll Preview** before you prepare a period.',
+              detail:
+                'A live preview of pay components, deductions, and net pay, so you can catch a wrong figure before the period is locked.',
+              link: { label: 'Take me there', href: '/hr/admin/payroll/preview' },
+            },
+          ],
+        },
+        {
+          id: 'performance-promotions',
+          title: 'Run performance, promotions and training',
+          steps: [
+            {
+              action: 'Open **Performance Review Cycles** to set up appraisals.',
+              detail:
+                'Create the annual appraisal cycles and the rating rubric each employee is evaluated against, and follow the evaluation history.',
+              prerequisite:
+                'These screens are restricted to super-admins (cycles are set up centrally). If one is blocked, ask your platform admin.',
+              link: { label: 'Take me there', href: '/hr/admin/performance-reviews/cycles' },
+            },
+            {
+              action: 'Manage **Promotions** — proposals and approval pipelines.',
+              detail:
+                'Raise and track promotion proposals through their approval chain. It works alongside the promotion-criteria table (in Policies) and the promotion-policy wording (in the HR Manual).',
+              link: { label: 'Take me there', href: '/hr/admin/promotions' },
+            },
+            {
+              action: 'Run **Training Programs** for skill-building.',
+              detail:
+                'A catalogue of training programmes with attendance and completion certificates.',
+              link: { label: 'Take me there', href: '/hr/admin/training' },
+            },
+            {
+              action: 'Manage **Faculty Development (FDP)** programmes.',
+              detail:
+                'Faculty Development Programs — proposals, sponsorship, and reporting for staff development.',
+              link: { label: 'Take me there', href: '/hr/admin/fdp' },
+            },
+          ],
+        },
+        {
+          id: 'compliance-exit',
+          title: 'Handle compliance, discipline and exits',
+          steps: [
+            {
+              action: 'Issue and track official **Memos** to staff.',
+              detail:
+                'Raise, track, and analyse official memos. Auto-memo triggers are set in the memo-rules table under Policies.',
+              prerequisite:
+                'The compliance and exit screens are restricted to super-admins. If one is blocked, ask your platform admin.',
+              link: { label: 'Take me there', href: '/hr/admin/memos' },
+            },
+            {
+              action: 'Manage **Disciplinary** cases with a structured workflow.',
+              detail:
+                'Open a case and take it through investigation to outcome. It pairs with the disciplinary-penalties table (Policies) and the disciplinary-action wording (HR Manual).',
+              link: { label: 'Take me there', href: '/hr/admin/disciplinary' },
+            },
+            {
+              action: 'Process **Offboarding** — resignations, retirements and settlements.',
+              detail:
+                'Resignation, retirement, and full-and-final settlement workflows in one place.',
+              link: { label: 'Take me there', href: '/hr/admin/offboarding' },
+            },
+            {
+              action: 'Run **Terminations** through their approval chain.',
+              detail:
+                'Termination cases follow a fixed review chain (internal committee → legal → director) before they take effect. Pairs with the termination-rules table in Policies.',
+              link: { label: 'Take me there', href: '/hr/admin/terminations' },
+            },
+            {
+              action: 'Set **Automation Rules** to move cases along without manual review.',
+              detail:
+                'Triggered rules that advance HR cases between stages automatically, so routine steps do not wait on a person.',
+              link: { label: 'Take me there', href: '/hr/admin/automation-rules' },
+            },
+          ],
+        },
+        {
+          id: 'forms',
+          title: 'Build custom HR forms',
+          steps: [
+            {
+              action: 'Open **HR Forms** to build custom forms and their workflows.',
+              detail:
+                'Create a form, design its approval workflow, and review submissions — for any HR process that needs its own structured form.',
+              prerequisite:
+                'Form building is the most restricted HR screen — super-admins only. If it is blocked, ask your platform admin.',
+              link: { label: 'Take me there', href: '/hr/admin/forms' },
             },
           ],
         },

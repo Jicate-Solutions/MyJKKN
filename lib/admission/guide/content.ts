@@ -72,6 +72,11 @@ export const GUIDES: GuideBook = {
         'Open the season and set fees and seats',
         'Run marketing campaigns and manage consultant partners',
         'Watch analytics, clean the data, and read AI insights',
+        'Configure the lead-routing engine',
+        'Set consultant tier and commission policies',
+        'Set super-admin policy controls (lead stages, telephony)',
+        'Wire automation, templates and messaging',
+        'Configure Meta integration and marketing masters',
       ],
       sections: [
         {
@@ -252,10 +257,211 @@ export const GUIDES: GuideBook = {
               link: { label: 'Take me there', href: '/admission/insights' },
             },
             {
-              action: 'Tune everything else in **Settings → Templates** and **Workflows**.',
+              action: 'Set module-wide defaults in **Settings → General**.',
               detail:
-                'Message and document templates, WhatsApp numbers, and the automated workflows that fire when a lead changes status all live in Settings.',
-              link: { label: 'Take me there', href: '/admission/settings/templates' },
+                'Institution-level admission defaults and options that apply across the whole module.',
+              link: { label: 'Take me there', href: '/admission/settings/general' },
+            },
+          ],
+        },
+        {
+          id: 'lead-routing-engine',
+          title: '6. Configure the lead-routing engine',
+          steps: [
+            {
+              action: 'Open **Counselor Administration** — the engine behind "assignment rules".',
+              detail:
+                'This hub holds the real routing configuration: how an incoming lead is automatically matched to a counsellor. The Assignment Rules you set earlier are the simple front; this is the machinery underneath.',
+              prerequisite:
+                'The Counselor Administration screens are super-admin only. If you see a restriction card instead of the page, you are not a super-admin — ask your platform admin.',
+              link: { label: 'Take me there', href: '/admission/counselors/admin' },
+            },
+            {
+              action: 'Set the **Routing Config** that decides how leads are auto-assigned.',
+              detail:
+                'The rules the system follows to hand each new lead to a counsellor — the policy that drives automatic assignment.',
+              link: { label: 'Take me there', href: '/admission/counselors/admin/routing-config' },
+            },
+            {
+              action: 'Choose the **Rule Types** — the routing strategies you allow.',
+              detail:
+                'The kinds of rule the engine can use (by programme, institution, language, tier, weighted split, or a custom condition).',
+              link: { label: 'Take me there', href: '/admission/counselors/admin/rule-types' },
+            },
+            {
+              action: 'Set the counsellor **Tier Policy** — the fallback order for assignment.',
+              detail:
+                'The tier ordering the engine walks when it assigns leads, globally or per institution, so the best-placed counsellor is tried first.',
+              link: { label: 'Take me there', href: '/admission/counselors/admin/tier-policy' },
+            },
+            {
+              action: 'Tune **Alert Thresholds** for staffing imbalances.',
+              detail:
+                'When to warn about idle leads, overloaded counsellors, or slow response times, so you can rebalance before leads go cold.',
+              link: { label: 'Take me there', href: '/admission/counselors/admin/alert-thresholds' },
+            },
+            {
+              action: 'Clear stuck leads in **Routing Errors**.',
+              detail:
+                'A triage queue for leads that failed to auto-route — diagnose the mismatched rule or missing scope and retry the assignment by hand.',
+              link: { label: 'Take me there', href: '/admission/counselors/admin/routing-errors' },
+            },
+          ],
+        },
+        {
+          id: 'consultant-policies',
+          title: '7. Set consultant partner policies',
+          steps: [
+            {
+              action: 'Open **Consultant Administration** — the policies that make consultant tracking pay out.',
+              detail:
+                'Separate from the day-to-day Consultants list, this hub sets the rules: the partner tiers, what triggers a commission, and who can use the consultant portal.',
+              prerequisite:
+                'The Consultant Administration screens are super-admin only. If they are blocked, ask your platform admin.',
+              link: { label: 'Take me there', href: '/admission/consultants/admin' },
+            },
+            {
+              action: 'Set the consultant **Tier Policy** — the partner ladder.',
+              detail:
+                'The bronze → silver → gold → platinum → diamond ladder for consultants and the conversion thresholds that move a partner up it, globally or per institution.',
+              link: { label: 'Take me there', href: '/admission/consultants/admin/tier-policy' },
+            },
+            {
+              action: 'Define **Commission Triggers** — what earns a commission, and when.',
+              detail:
+                'Which lead, admission, or enrolment status change fires a consultant commission, at what TDS rate, the auto-approve threshold, and the clawback grace window.',
+              tip: 'Auto-triggers ship switched OFF — only manual commissions are active until the director turns specific triggers on. Check this is set the way you intend before relying on automatic payouts.',
+              link: { label: 'Take me there', href: '/admission/consultants/admin/commission-triggers' },
+            },
+            {
+              action: 'Control **Portal Access** — who can use the consultant portal.',
+              detail:
+                'The allowlist that decides who can load the consultant portal, who can read their own attribution and commission data, and who may preview it as a consultant.',
+              link: { label: 'Take me there', href: '/admission/consultants/admin/portal-access' },
+            },
+          ],
+        },
+        {
+          id: 'super-admin-policies',
+          title: '8. Super-admin policy controls',
+          steps: [
+            {
+              action: 'Set the **Lead Stages Policy** — which stages count as an active lead.',
+              detail:
+                'Marks which funnel stages count toward a counsellor’s workload and which are terminal (Lost or Enrolled free up capacity). This drives the funnel counts the rest of the team reads, so it must match how you actually work leads.',
+              prerequisite:
+                'These are super-admin policy screens. If one is blocked, you are not a super-admin — ask your platform admin.',
+              link: { label: 'Take me there', href: '/admission/settings/lead-stages-policy' },
+            },
+            {
+              action: 'Configure **Telephony Policies** — call classification and voice tasks.',
+              detail:
+                'The call-classification taxonomy and the ExoVoice analysis tasks the call pipeline applies. Edits take effect on the next call ingest — no deploy needed.',
+              link: { label: 'Take me there', href: '/admission/settings/telephony-policies' },
+            },
+            {
+              action: 'Fix call routing in **Exophone Mapping**.',
+              detail:
+                'Maps each inbound phone line (DID) to its real institution. A wrong or missing mapping silently sends calls to the wrong institution, so check this whenever a number is added.',
+              tip: 'This is a known footgun — unmapped lines default to one institution. Verify every DID points where you expect.',
+              link: { label: 'Take me there', href: '/admission/settings/exophone-mapping' },
+            },
+            {
+              action: 'Tune the **Voice Memo Monitor** — thresholds, alerts, and the director digest.',
+              detail:
+                'The write side of the voice-memo pipeline: alert thresholds, how the director’s digest is grouped, and the real-time toggle.',
+              link: { label: 'Take me there', href: '/admission/settings/voice-memo-monitor' },
+            },
+          ],
+        },
+        {
+          id: 'automation-templates',
+          title: '9. Automation, templates and messaging',
+          steps: [
+            {
+              action: 'Build automated **Workflows** that fire on a lead event.',
+              detail:
+                'The trigger-and-action builder — for example, when a lead changes status, send a message or assign a task. This is the automation engine behind the CRM.',
+              link: { label: 'Take me there', href: '/admission/settings/workflows' },
+            },
+            {
+              action: 'Manage the engine in **Workflow Config**.',
+              detail:
+                'The configuration side of automation, separate from the builder — where the workflow engine’s settings live.',
+              link: { label: 'Take me there', href: '/admission/settings/workflow-config' },
+            },
+            {
+              action: 'Manage **Document Templates** under Settings → Templates.',
+              detail:
+                'The downloadable document templates (brochures and the like) you attach to programmes.',
+              link: { label: 'Take me there', href: '/admission/settings/templates/documents' },
+            },
+            {
+              action: 'Design emails in the **Email Builder**.',
+              detail:
+                'A drag-block builder for email templates — subject and body blocks — used in campaigns and automated messages.',
+              link: { label: 'Take me there', href: '/admission/settings/templates/email-builder' },
+            },
+            {
+              action: 'Register your **WhatsApp Numbers** for broadcasts and chat.',
+              detail:
+                'The WhatsApp Business numbers used for messaging, set per institution or department with their tokens and IDs.',
+              link: { label: 'Take me there', href: '/admission/settings/whatsapp-numbers' },
+            },
+            {
+              action: 'Set up **Chat Settings** — canned replies and routing.',
+              detail:
+                'Configure the live-chat workspace: quick/canned replies and how inbound chats are routed to the team.',
+              link: { label: 'Take me there', href: '/admission/marketing/chat/settings' },
+            },
+            {
+              action: 'Curate the **Chatbot Knowledge Base**.',
+              detail:
+                'The question-and-answer entries the admission chatbot answers from — keep it current so the bot gives correct, on-message replies.',
+              link: { label: 'Take me there', href: '/admission/marketing/chatbot/knowledge' },
+            },
+          ],
+        },
+        {
+          id: 'meta-and-masters',
+          title: '10. Meta integration and marketing masters',
+          steps: [
+            {
+              action: 'Manage social account credentials in **Dept Accounts**.',
+              detail:
+                'The per-department vault of social-account credentials (page tokens and the like) that the Lead Ads and attribution pipeline reads.',
+              tip: 'These Social screens use their own permission, separate from the admission ones. If a page shows "no access", ask for the matching social permission — the screen names it.',
+              link: { label: 'Take me there', href: '/admission/social/departments' },
+            },
+            {
+              action: 'Configure the **Meta Pixel** for conversion tracking.',
+              detail:
+                'The Meta Pixel and Conversions API (pixel ID and access token) per institution, so campaigns can measure conversions and feed remarketing.',
+              link: { label: 'Take me there', href: '/admission/social/meta-pixel' },
+            },
+            {
+              action: 'Build remarketing lists in **Meta Custom Audiences**.',
+              detail:
+                'Create and sync Meta Custom Audiences (by ad account and lead-status filters) to advertise to the right people again.',
+              link: { label: 'Take me there', href: '/admission/social/meta-audiences' },
+            },
+            {
+              action: 'Maintain the **Expo Masters** catalogue.',
+              detail:
+                'The master list of recurring expo events (name, organiser, city, venue, frequency) you reuse when creating an expo instance.',
+              link: { label: 'Take me there', href: '/admission/marketing/expos/masters' },
+            },
+            {
+              action: 'Keep lookups clean with **Data Quality Review mapping**.',
+              detail:
+                'Maps raw or dirty lookup values to canonical ones, so reports stay clean even when data comes in messy.',
+              link: { label: 'Take me there', href: '/admission/settings/lookups/data-quality' },
+            },
+            {
+              action: 'Set the **Group Dashboard pace targets** in Cycle Setup.',
+              detail:
+                'Defines the admission-cycle pace targets the Group Dashboard’s Pace tab reads, so the board-level view measures against the right goals.',
+              link: { label: 'Take me there', href: '/admission/group-dashboard/setup' },
             },
           ],
         },
