@@ -1206,6 +1206,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // Learner post-class feedback — 10-second confirm that doubles as
+          // attendance confirmation. Lives under /academic/session-feedback/learn.
+          href: '/academic/session-feedback/learn',
+          label: 'Class Feedback',
+          active: pathname.startsWith('/academic/session-feedback/learn'),
+          icon: MessageSquare,
+          submenus: []
+        },
+        {
           // Board of Studies — institutional governance + expert management.
           // Navigation lives in the module's in-page tab bar (BOS_NAV_TABS,
           // see app/(routes)/bos/layout.tsx) and nav-config.ts.
