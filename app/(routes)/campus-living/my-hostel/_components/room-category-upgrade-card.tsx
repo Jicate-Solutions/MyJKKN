@@ -31,6 +31,13 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
   const waitlistFor = (categoryId: string) =>
     myWaitlist.find((w) => w.target_category_id === categoryId) ?? null;
 
+  // A pending upgrade target locks LOWER-category upgrades (no downgrades): once the learner
+  // has chosen e.g. Premium, the Deluxe row is disabled; choosing Deluxe instead still leaves
+  // the higher Premium row selectable as the next level up.
+  const pendingTarget = options.find((o) => waitlistFor(o.category_id)) ?? null;
+  const pendingTargetFee = pendingTarget?.current_year_fee ?? null;
+  const pendingTargetName = pendingTarget?.name ?? null;
+
   return (
     <Card>
       <CardHeader>
@@ -68,6 +75,8 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
             // awaiting payment; the category changes on full payment, room assigned later.
             const categoryPending = !held && waitlisted?.upgrade_bill_id ? waitlisted : null;
             const hasRooms = opt.available_beds > 0;
+            // Locked: a higher upgrade is already pending → this lower option is a downgrade.
+            const locked = pendingTargetFee != null && opt.current_year_fee < pendingTargetFee;
             return (
               <div
                 key={opt.category_id}
@@ -77,15 +86,22 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                     : waitlisted && hasRooms
                       ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-950/30'
                       : ''
-                }`}
+                } ${locked ? 'opacity-60' : ''}`}
               >
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                   <div className="min-w-0">
-                    <p className="font-medium truncate">
-                      {!isBook && currentCategoryName ? `${currentCategoryName} → ` : ''}{opt.name}
+                    <p className="font-medium">
+                      {!isBook && currentCategoryName && (
+                        <span className="text-muted-foreground">{currentCategoryName} → </span>
+                      )}
+                      <span className="text-base">{opt.name}</span>
                     </p>
                   </div>
-                  {isBook && !held ? (
+                  {locked ? (
+                    <Badge variant="outline" className="w-fit text-muted-foreground">
+                      Lower than your pending {pendingTargetName} upgrade
+                    </Badge>
+                  ) : isBook && !held ? (
                     hasRooms ? (
                       <Button size="sm" onClick={() => setPicked(opt)}>
                         <ArrowUpCircle className="mr-1.5 h-4 w-4" /> Book now
@@ -162,6 +178,12 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                     </div>
                   )}
                 </div>
+                {locked && (
+                  <p className="text-xs text-muted-foreground">
+                    You&apos;ve already chosen the higher {pendingTargetName} upgrade — cancel it
+                    first to pick this instead.
+                  </p>
+                )}
                 {pendingBill && (
                   <p className="text-xs text-amber-800 dark:text-amber-300">
                     Room {pendingBill.held_room_number}
@@ -192,7 +214,7 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                     the reservation is cancelled after the deadline.
                   </p>
                 )}
-                {!isBook && !held && hasRooms && !opt.meets_threshold && (
+                {!isBook && !locked && !held && hasRooms && !opt.meets_threshold && (
                   <p className="text-xs text-muted-foreground">
                     You&apos;ve paid {opt.paid_pct ?? 0}% of this year&apos;s fees; {opt.threshold_pct}% is
                     needed for an instant upgrade — you can still reserve a room for {opt.hold_days} day
