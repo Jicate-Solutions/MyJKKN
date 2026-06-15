@@ -928,6 +928,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/health/achievements': 'health.achievements.view',
   '/health/assessments': 'health.assessments.view',
   '/health/counselor': 'health.counselor.view',
+  '/health/programs': 'health.programs.view',
 
   // IMS (Inventory Management System) — Added 2026-04-27. Module-level
   // taxonomy mirrors Admission CRM precedent; gateway permission `ims.view`
@@ -1966,6 +1967,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/health/achievements', label: 'Achievements', active: pathname === '/health/achievements' },
             { href: '/health/assessments', label: 'Mental Health Check-In', active: pathname === '/health/assessments' },
             { href: '/health/counselor', label: 'Counselor Dashboard', active: pathname === '/health/counselor' },
+            { href: '/health/programs', label: 'Wellness Programs', active: pathname === '/health/programs' || pathname.startsWith('/health/programs/') },
           ]
         }
       ]
