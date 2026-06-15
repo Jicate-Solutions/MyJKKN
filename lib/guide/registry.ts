@@ -33,6 +33,7 @@ import { GUIDES as CAMPUS_GUIDES, REQUIRES as CAMPUS_REQUIRES } from "../campus-
 import { GUIDES as PDE_GUIDES, REQUIRES as PDE_REQUIRES } from "../pde/guide/content";
 import { GUIDES as HR_GUIDES, REQUIRES as HR_REQUIRES } from "../hr/guide/content";
 import { GUIDES as ADMISSION_GUIDES, REQUIRES as ADMISSION_REQUIRES } from "../admission/guide/content";
+import { GUIDES as BILLING_GUIDES, REQUIRES as BILLING_REQUIRES } from "../billing/guide/content";
 
 /* ────────────────────────────────────────────────────────────────────────
  * PERSONA ACCESS — which permission keys grant each canonical persona (OR'd
@@ -50,9 +51,9 @@ export const PERSONA_REQUIRES: Record<CanonicalPersona, string[]> = {
   learner: [],
   facilitator: [AI_PULSE_REQUIRES.faculty, PDE_REQUIRES.faculty],
   "unit-lead": [AI_PULSE_REQUIRES.champion, CAMPUS_REQUIRES.warden, CAMPUS_REQUIRES.mess],
-  coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor],
+  coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor, BILLING_REQUIRES["finance-officer"]],
   supervisor: [AI_PULSE_REQUIRES.hod, HR_REQUIRES.manager],
-  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin],
+  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin, BILLING_REQUIRES["finance-admin"]],
   "platform-admin": [],
   parent: [],
   external: [],
@@ -367,7 +368,31 @@ export const admissionGuide: ModuleGuide = {
   routes: [],
 };
 
-export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide];
+/* ── Billing ────────────────────────
+ * payer→learner (ungated baseline), finance-officer→coordinator,
+ * finance-admin→module-admin. Non-learner lanes section-gated by their own key.
+ * ──────────────────────────────── */
+export const billingGuide: ModuleGuide = {
+  module: "billing",
+  basePath: "/billing",
+  lanes: {
+    learner: {
+      sections: BILLING_GUIDES.lanes.payer.sections,
+      startHere: BILLING_GUIDES.lanes.payer.startHere,
+    },
+    coordinator: {
+      sections: withRequires(BILLING_GUIDES.lanes["finance-officer"].sections, BILLING_REQUIRES["finance-officer"]),
+      startHere: BILLING_GUIDES.lanes["finance-officer"].startHere,
+    },
+    "module-admin": {
+      sections: withRequires(BILLING_GUIDES.lanes["finance-admin"].sections, BILLING_REQUIRES["finance-admin"]),
+      startHere: BILLING_GUIDES.lanes["finance-admin"].startHere,
+    },
+  },
+  routes: [],
+};
+
+export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide];
 
 /** Canonical personas at least one module contributes real sections to. A
  *  persona NOT in this set is sparse (composeLane returns the platform-overview
@@ -390,6 +415,7 @@ const MODULE_LABELS: Record<string, string> = {
   pde: "PDE",
   hr: "HR",
   admission: "Admission",
+  billing: "Fees & Billing",
 };
 
 /** Human label for a module namespace; falls back to the raw id if unknown. */
@@ -416,6 +442,7 @@ const MODULE_GLOSSARIES: Record<string, GlossaryTerm[]> = {
   pde: PDE_GUIDES.glossary ?? [],
   hr: HR_GUIDES.glossary ?? [],
   admission: ADMISSION_GUIDES.glossary ?? [],
+  billing: BILLING_GUIDES.glossary ?? [],
 };
 
 /** "Words to know" terms for one module; empty array if module unknown. */
