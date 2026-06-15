@@ -206,12 +206,6 @@ export const GUIDES: GuideBook = {
               detail:
                 'Once saved, the bill moves to Paid or Partially Paid and the student sees the receipt under My Receipts straight away.',
             },
-            {
-              action: 'Manage **receipt templates** if you need to change how a printed receipt looks.',
-              detail:
-                'Templates control the layout and details on the printed/PDF receipt.',
-              link: { label: 'Take me there', href: '/billing/receipts/templates' },
-            },
           ],
         },
         {
@@ -290,8 +284,10 @@ export const GUIDES: GuideBook = {
         'Define the fee categories everyone bills against',
         'Schedule the bills (single or in bulk)',
         'Onboard learners pending payment',
-        'Connect the online payment accounts',
+        'Connect and go live with the online payment accounts',
         'Read reports and analytics to track collections',
+        'Set who can grant and approve scholarships',
+        'Oversee the refund approval workflow',
       ],
       sections: [
         {
@@ -310,9 +306,10 @@ export const GUIDES: GuideBook = {
               link: { label: 'Take me there', href: '/billing/categories' },
             },
             {
-              action: 'Click **Add Category** to create a new fee head.',
+              action: 'Click **Add Category** and set its name, **frequency**, and **default amount**.',
               detail:
-                'Give it a clear name — it appears on bills, receipts, and reports, so name it the way you want it to read everywhere.',
+                'Give it a clear name (it appears on bills, receipts, and reports). Set the **frequency** — one-time, monthly, quarterly, or yearly — which is how the fee recurs, and an optional **default amount** so bills against this category pre-fill the usual figure.',
+              tip: 'Frequency is the recurring-billing policy for the category. Set it deliberately — a "monthly" category behaves very differently from a "one-time" one when bills are generated.',
               link: { label: 'Take me there', href: '/billing/categories/new' },
             },
           ],
@@ -371,6 +368,17 @@ export const GUIDES: GuideBook = {
               tip: 'Gateway secrets are encrypted and never shown again after you save — store a copy somewhere safe before saving.',
               link: { label: 'Take me there', href: '/billing/payment-accounts' },
             },
+            {
+              action: '**Test** the connection before you go live.',
+              detail:
+                'Use the Test button on an account to confirm the keys actually reach the gateway — so you catch a wrong key now, not when a student’s payment fails.',
+            },
+            {
+              action: 'Add keys to **Activate** an account, and **Deactivate** to roll it back.',
+              detail:
+                'A new account stays inert (the institution keeps using the common account) until you add its keys to activate it. Deactivating an account sends that institution back to the common-account fallback, so you can take a gateway offline safely.',
+              tip: 'This is the go-live switch. Test first, activate only once the test passes, and keep the common account as the fallback for any institution without its own.',
+            },
           ],
         },
         {
@@ -418,6 +426,34 @@ export const GUIDES: GuideBook = {
               detail:
                 'A timeline of bills, receipts, invoices, scholarships, and refunds — useful when you need to trace who did what and when.',
               link: { label: 'Take me there', href: '/billing/activities' },
+            },
+          ],
+        },
+        {
+          id: 'scholarship-permissions',
+          title: '7. Set who can grant and approve scholarships',
+          steps: [
+            {
+              action: 'Open **Role Management → Scholarships** to set scholarship permissions per role.',
+              detail:
+                'This is the separation-of-duties control for scholarships. For each role you pick a template — Full Manager (create, edit, approve, delete), Creator (create and edit, but cannot approve), Reviewer (approve only, cannot create), Read Only, or No Access. It decides who can hand out a scholarship versus who signs one off.',
+              prerequisite:
+                'This screen lives under **Users → Role Management**, not under Billing, and it is super-admin only. If it is blocked, ask your platform admin.',
+              tip: 'Keep granting and approving in different hands — give front-line staff Creator and a senior approver Reviewer. That separation is what stops a scholarship being self-approved.',
+              link: { label: 'Take me there', href: '/users/role-management' },
+            },
+          ],
+        },
+        {
+          id: 'refund-oversight',
+          title: '8. Oversee the refund approval workflow',
+          steps: [
+            {
+              action: 'Open **Refunds** to oversee the Pending → Approved → Processed workflow.',
+              detail:
+                'Every refund moves through three stages — requested (Pending), signed off (Approved), then paid out (Processed). Only a processed refund actually reduces the net amount paid. From here you watch what is awaiting approval and what has been processed.',
+              tip: 'A refund stuck in Pending is money a student is waiting on. Clear approvals promptly — and remember a refund is tied to the receipt the payment came in on, not just the bill.',
+              link: { label: 'Take me there', href: '/billing/refunds' },
             },
           ],
         },
