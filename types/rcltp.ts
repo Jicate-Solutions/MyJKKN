@@ -543,6 +543,13 @@ export interface CreateRcltpPartBQuestionDto {
   max_score?: number;
   order_index?: number;
   is_active?: boolean;
+  // C1 fix (content-safety): the AI-generate path MUST be able to set draft +
+  // ai_generated so a generated question does NOT inherit the table's `status`
+  // DEFAULT 'approved' and silently skip human review. Manual authoring may omit
+  // these (defaults: source 'curated', status 'approved').
+  source?: RcltpPassageSource;
+  status?: RcltpPassageStatus;
+  ai_meta?: Json | null;
 }
 export type UpdateRcltpPartBQuestionDto = Partial<CreateRcltpPartBQuestionDto>;
 

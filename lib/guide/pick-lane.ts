@@ -3,19 +3,23 @@
  *
  * "Match the page you're on" (the locked rule) as a PURE function so it can be
  * unit-tested without React/DOM and reused by the FAB. Given the current route,
- * the viewer's VISIBLE composed lanes, their default ("own") lane, and the
- * generic platform OVERVIEW lane, it returns the ONE lane the FAB should open:
+ * the viewer's VISIBLE composed lanes, and the generic platform OVERVIEW lane,
+ * it returns the ONE lane the FAB drawer should open — SCOPED TO THE PAGE'S
+ * MODULE, so the contextual drawer shows THIS page's guide, not the viewer's
+ * whole cross-module role lane:
  *
- *   - On a route a guide MODULE owns  → the highest-priority VISIBLE persona that
- *     module contributes to (with content); else the viewer's own lane; else any
- *     visible lane with content, by priority.
+ *   - On a route a guide MODULE owns → the highest-priority VISIBLE persona that
+ *     module fills, with its sections RESTRICTED to that module (the `<module>:`
+ *     step-key namespace composeLane stamps). So a module-admin on /pde sees PDE
+ *     admin steps — NOT the AI Pulse / Campus Living admin steps that share the
+ *     module-admin lane. The full cross-module role guide stays one tap away via
+ *     the always-visible nav "Guide" item.
  *   - On a route NO module owns (dashboards, settings, un-guided modules) → the
- *     generic OVERVIEW lane ("how to get around"), NOT an unrelated module lane
- *     the viewer happens to qualify for.
- *   - If a module matched but nothing the viewer can see has content → the
- *     OVERVIEW lane (the floor). The function therefore NEVER returns null, so
- *     the FAB is useful on every signed-in page. (Route-level HIDING —
- *     auth / public / onboarding — is the FAB's own concern, not this function's.)
+ *     generic OVERVIEW lane ("how to get around").
+ *   - If the matched module fills no visible persona the viewer has content for
+ *     → the OVERVIEW lane (the floor). NEVER returns null, so the FAB is useful
+ *     on every signed-in page. (Route-level HIDING — auth / public / onboarding
+ *     — is the FAB's own concern, not this function's.)
  *
  * No I/O, no React, no "server-only" — safe to import anywhere and to unit-test.
  */
@@ -46,7 +50,11 @@ export interface PickGuideLaneArgs {
   pathname: string;
   /** The viewer's VISIBLE composed + server-filtered lanes, indexed by persona. */
   lanes: ReadonlyMap<CanonicalPersona, PersonaGuide>;
-  /** The viewer's default lane (highest-priority visible). */
+  /**
+   * The viewer's default lane (highest-priority visible). Retained for API
+   * compatibility; the module-scoped picker is fully determined by route +
+   * priority + visibility + per-module content, so `own` is no longer read.
+   */
   own: CanonicalPersona;
   /** The generic platform OVERVIEW lane (route fallback + safety-net floor). */
   overview: PersonaGuide;
@@ -56,14 +64,8 @@ export interface PickGuideLaneArgs {
 export function pickGuideLane({
   pathname,
   lanes,
-  own,
   overview,
 }: PickGuideLaneArgs): PersonaGuide {
-  const hasContent = (p: CanonicalPersona): boolean => {
-    const lane = lanes.get(p);
-    return !!lane && lane.sections.length > 0;
-  };
-
   const mod = matchModuleRoute(pathname);
 
   // A route no guide module owns → the generic platform overview. "Match the
@@ -71,24 +73,22 @@ export function pickGuideLane({
   // lane the viewer merely qualifies for.
   if (!mod) return overview;
 
-  // On a module's route, prefer the highest-priority visible persona that module
-  // contributes to, then the viewer's own lane, then any visible lane — all in
-  // priority order. The first candidate WITH content wins.
-  const candidates: CanonicalPersona[] = [];
+  // The highest-priority VISIBLE persona this module fills, with its sections
+  // RESTRICTED to this module (composeLane namespaces every section id as
+  // `<module>:<sectionId>`). This is what makes the contextual drawer show the
+  // PAGE'S module guide instead of the persona's whole cross-module lane. The
+  // namespaced keys are unchanged, so completed-step progress carries over.
+  const prefix = `${mod.module}:`;
   for (const p of LANE_PRIORITY) {
-    if (mod.personas.includes(p) && lanes.has(p)) candidates.push(p);
-  }
-  if (lanes.has(own)) candidates.push(own);
-  for (const p of LANE_PRIORITY) {
-    if (lanes.has(p)) candidates.push(p);
+    if (!mod.personas.includes(p)) continue;
+    const lane = lanes.get(p);
+    if (!lane) continue;
+    const sections = lane.sections.filter((s) => s.id.startsWith(prefix));
+    if (sections.length > 0) {
+      return { ...lane, sections, journey: sections.map((s) => s.title) };
+    }
   }
 
-  const chosen = candidates.find(hasContent);
-  if (chosen) {
-    const lane = lanes.get(chosen);
-    if (lane) return lane;
-  }
-
-  // Module matched but nothing the viewer can see has content → overview floor.
+  // Module matched but the viewer has no visible content from it → overview floor.
   return overview;
 }

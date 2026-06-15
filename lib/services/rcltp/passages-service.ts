@@ -181,7 +181,10 @@ export class RcltpPassagesService {
   ): Promise<RcltpPartBQuestion> {
     const { data, error } = await (this.supabase as any)
       .from('rcltp_part_b_questions')
-      .insert([input])
+      // Safe defaults for MANUAL authoring (curated + approved). The AI-generate path
+      // passes source='ai_generated' + status='draft' in `input`, which OVERRIDES these
+      // — so AI questions are never silently auto-approved by the DB default (C1/F2).
+      .insert([{ source: 'curated', status: 'approved', ...input }])
       .select()
       .single();
     if (error) throw error;

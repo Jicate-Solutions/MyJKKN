@@ -130,13 +130,16 @@ function StepRow({
           </div>
         )}
         {step.link && href && (
+          // Tinted/filled so a "take me there" deep-link reads as an ACTION,
+          // visibly distinct from the plain-bordered section accordions (which
+          // expand in place). Same shape was ambiguous between the two.
           <Link
             href={href}
             onClick={onLinkClick}
-            className="flex h-11 w-full items-center justify-between rounded-lg border px-3 text-[0.9rem] font-medium hover:bg-muted"
+            className="flex h-11 w-full items-center justify-between rounded-lg border border-primary/30 bg-primary/10 px-3 text-[0.9rem] font-semibold text-primary transition-colors hover:bg-primary/15"
           >
             <span>{step.link.label}</span>
-            <ArrowRight className="size-4 text-primary" aria-hidden />
+            <ArrowRight className="size-4" aria-hidden />
           </Link>
         )}
       </div>
@@ -279,10 +282,17 @@ export function GuideDrawer({
       const first = f[0];
       const last = f[f.length - 1];
       const active = document.activeElement;
+      // The panel container itself holds initial focus (tabIndex={-1}). Treat it
+      // like "before the first child": a Shift+Tab from it must wrap to `last`,
+      // otherwise the browser's default moves focus OUT of the dialog (behind the
+      // backdrop) — the focus-trap leak. (Forward Tab from the container falls
+      // through to the default, which lands on the first child inside the panel,
+      // so it stays trapped without special handling.)
+      const onContainer = active === panelRef.current;
       if (!panelRef.current.contains(active)) {
         e.preventDefault();
         first.focus();
-      } else if (e.shiftKey && active === first) {
+      } else if (e.shiftKey && (active === first || onContainer)) {
         e.preventDefault();
         last.focus();
       } else if (!e.shiftKey && active === last) {
