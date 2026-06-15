@@ -1600,3 +1600,10 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - RLS: both tables SELECT-only direct policies (leadership + own rows); no direct write policies
 - Location: `supabase/migrations/20260612180000_care_audit_framework.sql` (applied live via Management API 2026-06-12)
 - Purpose: Digitize the JKKN CARE Audit Framework v1.0 inside /audit — 20-item 0–4 scoring, two-scorer blind variance, pillar/index/gap-rule math, corrective moves as findings. Spec: specs/care-audit-module-spec-2026-06-12.md
+
+### Lock Privilege-Resolver Views + DDL Functions from anon (2026-06-16)
+- Views locked (revoke anon+PUBLIC, keep authenticated+service_role): `v_privilege_memberships_effective` (8 client call sites) + 4 children `_resolver_privilege_{lc_members,manual,yuva_chapter_chairs,yuva_vertical_chairs}` — all `security_invoker=false`, so authenticated reads via the parent only.
+- Functions locked (revoke anon+authenticated+PUBLIC, keep service_role; 0 app callers, DDL-executing, no internal guard): `privilege_source_register(...)`, `privilege_source_unregister(text)`, `_privilege_rebuild_effective_view()`.
+- Durable fix: `REVOKE ALL ... FROM anon, PUBLIC` baked INTO `privilege_source_register` (after each `CREATE OR REPLACE VIEW _resolver_privilege_<kind>`) and `_privilege_rebuild_effective_view` (after the parent-view rebuild, both branches) — so every future source_kind is born locked. The original `20260422_privilege_source_registry_and_resolvers.sql` created these bare, inheriting Supabase's default anon grant; PR #1256's one-time revoke didn't survive view recreation.
+- Location: `supabase/migrations/20260616000000_lock_privilege_resolver_views_and_fns_from_anon.sql` (applied live via Management API 2026-06-16; verified anon REST → HTTP 401 on views + RPC).
+- Reference: reference_myjkkn_live_anon_exposure_2026_06_07, feedback_supabase_anon_execute_default_grant, CLAUDE.md "Lock new RPCs from anon".
