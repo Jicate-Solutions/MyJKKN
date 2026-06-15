@@ -52,6 +52,7 @@ import {
   useWellnessConfig,
 } from '@/hooks/health/use-wellness-programs';
 import { HealthConsentProvider } from '../../_components/consent-gate';
+import { CrossoverCTA } from './_components/crossover-cta';
 import {
   isDayComplete,
   WELLNESS_CONFIG_DEFAULTS,
@@ -728,6 +729,10 @@ function ProgramDetailInner({ slug }: { slug: string }) {
           />
         </>
       )}
+
+      {/* Cross-over into the core Health module — shown once engaged
+          (≥1 day complete). Adoption on-ramp for mood/profile. */}
+      {completedCount > 0 && <CrossoverCTA programTitle={program.title} />}
 
       <div className="h-4" />
     </div>
