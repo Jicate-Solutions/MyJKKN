@@ -327,6 +327,48 @@ export const FILLED_PERSONAS: ReadonlySet<CanonicalPersona> = new Set(
 );
 
 /* ────────────────────────────────────────────────────────────────────────
+ * MODULE-SCOPED helpers — power the Help FAB's "Open full guide" link, which
+ * opens the full /guide page scoped to ONLY the module whose page you're on
+ * (see lib/guide/pick-lane.ts + app/(routes)/guide/page.tsx). Pure data.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+/** Display label per module namespace (12th-grade plain English). */
+const MODULE_LABELS: Record<string, string> = {
+  "ai-pulse": "AI Pulse",
+  "campus-living": "Campus Living",
+  pde: "PDE",
+};
+
+/** Human label for a module namespace; falls back to the raw id if unknown. */
+export function moduleLabel(moduleName: string): string {
+  return MODULE_LABELS[moduleName] ?? moduleName;
+}
+
+/** True only when `moduleName` is a real registered guide module. Fail-closed. */
+export function isModule(moduleName: string | null | undefined): boolean {
+  return !!moduleName && REGISTRY.some((m) => m.module === moduleName);
+}
+
+/** Canonical personas a single module fills (empty array if module unknown). */
+export function modulePersonas(moduleName: string): CanonicalPersona[] {
+  const mod = REGISTRY.find((m) => m.module === moduleName);
+  return mod ? (Object.keys(mod.lanes) as CanonicalPersona[]) : [];
+}
+
+/** Per-module glossary, so a module-scoped guide shows ONLY that module's terms
+ *  (not the cross-module MERGED_GLOSSARY). Keys match module namespaces. */
+const MODULE_GLOSSARIES: Record<string, GlossaryTerm[]> = {
+  "ai-pulse": AI_PULSE_GUIDES.glossary ?? [],
+  "campus-living": CAMPUS_GUIDES.glossary ?? [],
+  pde: PDE_GUIDES.glossary ?? [],
+};
+
+/** "Words to know" terms for one module; empty array if module unknown. */
+export function moduleGlossary(moduleName: string): GlossaryTerm[] {
+  return MODULE_GLOSSARIES[moduleName] ?? [];
+}
+
+/* ────────────────────────────────────────────────────────────────────────
  * e. composeLane — merge every module fragment's sections for one persona,
  *    namespacing each section's step keys by module so two modules can't
  *    collide, with the canonical title/tagline from CANONICAL_LANES. If no
@@ -388,6 +430,38 @@ export function composeLane(persona: CanonicalPersona): PersonaGuide {
     tagline: meta.tagline,
     startHere,
     journey,
+    sections,
+  };
+}
+
+/**
+ * composeModuleLane — the SINGLE-module counterpart of composeLane: just that
+ * one module's sections for `persona`, namespaced IDENTICALLY (`<module>:<id>`)
+ * so completed-step progress carries over verbatim between the contextual
+ * drawer, the composed lane, and this scoped view. Returns null when the module
+ * is unknown or doesn't fill that persona (caller falls back to the full lane).
+ *
+ * Used by the full /guide page when the Help FAB opens it scoped to the module
+ * whose page the viewer is on ("Open full guide" → that page's guide only).
+ */
+export function composeModuleLane(
+  moduleName: string,
+  persona: CanonicalPersona
+): PersonaGuide | null {
+  const mod = REGISTRY.find((m) => m.module === moduleName);
+  if (!mod) return null;
+  const frag = mod.lanes[persona];
+  if (!frag || frag.sections.length === 0) return null;
+
+  const meta = CANONICAL_LANES[persona];
+  const sections = frag.sections.map((sec) => namespaceSection(mod.module, sec));
+
+  return {
+    persona,
+    title: meta.title,
+    tagline: meta.tagline,
+    startHere: frag.startHere,
+    journey: sections.map((s) => s.title),
     sections,
   };
 }
