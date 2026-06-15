@@ -204,8 +204,11 @@ export function VoiceRecorder({ assessmentId, disabled, onRecorded }: VoiceRecor
     try {
       recorderRef.current?.stop();
     } catch {
+      // stop() threw → onstop will not fire, so there is NO blob. Surface an
+      // honest error rather than a 'captured' state that implies a usable take.
       stopTracks();
-      setState('captured');
+      setErrorMsg('Recording stopped unexpectedly. Please try again.');
+      setState('error');
     }
   }
 

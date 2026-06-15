@@ -71,6 +71,10 @@ export function useRcltpQuestions(filters: RcltpPartBQuestionFilters = {}) {
   return useQuery({
     queryKey: rcltpQuestionKeys.list(filters),
     queryFn: () => RcltpPassagesService.getQuestions(filters),
+    // Never fetch with an empty filter: an un-scoped query returns arbitrary
+    // tenant questions (incl. drafts) to the network. Callers always pass a
+    // passage_id; gate on it so a passage-less render makes no request.
+    enabled: !!filters.passage_id,
     placeholderData: (prev) => prev,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });

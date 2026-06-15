@@ -380,7 +380,11 @@ export function TakeFlow({ assessmentId }: { assessmentId: string }) {
       {/* Actions */}
       <div className='sticky bottom-0 flex flex-wrap items-center justify-end gap-2 border-t bg-background/95 py-3 backdrop-blur'>
         {questions.length > 0 && (
-          <Button variant='outline' onClick={saveProgress} disabled={saving || submitting}>
+          <Button
+            variant='outline'
+            onClick={saveProgress}
+            disabled={saving || submitting || starting}
+          >
             {saving ? <Loader2 className='mr-2 h-4 w-4 animate-spin' /> : null}
             Save progress
           </Button>
