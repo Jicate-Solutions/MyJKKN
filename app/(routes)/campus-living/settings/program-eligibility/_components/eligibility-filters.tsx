@@ -15,7 +15,7 @@ import {
   type Option,
 } from '@/components/campus-living/filter-panel';
 
-// program_id === null means "institution default"; quota_id === null means
+// program_id === null means "institution default"; an empty quota_ids means
 // "any quota". Both need explicit filter options, so they get sentinels.
 const SCOPE_DEFAULT = '__default__';
 const QUOTA_ANY = '__any_quota__';
@@ -62,8 +62,8 @@ export function eligibilityMatchesFilters(
     if (!match) return false;
   }
   if (f.quota) {
-    const match =
-      f.quota === QUOTA_ANY ? row.quota_id === null : row.quota_id === f.quota;
+    const ids = row.quota_ids ?? [];
+    const match = f.quota === QUOTA_ANY ? ids.length === 0 : ids.includes(f.quota);
     if (!match) return false;
   }
   if (f.hostel_type && row.hostel_type !== f.hostel_type) return false;
@@ -79,7 +79,7 @@ export function eligibilityMatchesFilters(
     const haystack = [
       row.institution_name,
       row.program_name ?? 'All programs default',
-      row.quota_name ?? 'Any quota',
+      row.quota_names.length ? row.quota_names.join(' ') : 'Any quota',
       row.room_category_name,
       row.mess_category_name,
       formatFeeBand(row.fee_min, row.fee_max),
@@ -127,13 +127,17 @@ export function EligibilityFiltersPanel({
   }, [rows]);
 
   const quotaOptions = useMemo<Option[]>(() => {
-    const quotas = distinctOptions(rows, (r) => ({
-      value: r.quota_id,
-      label: r.quota_name,
-    }));
-    return rows.some((r) => r.quota_id === null)
-      ? [{ value: QUOTA_ANY, label: 'Any quota' }, ...quotas]
-      : quotas;
+    const byId = new Map<string, string>();
+    let hasAny = false;
+    for (const r of rows) {
+      const ids = r.quota_ids ?? [];
+      if (ids.length === 0) hasAny = true;
+      ids.forEach((id, i) => {
+        if (!byId.has(id)) byId.set(id, r.quota_names[i] ?? id);
+      });
+    }
+    const quotas: Option[] = Array.from(byId, ([value, label]) => ({ value, label }));
+    return hasAny ? [{ value: QUOTA_ANY, label: 'Any quota' }, ...quotas] : quotas;
   }, [rows]);
 
   const hostelTypeOptions = useMemo(
