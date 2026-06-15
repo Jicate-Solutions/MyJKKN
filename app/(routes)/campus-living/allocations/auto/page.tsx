@@ -14,8 +14,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { Loader2, Wand2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+
+const ALL_BLOCKS = '__all_blocks__';
 import { usePermissions } from '@/hooks/use-permissions';
 import { CandidateValidationTable } from './_components/candidate-validation-table';
 import type { AllocationCandidate } from '@/types/allocation-batch';
@@ -36,6 +39,9 @@ export default function AutoAllocatePage() {
   const [genderType, setGenderType] = useState('');
   const [blockId, setBlockId] = useState('');
   const [yearId, setYearId] = useState('');
+  // Strict physical rules: only allocate cohorts that match a physical-room rule (default
+  // on). Physical condition first, then category. Off = today's fail-open catch-all.
+  const [strict, setStrict] = useState(true);
   const { years } = useHostelYears();
 
   // Block list is per-gender — pick a type first to narrow it.
@@ -50,12 +56,13 @@ export default function AutoAllocatePage() {
   const canGenerate = isSuperAdmin || can('campus_living.allocations.create');
 
   const runPreview = async () => {
-    if (!blockId) return;
+    // Preview is per-block (the candidate table is one block's cohort).
+    if (!blockId || blockId === ALL_BLOCKS) return;
     setPreviewing(true);
     setCandidates(null);
     try {
       const [cands, agg] = await Promise.all([
-        AllocationBatchService.previewCandidates(blockId),
+        AllocationBatchService.previewCandidates(blockId, strict),
         AllocationBatchService.preview(blockId),
       ]);
       setCandidates(cands);
@@ -71,9 +78,20 @@ export default function AutoAllocatePage() {
     if (!blockId || !yearId) return;
     setGenerating(true);
     try {
-      const batchId = await generate(blockId, yearId);
-      toast.success('Proposed allocation generated — awaiting warden approval');
-      router.push(`/campus-living/allocations/batches/${batchId}`);
+      if (blockId === ALL_BLOCKS) {
+        // One proposed batch per block of the selected gender.
+        let made = 0;
+        for (const b of typedBlocks) {
+          await generate(b.id, yearId, strict);
+          made += 1;
+        }
+        toast.success(`Generated a proposed batch for ${made} block${made === 1 ? '' : 's'} — awaiting warden approval`);
+        router.push('/campus-living/allocations/batches');
+      } else {
+        const batchId = await generate(blockId, yearId, strict);
+        toast.success('Proposed allocation generated — awaiting warden approval');
+        router.push(`/campus-living/allocations/batches/${batchId}`);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to generate');
     } finally {
@@ -126,6 +144,11 @@ export default function AutoAllocatePage() {
               <Select value={blockId} onValueChange={(v) => { setBlockId(v); setCandidates(null); }} disabled={!genderType}>
                 <SelectTrigger><SelectValue placeholder={genderType ? 'Select block' : 'Pick a type first'} /></SelectTrigger>
                 <SelectContent>
+                  {typedBlocks.length > 1 && (
+                    <SelectItem value={ALL_BLOCKS}>
+                      All blocks ({genderType === 'boys' ? 'Boys' : 'Girls'})
+                    </SelectItem>
+                  )}
                   {typedBlocks.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -142,11 +165,23 @@ export default function AutoAllocatePage() {
           </CardContent>
         </Card>
 
+        <div className="flex items-center justify-between rounded-lg border p-3 sm:max-w-xl">
+          <div className="space-y-0.5 pr-3">
+            <Label className="text-sm">Strict physical rules</Label>
+            <p className="text-xs text-muted-foreground">
+              Check the physical-room condition first: only allocate cohorts that match a
+              physical-room rule. Open (rule-free) rooms are not used as a catch-all, so cohorts
+              with no rule (e.g. 3-Year) are skipped. Turn off for the open, fill-everyone mode.
+            </p>
+          </div>
+          <Switch checked={strict} onCheckedChange={(v) => { setStrict(v); setCandidates(null); }} />
+        </div>
+
         <div className="flex gap-3">
           <Button
             variant="outline"
             onClick={runPreview}
-            disabled={!blockId || previewing}
+            disabled={!blockId || blockId === ALL_BLOCKS || previewing}
           >
             {previewing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Preview
           </Button>

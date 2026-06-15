@@ -4920,7 +4920,7 @@ CREATE TABLE IF NOT EXISTS public.hostel_program_eligibility (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   institution_id uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
   program_id uuid REFERENCES public.programs(id) ON DELETE CASCADE,   -- NULL = institution default
-  quota_id   uuid REFERENCES public.quotas(id) ON DELETE CASCADE,     -- NULL = any quota
+  quota_ids  uuid[],                                                  -- NULL/empty = any quota; one rule can target many quotas. No FK (arrays can't); validated + canonicalised by trg_prog_elig_normalize_quotas
   fee_min numeric(12,2),                                              -- inclusive lower (rupees), NULL = unbounded
   fee_max numeric(12,2),                                              -- exclusive upper (rupees), NULL = unbounded
   room_category_id uuid REFERENCES public.hostel_categories(id) ON DELETE CASCADE,
@@ -4940,16 +4940,20 @@ CREATE TABLE IF NOT EXISTS public.hostel_program_eligibility (
 -- One row per band PER GENDER (institution, program, quota, fee_min, fee_max, hostel_type).
 -- hostel_type is part of the key so a fee tier can hold a boys row AND a girls row;
 -- categories are gender-typed and the resolver filters bands by hostel_type.
+-- quota_ids is canonicalised (sorted + de-duped) by the trigger so this btree
+-- index treats {A,B} and {B,A} as the same key; COALESCE(...,'{}') collapses NULL.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_prog_elig_band ON public.hostel_program_eligibility (
   institution_id,
   COALESCE(program_id, '00000000-0000-0000-0000-000000000000'::uuid),
-  COALESCE(quota_id,   '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(quota_ids,  '{}'::uuid[]),
   COALESCE(fee_min, -1),
   COALESCE(fee_max, -1),
   hostel_type
 );
 CREATE INDEX IF NOT EXISTS idx_prog_elig_resolve
-  ON public.hostel_program_eligibility (institution_id, program_id, quota_id, is_active);
+  ON public.hostel_program_eligibility (institution_id, program_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_prog_elig_quota_ids
+  ON public.hostel_program_eligibility USING gin (quota_ids);
 
 -- hostel_waitlist: waitlist for hostel room allocation and self-service category-upgrade intent.
 -- Originally created in migration 20260222000015_campus_living_enums_and_tables.sql.

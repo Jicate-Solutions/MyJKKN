@@ -36,10 +36,36 @@ import {
   nextUndoneStep,
 } from "@/lib/guide/types";
 import { useGuideProgress } from "@/lib/guide/use-progress";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 function cx(...c: Array<string | false | null | undefined>) {
   return c.filter(Boolean).join(" ");
 }
+
+/**
+ * Who each canonical lane is FOR — surfaced as a hover/keyboard-focus hint on the
+ * switcher chips so a viewer (especially an admin previewing) knows the audience
+ * and roughly who can see it. Generic per canonical persona on purpose: the
+ * concrete roles differ per module (e.g. "unit-lead" = warden/mess in Campus
+ * Living, champion in AI Pulse), so the chip describes the persona, not a single
+ * module's role names. `access` is plain-language, NOT an authz signal — actual
+ * visibility is enforced server-side in resolve-persona.ts (fail-closed). */
+const PERSONA_AUDIENCE: Record<CanonicalPersona, { who: string; access: string }> = {
+  learner: { who: "Learners — students & residents", access: "Open to everyone" },
+  facilitator: { who: "Facilitators — faculty & reviewers", access: "Shown to people with this access" },
+  "unit-lead": { who: "Unit leads — e.g. wardens, mess in-charge", access: "Shown to people with this access" },
+  coordinator: { who: "Coordinators", access: "Shown to people with this access" },
+  supervisor: { who: "Supervisors & HODs", access: "Shown to people with this access" },
+  "module-admin": { who: "Module administrators", access: "Shown to people with this access" },
+  "platform-admin": { who: "Platform (super) admins", access: "Super-admins only" },
+  parent: { who: "Parents", access: "Shown to parents" },
+  external: { who: "Partners & visitors", access: "Shown to partners & visitors" },
+};
 
 /** Plain text (drop `**bold**` markers) — for aria-labels read by screen readers. */
 function stripBold(text: string): string {
@@ -294,29 +320,39 @@ export function GuideView({
       {showSwitcher && (
         <section className="rounded-2xl border bg-card p-4 shadow-sm">
           <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Choose a guide</p>
-          <div className="flex flex-wrap gap-2">
-            {visiblePersonas.map((p) => {
-              const active = p === persona;
-              return (
-                <button
-                  key={p}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => {
-                    progress.emit({ name: "lane_switch", surface: "page", context: p });
-                    router.push(`${basePath}?persona=${p}${personaParam ? `&${personaParam}` : ""}`);
-                  }}
-                  className={
-                    active
-                      ? "inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-sm font-semibold text-primary-foreground"
-                      : "inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  }
-                >
-                  {guides.lanes[p].title.replace(/ Guide$/, "")}
-                </button>
-              );
-            })}
-          </div>
+          <TooltipProvider delayDuration={150}>
+            <div className="flex flex-wrap gap-2">
+              {visiblePersonas.map((p) => {
+                const active = p === persona;
+                const aud = PERSONA_AUDIENCE[p];
+                return (
+                  <Tooltip key={p}>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => {
+                          progress.emit({ name: "lane_switch", surface: "page", context: p });
+                          router.push(`${basePath}?persona=${p}${personaParam ? `&${personaParam}` : ""}`);
+                        }}
+                        className={
+                          active
+                            ? "inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-sm font-semibold text-primary-foreground"
+                            : "inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        }
+                      >
+                        {guides.lanes[p].title.replace(/ Guide$/, "")}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-[15rem] text-left leading-snug">
+                      <p className="font-semibold">For {aud.who}</p>
+                      <p className="opacity-80">{aud.access}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </div>
+          </TooltipProvider>
         </section>
       )}
 

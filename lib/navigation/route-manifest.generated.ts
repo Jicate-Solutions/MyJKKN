@@ -2946,6 +2946,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/guide",
+    "label": "Guide",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
     "path": "/health",
     "label": "Health",
     "iconName": "Heart",
@@ -5111,6 +5117,106 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Templates",
         "iconName": "FileText",
         "children": []
+      }
+    ]
+  },
+  {
+    "path": "/rcltp",
+    "label": "Rcltp",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/rcltp/admin",
+        "label": "Admin",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/rcltp/admin/bands",
+            "label": "RCLTP Bands",
+            "iconName": "SlidersHorizontal",
+            "children": []
+          },
+          {
+            "path": "/rcltp/admin/content",
+            "label": "RCLTP Content",
+            "iconName": "BookOpenCheck",
+            "children": []
+          },
+          {
+            "path": "/rcltp/admin/gamification",
+            "label": "RCLTP Badges",
+            "iconName": "Award",
+            "children": []
+          },
+          {
+            "path": "/rcltp/admin/policies",
+            "label": "RCLTP Policies",
+            "iconName": "BookOpenCheck",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/rcltp/principal",
+        "label": "RCLTP Principal",
+        "iconName": "LayoutDashboard",
+        "children": []
+      },
+      {
+        "path": "/rcltp/reports",
+        "label": "RCLTP Reports",
+        "iconName": "FileBarChart",
+        "children": []
+      },
+      {
+        "path": "/rcltp/student",
+        "label": "Student",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/rcltp/student/assessment",
+            "label": "Assessment",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/rcltp/student/practice",
+            "label": "Practice",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/rcltp/student/vbb",
+            "label": "Vbb",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/rcltp/teacher",
+        "label": "RCLTP Teacher",
+        "iconName": "Users",
+        "children": [
+          {
+            "path": "/rcltp/teacher/assessments",
+            "label": "Open Assessment",
+            "iconName": "ClipboardList",
+            "children": []
+          },
+          {
+            "path": "/rcltp/teacher/questions",
+            "label": "Question Review",
+            "iconName": "ListChecks",
+            "children": []
+          },
+          {
+            "path": "/rcltp/teacher/recordings",
+            "label": "Recording Review",
+            "iconName": "Mic",
+            "children": []
+          }
+        ]
       }
     ]
   },

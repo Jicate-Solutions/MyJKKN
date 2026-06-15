@@ -24,9 +24,9 @@ import {
   useActiveQuotas,
 } from '@/hooks/campus-living/use-program-eligibility';
 import type { ProgramEligibilityRow } from '@/types/program-eligibility';
+import { QuotaMultiSelect } from './quota-multi-select';
 
 const INSTITUTION_DEFAULT = '__default__';
-const ANY_QUOTA = '__any_quota__';
 const NO_CATEGORY = '__none__';
 
 // Live "₹4,00,000"-style preview for the rupee fee inputs.
@@ -59,7 +59,7 @@ export function ProgramEligibilityFormDialog({
   const [submitting, setSubmitting] = useState(false);
   const [selectedInstitution, setSelectedInstitution] = useState<string>('');
   const [scope, setScope] = useState<string>(INSTITUTION_DEFAULT);
-  const [quota, setQuota] = useState<string>(ANY_QUOTA);
+  const [quotaIds, setQuotaIds] = useState<string[]>([]);
   const [hostelType, setHostelType] = useState<string>(''); // 'boys' | 'girls' — UI-only filter (derived from category.type)
   const [feeMinRs, setFeeMinRs] = useState<string>('');
   const [feeMaxRs, setFeeMaxRs] = useState<string>('');
@@ -80,7 +80,7 @@ export function ProgramEligibilityFormDialog({
       setHostelType(row.hostel_type ?? 'both');
       setSelectedInstitution(row.institution_id ?? institutionId ?? '');
       setScope(row.program_id ?? INSTITUTION_DEFAULT);
-      setQuota(row.quota_id ?? ANY_QUOTA);
+      setQuotaIds(row.quota_ids ?? []);
       setFeeMinRs(row.fee_min != null ? String(row.fee_min) : '');
       setFeeMaxRs(row.fee_max != null ? String(row.fee_max) : '');
       setRoomCategoryId(row.room_category_id ?? NO_CATEGORY);
@@ -92,7 +92,7 @@ export function ProgramEligibilityFormDialog({
       setHostelType('both');
       setSelectedInstitution(institutionId ?? '');
       setScope(INSTITUTION_DEFAULT);
-      setQuota(ANY_QUOTA);
+      setQuotaIds([]);
       setFeeMinRs('');
       setFeeMaxRs('');
       setRoomCategoryId(NO_CATEGORY);
@@ -120,27 +120,35 @@ export function ProgramEligibilityFormDialog({
     { value: INSTITUTION_DEFAULT, label: 'All programs — institution default' },
     ...programs.map((p) => ({ value: p.id, label: p.program_name })),
   ];
-  const quotaOptions = [
-    { value: ANY_QUOTA, label: 'All quotas — any' },
-    ...quotas.map((q) => ({ value: q.id, label: q.name })),
-  ];
+  const quotaOptions = quotas.map((q) => ({ value: q.id, label: q.name }));
   // 'both' => the band is common to both genders, so show one option per category
-  // NAME (the apply logic maps it to each learner's gender variant). 'boys'/'girls'
+  // NAME (the resolver maps it to each learner's gender variant). 'boys'/'girls'
   // => only that gender's categories.
-  const filterCats = (cats: { id: string; name: string; type: string | null }[]) => {
+  // The dedup is VALUE-AWARE: it keeps the currently-selected variant as the
+  // representative for its name, so editing a 'both' band whose stored id is the
+  // dropped gender variant (e.g. girls "Deluxe Room") still displays instead of
+  // rendering blank.
+  const filterCats = (
+    cats: { id: string; name: string; type: string | null }[],
+    selectedId?: string,
+  ) => {
     if (hostelType === 'both') {
-      const seen = new Set<string>();
-      return cats.filter((c) => (seen.has(c.name) ? false : (seen.add(c.name), true)));
+      const byName = new Map<string, { id: string; name: string; type: string | null }>();
+      for (const c of cats) {
+        const existing = byName.get(c.name);
+        if (!existing || c.id === selectedId) byName.set(c.name, c);
+      }
+      return Array.from(byName.values());
     }
     return cats.filter((c) => !hostelType || c.type === hostelType);
   };
   const roomCategoryOptions = [
     { value: NO_CATEGORY, label: '— None —' },
-    ...filterCats(roomCategories).map((c) => ({ value: c.id, label: c.name })),
+    ...filterCats(roomCategories, roomCategoryId).map((c) => ({ value: c.id, label: c.name })),
   ];
   const messCategoryOptions = [
     { value: NO_CATEGORY, label: '— None —' },
-    ...filterCats(messCategories).map((c) => ({ value: c.id, label: c.name })),
+    ...filterCats(messCategories, messCategoryId).map((c) => ({ value: c.id, label: c.name })),
   ];
 
   const onSubmit = async () => {
@@ -161,7 +169,7 @@ export function ProgramEligibilityFormDialog({
     try {
       setSubmitting(true);
       const programId = scope === INSTITUTION_DEFAULT ? null : scope;
-      const quotaId = quota === ANY_QUOTA ? null : quota;
+      const quotaIdsToSend = quotaIds.length ? quotaIds : null;
       const effective = effectiveFrom.trim() || null;
       // Inputs are full rupee amounts (fee_min / fee_max are stored in rupees).
       const toRupees = (s: string) => {
@@ -179,7 +187,7 @@ export function ProgramEligibilityFormDialog({
       if (isEdit && row) {
         await updateEligibility(row.id, {
           program_id: programId,
-          quota_id: quotaId,
+          quota_ids: quotaIdsToSend,
           fee_min: feeMin,
           fee_max: feeMax,
           room_category_id: roomId,
@@ -194,7 +202,7 @@ export function ProgramEligibilityFormDialog({
         await createEligibility({
           institution_id: selectedInstitution,
           program_id: programId,
-          quota_id: quotaId,
+          quota_ids: quotaIdsToSend,
           fee_min: feeMin,
           fee_max: feeMax,
           room_category_id: roomId,
@@ -242,7 +250,8 @@ export function ProgramEligibilityFormDialog({
 
           <div className='space-y-2'>
             <Label>Quota</Label>
-            <SearchableSelect className='w-full' value={quota} onValueChange={setQuota} options={quotaOptions} placeholder='Select quota' modal />
+            <QuotaMultiSelect options={quotaOptions} value={quotaIds} onChange={setQuotaIds} />
+            <p className='text-xs text-muted-foreground'>Pick one or more quotas, or leave empty to apply to any quota.</p>
           </div>
 
           <div className='space-y-2'>

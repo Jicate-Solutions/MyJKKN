@@ -1,13 +1,13 @@
 // Combined program eligibility — one row maps (institution, program, quota, fee band)
 // to BOTH a room and a mess category. program_id === null => institution default;
-// quota_id === null => any quota. Fee band is half-open [fee_min, fee_max) in rupees
+// quota_ids === null => any quota (an empty selection stores null). Fee band is half-open [fee_min, fee_max) in rupees
 // (either bound null => unbounded). effective_from is reserved (later PR).
 
 export interface ProgramEligibility {
   id: string;
   institution_id: string;
   program_id: string | null;
-  quota_id: string | null;
+  quota_ids: string[] | null;
   fee_min: number | null;
   fee_max: number | null;
   room_category_id: string | null;
@@ -26,7 +26,7 @@ export interface ProgramEligibility {
 export interface ProgramEligibilityRow extends ProgramEligibility {
   institution_name: string | null;
   program_name: string | null; // null => institution default
-  quota_name: string | null; // null => any quota
+  quota_names: string[]; // [] => any quota; aligned 1:1 with quota_ids
   room_category_name: string | null;
   mess_category_name: string | null;
 }
@@ -34,7 +34,7 @@ export interface ProgramEligibilityRow extends ProgramEligibility {
 export interface CreateProgramEligibilityDto {
   institution_id: string;
   program_id?: string | null;
-  quota_id?: string | null;
+  quota_ids?: string[] | null;
   fee_min?: number | null;
   fee_max?: number | null;
   room_category_id?: string | null;
@@ -49,7 +49,7 @@ export interface UpdateProgramEligibilityDto {
   // Scope / quota / fee band / categories are editable (institution stays fixed —
   // delete & recreate to move tenant). All optional; only the keys sent are updated.
   program_id?: string | null;
-  quota_id?: string | null;
+  quota_ids?: string[] | null;
   fee_min?: number | null;
   fee_max?: number | null;
   room_category_id?: string | null;
