@@ -83,8 +83,11 @@ export interface CanonicalLaneMeta {
 export const CANONICAL_LANES: Record<CanonicalPersona, CanonicalLaneMeta> = {
   learner: {
     persona: "learner",
+    // Canonical baseline lane shown across EVERY module (learners, HR self-service,
+    // fee-payers, residents…), so the tagline must stay module-neutral — not skewed
+    // to participation/record-building, which read oddly for HR/Billing.
     title: "Getting started",
-    tagline: "Take part, get counted, and build your record — here's how.",
+    tagline: "Find your way and get the everyday things done — here's how.",
   },
   facilitator: {
     persona: "facilitator",
