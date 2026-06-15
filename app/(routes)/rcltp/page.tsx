@@ -20,6 +20,9 @@ import {
   GraduationCap,
   Users,
   LayoutDashboard,
+  FileBarChart,
+  Award,
+  SlidersHorizontal,
   Lock,
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -70,24 +73,24 @@ const ALL_LANES: LaneCard[] = [
     requiredPermission: 'rcltp.config.manage',
   },
   {
-    id: 'principal',
-    title: 'Principal Dashboard',
-    description:
-      'School-wide RCLTP analytics — cohort band distribution, cycle progress, and at-risk learner alerts.',
-    href: '/rcltp/principal',
-    icon: LayoutDashboard,
-    available: false,
-    phase: 'Phase 4c',
-  },
-  {
     id: 'teacher',
     title: 'Teacher Console',
     description:
-      'Manage section-level assessment schedules, record voice readings, review student results, and assign adaptive practice.',
+      'Open assessments for your class, schedule the cycle windows, review voice recordings, and approve comprehension questions.',
     href: '/rcltp/teacher',
     icon: Users,
-    available: false,
-    phase: 'Phase 4b',
+    available: true,
+    requiredPermission: 'rcltp.assessment.manage',
+  },
+  {
+    id: 'principal',
+    title: 'Principal Dashboard',
+    description:
+      'School-wide RCLTP analytics — cohort band distribution, cycle progress, and at-risk learner alerts. (Populates once EKSAQ scoring is enabled.)',
+    href: '/rcltp/principal',
+    icon: LayoutDashboard,
+    available: true,
+    requiredPermission: 'rcltp.report.view_all',
   },
   {
     id: 'student',
@@ -98,6 +101,36 @@ const ALL_LANES: LaneCard[] = [
     icon: GraduationCap,
     available: true,
     requiredPermission: 'rcltp.assessment.take',
+  },
+  {
+    id: 'reports',
+    title: 'Reports & Dashboards',
+    description:
+      'Per-persona report shells — student/parent score report, teacher analytics, school-head dashboard. (Awaiting EKSAQ scoring + report catalog.)',
+    href: '/rcltp/reports',
+    icon: FileBarChart,
+    available: true,
+    requiredPermission: 'rcltp.report.view_all',
+  },
+  {
+    id: 'gamification',
+    title: 'Badges & Gamification',
+    description:
+      'Manage the badge catalog — names, points, and provisional award criteria. Badges are server-awarded only.',
+    href: '/rcltp/admin/gamification',
+    icon: Award,
+    available: true,
+    requiredPermission: 'rcltp.config.manage',
+  },
+  {
+    id: 'bands',
+    title: 'Band Cutoffs',
+    description:
+      'Configure provisional band score cutoffs per dimension. Provisional — pending EKSAQ validation; drives no live scoring yet.',
+    href: '/rcltp/admin/bands',
+    icon: SlidersHorizontal,
+    available: true,
+    requiredPermission: 'rcltp.config.manage',
   },
 ];
 
