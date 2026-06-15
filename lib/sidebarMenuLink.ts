@@ -901,6 +901,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Board of Studies — parent landing (children /bos/{compositions,experts,...} above)
   '/bos': 'bos.view',
+  // EKSAQ RCLTP — gated to content managers for now (only admin authoring +
+  // policies exist in Phase 4a); broaden when student/teacher surfaces (4b/4c) land.
+  '/rcltp': 'rcltp.config.manage',
 
   // Events — Marathon submenu (companion to existing /events/propose entry)
   '/events/marathon': 'events.marathon.view',
@@ -1208,6 +1211,16 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Board of Studies',
           active: pathname === '/bos' || pathname.startsWith('/bos/'),
           icon: ClipboardList,
+          submenus: []
+        },
+        {
+          // EKSAQ RCLTP — reading-assessment module. Role-aware landing at /rcltp
+          // routes each persona to their lane (admin authoring + policies live now;
+          // student/teacher/principal surfaces land in Phase 4b/4c).
+          href: '/rcltp',
+          label: 'Reading (RCLTP)',
+          active: pathname === '/rcltp' || pathname.startsWith('/rcltp/'),
+          icon: BookOpen,
           submenus: []
         }
       ]
