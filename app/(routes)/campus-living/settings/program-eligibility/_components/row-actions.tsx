@@ -88,7 +88,7 @@ export function EligibilityRowActions({ row }: { row: ProgramEligibilityRow }) {
             <AlertDialogTitle>Remove eligibility rule?</AlertDialogTitle>
             <AlertDialogDescription>
               This removes the {row.program_name ?? 'institution default'} rule
-              {row.quota_name ? ` (${row.quota_name})` : ''} for{' '}
+              {row.quota_names.length ? ` (${row.quota_names.join(', ')})` : ''} for{' '}
               {row.room_category_name ?? row.mess_category_name ?? 'this band'}.
             </AlertDialogDescription>
           </AlertDialogHeader>

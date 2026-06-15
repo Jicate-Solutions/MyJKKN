@@ -33,9 +33,16 @@ export function CategoryFeesTab() {
     );
   }
 
-  // No active allocation → first-booking flow (book a room). Works even when the
-  // learner has no category assigned yet (the card lists all eligible categories).
-  if (!hasAllocation) {
+  // Book-vs-upgrade is driven by the current category's ALLOCATION MODE, not by
+  // whether a room is held. MANUAL categories (e.g. Premium) are self-booked, so
+  // those residents get "Book a Room"; AUTO categories (Classic/Deluxe) are
+  // office-allocated, so those residents only ever see upgrade options — even
+  // before they hold a room (Classic → Deluxe / Premium). An allocated resident
+  // never books a first room, so booking is additionally gated on having none.
+  const currentCategory = summary?.hostelCategory ?? null;
+  const showBook = currentCategory?.allocation_mode === 'manual' && !hasAllocation;
+
+  if (showBook) {
     return (
       <div className='space-y-6'>
         <div>
@@ -45,7 +52,7 @@ export function CategoryFeesTab() {
             and mess category are set automatically once booked.
           </p>
         </div>
-        <RoomCategoryUpgradeCard currentCategoryName={null} mode='book' />
+        <RoomCategoryUpgradeCard currentCategoryName={currentCategory?.name ?? null} mode='book' />
       </div>
     );
   }
@@ -98,7 +105,7 @@ export function CategoryFeesTab() {
         mode='upgrade'
       />
       <MessCategoryUpgradeCard
-        currentMessName={summary.messCategory?.name ?? null}
+        currentMessName={summary?.messCategory?.name ?? null}
       />
     </div>
   );

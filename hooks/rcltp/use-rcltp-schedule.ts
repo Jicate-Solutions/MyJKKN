@@ -64,6 +64,9 @@ export function useRcltpPracticeAssignments(
   return useQuery({
     queryKey: rcltpPracticeKeys.list(filters),
     queryFn: () => RcltpScheduleService.getPracticeAssignments(filters),
+    // Learner-scoped surface — don't fire an unscoped fetch before the learner
+    // id resolves (avoids an over-broad query racing the learner-id lookup).
+    enabled: !!filters.learner_id,
     placeholderData: (prev) => prev,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });

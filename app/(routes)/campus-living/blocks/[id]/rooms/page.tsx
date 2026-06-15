@@ -22,7 +22,8 @@ import {
   HostelRoomService,
   type HostelRoomWithBedsAndOccupancy,
 } from '@/lib/services/campus-living/hostel-room-service';
-import { ArrowLeft, Loader2, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Plus, Trash2, FileDown } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: 'all', label: 'All Status' },
@@ -55,6 +56,10 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
   const [advancedFilters, setAdvancedFilters] =
     useState<RoomAdvancedFilters>(EMPTY_ROOM_FILTERS);
   const [createOpen, setCreateOpen] = useState(false);
+  // The DataTable owns its search box; mirror the query here (via onSearch) so
+  // the PDF export can honour it on top of the floor/status/advanced filters.
+  const [search, setSearch] = useState('');
+  const [exporting, setExporting] = useState(false);
 
   const { data: rooms, isLoading, refetch } = useRoomsByBlockWithOccupancy(id);
   const { data: blockData } = useHostelBlock(id);
@@ -111,6 +116,50 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
     );
   };
 
+  // Bulk PDF export of the currently-visible rooms (floor + status + advanced
+  // filters, plus the table's free-text search). jsPDF is dynamically imported
+  // so it stays out of the page bundle until the operator actually exports.
+  const handleExportPdf = async () => {
+    const q = search.trim().toLowerCase();
+    const exportRooms = q
+      ? filteredRooms.filter((r) =>
+          String(r.room_number ?? '').toLowerCase().includes(q)
+        )
+      : filteredRooms;
+
+    if (exportRooms.length === 0) {
+      toast.error('No rooms to export for the current filters');
+      return;
+    }
+
+    const filters: string[] = [];
+    if (selectedFloor !== null)
+      filters.push(`Floor = ${FLOOR_LABELS[selectedFloor] ?? `Floor ${selectedFloor}`}`);
+    if (statusFilter !== 'all')
+      filters.push(
+        `Status = ${STATUS_FILTERS.find((s) => s.value === statusFilter)?.label ?? statusFilter}`
+      );
+    if (JSON.stringify(advancedFilters) !== JSON.stringify(EMPTY_ROOM_FILTERS))
+      filters.push('Advanced filters applied');
+    if (q) filters.push(`Search = "${search.trim()}"`);
+
+    const blockName =
+      (blockData as { name?: string } | undefined)?.name ?? 'Block';
+
+    try {
+      setExporting(true);
+      const { exportRoomsPdf } = await import('./_components/rooms-pdf');
+      await exportRoomsPdf(exportRooms, { blockName, filters });
+      toast.success(
+        `Exported ${exportRooms.length} room${exportRooms.length === 1 ? '' : 's'} to PDF`
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to export PDF');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <ContentLayout title="Rooms">
@@ -150,6 +199,18 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={handleExportPdf}
+              disabled={exporting || filteredRooms.length === 0}
+            >
+              {exporting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FileDown className="mr-2 h-4 w-4" />
+              )}
+              Export PDF
+            </Button>
             <BulkUploadRooms blockId={id} blockType={blockType} />
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
@@ -199,6 +260,7 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
           data={filteredRooms}
           searchPlaceholder="Search rooms..."
           globalFilterFn={roomGlobalFilter}
+          onSearch={setSearch}
           getRowId={(row) => row.id}
           tableTools={
             <RoomFiltersPanel

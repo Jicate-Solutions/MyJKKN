@@ -50,6 +50,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
+import { PaginationWithControls } from '@/components/ui/pagination';
 import {
   Plus,
   Search,
@@ -87,6 +88,10 @@ import { BatchesDialog } from '@/components/ims/batches-dialog';
 import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 import { usePermissions } from '@/hooks/use-permissions';
 import { StorageService } from '@/lib/storage/storage-service';
+
+// Server-side page size. getItems() defaults to 20 when filters.limit is unset;
+// we set it explicitly here so the UI and the query agree on the boundary.
+const PAGE_SIZE = 20;
 
 const ITEM_TYPES: { label: string; value: ImsItemType }[] = [
   { label: 'Consumable', value: 'consumable' },
@@ -202,6 +207,7 @@ function InventoryItemsPageInner() {
   const [categoryFilter, setCategoryFilter] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [page, setPage] = useState(1);
 
   // Dialog state
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -232,6 +238,13 @@ function InventoryItemsPageInner() {
     return () => clearTimeout(timer);
   }, [search]);
 
+  // Any filter change reshuffles the result set, so a previously-selected page
+  // number may no longer exist (e.g. on page 5, then filter down to 2 pages).
+  // Snap back to page 1 whenever the active filters change.
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, categoryFilter, typeFilter]);
+
   // Build filters
   const filters: ImsItemFilters = {
     search: debouncedSearch || undefined,
@@ -239,6 +252,8 @@ function InventoryItemsPageInner() {
     item_type: (typeFilter as ImsItemType) || undefined,
     store_id: storeId || '',
     institution_id: institutionId,
+    page,
+    limit: PAGE_SIZE,
   };
 
   // Queries
@@ -1486,6 +1501,28 @@ function InventoryItemsPageInner() {
                     ))}
                   </TableBody>
                 </Table>
+              </div>
+            )}
+
+            {/* Pagination — driven by server-side metadata. Self-hides on a
+                single page, so the footer only appears once results overflow. */}
+            {items?.metadata && items.metadata.total > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-2 border-t pt-4 mt-2">
+                <p className="text-sm text-muted-foreground">
+                  Showing{' '}
+                  {(items.metadata.page - 1) * items.metadata.limit + 1}
+                  –
+                  {Math.min(
+                    items.metadata.page * items.metadata.limit,
+                    items.metadata.total
+                  )}{' '}
+                  of {items.metadata.total} items
+                </p>
+                <PaginationWithControls
+                  currentPage={items.metadata.page}
+                  totalPages={items.metadata.totalPages}
+                  onPageChange={setPage}
+                />
               </div>
             )}
           </CardContent>

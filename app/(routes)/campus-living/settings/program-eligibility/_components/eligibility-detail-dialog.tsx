@@ -53,10 +53,18 @@ export function EligibilityDetailDialog({ open, onOpenChange, row }: Props) {
             )}
           </Field>
           <Field label='Quota'>
-            {row.quota_name ?? (
+            {row.quota_names.length === 0 ? (
               <Badge variant='secondary' className='font-normal'>
                 Any quota
               </Badge>
+            ) : (
+              <span className='flex flex-wrap gap-1'>
+                {row.quota_names.map((n) => (
+                  <Badge key={n} variant='outline' className='font-normal'>
+                    {n}
+                  </Badge>
+                ))}
+              </span>
             )}
           </Field>
           <Field label='Academic Fee Band'>

@@ -10,10 +10,16 @@ import { formatFeeBand } from './format';
 function FeeBandCell({ min, max }: { min: number | null; max: number | null }) {
   return <span className='text-sm tabular-nums'>{formatFeeBand(min, max)}</span>;
 }
-function QuotaCell({ name }: { name: string | null }) {
-  return name
-    ? <span className='text-sm'>{name}</span>
-    : <Badge variant='secondary' className='font-normal'>Any quota</Badge>;
+function QuotaCell({ names }: { names: string[] }) {
+  if (!names || names.length === 0)
+    return <Badge variant='secondary' className='font-normal'>Any quota</Badge>;
+  return (
+    <span className='flex flex-wrap gap-1'>
+      {names.map((n) => (
+        <Badge key={n} variant='outline' className='font-normal'>{n}</Badge>
+      ))}
+    </span>
+  );
 }
 function ScopeCell({ programName }: { programName: string | null }) {
   if (!programName) {
@@ -40,9 +46,9 @@ export const createEligibilityColumns = (): ColumnDef<ProgramEligibilityRow>[] =
     cell: ({ row }) => <ScopeCell programName={row.original.program_name} />,
   },
   {
-    accessorKey: 'quota_name',
+    accessorKey: 'quota_names',
     header: 'Quota',
-    cell: ({ row }) => <QuotaCell name={row.original.quota_name} />,
+    cell: ({ row }) => <QuotaCell names={row.original.quota_names} />,
   },
   {
     id: 'fee_band',
