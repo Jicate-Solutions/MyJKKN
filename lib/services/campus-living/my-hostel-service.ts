@@ -7,6 +7,8 @@ export interface MyHostelSummary {
   learnerId: string;
   accommodationType: string | null;
   hostelCategory: { id: string; name: string; type: string | null; allocation_mode: string | null } | null;
+  /** In-flight upgrade target staged on confirm; promoted to hostelCategory on payment, else reverts. */
+  pendingHostelCategory: { id: string; name: string } | null;
   messCategory: { id: string; name: string } | null;
   hostelFee: number | null;
   institutionId: string | null;
@@ -33,6 +35,7 @@ export class MyHostelService {
         'id, accommodation_type_id, hostel_fee, institution_id, ' +
         'accommodation_ref:accommodation_types!accommodation_type_id(code, name), ' +
         'hostelCategory:hostel_category_id(id, name, type, allocation_mode), ' +
+        'pendingHostelCategory:pending_hostel_category_id(id, name), ' +
         'messCategory:mess_category_id(id, name)'
       )
       .eq('id', learnerId)
@@ -45,6 +48,7 @@ export class MyHostelService {
       learnerId: row.id,
       accommodationType: accommodationLegacyFromCode(row.accommodation_ref?.code) || null,
       hostelCategory: row.hostelCategory ?? null,
+      pendingHostelCategory: row.pendingHostelCategory ?? null,
       messCategory: row.messCategory ?? null,
       hostelFee: row.hostel_fee ?? null,
       institutionId: row.institution_id ?? null,

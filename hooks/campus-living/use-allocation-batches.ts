@@ -46,6 +46,16 @@ export function useAutoBlocks() {
   return { blocks: query.data ?? [], loading: query.isLoading };
 }
 
+// Floors (with student rooms) for the selected block — drives the floor-scope picker.
+export function useBlockFloors(blockId: string) {
+  const query = useQuery({
+    queryKey: [...KEY, 'block-floors', blockId],
+    queryFn: () => AllocationBatchService.getBlockFloors(blockId),
+    enabled: !!blockId,
+  });
+  return { floors: query.data ?? [], loading: query.isLoading };
+}
+
 export function useHostelYears() {
   const query = useQuery({
     queryKey: [...KEY, 'hostel-years'],
@@ -63,8 +73,8 @@ export function useAllocationBatchActions() {
   );
 
   const generate = useCallback(
-    async (blockId: string, hostelYearId: string, strict = false) => {
-      const id = await AllocationBatchService.generate(blockId, hostelYearId, strict);
+    async (blockId: string, hostelYearId: string, strict = false, floor: number | null = null) => {
+      const id = await AllocationBatchService.generate(blockId, hostelYearId, strict, floor);
       await invalidate();
       return id;
     },

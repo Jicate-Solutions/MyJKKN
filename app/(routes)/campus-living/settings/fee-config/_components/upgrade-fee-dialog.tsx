@@ -27,7 +27,9 @@ import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-cate
 import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
 import {
   UPGRADE_FEE_KIND_LABELS,
+  UPGRADE_FEE_GENDER_LABELS,
   type UpgradeFeeKind,
+  type UpgradeFeeGender,
   type UpgradeFeeRow,
 } from '@/types/hostel-category-upgrade-fees';
 
@@ -50,6 +52,7 @@ export function UpgradeFeeDialog({ open, onOpenChange, mode, hostelYearId, row }
   const { messCategories } = useActiveMessCategories();
 
   const [kind, setKind] = useState<UpgradeFeeKind>('room');
+  const [gender, setGender] = useState<UpgradeFeeGender | ''>('');
   const [fromId, setFromId] = useState('');
   const [toId, setToId] = useState('');
   const [amount, setAmount] = useState<number>(0);
@@ -71,6 +74,7 @@ export function UpgradeFeeDialog({ open, onOpenChange, mode, hostelYearId, row }
     if (!open) return;
     if (isEdit && row) {
       setKind(row.kind);
+      setGender(row.from_type ?? '');
       setFromId(
         (row.kind === 'room' ? row.from_hostel_category_id : row.from_mess_category_id) ?? ''
       );
@@ -79,6 +83,7 @@ export function UpgradeFeeDialog({ open, onOpenChange, mode, hostelYearId, row }
       setAmountTouched(true);
     } else {
       setKind('room');
+      setGender('');
       setFromId('');
       setToId('');
       setAmount(0);
@@ -88,6 +93,31 @@ export function UpgradeFeeDialog({ open, onOpenChange, mode, hostelYearId, row }
 
   const categories = kind === 'room' ? hostelCategories : messCategories;
   const baseMap = kind === 'room' ? roomBase : messBase;
+
+  // Categories are gender-typed; the operator picks a hostel type first, then the
+  // From/To lists narrow to that gender so every pair is same-gender by construction.
+  const genders = useMemo(() => {
+    const seen = new Set<UpgradeFeeGender>();
+    const out: UpgradeFeeGender[] = [];
+    for (const c of categories) {
+      if (!seen.has(c.type)) {
+        seen.add(c.type);
+        out.push(c.type);
+      }
+    }
+    return out;
+  }, [categories]);
+
+  // On create, default to the first available hostel type once categories load.
+  useEffect(() => {
+    if (isEdit || gender || genders.length === 0) return;
+    setGender(genders[0]);
+  }, [isEdit, gender, genders]);
+
+  const visibleCategories = useMemo(
+    () => categories.filter((c) => c.type === gender),
+    [categories, gender]
+  );
 
   // Auto-fill the upgrade amount with (to base − from base) until the user edits it.
   useEffect(() => {
@@ -139,29 +169,57 @@ export function UpgradeFeeDialog({ open, onOpenChange, mode, hostelYearId, row }
         </DialogHeader>
 
         <div className="grid gap-4">
-          <div className="space-y-2">
-            <Label>Upgrade Type</Label>
-            <Select
-              value={kind}
-              onValueChange={(v) => {
-                setKind(v as UpgradeFeeKind);
-                setFromId('');
-                setToId('');
-                setAmountTouched(false);
-              }}
-              disabled={isEdit}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(['room', 'mess'] as UpgradeFeeKind[]).map((k) => (
-                  <SelectItem key={k} value={k}>
-                    {UPGRADE_FEE_KIND_LABELS[k]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Upgrade Type</Label>
+              <Select
+                value={kind}
+                onValueChange={(v) => {
+                  setKind(v as UpgradeFeeKind);
+                  setGender('');
+                  setFromId('');
+                  setToId('');
+                  setAmountTouched(false);
+                }}
+                disabled={isEdit}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(['room', 'mess'] as UpgradeFeeKind[]).map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {UPGRADE_FEE_KIND_LABELS[k]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Hostel Type</Label>
+              <Select
+                value={gender}
+                onValueChange={(v) => {
+                  setGender(v as UpgradeFeeGender);
+                  setFromId('');
+                  setToId('');
+                  setAmountTouched(false);
+                }}
+                disabled={isEdit || genders.length === 0}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select" />
+                </SelectTrigger>
+                <SelectContent>
+                  {genders.map((g) => (
+                    <SelectItem key={g} value={g}>
+                      {UPGRADE_FEE_GENDER_LABELS[g]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -179,7 +237,7 @@ export function UpgradeFeeDialog({ open, onOpenChange, mode, hostelYearId, row }
                   <SelectValue placeholder="Select" />
                 </SelectTrigger>
                 <SelectContent>
-                  {categories.map((c) => (
+                  {visibleCategories.map((c) => (
                     <SelectItem key={c.id} value={c.id} disabled={c.id === toId}>
                       {c.name}
                       {baseMap.get(c.id) != null ? ` · ${inr(baseMap.get(c.id)!)}` : ''}
@@ -203,7 +261,7 @@ export function UpgradeFeeDialog({ open, onOpenChange, mode, hostelYearId, row }
                   <SelectValue placeholder="Select" />
                 </SelectTrigger>
                 <SelectContent>
-                  {categories.map((c) => (
+                  {visibleCategories.map((c) => (
                     <SelectItem key={c.id} value={c.id} disabled={c.id === fromId}>
                       {c.name}
                       {baseMap.get(c.id) != null ? ` · ${inr(baseMap.get(c.id)!)}` : ''}

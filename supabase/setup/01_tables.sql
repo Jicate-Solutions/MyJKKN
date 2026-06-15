@@ -484,6 +484,12 @@ CREATE INDEX IF NOT EXISTS idx_intake_history_program ON intake_history(program_
 CREATE INDEX IF NOT EXISTS idx_intake_history_year ON intake_history(academic_year_id);
 CREATE INDEX IF NOT EXISTS idx_intake_history_institution ON intake_history(institution_id);
 
+-- Pending (staged) hostel category for in-flight upgrades (20260616010000): set on confirm,
+-- promoted to hostel_category_id on payment + threshold, cleared on hold expiry.
+ALTER TABLE public.learners_profiles
+  ADD COLUMN IF NOT EXISTS pending_hostel_category_id uuid
+    REFERENCES public.hostel_categories(id) ON DELETE SET NULL;
+
 -- Indexes for learners_profiles analytics fields
 CREATE INDEX IF NOT EXISTS idx_learners_profiles_school_type ON learners_profiles(school_type);
 CREATE INDEX IF NOT EXISTS idx_learners_profiles_location_type ON learners_profiles(location_type);
@@ -4992,6 +4998,12 @@ ALTER TABLE public.hostel_categories
     CHECK (upgrade_threshold_pct >= 0 AND upgrade_threshold_pct <= 100),
   ADD COLUMN IF NOT EXISTS upgrade_hold_days integer NOT NULL DEFAULT 5
     CHECK (upgrade_hold_days BETWEEN 1 AND 60);
+
+-- Add-on categories (e.g. "Premium Room + AC", 20260615235500): reachable as an upgrade
+-- target ONLY via an explicit hostel_category_upgrade_fees pair from the resident's current
+-- category — never through the fee-difference fallback. Keeps it scoped to one source tier.
+ALTER TABLE public.hostel_categories
+  ADD COLUMN IF NOT EXISTS requires_explicit_upgrade boolean NOT NULL DEFAULT false;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_hostel_waitlist_active_upgrade
   ON public.hostel_waitlist (learner_id, target_hostel_category_id)
