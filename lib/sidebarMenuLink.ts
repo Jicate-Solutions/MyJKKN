@@ -1233,6 +1233,14 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/rcltp' || pathname.startsWith('/rcltp/'),
           icon: BookOpen,
           submenus: []
+        },
+        {
+          // Post-class feedback — faculty's own anonymized session-understanding signal.
+          href: '/academic/session-feedback/faculty',
+          label: 'Session Feedback (Faculty)',
+          active: pathname.startsWith('/academic/session-feedback/faculty'),
+          icon: MessageSquare,
+          submenus: []
         }
       ]
     },
