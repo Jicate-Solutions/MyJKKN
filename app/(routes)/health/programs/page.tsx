@@ -9,8 +9,10 @@
  * week). The card surfaces the program's theme, date range and day count,
  * and links into the day-by-day consume experience at /health/programs/[slug].
  *
- * Wrapped in HealthConsentProvider — non-consented learners see the consent
- * gate before any health content renders.
+ * NO heavy HealthConsentProvider here — awareness viewing is friction-free.
+ * The full health-data consent is only needed on the core health pages
+ * (dashboard/profile/assessments). A LIGHT, program-specific consent is asked
+ * later on the detail page, only before we RECORD a person's participation.
  */
 
 import Link from 'next/link';
@@ -20,7 +22,6 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CalendarDays, Sparkles, ChevronRight, Leaf } from 'lucide-react';
 import { useActivePrograms } from '@/hooks/health/use-wellness-programs';
-import { HealthConsentProvider } from '../_components/consent-gate';
 import type { HealthProgram } from '@/types/health-programs';
 
 // ============================================================================
@@ -181,10 +182,8 @@ function ProgramsInner() {
 
 export default function WellnessProgramsPage() {
   return (
-    <HealthConsentProvider>
-      <ContentLayout title="Wellness Programs">
-        <ProgramsInner />
-      </ContentLayout>
-    </HealthConsentProvider>
+    <ContentLayout title="Wellness Programs">
+      <ProgramsInner />
+    </ContentLayout>
   );
 }
