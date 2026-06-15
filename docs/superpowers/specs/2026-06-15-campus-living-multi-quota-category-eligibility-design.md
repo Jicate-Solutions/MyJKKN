@@ -41,7 +41,7 @@ FK's integrity guarantee.
 | Resolver fns | `fn_hostel_effective_room_categories`, `fn_hostel_effective_mess_categories`, `fn_explain_allocation` | predicate `(quota_id = p_quota OR quota_id IS NULL)` + specificity `(quota_id IS NOT NULL)::int*2` |
 | Delegating fns | `fn_apply_hostel_fee_categories_bulk`, `fn_preview_hostel_fee_categories`, learner-RPC wrappers | call the resolvers; **no direct `quota_id` use** → no change needed |
 | Type | `types/program-eligibility.ts` | `quota_id: string \| null` on `ProgramEligibility` + DTOs; row `quota_name: string \| null` |
-| Generated type | `types/supabase.ts` | `hostel_program_eligibility.quota_id` |
+| Generated type | `types/supabase.ts` | **NOT registered** — table absent from the generated `Database` union; the service casts `this.supabase as any` for it, so the column rename needs **no** `types/supabase.ts` edit |
 | Service | `lib/services/campus-living/program-eligibility-service.ts` | PostgREST embed `quota:quotas(name)`; insert `quota_id` |
 | Form | `app/(routes)/campus-living/settings/program-eligibility/_components/form-dialog.tsx` | single `SearchableSelect`, `ANY_QUOTA` sentinel |
 | Table | `_components/columns.tsx` | `QuotaCell` shows one name or "Any quota" |
@@ -91,7 +91,7 @@ the row-side matching changes.
   - `ProgramEligibility.quota_id: string | null` → `quota_ids: string[] | null`
   - `CreateProgramEligibilityDto.quota_id?` / `UpdateProgramEligibilityDto.quota_id?` → `quota_ids?: string[] | null`
   - `ProgramEligibilityRow.quota_name: string | null` → `quota_names: string[]` (empty array = any quota)
-- `types/supabase.ts`: regenerate (or hand-edit) the `hostel_program_eligibility` Row/Insert/Update so `quota_id` becomes `quota_ids: string[] | null`. **Required** or `.from('hostel_program_eligibility')` cascades TS errors.
+- `types/supabase.ts`: **no change** — `hostel_program_eligibility` is not in the generated `Database` union (verified: 0 matches in the 107k-line file), and the service already casts `this.supabase as any` for it. Registering the table is out of scope (surgical edits).
 
 ### 4. Service (`program-eligibility-service.ts`)
 
@@ -157,7 +157,7 @@ admin page.
 
 - `supabase/migrations/20260615120000_hostel_program_eligibility_multi_quota.sql` (new)
 - `supabase/setup/01_tables.sql`, `supabase/setup/02_functions.sql` (mirror)
-- `types/program-eligibility.ts`, `types/supabase.ts`
+- `types/program-eligibility.ts` (`types/supabase.ts` **not** touched — table unregistered, service uses `as any`)
 - `lib/services/campus-living/program-eligibility-service.ts`
 - `app/(routes)/campus-living/settings/program-eligibility/_components/form-dialog.tsx`
 - `app/(routes)/campus-living/settings/program-eligibility/_components/quota-multi-select.tsx` (new)
