@@ -1721,7 +1721,9 @@ export const PERMISSION_CATEGORIES = [
       { key: 'health.training.view', label: 'View Training Log' },
       { key: 'health.achievements.view', label: 'View Achievements' },
       { key: 'health.assessments.view', label: 'View Mental Health Check-In' },
-      { key: 'health.counselor.view', label: 'View Counselor Dashboard' }
+      { key: 'health.counselor.view', label: 'View Counselor Dashboard' },
+      { key: 'health.programs.view', label: 'View Wellness Programs' },
+      { key: 'health.programs.manage', label: 'Manage Wellness Programs' }
     ]
   },
   // Added 2026-04-27 — IMS (Inventory Management System) module integration
