@@ -20,6 +20,10 @@ export interface HostelCategory {
   upgrade_threshold_pct: number | null;
   /** Days a below-threshold upgrade reservation is held before auto-expiry. */
   upgrade_hold_days: number;
+  /** Add-on category (e.g. "Premium Room + AC"): reachable ONLY when an explicit
+   *  upgrade-fee pair is configured from the resident's current category — never via
+   *  the fee-difference fallback. Keeps it scoped to one source category. */
+  requires_explicit_upgrade: boolean;
   created_at: string;
   updated_at: string;
 }

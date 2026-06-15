@@ -31598,6 +31598,7 @@ export type Database = {
           id: string
           is_active: boolean
           name: string
+          requires_explicit_upgrade: boolean
           sort_order: number
           type: string
           updated_at: string
@@ -31611,6 +31612,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           name: string
+          requires_explicit_upgrade?: boolean
           sort_order?: number
           type: string
           updated_at?: string
@@ -31624,6 +31626,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           name?: string
+          requires_explicit_upgrade?: boolean
           sort_order?: number
           type?: string
           updated_at?: string
@@ -58404,6 +58407,7 @@ export type Database = {
           gender: string
           hospital_training_fee: number | null
           hostel_category_id: string | null
+          pending_hostel_category_id: string | null
           hostel_fee: number | null
           id: string
           industry_readiness_score: number | null
@@ -58510,6 +58514,7 @@ export type Database = {
           gender: string
           hospital_training_fee?: number | null
           hostel_category_id?: string | null
+          pending_hostel_category_id?: string | null
           hostel_fee?: number | null
           id?: string
           industry_readiness_score?: number | null
@@ -58616,6 +58621,7 @@ export type Database = {
           gender?: string
           hospital_training_fee?: number | null
           hostel_category_id?: string | null
+          pending_hostel_category_id?: string | null
           hostel_fee?: number | null
           id?: string
           industry_readiness_score?: number | null

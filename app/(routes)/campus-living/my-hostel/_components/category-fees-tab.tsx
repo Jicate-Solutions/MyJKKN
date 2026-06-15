@@ -2,10 +2,11 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
 import { useMyHostelSummary } from '@/hooks/campus-living/use-my-hostel';
 import { HostelAllocationService } from '@/lib/services/campus-living/hostel-allocation-service';
-import { Building2, UtensilsCrossed, Loader2 } from 'lucide-react';
+import { Building2, UtensilsCrossed, Loader2, CalendarClock } from 'lucide-react';
 import { RoomCategoryUpgradeCard } from './room-category-upgrade-card';
 import { MessCategoryUpgradeCard } from './mess-category-upgrade-card';
 
@@ -76,6 +77,15 @@ export function CategoryFeesTab() {
                 Room Category
               </div>
               <p className='font-medium'>{summary?.hostelCategory?.name ?? '—'}</p>
+              {summary?.pendingHostelCategory && (
+                <Badge
+                  variant='outline'
+                  className='mt-1.5 border-amber-400 text-amber-700 dark:text-amber-400'
+                >
+                  <CalendarClock className='mr-1 h-3 w-3' />
+                  Upgrading to {summary.pendingHostelCategory.name} · pending payment
+                </Badge>
+              )}
             </div>
 
             <div className='p-3 bg-muted/50 rounded-lg'>
