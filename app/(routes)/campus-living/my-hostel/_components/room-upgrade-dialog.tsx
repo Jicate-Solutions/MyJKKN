@@ -7,7 +7,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ArrowRight, BedDouble, CalendarClock, DoorOpen, Loader2 } from 'lucide-react';
-import { useUpgradeRooms, useUpgradeRoom } from '@/hooks/campus-living/use-category-upgrade';
+import { useUpgradeRooms, useUpgradeRoom, useUpgradeCategoryOnly } from '@/hooks/campus-living/use-category-upgrade';
 import type { UpgradeRoomOption } from '@/types/campus-living/category-upgrade';
 
 interface Props {
@@ -23,6 +23,10 @@ interface Props {
   holdDays: number;
   /** 'book' = first allocation (no prior room): instant, no fee/threshold. */
   mode?: 'book' | 'upgrade';
+  /** AUTO category (Classic/Deluxe): no manual room selection — show a fee-only
+   *  confirm and auto-pick a room behind the scenes (the room is otherwise
+   *  office-allocated). MANUAL categories (Premium) keep the room picker. */
+  autoPick?: boolean;
 }
 
 const inr = (n: number) => `₹${n.toLocaleString('en-IN')}`;
@@ -30,14 +34,15 @@ const floorLabel = (floor: number) => (floor === 0 ? 'Ground floor' : `Floor ${f
 
 export function RoomUpgradeDialog({
   open, onOpenChange, categoryId, categoryName, currentCategoryName, upgradeFee,
-  thresholdPct, paidPct, meetsThreshold, holdDays, mode = 'upgrade',
+  thresholdPct, paidPct, meetsThreshold, holdDays, mode = 'upgrade', autoPick = false,
 }: Props) {
   const isBook = mode === 'book';
   // Pay-to-confirm: a threshold-met upgrade with a real fee reserves the bed
   // and bills the fee — the move confirms only when the bill is fully paid.
   const payToConfirm = !isBook && meetsThreshold && upgradeFee > 0;
-  const { data: rooms = [], isLoading } = useUpgradeRooms(open ? categoryId : null);
+  const { data: rooms = [], isLoading } = useUpgradeRooms(open && !autoPick ? categoryId : null);
   const upgrade = useUpgradeRoom();
+  const categoryOnly = useUpgradeCategoryOnly();
   const [roomId, setRoomId] = useState('');
   const [step, setStep] = useState<'pick' | 'confirm'>('pick');
 
@@ -61,6 +66,55 @@ export function RoomUpgradeDialog({
     onOpenChange(false);
     reset();
   };
+
+  // AUTO category (Classic/Deluxe): no manual room selection. Show the fee, auto-pick a
+  // room behind the scenes and generate the upgrade bill on confirm — the room moves once
+  // the bill is paid; the office otherwise auto-allocates these categories.
+  if (autoPick) {
+    const submit = async () => {
+      if (categoryOnly.isPending) return;
+      await categoryOnly.mutateAsync(categoryId);
+      onOpenChange(false);
+      reset();
+    };
+    return (
+      <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) reset(); }}>
+        <DialogContent className="w-[95vw] max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle>Upgrade to {categoryName}</DialogTitle>
+            <DialogDescription>
+              On confirm, an upgrade bill is generated. Your category changes to {categoryName}
+              once the bill is fully paid — no room is reserved now; your {categoryName} room is
+              assigned afterwards by the hostel office.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border divide-y text-sm">
+            <div className="flex items-center justify-between gap-3 px-3 py-2">
+              <span className="text-muted-foreground">Category</span>
+              <span className="font-medium text-right">
+                {currentCategoryName ? `${currentCategoryName} → ` : ''}{categoryName}
+              </span>
+            </div>
+            {!isBook && (
+              <div className="flex items-center justify-between gap-3 px-3 py-2">
+                <span className="text-muted-foreground">Upgrade fee</span>
+                <span className="font-semibold">{inr(upgradeFee)}</span>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={categoryOnly.isPending}>
+              Cancel
+            </Button>
+            <Button onClick={submit} disabled={categoryOnly.isPending}>
+              {categoryOnly.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {upgradeFee > 0 ? 'Upgrade & generate bill' : 'Confirm upgrade'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) reset(); }}>

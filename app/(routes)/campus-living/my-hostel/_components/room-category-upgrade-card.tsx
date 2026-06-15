@@ -64,6 +64,9 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
             // Pay-to-confirm: threshold met, upgrade bill generated — show
             // payment progress instead of the threshold message.
             const pendingBill = held?.upgrade_bill_id ? held : null;
+            // Category-only upgrade (auto category): a bill exists but NO room is held —
+            // awaiting payment; the category changes on full payment, room assigned later.
+            const categoryPending = !held && waitlisted?.upgrade_bill_id ? waitlisted : null;
             const hasRooms = opt.available_beds > 0;
             return (
               <div
@@ -105,12 +108,29 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                         Cancel
                       </Button>
                     </div>
+                  ) : categoryPending ? (
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-400">
+                        <CalendarClock className="mr-1 h-3 w-3" /> Pending payment
+                      </Badge>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={leaveWaitlist.isPending}
+                        onClick={() => { if (!leaveWaitlist.isPending) leaveWaitlist.mutate(opt.category_id); }}
+                      >
+                        {leaveWaitlist.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                        Cancel
+                      </Button>
+                    </div>
                   ) : hasRooms ? (
                     <Button size="sm" onClick={() => setPicked(opt)}>
                       <ArrowUpCircle className="mr-1.5 h-4 w-4" />
-                      {opt.meets_threshold
-                        ? opt.upgrade_fee > 0 ? 'Reserve & pay' : 'Upgrade now'
-                        : 'Reserve room'}
+                      {opt.allocation_mode === 'auto'
+                        ? 'Upgrade'
+                        : opt.meets_threshold
+                          ? opt.upgrade_fee > 0 ? 'Reserve & pay' : 'Upgrade now'
+                          : 'Reserve room'}
                     </Button>
                   ) : waitlisted ? (
                     <div className="flex items-center gap-2">
@@ -179,13 +199,26 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                     {opt.hold_days === 1 ? '' : 's'} while you pay.
                   </p>
                 )}
-                {!held && waitlisted && hasRooms && (
+                {categoryPending && (
+                  <p className="text-xs text-amber-800 dark:text-amber-300">
+                    Upgrade to {opt.name} billed — pay{' '}
+                    <span className="font-semibold">
+                      ₹{(categoryPending.upgrade_fee_amount ?? 0).toLocaleString('en-IN')}
+                    </span>
+                    {(categoryPending.upgrade_fee_paid ?? 0) > 0
+                      ? ` (₹${(categoryPending.upgrade_fee_paid ?? 0).toLocaleString('en-IN')} paid so far)`
+                      : ''}{' '}
+                    to confirm. Your category changes to {opt.name} once the bill is fully paid; the room is
+                    then assigned by the hostel office.
+                  </p>
+                )}
+                {!held && !categoryPending && waitlisted && hasRooms && (
                   <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
                     <Sparkles className="h-3.5 w-3.5" />
                     A room is now available — upgrade now to claim it.
                   </p>
                 )}
-                {!held && waitlisted && !hasRooms && (
+                {!held && !categoryPending && waitlisted && !hasRooms && (
                   <p className="text-xs text-muted-foreground">
                     Joined {new Date(waitlisted.created_at).toLocaleDateString('en-IN')} — we&apos;ll show the
                     rooms here as soon as one frees up.
@@ -210,6 +243,7 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
           meetsThreshold={picked.meets_threshold}
           holdDays={picked.hold_days}
           mode={mode}
+          autoPick={picked.allocation_mode === 'auto'}
         />
       )}
     </Card>

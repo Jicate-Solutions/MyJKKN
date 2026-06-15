@@ -52,6 +52,16 @@ export class CategoryUpgradeService {
     return data as RoomUpgradeResult;
   }
 
+  // AUTO category (Classic/Deluxe): bill now, change category on payment, NO room reserved.
+  // The room is assigned later via the auto-allocation module.
+  static async upgradeCategoryOnly(categoryId: string): Promise<RoomUpgradeResult> {
+    const { data, error } = await this.rpc('fn_self_upgrade_category_only', {
+      p_new_category_id: categoryId,
+    });
+    if (error) throw new Error(error.message || 'Upgrade failed');
+    return data as RoomUpgradeResult;
+  }
+
   static async upgradeMess(messCategoryId: string): Promise<MessUpgradeResult> {
     const { data, error } = await this.rpc('fn_self_upgrade_mess_category', {
       p_new_mess_category_id: messCategoryId,
