@@ -2106,6 +2106,18 @@ export const PERMISSION_CATEGORIES = [
       { key: 'social.messenger.view', label: 'View Messenger / Instagram Inbox' },
       { key: 'social.messenger.send', label: 'Send Messenger / Instagram Replies' }
     ]
+  },
+  // Added 2026-06-15 — catalog-coverage fix. MENU_PERMISSIONS enforces
+  // rcltp.config.manage for /rcltp (EKSAQ reading-assessment module) but the
+  // module had no PERMISSION_CATEGORIES entry, failing the repo-wide
+  // permissions-catalog gate on every open PR and hiding the toggle from the
+  // Role-Management Edit dialog.
+  {
+    name: 'RCLTP',
+    key: 'rcltp',
+    permissions: [
+      { key: 'rcltp.config.manage', label: 'Manage RCLTP Config' }
+    ]
   }
 ];
 
