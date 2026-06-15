@@ -136,6 +136,26 @@ export interface ProgramImpact {
     window_days: number;
     new_consents: number;
   };
+  /**
+   * Retention curve — day-over-day return.
+   * retained_from_prev = of the people who watched day N, how many also
+   * watched day N-1. Day 1's retained_from_prev is null (no prior day).
+   */
+  retention: {
+    day_number: number;
+    viewers: number;
+    retained_from_prev: number | null;
+  }[];
+  /**
+   * Activation rate — activated participants vs an estimate of the eligible
+   * audience. `eligible` is an estimate (active profiles whose role carries
+   * health.programs.view, org-wide), so treat rate_pct as directional.
+   */
+  activation: {
+    eligible: number;
+    activated: number;
+    rate_pct: number | null;
+  };
 }
 
 /** Computes whether a participation row counts as "complete" under a given policy. */
