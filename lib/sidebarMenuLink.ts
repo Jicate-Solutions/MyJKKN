@@ -1206,6 +1206,17 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // Post-class feedback — learner attendance-confirmation view (L2).
+          // Sessions stay "present-pending" until the learner gives feedback.
+          href: '/academic/session-feedback/me',
+          label: 'My Attendance Feedback',
+          active:
+            pathname === '/academic/session-feedback/me' ||
+            pathname.startsWith('/academic/session-feedback/me/'),
+          icon: ClipboardCheck,
+          submenus: []
+        },
+        {
           // Board of Studies — institutional governance + expert management.
           // Navigation lives in the module's in-page tab bar (BOS_NAV_TABS,
           // see app/(routes)/bos/layout.tsx) and nav-config.ts.
