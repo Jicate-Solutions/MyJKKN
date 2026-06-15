@@ -24,7 +24,10 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Plus, Edit, Trash2, Loader2, ArrowRight, Building2, UtensilsCrossed } from 'lucide-react';
 import { useHostelUpgradeFees } from '@/hooks/campus-living/use-hostel-upgrade-fees';
-import type { UpgradeFeeKind, UpgradeFeeRow } from '@/types/hostel-category-upgrade-fees';
+import {
+  UPGRADE_FEE_GENDER_LABELS,
+  type UpgradeFeeRow,
+} from '@/types/hostel-category-upgrade-fees';
 import { UpgradeFeeDialog } from './upgrade-fee-dialog';
 
 const inr = (n: number | null) =>
@@ -78,14 +81,28 @@ function UpgradeTable({
             {rows.map((r) => (
               <TableRow key={r.id}>
                 <TableCell>
-                  <div className="font-medium">{r.from_name ?? '—'}</div>
+                  <div className="font-medium">
+                    {r.from_name ?? '—'}
+                    {r.from_type ? (
+                      <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                        {UPGRADE_FEE_GENDER_LABELS[r.from_type]}
+                      </span>
+                    ) : null}
+                  </div>
                   <div className="text-xs text-muted-foreground">{inr(r.from_base_fee)}</div>
                 </TableCell>
                 <TableCell className="text-muted-foreground">
                   <ArrowRight className="h-4 w-4" />
                 </TableCell>
                 <TableCell>
-                  <div className="font-medium">{r.to_name ?? '—'}</div>
+                  <div className="font-medium">
+                    {r.to_name ?? '—'}
+                    {r.to_type ? (
+                      <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                        {UPGRADE_FEE_GENDER_LABELS[r.to_type]}
+                      </span>
+                    ) : null}
+                  </div>
                   <div className="text-xs text-muted-foreground">{inr(r.to_base_fee)}</div>
                 </TableCell>
                 <TableCell className="font-semibold">{inr(r.amount)}</TableCell>

@@ -4,6 +4,7 @@ import {
   getUpgradeFeeKind,
   type UpgradeFee,
   type UpgradeFeeRow,
+  type UpgradeFeeGender,
   type CreateUpgradeFeeDto,
   type UpdateUpgradeFeeDto,
 } from '@/types/hostel-category-upgrade-fees';
@@ -22,10 +23,10 @@ export class HostelUpgradeFeeService {
       .from('hostel_category_upgrade_fees')
       .select(
         `*,
-         from_room:hostel_categories!from_hostel_category_id(name),
-         to_room:hostel_categories!to_hostel_category_id(name),
-         from_mess:mess_categories!from_mess_category_id(name),
-         to_mess:mess_categories!to_mess_category_id(name)`
+         from_room:hostel_categories!from_hostel_category_id(name, type),
+         to_room:hostel_categories!to_hostel_category_id(name, type),
+         from_mess:mess_categories!from_mess_category_id(name, type),
+         to_mess:mess_categories!to_mess_category_id(name, type)`
       )
       .eq('hostel_year_id', hostelYearId)
       .order('created_at', { ascending: true });
@@ -53,10 +54,10 @@ export class HostelUpgradeFeeService {
     }
 
     return (data ?? []).map((r: Record<string, unknown>) => {
-      const fromRoom = r.from_room as { name?: string } | null;
-      const toRoom = r.to_room as { name?: string } | null;
-      const fromMess = r.from_mess as { name?: string } | null;
-      const toMess = r.to_mess as { name?: string } | null;
+      const fromRoom = r.from_room as { name?: string; type?: string } | null;
+      const toRoom = r.to_room as { name?: string; type?: string } | null;
+      const fromMess = r.from_mess as { name?: string; type?: string } | null;
+      const toMess = r.to_mess as { name?: string; type?: string } | null;
       const {
         from_room: _fr,
         to_room: _tr,
@@ -71,6 +72,12 @@ export class HostelUpgradeFeeService {
         kind,
         from_name: (kind === 'room' ? fromRoom?.name : fromMess?.name) ?? null,
         to_name: (kind === 'room' ? toRoom?.name : toMess?.name) ?? null,
+        from_type: ((kind === 'room' ? fromRoom?.type : fromMess?.type) ?? null) as
+          | UpgradeFeeGender
+          | null,
+        to_type: ((kind === 'room' ? toRoom?.type : toMess?.type) ?? null) as
+          | UpgradeFeeGender
+          | null,
         from_base_fee:
           kind === 'room'
             ? roomBase.get(row.from_hostel_category_id ?? '') ?? null

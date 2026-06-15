@@ -15170,7 +15170,7 @@ REVOKE EXECUTE ON FUNCTION public._cl_execute_room_upgrade(uuid, uuid, uuid, uui
 -- 20260611150000: + threshold_pct / paid_pct / meets_threshold / hold_days (payment-threshold gate).
 CREATE OR REPLACE FUNCTION public.fn_my_upgrade_room_categories()
 RETURNS TABLE (
-  category_id uuid, name text, type text, current_year_fee numeric, upgrade_fee numeric,
+  category_id uuid, name text, type text, allocation_mode text, current_year_fee numeric, upgrade_fee numeric,
   available_beds int, threshold_pct numeric, paid_pct numeric, meets_threshold boolean,
   hold_days int
 )
@@ -15189,7 +15189,7 @@ BEGIN
   SELECT pp.paid_pct INTO v_paid_pct FROM fn_learner_academic_payment_progress(v_lp) pp;
 
   RETURN QUERY
-  SELECT c.id, c.name, c.type, hf.amount,
+  SELECT c.id, c.name, c.type, c.allocation_mode, hf.amount,
          COALESCE(
            (SELECT uf.amount FROM hostel_category_upgrade_fees uf
             WHERE uf.hostel_year_id = v_year AND uf.is_active
@@ -15210,6 +15210,13 @@ BEGIN
          OR (v_gender IN ('female','f') AND c.type='girls'))
     AND c.id <> COALESCE(v_cur_cat, '00000000-0000-0000-0000-000000000000'::uuid)
     AND hf.amount > v_cur_fee
+    -- Add-on categories appear ONLY when an explicit upgrade pair is configured from the
+    -- resident's current category — never via fee-difference fallback (Premium → Premium + AC).
+    AND (NOT c.requires_explicit_upgrade
+         OR EXISTS (SELECT 1 FROM hostel_category_upgrade_fees uf2
+                    WHERE uf2.hostel_year_id = v_year AND uf2.is_active
+                      AND uf2.from_hostel_category_id = v_cur_cat
+                      AND uf2.to_hostel_category_id = c.id))
   ORDER BY hf.amount;
 END $$;
 

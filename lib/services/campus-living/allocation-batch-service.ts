@@ -30,8 +30,9 @@ export class AllocationBatchService {
   }
 
   // ── Auto-allocation engine RPCs ──
-  static async preview(blockId: string): Promise<AllocatePreview> {
-    const { data, error } = await this.rpcCall('fn_auto_allocate_preview', { p_block_id: blockId });
+  // p_floor null = all floors; a number restricts to that floor of the block.
+  static async preview(blockId: string, floor: number | null = null): Promise<AllocatePreview> {
+    const { data, error } = await this.rpcCall('fn_auto_allocate_preview', { p_block_id: blockId, p_floor: floor });
     if (error) { logger.error(LOG, 'preview failed', error); throw new Error(error.message || 'Failed to preview allocation'); }
     const row = Array.isArray(data) ? data[0] : data;
     return (row ?? { cohort_eligible: 0, no_profile: 0, already_allocated: 0, available_beds: 0, rules_set: false }) as AllocatePreview;
@@ -39,16 +40,31 @@ export class AllocationBatchService {
 
   // strict=true → only learners whose cohort matches a physical-room rule are eligible
   // (open/rule-free rooms are NOT used as a catch-all). Physical rule first, then category.
-  static async previewCandidates(blockId: string, strict = false): Promise<AllocationCandidate[]> {
-    const { data, error } = await this.rpcCall('fn_auto_allocate_candidates', { p_block_id: blockId, p_strict: strict });
+  static async previewCandidates(blockId: string, strict = false, floor: number | null = null): Promise<AllocationCandidate[]> {
+    const { data, error } = await this.rpcCall('fn_auto_allocate_candidates', { p_block_id: blockId, p_strict: strict, p_floor: floor });
     if (error) { logger.error(LOG, 'previewCandidates failed', error); throw new Error(error.message || 'Failed to preview candidates'); }
     return (Array.isArray(data) ? data : []) as AllocationCandidate[];
   }
 
-  static async generate(blockId: string, hostelYearId: string, strict = false): Promise<string> {
-    const { data, error } = await this.rpcCall('fn_auto_allocate_classic', { p_block_id: blockId, p_hostel_year_id: hostelYearId, p_strict: strict });
+  static async generate(blockId: string, hostelYearId: string, strict = false, floor: number | null = null): Promise<string> {
+    const { data, error } = await this.rpcCall('fn_auto_allocate_classic', { p_block_id: blockId, p_hostel_year_id: hostelYearId, p_strict: strict, p_floor: floor });
     if (error) { logger.error(LOG, 'generate failed', error); throw new Error(error.message || 'Failed to generate allocation batch'); }
     return data as string;
+  }
+
+  // Distinct floors that have student rooms in a block — drives the floor-scope picker.
+  static async getBlockFloors(blockId: string): Promise<number[]> {
+    if (!blockId) return [];
+    const { data, error } = await this.supabase
+      .from('hostel_rooms')
+      .select('floor')
+      .eq('block_id', blockId)
+      .eq('room_purpose', 'student');
+    if (error) { logger.error(LOG, 'getBlockFloors failed', error); throw new Error(error.message || 'Failed to load floors'); }
+    const floors = [...new Set((data ?? [])
+      .map((r: Record<string, unknown>) => r.floor as number)
+      .filter((f) => f != null))];
+    return floors.sort((a, b) => a - b);
   }
 
   static async approve(batchId: string): Promise<void> {
