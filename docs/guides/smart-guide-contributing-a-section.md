@@ -61,7 +61,26 @@ export const myModuleGuide: ModuleGuide = {
 };
 
 export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, myModuleGuide];
+
+// TWO MORE maps in the SAME file — easy to miss, and a miss compiles GREEN but
+// silently degrades the module-scoped guide (the "Open full guide" / contextual
+// drawer that scopes to the page's module, #1413/#1415): a missing label shows
+// the raw module id ("my-module") instead of a name, a missing glossary shows
+// an empty "Words to know".
+const MODULE_LABELS: Record<string, string> = {
+  // …existing entries…
+  "my-module": "My Module",              // banner: "Showing the My Module guide…"
+};
+const MODULE_GLOSSARIES: Record<string, GlossaryTerm[]> = {
+  // …existing entries…
+  "my-module": MY_GUIDES.glossary ?? [], // the module-scoped "Words to know"
+};
 ```
+
+So a module is **six** edits in `registry.ts`, not two: the `import`, the
+`ModuleGuide` fragment, the `REGISTRY` array, the `PERSONA_REQUIRES` rows (step 3),
+**`MODULE_LABELS`**, and **`MODULE_GLOSSARIES`**. The last two are invisible to
+`tsc` — only an eyeball on the module-scoped guide catches a miss.
 
 Rules:
 
@@ -96,6 +115,30 @@ generic **platform overview** lane on routes no module owns; the resolver gates
 visibility. A module with **no** fragment still shows the overview lane on its
 routes — contributing a fragment is what upgrades those routes from "how to get
 around" to your module's real steps.
+
+### 5. Verify before you open the PR
+
+`tsc` passing is necessary but not sufficient — these checks catch what it can't:
+
+- **Every deep-link resolves.** Each `link.href` / `startHere.href` must hit a
+  real `app/**/<route>/page.tsx` (strip `[id]` to the list route, or use the
+  `:scopeId` token). A 404 link is a dead end the type-checker can't see. Quick
+  sweep: `grep -oE "href: ['\"][^'\"]+" lib/<module>/guide/content.ts` → confirm
+  each path has a matching page file.
+- **Keys are verbatim + present.** Every `REQUIRES` value must exist in
+  `lib/sidebarMenuLink.ts` `MENU_PERMISSIONS` exactly (opaque — don't normalize
+  `:` vs `.`).
+- **Eyeball the module-scoped guide.** Open `/guide?module=<module>&persona=<a
+  lane your module fills>` and confirm: the banner shows your **label** (not the
+  raw id), the **glossary** is your module's, and the lanes read right. This is
+  the only check that catches a missing `MODULE_LABELS` / `MODULE_GLOSSARIES`
+  entry. Keep it **draft** until this eyeball passes — the Visual Proof Gate
+  skips drafts, so the screenshot is the un-draft gate.
+- **Lane title/tagline are canonical, not yours.** They come from
+  `CANONICAL_LANES`, shared across every module — so they must stay
+  module-neutral. If your module makes a canonical lane's copy read oddly (e.g.
+  the `learner` baseline on an HR/Billing page), fix the *canonical* text, never
+  add a per-module title.
 
 ## Invariants (don't regress these)
 

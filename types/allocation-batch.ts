@@ -54,6 +54,7 @@ export interface ProposedAllocation {
   learner_semester: string | null;
   block_name: string | null;
   room_number: string | null;
+  room_floor: number | null;
   room_category: string | null;
   mess_category: string | null;
   bed_number: string | null;

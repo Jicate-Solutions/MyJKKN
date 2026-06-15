@@ -78,6 +78,25 @@ export function useUpgradeRoom() {
   });
 }
 
+// AUTO category upgrade: bill generated now, category changes on payment, no room reserved.
+export function useUpgradeCategoryOnly() {
+  const invalidate = useUpgradeInvalidator();
+  return useMutation({
+    mutationFn: (categoryId: string) => CategoryUpgradeService.upgradeCategoryOnly(categoryId),
+    onSuccess: (res) => {
+      invalidate();
+      if (res.state === 'upgraded') {
+        toast.success('Category upgraded — no fee was due');
+      } else {
+        toast.success(
+          `Upgrade bill of ₹${(res.upgrade_fee ?? 0).toLocaleString('en-IN')} generated — your category changes once it is fully paid`
+        );
+      }
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Upgrade failed'),
+  });
+}
+
 export function useUpgradeMess() {
   const invalidate = useUpgradeInvalidator();
   return useMutation({

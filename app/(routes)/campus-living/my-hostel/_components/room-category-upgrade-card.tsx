@@ -31,6 +31,13 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
   const waitlistFor = (categoryId: string) =>
     myWaitlist.find((w) => w.target_category_id === categoryId) ?? null;
 
+  // A pending upgrade target locks LOWER-category upgrades (no downgrades): once the learner
+  // has chosen e.g. Premium, the Deluxe row is disabled; choosing Deluxe instead still leaves
+  // the higher Premium row selectable as the next level up.
+  const pendingTarget = options.find((o) => waitlistFor(o.category_id)) ?? null;
+  const pendingTargetFee = pendingTarget?.current_year_fee ?? null;
+  const pendingTargetName = pendingTarget?.name ?? null;
+
   return (
     <Card>
       <CardHeader>
@@ -64,7 +71,12 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
             // Pay-to-confirm: threshold met, upgrade bill generated — show
             // payment progress instead of the threshold message.
             const pendingBill = held?.upgrade_bill_id ? held : null;
+            // Category-only upgrade (auto category): a bill exists but NO room is held —
+            // awaiting payment; the category changes on full payment, room assigned later.
+            const categoryPending = !held && waitlisted?.upgrade_bill_id ? waitlisted : null;
             const hasRooms = opt.available_beds > 0;
+            // Locked: a higher upgrade is already pending → this lower option is a downgrade.
+            const locked = pendingTargetFee != null && opt.current_year_fee < pendingTargetFee;
             return (
               <div
                 key={opt.category_id}
@@ -74,15 +86,22 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                     : waitlisted && hasRooms
                       ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-950/30'
                       : ''
-                }`}
+                } ${locked ? 'opacity-60' : ''}`}
               >
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                   <div className="min-w-0">
-                    <p className="font-medium truncate">
-                      {!isBook && currentCategoryName ? `${currentCategoryName} → ` : ''}{opt.name}
+                    <p className="font-medium">
+                      {!isBook && currentCategoryName && (
+                        <span className="text-muted-foreground">{currentCategoryName} → </span>
+                      )}
+                      <span className="text-base">{opt.name}</span>
                     </p>
                   </div>
-                  {isBook && !held ? (
+                  {locked ? (
+                    <Badge variant="outline" className="w-fit text-muted-foreground">
+                      Lower than your pending {pendingTargetName} upgrade
+                    </Badge>
+                  ) : isBook && !held ? (
                     hasRooms ? (
                       <Button size="sm" onClick={() => setPicked(opt)}>
                         <ArrowUpCircle className="mr-1.5 h-4 w-4" /> Book now
@@ -105,12 +124,29 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                         Cancel
                       </Button>
                     </div>
+                  ) : categoryPending ? (
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-400">
+                        <CalendarClock className="mr-1 h-3 w-3" /> Pending payment
+                      </Badge>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={leaveWaitlist.isPending}
+                        onClick={() => { if (!leaveWaitlist.isPending) leaveWaitlist.mutate(opt.category_id); }}
+                      >
+                        {leaveWaitlist.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                        Cancel
+                      </Button>
+                    </div>
                   ) : hasRooms ? (
                     <Button size="sm" onClick={() => setPicked(opt)}>
                       <ArrowUpCircle className="mr-1.5 h-4 w-4" />
-                      {opt.meets_threshold
-                        ? opt.upgrade_fee > 0 ? 'Reserve & pay' : 'Upgrade now'
-                        : 'Reserve room'}
+                      {opt.allocation_mode === 'auto'
+                        ? 'Upgrade'
+                        : opt.meets_threshold
+                          ? opt.upgrade_fee > 0 ? 'Reserve & pay' : 'Upgrade now'
+                          : 'Reserve room'}
                     </Button>
                   ) : waitlisted ? (
                     <div className="flex items-center gap-2">
@@ -142,6 +178,12 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                     </div>
                   )}
                 </div>
+                {locked && (
+                  <p className="text-xs text-muted-foreground">
+                    You&apos;ve already chosen the higher {pendingTargetName} upgrade — cancel it
+                    first to pick this instead.
+                  </p>
+                )}
                 {pendingBill && (
                   <p className="text-xs text-amber-800 dark:text-amber-300">
                     Room {pendingBill.held_room_number}
@@ -172,20 +214,33 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                     the reservation is cancelled after the deadline.
                   </p>
                 )}
-                {!isBook && !held && hasRooms && !opt.meets_threshold && (
+                {!isBook && !locked && !held && hasRooms && !opt.meets_threshold && (
                   <p className="text-xs text-muted-foreground">
                     You&apos;ve paid {opt.paid_pct ?? 0}% of this year&apos;s fees; {opt.threshold_pct}% is
                     needed for an instant upgrade — you can still reserve a room for {opt.hold_days} day
                     {opt.hold_days === 1 ? '' : 's'} while you pay.
                   </p>
                 )}
-                {!held && waitlisted && hasRooms && (
+                {categoryPending && (
+                  <p className="text-xs text-amber-800 dark:text-amber-300">
+                    Upgrade to {opt.name} billed — pay{' '}
+                    <span className="font-semibold">
+                      ₹{(categoryPending.upgrade_fee_amount ?? 0).toLocaleString('en-IN')}
+                    </span>
+                    {(categoryPending.upgrade_fee_paid ?? 0) > 0
+                      ? ` (₹${(categoryPending.upgrade_fee_paid ?? 0).toLocaleString('en-IN')} paid so far)`
+                      : ''}{' '}
+                    to confirm. Your category changes to {opt.name} once the bill is fully paid; the room is
+                    then assigned by the hostel office.
+                  </p>
+                )}
+                {!held && !categoryPending && waitlisted && hasRooms && (
                   <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
                     <Sparkles className="h-3.5 w-3.5" />
                     A room is now available — upgrade now to claim it.
                   </p>
                 )}
-                {!held && waitlisted && !hasRooms && (
+                {!held && !categoryPending && waitlisted && !hasRooms && (
                   <p className="text-xs text-muted-foreground">
                     Joined {new Date(waitlisted.created_at).toLocaleDateString('en-IN')} — we&apos;ll show the
                     rooms here as soon as one frees up.
@@ -210,6 +265,7 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
           meetsThreshold={picked.meets_threshold}
           holdDays={picked.hold_days}
           mode={mode}
+          autoPick={picked.allocation_mode === 'auto'}
         />
       )}
     </Card>

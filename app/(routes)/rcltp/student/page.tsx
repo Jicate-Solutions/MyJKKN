@@ -14,7 +14,16 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { BookOpen, Award, Flame, ClipboardList, Lock, FileBarChart } from 'lucide-react';
+import {
+  BookOpen,
+  Award,
+  Flame,
+  ClipboardList,
+  Lock,
+  FileBarChart,
+  Dumbbell,
+  BookA,
+} from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { usePermissions } from '@/hooks/use-permissions';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -134,7 +143,11 @@ export default function RcltpStudentPage() {
             <div>
               <p className='text-sm text-muted-foreground'>Current streak</p>
               <p className='text-xl font-semibold'>
-                {streaksQuery.isLoading ? '—' : `${streak?.current_streak ?? 0} day${(streak?.current_streak ?? 0) === 1 ? '' : 's'}`}
+                {streaksQuery.isLoading
+                  ? '—'
+                  : streak
+                    ? `${streak.current_streak} day${streak.current_streak === 1 ? '' : 's'}`
+                    : '—'}
               </p>
             </div>
           </div>
@@ -190,6 +203,39 @@ export default function RcltpStudentPage() {
               })}
             </ul>
           )}
+        </section>
+
+        {/* Practice & vocabulary */}
+        <section>
+          <h2 className='mb-3 flex items-center gap-2 text-lg font-semibold'>
+            <Dumbbell className='h-5 w-5' /> Practice &amp; vocabulary
+          </h2>
+          <div className='grid gap-3 sm:grid-cols-2'>
+            <Link
+              href='/rcltp/student/practice'
+              className='flex items-center gap-3 rounded-lg border bg-card p-4 transition-colors hover:border-primary/60'
+            >
+              <div className='flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 text-blue-700'>
+                <Dumbbell className='h-5 w-5' />
+              </div>
+              <div>
+                <p className='font-medium'>Adaptive practice</p>
+                <p className='text-sm text-muted-foreground'>Your weekly reading practice assignments.</p>
+              </div>
+            </Link>
+            <Link
+              href='/rcltp/student/vbb'
+              className='flex items-center gap-3 rounded-lg border bg-card p-4 transition-colors hover:border-primary/60'
+            >
+              <div className='flex h-10 w-10 items-center justify-center rounded-lg bg-violet-100 text-violet-700'>
+                <BookA className='h-5 w-5' />
+              </div>
+              <div>
+                <p className='font-medium'>Vocabulary (VBB)</p>
+                <p className='text-sm text-muted-foreground'>Vocabulary Building Blocks — coming soon.</p>
+              </div>
+            </Link>
+          </div>
         </section>
 
         {/* Report — honest gated state */}

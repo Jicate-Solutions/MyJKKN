@@ -5,6 +5,7 @@ export interface UpgradeRoomCategoryOption {
   category_id: string;
   name: string;
   type: string;
+  allocation_mode: string | null; // 'auto' => fee-only upgrade (room via auto-allocation); 'manual' => pick a room
   current_year_fee: number; // the target category's full (base) fee
   upgrade_fee: number; // configured from→to upgrade payment (else full-fee difference)
   available_beds: number; // 0 => waitlist branch

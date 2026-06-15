@@ -14286,6 +14286,44 @@ $$;
 --    Empty result => caller fails open.
 --    Reads hostel_program_eligibility (single combined table; replaces the former
 --    split hostel_program_room_eligibility + hostel_program_mess_eligibility).
+-- hostel_program_eligibility.quota_ids normalisation + validation (replaces the
+-- dropped quota_id FK): empty -> NULL; de-dupe + sort ascending (canonical form
+-- for the order-insensitive unique index); reject ids that aren't real quotas.
+-- Migration: 20260615120000_hostel_program_eligibility_multi_quota.sql
+CREATE OR REPLACE FUNCTION public.fn_prog_elig_normalize_quotas()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_clean uuid[];
+  v_bad uuid;
+BEGIN
+  IF NEW.quota_ids IS NULL OR cardinality(NEW.quota_ids) = 0 THEN
+    NEW.quota_ids := NULL;
+    RETURN NEW;
+  END IF;
+
+  SELECT array_agg(q ORDER BY q) INTO v_clean
+  FROM (SELECT DISTINCT unnest(NEW.quota_ids) AS q) s;
+
+  SELECT v INTO v_bad
+  FROM unnest(v_clean) AS v
+  WHERE NOT EXISTS (SELECT 1 FROM public.quotas WHERE id = v);
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION 'quota_ids contains a non-existent quota id: %', v_bad
+      USING ERRCODE = '23503';
+  END IF;
+
+  NEW.quota_ids := v_clean;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_prog_elig_normalize_quotas ON public.hostel_program_eligibility;
+CREATE TRIGGER trg_prog_elig_normalize_quotas
+  BEFORE INSERT OR UPDATE ON public.hostel_program_eligibility
+  FOR EACH ROW EXECUTE FUNCTION public.fn_prog_elig_normalize_quotas();
+
 CREATE OR REPLACE FUNCTION public.fn_hostel_effective_room_categories(
   p_institution uuid, p_program uuid, p_quota uuid, p_fee numeric, p_gender text DEFAULT NULL
 ) RETURNS TABLE(category_id uuid)
@@ -14294,9 +14332,9 @@ SET search_path TO 'public'
 AS $$
   WITH candidates AS (
     SELECT e.room_category_id AS cat,
-           e.program_id, e.quota_id, e.fee_min, e.fee_max,
+           e.program_id, e.quota_ids, e.fee_min, e.fee_max,
            ( (e.program_id IS NOT NULL)::int * 4
-           + (e.quota_id   IS NOT NULL)::int * 2
+           + (e.quota_ids  IS NOT NULL)::int * 2
            + ((e.fee_min IS NOT NULL OR e.fee_max IS NOT NULL))::int * 1 ) AS specificity
     FROM hostel_program_eligibility e
     WHERE e.institution_id = p_institution
@@ -14304,24 +14342,33 @@ AS $$
       AND e.room_category_id IS NOT NULL
       AND (p_gender IS NULL OR e.hostel_type = 'both' OR e.hostel_type = p_gender)
       AND (e.program_id = p_program OR e.program_id IS NULL)
-      AND (e.quota_id   = p_quota   OR e.quota_id   IS NULL)
+      AND (e.quota_ids IS NULL OR p_quota = ANY(e.quota_ids))
       -- half-open interval [fee_min, fee_max): includes min, excludes max
       AND (e.fee_min IS NULL OR p_fee >= e.fee_min)
       AND (e.fee_max IS NULL OR p_fee <  e.fee_max)
   ),
   winner AS (
-    SELECT program_id, quota_id, fee_min, fee_max
+    SELECT program_id, quota_ids, fee_min, fee_max
     FROM candidates
     ORDER BY specificity DESC,
              (COALESCE(fee_max, 9.9e14::numeric) - COALESCE(fee_min, 0)) ASC
     LIMIT 1
   )
-  SELECT c.cat
+  -- Gender translation (20260615): map the winning band's category to the learner's
+  -- gender variant (same NAME, matching type) so one shared 'both' band serves boys and
+  -- girls. Falls back to the stored category when no same-name sibling exists.
+  SELECT COALESCE(
+           CASE WHEN p_gender IS NOT NULL AND oc.type IS NOT NULL AND oc.type <> p_gender
+                THEN (SELECT sib.id FROM hostel_categories sib
+                       WHERE sib.name = oc.name AND sib.type = p_gender LIMIT 1)
+                ELSE NULL END,
+           c.cat)
   FROM candidates c JOIN winner w
     ON c.program_id IS NOT DISTINCT FROM w.program_id
-   AND c.quota_id   IS NOT DISTINCT FROM w.quota_id
+   AND c.quota_ids  IS NOT DISTINCT FROM w.quota_ids
    AND c.fee_min    IS NOT DISTINCT FROM w.fee_min
-   AND c.fee_max    IS NOT DISTINCT FROM w.fee_max;
+   AND c.fee_max    IS NOT DISTINCT FROM w.fee_max
+  LEFT JOIN hostel_categories oc ON oc.id = c.cat;
 $$;
 
 -- 3. Parametric resolver (mess) — identical shape, reads hostel_program_eligibility.
@@ -14333,9 +14380,9 @@ SET search_path TO 'public'
 AS $$
   WITH candidates AS (
     SELECT e.mess_category_id AS cat,
-           e.program_id, e.quota_id, e.fee_min, e.fee_max,
+           e.program_id, e.quota_ids, e.fee_min, e.fee_max,
            ( (e.program_id IS NOT NULL)::int * 4
-           + (e.quota_id   IS NOT NULL)::int * 2
+           + (e.quota_ids  IS NOT NULL)::int * 2
            + ((e.fee_min IS NOT NULL OR e.fee_max IS NOT NULL))::int * 1 ) AS specificity
     FROM hostel_program_eligibility e
     WHERE e.institution_id = p_institution
@@ -14343,24 +14390,33 @@ AS $$
       AND e.mess_category_id IS NOT NULL
       AND (p_gender IS NULL OR e.hostel_type = 'both' OR e.hostel_type = p_gender)
       AND (e.program_id = p_program OR e.program_id IS NULL)
-      AND (e.quota_id   = p_quota   OR e.quota_id   IS NULL)
+      AND (e.quota_ids IS NULL OR p_quota = ANY(e.quota_ids))
       -- half-open interval [fee_min, fee_max): includes min, excludes max
       AND (e.fee_min IS NULL OR p_fee >= e.fee_min)
       AND (e.fee_max IS NULL OR p_fee <  e.fee_max)
   ),
   winner AS (
-    SELECT program_id, quota_id, fee_min, fee_max
+    SELECT program_id, quota_ids, fee_min, fee_max
     FROM candidates
     ORDER BY specificity DESC,
              (COALESCE(fee_max, 9.9e14::numeric) - COALESCE(fee_min, 0)) ASC
     LIMIT 1
   )
-  SELECT c.cat
+  -- Gender translation (20260615): map the winning band's mess category to the learner's
+  -- gender variant (same NAME, matching type) so one shared 'both' band serves boys and
+  -- girls. Falls back to the stored category when no same-name sibling exists.
+  SELECT COALESCE(
+           CASE WHEN p_gender IS NOT NULL AND oc.type IS NOT NULL AND oc.type <> p_gender
+                THEN (SELECT sib.id FROM mess_categories sib
+                       WHERE sib.name = oc.name AND sib.type = p_gender LIMIT 1)
+                ELSE NULL END,
+           c.cat)
   FROM candidates c JOIN winner w
     ON c.program_id IS NOT DISTINCT FROM w.program_id
-   AND c.quota_id   IS NOT DISTINCT FROM w.quota_id
+   AND c.quota_ids  IS NOT DISTINCT FROM w.quota_ids
    AND c.fee_min    IS NOT DISTINCT FROM w.fee_min
-   AND c.fee_max    IS NOT DISTINCT FROM w.fee_max;
+   AND c.fee_max    IS NOT DISTINCT FROM w.fee_max
+  LEFT JOIN mess_categories oc ON oc.id = c.cat;
 $$;
 
 -- 4. Composite (room): the interface callers use. Reads the learner's dims +
@@ -15149,7 +15205,7 @@ BEGIN
   FROM hostel_categories c
   JOIN hostel_fees hf
     ON hf.hostel_category_id = c.id AND hf.hostel_year_id = v_year AND hf.mess_category_id IS NULL AND hf.is_active
-  WHERE c.is_active AND c.allocation_mode = 'manual'
+  WHERE c.is_active   -- any allocation_mode: auto (Deluxe) categories are upgrade targets too
     AND ((v_gender IN ('male','m')   AND c.type='boys')
          OR (v_gender IN ('female','f') AND c.type='girls'))
     AND c.id <> COALESCE(v_cur_cat, '00000000-0000-0000-0000-000000000000'::uuid)
@@ -15481,31 +15537,31 @@ BEGIN
   WITH rules AS (
     SELECT e.*,
            COALESCE(e.program_id IS NULL OR e.program_id = v_program, false) AS program_ok,
-           COALESCE(e.quota_id   IS NULL OR e.quota_id   = v_quota,   false) AS quota_ok,
+           COALESCE(e.quota_ids IS NULL OR v_quota = ANY(e.quota_ids), false) AS quota_ok,
            (v_fee IS NOT NULL
               AND (e.fee_min IS NULL OR v_fee >= e.fee_min)
               AND (e.fee_max IS NULL OR v_fee <  e.fee_max)) AS fee_ok,
            ( (e.program_id IS NOT NULL)::int * 4
-           + (e.quota_id   IS NOT NULL)::int * 2
+           + (e.quota_ids  IS NOT NULL)::int * 2
            + ((e.fee_min IS NOT NULL OR e.fee_max IS NOT NULL))::int ) AS specificity
     FROM hostel_program_eligibility e
     WHERE e.institution_id = v_inst AND e.is_active
   ),
   room_winner AS (
-    SELECT program_id, quota_id, fee_min, fee_max FROM rules
+    SELECT program_id, quota_ids, fee_min, fee_max FROM rules
     WHERE room_category_id IS NOT NULL AND program_ok AND quota_ok AND fee_ok
     ORDER BY specificity DESC, (COALESCE(fee_max, 9.9e14::numeric) - COALESCE(fee_min, 0)) ASC
     LIMIT 1
   ),
   mess_winner AS (
-    SELECT program_id, quota_id, fee_min, fee_max FROM rules
+    SELECT program_id, quota_ids, fee_min, fee_max FROM rules
     WHERE mess_category_id IS NOT NULL AND program_ok AND quota_ok AND fee_ok
     ORDER BY specificity DESC, (COALESCE(fee_max, 9.9e14::numeric) - COALESCE(fee_min, 0)) ASC
     LIMIT 1
   )
   SELECT jsonb_agg(jsonb_build_object(
       'program', (SELECT program_name FROM programs WHERE id = r.program_id),
-      'quota',   (SELECT name FROM quotas WHERE id = r.quota_id),
+      'quota',   (SELECT string_agg(name, ', ' ORDER BY name) FROM quotas WHERE id = ANY(r.quota_ids)),
       'fee_min', r.fee_min,
       'fee_max', r.fee_max,
       'room_category', (SELECT name FROM hostel_categories WHERE id = r.room_category_id),
@@ -15517,13 +15573,13 @@ BEGIN
       'selected_room', (r.room_category_id IS NOT NULL AND EXISTS (
         SELECT 1 FROM room_winner w
         WHERE r.program_id IS NOT DISTINCT FROM w.program_id
-          AND r.quota_id   IS NOT DISTINCT FROM w.quota_id
+          AND r.quota_ids  IS NOT DISTINCT FROM w.quota_ids
           AND r.fee_min    IS NOT DISTINCT FROM w.fee_min
           AND r.fee_max    IS NOT DISTINCT FROM w.fee_max)),
       'selected_mess', (r.mess_category_id IS NOT NULL AND EXISTS (
         SELECT 1 FROM mess_winner w
         WHERE r.program_id IS NOT DISTINCT FROM w.program_id
-          AND r.quota_id   IS NOT DISTINCT FROM w.quota_id
+          AND r.quota_ids  IS NOT DISTINCT FROM w.quota_ids
           AND r.fee_min    IS NOT DISTINCT FROM w.fee_min
           AND r.fee_max    IS NOT DISTINCT FROM w.fee_max))
     ) ORDER BY (r.program_ok AND r.quota_ok AND r.fee_ok) DESC, r.specificity DESC,
