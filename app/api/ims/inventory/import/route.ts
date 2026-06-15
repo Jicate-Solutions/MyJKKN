@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import ExcelJS from 'exceljs';
+import JSZip from 'jszip';
 import { z } from 'zod';
 import {
   getCellStringValue,
@@ -64,6 +65,66 @@ const imsItemRowSchema = z.object({
   batch_number: z.string().max(100).nullable().optional(),
   expiry_date: z.string().nullable().optional(),
 });
+
+// ============================================================================
+// WORKBOOK SANITIZER
+// ============================================================================
+
+/**
+ * Strip cell comments/notes from the uploaded workbook before ExcelJS parses it.
+ *
+ * ExcelJS 4.4 indexes parsed comment parts under the literal key
+ * "../commentsN.xml" (and VML comment anchors under "../drawings/vmlDrawingN.vml")
+ * but looks both up with the worksheet relationship's raw Target attribute
+ * (worksheet-xform reconcile). Excel desktop writes those targets relatively, so
+ * they match; Google Sheets / WPS / LibreOffice write absolute or sheet-adjacent
+ * paths, and either lookup crashes with "Cannot read properties of undefined
+ * (reading 'comments')". A dangling comments relationship (part deleted, rel
+ * kept) crashes the same way.
+ *
+ * Comments carry no import data, so removal is driven by relationship TYPE —
+ * not part filenames — covering every writer variant: each worksheet rels file
+ * drops its comments / threadedComment / vmlDrawing relationships (self-closing
+ * or paired tag form), then the orphaned parts are deleted wherever they live.
+ * With no comments relationship left, ExcelJS never enters either crash path.
+ */
+async function stripWorkbookComments(arrayBuffer: ArrayBuffer): Promise<ArrayBuffer | Buffer> {
+  const zip = await JSZip.loadAsync(arrayBuffer);
+  let changed = false;
+
+  const COMMENT_REL_TYPE = /Type\s*=\s*["'][^"']*\/(comments|threadedComment|vmlDrawing)["']/i;
+  // Matches one complete <Relationship> element in either form: <.../> or <...>...</...>
+  const REL_ELEMENT = /<Relationship\b[^>]*?(?:\/>|>[\s\S]*?<\/Relationship\s*>)/gi;
+
+  const relFiles = Object.keys(zip.files).filter((name) =>
+    /^xl\/worksheets\/_rels\/[^/]+\.rels$/i.test(name)
+  );
+  for (const relPath of relFiles) {
+    const xml = await zip.file(relPath)!.async('string');
+    const cleaned = xml.replace(REL_ELEMENT, (element) =>
+      COMMENT_REL_TYPE.test(element) ? '' : element
+    );
+    if (cleaned !== xml) {
+      zip.file(relPath, cleaned);
+      changed = true;
+    }
+  }
+
+  for (const name of Object.keys(zip.files)) {
+    if (
+      /(^|\/)comments[^/]*\.xml$/i.test(name) ||      // xl/comments1.xml, sheet-adjacent
+      /(^|\/)comments\//i.test(name) ||                // xl/comments/comment1.xml
+      /(^|\/)threadedComments\//i.test(name) ||        // Excel 365 threaded comments
+      /(^|\/)vmlDrawing[^/]*\.vml$/i.test(name)        // legacy comment anchors
+    ) {
+      zip.remove(name);
+      changed = true;
+    }
+  }
+
+  if (!changed) return arrayBuffer;
+  return zip.generateAsync({ type: 'nodebuffer' });
+}
 
 // ============================================================================
 // ROW PARSER
@@ -235,7 +296,32 @@ export async function POST(request: NextRequest) {
     // ── Load workbook ─────────────────────────────────────────────────────────
     const arrayBuffer = await file.arrayBuffer();
     const workbook    = new ExcelJS.Workbook();
-    await workbook.xlsx.load(arrayBuffer);
+    try {
+      const sanitized = await stripWorkbookComments(arrayBuffer);
+      await workbook.xlsx.load(sanitized as ArrayBuffer);
+    } catch (loadError) {
+      console.error('[ims/inventory/import] Workbook load failed:', loadError);
+      // Dump the zip structure + worksheet rels so the failing variant is
+      // identifiable from server logs without needing the original file.
+      try {
+        const zip = await JSZip.loadAsync(arrayBuffer);
+        console.error('[ims/inventory/import] zip entries:', Object.keys(zip.files).join(', '));
+        for (const name of Object.keys(zip.files)) {
+          if (/^xl\/worksheets\/_rels\//i.test(name)) {
+            console.error(`[ims/inventory/import] ${name}:`, await zip.file(name)!.async('string'));
+          }
+        }
+      } catch {
+        console.error('[ims/inventory/import] file is not a readable zip archive');
+      }
+      return NextResponse.json(
+        {
+          error:
+            'The file could not be read. Please re-save it as .xlsx in Excel (File > Save As > Excel Workbook) and upload again.',
+        },
+        { status: 400 }
+      );
+    }
 
     const worksheet = workbook.getWorksheet('Items')
       ?? workbook.worksheets.find(ws => ws.state === 'visible')
