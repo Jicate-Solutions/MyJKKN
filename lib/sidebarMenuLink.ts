@@ -1224,6 +1224,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/rcltp' || pathname.startsWith('/rcltp/'),
           icon: BookOpen,
           submenus: []
+        },
+        {
+          // Post-class feedback — principal escalation dashboard (L4). Sessions
+          // where learners reported low understanding, for follow-up with faculty.
+          href: '/academic/session-feedback/principal',
+          label: 'Session Escalations',
+          active: pathname.startsWith('/academic/session-feedback/principal'),
+          icon: Activity,
+          submenus: []
         }
       ]
     },
