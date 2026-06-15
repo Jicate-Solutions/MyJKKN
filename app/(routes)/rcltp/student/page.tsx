@@ -143,7 +143,11 @@ export default function RcltpStudentPage() {
             <div>
               <p className='text-sm text-muted-foreground'>Current streak</p>
               <p className='text-xl font-semibold'>
-                {streaksQuery.isLoading ? '—' : `${streak?.current_streak ?? 0} day${(streak?.current_streak ?? 0) === 1 ? '' : 's'}`}
+                {streaksQuery.isLoading
+                  ? '—'
+                  : streak
+                    ? `${streak.current_streak} day${streak.current_streak === 1 ? '' : 's'}`
+                    : '—'}
               </p>
             </div>
           </div>

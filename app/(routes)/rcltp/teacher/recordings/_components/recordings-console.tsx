@@ -150,10 +150,15 @@ function RecordingCard({ recording }: { recording: RcltpPartARecording }) {
 
   // Manual review fields — START EMPTY. We deliberately do NOT seed these from
   // any auto-engine output; the reviewer enters their own judgement.
+  // Seed the status selects from the recording's CURRENT state so saving the
+  // review without touching them never silently downgrades it. The numeric score
+  // fields stay empty — those are the reviewer's own manual judgement.
   const [scoringStatus, setScoringStatus] = useState<RcltpScoringStatus>(
-    'low_confidence_review'
+    recording.scoring_status ?? 'low_confidence_review'
   );
-  const [reviewStatus, setReviewStatus] = useState<string>('in_review');
+  const [reviewStatus, setReviewStatus] = useState<string>(
+    recording.review_status ?? 'in_review'
+  );
   const [accuracy, setAccuracy] = useState('');
   const [fluency, setFluency] = useState('');
   const [pron, setPron] = useState('');
@@ -164,14 +169,16 @@ function RecordingCard({ recording }: { recording: RcltpPartARecording }) {
     setLoadingUrl(true);
     setUrlError(null);
     try {
-      const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase.storage
-        .from('rcltp-audio')
-        .createSignedUrl(recording.audio_path, 3600);
-      if (error || !data?.signedUrl) {
-        throw error ?? new Error('Could not generate a playable link');
+      // The rcltp-audio bucket is private with no client read policy, so the URL
+      // must be minted by the service-role route (not the browser client).
+      const res = await fetch(`/api/rcltp/recordings/${recording.id}/audio-url`);
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success || !json?.data?.signed_url) {
+        throw new Error(
+          json?.message || json?.error || 'Could not generate a playable link'
+        );
       }
-      setSignedUrl(data.signedUrl);
+      setSignedUrl(json.data.signed_url as string);
     } catch (e) {
       setUrlError(
         e instanceof Error ? e.message : 'Could not load this recording’s audio.'

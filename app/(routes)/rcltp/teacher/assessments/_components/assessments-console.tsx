@@ -221,6 +221,7 @@ function CreateAssessmentDialog({
   const [assessmentType, setAssessmentType] = useState<RcltpAssessmentType>('baseline');
   const [cycleNo, setCycleNo] = useState<string>('1');
   const [grade, setGrade] = useState<string>('');
+  const [academicYearId, setAcademicYearId] = useState<string>('');
 
   // Seed institution when opening.
   useEffect(() => {
@@ -231,11 +232,17 @@ function CreateAssessmentDialog({
       setAssessmentType('baseline');
       setCycleNo('1');
       setGrade('');
+      setAcademicYearId('');
     }
   }, [open, defaultInstitutionId]);
 
   const learnersQuery = useLearners(institutionId || null);
   const learners = learnersQuery.data ?? [];
+
+  // Academic years track the dialog's selected school (a cycle sitting ties to a
+  // schedule window keyed on institution+year+cycle).
+  const academicYearsQuery = useAcademicYears(institutionId || null);
+  const academicYears = academicYearsQuery.data ?? [];
 
   // Only approved passages are offered — students may only ever see approved content.
   const passagesQuery = useRcltpPassages(
@@ -266,6 +273,7 @@ function CreateAssessmentDialog({
         assessment_type: assessmentType,
         cycle_no: assessmentType === 'cycle' ? Number(cycleNo) : null,
         grade_level: grade ? Number(grade) : null,
+        academic_year_id: academicYearId || null,
       });
       onOpenChange(false);
     } catch {
@@ -296,6 +304,7 @@ function CreateAssessmentDialog({
                   setInstitutionId(v);
                   setLearnerId('');
                   setPassageId('');
+                  setAcademicYearId('');
                 }}
               >
                 <SelectTrigger>
@@ -335,6 +344,36 @@ function CreateAssessmentDialog({
                   {learners.map((l) => (
                     <SelectItem key={l.id} value={l.id}>
                       {learnerName(l)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className='col-span-2'>
+              <Label>Academic year</Label>
+              <Select
+                value={academicYearId}
+                onValueChange={setAcademicYearId}
+                disabled={!institutionId || academicYearsQuery.isLoading}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      !institutionId
+                        ? 'Pick a school first'
+                        : academicYearsQuery.isLoading
+                          ? 'Loading years…'
+                          : academicYears.length === 0
+                            ? 'No academic years in this school'
+                            : 'Select academic year'
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {academicYears.map((y) => (
+                    <SelectItem key={y.id} value={y.id}>
+                      {y.academic_year_name ?? y.id}
                     </SelectItem>
                   ))}
                 </SelectContent>
