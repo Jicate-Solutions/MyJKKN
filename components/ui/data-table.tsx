@@ -202,9 +202,11 @@ interface DataTableProps<TData, TValue> {
 
   /**
    * Function to get a unique ID for each row
-   * Used for deletion confirmation and tracking
+   * Used for deletion confirmation and tracking.
+   * Must be stable across refetches — row ids are React keys, so unstable ids
+   * remount every row on each data change.
    */
-  getRowId?: (row: TData) => string;
+  getRowId?: (row: TData, index: number) => string;
 
   /**
    * Function to refresh the table data
@@ -267,7 +269,12 @@ export function DataTable<TData, TValue>({
   onBulkAction,
   bulkActionConfig,
   secondaryBulkAction,
-  getRowId = () => Math.random().toString(36).substring(7), // Default fallback ID generator
+  // Stable row identity: entity id when present, else row index. Random ids
+  // (the old default) gave every row a new React key on each refetch, which
+  // unmounted/remounted all rows — closing open row menus, dropping focus, and
+  // causing scroll jumps whenever a background refetch landed mid-interaction.
+  getRowId = (row: TData, index: number) =>
+    String((row as { id?: string | number })?.id ?? index),
   onRefresh,
   showRefresh = true,
   onSearch,

@@ -889,6 +889,7 @@ function AdminBugReportsContent() {
                   <DataTable
                     columns={columns}
                     data={reports}
+                    getRowId={(report) => report.id}
                     permissions={{
                       module: 'system.bugs',
                       actions: { view: true }
