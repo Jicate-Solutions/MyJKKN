@@ -90,6 +90,8 @@ export function useRcltpResponses(filters: RcltpPartBResponseFilters = {}) {
   return useQuery({
     queryKey: rcltpResponseKeys.list(filters),
     queryFn: () => RcltpAssessmentsService.getResponses(filters),
+    // Only fetch when scoped to a specific sitting.
+    enabled: !!filters.assessment_id,
     placeholderData: (prev) => prev,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });

@@ -96,8 +96,8 @@ const ALL_LANES: LaneCard[] = [
       'Take RCLTP assessments, view band results, and complete adaptive reading practice.',
     href: '/rcltp/student',
     icon: GraduationCap,
-    available: false,
-    phase: 'Phase 4b',
+    available: true,
+    requiredPermission: 'rcltp.assessment.take',
   },
 ];
 
