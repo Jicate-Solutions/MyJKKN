@@ -279,10 +279,17 @@ export function GuideDrawer({
       const first = f[0];
       const last = f[f.length - 1];
       const active = document.activeElement;
+      // The panel container itself holds initial focus (tabIndex={-1}). Treat it
+      // like "before the first child": a Shift+Tab from it must wrap to `last`,
+      // otherwise the browser's default moves focus OUT of the dialog (behind the
+      // backdrop) — the focus-trap leak. (Forward Tab from the container falls
+      // through to the default, which lands on the first child inside the panel,
+      // so it stays trapped without special handling.)
+      const onContainer = active === panelRef.current;
       if (!panelRef.current.contains(active)) {
         e.preventDefault();
         first.focus();
-      } else if (e.shiftKey && active === first) {
+      } else if (e.shiftKey && (active === first || onContainer)) {
         e.preventDefault();
         last.focus();
       } else if (!e.shiftKey && active === last) {
