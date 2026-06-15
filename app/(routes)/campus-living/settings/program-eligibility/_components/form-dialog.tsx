@@ -122,22 +122,33 @@ export function ProgramEligibilityFormDialog({
   ];
   const quotaOptions = quotas.map((q) => ({ value: q.id, label: q.name }));
   // 'both' => the band is common to both genders, so show one option per category
-  // NAME (the apply logic maps it to each learner's gender variant). 'boys'/'girls'
+  // NAME (the resolver maps it to each learner's gender variant). 'boys'/'girls'
   // => only that gender's categories.
-  const filterCats = (cats: { id: string; name: string; type: string | null }[]) => {
+  // The dedup is VALUE-AWARE: it keeps the currently-selected variant as the
+  // representative for its name, so editing a 'both' band whose stored id is the
+  // dropped gender variant (e.g. girls "Deluxe Room") still displays instead of
+  // rendering blank.
+  const filterCats = (
+    cats: { id: string; name: string; type: string | null }[],
+    selectedId?: string,
+  ) => {
     if (hostelType === 'both') {
-      const seen = new Set<string>();
-      return cats.filter((c) => (seen.has(c.name) ? false : (seen.add(c.name), true)));
+      const byName = new Map<string, { id: string; name: string; type: string | null }>();
+      for (const c of cats) {
+        const existing = byName.get(c.name);
+        if (!existing || c.id === selectedId) byName.set(c.name, c);
+      }
+      return Array.from(byName.values());
     }
     return cats.filter((c) => !hostelType || c.type === hostelType);
   };
   const roomCategoryOptions = [
     { value: NO_CATEGORY, label: '— None —' },
-    ...filterCats(roomCategories).map((c) => ({ value: c.id, label: c.name })),
+    ...filterCats(roomCategories, roomCategoryId).map((c) => ({ value: c.id, label: c.name })),
   ];
   const messCategoryOptions = [
     { value: NO_CATEGORY, label: '— None —' },
-    ...filterCats(messCategories).map((c) => ({ value: c.id, label: c.name })),
+    ...filterCats(messCategories, messCategoryId).map((c) => ({ value: c.id, label: c.name })),
   ];
 
   const onSubmit = async () => {
