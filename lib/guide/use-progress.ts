@@ -37,6 +37,25 @@ export function useGuideProgress(opts: {
     () => new Set(initialCompleted ?? [])
   );
 
+  // Re-seed when the active PERSONA changes. The platform Help FAB is mounted
+  // ONCE in the root layout and survives App-Router client navigations, flipping
+  // its contextual persona per route (pickGuideLane) WITHOUT remounting this
+  // hook — so without this, `completed` stays frozen to the first route's
+  // persona and the FAB badge + drawer checkboxes mis-report after navigating
+  // (e.g. module-admin on /pde → "learner" overview on /dashboard). Guarded by a
+  // ref so we re-seed ONLY on a real persona change — never on mount (useState
+  // already seeded), and never on an initialCompleted identity churn within one
+  // persona (which would clobber the viewer's in-session optimistic toggles).
+  // Keyed consumers (GuideView uses key={persona}) remount instead, so there
+  // this is a one-time no-op.
+  const seededPersona = React.useRef(persona);
+  React.useEffect(() => {
+    if (seededPersona.current === persona) return;
+    seededPersona.current = persona;
+    setCompleted(new Set(initialCompleted ?? []));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [persona]);
+
   const emit = React.useCallback<GuideEventSink>(
     (event) => {
       // Guard sync throws AND async rejections — onEvent may return a promise.
