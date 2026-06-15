@@ -36,6 +36,18 @@ import {
   rcltpPostJson,
 } from './rcltp-helpers';
 
+/**
+ * Response shape of POST /api/rcltp/recordings/upload-url — a service-role-minted
+ * signed upload URL into the private rcltp-audio bucket. `path` is the
+ * server-controlled storage key; `token` authorises the direct upload.
+ */
+export interface RcltpRecordingUploadUrl {
+  path: string;
+  signed_url: string;
+  token: string;
+  content_type: string;
+}
+
 export class RcltpAssessmentsService {
   private static supabase = createClientSupabaseClient();
 
@@ -249,6 +261,25 @@ export class RcltpAssessmentsService {
   /** Student submits a sitting → POST /api/rcltp/assessments/:id/submit. */
   static async submitAssessment(assessmentId: string): Promise<RcltpAssessment> {
     return rcltpPostJson<RcltpAssessment>(`/api/rcltp/assessments/${assessmentId}/submit`);
+  }
+
+  /**
+   * Mint a short-lived SIGNED UPLOAD URL for a Part A voice recording into the
+   * private rcltp-audio bucket → POST /api/rcltp/recordings/upload-url. The SERVER
+   * controls the storage path (institution/learner/assessment/…), so a student can
+   * only ever write their OWN recording. Step 1 of the 3-step capture handshake:
+   *   1. createRecordingUploadUrl → { path, signed_url, token }
+   *   2. supabase.storage.from('rcltp-audio').uploadToSignedUrl(path, token, blob)
+   *   3. uploadRecording(assessmentId, path) → creates the recording row
+   */
+  static async createRecordingUploadUrl(
+    assessmentId: string,
+    contentType: string = 'audio/webm'
+  ): Promise<RcltpRecordingUploadUrl> {
+    return rcltpPostJson<RcltpRecordingUploadUrl>('/api/rcltp/recordings/upload-url', {
+      assessment_id: assessmentId,
+      content_type: contentType,
+    });
   }
 
   /** Student uploads Part A audio (creates a recording row) → POST .../recording. */
