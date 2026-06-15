@@ -31,6 +31,7 @@ import { CANONICAL_PERSONAS } from "./types";
 import { GUIDES as AI_PULSE_GUIDES, REQUIRES as AI_PULSE_REQUIRES } from "../ai-pulse/guide/content";
 import { GUIDES as CAMPUS_GUIDES, REQUIRES as CAMPUS_REQUIRES } from "../campus-living/guide/content";
 import { GUIDES as PDE_GUIDES, REQUIRES as PDE_REQUIRES } from "../pde/guide/content";
+import { GUIDES as HR_GUIDES, REQUIRES as HR_REQUIRES } from "../hr/guide/content";
 
 /* ────────────────────────────────────────────────────────────────────────
  * PERSONA ACCESS — which permission keys grant each canonical persona (OR'd
@@ -49,8 +50,8 @@ export const PERSONA_REQUIRES: Record<CanonicalPersona, string[]> = {
   facilitator: [AI_PULSE_REQUIRES.faculty, PDE_REQUIRES.faculty],
   "unit-lead": [AI_PULSE_REQUIRES.champion, CAMPUS_REQUIRES.warden, CAMPUS_REQUIRES.mess],
   coordinator: [AI_PULSE_REQUIRES.incharge],
-  supervisor: [AI_PULSE_REQUIRES.hod],
-  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin],
+  supervisor: [AI_PULSE_REQUIRES.hod, HR_REQUIRES.manager],
+  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"]],
   "platform-admin": [],
   parent: [],
   external: [],
@@ -316,7 +317,33 @@ export const pdeGuide: ModuleGuide = {
 /* ────────────────────────────────────────────────────────────────────────
  * d. REGISTRY — order matters: sections merge in this order per persona.
  * ──────────────────────────────────────────────────────────────────────── */
-export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide];
+/* ── HR ────────────────────────────────────────────────
+ * employee→learner (ungated baseline), manager→supervisor, hr-admin→module-admin.
+ * Distinct personas → each non-learner lane is section-gated by its OWN HR key
+ * so a viewer who reaches supervisor/module-admin via another module sees HR
+ * steps only if they hold the HR permission (fail-closed).
+ * ──────────────────────────────────────────────────────────── */
+export const hrGuide: ModuleGuide = {
+  module: "hr",
+  basePath: "/hr",
+  lanes: {
+    learner: {
+      sections: HR_GUIDES.lanes.employee.sections,
+      startHere: HR_GUIDES.lanes.employee.startHere,
+    },
+    supervisor: {
+      sections: withRequires(HR_GUIDES.lanes.manager.sections, HR_REQUIRES.manager),
+      startHere: HR_GUIDES.lanes.manager.startHere,
+    },
+    "module-admin": {
+      sections: withRequires(HR_GUIDES.lanes["hr-admin"].sections, HR_REQUIRES["hr-admin"]),
+      startHere: HR_GUIDES.lanes["hr-admin"].startHere,
+    },
+  },
+  routes: [],
+};
+
+export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide];
 
 /** Canonical personas at least one module contributes real sections to. A
  *  persona NOT in this set is sparse (composeLane returns the platform-overview
@@ -337,6 +364,7 @@ const MODULE_LABELS: Record<string, string> = {
   "ai-pulse": "AI Pulse",
   "campus-living": "Campus Living",
   pde: "PDE",
+  hr: "HR",
 };
 
 /** Human label for a module namespace; falls back to the raw id if unknown. */
@@ -361,6 +389,7 @@ const MODULE_GLOSSARIES: Record<string, GlossaryTerm[]> = {
   "ai-pulse": AI_PULSE_GUIDES.glossary ?? [],
   "campus-living": CAMPUS_GUIDES.glossary ?? [],
   pde: PDE_GUIDES.glossary ?? [],
+  hr: HR_GUIDES.glossary ?? [],
 };
 
 /** "Words to know" terms for one module; empty array if module unknown. */
