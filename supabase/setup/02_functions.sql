@@ -14354,12 +14354,21 @@ AS $$
              (COALESCE(fee_max, 9.9e14::numeric) - COALESCE(fee_min, 0)) ASC
     LIMIT 1
   )
-  SELECT c.cat
+  -- Gender translation (20260615): map the winning band's category to the learner's
+  -- gender variant (same NAME, matching type) so one shared 'both' band serves boys and
+  -- girls. Falls back to the stored category when no same-name sibling exists.
+  SELECT COALESCE(
+           CASE WHEN p_gender IS NOT NULL AND oc.type IS NOT NULL AND oc.type <> p_gender
+                THEN (SELECT sib.id FROM hostel_categories sib
+                       WHERE sib.name = oc.name AND sib.type = p_gender LIMIT 1)
+                ELSE NULL END,
+           c.cat)
   FROM candidates c JOIN winner w
     ON c.program_id IS NOT DISTINCT FROM w.program_id
    AND c.quota_ids  IS NOT DISTINCT FROM w.quota_ids
    AND c.fee_min    IS NOT DISTINCT FROM w.fee_min
-   AND c.fee_max    IS NOT DISTINCT FROM w.fee_max;
+   AND c.fee_max    IS NOT DISTINCT FROM w.fee_max
+  LEFT JOIN hostel_categories oc ON oc.id = c.cat;
 $$;
 
 -- 3. Parametric resolver (mess) — identical shape, reads hostel_program_eligibility.
@@ -14393,12 +14402,21 @@ AS $$
              (COALESCE(fee_max, 9.9e14::numeric) - COALESCE(fee_min, 0)) ASC
     LIMIT 1
   )
-  SELECT c.cat
+  -- Gender translation (20260615): map the winning band's mess category to the learner's
+  -- gender variant (same NAME, matching type) so one shared 'both' band serves boys and
+  -- girls. Falls back to the stored category when no same-name sibling exists.
+  SELECT COALESCE(
+           CASE WHEN p_gender IS NOT NULL AND oc.type IS NOT NULL AND oc.type <> p_gender
+                THEN (SELECT sib.id FROM mess_categories sib
+                       WHERE sib.name = oc.name AND sib.type = p_gender LIMIT 1)
+                ELSE NULL END,
+           c.cat)
   FROM candidates c JOIN winner w
     ON c.program_id IS NOT DISTINCT FROM w.program_id
    AND c.quota_ids  IS NOT DISTINCT FROM w.quota_ids
    AND c.fee_min    IS NOT DISTINCT FROM w.fee_min
-   AND c.fee_max    IS NOT DISTINCT FROM w.fee_max;
+   AND c.fee_max    IS NOT DISTINCT FROM w.fee_max
+  LEFT JOIN mess_categories oc ON oc.id = c.cat;
 $$;
 
 -- 4. Composite (room): the interface callers use. Reads the learner's dims +
