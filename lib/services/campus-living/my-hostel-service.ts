@@ -6,7 +6,7 @@ import { accommodationLegacyFromCode } from '@/lib/utils/accommodation-type-reso
 export interface MyHostelSummary {
   learnerId: string;
   accommodationType: string | null;
-  hostelCategory: { id: string; name: string; type: string | null } | null;
+  hostelCategory: { id: string; name: string; type: string | null; allocation_mode: string | null } | null;
   messCategory: { id: string; name: string } | null;
   hostelFee: number | null;
   institutionId: string | null;
@@ -32,7 +32,7 @@ export class MyHostelService {
       .select(
         'id, accommodation_type_id, hostel_fee, institution_id, ' +
         'accommodation_ref:accommodation_types!accommodation_type_id(code, name), ' +
-        'hostelCategory:hostel_category_id(id, name, type), ' +
+        'hostelCategory:hostel_category_id(id, name, type, allocation_mode), ' +
         'messCategory:mess_category_id(id, name)'
       )
       .eq('id', learnerId)

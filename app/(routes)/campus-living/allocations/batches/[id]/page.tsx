@@ -15,7 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Loader2, Check, X, Trash2, Users, DoorOpen, BedDouble, Building2, Eye } from 'lucide-react';
+import { Loader2, Check, X, Trash2, Users, DoorOpen, BedDouble, Building2, Eye, FileDown } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -57,6 +57,7 @@ export default function AllocationBatchDetailPage({
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [detail, setDetail] = useState<ProposedAllocation | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const batch = data?.batch ?? null;
   const allocations = data?.allocations ?? [];
@@ -96,6 +97,28 @@ export default function AllocationBatchDetailPage({
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to reset');
       setResetting(false);
+    }
+  };
+
+  // Export the batch's allocated details to a PDF. Available to any viewer
+  // (not gated on approve). jsPDF is dynamically imported to stay out of the
+  // page bundle until the operator actually exports.
+  const handleExportPdf = async () => {
+    if (!batch || allocations.length === 0) {
+      toast.error('No allocations to export');
+      return;
+    }
+    try {
+      setExporting(true);
+      const { exportBatchAllocationsPdf } = await import('./_components/batch-allocations-pdf');
+      await exportBatchAllocationsPdf(batch, allocations);
+      toast.success(
+        `Exported ${allocations.length} allocation${allocations.length === 1 ? '' : 's'} to PDF`
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to export PDF');
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -147,26 +170,36 @@ export default function AllocationBatchDetailPage({
               <p className="text-xs text-muted-foreground mt-1">{batch.notes}</p>
             )}
           </div>
-          {canApprove && (
-            <div className="flex gap-2">
-              {isPending && (
-                <>
-                  <Button variant="outline" onClick={doReject} disabled={!!acting || resetting}>
-                    {acting === 'reject' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <X className="mr-2 h-4 w-4" />}
-                    Reject
-                  </Button>
-                  <Button onClick={doApprove} disabled={!!acting || resetting}>
-                    {acting === 'approve' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
-                    Approve &amp; allocate
-                  </Button>
-                </>
-              )}
-              <Button variant="destructive" onClick={() => setConfirmReset(true)} disabled={!!acting || resetting}>
-                {resetting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-                Reset
-              </Button>
-            </div>
-          )}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={handleExportPdf}
+              disabled={exporting || allocations.length === 0}
+            >
+              {exporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
+              Export PDF
+            </Button>
+            {canApprove && (
+              <>
+                {isPending && (
+                  <>
+                    <Button variant="outline" onClick={doReject} disabled={!!acting || resetting}>
+                      {acting === 'reject' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <X className="mr-2 h-4 w-4" />}
+                      Reject
+                    </Button>
+                    <Button onClick={doApprove} disabled={!!acting || resetting}>
+                      {acting === 'approve' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
+                      Approve &amp; allocate
+                    </Button>
+                  </>
+                )}
+                <Button variant="destructive" onClick={() => setConfirmReset(true)} disabled={!!acting || resetting}>
+                  {resetting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                  Reset
+                </Button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Summary stats */}
@@ -241,6 +274,7 @@ export default function AllocationBatchDetailPage({
                       <TableHead>Semester</TableHead>
                       <TableHead>Block</TableHead>
                       <TableHead>Room</TableHead>
+                      <TableHead>Floor</TableHead>
                       <TableHead>Room Category</TableHead>
                       <TableHead>Mess Category</TableHead>
                       <TableHead>Bed</TableHead>
@@ -257,6 +291,7 @@ export default function AllocationBatchDetailPage({
                         <TableCell>{a.learner_semester ?? '—'}</TableCell>
                         <TableCell>{a.block_name ?? '—'}</TableCell>
                         <TableCell>{a.room_number ?? '—'}</TableCell>
+                        <TableCell>{a.room_floor ?? '—'}</TableCell>
                         <TableCell>{a.room_category ?? '—'}</TableCell>
                         <TableCell>{a.mess_category ?? '—'}</TableCell>
                         <TableCell>{a.bed_number ?? '—'}</TableCell>

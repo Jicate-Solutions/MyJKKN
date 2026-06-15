@@ -15205,7 +15205,7 @@ BEGIN
   FROM hostel_categories c
   JOIN hostel_fees hf
     ON hf.hostel_category_id = c.id AND hf.hostel_year_id = v_year AND hf.mess_category_id IS NULL AND hf.is_active
-  WHERE c.is_active AND c.allocation_mode = 'manual'
+  WHERE c.is_active   -- any allocation_mode: auto (Deluxe) categories are upgrade targets too
     AND ((v_gender IN ('male','m')   AND c.type='boys')
          OR (v_gender IN ('female','f') AND c.type='girls'))
     AND c.id <> COALESCE(v_cur_cat, '00000000-0000-0000-0000-000000000000'::uuid)
