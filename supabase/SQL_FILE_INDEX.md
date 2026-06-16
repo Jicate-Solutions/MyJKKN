@@ -1612,3 +1612,18 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - RLS: no table changes; reuses existing `pde_demonstrations` policies (learner own, faculty SELECT same-inst, super_admin all). Weighted scoring stays downstream (scoring engine writes weighted_score/passed).
 - Location: `supabase/migrations/20260615170000_pde_faculty_review_rpcs.sql` (applied live via Management API 2026-06-15)
 - Purpose: Back the rebuilt faculty Demonstration Reviews page (Option A — durable-value taxonomy). Resolves friction X1 (faculty surface now speaks the 7 durable-value categories learners submit under, not the legacy capability vocabulary). Decision doc: docs/modules/pde/2026-06-14-DECISION-pde-category-taxonomy-split.md
+
+### Lock Privilege-Resolver Views + DDL Functions from anon (2026-06-16)
+- Views locked (revoke anon+PUBLIC, keep authenticated+service_role): `v_privilege_memberships_effective` (8 client call sites) + 4 children `_resolver_privilege_{lc_members,manual,yuva_chapter_chairs,yuva_vertical_chairs}` — all `security_invoker=false`, so authenticated reads via the parent only.
+- Functions locked (revoke anon+authenticated+PUBLIC, keep service_role; 0 app callers, DDL-executing, no internal guard): `privilege_source_register(...)`, `privilege_source_unregister(text)`, `_privilege_rebuild_effective_view()`.
+- Durable fix: `REVOKE ALL ... FROM anon, PUBLIC` baked INTO `privilege_source_register` (after each `CREATE OR REPLACE VIEW _resolver_privilege_<kind>`) and `_privilege_rebuild_effective_view` (after the parent-view rebuild, both branches) — so every future source_kind is born locked. The original `20260422_privilege_source_registry_and_resolvers.sql` created these bare, inheriting Supabase's default anon grant; PR #1256's one-time revoke didn't survive view recreation.
+- Location: `supabase/migrations/20260616000000_lock_privilege_resolver_views_and_fns_from_anon.sql` (applied live via Management API 2026-06-16; verified anon REST → HTTP 401 on views + RPC).
+- Reference: reference_myjkkn_live_anon_exposure_2026_06_07, feedback_supabase_anon_execute_default_grant, CLAUDE.md "Lock new RPCs from anon".
+
+### Anon EXECUTE Function Sweep — 383→34 (2026-06-16)
+- Closes the 2026-06-07 sweep's last open item: ~383 non-ai_rpc SECURITY DEFINER functions were anon-executable (Postgres default PUBLIC EXECUTE grant + Supabase anon default grant). Now 34 remain anon-exec, all intentional: 29 RLS-gatekeeper functions (referenced in RLS policy expressions — anon must keep them or queries error) + 5 fn_get_policy* config readers (documented intentional-public).
+- Phase 3a: 126 trigger functions → revoke anon+PUBLIC (trigger EXECUTE isn't checked when fired by a trigger; direct RPC errors anyway).
+- Phase 3b Bucket A (7, service_role only): exec_sql_safe (arbitrary SQL — was anon-callable RCE), create_user_profile (arbitrary-role profile creation), get_rls_policies, get_tables_with_rls, ensure_usage_events_partitions, sync_user_role_enum, hr_policy_restore. Unguarded + dangerous → must NOT be granted to authenticated (would expose as direct PostgREST RPC to any logged-in user).
+- Phase 3b Bucket B (213): revoke anon+PUBLIC, GRANT authenticated. Verified every caller is an authenticated session client or a service_role server route; none reached from a public/anon-browser page.
+- Location: `supabase/migrations/20260616001000_lock_anon_execute_function_sweep.sql` (applied live via Management API 2026-06-16; verified anon REST → HTTP 401 on exec_sql_safe/create_user_profile/business fns; fn_get_policy* still anon-reachable).
+- Follow-up (separate): add internal is_super_admin/permission guards to unguarded functions now authenticated-callable via direct REST (e.g. hr_policy_diff/history).
