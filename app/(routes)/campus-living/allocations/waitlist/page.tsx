@@ -17,8 +17,19 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { useAuth } from '@/hooks/use-auth';
-import { useHostelWaitlist } from '@/hooks/campus-living/use-hostel-waitlist';
+import { useHostelWaitlist, useCancelWaitlistUpgrade } from '@/hooks/campus-living/use-hostel-waitlist';
 import {
   ArrowLeft,
   Search,
@@ -38,6 +49,7 @@ const statusConfig: Record<string, { label: string; variant: 'default' | 'second
   declined: { label: 'Declined', variant: 'secondary' },
   expired: { label: 'Expired', variant: 'outline' },
   allocated: { label: 'Allocated', variant: 'success' },
+  cancelled: { label: 'Cancelled', variant: 'destructive' },
 };
 
 const priorityConfig: Record<number, { label: string; color: string }> = {
@@ -50,6 +62,7 @@ export default function WaitlistPage() {
   const { profile } = useAuth();
   const { data: waitlistResult, isLoading } = useHostelWaitlist(profile?.institution_id ?? '');
   const waitlist = waitlistResult?.data;
+  const cancelUpgrade = useCancelWaitlistUpgrade();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('waiting');
 
@@ -275,6 +288,38 @@ export default function WaitlistPage() {
                             >
                               Confirm
                             </Button>
+                          )}
+                          {(entry.status === 'waiting' || entry.status === 'offered') && (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-destructive hover:text-destructive"
+                                  disabled={cancelUpgrade.isPending}
+                                >
+                                  Cancel
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Cancel this upgrade request?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This reverts {entry.learner_name}&apos;s category back to the original,
+                                    releases any held bed, and cancels the unpaid upgrade bill. This can&apos;t be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Keep request</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => cancelUpgrade.mutate(entry.id)}
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  >
+                                    Cancel &amp; revert
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                           )}
                         </div>
                       </TableCell>
