@@ -14,6 +14,7 @@ import toast from 'react-hot-toast';
 import {
   ArrowLeft,
   BarChart3,
+  ClipboardList,
   Loader2,
   Save,
 } from 'lucide-react';
@@ -211,17 +212,30 @@ export function ProgramEditor({ programId }: ProgramEditorProps) {
             </span>
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() =>
-            router.push(`/health/admin/programs/${programId}/impact`)
-          }
-          className="gap-2 border-teal-200 text-teal-700 hover:bg-teal-50"
-        >
-          <BarChart3 className="h-4 w-4" />
-          View impact
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              router.push(`/health/admin/programs/${programId}/responses`)
+            }
+            className="gap-2 border-slate-200 text-slate-700 hover:bg-slate-50"
+          >
+            <ClipboardList className="h-4 w-4" />
+            Responses
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              router.push(`/health/admin/programs/${programId}/impact`)
+            }
+            className="gap-2 border-teal-200 text-teal-700 hover:bg-teal-50"
+          >
+            <BarChart3 className="h-4 w-4" />
+            View impact
+          </Button>
+        </div>
       </div>
 
       {/* Program metadata */}

@@ -13,6 +13,7 @@ import {
   BarChart3,
   CalendarRange,
   ChevronRight,
+  ClipboardList,
   Plus,
   RefreshCw,
   Sparkles,
@@ -93,6 +94,16 @@ function ProgramCard({ program }: { program: HealthProgram }) {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <Link href={`/health/admin/programs/${program.id}/responses`}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 border-slate-200 text-slate-700 hover:bg-slate-50"
+            >
+              <ClipboardList className="h-3.5 w-3.5" />
+              Responses
+            </Button>
+          </Link>
           <Link href={`/health/admin/programs/${program.id}/impact`}>
             <Button
               variant="outline"

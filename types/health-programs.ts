@@ -118,6 +118,33 @@ export interface HealthProgramWithDays extends HealthProgram {
 }
 
 /**
+ * A participation row joined to its participant's profile, for the admin
+ * response-viewer. profile is null when the manager can't read that profile
+ * (left embed — the row is never dropped).
+ */
+export interface ProgramResponseRow {
+  id: string;
+  user_id: string;
+  day_id: string;
+  quiz_score: number | null;
+  form_responses: FormResponses | null;
+  created_at: string;
+  updated_at: string;
+  profile: {
+    full_name: string | null;
+    email: string | null;
+    role: string | null;
+  } | null;
+}
+
+/** Bundle returned by getProgramResponseData — everything the viewer renders. */
+export interface ProgramResponseData {
+  program: HealthProgram | null;
+  days: HealthProgramDay[];
+  responses: ProgramResponseRow[];
+}
+
+/**
  * Director-editable tunables, read from platform_policies (health.programs.*).
  * Never hardcode these — they are config rows a super-admin edits with zero deploys.
  */
