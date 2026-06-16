@@ -11,6 +11,7 @@ import type {
   ConfirmationStatusRow,
   FacultySummaryRow,
   EscalationRow,
+  EscalationFollowupRow,
   ChecklistConfigItem,
   SubmitFeedbackInput,
 } from '@/types/session-feedback';
@@ -96,5 +97,23 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to load escalations: ${error.message}`);
     return (data || []) as EscalationRow[];
+  }
+
+  /**
+   * Escalated sessions paired with the next same-faculty+course session and the
+   * understanding "lift" (Principal outer-loop view). Mirrors getEscalations'
+   * security model (RPC raises for non-authorized callers).
+   */
+  static async getEscalationFollowups(
+    from: string,
+    to: string,
+  ): Promise<EscalationFollowupRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_escalation_followups', {
+      p_from: from,
+      p_to: to,
+    });
+    if (error) throw new Error(`Failed to load escalation follow-ups: ${error.message}`);
+    return (data || []) as EscalationFollowupRow[];
   }
 }
