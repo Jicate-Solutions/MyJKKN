@@ -61,6 +61,7 @@ const formSchema = z.object({
     .int()
     .min(1, 'Must be 1–60 days')
     .max(60, 'Must be 1–60 days'),
+  upgrades_enabled: z.boolean(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -92,6 +93,7 @@ export function HostelCategoryFormDialog({
       is_active: true,
       upgrade_threshold_pct: '',
       upgrade_hold_days: 5,
+      upgrades_enabled: false,
     },
   });
 
@@ -105,6 +107,7 @@ export function HostelCategoryFormDialog({
         allocation_mode: category.allocation_mode,
         sort_order: category.sort_order,
         is_active: category.is_active,
+        upgrades_enabled: category.upgrades_enabled ?? false,
         upgrade_threshold_pct:
           category.upgrade_threshold_pct === null || category.upgrade_threshold_pct === undefined
             ? ''
@@ -121,6 +124,7 @@ export function HostelCategoryFormDialog({
         is_active: true,
         upgrade_threshold_pct: '',
         upgrade_hold_days: 5,
+        upgrades_enabled: false,
       });
     }
   }, [open, mode, category, form]);
@@ -310,6 +314,25 @@ export function HostelCategoryFormDialog({
               the waitlist for the hold days, auto-confirming once the payment reaches the
               threshold. Leave the % empty for no payment gate.
             </p>
+
+            <FormField
+              control={form.control}
+              name='upgrades_enabled'
+              render={({ field }) => (
+                <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
+                  <div className='space-y-0.5'>
+                    <FormLabel className='text-sm'>Allow upgrades</FormLabel>
+                    <p className='text-xs text-muted-foreground'>
+                      When on, residents in this category can see and use self-service room
+                      upgrades on My Hostel. Off hides the upgrade options entirely.
+                    </p>
+                  </div>
+                  <FormControl>
+                    <Switch checked={field.value} onCheckedChange={field.onChange} />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
 
             <FormField
               control={form.control}

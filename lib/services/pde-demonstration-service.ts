@@ -150,6 +150,75 @@ export class PDEDemonstrationService {
   }
 
   /**
+   * Edit an existing DRAFT demonstration's learner-editable fields. Used by the
+   * learner edit/resubmit flow (#9b): when a validator returns a submission with
+   * decision='changes_requested', the row is set back to 'draft' and the learner
+   * re-opens the new-demonstration form in edit mode to fix it.
+   *
+   * Only the fields a learner authored are editable: skill_name, evidence,
+   * evidence_type, category_key, rubric_policy_key, and the dual-lane curriculum
+   * link (bos_syllabus_id / vac_course_id / clo_refs). Validation fields
+   * (raw_score, validator_notes, status) are never touched here.
+   *
+   * The `.eq('status', 'draft')` guard means an edit only lands while the row is
+   * a draft (mirrors submit()/withdraw()'s status guards) — a row already past
+   * draft can't be silently rewritten. RLS additionally restricts the write to
+   * the owning learner (pde_demonstrations_learner_own, FOR ALL). After saving,
+   * the caller promotes the row via submit() to resubmit it for review.
+   */
+  static async update(
+    id: string,
+    fields: {
+      category_key?: PDECategoryKey;
+      rubric_policy_key?: string | null;
+      skill_name?: string | null;
+      evidence?: CreatePDEDemonstrationInput['evidence'];
+      evidence_type?: string | null;
+      bos_syllabus_id?: string | null;
+      vac_course_id?: string | null;
+      clo_refs?: number[] | null;
+    }
+  ): Promise<PDEDemonstration> {
+    const supabase = await createClient();
+
+    // Build the patch from only the keys the caller supplied so omitted fields
+    // keep their existing values.
+    const patch: Record<string, unknown> = {};
+    if (fields.category_key !== undefined) patch.category_key = fields.category_key;
+    if (fields.rubric_policy_key !== undefined) patch.rubric_policy_key = fields.rubric_policy_key;
+    if (fields.skill_name !== undefined) patch.skill_name = fields.skill_name;
+    if (fields.evidence !== undefined) patch.evidence = fields.evidence ?? {};
+    if (fields.evidence_type !== undefined) patch.evidence_type = fields.evidence_type;
+    if (fields.bos_syllabus_id !== undefined) patch.bos_syllabus_id = fields.bos_syllabus_id;
+    if (fields.vac_course_id !== undefined) patch.vac_course_id = fields.vac_course_id;
+    if (fields.clo_refs !== undefined) {
+      patch.clo_refs = fields.clo_refs && fields.clo_refs.length > 0 ? fields.clo_refs : null;
+    }
+
+    const { data, error } = await supabase
+      .from('pde_demonstrations')
+      .update(patch)
+      .eq('id', id)
+      .eq('status', 'draft')
+      .select()
+      .single();
+
+    if (error) {
+      // If the row isn't a draft (or isn't ours), the update affects 0 rows and
+      // PostgREST returns PGRST116. Surface a clear, actionable error instead of
+      // a raw status code.
+      const existing = await this.getById(id);
+      if (existing && existing.status !== 'draft') {
+        throw new Error(
+          'PDEDemonstrationService.update: only a draft demonstration can be edited'
+        );
+      }
+      throw new Error(`PDEDemonstrationService.update failed: ${error.message}`);
+    }
+    return data as unknown as PDEDemonstration;
+  }
+
+  /**
    * Flip draft → submitted. Stamps submitted_at = now(). No-op if already
    * past 'submitted' (returns the row unchanged).
    */

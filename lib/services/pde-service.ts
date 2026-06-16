@@ -24,6 +24,13 @@ import type {
   PDECoachConversation, CoachMessage, CoachMessageResponse, CoachingStyle,
   PDEAgencyIndex, AgencyLevel, CoachContextType,
 } from '@/types/pde';
+import type {
+  PDEReviewQueueRow,
+  ValidateDemonstrationInput,
+  PDEDemonstration,
+  PDECategoryKey,
+  PDEDemonstrationStatus,
+} from '@/lib/types/pde-demonstrations';
 
 // Helper to get untyped supabase client for PDE tables (not yet in generated types)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -623,6 +630,49 @@ export class PDEService {
     const { data, error } = await query.order('category').order('level');
     if (error) throw new Error(`Failed to get capabilities: ${error.message}`);
     return data || [];
+  }
+
+  // ============================================
+  // FACULTY REVIEW (durable-value taxonomy)
+  // ============================================
+
+  /**
+   * Faculty review queue — institution-scoped, learner-name-enriched. Reads via
+   * the `fn_pde_review_queue` SECURITY DEFINER RPC (faculty SELECT-RLS reviewer
+   * roles only; drafts/withdrawn hidden). Optional durable-value category +
+   * status filters are pushed into the RPC.
+   */
+  static async getReviewQueue(opts?: {
+    category?: PDECategoryKey;
+    status?: PDEDemonstrationStatus;
+  }): Promise<PDEReviewQueueRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_pde_review_queue', {
+      p_category: opts?.category ?? null,
+      p_status: opts?.status ?? null,
+    });
+    if (error) throw new Error(`Failed to load review queue: ${error.message}`);
+    return (data || []) as PDEReviewQueueRow[];
+  }
+
+  /**
+   * Record a faculty validation decision (validated | rejected) on a
+   * demonstration. Writes via the `fn_pde_validate_demonstration` RPC — the
+   * only faculty write path, since faculty RLS is SELECT-only. On 'validated'
+   * the raw_score is required; weighted scoring stays downstream.
+   */
+  static async validateDemonstration(
+    input: ValidateDemonstrationInput
+  ): Promise<PDEDemonstration> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_pde_validate_demonstration', {
+      p_demonstration_id: input.demonstrationId,
+      p_decision: input.decision,
+      p_raw_score: input.rawScore ?? null,
+      p_notes: input.notes ?? null,
+    });
+    if (error) throw new Error(`Failed to validate demonstration: ${error.message}`);
+    return data as PDEDemonstration;
   }
 
   static async getCapabilityById(id: string): Promise<PDECapability | null> {

@@ -77,16 +77,16 @@ export function useMarkWatched() {
   });
 }
 
-export function useSubmitQuiz() {
+export function useSubmitForm() {
   const invalidate = useInvalidateParticipation();
   return useMutation({
-    mutationFn: (args: Parameters<typeof WellnessProgramsService.submitQuiz>[0]) =>
-      WellnessProgramsService.submitQuiz(args),
+    mutationFn: (args: Parameters<typeof WellnessProgramsService.submitForm>[0]) =>
+      WellnessProgramsService.submitForm(args),
     onSuccess: (_, args) => {
       invalidate(args.programId, args.userId);
-      toast.success('Quiz submitted');
+      toast.success('Submitted');
     },
-    onError: () => toast.error('Could not submit quiz'),
+    onError: () => toast.error('Could not submit'),
   });
 }
 

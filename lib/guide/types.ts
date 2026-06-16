@@ -233,6 +233,17 @@ export interface ModuleGuide {
       {
         sections: GuideSection[];
         startHere?: GuideLink;
+        /**
+         * Module-specific lane title/tagline for the SINGLE-module guide view
+         * (`/guide?module=<id>`). Defaults to the canonical lane identity, so a
+         * module that omits these is unchanged. Set them only when a module's
+         * own vocabulary should replace the platform-neutral label in its OWN
+         * scoped guide — e.g. AI Pulse showing "Champion Guide" instead of the
+         * canonical "Running your unit". The cross-module overview keeps the
+         * canonical title regardless (composeLane ignores these).
+         */
+        title?: string;
+        tagline?: string;
       }
     >
   >;

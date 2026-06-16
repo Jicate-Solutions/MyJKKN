@@ -22,6 +22,8 @@ import { createEligibilityColumns } from './_components/columns';
 import { RoomRulesTable } from './_components/room-rules-table';
 import { RoomEligibilityFormDialog } from './_components/room-eligibility-form-dialog';
 import { SyncCategoriesButton } from './_components/sync-categories-button';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { PermissionError } from '@/components/errors/permission-error';
 import {
   EligibilityFiltersPanel,
   EMPTY_ELIGIBILITY_FILTERS,
@@ -51,7 +53,29 @@ export default function ProgramEligibilityPage() {
   );
 
   return (
-    <ContentLayout title='Program Eligibility'>
+    // Authorization gate (added 2026-06-16): this settings sub-page previously
+    // had NO in-page permission guard and relied on Supabase RLS only, so a
+    // direct-URL visitor without a campus-living settings role wasn't
+    // access-controlled in the page itself. Gate on `campus_living.settings.view`
+    // (defined in lib/constants/permissions.ts; the same section key
+    // /campus-living/settings maps to in MENU_PERMISSIONS). The bulk eligibility
+    // RPC already self-gates on campus_living.settings.edit at the DB layer; this
+    // adds the matching view gate at the page layer. Fail-closed: PermissionGuard
+    // renders the fallback on deny and nothing while loading; super-admins bypass.
+    // Explicit denial, never a silent redirect (CLAUDE.md rule #27).
+    <PermissionGuard
+      module='campus_living.settings'
+      action='view'
+      fallback={
+        <ContentLayout title='Program Eligibility'>
+          <PermissionError
+            message='Campus Living settings are restricted to hostel administrators.'
+            requiredPermission='campus_living.settings.view'
+          />
+        </ContentLayout>
+      }
+    >
+      <ContentLayout title='Program Eligibility'>
       <div className='space-y-6'>
         <Breadcrumb>
           <BreadcrumbList>
@@ -160,6 +184,7 @@ export default function ProgramEligibilityPage() {
           mode='create'
         />
       </div>
-    </ContentLayout>
+      </ContentLayout>
+    </PermissionGuard>
   );
 }

@@ -239,6 +239,25 @@ export class HostelWaitlistService {
     }
   }
 
+  // ── Admin: cancel a waiting/offered upgrade request (full revert) ──
+  static async cancelUpgrade(waitlistId: string) {
+    try {
+      const supabase = createClientSupabaseClient();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc('fn_cl_admin_cancel_upgrade', {
+        p_waitlist_id: waitlistId,
+      });
+      if (error) {
+        logger.error('campus-living/waitlist', 'Failed to cancel upgrade', error);
+        throw error;
+      }
+      return data as { success: boolean; waitlist_id: string; category_reverted: boolean };
+    } catch (error) {
+      logger.error('campus-living/waitlist', 'Unexpected error in cancelUpgrade', error);
+      throw error;
+    }
+  }
+
   // ── Offer a spot to next in line ──────────────────────────────────
   static async offerSpot(id: string, expiresInHours = 48) {
     try {
