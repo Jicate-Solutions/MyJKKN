@@ -23,7 +23,19 @@ import type { GuideBook } from './types';
 export const REQUIRES = {
   warden: 'campus_living.allocations.approve',
   mess: 'campus_living.mess.menu.publish',
-  admin: 'campus_living.mess.menu.approve',
+  // admin gate — CHANGED 2026-06-16 from 'campus_living.mess.menu.approve'.
+  // That mess-menu key gated the WHOLE settings/config lane but appears on ZERO
+  // settings pages. 'campus_living.settings.edit' is the representative config-edit
+  // key (enforced on the core settings pages — fee-config, general, maintenance-sla,
+  // notification-rules, ac-amenity-audit, …); leave-types uses its own
+  // 'campus_living.leave_types' key, and three pages (block-economics, housekeeping,
+  // choose-your-menu) are additionally super-admin-gated (the lane carries a
+  // prerequisite note on each). FOLLOW-UP (separate APP ticket, not a guide issue):
+  // a few settings pages (amenities, billable-amenities, categories, hostel-years,
+  // packages, program-eligibility, curfew) currently enforce NO in-page permission
+  // guard and rely on RLS only — worth hardening. settings.edit remains the correct
+  // lane gate regardless.
+  admin: 'campus_living.settings.edit',
 } as const;
 
 export const GUIDES: GuideBook = {
@@ -252,47 +264,173 @@ export const GUIDES: GuideBook = {
       tagline: 'You set the rules everyone else follows.',
       whyItMatters:
         'Tiers, fees, categories, and which features are switched on — you configure how Campus Living works for every resident. Changes apply on the next page load, no deploy needed.',
-      startHere: { label: 'Open Settings', href: '/campus-living/settings/fee-config' },
+      startHere: { label: 'Open Settings', href: '/campus-living/settings' },
       requires: REQUIRES.admin,
-      journey: ['Set tiers, fees & categories', 'Switch Choose Your Menu on/off', 'Run premium & bed economics'],
+      journey: [
+        'Set the foundations: years, hostels, categories, eligibility',
+        'Configure fees and amenities',
+        'Set up the mess and caterers',
+        'Configure premium stay and bed economics',
+        'Set the rules: leave, curfew, approvals, SLAs',
+      ],
       sections: [
         {
-          id: 'config',
-          title: 'Tiers, fees & categories',
+          id: 'foundations',
+          title: '1. Set the foundations',
           steps: [
             {
-              action: 'Set room-type fees and upgrade amounts in **Fee Configuration**.',
-              link: { label: 'Fee Configuration', href: '/campus-living/settings/fee-config' },
+              action: 'Open **Settings** to reach every configuration screen in one place.',
+              detail:
+                'The settings hub lists all the configuration cards — start here whenever you need to change how Campus Living works. Changes apply on the next page load, no deploy needed.',
+              prerequisite:
+                'Most settings need the **Campus Living settings** permission; a few (Bed Economics, Housekeeping, Choose Your Menu) are super-admin only. If a page is blocked, ask your platform admin.',
+              link: { label: 'Open Settings', href: '/campus-living/settings' },
             },
             {
-              action: 'Manage the room and **mess categories** residents can be on.',
-              tip: 'Adding a mess category surfaces it everywhere automatically — the menu and settings follow the categories page.',
-              link: { label: 'Mess Categories', href: '/campus-living/mess/categories' },
+              action: 'Set the academic year and hostel names in **General**.',
+              detail: 'The foundational settings every other screen builds on.',
+              link: { label: 'General Settings', href: '/campus-living/settings/general' },
+            },
+            {
+              action: 'Open the **Hostel Years** that scope your fees.',
+              detail:
+                'Fee configuration is set per calendar year — create and open the year before you set fees against it.',
+              link: { label: 'Hostel Years', href: '/campus-living/settings/hostel-years' },
+            },
+            {
+              action: 'Define the room **Categories** residents can be on.',
+              detail: 'The hostel room categories (Boys / Girls / Mixed) that allocation and fees follow.',
+              link: { label: 'Room Categories', href: '/campus-living/settings/categories' },
+            },
+            {
+              action: 'Set **Program Eligibility** — which room and mess categories each programme allows.',
+              detail: 'The core allocation policy: it decides what a student from each programme can be placed in.',
+              link: { label: 'Program Eligibility', href: '/campus-living/settings/program-eligibility' },
+            },
+            {
+              action: 'Lay out the **Blocks** and rooms, and assign **Wardens** to them.',
+              detail: 'The physical structure (blocks and rooms) and which warden runs each block.',
+              link: { label: 'Blocks', href: '/campus-living/blocks' },
+            },
+            {
+              action: 'Assign which warden runs each block on the **Wardens** screen.',
+              link: { label: 'Wardens', href: '/campus-living/wardens' },
             },
           ],
         },
         {
-          id: 'choose',
-          title: 'Choose Your Menu',
+          id: 'fees-amenities',
+          title: '2. Configure fees and amenities',
           steps: [
             {
-              action: 'Turn the engagement layer on or off, and choose which tiers can personalize, vote and propose.',
+              action: 'Set room-type fees, AC charges, deposits and upgrade amounts in **Fee Configuration**.',
+              detail: 'Scoped to the open hostel year. This drives every price residents see.',
+              link: { label: 'Fee Configuration', href: '/campus-living/settings/fee-config' },
+            },
+            {
+              action: 'Maintain the **Amenities** catalogue.',
+              detail: 'The informational list of what each room/hostel offers.',
+              link: { label: 'Amenities', href: '/campus-living/settings/amenities' },
+            },
+            {
+              action: 'Set the **Billable Amenities** that carry a fee.',
+              detail: 'The fee-bearing amenities (AC, premium services) residents pay for, separate from the informational catalogue.',
+              link: { label: 'Billable Amenities', href: '/campus-living/settings/billable-amenities' },
+            },
+            {
+              action: 'Bundle rooms for admissions in **Packages**.',
+              detail: 'Admission packages that bundle a room type for the intake.',
+              link: { label: 'Packages', href: '/campus-living/settings/packages' },
+            },
+            {
+              action: 'Run the **AC Amenity Audit** to check AC billing is correct.',
+              link: { label: 'AC Amenity Audit', href: '/campus-living/settings/ac-amenity-audit' },
+            },
+          ],
+        },
+        {
+          id: 'mess-setup',
+          title: '3. Set up the mess and caterers',
+          steps: [
+            {
+              action: 'Manage the **Mess Categories** residents can be on.',
+              tip: 'Adding a mess category surfaces it everywhere automatically — the menu and settings follow the categories page.',
+              link: { label: 'Mess Categories', href: '/campus-living/mess/categories' },
+            },
+            {
+              action: 'Set the **Mess Policies** that govern how the mess runs.',
+              link: { label: 'Mess Policies', href: '/campus-living/mess/policies' },
+            },
+            {
+              action: 'Onboard and manage caterers in **Caterer Management**.',
+              detail: 'The configuration that links a caterer to a mess (the underlying caterer records live alongside it).',
+              link: { label: 'Caterer Management', href: '/campus-living/mess/caterer-management' },
+            },
+            {
+              action: 'Turn **Choose Your Menu** on or off, and pick which tiers can personalize and vote.',
               detail: 'A live preview shows exactly what residents will experience before you save.',
+              prerequisite: 'Choose Your Menu is a super-admin setting. If it is blocked, ask your platform admin.',
               link: { label: 'Choose Your Menu settings', href: '/campus-living/settings/choose-your-menu' },
             },
           ],
         },
         {
-          id: 'premium',
-          title: 'Premium stay & economics',
+          id: 'premium-economics',
+          title: '4. Premium stay and bed economics',
           steps: [
             {
-              action: 'Configure who can book premium rooms and how.',
-              link: { label: 'Premium Dashboard', href: '/campus-living/premium/dashboard' },
+              action: 'Set the **premium Allocation Rules** — who can book premium rooms and how.',
+              link: { label: 'Allocation Rules', href: '/campus-living/premium/allocation-rules' },
+            },
+            {
+              action: 'Set the premium **Tier Policy**, and use **Override** for one-off admin adjustments.',
+              detail: 'The tier rules for premium stay, plus the override screen when you need to make an exception.',
+              link: { label: 'Tier Policy', href: '/campus-living/premium/tier-policy' },
+            },
+            {
+              action: 'Enter block running costs and investments in **Block Economics**.',
+              detail: 'This is where the cost and investment numbers are entered — it powers the Bed Economics dashboard.',
+              prerequisite: 'Block Economics is a super-admin screen. If it is blocked, ask your platform admin.',
+              link: { label: 'Block Economics', href: '/campus-living/settings/block-economics' },
             },
             {
               action: 'Track the money side on the **Bed Economics dashboard** — ROI, margin and payback per block.',
               link: { label: 'Bed Economics', href: '/campus-living/premium/dashboard' },
+            },
+          ],
+        },
+        {
+          id: 'rules-workflows',
+          title: '5. Set the rules and workflows',
+          steps: [
+            {
+              action: 'Define **Leave Types** — the leave catalogue, maximum days, and parent-consent rules.',
+              detail: 'Wardens approve leave against these; parent consent is applied automatically where you require it.',
+              link: { label: 'Leave Types', href: '/campus-living/settings/leave-types' },
+            },
+            {
+              action: 'Set the **Curfew** policy.',
+              link: { label: 'Curfew', href: '/campus-living/settings/curfew' },
+            },
+            {
+              action: 'Configure **Approval Chains** for leave, curfew and visitor requests.',
+              detail: 'Who signs off, and in what order, for each kind of request.',
+              link: { label: 'Approval Chains', href: '/campus-living/settings/approval-chains' },
+            },
+            {
+              action: 'Set **Maintenance SLA** targets by category and priority.',
+              detail: 'These are the service-level targets wardens work their maintenance queue against.',
+              link: { label: 'Maintenance SLA', href: '/campus-living/settings/maintenance-sla' },
+            },
+            {
+              action: 'Tune **Notification Rules** — which email, SMS and push messages go out.',
+              link: { label: 'Notification Rules', href: '/campus-living/settings/notification-rules' },
+            },
+            {
+              action: 'Configure **Housekeeping** slots and quotas residents book against.',
+              detail: 'The slot and quota config behind the resident room-cleaning booking.',
+              prerequisite: 'Housekeeping config is a super-admin screen. If it is blocked, ask your platform admin.',
+              link: { label: 'Housekeeping', href: '/campus-living/settings/housekeeping' },
             },
           ],
         },

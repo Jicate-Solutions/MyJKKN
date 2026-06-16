@@ -13,10 +13,12 @@ import {
   BarChart3,
   CheckCircle2,
   GraduationCap,
+  Repeat,
   Settings2,
   ShieldAlert,
   Sparkles,
   ThumbsUp,
+  TrendingUp,
   Users,
 } from 'lucide-react';
 
@@ -203,6 +205,9 @@ export function ImpactDashboard({ programId }: ImpactDashboardProps) {
     ...data.reach.by_day.map((d) => d.unique_viewers ?? 0),
   );
   const maxFunnel = Math.max(1, ...data.engagement.funnel.map((f) => f.people));
+  const retention = data.retention ?? [];
+  const maxRetention = Math.max(1, ...retention.map((r) => r.viewers));
+  const activation = data.activation;
 
   return (
     <div className="space-y-6">
@@ -255,6 +260,43 @@ export function ImpactDashboard({ programId }: ImpactDashboardProps) {
         />
       </div>
 
+      {/* Activation */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base text-slate-800">
+            <TrendingUp className="h-4 w-4 text-emerald-600" />
+            Activation — how much of the eligible audience took part
+          </CardTitle>
+          <CardDescription>
+            Of the people whose role lets them join, how many actually
+            participated. The eligible figure is an estimate (everyone org-wide
+            with access), so read the rate as directional.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <StatTile
+              icon={<Users className="h-5 w-5 text-slate-500" />}
+              value={num(activation.eligible)}
+              label="Eligible (estimate)"
+              accent="border-slate-100 bg-slate-50/60"
+            />
+            <StatTile
+              icon={<CheckCircle2 className="h-5 w-5 text-emerald-600" />}
+              value={num(activation.activated)}
+              label="Activated (took part)"
+              accent="border-emerald-100 bg-emerald-50/60"
+            />
+            <StatTile
+              icon={<TrendingUp className="h-5 w-5 text-teal-600" />}
+              value={activation.rate_pct != null ? pct(activation.rate_pct) : '—'}
+              label="Activation rate"
+              accent="border-teal-100 bg-teal-50/60"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Reach by day */}
       <Card>
         <CardHeader>
@@ -275,6 +317,42 @@ export function ImpactDashboard({ programId }: ImpactDashboardProps) {
                 label={`Day ${d.day_number}`}
                 value={d.unique_viewers ?? 0}
                 max={maxByDay}
+              />
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Retention curve */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base text-slate-800">
+            <Repeat className="h-4 w-4 text-teal-600" />
+            Retention — who came back the next day
+          </CardTitle>
+          <CardDescription>
+            For each day, the bar is the number of viewers. The figure in
+            brackets is how many of them also watched the day before — a measure
+            of day-over-day return.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {retention.length === 0 ? (
+            <p className="py-4 text-sm text-slate-400">
+              No views recorded yet.
+            </p>
+          ) : (
+            retention.map((r) => (
+              <Bar
+                key={r.day_number}
+                label={
+                  r.retained_from_prev == null
+                    ? `Day ${r.day_number}`
+                    : `Day ${r.day_number} (${num(r.retained_from_prev)} returned from Day ${r.day_number - 1})`
+                }
+                value={r.viewers}
+                max={maxRetention}
+                suffix=" viewers"
               />
             ))
           )}
