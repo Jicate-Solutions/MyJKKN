@@ -18,6 +18,8 @@ export const scfQueryKeys = {
     [...scfQueryKeys.all, 'faculty-summary', from, to] as const,
   escalations: (from: string, to: string) =>
     [...scfQueryKeys.all, 'escalations', from, to] as const,
+  escalationFollowups: (from: string, to: string) =>
+    [...scfQueryKeys.all, 'escalation-followups', from, to] as const,
 };
 
 export function useChecklistConfig(institutionId?: string | null) {
@@ -58,6 +60,16 @@ export function useEscalations(from: string, to: string) {
   return useQuery({
     queryKey: scfQueryKeys.escalations(from, to),
     queryFn: () => SessionFeedbackService.getEscalations(from, to),
+    enabled: !!from && !!to,
+    staleTime: 60 * 1000,
+  });
+}
+
+/** Escalated sessions paired with their next same-faculty+course session + lift. */
+export function useEscalationFollowups(from: string, to: string) {
+  return useQuery({
+    queryKey: scfQueryKeys.escalationFollowups(from, to),
+    queryFn: () => SessionFeedbackService.getEscalationFollowups(from, to),
     enabled: !!from && !!to,
     staleTime: 60 * 1000,
   });

@@ -4,13 +4,20 @@
 // Surfaces sessions where learners reported low understanding (avg < 3, >= 3
 // responses) so the principal/HOD/dean can follow up with the faculty.
 //
-// Reads via useEscalations(from, to) → fn_scf_principal_escalations, which
-// RAISES for non-authorized callers. On that error we render an EXPLICIT
-// access-denied message (no silent redirect — hard project rule, CLAUDE.md #27).
+// CLOSES THE OUTER LOOP (#10): for each escalated session we also show the NEXT
+// same-faculty+course session's understanding and the "lift" (did the follow-up
+// improve understanding next time?). Reads via useEscalationFollowups(from, to)
+// → fn_scf_escalation_followups, which RAISES for non-authorized callers. On
+// that error we render an EXPLICIT access-denied message (no silent redirect —
+// hard project rule, CLAUDE.md #27).
+//
+// "next session" = the earliest later session taught by the SAME faculty for the
+//   SAME course (with >= 1 response). "lift" = next avg understood − escalated
+//   avg understood (positive = improved).
 // Spec: specs/post-class-feedback-attendance-gate-2026-06-15.md
 
 import { useMemo } from 'react';
-import { AlertTriangle, TrendingDown } from 'lucide-react';
+import { AlertTriangle, TrendingDown, ArrowUp, ArrowDown, Minus } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { format, subDays } from 'date-fns';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -38,10 +45,58 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { useEscalations } from '@/hooks/use-session-feedback';
-import type { EscalationRow } from '@/types/session-feedback';
+import { useEscalationFollowups } from '@/hooks/use-session-feedback';
+import type { EscalationFollowupRow } from '@/types/session-feedback';
 
 const BRAND_GREEN = '#0b6d41';
+
+/** Follow-up indicator: next-session understanding + a lift arrow. */
+function FollowupCell({ row }: { row: EscalationFollowupRow }) {
+  // No later session of this class has feedback yet — read as intentional.
+  if (row.next_attendance_date == null || row.next_avg_understood == null) {
+    return (
+      <div className="flex flex-col items-end gap-0.5">
+        <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          <Minus className="h-3.5 w-3.5" aria-hidden />
+          No next session yet
+        </span>
+        <span className="text-[11px] text-muted-foreground">
+          awaiting follow-up class
+        </span>
+      </div>
+    );
+  }
+
+  const lift = row.lift; // next_avg - escalated_avg
+  const improved = lift != null && lift > 0;
+  const worse = lift != null && lift < 0;
+  const liftColor = improved
+    ? 'text-green-600'
+    : worse
+      ? 'text-red-600'
+      : 'text-muted-foreground';
+  const LiftArrow = improved ? ArrowUp : worse ? ArrowDown : Minus;
+  const liftLabel = improved ? 'improved' : worse ? 'worse' : 'no change';
+
+  return (
+    <div className="flex flex-col items-end gap-0.5">
+      <span className="text-sm font-semibold tabular-nums text-foreground">
+        {row.next_avg_understood.toFixed(2)}
+        <span className="ml-1 text-[11px] font-normal text-muted-foreground">
+          ({row.next_responses ?? 0} resp.)
+        </span>
+      </span>
+      <span className={`flex items-center gap-1 text-xs font-medium ${liftColor}`}>
+        <LiftArrow className="h-3.5 w-3.5" aria-hidden />
+        {lift != null ? (lift > 0 ? '+' : '') + lift.toFixed(2) : '—'}
+        <span className="font-normal">{liftLabel}</span>
+      </span>
+      <span className="text-[11px] text-muted-foreground">
+        next on {row.next_attendance_date}
+      </span>
+    </div>
+  );
+}
 
 export default function PrincipalEscalationPage() {
   // Default range: last 30 days (inclusive of today).
@@ -53,10 +108,10 @@ export default function PrincipalEscalationPage() {
     };
   }, []);
 
-  const { data, isLoading, isError, error } = useEscalations(from, to);
+  const { data, isLoading, isError, error } = useEscalationFollowups(from, to);
 
   // Worst-first: lowest avg_understood first (nulls last), then most responses.
-  const rows = useMemo<EscalationRow[]>(() => {
+  const rows = useMemo<EscalationFollowupRow[]>(() => {
     const list = [...(data ?? [])];
     list.sort((a, b) => {
       const av = a.avg_understood;
@@ -92,7 +147,9 @@ export default function PrincipalEscalationPage() {
           </CardTitle>
           <CardDescription>
             Sessions where learners reported low understanding (avg &lt; 3, &ge; 3
-            responses) — for follow-up with the faculty.
+            responses). The <span className="font-medium">Follow-up</span> column
+            shows whether understanding improved in the next session of the same
+            class — closing the loop on each escalation.
           </CardDescription>
           <p className="mt-1 text-xs text-muted-foreground">
             Showing {from} to {to}
@@ -136,6 +193,7 @@ export default function PrincipalEscalationPage() {
                     <TableHead className="text-right">Responses</TableHead>
                     <TableHead className="text-right">Avg understood</TableHead>
                     <TableHead className="text-right">Low understanding</TableHead>
+                    <TableHead className="text-right">Follow-up</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -171,6 +229,9 @@ export default function PrincipalEscalationPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <Badge variant="destructive">{r.low_understanding}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <FollowupCell row={r} />
                       </TableCell>
                     </TableRow>
                   ))}
