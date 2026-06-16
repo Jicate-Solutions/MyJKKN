@@ -81,6 +81,7 @@ import {
   type QuizSpec,
   type WellnessProgramConfig,
 } from '@/types/health-programs';
+import { toYouTubeEmbed } from '@/lib/health/youtube';
 
 // ============================================================================
 // Helpers
@@ -101,31 +102,6 @@ function formatDayDate(iso: string | null): string | null {
     day: 'numeric',
     month: 'short',
   });
-}
-
-/** Convert a video URL into an embeddable src (YouTube/Vimeo aware, else raw). */
-function toEmbedSrc(url: string): { kind: 'iframe' | 'video'; src: string } {
-  try {
-    const u = new URL(url);
-    const host = u.hostname.replace(/^www\./, '');
-    if (host === 'youtube.com' || host === 'm.youtube.com') {
-      const id = u.searchParams.get('v');
-      if (id) return { kind: 'iframe', src: `https://www.youtube.com/embed/${id}` };
-    }
-    if (host === 'youtu.be') {
-      const id = u.pathname.slice(1);
-      if (id) return { kind: 'iframe', src: `https://www.youtube.com/embed/${id}` };
-    }
-    if (host === 'vimeo.com') {
-      const id = u.pathname.split('/').filter(Boolean)[0];
-      if (id) return { kind: 'iframe', src: `https://player.vimeo.com/video/${id}` };
-    }
-  } catch {
-    /* fall through */
-  }
-  // Direct file (mp4/webm) or already an embed URL
-  if (/\.(mp4|webm|ogg)$/i.test(url)) return { kind: 'video', src: url };
-  return { kind: 'iframe', src: url };
 }
 
 /** Find the participation row for a given day. */
@@ -432,20 +408,30 @@ function VideoPanel({ day }: { day: HealthProgramDay }) {
     );
   }
 
-  const embed = toEmbedSrc(day.video_url);
+  const embed = toYouTubeEmbed(day.video_url);
+  if (!embed) {
+    // Legacy / non-YouTube link still stored — link out rather than break.
+    return (
+      <a
+        href={day.video_url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex aspect-video w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-sm font-medium text-emerald-700 hover:bg-slate-100"
+      >
+        <PlayCircle className="h-5 w-5" />
+        Watch the video
+      </a>
+    );
+  }
   return (
     <div className="overflow-hidden rounded-2xl bg-black aspect-video">
-      {embed.kind === 'iframe' ? (
-        <iframe
-          src={embed.src}
-          title={day.title}
-          className="h-full w-full"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
-        />
-      ) : (
-        <video src={embed.src} controls className="h-full w-full" />
-      )}
+      <iframe
+        src={embed}
+        title={day.title}
+        className="h-full w-full"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowFullScreen
+      />
     </div>
   );
 }
