@@ -350,7 +350,7 @@ export const GUIDES: GuideBook = {
       requires: REQUIRES.admin,
       startHere: { label: 'Go to Capabilities', href: '/pde/admin/capabilities' },
       journey: [
-        'Define the skills, scoring rules, and policies',
+        'Define the skills, rubrics, scoring rules, and policies',
         'Build the quests and assessments learners use',
         'Run the validation loop',
         'Watch engagement, risk, and per-college compliance',
@@ -366,7 +366,7 @@ export const GUIDES: GuideBook = {
               detail:
                 'Capabilities are the skills learners demonstrate. Add each with a name, capability category (AI Fluency, Domain AI, Technical, and so on), level (1–5), and whether it is core or elective.',
               prerequisite:
-                'You need **PDE admin access** (Super Admin, IQAC, or a lifecycle lead). If a page is blocked, ask for the PDE admin role.',
+                'You need **PDE admin access** (Super Admin, IQAC, or a lifecycle lead) for this page. Note: the **policy editors and rubrics in this section are super-admin (Director) only** — if one is blocked, that is why; ask your platform admin.',
               link: { label: 'Capability Management', href: '/pde/admin/capabilities' },
             },
             {
@@ -398,6 +398,24 @@ export const GUIDES: GuideBook = {
               detail:
                 'Gaming-defense thresholds, 360-feedback anonymity, placement-signal behaviour, and framework branding. (The screen is titled "Gamification & Defense"; its URL says governance.)',
               link: { label: 'Gamification & Defense Policy', href: '/pde/admin/policies/governance' },
+            },
+            {
+              action: 'Set **clinical-reasoning rules** in the Clinical Reasoning policy.',
+              detail:
+                'The policy behind AI-coached clinical-case practice (used by health programmes) — how cases are scored and coached.',
+              link: { label: 'Clinical Reasoning Policy', href: '/pde/admin/policies/clinical-reasoning' },
+            },
+            {
+              action: 'Define the scoring **Rubrics** — what earns a score in each durable-value category.',
+              detail:
+                'Rubrics are the criteria and weights a validator scores against, with a separate editor per category (Cultural & Civic, Embodied Practice, Social & Leadership). This is the OTHER half of scoring: the Scoring policy decides how raw scores combine; the rubrics decide what earns them. Don\'t set scoring rules without setting these.',
+              link: { label: 'Rubrics', href: '/pde/admin/rubrics' },
+            },
+            {
+              action: 'Connect external tools via **LTI** integration.',
+              detail:
+                'Register an LTI 1.3 tool (name, launch URL, client ID) so an external learning platform can launch into PDE.',
+              link: { label: 'LTI Integration', href: '/pde/admin/lti' },
             },
           ],
         },
@@ -469,7 +487,7 @@ export const GUIDES: GuideBook = {
             {
               action: 'Review **per-college compliance** against your category targets.',
               detail:
-                'The matrix shows each college’s pass rate per durable-value category versus target. Red cells are below target.',
+                'The matrix shows each college’s pass rate per durable-value category versus target. Red cells are below target. The **Compliance** hub above it gives the institution-wide overview.',
               link: { label: 'Per-College Compliance', href: '/pde/admin/compliance/per-college' },
             },
             {
@@ -501,6 +519,12 @@ export const GUIDES: GuideBook = {
               detail:
                 'The demonstrations captured for a course and how they map to its learning outcomes — proof of durable-skill attainment for the Board of Studies report.',
               link: { label: 'BoS PDE Evidence', href: '/pde/admin/bos-evidence' },
+            },
+            {
+              action: 'Open a learner’s **Transcript** to see their validated, print-ready record.',
+              detail:
+                'The admin view of any learner’s formal transcript of validated and scored skills — the NAAC/NBA-ready proof for employers, further study, or audits.',
+              link: { label: 'Admin Transcript', href: '/pde/admin/transcript' },
             },
             {
               action: 'Trigger **placement signals** for learners past the threshold.',
