@@ -39,6 +39,7 @@ import {
   validateQuiz,
 } from './quiz-helpers';
 import { QuizQuestionRow } from './quiz-question-row';
+import { isYouTubeUrl } from '@/lib/health/youtube';
 
 interface DayEditorProps {
   programId: string;
@@ -53,16 +54,6 @@ interface DayForm {
   video_url: string;
   publish_date: string;
   quiz: QuizSpec;
-}
-
-function isValidHttpUrl(s: string): boolean {
-  if (!s.trim()) return true; // empty allowed
-  try {
-    const u = new URL(s.trim());
-    return u.protocol === 'http:' || u.protocol === 'https:';
-  } catch {
-    return false;
-  }
 }
 
 function toForm(day: HealthProgramDay | null): DayForm {
@@ -95,6 +86,8 @@ export function DayEditor({ programId, dayNumber, day }: DayEditorProps) {
 
   const quizValidation = useMemo(() => validateQuiz(form.quiz), [form.quiz]);
   const hasQuiz = quizHasContent(form.quiz);
+  const videoInvalid =
+    form.video_url.trim() !== '' && !isYouTubeUrl(form.video_url);
   const isAuthored = !!day;
 
   // ---- quiz mutators ----
@@ -123,8 +116,10 @@ export function DayEditor({ programId, dayNumber, day }: DayEditorProps) {
       toast.error(`Day ${dayNumber}: add a title before saving.`);
       return;
     }
-    if (!isValidHttpUrl(form.video_url)) {
-      toast.error(`Day ${dayNumber}: video link must be a valid http(s) URL.`);
+    if (form.video_url.trim() && !isYouTubeUrl(form.video_url)) {
+      toast.error(
+        `Day ${dayNumber}: video must be a YouTube link (set it to Unlisted on YouTube).`
+      );
       return;
     }
     if (hasQuiz && !quizValidation.ok) {
@@ -230,14 +225,32 @@ export function DayEditor({ programId, dayNumber, day }: DayEditorProps) {
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor={`day-${dayNumber}-video`}>Video link</Label>
+                <Label htmlFor={`day-${dayNumber}-video`}>YouTube video link</Label>
                 <Input
                   id={`day-${dayNumber}-video`}
                   type="url"
                   value={form.video_url}
                   onChange={(e) => setField('video_url', e.target.value)}
-                  placeholder="https://… (YouTube, Drive, Vimeo)"
+                  placeholder="https://youtu.be/… or youtube.com/watch?v=…"
+                  className={
+                    videoInvalid
+                      ? 'border-destructive focus-visible:ring-destructive'
+                      : undefined
+                  }
+                  aria-invalid={videoInvalid}
                 />
+                {videoInvalid ? (
+                  <p className="text-xs text-destructive">
+                    Enter a valid YouTube link (youtube.com or youtu.be). Other
+                    sites and file uploads aren&apos;t supported.
+                  </p>
+                ) : (
+                  <p className="text-xs leading-relaxed text-slate-500">
+                    Paste a <strong>YouTube</strong> link only. Set the video to{' '}
+                    <strong>Unlisted</strong> on YouTube — hidden from search, but
+                    anyone with the link can watch.
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor={`day-${dayNumber}-publish`}>
