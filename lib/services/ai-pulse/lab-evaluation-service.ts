@@ -99,6 +99,120 @@ export interface LabPolicies {
 export const UNASSIGNED_DEPT_ID = 'unassigned';
 
 // ============================================================================
+// Ranking view (derived, read-only)
+// ============================================================================
+//
+// Per-department leaderboard for the Lab console. A submission's faculty score
+// is the sum of its 1–10 relevance + clarity scores (SOP Phase IV rubric),
+// read from config.ai_pulse.gold_selections.<deptId>.scores.<submissionId>.
+// The 2 (gold_standard_count) faculty-selected Gold picks live in that bucket's
+// submission_ids and are flagged here for highlight. This is purely derived
+// from a LabCycleEvaluation already loaded by useLabCycleEvaluation — no extra
+// network read — so the ranking always lines up with the Evaluate tab and the
+// dept-heatmap (same departments.id resolution).
+
+export interface RankedSubmission {
+  /** event_submissions.id */
+  submission_id: string;
+  rank: number;
+  team_name: string;
+  app_name: string;
+  /** Faculty relevance score (1–10) or null when not yet scored. */
+  relevance: number | null;
+  /** Faculty clarity score (1–10) or null when not yet scored. */
+  clarity: number | null;
+  /** relevance + clarity. null only when BOTH are unscored. */
+  faculty_score: number | null;
+  /** True when this submission is one of the dept's faculty Gold picks. */
+  is_gold: boolean;
+  github_url: string | null;
+  live_app_url: string | null;
+}
+
+export interface DeptRanking {
+  department_id: string;
+  department_name: string;
+  /** Submissions ordered DESC by faculty_score (unscored sink to the bottom). */
+  submissions: RankedSubmission[];
+  /** How many submissions in this dept have at least one faculty score. */
+  scored_count: number;
+  /** How many submissions are flagged Gold. */
+  gold_count: number;
+}
+
+/**
+ * Combine a submission's relevance + clarity into a single faculty score.
+ * Returns null only when BOTH components are unscored, so partially-scored
+ * submissions still rank above wholly-unscored ones.
+ */
+export function combineFacultyScore(
+  relevance: number | null,
+  clarity: number | null,
+): number | null {
+  if (relevance == null && clarity == null) return null;
+  return (relevance ?? 0) + (clarity ?? 0);
+}
+
+/**
+ * Derive the per-department ranking from an already-loaded evaluation.
+ * Pure (no I/O). Departments keep the evaluation's alphabetical order;
+ * within each department, submissions are ordered DESC by faculty_score with
+ * unscored submissions sinking to the bottom (stable by team name there).
+ */
+export function deriveDeptRankings(
+  evaluation: LabCycleEvaluation,
+): DeptRanking[] {
+  return evaluation.departments.map((dept) => {
+    const selection = evaluation.gold_selections[dept.department_id];
+    const scores = selection?.scores ?? {};
+    const goldIds = new Set(selection?.submission_ids ?? []);
+
+    const ranked: RankedSubmission[] = dept.submissions.map((sub) => {
+      const s = scores[sub.id];
+      const relevance = s?.relevance ?? null;
+      const clarity = s?.clarity ?? null;
+      return {
+        submission_id: sub.id,
+        rank: 0, // assigned after sort
+        team_name: sub.team_name,
+        app_name: sub.app_name,
+        relevance,
+        clarity,
+        faculty_score: combineFacultyScore(relevance, clarity),
+        is_gold: goldIds.has(sub.id),
+        github_url: sub.github_url,
+        live_app_url: sub.live_app_url,
+      };
+    });
+
+    ranked.sort((a, b) => {
+      // Scored submissions always rank above unscored ones.
+      if (a.faculty_score == null && b.faculty_score == null) {
+        return a.team_name.localeCompare(b.team_name);
+      }
+      if (a.faculty_score == null) return 1;
+      if (b.faculty_score == null) return -1;
+      if (b.faculty_score !== a.faculty_score) {
+        return b.faculty_score - a.faculty_score;
+      }
+      return a.team_name.localeCompare(b.team_name);
+    });
+
+    ranked.forEach((r, i) => {
+      r.rank = i + 1;
+    });
+
+    return {
+      department_id: dept.department_id,
+      department_name: dept.department_name,
+      submissions: ranked,
+      scored_count: ranked.filter((r) => r.faculty_score != null).length,
+      gold_count: ranked.filter((r) => r.is_gold).length,
+    };
+  });
+}
+
+// ============================================================================
 // Coercion helpers
 // ============================================================================
 
