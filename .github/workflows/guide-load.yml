@@ -1,0 +1,69 @@
+name: Guide load profile (manual, STAGING ONLY)
+
+# Workflow 3 of guide-driven-testing. Replays the guide's deep-links under
+# concurrency (k6), weighted by how many personas link each route, to surface
+# N+1 queries / slow routes under load.
+#
+# This is workflow_dispatch (MANUAL) on purpose — NOT a per-PR gate. And it is
+# STAGING ONLY: a load test fired at a prod base hammers the live database.
+# DEFENSE IN DEPTH: this workflow refuses a prod-looking base_url BEFORE k6
+# starts, AND the generated k6 script refuses it again in setup(). Both guards
+# must stay in.
+#
+# ── ADAPT PER APP ──────────────────────────────────────────────────────────
+#   • the generate step — match the npm script you wired
+#     ("gen:guide-load": "tsx scripts/load-profile.ts").
+#   • the prod-host regex in the guard step — match YOUR prod/preview hosts.
+#   • node-version — match the app's.
+#   • auth: pass GUIDE_LOAD_COOKIE (a staging session cookie) to exercise gated
+#     routes as a real user, via a secret.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "STAGING base URL (e.g. https://staging.example.app) — NEVER production."
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  load:
+    name: Guide load profile (staging)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Refuse production targets (defense in depth)
+        run: |
+          BASE="${{ inputs.base_url }}"
+          # ADAPT: match your real prod/preview hosts here.
+          if echo "$BASE" | grep -Eq 'jkkn\.ai|vercel\.app'; then
+            echo "✖ refusing to load-test '$BASE' — looks like prod/preview. STAGING ONLY."
+            exit 1
+          fi
+          echo "✓ target '$BASE' is not a known prod host — proceeding (staging)."
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install deps
+        run: npm ci --no-audit --no-fund
+
+      - name: Generate the load profile from the guide
+        run: npm run gen:guide-load
+
+      - name: Install k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Run load profile against staging
+        run: k6 run load/guide-load.js
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+          # GUIDE_LOAD_COOKIE: ${{ secrets.STAGING_SESSION_COOKIE }}
