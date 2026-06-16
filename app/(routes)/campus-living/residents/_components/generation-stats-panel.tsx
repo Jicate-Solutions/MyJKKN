@@ -56,7 +56,7 @@ export function GenerationStatsPanel({ hostelYearId }: { hostelYearId: string | 
         <StatCard
           label='Hostellers'
           value={total_hostellers}
-          sub={`${bill_count} bill${bill_count === 1 ? '' : 's'} generated`}
+          sub={`${bill_count} academic-year bill${bill_count === 1 ? '' : 's'} on record`}
         />
         <StatCard
           label='Billed (created)'
