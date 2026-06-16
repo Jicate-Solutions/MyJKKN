@@ -15429,6 +15429,9 @@ BEGIN
 
   -- 20260610220000: no fee-eligibility gate — the upgrade fee is the gate (downgrade still blocked).
   SELECT lp.mess_category_id INTO v_cur_mess FROM learners_profiles lp WHERE lp.id = v_lp;
+  IF NOT COALESCE((SELECT upgrades_enabled FROM mess_categories WHERE id = v_cur_mess), false) THEN
+    RAISE EXCEPTION 'Mess upgrades are currently disabled for your category';
+  END IF;
   SELECT name INTO v_cur_name FROM mess_categories WHERE id = v_cur_mess;
   SELECT COALESCE(hf.amount,0) INTO v_cur_fee FROM hostel_fees hf
     WHERE hf.mess_category_id = v_cur_mess AND hf.hostel_year_id = v_year AND hf.is_active LIMIT 1;
@@ -15458,6 +15461,10 @@ DECLARE
 BEGIN
   IF v_lp IS NULL OR v_profile IS NULL OR NOT user_is_hosteler() THEN
     RAISE EXCEPTION 'Only a hostel resident can join the waitlist';
+  END IF;
+  IF NOT COALESCE((SELECT upgrades_enabled FROM hostel_categories
+                   WHERE id = (SELECT hostel_category_id FROM learners_profiles WHERE id = v_lp)), false) THEN
+    RAISE EXCEPTION 'Upgrades are currently disabled for your category';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM fn_my_manual_categories() mc WHERE mc.id = p_target_category_id) THEN
     RAISE EXCEPTION 'You are not eligible for this category';
@@ -16605,6 +16612,12 @@ BEGIN
   END IF;
 
   v_has_alloc := EXISTS (SELECT 1 FROM hostel_allocations WHERE learner_id = v_profile AND status = 'active');
+
+  -- Gate: upgrades disabled for the resident's current room category. First-booking
+  -- (no active allocation) is exempt — that path is initial room selection, not an upgrade.
+  IF v_has_alloc AND NOT COALESCE((SELECT upgrades_enabled FROM hostel_categories WHERE id = v_cur_cat), false) THEN
+    RAISE EXCEPTION 'Room upgrades are currently disabled for your category';
+  END IF;
 
   -- Room-level flow: auto-assign the lowest-numbered available bed
   IF p_bed_id IS NULL THEN

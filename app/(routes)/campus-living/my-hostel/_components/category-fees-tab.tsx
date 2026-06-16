@@ -9,6 +9,7 @@ import { HostelAllocationService } from '@/lib/services/campus-living/hostel-all
 import { Building2, UtensilsCrossed, Loader2, CalendarClock } from 'lucide-react';
 import { RoomCategoryUpgradeCard } from './room-category-upgrade-card';
 import { MessCategoryUpgradeCard } from './mess-category-upgrade-card';
+import { useMyUpgradeWaitlist } from '@/hooks/campus-living/use-category-upgrade';
 
 // ---------------------------------------------------------------------------
 // CategoryFeesTab
@@ -17,6 +18,13 @@ export function CategoryFeesTab() {
   const { profile } = useAuth();
   const profileId = profile?.id ?? '';
   const { data: summary, isLoading } = useMyHostelSummary();
+  // Optimistic upgrade: the category is already flipped to the new one. An active hold whose
+  // target equals the current category means the upgrade is provisional — pay the fee by the
+  // deadline or the hourly job reverts it. fn_my_upgrade_waitlist returns the learner's holds.
+  const { data: myWaitlist = [] } = useMyUpgradeWaitlist();
+  const provisionalHold = myWaitlist.find(
+    (w) => w.status === 'waiting' && w.target_category_id === summary?.hostelCategory?.id,
+  );
 
   // Same key the page/overview use — React Query dedupes. Drives book vs upgrade.
   const { data: allocations, isLoading: allocLoading } = useQuery({
@@ -86,6 +94,21 @@ export function CategoryFeesTab() {
                   Upgrading to {summary.pendingHostelCategory.name} · pending payment
                 </Badge>
               )}
+              {provisionalHold && (
+                <Badge
+                  variant='outline'
+                  className='mt-1.5 border-amber-400 text-amber-700 dark:text-amber-400'
+                >
+                  <CalendarClock className='mr-1 h-3 w-3' />
+                  {provisionalHold.upgrade_bill_id && (provisionalHold.upgrade_fee_amount ?? 0) > 0
+                    ? `Provisional — pay ₹${Math.max(0, (provisionalHold.upgrade_fee_amount ?? 0) - (provisionalHold.upgrade_fee_paid ?? 0)).toLocaleString('en-IN')}`
+                    : 'Provisional upgrade — reserved'}
+                  {provisionalHold.hold_expires_at
+                    ? ` by ${new Date(provisionalHold.hold_expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
+                    : ''}{' '}
+                  to keep it
+                </Badge>
+              )}
             </div>
 
             <div className='p-3 bg-muted/50 rounded-lg'>
@@ -110,13 +133,17 @@ export function CategoryFeesTab() {
       </Card>
 
       {/* Self-service upgrades */}
-      <RoomCategoryUpgradeCard
-        currentCategoryName={summary?.hostelCategory?.name ?? null}
-        mode='upgrade'
-      />
-      <MessCategoryUpgradeCard
-        currentMessName={summary?.messCategory?.name ?? null}
-      />
+      {summary?.hostelCategory?.upgrades_enabled && (
+        <RoomCategoryUpgradeCard
+          currentCategoryName={summary?.hostelCategory?.name ?? null}
+          mode='upgrade'
+        />
+      )}
+      {summary?.messCategory?.upgrades_enabled && (
+        <MessCategoryUpgradeCard
+          currentMessName={summary?.messCategory?.name ?? null}
+        />
+      )}
     </div>
   );
 }

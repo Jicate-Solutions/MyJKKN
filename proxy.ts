@@ -45,6 +45,8 @@ const PUBLIC_PATH_PREFIXES = [
   //        NOTE: deliberately NOT '/moments/' — that prefix is the AUTHENTICATED
   //        teacher/admin module (submit, campaigns) and must stay behind login.
   '/api/public/moments/', // Family Moments engagement tracking — token-keyed, no login
+  '/p/', // Wellness Programs public patient page (/p/[token]) — QR-scanned, no login (token-validated server-side)
+  '/api/public/health-programs/', // Wellness Programs public view tracking — token-keyed, no login
 ];
 
 // Regex for static assets - single check instead of multiple endsWith

@@ -18,6 +18,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { ViewTracker } from './_components/view-tracker';
+import { toYouTubeEmbed } from '@/lib/health/youtube';
 
 export const dynamic = 'force-dynamic';
 
@@ -86,31 +87,6 @@ function formatRange(start: string | null, end: string | null): string | null {
   return `${s} – ${e}`;
 }
 
-// Turn common video URLs into an embeddable src; null if not embeddable.
-function toEmbedSrc(url: string): string | null {
-  try {
-    const u = new URL(url);
-    const host = u.hostname.replace(/^www\./, '');
-    if (host === 'youtube.com' || host === 'm.youtube.com') {
-      const id = u.searchParams.get('v');
-      return id ? `https://www.youtube.com/embed/${id}` : null;
-    }
-    if (host === 'youtu.be') {
-      const id = u.pathname.slice(1);
-      return id ? `https://www.youtube.com/embed/${id}` : null;
-    }
-    if (host === 'youtube-nocookie.com') return url;
-    if (host === 'player.vimeo.com') return url;
-    if (host === 'vimeo.com') {
-      const id = u.pathname.split('/').filter(Boolean)[0];
-      return id ? `https://player.vimeo.com/video/${id}` : null;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 function isToday(dateStr: string | null): boolean {
   if (!dateStr) return false;
   const today = new Date().toISOString().slice(0, 10);
@@ -158,7 +134,7 @@ export default async function PublicProgramPage({ params }: PageProps) {
       <section className="mx-auto max-w-2xl px-5 pb-16">
         <ul className="space-y-5">
           {program.days.map((day) => {
-            const embed = day.video_url ? toEmbedSrc(day.video_url) : null;
+            const embed = toYouTubeEmbed(day.video_url);
             const today = isToday(day.publish_date);
             return (
               <li

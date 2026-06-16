@@ -37,7 +37,9 @@ import {
   CircleDashed,
   FileText,
   MessageSquareHeart,
+  Pencil,
   PlusCircle,
+  RotateCcw,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -272,6 +274,10 @@ export function DemonstrationList({ initialRows, initialError }: DemonstrationLi
           const StatusIcon = statusCfg.icon;
           const canWithdraw = WITHDRAWABLE_STATUSES.includes(row.status);
           const categoryLabel = CATEGORY_LABELS[row.category_key] ?? row.category_key;
+          // A draft carrying validator feedback was returned via "Request
+          // changes" (#9b) — offer the edit/resubmit path.
+          const feedback = validatorFeedback(row.validator_notes);
+          const wasReturned = row.status === 'draft' && feedback.length > 0;
 
           return (
             <Card key={row.id} className="border-border/60">
@@ -315,11 +321,32 @@ export function DemonstrationList({ initialRows, initialError }: DemonstrationLi
                   <p className="text-sm text-muted-foreground line-clamp-2">{row.evidence.notes}</p>
                 )}
 
-                {/* Validator feedback (CARE-A): the appreciation loop closes here. */}
-                {(() => {
-                  const feedback = validatorFeedback(row.validator_notes);
-                  if (feedback.length === 0) return null;
-                  return (
+                {/* Validator feedback. When the demo was RETURNED (#9b — a draft
+                    that carries a note), frame it as "changes requested" with an
+                    edit/resubmit CTA. Otherwise it's the appreciation loop. */}
+                {feedback.length > 0 && (
+                  wasReturned ? (
+                    <div className="rounded-md bg-[#ffde59]/20 border border-amber-300 p-3 space-y-2">
+                      <p className="text-xs font-medium text-amber-900 flex items-center gap-1.5">
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        Changes requested
+                      </p>
+                      {feedback.map((note, i) => (
+                        <p key={i} className="text-sm text-amber-900/90 whitespace-pre-wrap">
+                          {note}
+                        </p>
+                      ))}
+                      <Link href={`/pde/learn/demonstrations/new?edit=${row.id}`}>
+                        <Button
+                          size="sm"
+                          className="h-7 text-xs bg-[#ffde59] text-amber-900 hover:bg-[#ffde59]/90 border border-amber-300"
+                        >
+                          <Pencil className="h-3 w-3 mr-1" />
+                          Edit &amp; resubmit
+                        </Button>
+                      </Link>
+                    </div>
+                  ) : (
                     <div className="rounded-md bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40 p-3 space-y-1.5">
                       <p className="text-xs font-medium text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
                         <MessageSquareHeart className="h-3.5 w-3.5" />
@@ -347,8 +374,8 @@ export function DemonstrationList({ initialRows, initialError }: DemonstrationLi
                         </Button>
                       )}
                     </div>
-                  );
-                })()}
+                  )
+                )}
 
                 <Separator />
 

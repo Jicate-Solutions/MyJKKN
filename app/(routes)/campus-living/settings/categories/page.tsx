@@ -13,6 +13,8 @@ import {
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { PermissionError } from '@/components/errors/permission-error';
 import { HostelCategoriesDataTable } from './_components/hostel-categories-data-table';
 import { HostelCategoryFormDialog } from './_components/hostel-category-form-dialog';
 
@@ -20,7 +22,27 @@ export default function HostelCategoriesPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
 
   return (
-    <ContentLayout title='Hostel Rooms Categories'>
+    // Authorization gate (added 2026-06-16): this settings sub-page previously
+    // had NO in-page permission guard and relied on Supabase RLS only, so a
+    // direct-URL visitor without a campus-living settings role wasn't
+    // access-controlled in the page itself. Gate on `campus_living.settings.view`
+    // (defined in lib/constants/permissions.ts; the same section key
+    // /campus-living/settings maps to in MENU_PERMISSIONS). Fail-closed:
+    // PermissionGuard renders the fallback on deny and nothing while loading;
+    // super-admins bypass. Explicit denial, never a silent redirect (rule #27).
+    <PermissionGuard
+      module='campus_living.settings'
+      action='view'
+      fallback={
+        <ContentLayout title='Hostel Rooms Categories'>
+          <PermissionError
+            message='Campus Living settings are restricted to hostel administrators.'
+            requiredPermission='campus_living.settings.view'
+          />
+        </ContentLayout>
+      }
+    >
+      <ContentLayout title='Hostel Rooms Categories'>
       <div className='space-y-6'>
         <Breadcrumb>
           <BreadcrumbList>
@@ -70,6 +92,7 @@ export default function HostelCategoriesPage() {
           mode='create'
         />
       </div>
-    </ContentLayout>
+      </ContentLayout>
+    </PermissionGuard>
   );
 }

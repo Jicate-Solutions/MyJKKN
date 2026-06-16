@@ -31604,6 +31604,7 @@ export type Database = {
           updated_at: string
           upgrade_hold_days: number
           upgrade_threshold_pct: number | null
+          upgrades_enabled: boolean
         }
         Insert: {
           allocation_mode?: string
@@ -31618,6 +31619,7 @@ export type Database = {
           updated_at?: string
           upgrade_hold_days?: number
           upgrade_threshold_pct?: number | null
+          upgrades_enabled?: boolean
         }
         Update: {
           allocation_mode?: string
@@ -31632,6 +31634,7 @@ export type Database = {
           updated_at?: string
           upgrade_hold_days?: number
           upgrade_threshold_pct?: number | null
+          upgrades_enabled?: boolean
         }
         Relationships: []
       }
@@ -62726,30 +62729,36 @@ export type Database = {
           description: string | null
           id: string
           is_active: boolean
+          menu_tier_key: string | null
           name: string
           sort_order: number
           type: string
           updated_at: string
+          upgrades_enabled: boolean
         }
         Insert: {
           created_at?: string
           description?: string | null
           id?: string
           is_active?: boolean
+          menu_tier_key?: string | null
           name: string
           sort_order?: number
           type: string
           updated_at?: string
+          upgrades_enabled?: boolean
         }
         Update: {
           created_at?: string
           description?: string | null
           id?: string
           is_active?: boolean
+          menu_tier_key?: string | null
           name?: string
           sort_order?: number
           type?: string
           updated_at?: string
+          upgrades_enabled?: boolean
         }
         Relationships: []
       }

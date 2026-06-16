@@ -69,6 +69,7 @@ import { getErrorMessage } from '@/lib/utils';
 import { ResidentFeeDetail } from './resident-fee-detail';
 import { GenerateBillsWarningDialog } from './generate-bills-warning-dialog';
 import { AddAdditionalBillDialog } from './add-additional-bill-dialog';
+import { GenerationStatsPanel } from './generation-stats-panel';
 
 function fullName(l: LearnerHostelite): string {
   const parts = [l.first_name, l.last_name].filter(Boolean).map((s) => s!.trim());
@@ -435,6 +436,8 @@ export function GenerateBillsTab() {
           </SelectContent>
         </Select>
       </div>
+
+      <GenerationStatsPanel hostelYearId={effectiveYearId} />
 
       {previewError && (
         <Alert variant='destructive'>
