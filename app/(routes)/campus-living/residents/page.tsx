@@ -18,10 +18,11 @@ import { HostelResidentsDataTable } from './_components/residents-data-table';
 import { ResidentFormDialog } from './_components/resident-form-dialog';
 import { LearnersTab } from './_components/learners-tab';
 import { GenerateBillsTab } from './_components/generate-bills-tab';
+import { UpgradesTab } from './_components/upgrades-tab';
 import { HOSTEL_RESIDENT_TYPES, type HostelResidentType } from '@/types/hostel-residents';
 import type { ResidentFilters } from '@/types/hostel-residents';
 
-const TAB_VALUES = ['learners', 'non-learners', 'generate'] as const;
+const TAB_VALUES = ['learners', 'non-learners', 'generate', 'upgrades'] as const;
 type TabValue = (typeof TAB_VALUES)[number];
 
 export default function HostelResidentsPage() {
@@ -81,6 +82,7 @@ export default function HostelResidentsPage() {
             <TabsTrigger value='learners'>Learners</TabsTrigger>
             <TabsTrigger value='non-learners'>Non-learners</TabsTrigger>
             <TabsTrigger value='generate'>Generate Hostel-Year Bills</TabsTrigger>
+            <TabsTrigger value='upgrades'>Upgrades</TabsTrigger>
           </TabsList>
 
           <TabsContent value='learners' className='space-y-4'>
@@ -159,6 +161,16 @@ export default function HostelResidentsPage() {
                 <GenerateBillsTab />
               </>
             )}
+          </TabsContent>
+
+          <TabsContent value='upgrades' className='space-y-4'>
+            <div>
+              <p className='text-sm text-muted-foreground'>
+                Learners who have a hostel/mess category upgrade in progress or completed,
+                sourced from the upgrade-fee bills.
+              </p>
+            </div>
+            <UpgradesTab />
           </TabsContent>
         </Tabs>
       </div>
