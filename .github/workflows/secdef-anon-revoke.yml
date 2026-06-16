@@ -1,0 +1,43 @@
+name: SECURITY DEFINER anon-lock
+
+# Every NEW SECURITY DEFINER function added in a migration must explicitly lock
+# anon access (REVOKE EXECUTE ... FROM anon, or an explicit GRANT ... TO anon for
+# intentionally-public RPCs). Enforces the CLAUDE.md rule "Lock new RPCs from anon".
+#
+# WHY this is a CI guard and not a database default: on hosted Supabase the
+# built-in PUBLIC EXECUTE grant on functions cannot be reliably suppressed via
+# ALTER DEFAULT PRIVILEGES (the supabase_admin owner default can't be altered,
+# and the PUBLIC grant persists). The deterministic fix is this per-PR check.
+# See scripts/ci/check-secdef-anon-revoke.mjs header + the 2026-06-16 sweep.
+#
+# PR-scoped: inspects only migration files ADDED relative to the PR base, so the
+# large backlog of pre-existing unlocked functions does not fail every PR.
+# Static SQL-text scan (like the Radix empty-value gate) — see script for limits.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: New SECURITY DEFINER functions lock anon
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Checkout PR head (full history for base diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        run: git fetch --no-tags origin "${{ github.base_ref }}"
+
+      - name: Run guard
+        run: node scripts/ci/check-secdef-anon-revoke.mjs --base "origin/${{ github.base_ref }}"
