@@ -295,10 +295,14 @@ export const aiPulseGuide: ModuleGuide = {
 export const campusLivingGuide: ModuleGuide = {
   module: "campus-living",
   basePath: "/campus-living",
+  // Module-specific lane labels (see aiPulseGuide for the rationale): re-skin
+  // ONLY campus-living's scoped guide; cross-module overview stays canonical.
   lanes: {
     learner: {
       sections: CAMPUS_GUIDES.lanes.resident.sections,
       startHere: CAMPUS_GUIDES.lanes.resident.startHere,
+      title: CAMPUS_GUIDES.lanes.resident.title,
+      tagline: CAMPUS_GUIDES.lanes.resident.tagline,
     },
     "unit-lead": {
       // warden sections → requires allocations.approve; mess sections → requires mess.menu.publish
@@ -307,11 +311,17 @@ export const campusLivingGuide: ModuleGuide = {
         ...withRequires(CAMPUS_GUIDES.lanes.mess.sections, CAMPUS_REQUIRES.mess),
       ],
       startHere: CAMPUS_GUIDES.lanes.warden.startHere,
+      // Collapsed lane (warden + mess); label follows the primary source (warden,
+      // whose startHere this lane uses), matching the AI Pulse collapsed-lane convention.
+      title: CAMPUS_GUIDES.lanes.warden.title,
+      tagline: CAMPUS_GUIDES.lanes.warden.tagline,
     },
     "module-admin": {
       // admin sections → requires "campus_living.settings.edit" (section-gated, fail-closed)
       sections: withRequires(CAMPUS_GUIDES.lanes.admin.sections, CAMPUS_REQUIRES.admin),
       startHere: CAMPUS_GUIDES.lanes.admin.startHere,
+      title: CAMPUS_GUIDES.lanes.admin.title,
+      tagline: CAMPUS_GUIDES.lanes.admin.tagline,
     },
   },
   routes: [],
@@ -324,19 +334,26 @@ export const campusLivingGuide: ModuleGuide = {
 export const pdeGuide: ModuleGuide = {
   module: "pde",
   basePath: "/pde",
+  // Module-specific lane labels (re-skin PDE's scoped guide only).
   lanes: {
     learner: {
       sections: PDE_GUIDES.lanes.learner.sections,
       startHere: PDE_GUIDES.lanes.learner.startHere,
+      title: PDE_GUIDES.lanes.learner.title,
+      tagline: PDE_GUIDES.lanes.learner.tagline,
     },
     facilitator: {
       sections: PDE_GUIDES.lanes.faculty.sections,
       startHere: PDE_GUIDES.lanes.faculty.startHere,
+      title: PDE_GUIDES.lanes.faculty.title,
+      tagline: PDE_GUIDES.lanes.faculty.tagline,
     },
     "module-admin": {
       // admin sections → requires "pde.admin.view" (section-gated, fail-closed)
       sections: withRequires(PDE_GUIDES.lanes.admin.sections, PDE_REQUIRES.admin),
       startHere: PDE_GUIDES.lanes.admin.startHere,
+      title: PDE_GUIDES.lanes.admin.title,
+      tagline: PDE_GUIDES.lanes.admin.tagline,
     },
   },
   routes: [],
@@ -354,18 +371,26 @@ export const pdeGuide: ModuleGuide = {
 export const hrGuide: ModuleGuide = {
   module: "hr",
   basePath: "/hr",
+  // Module-specific lane labels (re-skin HR's scoped guide only).
   lanes: {
     learner: {
       sections: HR_GUIDES.lanes.employee.sections,
       startHere: HR_GUIDES.lanes.employee.startHere,
+      title: HR_GUIDES.lanes.employee.title,
+      tagline: HR_GUIDES.lanes.employee.tagline,
     },
     supervisor: {
       sections: withRequires(HR_GUIDES.lanes.manager.sections, HR_REQUIRES.manager),
       startHere: HR_GUIDES.lanes.manager.startHere,
+      title: HR_GUIDES.lanes.manager.title,
+      tagline: HR_GUIDES.lanes.manager.tagline,
     },
     "module-admin": {
+      // hr-admin is a hyphenated key → bracket access (dot access is a syntax error)
       sections: withRequires(HR_GUIDES.lanes["hr-admin"].sections, HR_REQUIRES["hr-admin"]),
       startHere: HR_GUIDES.lanes["hr-admin"].startHere,
+      title: HR_GUIDES.lanes["hr-admin"].title,
+      tagline: HR_GUIDES.lanes["hr-admin"].tagline,
     },
   },
   routes: [],
@@ -378,14 +403,19 @@ export const hrGuide: ModuleGuide = {
 export const admissionGuide: ModuleGuide = {
   module: "admission",
   basePath: "/admission",
+  // Module-specific lane labels (re-skin Admission's scoped guide only).
   lanes: {
     coordinator: {
       sections: withRequires(ADMISSION_GUIDES.lanes.counsellor.sections, ADMISSION_REQUIRES.counsellor),
       startHere: ADMISSION_GUIDES.lanes.counsellor.startHere,
+      title: ADMISSION_GUIDES.lanes.counsellor.title,
+      tagline: ADMISSION_GUIDES.lanes.counsellor.tagline,
     },
     "module-admin": {
       sections: withRequires(ADMISSION_GUIDES.lanes.admin.sections, ADMISSION_REQUIRES.admin),
       startHere: ADMISSION_GUIDES.lanes.admin.startHere,
+      title: ADMISSION_GUIDES.lanes.admin.title,
+      tagline: ADMISSION_GUIDES.lanes.admin.tagline,
     },
   },
   routes: [],
@@ -398,18 +428,27 @@ export const admissionGuide: ModuleGuide = {
 export const billingGuide: ModuleGuide = {
   module: "billing",
   basePath: "/billing",
+  // Module-specific lane labels (re-skin Billing's scoped guide only).
   lanes: {
     learner: {
       sections: BILLING_GUIDES.lanes.payer.sections,
       startHere: BILLING_GUIDES.lanes.payer.startHere,
+      title: BILLING_GUIDES.lanes.payer.title,
+      tagline: BILLING_GUIDES.lanes.payer.tagline,
     },
     coordinator: {
+      // finance-officer is a hyphenated key → bracket access
       sections: withRequires(BILLING_GUIDES.lanes["finance-officer"].sections, BILLING_REQUIRES["finance-officer"]),
       startHere: BILLING_GUIDES.lanes["finance-officer"].startHere,
+      title: BILLING_GUIDES.lanes["finance-officer"].title,
+      tagline: BILLING_GUIDES.lanes["finance-officer"].tagline,
     },
     "module-admin": {
+      // finance-admin is a hyphenated key → bracket access
       sections: withRequires(BILLING_GUIDES.lanes["finance-admin"].sections, BILLING_REQUIRES["finance-admin"]),
       startHere: BILLING_GUIDES.lanes["finance-admin"].startHere,
+      title: BILLING_GUIDES.lanes["finance-admin"].title,
+      tagline: BILLING_GUIDES.lanes["finance-admin"].tagline,
     },
   },
   routes: [],
