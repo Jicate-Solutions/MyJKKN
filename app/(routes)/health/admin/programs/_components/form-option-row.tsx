@@ -50,7 +50,7 @@ export function FormOptionRow({
           checked={!!option.is_correct}
           onChange={onToggleCorrect}
           className="h-4 w-4 cursor-pointer accent-emerald-600"
-          aria-label={`Mark option ${String.fromCharCode(65 + index)} as correct`}
+          aria-label={`Select option ${String.fromCharCode(65 + index)} as correct`}
         />
       )}
 

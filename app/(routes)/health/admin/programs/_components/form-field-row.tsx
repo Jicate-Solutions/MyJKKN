@@ -192,7 +192,7 @@ export function FormFieldRow({
 
           {field.graded && correctCount === 0 && (
             <p className="text-xs text-amber-600">
-              Mark the correct answer{isMulti ? '(s)' : ''}.
+              Select the correct answer{isMulti ? '(s)' : ''}.
             </p>
           )}
           {field.graded && !isMulti && correctCount > 1 && (

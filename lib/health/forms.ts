@@ -173,7 +173,7 @@ export function validateForm(form: FormSpec): FormValidation {
       if (f.graded) {
         const correct = opts.filter((o) => o.is_correct).length;
         if (correct === 0)
-          errors.push(`${tag}: mark the correct answer, or turn off grading.`);
+          errors.push(`${tag}: select the correct answer, or turn off grading.`);
         if (f.type !== 'multi_choice' && correct > 1)
           errors.push(`${tag}: only one answer can be correct.`);
       }
