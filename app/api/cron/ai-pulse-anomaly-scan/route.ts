@@ -169,9 +169,13 @@ export async function GET(req: NextRequest) {
   }
 
   // -- 3. Existing open flags (idempotency set) ---------------------------
+  // details_json is read too so the excuse-frequency detector (which has a
+  // null target_user_id — the id is a team_member_id, not a profiles.id) can
+  // dedup on details_json.team_member_id instead of collapsing every member
+  // on a cycle onto one null key.
   const { data: openFlagsRaw, error: openFlagsError } = await (supabase as any)
     .from('ai_pulse_anomaly_flags')
-    .select('startup_event_id, flag_type, target_user_id, review_outcome')
+    .select('startup_event_id, flag_type, target_user_id, details_json, review_outcome')
     .in('startup_event_id', cycleIds)
     .or('review_outcome.is.null,review_outcome.eq.pending');
 
@@ -181,13 +185,23 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
+  // Dedup identity: target_user_id when present, else the team_member_id from
+  // details_json (excuse detector), else empty. Keeps per-target idempotency
+  // for the null-FK excuse flags without changing the other detectors.
+  const flagKey = (f: {
+    startup_event_id: string;
+    flag_type: string;
+    target_user_id: string | null;
+    details_json?: Record<string, unknown> | null;
+  }) => {
+    const subject =
+      f.target_user_id ??
+      ((f.details_json?.team_member_id as string | undefined) ?? '');
+    return `${f.startup_event_id}::${f.flag_type}::${subject}`;
+  };
   const openKeys = new Set(
-    ((openFlagsRaw || []) as any[]).map(
-      (f) => `${f.startup_event_id}::${f.flag_type}::${f.target_user_id ?? ''}`
-    )
+    ((openFlagsRaw || []) as any[]).map((f) => flagKey(f)),
   );
-  const flagKey = (f: FlagInsert) =>
-    `${f.startup_event_id}::${f.flag_type}::${f.target_user_id ?? ''}`;
 
   const candidates: FlagInsert[] = [];
 
