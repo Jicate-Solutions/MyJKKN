@@ -264,15 +264,27 @@ export const GUIDES: GuideBook = {
         "These settings shape how the whole program behaves and stays fair.",
       startHere: { label: "Open Policies", href: "/ai-pulse/admin/policies" },
       requires: REQUIRES.admin,
-      journey: ["Set the policies", "Review anomalies", "Export NAAC evidence"],
+      journey: ["Set the policies", "Set up each week's cycle", "Review anomalies", "Export NAAC evidence"],
       sections: [
         {
           id: "run",
-          title: "Run the program",
+          title: "Set the policies and run the program",
           steps: [
             {
-              action: "Open **Admin · Policies** to set session times, pass marks, the join doors-open window, and consequence thresholds.",
+              action: "Open **Admin · Policies** to tune how the whole program behaves.",
+              detail:
+                "One editor with 25+ settings, grouped: session timing (day, start/end, doors-open window, late threshold); quiz pass thresholds and the async make-up window; language and campus (bilingual mode + languages, multi-campus); the consequence tier thresholds for misses; gold-standard and bottom-N publication + visibility; the featured-tool rotation strategy and team-count thresholds; the engaged-state definition; the cron tick; and the Instagram post deadline + reach threshold. Changes apply on the next cycle — no deploy.",
+              prerequisite:
+                "The Policies editor is restricted to super-admins. If it is blocked, ask your platform admin — the program-admin permission alone does not open it.",
               link: { label: "Open Policies", href: "/ai-pulse/admin/policies" },
+            },
+            {
+              action: "Oversee each week in **Champion · Cycles** — topic, featured tool, challenge, and quiz.",
+              detail:
+                "Every cycle is set up here: pick the week's featured AI tool from the master list, write the topic and challenge, set the meeting link, and author the quiz. This is where a week is made — skip the setup and it honestly shows 0% engaged.",
+              prerequisite:
+                "Cycles, Anomalies and NAAC Evidence (below) each need their OWN permission — they are not covered by the program-admin policy permission. They are usually granted to the same admins; if a page is blocked, ask for that permission.",
+              link: { label: "Open Cycles", href: "/ai-pulse/admin/cycles" },
             },
             {
               action: "Review flagged activity at **Champion · Anomalies** (unusual scores, reach, or rotation).",

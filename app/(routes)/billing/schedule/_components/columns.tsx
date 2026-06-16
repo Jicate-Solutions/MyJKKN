@@ -149,11 +149,22 @@ export const columns: ColumnDef<StudentBill>[] = [
     maxSize: 200,
     cell: ({ row }) => {
       const bill = row.original;
+      // Category-upgrade bills all sit under the generic "Hostel/Mess Upgrade Fee"
+      // category, so surface the from→to detail (stored in bill_description, e.g.
+      // "Classic Room → Deluxe Room") for the accounts team.
+      const isUpgradeBill =
+        bill.item_category?.category_name === 'Hostel Upgrade Fee' ||
+        bill.item_category?.category_name === 'Mess Upgrade Fee';
       return (
         <div>
           <div className='font-medium'>
             {bill.item_category?.category_name || 'N/A'}
           </div>
+          {isUpgradeBill && bill.bill_description && (
+            <div className='text-sm text-muted-foreground'>
+              {bill.bill_description}
+            </div>
+          )}
           {bill.item_category?.frequency && (
             <div className='text-sm text-muted-foreground capitalize'>
               {bill.item_category.frequency}

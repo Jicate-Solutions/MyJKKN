@@ -235,31 +235,52 @@ export const aiPulseGuide: ModuleGuide = {
   module: "ai-pulse",
   basePath: "/ai-pulse",
   lanes: {
+    // Module-specific lane titles/taglines reuse AI Pulse's OWN vocabulary
+    // (Student / Champion / Class Incharge / HOD / Faculty / Admin), sourced
+    // from content.ts so they stay in sync. They re-skin ONLY this module's
+    // scoped guide (/guide?module=ai-pulse); the cross-module overview keeps the
+    // canonical platform labels. Restores module relevance lost when AI Pulse's
+    // lanes were mapped onto canonical personas (champion→unit-lead "Running your unit").
     learner: {
       sections: AI_PULSE_GUIDES.lanes.student.sections,
       startHere: AI_PULSE_GUIDES.lanes.student.startHere,
+      title: AI_PULSE_GUIDES.lanes.student.title,
+      tagline: AI_PULSE_GUIDES.lanes.student.tagline,
     },
     facilitator: {
       sections: AI_PULSE_GUIDES.lanes.faculty.sections,
       startHere: AI_PULSE_GUIDES.lanes.faculty.startHere,
+      title: AI_PULSE_GUIDES.lanes.faculty.title,
+      tagline: AI_PULSE_GUIDES.lanes.faculty.tagline,
     },
     "unit-lead": {
       // champion sections → requires "aiPulse:cycles.manage"
       sections: withRequires(AI_PULSE_GUIDES.lanes.champion.sections, AI_PULSE_REQUIRES.champion),
       startHere: AI_PULSE_GUIDES.lanes.champion.startHere,
+      title: AI_PULSE_GUIDES.lanes.champion.title,
+      tagline: AI_PULSE_GUIDES.lanes.champion.tagline,
     },
     coordinator: {
       // incharge sections → requires "aiPulse:attendance.mark"
       sections: withRequires(AI_PULSE_GUIDES.lanes.incharge.sections, AI_PULSE_REQUIRES.incharge),
       // incharge lane has no startHere in the source — omit
+      title: AI_PULSE_GUIDES.lanes.incharge.title,
+      tagline: AI_PULSE_GUIDES.lanes.incharge.tagline,
     },
     supervisor: {
       sections: AI_PULSE_GUIDES.lanes.hod.sections,
       startHere: AI_PULSE_GUIDES.lanes.hod.startHere,
+      title: AI_PULSE_GUIDES.lanes.hod.title,
+      tagline: AI_PULSE_GUIDES.lanes.hod.tagline,
     },
     "module-admin": {
-      sections: AI_PULSE_GUIDES.lanes.admin.sections,
+      // admin sections → requires "aiPulse:policies.manage" so a viewer who reached
+      // module-admin via ANOTHER module doesn't see AI Pulse admin steps without the
+      // AI Pulse admin permission (fail-closed; matches HR/Admission/Billing).
+      sections: withRequires(AI_PULSE_GUIDES.lanes.admin.sections, AI_PULSE_REQUIRES.admin),
       startHere: AI_PULSE_GUIDES.lanes.admin.startHere,
+      title: AI_PULSE_GUIDES.lanes.admin.title,
+      tagline: AI_PULSE_GUIDES.lanes.admin.tagline,
     },
   },
   routes: [],
@@ -288,7 +309,8 @@ export const campusLivingGuide: ModuleGuide = {
       startHere: CAMPUS_GUIDES.lanes.warden.startHere,
     },
     "module-admin": {
-      sections: CAMPUS_GUIDES.lanes.admin.sections,
+      // admin sections → requires "campus_living.settings.edit" (section-gated, fail-closed)
+      sections: withRequires(CAMPUS_GUIDES.lanes.admin.sections, CAMPUS_REQUIRES.admin),
       startHere: CAMPUS_GUIDES.lanes.admin.startHere,
     },
   },
@@ -312,7 +334,8 @@ export const pdeGuide: ModuleGuide = {
       startHere: PDE_GUIDES.lanes.faculty.startHere,
     },
     "module-admin": {
-      sections: PDE_GUIDES.lanes.admin.sections,
+      // admin sections → requires "pde.admin.view" (section-gated, fail-closed)
+      sections: withRequires(PDE_GUIDES.lanes.admin.sections, PDE_REQUIRES.admin),
       startHere: PDE_GUIDES.lanes.admin.startHere,
     },
   },
@@ -540,8 +563,10 @@ export function composeModuleLane(
 
   return {
     persona,
-    title: meta.title,
-    tagline: meta.tagline,
+    // Module's own label wins in its scoped guide; fall back to the canonical
+    // platform identity when the module didn't override (HR / Billing / etc.).
+    title: frag.title ?? meta.title,
+    tagline: frag.tagline ?? meta.tagline,
     startHere: frag.startHere,
     journey: sections.map((s) => s.title),
     sections,

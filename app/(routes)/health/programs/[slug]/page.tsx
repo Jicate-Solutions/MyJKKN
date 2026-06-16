@@ -19,6 +19,13 @@
  *
  * Completion + streak are computed against the director-editable policy
  * from useWellnessConfig() via isDayComplete().
+ *
+ * CONSENT (Director decision 2026-06-15 — "light program consent, then track"):
+ * Viewing the video + reading content is friction-free (NO heavy
+ * HealthConsentProvider). The first TRACKED action (mark watched / submit quiz /
+ * rate) is intercepted by a one-tap LIGHT program consent dialog; on agree we
+ * record the consent and replay the action. This is separate from the full
+ * health-data consent used on the core health pages.
  */
 
 import { useMemo, useState, useEffect } from 'react';
@@ -31,6 +38,14 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
   ArrowLeft,
   PlayCircle,
   CheckCircle2,
@@ -41,6 +56,7 @@ import {
   Leaf,
   Video,
   Trophy,
+  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import {
@@ -51,7 +67,10 @@ import {
   useRateUsefulness,
   useWellnessConfig,
 } from '@/hooks/health/use-wellness-programs';
-import { HealthConsentProvider } from '../../_components/consent-gate';
+import {
+  useProgramConsent,
+  useGiveProgramConsent,
+} from '@/hooks/health/use-program-consent';
 import { CrossoverCTA } from './_components/crossover-cta';
 import {
   isDayComplete,
@@ -62,6 +81,7 @@ import {
   type QuizSpec,
   type WellnessProgramConfig,
 } from '@/types/health-programs';
+import { toYouTubeEmbed } from '@/lib/health/youtube';
 
 // ============================================================================
 // Helpers
@@ -82,31 +102,6 @@ function formatDayDate(iso: string | null): string | null {
     day: 'numeric',
     month: 'short',
   });
-}
-
-/** Convert a video URL into an embeddable src (YouTube/Vimeo aware, else raw). */
-function toEmbedSrc(url: string): { kind: 'iframe' | 'video'; src: string } {
-  try {
-    const u = new URL(url);
-    const host = u.hostname.replace(/^www\./, '');
-    if (host === 'youtube.com' || host === 'm.youtube.com') {
-      const id = u.searchParams.get('v');
-      if (id) return { kind: 'iframe', src: `https://www.youtube.com/embed/${id}` };
-    }
-    if (host === 'youtu.be') {
-      const id = u.pathname.slice(1);
-      if (id) return { kind: 'iframe', src: `https://www.youtube.com/embed/${id}` };
-    }
-    if (host === 'vimeo.com') {
-      const id = u.pathname.split('/').filter(Boolean)[0];
-      if (id) return { kind: 'iframe', src: `https://player.vimeo.com/video/${id}` };
-    }
-  } catch {
-    /* fall through */
-  }
-  // Direct file (mp4/webm) or already an embed URL
-  if (/\.(mp4|webm|ogg)$/i.test(url)) return { kind: 'video', src: url };
-  return { kind: 'iframe', src: url };
 }
 
 /** Find the participation row for a given day. */
@@ -413,20 +408,30 @@ function VideoPanel({ day }: { day: HealthProgramDay }) {
     );
   }
 
-  const embed = toEmbedSrc(day.video_url);
+  const embed = toYouTubeEmbed(day.video_url);
+  if (!embed) {
+    // Legacy / non-YouTube link still stored — link out rather than break.
+    return (
+      <a
+        href={day.video_url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex aspect-video w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-sm font-medium text-emerald-700 hover:bg-slate-100"
+      >
+        <PlayCircle className="h-5 w-5" />
+        Watch the video
+      </a>
+    );
+  }
   return (
     <div className="overflow-hidden rounded-2xl bg-black aspect-video">
-      {embed.kind === 'iframe' ? (
-        <iframe
-          src={embed.src}
-          title={day.title}
-          className="h-full w-full"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
-        />
-      ) : (
-        <video src={embed.src} controls className="h-full w-full" />
-      )}
+      <iframe
+        src={embed}
+        title={day.title}
+        className="h-full w-full"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowFullScreen
+      />
     </div>
   );
 }
@@ -488,6 +493,70 @@ function DetailSkeleton() {
 }
 
 // ============================================================================
+// Light program consent dialog
+// ============================================================================
+// Asked ONCE, only when a person first tries a TRACKED action (mark watched /
+// submit quiz / rate). Viewing the video + reading content require NO consent.
+// This is separate from the heavy health-data consent on the core health pages.
+
+function ProgramConsentDialog({
+  open,
+  onOpenChange,
+  onAgree,
+  isSaving,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onAgree: () => void;
+  isSaving: boolean;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 border border-emerald-100">
+            <ShieldCheck className="h-5 w-5 text-emerald-600" />
+          </div>
+          <DialogTitle className="text-lg">Track your progress?</DialogTitle>
+          <DialogDescription className="text-sm leading-relaxed text-slate-600">
+            We&apos;ll record which days you complete so we can show your
+            progress and your streak. That&apos;s all this is for. You can keep
+            watching either way — this only lets us save your completions.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isSaving}
+            className="w-full sm:w-auto"
+          >
+            Not now
+          </Button>
+          <Button
+            onClick={onAgree}
+            disabled={isSaving}
+            className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white"
+          >
+            {isSaving ? (
+              <span className="flex items-center gap-2">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                Saving…
+              </span>
+            ) : (
+              <span className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4" />
+                OK, track it
+              </span>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================================
 // Inner
 // ============================================================================
 
@@ -503,6 +572,39 @@ function ProgramDetailInner({ slug }: { slug: string }) {
   const markWatched = useMarkWatched();
   const submitQuiz = useSubmitQuiz();
   const rateUsefulness = useRateUsefulness();
+
+  // --- Light program consent (gates the TRACKED writes only) ---------------
+  const { data: hasConsent } = useProgramConsent(userId, program?.id);
+  const giveConsent = useGiveProgramConsent();
+  // A tracked action the user triggered before consenting — replayed on agree.
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
+  const consentDialogOpen = pendingAction !== null;
+
+  /**
+   * Run a tracked write only if the person has given light consent.
+   * If not, stash the action and open the one-tap consent dialog instead.
+   */
+  function withConsent(run: () => void) {
+    if (hasConsent) {
+      run();
+      return;
+    }
+    setPendingAction(() => run);
+  }
+
+  function handleAgreeConsent() {
+    if (!userId || !program) return;
+    const run = pendingAction;
+    giveConsent.mutate(
+      { userId, programId: program.id, learnerId },
+      {
+        onSuccess: () => {
+          setPendingAction(null);
+          run?.(); // replay the action that triggered the dialog
+        },
+      }
+    );
+  }
 
   const effectiveConfig = config ?? WELLNESS_CONFIG_DEFAULTS;
   const days = program?.days ?? [];
@@ -580,40 +682,57 @@ function ProgramDetailInner({ slug }: { slug: string }) {
 
   function handleMarkWatched() {
     if (!day || !userId) return;
-    markWatched.mutate({
-      programId: program.id,
-      dayId: day.id,
-      userId,
-      learnerId,
-      completed: true,
-    });
+    withConsent(() =>
+      markWatched.mutate({
+        programId: program.id,
+        dayId: day.id,
+        userId,
+        learnerId,
+        completed: true,
+      })
+    );
   }
 
   function handleSubmitQuiz(score: number) {
     if (!day || !userId) return;
-    submitQuiz.mutate({
-      programId: program.id,
-      dayId: day.id,
-      userId,
-      learnerId,
-      score,
-    });
+    withConsent(() =>
+      submitQuiz.mutate({
+        programId: program.id,
+        dayId: day.id,
+        userId,
+        learnerId,
+        score,
+      })
+    );
   }
 
   function handleRate(rating: number, reflection: string) {
     if (!day || !userId) return;
-    rateUsefulness.mutate({
-      programId: program.id,
-      dayId: day.id,
-      userId,
-      learnerId,
-      rating,
-      reflection: reflection || null,
-    });
+    withConsent(() =>
+      rateUsefulness.mutate({
+        programId: program.id,
+        dayId: day.id,
+        userId,
+        learnerId,
+        rating,
+        reflection: reflection || null,
+      })
+    );
   }
 
   return (
     <div className="space-y-5">
+      {/* One-tap LIGHT consent dialog — shown only when a tracked action is
+          attempted before consent is given. */}
+      <ProgramConsentDialog
+        open={consentDialogOpen}
+        onOpenChange={(v) => {
+          if (!v) setPendingAction(null);
+        }}
+        onAgree={handleAgreeConsent}
+        isSaving={giveConsent.isPending}
+      />
+
       {/* Back link */}
       <Link
         href="/health/programs"
@@ -642,6 +761,16 @@ function ProgramDetailInner({ slug }: { slug: string }) {
             Day {day?.day_number ?? 1} of {days.length}
           </span>
         </div>
+
+        {/* Section leaderboard link (sibling lane builds the route) */}
+        <Link
+          href={`/health/programs/${slug}/leaderboard`}
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
+        >
+          <Trophy className="h-3.5 w-3.5" />
+          See section leaderboard
+          <ArrowLeft className="h-3.5 w-3.5 rotate-180" />
+        </Link>
       </div>
 
       {/* Week ribbon — signature */}
@@ -748,10 +877,8 @@ export default function WellnessProgramDetailPage() {
   const slug = typeof params?.slug === 'string' ? params.slug : '';
 
   return (
-    <HealthConsentProvider>
-      <ContentLayout title="Wellness Program">
-        <ProgramDetailInner slug={slug} />
-      </ContentLayout>
-    </HealthConsentProvider>
+    <ContentLayout title="Wellness Program">
+      <ProgramDetailInner slug={slug} />
+    </ContentLayout>
   );
 }
