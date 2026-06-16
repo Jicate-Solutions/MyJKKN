@@ -258,7 +258,10 @@ export const aiPulseGuide: ModuleGuide = {
       startHere: AI_PULSE_GUIDES.lanes.hod.startHere,
     },
     "module-admin": {
-      sections: AI_PULSE_GUIDES.lanes.admin.sections,
+      // admin sections → requires "aiPulse:policies.manage" so a viewer who reached
+      // module-admin via ANOTHER module doesn't see AI Pulse admin steps without the
+      // AI Pulse admin permission (fail-closed; matches HR/Admission/Billing).
+      sections: withRequires(AI_PULSE_GUIDES.lanes.admin.sections, AI_PULSE_REQUIRES.admin),
       startHere: AI_PULSE_GUIDES.lanes.admin.startHere,
     },
   },
@@ -288,7 +291,8 @@ export const campusLivingGuide: ModuleGuide = {
       startHere: CAMPUS_GUIDES.lanes.warden.startHere,
     },
     "module-admin": {
-      sections: CAMPUS_GUIDES.lanes.admin.sections,
+      // admin sections → requires "campus_living.settings.edit" (section-gated, fail-closed)
+      sections: withRequires(CAMPUS_GUIDES.lanes.admin.sections, CAMPUS_REQUIRES.admin),
       startHere: CAMPUS_GUIDES.lanes.admin.startHere,
     },
   },
@@ -312,7 +316,8 @@ export const pdeGuide: ModuleGuide = {
       startHere: PDE_GUIDES.lanes.faculty.startHere,
     },
     "module-admin": {
-      sections: PDE_GUIDES.lanes.admin.sections,
+      // admin sections → requires "pde.admin.view" (section-gated, fail-closed)
+      sections: withRequires(PDE_GUIDES.lanes.admin.sections, PDE_REQUIRES.admin),
       startHere: PDE_GUIDES.lanes.admin.startHere,
     },
   },
