@@ -16,6 +16,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Clock, Plus, Pencil, Power, PowerOff, ShieldAlert } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { PermissionError } from '@/components/errors/permission-error';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -144,6 +146,28 @@ export default function HostelCurfewAdminPage() {
   }
 
   return (
+    // Authorization gate (added 2026-06-16): this admin curfew page previously
+    // had NO in-page permission guard at all (open Add / Edit / enable-disable
+    // controls) and relied on Supabase RLS only — and it manages
+    // institution-wide curfew enforcement, so an ungated direct-URL visitor was
+    // a real exposure. It is reachable from the Campus Living settings nav. Gate
+    // on `campus_living.settings.view` (defined in lib/constants/permissions.ts;
+    // the same section key /campus-living/settings maps to in MENU_PERMISSIONS).
+    // Fail-closed: PermissionGuard renders the fallback on deny and nothing while
+    // loading; super-admins bypass. Explicit denial, never a silent redirect
+    // (CLAUDE.md rule #27).
+    <PermissionGuard
+      module="campus_living.settings"
+      action="view"
+      fallback={
+        <ContentLayout title="Hostel Curfew Policy">
+          <PermissionError
+            message="Campus Living settings are restricted to hostel administrators."
+            requiredPermission="campus_living.settings.view"
+          />
+        </ContentLayout>
+      }
+    >
     <ContentLayout title="Hostel Curfew Policy">
       <div className="space-y-6">
         {/* Header */}
@@ -369,6 +393,7 @@ export default function HostelCurfewAdminPage() {
         institutions={institutions.data ?? []}
       />
     </ContentLayout>
+    </PermissionGuard>
   );
 }
 

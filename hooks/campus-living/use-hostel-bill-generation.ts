@@ -1,7 +1,8 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   HostelBillGenerationService,
   type LearnerGenerationPlan,
+  type HostelYearBillStats,
 } from '@/lib/services/campus-living/hostel-bill-generation-service';
 
 /** Dry-run preview (imperative — call when operator clicks "Preview selected"). */
@@ -34,5 +35,15 @@ export function useGenerateHostelBills() {
       // Invalidate hostel-residents (allocation/billing status badges on the residents list)
       qc.invalidateQueries({ queryKey: ['hostel-residents'] });
     },
+  });
+}
+
+/** Aggregate billed-vs-not-billed stats for the selected hostel year. Auto-refreshes
+ *  after generation (the generate mutation invalidates the ['campus-living'] namespace). */
+export function useHostelYearBillStats(hostelYearId: string | null) {
+  return useQuery<HostelYearBillStats>({
+    queryKey: ['campus-living', 'generation-stats', hostelYearId],
+    queryFn: () => HostelBillGenerationService.getStats(hostelYearId!),
+    enabled: !!hostelYearId,
   });
 }

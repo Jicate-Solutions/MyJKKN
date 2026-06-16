@@ -1316,3 +1316,12 @@ AFTER UPDATE ON billing_student_bills
 REFERENCING NEW TABLE AS new_rows
 FOR EACH STATEMENT
 EXECUTE FUNCTION trg_bill_apply_hostel_fee_categories();
+
+-- TMS transport-fee safe-delete: clean up soft-linked billing_student_bills
+-- when a tms_fee_bill is deleted (mig 20260616160000). Closes the orphan trap
+-- from the non-FK tms_fee_bill.billing_student_bill_id link; fails closed on paid.
+DROP TRIGGER IF EXISTS trg_tms_fee_bill_cleanup_linked_billing ON tms_fee_bill;
+CREATE TRIGGER trg_tms_fee_bill_cleanup_linked_billing
+BEFORE DELETE ON tms_fee_bill
+FOR EACH ROW
+EXECUTE FUNCTION tms_fee_bill_cleanup_linked_billing();
