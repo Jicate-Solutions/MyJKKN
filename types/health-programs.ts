@@ -12,21 +12,57 @@ export type HealthProgramStatus =
 
 export type HealthProgramAudience = 'students' | 'staff' | 'both' | 'public';
 
-export interface QuizOption {
+// --- Form builder (Google-Forms-style; replaces the fixed single-answer quiz)
+// Stored in health_program_days.quiz (JSONB — column name kept for history).
+// One form can mix GRADED choice fields (with correct answers → feed quiz_score)
+// and UNGRADED fields (text / scale → captured only as survey responses).
+
+export type FormFieldType =
+  | 'single_choice' // radio, gradable
+  | 'multi_choice' // checkboxes, gradable (exact-match)
+  | 'dropdown' // select, gradable
+  | 'short_text' // single line, ungraded
+  | 'paragraph' // multi line, ungraded
+  | 'scale'; // linear N..M, ungraded
+
+export interface FormFieldOption {
   id: string;
   text: string;
-  is_correct: boolean;
+  /** Only meaningful when the parent field is graded. */
+  is_correct?: boolean;
 }
 
-export interface QuizQuestion {
+export interface FormField {
   id: string;
-  question: string;
-  options: QuizOption[];
+  type: FormFieldType;
+  label: string;
+  required?: boolean;
+  /** single_choice | multi_choice | dropdown */
+  options?: FormFieldOption[];
+  /** choice types only — when true the field counts toward quiz_score */
+  graded?: boolean;
+  /** scale only */
+  scale_min?: number;
+  scale_max?: number;
+  scale_min_label?: string;
+  scale_max_label?: string;
 }
 
-export interface QuizSpec {
-  questions: QuizQuestion[];
+export interface FormSpec {
+  fields: FormField[];
 }
+
+/** A single participant answer, keyed by field type. */
+export type FormAnswer = string | string[] | number;
+/** All of a participant's answers for one day's form: { [field_id]: answer }. */
+export type FormResponses = Record<string, FormAnswer>;
+
+// Back-compat aliases — older code/data used the quiz vocabulary. The legacy
+// stored shape {questions:[{question,options}]} is normalized to FormSpec by
+// normalizeForm() (see admin form-helpers). New code should use the Form* names.
+export type QuizOption = FormFieldOption;
+export type QuizQuestion = FormField;
+export type QuizSpec = FormSpec;
 
 export interface HealthProgram {
   id: string;
@@ -71,6 +107,8 @@ export interface HealthProgramParticipation {
   quiz_score: number | null;
   usefulness_rating: number | null;
   reflection_text: string | null;
+  /** Per-field answers for the day's form (graded + ungraded). */
+  form_responses: FormResponses | null;
   created_at: string;
   updated_at: string;
 }
