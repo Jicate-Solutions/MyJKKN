@@ -45,7 +45,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { BeatLoader } from 'react-spinners';
-import { CheckCircle, XCircle, Eye, Sparkles, ExternalLink } from 'lucide-react';
+import { CheckCircle, XCircle, Eye, Sparkles, ExternalLink, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useReviewQueue, useValidateDemonstration } from '@/hooks/pde/use-pde';
 import {
@@ -129,7 +129,7 @@ export default function FacultyDemonstrationsPage() {
     setNotes('');
   }
 
-  async function submitDecision(decision: 'validated' | 'rejected') {
+  async function submitDecision(decision: 'validated' | 'rejected' | 'changes_requested') {
     if (!active) return;
     if (decision === 'validated') {
       const n = Number(score);
@@ -137,6 +137,11 @@ export default function FacultyDemonstrationsPage() {
         toast.error('Enter a score between 0 and 100 to validate.');
         return;
       }
+    }
+    // "Request changes" must tell the learner what to fix — a note is required.
+    if (decision === 'changes_requested' && notes.trim() === '') {
+      toast.error('Add a note telling the learner what to change before requesting changes.');
+      return;
     }
     try {
       await validate.mutateAsync({
@@ -148,7 +153,9 @@ export default function FacultyDemonstrationsPage() {
       toast.success(
         decision === 'validated'
           ? 'Demonstration validated — it now moves to scoring.'
-          : 'Demonstration rejected. The learner will see your note.'
+          : decision === 'changes_requested'
+            ? 'Sent back for changes. The learner can edit and resubmit with your note.'
+            : 'Demonstration rejected. The learner will see your note.'
       );
       resetDialog();
     } catch (e) {
@@ -408,7 +415,7 @@ export default function FacultyDemonstrationsPage() {
                         id="review-notes"
                         value={notes}
                         onChange={(e) => setNotes(e.target.value)}
-                        placeholder="What was strong, what to improve. Shown to the learner on a rejection."
+                        placeholder="What was strong, what to improve. Shown to the learner on a rejection or when you request changes (required to request changes)."
                         rows={3}
                         disabled={validate.isPending}
                       />
@@ -437,7 +444,7 @@ export default function FacultyDemonstrationsPage() {
                 )}
               </div>
 
-              <DialogFooter className="gap-2 sm:gap-2">
+              <DialogFooter className="gap-2 sm:gap-2 sm:flex-wrap">
                 {isReviewable(active.status) ? (
                   <>
                     <Button
@@ -447,6 +454,15 @@ export default function FacultyDemonstrationsPage() {
                     >
                       <XCircle className="h-4 w-4 mr-1" />
                       Reject
+                    </Button>
+                    <Button
+                      className="bg-[#ffde59] text-amber-900 hover:bg-[#ffde59]/90 border border-amber-300"
+                      onClick={() => submitDecision('changes_requested')}
+                      disabled={validate.isPending}
+                      title="Send back to the learner with feedback so they can edit and resubmit"
+                    >
+                      <RotateCcw className="h-4 w-4 mr-1" />
+                      Request changes
                     </Button>
                     <Button
                       className="bg-[#0b6d41] hover:bg-[#0b6d41]/90"
