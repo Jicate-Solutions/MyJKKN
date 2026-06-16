@@ -22,6 +22,7 @@ on:
       - 'lib/guide/**'
       - 'app/(routes)/**/page.tsx'
       - 'scripts/guide-smoke.ts'
+      - 'scripts/guide-labels-guard.ts'
       - '.github/workflows/guide-smoke.yml'
 
 permissions:
@@ -56,3 +57,6 @@ jobs:
 
       - name: Guide smoke — every deep-link resolves
         run: npm run check:guide-smoke
+
+      - name: Guide module labels — every module lane carries its own label
+        run: npm run check:guide-labels
