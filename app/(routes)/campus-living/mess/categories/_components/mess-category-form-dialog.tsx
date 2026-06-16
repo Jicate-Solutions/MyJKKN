@@ -51,6 +51,7 @@ const formSchema = z.object({
   }),
   sort_order: z.coerce.number().int().min(0, 'Must be 0 or greater'),
   is_active: z.boolean(),
+  upgrades_enabled: z.boolean(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -79,6 +80,7 @@ export function MessCategoryFormDialog({
       type: 'boys',
       sort_order: 0,
       is_active: true,
+      upgrades_enabled: false,
     },
   });
 
@@ -91,6 +93,7 @@ export function MessCategoryFormDialog({
         type: category.type,
         sort_order: category.sort_order,
         is_active: category.is_active,
+        upgrades_enabled: category.upgrades_enabled ?? false,
       });
     } else {
       form.reset({
@@ -99,6 +102,7 @@ export function MessCategoryFormDialog({
         type: 'boys',
         sort_order: 0,
         is_active: true,
+        upgrades_enabled: false,
       });
     }
   }, [open, mode, category, form]);
@@ -214,6 +218,25 @@ export function MessCategoryFormDialog({
                     <Input type='number' min={0} {...field} />
                   </FormControl>
                   <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='upgrades_enabled'
+              render={({ field }) => (
+                <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
+                  <div className='space-y-0.5'>
+                    <FormLabel className='text-sm'>Allow upgrades</FormLabel>
+                    <p className='text-xs text-muted-foreground'>
+                      When on, residents in this mess category can see and use mess upgrades on
+                      My Hostel. Off hides the mess upgrade options.
+                    </p>
+                  </div>
+                  <FormControl>
+                    <Switch checked={field.value} onCheckedChange={field.onChange} />
+                  </FormControl>
                 </FormItem>
               )}
             />
