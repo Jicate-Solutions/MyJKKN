@@ -1600,3 +1600,9 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - RLS: both tables SELECT-only direct policies (leadership + own rows); no direct write policies
 - Location: `supabase/migrations/20260612180000_care_audit_framework.sql` (applied live via Management API 2026-06-12)
 - Purpose: Digitize the JKKN CARE Audit Framework v1.0 inside /audit — 20-item 0–4 scoring, two-scorer blind variance, pillar/index/gap-rule math, corrective moves as findings. Spec: specs/care-audit-module-spec-2026-06-12.md
+
+### PDE Faculty Review RPCs (2026-06-15)
+- Functions: `fn_pde_review_queue(p_category text, p_status text)` (STABLE, enriched institution-scoped read of `pde_demonstrations` joined to `profiles` for the learner name; hides draft/withdrawn; mirrors the SELECT-RLS reviewer roles) and `fn_pde_validate_demonstration(p_demonstration_id uuid, p_decision text, p_raw_score numeric, p_notes text)` (VOLATILE, the only faculty write path — faculty RLS is SELECT-only; re-checks same-institution reviewer, enforces submitted/under_review → validated|rejected, appends validator id + note, sets raw_score on validate). Both SECURITY DEFINER, REVOKE anon/PUBLIC + GRANT authenticated.
+- RLS: no table changes; reuses existing `pde_demonstrations` policies (learner own, faculty SELECT same-inst, super_admin all). Weighted scoring stays downstream (scoring engine writes weighted_score/passed).
+- Location: `supabase/migrations/20260615170000_pde_faculty_review_rpcs.sql` (applied live via Management API 2026-06-15)
+- Purpose: Back the rebuilt faculty Demonstration Reviews page (Option A — durable-value taxonomy). Resolves friction X1 (faculty surface now speaks the 7 durable-value categories learners submit under, not the legacy capability vocabulary). Decision doc: docs/modules/pde/2026-06-14-DECISION-pde-category-taxonomy-split.md
