@@ -15,7 +15,8 @@ import type {
   HealthProgramWithDays,
   WellnessProgramConfig,
   ProgramImpact,
-  QuizSpec,
+  FormSpec,
+  FormResponses,
 } from '@/types/health-programs';
 import { WELLNESS_CONFIG_DEFAULTS } from '@/types/health-programs';
 
@@ -135,12 +136,14 @@ export class WellnessProgramsService {
     });
   }
 
-  static async submitQuiz(args: {
+  static async submitForm(args: {
     programId: string;
     dayId: string;
     userId: string;
     learnerId?: string | null;
-    score: number;
+    /** Percent of graded fields correct, or null for a pure (ungraded) survey. */
+    score: number | null;
+    responses: FormResponses;
   }): Promise<HealthProgramParticipation> {
     return this.upsertParticipation({
       program_id: args.programId,
@@ -148,6 +151,7 @@ export class WellnessProgramsService {
       user_id: args.userId,
       learner_id: args.learnerId ?? null,
       quiz_score: args.score,
+      form_responses: args.responses,
     });
   }
 
@@ -221,7 +225,7 @@ export class WellnessProgramsService {
     program_id: string;
     day_number: number;
     title: string;
-    quiz?: QuizSpec | null;
+    quiz?: FormSpec | null;
   }): Promise<HealthProgramDay> {
     const { data, error } = await (supabase as any)
       .from('health_program_days')
