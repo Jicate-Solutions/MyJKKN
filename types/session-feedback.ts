@@ -74,6 +74,27 @@ export interface EscalationRow {
   low_understanding: number;
 }
 
+/** Escalated session paired with its next same-faculty+course session and the
+ *  understanding "lift". fn_scf_escalation_followups (closes the outer loop, #10).
+ *  next_* fields are null when no later session of the same class has feedback yet. */
+export interface EscalationFollowupRow {
+  // The escalated session (the trigger)
+  attendance_date: string;
+  period_id: string;
+  course_code: string | null;
+  course_name: string | null;
+  faculty_email: string | null;
+  responses: number;
+  avg_understood: number | null;
+  low_understanding: number;
+  // The next same-faculty+course session (the follow-up)
+  next_attendance_date: string | null;
+  next_responses: number | null;
+  next_avg_understood: number | null;
+  // lift = next_avg_understood - avg_understood; positive = improved; null = no next session yet
+  lift: number | null;
+}
+
 /** A configured checklist item the learner ticks. session_feedback_checklist_config. */
 export interface ChecklistConfigItem {
   id: string;
