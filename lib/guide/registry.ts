@@ -34,6 +34,9 @@ import { GUIDES as PDE_GUIDES, REQUIRES as PDE_REQUIRES } from "../pde/guide/con
 import { GUIDES as HR_GUIDES, REQUIRES as HR_REQUIRES } from "../hr/guide/content";
 import { GUIDES as ADMISSION_GUIDES, REQUIRES as ADMISSION_REQUIRES } from "../admission/guide/content";
 import { GUIDES as BILLING_GUIDES, REQUIRES as BILLING_REQUIRES } from "../billing/guide/content";
+import { GUIDES as ACADEMIC_GUIDES, REQUIRES as ACADEMIC_REQUIRES } from "../academic/guide/content";
+import { GUIDES as STARTUP_GUIDES, REQUIRES as STARTUP_REQUIRES } from "../startup-studio/guide/content";
+import { GUIDES as SOLUTIONS_GUIDES, REQUIRES as SOLUTIONS_REQUIRES } from "../solutions/guide/content";
 
 /* ────────────────────────────────────────────────────────────────────────
  * PERSONA ACCESS — which permission keys grant each canonical persona (OR'd
@@ -49,11 +52,11 @@ import { GUIDES as BILLING_GUIDES, REQUIRES as BILLING_REQUIRES } from "../billi
  * ──────────────────────────────────────────────────────────────────────── */
 export const PERSONA_REQUIRES: Record<CanonicalPersona, string[]> = {
   learner: [],
-  facilitator: [AI_PULSE_REQUIRES.faculty, PDE_REQUIRES.faculty],
+  facilitator: [AI_PULSE_REQUIRES.faculty, PDE_REQUIRES.faculty, ACADEMIC_REQUIRES.faculty, STARTUP_REQUIRES.mentor, STARTUP_REQUIRES.evaluator, SOLUTIONS_REQUIRES.delivery_team],
   "unit-lead": [AI_PULSE_REQUIRES.champion, CAMPUS_REQUIRES.warden, CAMPUS_REQUIRES.mess],
-  coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor, BILLING_REQUIRES["finance-officer"]],
-  supervisor: [AI_PULSE_REQUIRES.hod, HR_REQUIRES.manager],
-  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin, BILLING_REQUIRES["finance-admin"]],
+  coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor, BILLING_REQUIRES["finance-officer"], ACADEMIC_REQUIRES.coordinator, STARTUP_REQUIRES.coordinator, SOLUTIONS_REQUIRES.sales_lead],
+  supervisor: [AI_PULSE_REQUIRES.hod, HR_REQUIRES.manager, ACADEMIC_REQUIRES.hod, ACADEMIC_REQUIRES.principal, SOLUTIONS_REQUIRES.finance_officer],
+  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin, BILLING_REQUIRES["finance-admin"], STARTUP_REQUIRES.admin, SOLUTIONS_REQUIRES.module_admin],
   "platform-admin": [],
   parent: [],
   external: [],
@@ -454,7 +457,127 @@ export const billingGuide: ModuleGuide = {
   routes: [],
 };
 
-export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide];
+/* ── Academic ───────────────────────────────────────────────────────────────
+ * learner→learner (open baseline), faculty→facilitator, hod+principal→supervisor
+ * (COLLAPSED — each tagged with its own academic key, fail-closed), coordinator→
+ * coordinator. Non-learner lanes section-gated by their own Academic permission.
+ * ────────────────────────────────────────────────────────────────────────── */
+export const academicGuide: ModuleGuide = {
+  module: "academic",
+  basePath: "/academic",
+  lanes: {
+    learner: {
+      sections: ACADEMIC_GUIDES.lanes.learner.sections,
+      startHere: ACADEMIC_GUIDES.lanes.learner.startHere,
+      title: ACADEMIC_GUIDES.lanes.learner.title,
+      tagline: ACADEMIC_GUIDES.lanes.learner.tagline,
+    },
+    facilitator: {
+      sections: withRequires(ACADEMIC_GUIDES.lanes.faculty.sections, ACADEMIC_REQUIRES.faculty),
+      startHere: ACADEMIC_GUIDES.lanes.faculty.startHere,
+      title: ACADEMIC_GUIDES.lanes.faculty.title,
+      tagline: ACADEMIC_GUIDES.lanes.faculty.tagline,
+    },
+    supervisor: {
+      // hod + principal collapsed → each tagged with its own key (a viewer sees
+      // only the sections their permission unlocks; matches campus-living unit-lead).
+      sections: [
+        ...withRequires(ACADEMIC_GUIDES.lanes.hod.sections, ACADEMIC_REQUIRES.hod),
+        ...withRequires(ACADEMIC_GUIDES.lanes.principal.sections, ACADEMIC_REQUIRES.principal),
+      ],
+      startHere: ACADEMIC_GUIDES.lanes.hod.startHere,
+      title: ACADEMIC_GUIDES.lanes.hod.title,
+      tagline: ACADEMIC_GUIDES.lanes.hod.tagline,
+    },
+    coordinator: {
+      sections: withRequires(ACADEMIC_GUIDES.lanes.coordinator.sections, ACADEMIC_REQUIRES.coordinator),
+      startHere: ACADEMIC_GUIDES.lanes.coordinator.startHere,
+      title: ACADEMIC_GUIDES.lanes.coordinator.title,
+      tagline: ACADEMIC_GUIDES.lanes.coordinator.tagline,
+    },
+  },
+  routes: [],
+};
+
+/* ── Startup Studio ──────────────────────────────────────────────────────────
+ * founder→learner (open baseline), mentor+evaluator→facilitator (COLLAPSED),
+ * coordinator→coordinator, admin→module-admin. Non-learner lanes section-gated.
+ * ────────────────────────────────────────────────────────────────────────── */
+export const startupStudioGuide: ModuleGuide = {
+  module: "startup-studio",
+  basePath: "/startup-studio",
+  lanes: {
+    learner: {
+      sections: STARTUP_GUIDES.lanes.founder.sections,
+      startHere: STARTUP_GUIDES.lanes.founder.startHere,
+      title: STARTUP_GUIDES.lanes.founder.title,
+      tagline: STARTUP_GUIDES.lanes.founder.tagline,
+    },
+    facilitator: {
+      // mentor + evaluator collapsed → each tagged with its own key (fail-closed).
+      sections: [
+        ...withRequires(STARTUP_GUIDES.lanes.mentor.sections, STARTUP_REQUIRES.mentor),
+        ...withRequires(STARTUP_GUIDES.lanes.evaluator.sections, STARTUP_REQUIRES.evaluator),
+      ],
+      startHere: STARTUP_GUIDES.lanes.mentor.startHere,
+      title: STARTUP_GUIDES.lanes.mentor.title,
+      tagline: STARTUP_GUIDES.lanes.mentor.tagline,
+    },
+    coordinator: {
+      sections: withRequires(STARTUP_GUIDES.lanes.coordinator.sections, STARTUP_REQUIRES.coordinator),
+      startHere: STARTUP_GUIDES.lanes.coordinator.startHere,
+      title: STARTUP_GUIDES.lanes.coordinator.title,
+      tagline: STARTUP_GUIDES.lanes.coordinator.tagline,
+    },
+    "module-admin": {
+      sections: withRequires(STARTUP_GUIDES.lanes.admin.sections, STARTUP_REQUIRES.admin),
+      startHere: STARTUP_GUIDES.lanes.admin.startHere,
+      title: STARTUP_GUIDES.lanes.admin.title,
+      tagline: STARTUP_GUIDES.lanes.admin.tagline,
+    },
+  },
+  routes: [],
+};
+
+/* ── Solutions (JKKN Solutions Hub — internal staff back-office) ──────────────
+ * No learner lane (no open everyday user). delivery_team→facilitator,
+ * sales_lead→coordinator, finance_officer→supervisor, module_admin→module-admin.
+ * Each lane section-gated by its area's solutions.*.view key (writes are guarded
+ * at the service layer; flagged for the module owner to refine).
+ * ────────────────────────────────────────────────────────────────────────── */
+export const solutionsGuide: ModuleGuide = {
+  module: "solutions",
+  basePath: "/solutions",
+  lanes: {
+    facilitator: {
+      sections: withRequires(SOLUTIONS_GUIDES.lanes.delivery_team.sections, SOLUTIONS_REQUIRES.delivery_team),
+      startHere: SOLUTIONS_GUIDES.lanes.delivery_team.startHere,
+      title: SOLUTIONS_GUIDES.lanes.delivery_team.title,
+      tagline: SOLUTIONS_GUIDES.lanes.delivery_team.tagline,
+    },
+    coordinator: {
+      sections: withRequires(SOLUTIONS_GUIDES.lanes.sales_lead.sections, SOLUTIONS_REQUIRES.sales_lead),
+      startHere: SOLUTIONS_GUIDES.lanes.sales_lead.startHere,
+      title: SOLUTIONS_GUIDES.lanes.sales_lead.title,
+      tagline: SOLUTIONS_GUIDES.lanes.sales_lead.tagline,
+    },
+    supervisor: {
+      sections: withRequires(SOLUTIONS_GUIDES.lanes.finance_officer.sections, SOLUTIONS_REQUIRES.finance_officer),
+      startHere: SOLUTIONS_GUIDES.lanes.finance_officer.startHere,
+      title: SOLUTIONS_GUIDES.lanes.finance_officer.title,
+      tagline: SOLUTIONS_GUIDES.lanes.finance_officer.tagline,
+    },
+    "module-admin": {
+      sections: withRequires(SOLUTIONS_GUIDES.lanes.module_admin.sections, SOLUTIONS_REQUIRES.module_admin),
+      startHere: SOLUTIONS_GUIDES.lanes.module_admin.startHere,
+      title: SOLUTIONS_GUIDES.lanes.module_admin.title,
+      tagline: SOLUTIONS_GUIDES.lanes.module_admin.tagline,
+    },
+  },
+  routes: [],
+};
+
+export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide, academicGuide, startupStudioGuide, solutionsGuide];
 
 /** Canonical personas at least one module contributes real sections to. A
  *  persona NOT in this set is sparse (composeLane returns the platform-overview
@@ -478,6 +601,9 @@ const MODULE_LABELS: Record<string, string> = {
   hr: "HR",
   admission: "Admission",
   billing: "Fees & Billing",
+  academic: "Academic",
+  "startup-studio": "Startup Studio",
+  solutions: "Solutions",
 };
 
 /** Human label for a module namespace; falls back to the raw id if unknown. */
@@ -505,6 +631,9 @@ const MODULE_GLOSSARIES: Record<string, GlossaryTerm[]> = {
   hr: HR_GUIDES.glossary ?? [],
   admission: ADMISSION_GUIDES.glossary ?? [],
   billing: BILLING_GUIDES.glossary ?? [],
+  academic: ACADEMIC_GUIDES.glossary ?? [],
+  "startup-studio": STARTUP_GUIDES.glossary ?? [],
+  solutions: SOLUTIONS_GUIDES.glossary ?? [],
 };
 
 /** "Words to know" terms for one module; empty array if module unknown. */
