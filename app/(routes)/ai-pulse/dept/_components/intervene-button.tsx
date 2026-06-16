@@ -29,6 +29,7 @@ interface InterveneButtonProps {
   departmentName: string;
   missCount: number;
   tier: ConsequenceTier;
+  institutionId?: string | null;
 }
 
 export function InterveneButton({
@@ -36,6 +37,7 @@ export function InterveneButton({
   departmentName,
   missCount,
   tier,
+  institutionId,
 }: InterveneButtonProps) {
   const { can, isSuperAdmin } = usePermissions();
   const intervene = useInterveneDept();
@@ -53,6 +55,7 @@ export function InterveneButton({
         department_name: departmentName,
         miss_count: missCount,
         tier,
+        institution_id: institutionId ?? null,
       });
       setResult(
         notified > 0 ? `Notified ${notified}` : 'No recipients found',

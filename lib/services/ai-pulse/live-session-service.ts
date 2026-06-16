@@ -78,6 +78,19 @@ export interface LivePollResponse {
   option_id: string;
 }
 
+/**
+ * This week's Champion-chosen featured AI tool, resolved from
+ * config.ai_pulse.featured_tool_id (standardized nested shape, with legacy
+ * flat config.featured_tool_id fallback) → ai_pulse_featured_tools. Mirrors
+ * the admin/NAAC read in cycles-service hydrateCycle; surfaced here so the
+ * learner-facing live page can show it too.
+ */
+export interface LiveFeaturedTool {
+  id: string;
+  label_en: string;
+  vendor_name: string | null;
+}
+
 export interface LiveSessionData {
   cycle: {
     id: string;
@@ -106,6 +119,11 @@ export interface LiveSessionData {
    */
   join_open: boolean;
   join_opens_at: string | null; // ISO — when the button unlocks
+  /**
+   * The Champion's featured AI tool for this cycle, or null when none is set
+   * (or the tool row was removed). Shown in the live-session header card.
+   */
+  featured_tool: LiveFeaturedTool | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -290,6 +308,33 @@ export class LiveSessionService {
     const config = (cycleRow.config ?? {}) as Record<string, unknown>;
     const aiPulse = (config.ai_pulse ?? {}) as Record<string, unknown>;
 
+    // Champion-chosen featured tool — read the raw config in code (NOT a
+    // PostgREST `->>dotted.key` filter, which returns false-empty on dotted
+    // JSON keys). Nested-first (config.ai_pulse.featured_tool_id), with a
+    // fallback to the legacy flat shape (config.featured_tool_id), matching
+    // the canonical read in cycles-service hydrateCycle. Then join the
+    // featured-tools master for its label + vendor (same columns the admin
+    // side reads). Best-effort: a missing/removed tool degrades to null.
+    let featured_tool: LiveFeaturedTool | null = null;
+    const featuredToolId =
+      (aiPulse.featured_tool_id as string | null | undefined) ??
+      (config.featured_tool_id as string | null | undefined) ??
+      null;
+    if (featuredToolId) {
+      const { data: ft } = await supabase
+        .from('ai_pulse_featured_tools')
+        .select('id, label_en, vendor_name')
+        .eq('id', featuredToolId)
+        .maybeSingle();
+      if (ft) {
+        featured_tool = {
+          id: ft.id as string,
+          label_en: ft.label_en as string,
+          vendor_name: (ft.vendor_name ?? null) as string | null,
+        };
+      }
+    }
+
     // Existing per-learner attendance row (if any)
     const { data: attRow } = await supabase
       .from('ai_pulse_live_attendance')
@@ -368,6 +413,7 @@ export class LiveSessionService {
       quiz_async_window_open,
       join_open,
       join_opens_at,
+      featured_tool,
     };
   }
 
