@@ -9,6 +9,8 @@ export interface MessCategory {
   type: MessCategoryType;
   is_active: boolean;
   sort_order: number;
+  /** When true, residents in this mess category see/can use mess upgrades on My Hostel. Default false. */
+  upgrades_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -19,6 +21,7 @@ export interface CreateMessCategoryDto {
   type: MessCategoryType;
   is_active?: boolean;
   sort_order?: number;
+  upgrades_enabled?: boolean;
 }
 
 export interface UpdateMessCategoryDto {
@@ -27,6 +30,7 @@ export interface UpdateMessCategoryDto {
   type?: MessCategoryType;
   is_active?: boolean;
   sort_order?: number;
+  upgrades_enabled?: boolean;
 }
 
 export interface MessCategoryFilters {

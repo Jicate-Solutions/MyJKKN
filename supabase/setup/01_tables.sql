@@ -5089,3 +5089,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cleaning_task_schedule_date
 -- family_moments: one row per child per campaign
 --   (token UNIQUE unguessable, content_type auto|text|image,
 --    recipient snapshots, opened/install/push tracking columns)
+
+-- =====================================================
+-- 20260616080000: Per-category "allow upgrades" flag
+-- Default false = opt-in; no learner sees upgrade options
+-- until admin enables it per category.
+-- =====================================================
+ALTER TABLE public.hostel_categories
+  ADD COLUMN IF NOT EXISTS upgrades_enabled boolean NOT NULL DEFAULT false;
+
+ALTER TABLE public.mess_categories
+  ADD COLUMN IF NOT EXISTS upgrades_enabled boolean NOT NULL DEFAULT false;

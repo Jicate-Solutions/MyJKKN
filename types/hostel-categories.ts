@@ -24,6 +24,8 @@ export interface HostelCategory {
    *  upgrade-fee pair is configured from the resident's current category — never via
    *  the fee-difference fallback. Keeps it scoped to one source category. */
   requires_explicit_upgrade: boolean;
+  /** When true, residents in this category see/can use self-service upgrades on My Hostel. Default false. */
+  upgrades_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -37,6 +39,7 @@ export interface CreateHostelCategoryDto {
   sort_order?: number;
   upgrade_threshold_pct?: number | null;
   upgrade_hold_days?: number;
+  upgrades_enabled?: boolean;
 }
 
 export interface UpdateHostelCategoryDto {
@@ -48,6 +51,7 @@ export interface UpdateHostelCategoryDto {
   sort_order?: number;
   upgrade_threshold_pct?: number | null;
   upgrade_hold_days?: number;
+  upgrades_enabled?: boolean;
 }
 
 export interface HostelCategoryFilters {

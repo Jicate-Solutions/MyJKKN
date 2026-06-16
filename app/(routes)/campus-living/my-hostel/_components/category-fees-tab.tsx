@@ -110,13 +110,17 @@ export function CategoryFeesTab() {
       </Card>
 
       {/* Self-service upgrades */}
-      <RoomCategoryUpgradeCard
-        currentCategoryName={summary?.hostelCategory?.name ?? null}
-        mode='upgrade'
-      />
-      <MessCategoryUpgradeCard
-        currentMessName={summary?.messCategory?.name ?? null}
-      />
+      {summary?.hostelCategory?.upgrades_enabled && (
+        <RoomCategoryUpgradeCard
+          currentCategoryName={summary?.hostelCategory?.name ?? null}
+          mode='upgrade'
+        />
+      )}
+      {summary?.messCategory?.upgrades_enabled && (
+        <MessCategoryUpgradeCard
+          currentMessName={summary?.messCategory?.name ?? null}
+        />
+      )}
     </div>
   );
 }
