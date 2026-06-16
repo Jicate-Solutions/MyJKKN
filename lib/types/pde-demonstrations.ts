@@ -109,13 +109,20 @@ export interface PDEReviewQueueRow {
   created_at: string;
 }
 
-/** Faculty review decisions. Map to existing pde_demonstrations status values. */
-export type PDEValidationDecision = 'validated' | 'rejected';
+/**
+ * Faculty review decisions.
+ *  - 'validated' / 'rejected' set the demonstration status to that value.
+ *  - 'changes_requested' returns the demonstration to 'draft' so the owning
+ *    learner can edit + resubmit; raw_score is left untouched. The validator
+ *    note is persisted and surfaced to the learner as the reason to fix.
+ */
+export type PDEValidationDecision = 'validated' | 'rejected' | 'changes_requested';
 
 export interface ValidateDemonstrationInput {
   demonstrationId: string;
   decision: PDEValidationDecision;
-  /** Required when decision = 'validated'; ignored on 'rejected'. */
+  /** Required when decision = 'validated'; ignored on 'rejected'/'changes_requested'. */
   rawScore?: number | null;
+  /** Required on 'changes_requested' (the learner needs to know what to fix). */
   notes?: string | null;
 }
