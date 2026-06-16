@@ -89,6 +89,15 @@ function cellTooltip(cell: HeatmapCell, cycleLabel: string): string {
   return `${cycleLabel}: ${parts.join(' · ')}.`;
 }
 
+/** Short IST date for the "last intervened {date}" hint (e.g. "16 Jun"). */
+function formatInterventionDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+  });
+}
+
 function cellBgClass(cell: HeatmapCell): string {
   if (cell.is_miss) return 'bg-red-50 border-red-200';
   if (cell.engagement_pct >= 75 && cell.domain_sync_submitted && cell.ig_published) {
@@ -230,7 +239,19 @@ export function DeptHeatmapGrid() {
                       departmentName={row.department_name}
                       missCount={row.miss_count}
                       tier={row.tier}
+                      institutionId={row.institution_id}
                     />
+                    {row.last_intervened_at ? (
+                      <span
+                        className="mt-1 block text-[10px] text-muted-foreground"
+                        title={`An intervention was recorded on ${new Date(
+                          row.last_intervened_at,
+                        ).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST.`}
+                      >
+                        last intervened{' '}
+                        {formatInterventionDate(row.last_intervened_at)}
+                      </span>
+                    ) : null}
                   </td>
                 </tr>
               ))}

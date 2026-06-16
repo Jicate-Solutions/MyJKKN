@@ -1601,6 +1601,12 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Location: `supabase/migrations/20260612180000_care_audit_framework.sql` (applied live via Management API 2026-06-12)
 - Purpose: Digitize the JKKN CARE Audit Framework v1.0 inside /audit — 20-item 0–4 scoring, two-scorer blind variance, pillar/index/gap-rule math, corrective moves as findings. Spec: specs/care-audit-module-spec-2026-06-12.md
 
+### AI Pulse Department Interventions (2026-06-16)
+- Table: `ai_pulse_interventions` (id, dept_id, institution_id, cycle_id, tier, requested_by, note, created_at) — append-only audit of HOD heatmap "Intervene" actions. Index `(dept_id, created_at DESC)` for the latest-per-dept "last intervened" grid hint.
+- RLS: standardized pattern — SELECT is_super_admin/is_admin OR `aiPulse:dept.heatmap`; INSERT (authenticated) is_super_admin/is_admin OR `aiPulse:dept.intervene`. No UPDATE/DELETE. REVOKE anon/PUBLIC + GRANT SELECT,INSERT authenticated + NOTIFY pgrst reload.
+- Location: `supabase/migrations/20260616120000_ai_pulse_interventions.sql` (NOT yet applied — apply via exec_sql/Management API at merge; the write + grid hint degrade to no-op until applied)
+- Purpose: SOP last-mile fix #19 — give HOD interventions a durable record so the heatmap can show "last intervened" and governance has a trail (was notification-only).
+
 ### PDE Faculty Review RPCs (2026-06-15)
 - Functions: `fn_pde_review_queue(p_category text, p_status text)` (STABLE, enriched institution-scoped read of `pde_demonstrations` joined to `profiles` for the learner name; hides draft/withdrawn; mirrors the SELECT-RLS reviewer roles) and `fn_pde_validate_demonstration(p_demonstration_id uuid, p_decision text, p_raw_score numeric, p_notes text)` (VOLATILE, the only faculty write path — faculty RLS is SELECT-only; re-checks same-institution reviewer, enforces submitted/under_review → validated|rejected, appends validator id + note, sets raw_score on validate). Both SECURITY DEFINER, REVOKE anon/PUBLIC + GRANT authenticated.
 - RLS: no table changes; reuses existing `pde_demonstrations` policies (learner own, faculty SELECT same-inst, super_admin all). Weighted scoring stays downstream (scoring engine writes weighted_score/passed).

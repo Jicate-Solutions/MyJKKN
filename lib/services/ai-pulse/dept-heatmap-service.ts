@@ -63,6 +63,12 @@ export interface HeatmapDeptRow {
   cells: HeatmapCell[]; // same order as cycles
   miss_count: number;
   tier: ConsequenceTier;
+  /**
+   * ISO timestamp of the most recent recorded HOD intervention for this
+   * department (from ai_pulse_interventions), or null when none / the audit
+   * table isn't applied yet. Drives the grid's "last intervened" hint.
+   */
+  last_intervened_at: string | null;
 }
 
 export interface DeptHeatmapData {
@@ -232,6 +238,31 @@ export class DeptHeatmapService {
 
     if (cycleIds.length === 0 || depts.length === 0) {
       return { cycles, rows: [], thresholds };
+    }
+
+    // 2a. Latest recorded intervention per department (best-effort). Powers
+    //     the grid's "last intervened" hint. Reads newest-first and keeps the
+    //     first seen per dept. The ai_pulse_interventions table may not be
+    //     applied yet — supabase-js returns { error } rather than throwing, so
+    //     a missing table degrades to "no hint" silently.
+    const lastInterventionByDept = new Map<string, string>();
+    {
+      const deptIds = depts.map((d) => d.id).filter(Boolean);
+      if (deptIds.length > 0) {
+        const { data: intvRows } = await sb
+          .from('ai_pulse_interventions')
+          .select('dept_id, created_at')
+          .in('dept_id', deptIds)
+          .order('created_at', { ascending: false });
+        for (const r of (intvRows ?? []) as Array<{
+          dept_id: string | null;
+          created_at: string | null;
+        }>) {
+          if (r.dept_id && r.created_at && !lastInterventionByDept.has(r.dept_id)) {
+            lastInterventionByDept.set(r.dept_id, r.created_at);
+          }
+        }
+      }
     }
 
     // 2b. Polls issued per cycle — best-effort (the polls substrate may not
@@ -406,6 +437,7 @@ export class DeptHeatmapService {
         cells,
         miss_count: missCount,
         tier: tierFor(missCount, thresholds),
+        last_intervened_at: lastInterventionByDept.get(d.id) ?? null,
       };
     });
 
@@ -428,6 +460,7 @@ export class DeptHeatmapService {
     department_name: string;
     miss_count: number;
     tier: ConsequenceTier;
+    institution_id?: string | null;
   }): Promise<{ notified: number }> {
     const sb = this.supabase as any;
     const { data: auth } = await sb.auth.getUser();
@@ -490,6 +523,33 @@ export class DeptHeatmapService {
       logger.warn('ai-pulse/dept-heatmap', 'intervention insert suppressed', e);
     }
 
+    // Durable audit record — so the heatmap can show "last intervened {date}"
+    // and a recorded HOD-chat is tracked as actioned (not recomputed each
+    // load). Best-effort, like the notifications insert above: a blocked or
+    // not-yet-applied table logs + degrades, never throws. Mirrors the
+    // append-only RLS in migration 20260616120000_ai_pulse_interventions.sql.
+    try {
+      const { error: auditErr } = await sb
+        .from('ai_pulse_interventions')
+        .insert({
+          dept_id: args.department_id,
+          institution_id: args.institution_id ?? null,
+          cycle_id: null,
+          tier: args.tier,
+          requested_by: userId,
+          note: null,
+        });
+      if (auditErr) {
+        logger.warn(
+          'ai-pulse/dept-heatmap',
+          'intervention audit row skipped',
+          auditErr,
+        );
+      }
+    } catch (e) {
+      logger.warn('ai-pulse/dept-heatmap', 'intervention audit suppressed', e);
+    }
+
     return { notified };
   }
 }
@@ -514,6 +574,7 @@ export function useInterveneDept() {
       department_name: string;
       miss_count: number;
       tier: ConsequenceTier;
+      institution_id?: string | null;
     }) => DeptHeatmapService.intervene(args),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: HEATMAP_KEY });

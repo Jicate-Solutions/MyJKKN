@@ -58,7 +58,10 @@ export function NaacPreviewTable({ rows, isLoading }: NaacPreviewTableProps) {
             <TableHead className="min-w-[140px]">Featured Tool</TableHead>
             <TableHead className="min-w-[140px]">Champion</TableHead>
             <TableHead className="min-w-[130px]">Verification</TableHead>
-            <TableHead className="text-right">IG Reach</TableHead>
+            {/* Self-reported active-users count; real IG reach (ig_post_metrics) available via pulse-analytics-service as a future upgrade. */}
+            <TableHead className="text-right">
+              Active Users (self-reported)
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
