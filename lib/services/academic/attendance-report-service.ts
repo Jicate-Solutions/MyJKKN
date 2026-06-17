@@ -745,14 +745,20 @@ export class AttendanceReportService {
           if (staffData) {
             facultyStaffId = staffData.id;
 
-            // Filter periods to only include those assigned to this faculty
+            // Filter periods to only include those assigned to this faculty.
+            // Updated: 2026-06-17 - Also keep periods this faculty MARKED, mirroring
+            // the access check above (assigned OR marker). Without this, a period
+            // saved with an empty assigned_faculty (e.g. older cycle-timetable
+            // records marked before assigned-faculty resolution was fixed) is
+            // hidden from the very faculty who recorded it → "0 periods" report.
             periods = periods.filter((period: any) => {
-              if (Array.isArray(period.assigned_faculty)) {
-                return period.assigned_faculty.some(
-                  (f: any) => f.faculty_id === facultyStaffId
-                );
-              }
-              return period.assigned_faculty?.faculty_id === facultyStaffId;
+              const isAssigned = Array.isArray(period.assigned_faculty)
+                ? period.assigned_faculty.some(
+                    (f: any) => f.faculty_id === facultyStaffId
+                  )
+                : period.assigned_faculty?.faculty_id === facultyStaffId;
+              const isMarker = period.marked_by_details?.marker_id === userId;
+              return isAssigned || isMarker;
             });
 
             if (periods.length === 0) {

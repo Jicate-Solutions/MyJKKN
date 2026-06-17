@@ -593,7 +593,7 @@ export class AttendanceService {
       // First, find the active timetable for the given filters that includes the selected date
       const timetableQuery = this.supabase
         .from('timetables')
-        .select('id, start_date, end_date, timetable_name')
+        .select('id, start_date, end_date, timetable_name, timetable_format')
         .eq('institution_id', filters.institution_id)
         .eq('academic_year_id', filters.academic_year_id)
         .eq('degree_id', filters.degree_id)
@@ -619,9 +619,14 @@ export class AttendanceService {
       }
 
       const timetableId = (timetables[0] as any).id;
+      const timetableFormat = (timetables[0] as any).timetable_format;
 
-      // Determine day of week from date
-      const dayOfWeek = this.getDayOfWeekFromDate(date);
+      // Determine the timetable_data lookup key for this date.
+      // Added: 2026-06-17 - Cycle timetables key by "cycle-N", not weekday.
+      const lookupKey =
+        timetableFormat === 'cycle'
+          ? await this.resolveCycleKey(timetableId, date)
+          : this.getDayOfWeekFromDate(date);
 
       // Get timetable data and extract slots for the specific day
       const { data: timetableData, error: timetableDataError } =
@@ -638,8 +643,8 @@ export class AttendanceService {
 
       let slots: any[] = [];
       const _ttd = (timetableData as { timetable_data?: TimetableData })?.timetable_data;
-      if (_ttd) {
-        const daySlots = _ttd[dayOfWeek];
+      if (_ttd && lookupKey) {
+        const daySlots = _ttd[lookupKey];
         if (daySlots && typeof daySlots === 'object') {
           // Convert JSON structure to array format
           slots = Object.entries(daySlots).map(
@@ -647,7 +652,7 @@ export class AttendanceService {
               ...slotData,
               id: slotData.slot_id || periodId,
               period_id: periodId,
-              day_of_week: dayOfWeek
+              day_of_week: lookupKey
             })
           );
         }
@@ -1167,6 +1172,24 @@ export class AttendanceService {
                     slot_date: date,
                     _original_slot_date: slotData.slot_date // Keep original for reference
                   });
+                });
+              }
+            } else if ((timetable as { timetable_format?: string }).timetable_format === 'cycle') {
+              // Added: 2026-06-17 - Cycle timetables key timetable_data by
+              // "cycle-N", not weekday. Resolve the active cycle for the date.
+              const cycleKey = await this.resolveCycleKey((timetable as any).id, date);
+              const daySlots = cycleKey ? (timetableData as any)[cycleKey] : undefined;
+              if (daySlots && typeof daySlots === 'object') {
+                Object.keys(daySlots).forEach((periodId) => {
+                  const slotData = (daySlots as any)[periodId];
+                  if (slotData && !slotData.is_break_slot) {
+                    slots.push({
+                      ...slotData,
+                      period_id: periodId,
+                      day_of_week: cycleKey,
+                      id: slotData.slot_id
+                    });
+                  }
                 });
               }
             } else {
@@ -1848,6 +1871,24 @@ export class AttendanceService {
       logger.error('academic/attendance', 'Error fetching attendance', error);
       throw error;
     }
+  }
+
+  // Added: 2026-06-17 - Resolve the timetable_data lookup key for a date.
+  // Cycle-format timetables key timetable_data by "cycle-N" (not weekday); the
+  // active cycle is computed by the canonical get_cycle_for_date RPC (counts
+  // working days, skips Sundays/holidays). Returns the "cycle-N" key, or null
+  // when there are no classes that day. Regular/batch formats are handled by
+  // their own branches — call this only for cycle timetables.
+  private static async resolveCycleKey(
+    timetableId: string,
+    date: string
+  ): Promise<string | null> {
+    const { data: cycleNum, error } = await this.supabase.rpc(
+      'get_cycle_for_date',
+      { p_timetable_id: timetableId, p_date: date }
+    );
+    if (error || !cycleNum) return null;
+    return `cycle-${cycleNum}`;
   }
 
   // Helper method to get day of week from date

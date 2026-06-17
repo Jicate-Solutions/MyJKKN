@@ -5,7 +5,7 @@ import { getCourseColumns } from './columns';
 import type { CoursesSearchParams } from './data-table-schema';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { Button } from '@/components/ui/button';
-import { Plus, TrashIcon, Loader2, Upload, Download, ChevronDown, FileSpreadsheet, FileText, FileJson } from 'lucide-react';
+import { Plus, TrashIcon, Loader2, Upload, Download, ChevronDown, FileSpreadsheet, FileText, FileJson, RefreshCw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { CourseService } from '@/lib/services/organization/course-service';
 import { Course } from '@/types/organizations';
@@ -46,6 +46,7 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Fixed: 2025-12-27 - Use correct permission for courses
   const canCreate =
@@ -160,6 +161,76 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
     router.refresh();
   };
 
+  // Manual "Sync from COE": forces an immediate mirror + mapping sync for the
+  // selected institution (bypasses the on-demand TTL and hourly cron). For
+  // COE-mastered institutions (CAS, Engineering) — anything just added in the COE
+  // portal lands in MyJKKN now. No-op (with a message) for MyJKKN-mastered ones.
+  const handleCoeSync = async () => {
+    if (!search.institution_id) {
+      toast.error(`Select an institution first to sync from COE`);
+      return;
+    }
+    setIsSyncing(true);
+    const toastId = toast.loading('Syncing from COE…');
+    try {
+      const res = await fetch('/api/coe-sync/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ institutionId: search.institution_id }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'Sync failed');
+      if (!j.coeMastered) {
+        toast(j.message, { id: toastId, icon: 'ℹ️' });
+        return;
+      }
+      const skipNote = j.mappingsSkipped ? `, ${j.mappingsSkipped} mapping(s) skipped` : '';
+      toast.success(
+        `Synced from COE: ${j.coursesUpserted} ${label('course').toLowerCase()}(s), ${j.mappingsUpserted} mapping(s)${skipNote}`,
+        { id: toastId },
+      );
+      if (j.errors?.length) {
+        toast.error(`${j.errors.length} error(s) during sync — see server logs`);
+      }
+      setRefreshTrigger(prev => prev + 1);
+      router.refresh();
+    } catch (e) {
+      toast.error((e as Error).message || 'Sync failed', { id: toastId });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Super-admin: sync EVERY COE-mastered institution in one pass (the cron, on
+  // demand). No institution filter needed.
+  const handleCoeSyncAll = async () => {
+    setIsSyncing(true);
+    const toastId = toast.loading('Syncing all COE institutions…');
+    try {
+      const res = await fetch('/api/coe-sync/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ all: true }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'Sync failed');
+      const skipNote = j.mappingsSkipped ? `, ${j.mappingsSkipped} skipped` : '';
+      toast.success(
+        `Synced ${j.institutionsProcessed} COE institution(s): ${j.coursesUpserted} ${label('course').toLowerCase()}(s), ${j.mappingsUpserted} mapping(s)${skipNote}`,
+        { id: toastId },
+      );
+      if (j.errors?.length) {
+        toast.error(`${j.errors.length} error(s) during sync — see server logs`);
+      }
+      setRefreshTrigger(prev => prev + 1);
+      router.refresh();
+    } catch (e) {
+      toast.error((e as Error).message || 'Sync failed', { id: toastId });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleDownloadTemplate = async () => {
     try {
       const response = await fetch('/api/organizations/courses/template');
@@ -262,6 +333,40 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
             <Upload className='mr-2 h-4 w-4' />
             Import
           </Button>
+
+          <Button
+            variant='outline'
+            size='sm'
+            className='h-8'
+            onClick={handleCoeSync}
+            disabled={isSyncing}
+            title='Pull the latest courses & mappings from the COE portal for the selected institution'
+          >
+            {isSyncing ? (
+              <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+            ) : (
+              <RefreshCw className='mr-2 h-4 w-4' />
+            )}
+            Sync from COE
+          </Button>
+
+          {isSuperAdmin && (
+            <Button
+              variant='outline'
+              size='sm'
+              className='h-8'
+              onClick={handleCoeSyncAll}
+              disabled={isSyncing}
+              title='Super-admin: pull latest courses & mappings from COE for ALL COE-mastered institutions'
+            >
+              {isSyncing ? (
+                <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+              ) : (
+                <RefreshCw className='mr-2 h-4 w-4' />
+              )}
+              Sync all COE
+            </Button>
+          )}
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
