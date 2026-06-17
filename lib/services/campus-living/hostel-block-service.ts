@@ -32,6 +32,35 @@ const BLOCK_AMENITY_EMBED =
 export class HostelBlockService {
   // ── List blocks with filters ──────────────────────────────────────
   // institutionId narrows via hostel_block_institutions junction.
+  // Live per-block capacity / occupancy / room-count from rooms + the
+  // v_hostel_room_occupancy view, for a set of block ids. The stored
+  // hostel_blocks counters drift (nothing maintains them), so list + summary
+  // surfaces derive these live instead — same figures the detail page shows.
+  private static async liveBlockCounters(
+    supabase: ReturnType<typeof createClientSupabaseClient>,
+    blockIds: string[]
+  ): Promise<Map<string, { capacity: number; occupancy: number; rooms: number }>> {
+    const m = new Map<string, { capacity: number; occupancy: number; rooms: number }>();
+    if (blockIds.length === 0) return m;
+    const [roomsRes, occRes] = await Promise.all([
+      supabase.from('hostel_rooms').select('block_id, capacity').in('block_id', blockIds),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase as any).from('v_hostel_room_occupancy').select('block_id, active_residents').in('block_id', blockIds),
+    ]);
+    for (const r of (roomsRes.data ?? []) as Array<{ block_id: string; capacity: number | null }>) {
+      const e = m.get(r.block_id) ?? { capacity: 0, occupancy: 0, rooms: 0 };
+      e.capacity += Number(r.capacity ?? 0);
+      e.rooms += 1;
+      m.set(r.block_id, e);
+    }
+    for (const o of (occRes.data ?? []) as Array<{ block_id: string; active_residents: number | null }>) {
+      const e = m.get(o.block_id) ?? { capacity: 0, occupancy: 0, rooms: 0 };
+      e.occupancy += Number(o.active_residents ?? 0);
+      m.set(o.block_id, e);
+    }
+    return m;
+  }
+
   static async getBlocks(
     institutionId: string | undefined,
     filters?: BlockFilters,
@@ -90,6 +119,14 @@ export class HostelBlockService {
         throw error;
       }
       const blocks = (data ?? []).map((b) => mapBlockAmenityTags(b)) as HostelBlock[];
+      // Override the stale stored counters with live bed-based figures.
+      const live = await this.liveBlockCounters(supabase, blocks.map((b) => b.id));
+      blocks.forEach((b) => {
+        const e = live.get(b.id);
+        b.total_capacity = e?.capacity ?? 0;
+        b.current_occupancy = e?.occupancy ?? 0;
+        b.total_rooms = e?.rooms ?? 0;
+      });
       return { data: blocks, count: count ?? 0 };
     } catch (error) {
       logger.error('campus-living/blocks', 'Unexpected error in getBlocks', error);
@@ -224,7 +261,20 @@ export class HostelBlockService {
         .sort((a, b) => a.floor - b.floor)
         .map((g) => ({ ...g, available: Math.max(g.capacity - g.occupied, 0), label: floorLabel(g.floor) }));
 
-      return { ...mapBlockAmenityTags(data), rooms_summary, floor_summary, block_breakdown } as HostelBlock & {
+      // The stored hostel_blocks counters (total_capacity / current_occupancy /
+      // total_rooms) are legacy denormalized columns that nothing keeps in sync
+      // as rooms/allocations change, so they drift (e.g. occupancy stuck at 0).
+      // Override the headline figures with the LIVE bed-based calc this method
+      // already derives, so the detail page's stats match the Floors-tab breakdown.
+      return {
+        ...mapBlockAmenityTags(data),
+        total_capacity: block_breakdown.totalBeds,
+        current_occupancy: block_breakdown.occupiedBeds,
+        total_rooms: rooms.length,
+        rooms_summary,
+        floor_summary,
+        block_breakdown,
+      } as HostelBlock & {
         hostel_rooms: unknown[];
         hostel_wardens: unknown[];
         rooms_summary: typeof rooms_summary;
@@ -443,11 +493,17 @@ export class HostelBlockService {
         throw error;
       }
 
+      // Derive live figures (stored counters drift — see liveBlockCounters).
+      const live = await this.liveBlockCounters(supabase, (data ?? []).map((b) => b.id));
       const summary = (data ?? []).map((block) => {
-        const cap = block.total_capacity ?? 0;
-        const occ = block.current_occupancy ?? 0;
+        const e = live.get(block.id);
+        const cap = e?.capacity ?? 0;
+        const occ = e?.occupancy ?? 0;
         return {
           ...block,
+          total_capacity: cap,
+          current_occupancy: occ,
+          total_rooms: e?.rooms ?? block.total_rooms,
           available_capacity: cap - occ,
           occupancy_percentage: cap > 0 ? Math.round((occ / cap) * 100) : 0,
         };
