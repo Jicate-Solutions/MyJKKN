@@ -311,6 +311,22 @@ export class FacultyAttendanceService {
               dayData![periodId] = slotData;
             });
           }
+        } else if (timetable.timetable_format === 'cycle') {
+          // Added: 2026-06-17 - Cycle timetables key timetable_data by "cycle-N"
+          // (e.g. "cycle-3"), NOT by weekday. Without this branch they fell into
+          // the day-of-week lookup below, found nothing, and the faculty saw "No
+          // classes scheduled for today" even when assigned in the active cycle.
+          // Resolve which cycle is active on targetDate via the canonical
+          // Postgres function — it advances only on working days and skips
+          // Sundays/holidays, exactly like the grid's "Today: Cycle N" badge.
+          const { data: cycleNum, error: cycleErr } = await this.supabase.rpc(
+            'get_cycle_for_date',
+            { p_timetable_id: timetable.id, p_date: targetDate }
+          );
+          if (cycleErr || !cycleNum) continue; // null = Sunday/holiday → no classes
+          const cycleKey = `cycle-${cycleNum}`;
+          if (!timetableData[cycleKey]) continue;
+          dayData = timetableData[cycleKey];
         } else {
           // Regular timetables use day-of-week keys
           if (!timetableData[dayOfWeek]) continue;
@@ -514,6 +530,16 @@ export class FacultyAttendanceService {
     // Handle 'regular' and 'date-range' formats the same way
     // Both use start_date and end_date to define the valid range
     if ((format === 'date-range' || format === 'regular') && startDate && endDate) {
+      const start = new Date(startDate + 'T00:00:00');
+      const end = new Date(endDate + 'T00:00:00');
+      return target >= start && target <= end;
+    }
+
+    // Added: 2026-06-17 - Handle 'cycle' format. Cycle timetables rotate through
+    // N cycles within an overall start/end window; here we only gate on that
+    // window. Which cycle is active on the date (and Sunday/holiday skipping) is
+    // resolved later via get_cycle_for_date in getFacultyTodayPeriods.
+    if (format === 'cycle' && startDate && endDate) {
       const start = new Date(startDate + 'T00:00:00');
       const end = new Date(endDate + 'T00:00:00');
       return target >= start && target <= end;

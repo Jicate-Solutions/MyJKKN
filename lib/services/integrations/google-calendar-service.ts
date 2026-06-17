@@ -125,6 +125,25 @@ function verifyState(state: string, secret: string): StatePayload | null {
   }
 }
 
+/**
+ * Pull the Google Meet URL out of a created-event response. With
+ * conferenceDataVersion=1 the durable link is on conferenceData.entryPoints
+ * (entryPointType='video'); hangoutLink is also populated for Meet events but
+ * is the legacy field — prefer the explicit video entry point, fall back to
+ * hangoutLink, then any entry-point uri. Returns null for non-Meet events.
+ */
+function extractMeetUrl(json: {
+  hangoutLink?: string;
+  conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> };
+}): string | null {
+  const eps = json.conferenceData?.entryPoints ?? [];
+  const video = eps.find((e) => e.entryPointType === 'video' && e.uri);
+  if (video?.uri) return video.uri;
+  if (json.hangoutLink) return json.hangoutLink;
+  const anyEp = eps.find((e) => e.uri);
+  return anyEp?.uri ?? null;
+}
+
 // ── service ──────────────────────────────────────────────────────────────────
 
 export class GoogleCalendarService {
@@ -369,9 +388,15 @@ export class GoogleCalendarService {
       console.error(`${LOG_PREFIX} event create failed:`, res.status, text.slice(0, 200));
       return null;
     }
-    const json = (await res.json()) as { id?: string; hangoutLink?: string };
+    const json = (await res.json()) as {
+      id?: string;
+      hangoutLink?: string;
+      conferenceData?: {
+        entryPoints?: Array<{ entryPointType?: string; uri?: string }>;
+      };
+    };
     if (!json.id) return null;
-    return { eventId: json.id, meetUrl: json.hangoutLink ?? null };
+    return { eventId: json.id, meetUrl: extractMeetUrl(json) };
   }
 
   /** Move an existing event (true reschedule, D16). */

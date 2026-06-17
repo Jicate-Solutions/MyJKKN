@@ -577,15 +577,30 @@ export function AttendanceFilters({
                   {!isSectionRequired && (
                     <SelectItem value='all_sections'>{label('All Sections')}</SelectItem>
                   )}
-                  {/* Remove duplicates by section name */}
+                  {/* Updated: 2026-06-17 - Guard against the stale-list race
+                      from React Query's `placeholderData: previousData` in
+                      useSections. When the semester changes, the section list
+                      keeps returning the PREVIOUS semester's sections until the
+                      refetch lands. Because every semester has its own
+                      identically-named section (e.g. each has an "A"), the user
+                      could pick a stale cross-semester section, desyncing
+                      section_id from semester_id and producing empty attendance
+                      results. Only render sections that belong to the currently
+                      selected semester. */}
                   {Array.from(
                     new Map(
-                      sections.map(
-                        (section: {
-                          id: string;
-                          section_name: import('react').ReactNode;
-                        }) => [section.section_name, section]
-                      )
+                      sections
+                        .filter(
+                          (section: { semester_id?: string }) =>
+                            !searchContext.semester_id ||
+                            section.semester_id === searchContext.semester_id
+                        )
+                        .map(
+                          (section: {
+                            id: string;
+                            section_name: import('react').ReactNode;
+                          }) => [section.section_name, section]
+                        )
                     ).values()
                   ).map(
                     (section: {
