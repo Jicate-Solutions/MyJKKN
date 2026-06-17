@@ -60,6 +60,12 @@ const VIEW_SELECT = [
   'semester_name',
   'academic_year_name',
   'lifecycle_status',
+  // Current room/mess categories (admin Category Upgrade tab — 2026-06-17)
+  'hostel_category_id',
+  'hostel_category_name',
+  'hostel_category_type',
+  'mess_category_id',
+  'mess_category_name',
 ].join(',');
 
 // learners_profiles columns NOT exposed on the view (used by mutations and the
