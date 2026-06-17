@@ -9,7 +9,8 @@ export type RazorpayAccountStatus = 'draft' | 'active' | 'inactive';
 
 export interface RazorpayAccountSummary {
   id: string;
-  institutionId: string;
+  /** null = GLOBAL account (common to all institutions for its fee head). */
+  institutionId: string | null;
   keyId: string | null;
   accountLabel: string | null;
   mode: 'test' | 'live';
@@ -25,7 +26,8 @@ export interface RazorpayAccountSummary {
 }
 
 export interface UpsertRazorpayAccountInput {
-  institutionId: string;
+  /** null = GLOBAL account; a global account must target a specific fee head. */
+  institutionId: string | null;
   keyId: string;
   keySecret: string;
   webhookSecret: string;
@@ -84,7 +86,8 @@ export function useUpsertRazorpayAccount() {
 }
 
 export interface CreateRazorpayDraftInput {
-  institutionId: string;
+  /** null = GLOBAL account; a global draft must target a specific fee head. */
+  institutionId: string | null;
   feeHead?: string | null;
   label?: string;
   mid?: string | null;

@@ -12,17 +12,31 @@ import { logger } from '@/lib/utils/enhanced-logger';
 export const POST = withAuth(
   async (request, auth) => {
     const body = await request.json().catch(() => null);
-    if (!body?.institutionId) {
-      return NextResponse.json({ success: false, error: 'missing_institution_id' }, { status: 400 });
+    if (!body) {
+      return NextResponse.json({ success: false, error: 'invalid_body' }, { status: 400 });
     }
     const { institutionId, feeHead, label, mid, tid, dbaName, mode } = body as Record<string, string>;
     if (mode && mode !== 'test' && mode !== 'live') {
       return NextResponse.json({ success: false, error: 'invalid_mode' }, { status: 400 });
     }
 
+    // institutionId omitted/blank => GLOBAL draft; a global account must target a fee head.
+    const instId = institutionId && String(institutionId).trim().length > 0 ? institutionId : null;
+    const head = feeHead?.trim() || null;
+    if (!instId && !head) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'global_requires_fee_head',
+          message: 'A global account (no institution) must target a specific fee head.',
+        },
+        { status: 400 },
+      );
+    }
+
     const result = await RazorpayAccountVault.createDraft({
-      institutionId,
-      feeHead: feeHead?.trim() || null,
+      institutionId: instId,
+      feeHead: head,
       label: label?.trim() || null,
       mid: mid?.trim() || null,
       tid: tid?.trim() || null,
@@ -32,8 +46,8 @@ export const POST = withAuth(
     });
 
     logger.info('billing/payment-accounts', 'Razorpay draft upserted', {
-      institutionId,
-      feeHead: feeHead?.trim() || null,
+      institutionId: instId,
+      feeHead: head,
       accountId: result.id,
       actor: auth.user.id,
     });
