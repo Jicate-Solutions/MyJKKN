@@ -29,6 +29,9 @@ import { AccountDetailsDialog } from './account-details-dialog';
 
 const ALL = '__all__';
 const NULL_HEAD = '__default__';
+// Filter bucket for GLOBAL accounts (institution_id NULL).
+const GLOBAL = '__global__';
+const GLOBAL_LABEL = 'All Institutions (Global)';
 
 function webhookUrlFor(webhookRef: string): string {
   const base = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '');
@@ -66,7 +69,7 @@ export function PaymentAccountsManager() {
 
   const instName = useMemo(() => {
     const map = new Map(institutions.map((i) => [i.id, i.name]));
-    return (id: string) => map.get(id) ?? id;
+    return (id: string | null) => (id == null ? GLOBAL_LABEL : map.get(id) ?? id);
   }, [institutions]);
 
   const counts = useMemo(() => {
@@ -77,7 +80,10 @@ export function PaymentAccountsManager() {
 
   const institutionOptions = useMemo(() => {
     const seen = new Map<string, string>();
-    for (const a of accounts ?? []) if (!seen.has(a.institutionId)) seen.set(a.institutionId, instName(a.institutionId));
+    for (const a of accounts ?? []) {
+      const key = a.institutionId ?? GLOBAL;
+      if (!seen.has(key)) seen.set(key, instName(a.institutionId));
+    }
     return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [accounts, instName]);
 
@@ -90,7 +96,7 @@ export function PaymentAccountsManager() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return (accounts ?? []).filter((a) => {
-      if (fInstitution !== ALL && a.institutionId !== fInstitution) return false;
+      if (fInstitution !== ALL && (a.institutionId ?? GLOBAL) !== fInstitution) return false;
       if (fFeeHead !== ALL && (a.feeHead ?? NULL_HEAD) !== fFeeHead) return false;
       if (fStatus !== ALL && a.status !== fStatus) return false;
       if (fMode !== ALL && a.mode !== fMode) return false;

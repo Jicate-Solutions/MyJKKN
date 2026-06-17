@@ -34,6 +34,18 @@ export function useHostelAllocations(institutionId: string | undefined, filters?
   });
 }
 
+// Full allocation set (no page cap) for the admin allocations page — drives the
+// summary counts + the advanced client-side table/filters. ~100s of rows today.
+export function useAllAllocations(institutionId: string | undefined, filters?: AllocationFilters) {
+  const { isSuperAdmin } = usePermissions();
+  return useQuery({
+    queryKey: ['hostel-allocations', 'all', { institutionId, ...filters }] as const,
+    queryFn: () => HostelAllocationService.getAllAllocations(isSuperAdmin ? undefined : institutionId, filters),
+    enabled: isSuperAdmin || !!institutionId,
+    staleTime: 30_000,
+  });
+}
+
 export function useActiveAllocations(institutionId: string | undefined) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({

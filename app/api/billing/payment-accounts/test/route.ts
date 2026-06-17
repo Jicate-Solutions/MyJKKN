@@ -9,17 +9,37 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/auth/with-auth';
 import { resolveRazorpayCredentials } from '@/lib/services/payments/razorpay/resolve-credentials';
+import { RazorpayAccountVault } from '@/lib/services/payments/razorpay/account-vault';
 import { razorpayRequest, RazorpayApiError } from '@/lib/services/payments/razorpay/client';
 
 export const POST = withAuth(
   async (request) => {
     const body = await request.json().catch(() => null);
-    const institutionId = body?.institutionId as string | undefined;
+    const institutionId = (body?.institutionId as string | null | undefined) || null;
     const feeHead = (body?.feeHead as string | null | undefined) ?? null;
 
     let creds;
     try {
-      creds = await resolveRazorpayCredentials({ institutionId, feeHead });
+      if (!institutionId) {
+        // Global account test — resolve the institution-agnostic account for this fee
+        // head directly (the normal router needs an institution and would fall to env).
+        if (!feeHead) {
+          return NextResponse.json(
+            { success: false, error: 'no_credentials', message: 'A global account requires a fee head to test.' },
+            { status: 200 },
+          );
+        }
+        const global = await RazorpayAccountVault.getGlobal(feeHead);
+        if (!global) {
+          return NextResponse.json(
+            { success: false, error: 'no_credentials', message: 'No active global account for this fee head.' },
+            { status: 200 },
+          );
+        }
+        creds = global;
+      } else {
+        creds = await resolveRazorpayCredentials({ institutionId, feeHead });
+      }
     } catch (err) {
       return NextResponse.json(
         { success: false, error: 'no_credentials', message: err instanceof Error ? err.message : 'No credentials' },

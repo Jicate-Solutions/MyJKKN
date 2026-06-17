@@ -38,8 +38,12 @@ export async function createClient() {
             cookiesToSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, options)
             );
-          } catch (error) {
-            console.error('Error setting cookies:', error);
+          } catch {
+            // Expected when called during a Server Component render: Next.js only
+            // permits cookie mutation in a Server Action or Route Handler, so the
+            // Supabase session-refresh write throws here. Safe to ignore — proxy.ts
+            // (middleware) refreshes the auth session on navigation (per Supabase SSR
+            // docs). Previously console.error'd, which spammed logs with a non-issue.
           }
         }
       }
@@ -66,8 +70,12 @@ export async function createServerSupabaseClient() {
             cookiesToSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, options)
             );
-          } catch (error) {
-            console.error('Error setting cookies:', error);
+          } catch {
+            // Expected when called during a Server Component render: Next.js only
+            // permits cookie mutation in a Server Action or Route Handler, so the
+            // Supabase session-refresh write throws here. Safe to ignore — proxy.ts
+            // (middleware) refreshes the auth session on navigation (per Supabase SSR
+            // docs). Previously console.error'd, which spammed logs with a non-issue.
           }
         }
       }

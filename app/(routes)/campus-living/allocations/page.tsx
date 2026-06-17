@@ -1,49 +1,37 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
-import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import { DataTable } from '@/components/data-table/data-table';
+import { DataTableColumnHeader } from '@/components/data-table/column-header';
+import type { ColumnDef } from '@tanstack/react-table';
 import { useAuth } from '@/hooks/use-auth';
-import { useHostelAllocations } from '@/hooks/campus-living/use-hostel-allocations';
+import { useAllAllocations } from '@/hooks/campus-living/use-hostel-allocations';
 import {
   AllocationFiltersPanel,
   EMPTY_ALLOCATION_FILTERS,
   allocationMatchesFilters,
 } from './_components/allocation-filters';
 import {
-  Plus,
-  Search,
-  BedDouble,
-  Loader2,
-  Users,
-  ArrowRightLeft,
-  LogOut,
-  Filter,
-  Download,
-  UserCheck
+  Plus, BedDouble, Loader2, Users, ArrowRightLeft, LogOut, UserCheck,
 } from 'lucide-react';
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
   active: { label: 'Active', variant: 'success' },
   vacated: { label: 'Vacated', variant: 'secondary' },
   transferred: { label: 'Transferred', variant: 'outline' },
+  pending_approval: { label: 'Pending', variant: 'default' },
+  pending_vacate: { label: 'Pending Vacate', variant: 'default' },
   suspended: { label: 'Suspended', variant: 'destructive' },
 };
-
 const feeStatusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
   paid: { label: 'Paid', variant: 'success' },
   partial: { label: 'Partial', variant: 'default' },
@@ -51,45 +39,134 @@ const feeStatusConfig: Record<string, { label: string; variant: 'default' | 'sec
   waived: { label: 'Waived', variant: 'outline' },
 };
 
-// Helper to safely access joined Supabase relations
-const getJoined = (row: any, relation: string, field: string): string =>
-  row?.[relation]?.[field] ?? '';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Alloc = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const getJoined = (row: any, relation: string, field: string): string => row?.[relation]?.[field] ?? '';
 
 export default function AllocationsPage() {
   const { profile } = useAuth();
-  const { data: allocationsResult, isLoading } = useHostelAllocations(profile?.institution_id ?? '');
-  const allocations = allocationsResult?.data;
-  const [searchQuery, setSearchQuery] = useState('');
+  const institutionId = profile?.institution_id ?? '';
+  // Full set (no page cap) — summary counts + the table all read this, so they
+  // reflect every allocation, not just the first page.
+  const { data: allocations = [], isLoading } = useAllAllocations(institutionId);
+
   const [statusFilter, setStatusFilter] = useState<string>('active');
   const [blockFilter, setBlockFilter] = useState<string>('all');
   const [advancedFilters, setAdvancedFilters] = useState(EMPTY_ALLOCATION_FILTERS);
 
-  const filteredAllocations = allocations?.filter((a: any) => {
-    const blockName = getJoined(a, 'hostel_blocks', 'name');
-    const roomNumber = getJoined(a, 'hostel_rooms', 'room_number');
-    const matchesSearch =
-      (a.emergency_contact_name ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      getJoined(a, 'learner', 'full_name').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      getJoined(a, 'learner', 'email').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      roomNumber.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || a.status === statusFilter;
-    const matchesBlock = blockFilter === 'all' || blockName === blockFilter;
-    return (
-      matchesSearch &&
-      matchesStatus &&
-      matchesBlock &&
-      allocationMatchesFilters(a, advancedFilters)
-    );
-  }) ?? [];
+  const blockNames = useMemo(
+    () => [...new Set(allocations.map((a: Alloc) => getJoined(a, 'hostel_blocks', 'name')).filter(Boolean))] as string[],
+    [allocations],
+  );
 
-  const blockNames = [...new Set(allocations?.map((a: any) => getJoined(a, 'hostel_blocks', 'name')).filter(Boolean) ?? [])];
+  // True totals over the full set (the old page counted only the first 50 rows).
+  const counts = useMemo(() => ({
+    active: allocations.filter((a: Alloc) => a.status === 'active').length,
+    transfers: allocations.filter((a: Alloc) => a.allocation_type === 'transfer').length,
+    vacated: allocations.filter((a: Alloc) => a.status === 'vacated').length,
+    feePending: allocations.filter((a: Alloc) => a.fee_status === 'pending').length,
+  }), [allocations]);
+
+  // Client-side data feed for the advanced DataTable: applies the external
+  // status/block/advanced filters + the table's own search & sort, then paginates.
+  const fetchData = useCallback(
+    async (params: { page: number; limit: number; search: string; sort_by: string; sort_order: string }) => {
+      const q = (params.search ?? '').trim().toLowerCase();
+      let rows = allocations.filter((a: Alloc) => {
+        if (statusFilter !== 'all' && a.status !== statusFilter) return false;
+        if (blockFilter !== 'all' && getJoined(a, 'hostel_blocks', 'name') !== blockFilter) return false;
+        if (!allocationMatchesFilters(a, advancedFilters)) return false;
+        if (q) {
+          const hay = [
+            getJoined(a, 'learner', 'full_name'),
+            getJoined(a, 'learner', 'email'),
+            getJoined(a, 'hostel_rooms', 'room_number'),
+            getJoined(a, 'hostel_blocks', 'name'),
+            a.emergency_contact_name ?? '',
+          ].join(' ').toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+
+      const sortKey = params.sort_by;
+      if (sortKey) {
+        const val = (a: Alloc): string => {
+          switch (sortKey) {
+            case 'learner': return getJoined(a, 'learner', 'full_name');
+            case 'block': return getJoined(a, 'hostel_blocks', 'name');
+            case 'room': return getJoined(a, 'hostel_rooms', 'room_number');
+            case 'date': return a.allocation_date ?? '';
+            case 'status': return a.status ?? '';
+            case 'type': return a.allocation_type ?? '';
+            default: return '';
+          }
+        };
+        const dir = params.sort_order === 'desc' ? -1 : 1;
+        rows = [...rows].sort((x, y) => val(x).localeCompare(val(y)) * dir);
+      }
+
+      const limit = params.limit || 25;
+      const total = rows.length;
+      const start = (params.page - 1) * limit;
+      return {
+        success: true,
+        data: rows.slice(start, start + limit),
+        pagination: { page: params.page, limit, total_pages: Math.max(1, Math.ceil(total / limit)), total_items: total },
+      };
+    },
+    [allocations, statusFilter, blockFilter, advancedFilters],
+  );
+
+  const columns = useMemo<ColumnDef<Alloc>[]>(() => [
+    {
+      id: 'learner',
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Learner" />,
+      cell: ({ row }) => (
+        <div className="flex flex-col">
+          <span className="font-medium">{getJoined(row.original, 'learner', 'full_name') || '—'}</span>
+          {getJoined(row.original, 'learner', 'email') && (
+            <span className="text-xs text-muted-foreground">{getJoined(row.original, 'learner', 'email')}</span>
+          )}
+        </div>
+      ),
+      size: 220,
+    },
+    { id: 'block', header: ({ column }) => <DataTableColumnHeader column={column} title="Block" />, cell: ({ row }) => getJoined(row.original, 'hostel_blocks', 'name') || '—', enableSorting: false, size: 130 },
+    { id: 'room', header: ({ column }) => <DataTableColumnHeader column={column} title="Room" />, cell: ({ row }) => getJoined(row.original, 'hostel_rooms', 'room_number') || '—', enableSorting: false, size: 90 },
+    { id: 'bed', header: 'Bed', cell: ({ row }) => getJoined(row.original, 'hostel_beds', 'bed_number') || '—', enableSorting: false, size: 80 },
+    { id: 'room_category', header: 'Room Cat.', cell: ({ row }) => row.original.learner?.academic?.room_category?.name ?? <span className="text-muted-foreground">—</span>, enableSorting: false, size: 130 },
+    { id: 'mess_category', header: 'Mess Cat.', cell: ({ row }) => row.original.learner?.academic?.mess_category?.name ?? <span className="text-muted-foreground">—</span>, enableSorting: false, size: 120 },
+    { id: 'type', header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />, cell: ({ row }) => <Badge variant="outline" className="text-xs capitalize">{row.original.allocation_type}</Badge>, size: 110 },
+    { id: 'date', header: ({ column }) => <DataTableColumnHeader column={column} title="Date" />, cell: ({ row }) => <span className="text-muted-foreground text-sm">{row.original.allocation_date ?? '—'}</span>, size: 120 },
+    {
+      id: 'status',
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+      cell: ({ row }) => { const c = statusConfig[row.original.status] ?? { label: row.original.status, variant: 'outline' as const }; return <Badge variant={c.variant}>{c.label}</Badge>; },
+      size: 120,
+    },
+    {
+      id: 'fee',
+      header: 'Fee',
+      cell: ({ row }) => { const c = feeStatusConfig[row.original.fee_status] ?? { label: row.original.fee_status, variant: 'outline' as const }; return <Badge variant={c.variant}>{c.label}</Badge>; },
+      enableSorting: false,
+      size: 100,
+    },
+    {
+      id: 'actions',
+      header: '',
+      cell: ({ row }) => <Button variant="ghost" size="sm" asChild><Link href={`/campus-living/allocations/${row.original.id}`}>View</Link></Button>,
+      enableSorting: false,
+      enableHiding: false,
+      size: 80,
+    },
+  ], []);
 
   if (isLoading) {
     return (
       <ContentLayout title="Allocations">
-        <div className="flex items-center justify-center min-h-[400px]">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
+        <div className="flex items-center justify-center min-h-[400px]"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
       </ContentLayout>
     );
   }
@@ -105,212 +182,77 @@ export default function AllocationsPage() {
       />
 
       <div className="space-y-6 mt-4">
-        {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
           <div>
             <h1 className="text-2xl font-bold py-1">Hostel Allocations</h1>
-            <p className="text-sm sm:text-base text-muted-foreground">
-              Manage student bed allocations across all blocks
-            </p>
+            <p className="text-sm sm:text-base text-muted-foreground">Manage student bed allocations across all blocks</p>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" asChild>
-              <Link href="/campus-living/allocations/roommate-matching">
-                <Users className="mr-2 h-4 w-4" />
-                Roommate Matching
-              </Link>
+              <Link href="/campus-living/allocations/roommate-matching"><Users className="mr-2 h-4 w-4" /> Roommate Matching</Link>
             </Button>
             <Button asChild>
-              <Link href="/campus-living/allocations/new">
-                <Plus className="mr-2 h-4 w-4" />
-                Allocate Bed
-              </Link>
+              <Link href="/campus-living/allocations/new"><Plus className="mr-2 h-4 w-4" /> Allocate Bed</Link>
             </Button>
           </div>
         </div>
 
-        {/* Summary Cards */}
+        {/* Summary cards — true totals over the full set */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="p-4 flex items-center gap-3">
-              <UserCheck className="h-8 w-8 text-green-600" />
-              <div>
-                <p className="text-2xl font-bold">{allocations?.filter((a) => a.status === 'active').length}</p>
-                <p className="text-xs text-muted-foreground">Active</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 flex items-center gap-3">
-              <ArrowRightLeft className="h-8 w-8 text-blue-600" />
-              <div>
-                <p className="text-2xl font-bold">{allocations?.filter((a) => a.allocation_type === 'transfer').length}</p>
-                <p className="text-xs text-muted-foreground">Transfers</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 flex items-center gap-3">
-              <LogOut className="h-8 w-8 text-amber-600" />
-              <div>
-                <p className="text-2xl font-bold">{allocations?.filter((a) => a.status === 'vacated').length}</p>
-                <p className="text-xs text-muted-foreground">Vacated</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 flex items-center gap-3">
-              <BedDouble className="h-8 w-8 text-purple-600" />
-              <div>
-                <p className="text-2xl font-bold">{allocations?.filter((a) => a.fee_status === 'pending').length}</p>
-                <p className="text-xs text-muted-foreground">Fee Pending</p>
-              </div>
-            </CardContent>
-          </Card>
+          <SummaryCard icon={<UserCheck className="h-8 w-8 text-green-600" />} value={counts.active} label="Active" />
+          <SummaryCard icon={<ArrowRightLeft className="h-8 w-8 text-blue-600" />} value={counts.transfers} label="Transfers" />
+          <SummaryCard icon={<LogOut className="h-8 w-8 text-amber-600" />} value={counts.vacated} label="Vacated" />
+          <SummaryCard icon={<BedDouble className="h-8 w-8 text-purple-600" />} value={counts.feePending} label="Fee Pending" />
         </div>
 
-        {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search by name, email, room..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
-            />
-          </div>
+        {/* Filters (status + block + advanced); search lives in the table toolbar */}
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
           <div className="flex gap-2 flex-wrap">
             {['all', 'active', 'vacated', 'transferred', 'suspended'].map((s) => (
-              <Button
-                key={s}
-                variant={statusFilter === s ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setStatusFilter(s)}
-              >
+              <Button key={s} variant={statusFilter === s ? 'default' : 'outline'} size="sm" onClick={() => setStatusFilter(s)}>
                 {s === 'all' ? 'All' : statusConfig[s]?.label ?? s}
               </Button>
             ))}
           </div>
-          <select
-            className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            value={blockFilter}
-            onChange={(e) => setBlockFilter(e.target.value)}
-          >
-            <option value="all">All Blocks</option>
-            {blockNames.map((bn) => (
-              <option key={bn} value={bn}>{bn}</option>
-            ))}
-          </select>
-          <AllocationFiltersPanel
-            rows={allocations ?? []}
-            value={advancedFilters}
-            onChange={setAdvancedFilters}
-          />
+          <Select value={blockFilter} onValueChange={setBlockFilter}>
+            <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Blocks" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Blocks</SelectItem>
+              {blockNames.map((bn) => <SelectItem key={bn} value={bn}>{bn}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <AllocationFiltersPanel rows={allocations} value={advancedFilters} onChange={setAdvancedFilters} />
         </div>
 
-        {/* Allocations Table */}
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Learner</TableHead>
-                  <TableHead>Block</TableHead>
-                  <TableHead>Room</TableHead>
-                  <TableHead>Bed</TableHead>
-                  <TableHead>Room Category</TableHead>
-                  <TableHead>Mess Category</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Fee</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredAllocations.map((alloc: any) => {
-                  const sCfg = statusConfig[alloc.status] ?? { label: alloc.status, variant: 'outline' as const };
-                  const fCfg = feeStatusConfig[alloc.fee_status] ?? { label: alloc.fee_status, variant: 'outline' as const };
-                  return (
-                    <TableRow key={alloc.id}>
-                      <TableCell>
-                        <span className="font-medium">
-                          {getJoined(alloc, 'learner', 'full_name') || '—'}
-                        </span>
-                        {getJoined(alloc, 'learner', 'email') && (
-                          <span className="block text-xs text-muted-foreground">
-                            {getJoined(alloc, 'learner', 'email')}
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell>{getJoined(alloc, 'hostel_blocks', 'name')}</TableCell>
-                      <TableCell>{getJoined(alloc, 'hostel_rooms', 'room_number')}</TableCell>
-                      <TableCell>{getJoined(alloc, 'hostel_beds', 'bed_number')}</TableCell>
-                      <TableCell>
-                        {alloc.learner?.academic?.room_category?.name ?? (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {alloc.learner?.academic?.mess_category?.name ?? (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs capitalize">{alloc.allocation_type}</Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{alloc.allocation_date}</TableCell>
-                      <TableCell>
-                        <Badge variant={sCfg.variant}>{sCfg.label}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={fCfg.variant}>{fCfg.label}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="sm" asChild>
-                          <Link href={`/campus-living/allocations/${alloc.id}`}>
-                            View
-                          </Link>
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-                {filteredAllocations.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
-                      No allocations found matching your filters
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        {/* Advanced data table — paginated, sortable, exportable */}
+        <DataTable
+          fetchDataFn={fetchData}
+          getColumns={() => columns}
+          idField="id"
+          exportConfig={{ entityName: 'hostel-allocations', columnMapping: {}, columnWidths: [], headers: [] }}
+          config={{ enableUrlState: false, enableDateFilter: false, enableExport: true, enableRowSelection: false }}
+        />
 
-        {/* Quick Links */}
         <div className="flex gap-3">
           <Button variant="outline" size="sm" asChild>
-            <Link href="/campus-living/allocations/waitlist">
-              <Users className="mr-2 h-4 w-4" />
-              View Waitlist
-            </Link>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              toast.info('Allocations export ships next.', {
-                description: 'CSV export will be available once the export endpoint is live.',
-              })
-            }
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Export
+            <Link href="/campus-living/allocations/waitlist"><Users className="mr-2 h-4 w-4" /> View Waitlist</Link>
           </Button>
         </div>
       </div>
     </ContentLayout>
+  );
+}
+
+function SummaryCard({ icon, value, label }: { icon: React.ReactNode; value: number; label: string }) {
+  return (
+    <Card>
+      <CardContent className="p-4 flex items-center gap-3">
+        {icon}
+        <div>
+          <p className="text-2xl font-bold">{value}</p>
+          <p className="text-xs text-muted-foreground">{label}</p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

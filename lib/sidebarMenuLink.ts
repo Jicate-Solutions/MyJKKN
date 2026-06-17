@@ -456,6 +456,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/reports': 'billing.reports.view',
   '/billing/analytics': 'billing.analytics.view',
   '/billing/payment-accounts': 'billing.payment_accounts.view',
+  '/billing/transport': 'billing.transport.view',
   '/billing/onboarding': 'billing.onboarding.view',
   '/billing/activities': 'billing.activities.view',
   '/billing/payment': 'billing.payment.view',
@@ -845,12 +846,30 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // "Permission: super_admin or audit.external_auditor.manage")
   '/audit/external-auditors': 'audit.external_auditor.manage',
 
-  // Board of Studies — five tier-2 sub-pages under /bos
+  // Board of Studies — tier-2 sub-pages under /bos.
   '/bos/compositions': 'bos.compositions.view',
   '/bos/experts': 'bos.experts.view',
   '/bos/meetings': 'bos.meetings.view',
   '/bos/reports': 'bos.reports.view',
   '/bos/ta-da': 'bos.ta_da.view',
+  // Remaining BoS tab pages. These live only in the in-page tab bar (not the
+  // sidebar), so they were absent from MENU_PERMISSIONS. The Command Palette
+  // builds its searchable surface from the route manifest and treats any path
+  // with NO permission entry as "visible to all authenticated users"
+  // (lib/navigation/permission-filter.ts:19). That let students surface these
+  // pages via search even though the sidebar correctly hid the /bos parent.
+  // Mapping each to its canonical academic.bos-*.view key (catalogued in
+  // lib/constants/permissions.ts) restores the filter. committees + email-
+  // settings have no dedicated key, so they fall back to the bos.view parent
+  // gate — held by BoS users (auto-derived via applyBOSFallback) but not students.
+  '/bos/syllabus': 'academic.bos-syllabus.view',
+  '/bos/courses': 'academic.bos-courses.view',
+  '/bos/course-scheme': 'academic.bos-scheme.view',
+  '/bos/taxonomy': 'academic.bos-taxonomy.view',
+  '/bos/sop': 'academic.bos-sop.view',
+  '/bos/member-types': 'academic.bos-members.view',
+  '/bos/committees': 'bos.view',
+  '/bos/email-settings': 'bos.view',
 
   // OKR — admin landing (redirects to /okr/admin/compliance which is gated
   // by okr.admin.view; reuse the same key on the parent)
@@ -898,6 +917,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/pde/admin/engagement': 'pde.admin.engagement.view',
   '/pde/admin/lti': 'pde.admin.lti.view',
   '/pde/admin/quests': 'pde.admin.quests.view',
+  // BoS PDE Evidence is an admin-only page with no granular key — gate it
+  // behind the PDE admin landing so it stops surfacing in search for students.
+  '/pde/admin/bos-evidence': 'pde.admin.view',
 
   // Board of Studies — parent landing (children /bos/{compositions,experts,...} above)
   '/bos': 'bos.view',
@@ -1751,6 +1773,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/analytics', label: 'Analytics', active: pathname.startsWith('/billing/analytics') },
             { href: '/billing/activities', label: 'Activities', active: pathname.startsWith('/billing/activities') },
             { href: '/billing/payment-accounts', label: 'Payment Gateway Accounts', active: pathname.startsWith('/billing/payment-accounts') },
+            { href: '/billing/transport', label: 'Transport Fees', active: pathname.startsWith('/billing/transport') },
           ]
         }
       ]
@@ -2306,6 +2329,28 @@ export function normalizeRoute(href: string): string {
   return href.replace(UUID_SEGMENT_REGEX, '[id]');
 }
 
+/**
+ * Student-portal routes (My Timetable / My Attendance / My Profile / My Marks
+ * and the student Leave-OnDuty "My Applications" surface) are visible ONLY to
+ * the `student` role — never to super admin or any staff/admin role, and
+ * regardless of any permission grants. The pages themselves server-side
+ * redirect every non-student to `/` (see the learners/my-* page shells),
+ * so surfacing the link to anyone else is dead navigation.
+ *
+ * Single source of truth — used by both the top-level row filter AND the
+ * nested-submenu filter (these links also appear as flyout submenus under the
+ * admin "Admission Management" parent), for super admin and every other role.
+ */
+export function isStudentPortalRoute(href: string): boolean {
+  return (
+    href.includes('/learners/my-') ||
+    href === '/learners/leave-onduty/my-applications' ||
+    // Post-class feedback (Class Feedback) — student-only lane relocated out of
+    // /academic. (My Attendance Feedback already matches /learners/my- above.)
+    href === '/learners/class-feedback'
+  );
+}
+
 // New function to filter menus based on user role permissions
 export function GetRoleBasedPages(
   pathname: string,
@@ -2340,14 +2385,19 @@ export function GetRoleBasedPages(
   if (userRole?.role_key === 'super_admin') {
     return allMenus.map((group) => ({
       ...group,
-      menus: group.menus.filter((menu) => {
-        // Hide student portal pages (my-* and leave-onduty) from super admin
-        // But allow bug report pages for all users including super admin
-        if (menu.href.includes('/learners/my-') || menu.href === '/learners/leave-onduty/my-applications') {
-          return false;
-        }
-        return true;
-      })
+      menus: group.menus
+        // Hide student-portal top-level rows (my-* and leave-onduty/my-applications)
+        // from super admin. Bug report pages are NOT student-portal routes, so
+        // they remain visible to everyone including super admin.
+        .filter((menu) => !isStudentPortalRoute(menu.href))
+        // Also strip any student-portal links nested as submenus under an admin
+        // parent. The "Admission Management" (/learners/enquiries) flyout carries
+        // My Attendance / My Profile / My Timetable as submenus — without this
+        // they would still leak into the super-admin flyout.
+        .map((menu) => ({
+          ...menu,
+          submenus: menu.submenus.filter((submenu) => !isStudentPortalRoute(submenu.href)),
+        })),
     })).filter((group) => group.menus.length > 0);
   }
 
@@ -2430,6 +2480,7 @@ export function GetRoleBasedPages(
 
           // Special case: Student portal pages (my-* and leave-onduty) are ONLY for students
           // This check must come BEFORE the submenus check
+<<<<<<< HEAD
           if (
             menu.href.includes('/learners/my-') ||
             menu.href === '/learners/leave-onduty/my-applications' ||
@@ -2437,6 +2488,9 @@ export function GetRoleBasedPages(
             // (My Attendance Feedback already matches /learners/my- above.)
             menu.href === '/learners/class-feedback'
           ) {
+=======
+          if (isStudentPortalRoute(menu.href)) {
+>>>>>>> jicate/main
             return userRole.role_key === 'student';
           }
 
@@ -2488,6 +2542,15 @@ export function GetRoleBasedPages(
             // But All Bug Reports (admin page) requires permission
             if (submenu.href === '/my-bug-reports' || submenu.href === '/bug-leaderboard') {
               return true;
+            }
+
+            // Student-portal links (My Attendance / My Profile / My Marks /
+            // My Timetable) are ONLY for students — even when nested as a
+            // submenu under an admin parent's flyout (e.g. "Admission
+            // Management"). Gate on role, not permission, so a staff/admin role
+            // that happens to hold a learners.my-*.view grant still won't see them.
+            if (isStudentPortalRoute(submenu.href)) {
+              return isStudent;
             }
 
             // Evaluator roles are staff-assigned (not permission-assigned) — bypass RBAC and show only the evaluate submenu
