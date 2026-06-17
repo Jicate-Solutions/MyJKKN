@@ -45,6 +45,7 @@ import {
   useConsolidatedAttendance
 } from '@/hooks/academic/use-attendance';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
+import { CycleCalculationService } from '@/lib/services/academic/cycle-calculation-service';
 import { LeaveCalendarService } from '@/lib/services/academic/leave-calendar-service';
 import type { LeaveBlockInfo } from '@/types/leaves';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -692,6 +693,22 @@ export default function AttendanceMarkPage() {
             }
           }
           dayKey = foundKey || date;
+        } else if (timetableFormat === 'cycle') {
+          // Added: 2026-06-17 - Cycle timetables key timetable_data by "cycle-N"
+          // (e.g. "cycle-3"), NOT by weekday. Without this the assigned-faculty
+          // lookup fell through to the WEDNESDAY key, found nothing, and showed
+          // "No faculty assigned to this timetable slot". Resolve the active
+          // cycle for the date via the canonical RPC (working-day counting,
+          // Sunday/holiday skipping) used by the timetable grid's "Today" badge.
+          const cycleNum =
+            timetableId && date
+              ? await CycleCalculationService.getCycleForDate(timetableId, date)
+              : null;
+          if (!cycleNum) {
+            logger.warn('academic/attendance/mark', 'No active cycle for date', { date, timetableId });
+            return;
+          }
+          dayKey = `cycle-${cycleNum}`;
         } else {
           dayKey = new Date(date).toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
         }

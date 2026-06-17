@@ -69,6 +69,7 @@ export interface LivePoll {
   cycle_id: string;
   question: string;
   options: Array<{ id: string; label: string }>;
+  is_open: boolean;
   issued_at: string;
   closed_at: string | null;
 }
@@ -76,6 +77,37 @@ export interface LivePoll {
 export interface LivePollResponse {
   poll_id: string;
   option_id: string;
+}
+
+/** A poll as the Champion's authoring control sees it — with a live count. */
+export interface ChampionPoll {
+  id: string;
+  cycle_id: string;
+  question: string;
+  options: Array<{ id: string; label: string }>;
+  is_open: boolean;
+  issued_at: string;
+  closed_at: string | null;
+  response_count: number;
+}
+
+/**
+ * A poll accepts responses iff is_open AND closed_at is null AND we're before
+ * the session end. No cron — derived on read. Shared by the learner panel
+ * (don't submit to a stale poll) and the service guard.
+ */
+export function pollIsAcceptingResponses(
+  poll: { is_open?: boolean | null; closed_at?: string | null },
+  endsAt: string | null,
+  nowMs: number = Date.now(),
+): boolean {
+  if (poll.is_open === false) return false;
+  if (poll.closed_at) return false;
+  if (endsAt) {
+    const end = new Date(endsAt).getTime();
+    if (Number.isFinite(end) && nowMs >= end) return false;
+  }
+  return true;
 }
 
 /**
@@ -351,7 +383,7 @@ export class LiveSessionService {
     try {
       const { data: pollRows } = await supabase
         .from('ai_pulse_polls')
-        .select('id, cycle_id, question, options, issued_at, closed_at')
+        .select('id, cycle_id, question, options, is_open, issued_at, closed_at')
         .eq('cycle_id', cycleId)
         .order('issued_at', { ascending: true });
       polls = (pollRows ?? []) as unknown as LivePoll[];
@@ -368,6 +400,24 @@ export class LiveSessionService {
       endsAt,
       now,
     );
+
+    // Authoritative polls_responded = COUNT(DISTINCT poll_id) of this learner's
+    // responses to THIS cycle's polls. We recompute it here (rather than
+    // trusting the JSONB counter) so the 4-AND gate can't be fooled by a stale
+    // or hand-edited engagement_signals.polls_responded, and so re-answering
+    // the same poll never inflates it. Best-effort: a missing table → keeps the
+    // existing signal value.
+    let signals = (attRow?.engagement_signals ?? {}) as EngagementSignals;
+    try {
+      const distinctResponded = await LiveSessionService.countDistinctPollsResponded(
+        supabase,
+        cycleId,
+        user.id,
+      );
+      signals = { ...signals, polls_responded: distinctResponded };
+    } catch {
+      // leave signals.polls_responded as stored
+    }
 
     // Async make-up window is policy-driven (async_makeup_window_hours, seeded 48).
     const policies = await readPolicies(supabase);
@@ -406,7 +456,7 @@ export class LiveSessionService {
         id: (attRow?.id ?? null) as string | null,
         joined_at: (attRow?.joined_at ?? null) as string | null,
         left_at: (attRow?.left_at ?? null) as string | null,
-        engagement_signals: ((attRow?.engagement_signals ?? {}) as EngagementSignals),
+        engagement_signals: signals,
       },
       polls,
       quiz_open,
@@ -487,19 +537,26 @@ export class LiveSessionService {
   }
 
   /**
-   * Record a poll response. Increments polls_responded and stores the
-   * (poll_id, option_id) pair in a sibling table when available.
+   * Record a poll response.
    *
-   * The engagement-signal counter is the load-bearing field — the response
-   * row is for audit / Champion review.
+   * 1. Upserts the (poll_id, profile_id) audit row in ai_pulse_poll_responses
+   *    (UNIQUE(poll_id, profile_id)) — re-answering the same poll updates the
+   *    chosen option, it does NOT create a second row.
+   * 2. Recomputes polls_responded = COUNT(DISTINCT poll_id) for this learner in
+   *    this cycle (NOT a naive +1) and writes it onto engagement_signals, so
+   *    re-answering the same poll can never inflate the gate count.
+   *
+   * The poll must be accepting responses (is_open AND not closed AND before
+   * session end) — RLS allows the insert, but the service rejects a closed /
+   * stale poll up front so the learner gets a clear error.
    */
   static async recordPollResponse(
     cycleId: string,
     pollId: string,
     optionId: string,
   ): Promise<EngagementSignals> {
-    // Cast to any: this service touches ai_pulse_live_attendance (+ the deferred
-    // ai_pulse_polls/poll_responses), which are not yet in the generated
+    // Cast to any: this service touches ai_pulse_live_attendance +
+    // ai_pulse_polls/poll_responses, which are not yet in the generated
     // Database types. Matches the per-call cast pattern in cycles-service.
     const supabase = createClientSupabaseClient() as any;
 
@@ -508,19 +565,57 @@ export class LiveSessionService {
     } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
-    // Best-effort audit row — the ai_pulse_poll_responses substrate is
-    // deferred (polls feature not yet activated). supabase-js resolves with
-    // an { error } rather than throwing when the table is absent, so this is
-    // a no-op until the polls tables ship; the engagement counter below is
-    // the load-bearing signal.
-    await supabase.from('ai_pulse_poll_responses').insert({
-      poll_id: pollId,
-      profile_id: user.id,
-      option_id: optionId,
-      responded_at: new Date().toISOString(),
-    });
+    // Guard: the poll must be accepting responses. Derive session_end from the
+    // cycle (no cron — derived on read). A closed / past-window poll is
+    // rejected here so the learner sees "This poll is closed." instead of a
+    // silent no-op.
+    const { data: pollRow } = await supabase
+      .from('ai_pulse_polls')
+      .select('id, cycle_id, is_open, closed_at')
+      .eq('id', pollId)
+      .maybeSingle();
+    if (!pollRow) throw new Error('Poll not found.');
 
-    // Increment polls_responded on engagement_signals
+    const { data: cycleRow } = await supabase
+      .from('startup_events')
+      .select('demo_date, start_date, end_date, config')
+      .eq('id', cycleId)
+      .maybeSingle();
+    const { ends_at: endsAt } = deriveCycleTimes(cycleRow ?? {});
+    if (!pollIsAcceptingResponses(pollRow, endsAt)) {
+      throw new Error('This poll is closed and no longer accepting responses.');
+    }
+
+    // Upsert the audit row — UNIQUE(poll_id, profile_id) makes re-answering an
+    // update, not a duplicate. The distinct count below stays correct either
+    // way.
+    const { error: respErr } = await supabase
+      .from('ai_pulse_poll_responses')
+      .upsert(
+        {
+          poll_id: pollId,
+          profile_id: user.id,
+          option_id: optionId,
+          responded_at: new Date().toISOString(),
+        },
+        { onConflict: 'poll_id,profile_id' },
+      );
+    if (respErr) {
+      logger.error('ai-pulse/live-session', 'poll response upsert failed', respErr);
+      throw respErr;
+    }
+
+    // Recompute polls_responded = COUNT(DISTINCT poll_id) for this learner in
+    // this cycle. Join responses → polls so we only count polls belonging to
+    // THIS cycle (a learner's responses across cycles never cross-contaminate).
+    const pollsResponded = await LiveSessionService.countDistinctPollsResponded(
+      supabase,
+      cycleId,
+      user.id,
+    );
+
+    // Persist the recomputed count onto engagement_signals (preserving other
+    // writers' JSONB keys via spread).
     const { data: existing } = await supabase
       .from('ai_pulse_live_attendance')
       .select('id, engagement_signals')
@@ -532,7 +627,7 @@ export class LiveSessionService {
     const prevSignals = (existing?.engagement_signals ?? {}) as EngagementSignals;
     const nextSignals: EngagementSignals = {
       ...prevSignals,
-      polls_responded: (prevSignals.polls_responded ?? 0) + 1,
+      polls_responded: pollsResponded,
     };
 
     const nowIso = new Date().toISOString();
@@ -558,6 +653,134 @@ export class LiveSessionService {
       throw error;
     }
     return nextSignals;
+  }
+
+  /**
+   * COUNT(DISTINCT poll_id) of this learner's responses to polls in this cycle.
+   * Reads the learner's response rows + the cycle's poll ids and intersects in
+   * code (PostgREST has no DISTINCT-count aggregate exposed here). Best-effort:
+   * a missing polls table → 0.
+   */
+  static async countDistinctPollsResponded(
+    supabase: any,
+    cycleId: string,
+    profileId: string,
+  ): Promise<number> {
+    const { data: cyclePolls } = await supabase
+      .from('ai_pulse_polls')
+      .select('id')
+      .eq('cycle_id', cycleId);
+    const cyclePollIds = new Set(
+      ((cyclePolls ?? []) as Array<{ id: string }>).map((p) => p.id),
+    );
+    if (cyclePollIds.size === 0) return 0;
+
+    const { data: responses } = await supabase
+      .from('ai_pulse_poll_responses')
+      .select('poll_id')
+      .eq('profile_id', profileId);
+    const answered = new Set<string>();
+    for (const r of (responses ?? []) as Array<{ poll_id: string }>) {
+      if (cyclePollIds.has(r.poll_id)) answered.add(r.poll_id);
+    }
+    return answered.size;
+  }
+
+  /**
+   * Champion: create a live poll for this cycle. Inserts an ai_pulse_polls row
+   * with is_open=true. RLS enforces Champion + Co-Champion (ai_pulse_champion
+   * role) — a non-Champion's insert is rejected by the database.
+   */
+  static async createPoll(
+    cycleId: string,
+    question: string,
+    options: Array<{ id: string; label: string }>,
+  ): Promise<LivePoll> {
+    const supabase = createClientSupabaseClient() as any;
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+
+    const trimmedQ = question.trim();
+    if (!trimmedQ) throw new Error('Poll question is required.');
+    const cleanOptions = options
+      .map((o) => ({ id: o.id, label: o.label.trim() }))
+      .filter((o) => o.label.length > 0);
+    if (cleanOptions.length < 2 || cleanOptions.length > 4) {
+      throw new Error('A poll needs between 2 and 4 non-empty options.');
+    }
+
+    const { data, error } = await supabase
+      .from('ai_pulse_polls')
+      .insert({
+        cycle_id: cycleId,
+        question: trimmedQ,
+        options: cleanOptions,
+        is_open: true,
+        created_by: user.id,
+      })
+      .select('id, cycle_id, question, options, issued_at, closed_at')
+      .single();
+
+    if (error) {
+      logger.error('ai-pulse/live-session', 'createPoll failed', error);
+      throw error;
+    }
+    return data as unknown as LivePoll;
+  }
+
+  /**
+   * Champion: close a poll. Sets is_open=false + closed_at=now so it stops
+   * accepting responses. RLS enforces Champion + Co-Champion.
+   */
+  static async closePoll(pollId: string): Promise<void> {
+    const supabase = createClientSupabaseClient() as any;
+    const { error } = await supabase
+      .from('ai_pulse_polls')
+      .update({ is_open: false, closed_at: new Date().toISOString() })
+      .eq('id', pollId);
+    if (error) {
+      logger.error('ai-pulse/live-session', 'closePoll failed', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Champion: list every poll for a cycle with its live response count. Backs
+   * the Champion's issue-poll control. Two reads (polls + responses) intersect
+   * in code — RLS lets the Champion read all response rows.
+   */
+  static async listPollsWithCounts(cycleId: string): Promise<ChampionPoll[]> {
+    const supabase = createClientSupabaseClient() as any;
+
+    const { data: pollRows, error } = await supabase
+      .from('ai_pulse_polls')
+      .select('id, cycle_id, question, options, is_open, issued_at, closed_at')
+      .eq('cycle_id', cycleId)
+      .order('issued_at', { ascending: false });
+    if (error) {
+      logger.error('ai-pulse/live-session', 'listPollsWithCounts failed', error);
+      throw error;
+    }
+    const polls = (pollRows ?? []) as Array<
+      Omit<ChampionPoll, 'response_count'>
+    >;
+    if (polls.length === 0) return [];
+
+    const pollIds = polls.map((p) => p.id);
+    const { data: respRows } = await supabase
+      .from('ai_pulse_poll_responses')
+      .select('poll_id')
+      .in('poll_id', pollIds);
+    const counts = new Map<string, number>();
+    for (const r of (respRows ?? []) as Array<{ poll_id: string }>) {
+      counts.set(r.poll_id, (counts.get(r.poll_id) ?? 0) + 1);
+    }
+    return polls.map((p) => ({
+      ...p,
+      response_count: counts.get(p.id) ?? 0,
+    }));
   }
 
   /**
@@ -827,10 +1050,65 @@ export function useRecordPollResponse(
   });
 }
 
+// --- Champion-side poll authoring hooks ------------------------------------
+
+const championPollsKey = (cycleId: string) =>
+  ['ai-pulse', 'champion-polls', cycleId] as const;
+
+/** Champion: live list of this cycle's polls with response counts. */
+export function useChampionPolls(
+  cycleId: string,
+  enabled = true,
+): UseQueryResult<ChampionPoll[], Error> {
+  return useQuery<ChampionPoll[], Error>({
+    queryKey: championPollsKey(cycleId),
+    queryFn: () => LiveSessionService.listPollsWithCounts(cycleId),
+    enabled: enabled && !!cycleId,
+    staleTime: 10 * 1000,
+    refetchInterval: 15 * 1000, // counts move during a live session
+  });
+}
+
+/** Champion: issue a new poll. */
+export function useCreatePoll(
+  cycleId: string,
+): UseMutationResult<
+  LivePoll,
+  Error,
+  { question: string; options: Array<{ id: string; label: string }> }
+> {
+  const queryClient = useQueryClient();
+  return useMutation<
+    LivePoll,
+    Error,
+    { question: string; options: Array<{ id: string; label: string }> }
+  >({
+    mutationFn: ({ question, options }) =>
+      LiveSessionService.createPoll(cycleId, question, options),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: championPollsKey(cycleId) });
+      queryClient.invalidateQueries({ queryKey: liveSessionKey(cycleId) });
+    },
+  });
+}
+
+/** Champion: close a poll (stops accepting responses). */
+export function useClosePoll(
+  cycleId: string,
+): UseMutationResult<void, Error, { pollId: string }> {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, { pollId: string }>({
+    mutationFn: ({ pollId }) => LiveSessionService.closePoll(pollId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: championPollsKey(cycleId) });
+      queryClient.invalidateQueries({ queryKey: liveSessionKey(cycleId) });
+    },
+  });
+}
+
 export function useRecordHeartbeat(
   cycleId: string,
 ): UseMutationResult<EngagementSignals, Error, void> {
-  const queryClient = useQueryClient();
   return useMutation<EngagementSignals, Error, void>({
     mutationFn: () => LiveSessionService.recordHeartbeat(cycleId),
     onSuccess: () => {
