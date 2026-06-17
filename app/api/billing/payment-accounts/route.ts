@@ -29,7 +29,7 @@ export const POST = withAuth(
 
     const { institutionId, keyId, keySecret, webhookSecret, label, mode, feeHead, mid, tid, dbaName } =
       body as Record<string, string>;
-    const missing = ['institutionId', 'keyId', 'keySecret', 'webhookSecret'].filter(
+    const missing = ['keyId', 'keySecret', 'webhookSecret'].filter(
       (k) => !body[k] || String(body[k]).trim().length === 0,
     );
     if (missing.length > 0) {
@@ -42,23 +42,38 @@ export const POST = withAuth(
       return NextResponse.json({ success: false, error: 'invalid_mode' }, { status: 400 });
     }
 
+    // institutionId omitted/blank => GLOBAL account (institution-agnostic). A global
+    // account must target a specific fee head (it can't be the catch-all default).
+    const instId = institutionId && String(institutionId).trim().length > 0 ? institutionId : null;
+    const head = feeHead?.trim() || null;
+    if (!instId && !head) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'global_requires_fee_head',
+          message: 'A global account (no institution) must target a specific fee head.',
+        },
+        { status: 400 },
+      );
+    }
+
     const result = await RazorpayAccountVault.set({
-      institutionId,
+      institutionId: instId,
       keyId: keyId.trim(),
       keySecret: keySecret.trim(),
       webhookSecret: webhookSecret.trim(),
       label: label ?? null,
       mode: (mode as 'test' | 'live') ?? 'live',
       actor: auth.user.id,
-      feeHead: feeHead?.trim() || null,
+      feeHead: head,
       mid: mid?.trim() || null,
       tid: tid?.trim() || null,
       dbaName: dbaName?.trim() || null,
     });
 
     logger.info('billing/payment-accounts', 'Razorpay account upserted', {
-      institutionId,
-      feeHead: feeHead?.trim() || null,
+      institutionId: instId,
+      feeHead: head,
       accountId: result.id,
       actor: auth.user.id,
     });
