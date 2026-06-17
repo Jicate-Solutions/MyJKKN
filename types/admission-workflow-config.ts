@@ -94,6 +94,14 @@ export interface SeatPivotRow {
 export interface InstitutionAdmissionSummary {
   institution_id: string;
   institution_name: string;
+  /**
+   * Organisation entity type from institutions.entity_type
+   * (e.g. 'institution' | 'school' | 'company' | 'admin_office').
+   * Added 2026-06-17 so the Group Dashboard overview can split the
+   * breakdown into per-entity-type sections. The service only returns
+   * 'institution' + 'school' rows for the overview.
+   */
+  entity_type: string;
   total_leads: number;
   active_crm_leads: number;
   lost_leads: number;

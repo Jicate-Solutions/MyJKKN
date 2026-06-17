@@ -116,9 +116,33 @@ export class GroupDashboardService {
       rejected_lifecycle_count: number;
     };
 
-    const rows = ((data ?? []) as Row[]).map((r): InstitutionAdmissionSummary => ({
+    // 2026-06-17: The Group Dashboard overview shows only 'institution' and
+    // 'school' entity types (in separate sections); 'company' / 'admin_office'
+    // are excluded group-wide. The RPC doesn't return entity_type, so resolve
+    // it here with a tiny RLS-scoped lookup and filter the rows below. Totals
+    // are then summed over the filtered set, so the header KPI strip excludes
+    // the non-academic entities too.
+    const OVERVIEW_ENTITY_TYPES = new Set(['institution', 'school']);
+    const rpcRows = (data ?? []) as Row[];
+    const entityTypeById = new Map<string, string>();
+    if (rpcRows.length > 0) {
+      const { data: entityRows, error: entityErr } = await (this.supabase as any)
+        .from('institutions')
+        .select('id, entity_type')
+        .in('id', rpcRows.map((r) => r.institution_id));
+      if (entityErr) {
+        console.error('[admission/group] Failed to resolve entity types:', entityErr);
+        throw entityErr;
+      }
+      for (const e of (entityRows ?? []) as Array<{ id: string; entity_type: string | null }>) {
+        entityTypeById.set(e.id, e.entity_type ?? '');
+      }
+    }
+
+    const rows = rpcRows.map((r): InstitutionAdmissionSummary => ({
       institution_id: r.institution_id,
       institution_name: r.institution_name,
+      entity_type: entityTypeById.get(r.institution_id) ?? '',
       total_leads: Number(r.total_leads),
       active_crm_leads: Number(r.active_crm_leads),
       lost_leads: Number(r.lost_leads),
@@ -136,7 +160,7 @@ export class GroupDashboardService {
       reserved_count: Number(r.reserved_count ?? 0),
       admitted_count: Number(r.admitted_count ?? 0),
       rejected_lifecycle_count: Number(r.rejected_lifecycle_count ?? 0),
-    }));
+    })).filter((r) => OVERVIEW_ENTITY_TYPES.has(r.entity_type));
 
     // 2026-05-20: Sort by admitted (lifecycle) rather than legacy funnel-stage
     // 'enrolled' so the comparison table ranks institutions by the new

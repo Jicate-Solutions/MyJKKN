@@ -92,6 +92,20 @@ async function EnquiriesContent({
   const sortBy = parsedParams.sort_by || 'created_at';
   const sortOrder = parsedParams.sort_order || 'desc';
 
+  // 2026-06-17: Group Dashboard drill-down scope. The dashboard appends
+  // `admission_year` (integer cohort year) + `institution_ids` (comma-separated)
+  // so the enquiries list matches the year + institution scope of the KPI card
+  // that was clicked. Read straight from the raw params (the typed schema only
+  // covers the page's own filters).
+  const admission_year_raw =
+    typeof searchParams.admission_year === 'string' ? Number(searchParams.admission_year) : undefined;
+  const admission_year =
+    admission_year_raw != null && Number.isFinite(admission_year_raw) ? admission_year_raw : undefined;
+  const institution_ids =
+    typeof searchParams.institution_ids === 'string'
+      ? searchParams.institution_ids.split(',').filter(Boolean)
+      : undefined;
+
   const { data: enquiries, metadata } = await getEnquiries({
     page,
     limit,
@@ -104,6 +118,8 @@ async function EnquiriesContent({
     semester_id,
     section_id,
     admission_year_id,
+    admission_year,
+    institution_ids,
     sortBy,
     sortOrder
   });
