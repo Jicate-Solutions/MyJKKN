@@ -292,6 +292,7 @@ export const GUIDES: GuideBook = {
     { term: "Phase", def: "A stage of a software build — for example discovery, prototype, client demo, or deployment." },
     { term: "TRL", def: "Technology Readiness Level — a 1-to-9 score for how mature a product is, from idea to ready-to-ship." },
     { term: "Paradigm Shift", def: "The plan for every JKKN department to become a Solutions Department, scored automatically from real data." },
+    { term: "View vs edit access", def: "You can open and read whatever your access allows. The buttons to add, edit, or delete only appear on areas where you also have edit access — so you may land on a page and see its records but not its action buttons." },
   ],
 
   plannedLocaleNote: "A Tamil version is planned — English only for now.",
