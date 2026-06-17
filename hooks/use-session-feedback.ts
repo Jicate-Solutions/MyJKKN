@@ -16,6 +16,10 @@ export const scfQueryKeys = {
     [...scfQueryKeys.all, 'confirmation', from, to] as const,
   facultySummary: (from: string, to: string) =>
     [...scfQueryKeys.all, 'faculty-summary', from, to] as const,
+  facultyCompletion: (from: string, to: string) =>
+    [...scfQueryKeys.all, 'faculty-completion', from, to] as const,
+  pendingRoster: (date: string, timetableId: string, periodId: string) =>
+    [...scfQueryKeys.all, 'pending-roster', date, timetableId, periodId] as const,
   escalations: (from: string, to: string) =>
     [...scfQueryKeys.all, 'escalations', from, to] as const,
   escalationFollowups: (from: string, to: string) =>
@@ -53,6 +57,32 @@ export function useFacultyFeedbackSummary(from: string, to: string) {
     queryFn: () => SessionFeedbackService.getFacultySummary(from, to),
     enabled: !!from && !!to,
     staleTime: 60 * 1000,
+  });
+}
+
+/** Per-session feedback completion (confirmed/present %) for the caller faculty. */
+export function useFacultyCompletion(from: string, to: string) {
+  return useQuery({
+    queryKey: scfQueryKeys.facultyCompletion(from, to),
+    queryFn: () => SessionFeedbackService.getFacultyCompletion(from, to),
+    enabled: !!from && !!to,
+    staleTime: 60 * 1000,
+  });
+}
+
+/** Names of Present students who haven't submitted for ONE session (identity only).
+ *  Lazy: only fetches when `enabled` (e.g. when the faculty opens the pending drawer). */
+export function useSessionPendingRoster(
+  date: string,
+  timetableId: string,
+  periodId: string,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: scfQueryKeys.pendingRoster(date, timetableId, periodId),
+    queryFn: () => SessionFeedbackService.getPendingRoster(date, timetableId, periodId),
+    enabled: enabled && !!date && !!timetableId && !!periodId,
+    staleTime: 30 * 1000,
   });
 }
 
