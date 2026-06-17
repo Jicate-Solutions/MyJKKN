@@ -13,6 +13,7 @@ import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions
 import { useAcademicYears } from '@/hooks/use-academic-years';
 import { useTransportCollectables } from '@/hooks/billing/use-transport-collectables';
 import { TransportBillsTable } from './transport-bills-table';
+import { TransportStatsCards } from './transport-stats-cards';
 
 const ALL = '__all__';
 
@@ -74,6 +75,9 @@ export function TransportCollectionManager() {
         Bus (transport) fees for learners who use college transport — paid online to the dedicated
         transport account.
       </p>
+
+      {/* Advanced, filter-aware stats — recomputes as institution / year / search change. */}
+      <TransportStatsCards rows={filtered} />
 
       <Card>
         <CardContent className='flex flex-wrap items-end gap-3 p-4'>
