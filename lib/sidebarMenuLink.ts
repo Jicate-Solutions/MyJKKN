@@ -456,6 +456,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/reports': 'billing.reports.view',
   '/billing/analytics': 'billing.analytics.view',
   '/billing/payment-accounts': 'billing.payment_accounts.view',
+  '/billing/transport': 'billing.transport.view',
   '/billing/onboarding': 'billing.onboarding.view',
   '/billing/activities': 'billing.activities.view',
   '/billing/payment': 'billing.payment.view',
@@ -1743,6 +1744,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/analytics', label: 'Analytics', active: pathname.startsWith('/billing/analytics') },
             { href: '/billing/activities', label: 'Activities', active: pathname.startsWith('/billing/activities') },
             { href: '/billing/payment-accounts', label: 'Payment Gateway Accounts', active: pathname.startsWith('/billing/payment-accounts') },
+            { href: '/billing/transport', label: 'Transport Fees', active: pathname.startsWith('/billing/transport') },
           ]
         }
       ]

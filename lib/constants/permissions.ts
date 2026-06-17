@@ -544,7 +544,9 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.payment.delete', label: 'Delete Payments' },
       { key: 'billing.activities.view', label: 'View Billing Activities' },
       { key: 'billing.payment_accounts.view', label: 'View Payment Gateway Accounts' },
-      { key: 'billing.payment_accounts.manage', label: 'Manage Payment Gateway Accounts' }
+      { key: 'billing.payment_accounts.manage', label: 'Manage Payment Gateway Accounts' },
+      { key: 'billing.transport.view', label: 'View Transport Fees' },
+      { key: 'billing.transport.collect', label: 'Collect Transport Fees online' }
     ]
   },
   {
