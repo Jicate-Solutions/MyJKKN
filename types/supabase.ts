@@ -102647,6 +102647,7 @@ export type Database = {
           route_number: string | null
           route_name: string | null
           stop_name: string | null
+          total_billed: number
           outstanding_amount: number
           payable_bill_ids: string[]
           bill_count: number
