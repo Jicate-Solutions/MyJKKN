@@ -245,6 +245,10 @@ export function LearnerDetailDrawer({ learnerId, onClose, onEdit, canEdit }: Pro
 
             {/* Section 3: Allocation status */}
             <Section title='Allocation status'>
+              {/* Current room/mess category come off the learner's profile
+                  (v_learner_hostelites) — shown regardless of physical allocation. */}
+              <KV label='Room category' value={dash(data.learner.hostel_category_name)} />
+              <KV label='Mess category' value={dash(data.learner.mess_category_name)} />
               {data.currentAllocation ? (
                 <>
                   <KV
