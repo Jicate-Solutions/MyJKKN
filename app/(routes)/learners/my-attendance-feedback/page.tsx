@@ -1,6 +1,6 @@
 'use client';
 
-// app/(routes)/academic/session-feedback/me/page.tsx
+// app/(routes)/learners/my-attendance-feedback/page.tsx
 // L2 — Learner attendance-confirmation view + nudge.
 // "These sessions are present-pending until you give feedback."
 // Reads fn_scf_confirmation_status via useConfirmationStatus(from, to).
@@ -95,7 +95,6 @@ export default function LearnerConfirmationPage() {
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Academic' },
           { label: 'My Attendance Feedback' },
         ]}
       />
@@ -162,7 +161,7 @@ export default function LearnerConfirmationPage() {
                     className='shrink-0'
                     style={{ backgroundColor: BRAND_GREEN }}
                   >
-                    <Link href='/academic/session-feedback/learn'>
+                    <Link href='/learners/class-feedback'>
                       <MessageSquarePlus className='mr-2 h-4 w-4' />
                       Give feedback
                     </Link>
@@ -236,7 +235,7 @@ export default function LearnerConfirmationPage() {
                                 size='sm'
                                 variant='outline'
                               >
-                                <Link href='/academic/session-feedback/learn'>
+                                <Link href='/learners/class-feedback'>
                                   Give feedback
                                 </Link>
                               </Button>

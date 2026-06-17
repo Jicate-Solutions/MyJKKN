@@ -1653,24 +1653,24 @@ export function GetPages(pathname: string): MenuGroup[] {
         },
         {
           // Post-class feedback — the student gives a 10-second rating that
-          // CONFIRMS their attendance. Route lives under /academic/session-feedback/learn
-          // but is surfaced HERE in the student menu (the /academic group is
-          // admin/faculty-only). Visibility is gated to students by the
-          // session-feedback special-case in GetRoleBasedPages.
-          href: '/academic/session-feedback/learn',
+          // CONFIRMS their attendance. Lives in the student /learners namespace
+          // (relocated out of /academic so it no longer inherits the Academic
+          // module tab bar). Visibility gated to students by the session-feedback
+          // special-case in GetRoleBasedPages.
+          href: '/learners/class-feedback',
           label: 'Class Feedback',
-          active: pathname.startsWith('/academic/session-feedback/learn'),
+          active: pathname.startsWith('/learners/class-feedback'),
           icon: MessageSquare,
           submenus: []
         },
         {
           // Student's per-session attendance-confirmation view (present-pending
           // until feedback given).
-          href: '/academic/session-feedback/me',
+          href: '/learners/my-attendance-feedback',
           label: 'My Attendance Feedback',
           active:
-            pathname === '/academic/session-feedback/me' ||
-            pathname.startsWith('/academic/session-feedback/me/'),
+            pathname === '/learners/my-attendance-feedback' ||
+            pathname.startsWith('/learners/my-attendance-feedback/'),
           icon: MessageSquare,
           submenus: []
         },
@@ -2433,10 +2433,9 @@ export function GetRoleBasedPages(
           if (
             menu.href.includes('/learners/my-') ||
             menu.href === '/learners/leave-onduty/my-applications' ||
-            // Post-class feedback learner lanes live under /academic/* but are
-            // student-only surfaces (moved into the Learners menu group).
-            menu.href === '/academic/session-feedback/learn' ||
-            menu.href === '/academic/session-feedback/me'
+            // Post-class feedback (Class Feedback) — student-only lane.
+            // (My Attendance Feedback already matches /learners/my- above.)
+            menu.href === '/learners/class-feedback'
           ) {
             return userRole.role_key === 'student';
           }

@@ -12,14 +12,14 @@ import { MessageSquare, ClipboardCheck, BarChart3, AlertTriangle } from 'lucide-
 
 const LANES = [
   {
-    href: '/academic/session-feedback/learn',
+    href: '/learners/class-feedback',
     title: 'Give Class Feedback',
     who: 'Learners',
     desc: 'After each class, a 10-second checklist + “did I understand?” — submitting confirms your attendance.',
     icon: MessageSquare,
   },
   {
-    href: '/academic/session-feedback/me',
+    href: '/learners/my-attendance-feedback',
     title: 'My Attendance Feedback',
     who: 'Learners',
     desc: 'See which sessions are confirmed and which are still present-pending until you give feedback.',
