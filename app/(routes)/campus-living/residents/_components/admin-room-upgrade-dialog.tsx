@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowRight, ArrowUpCircle, BedDouble, CalendarClock, DoorOpen, Loader2 } from 'lucide-react';
+import { ArrowRight, ArrowUpCircle, BedDouble, DoorOpen, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import {
   useAdminRoomUpgradeOptions, useAdminRoomOptions, useAdminUpgradeRoom,
@@ -59,7 +59,7 @@ export function AdminRoomUpgradeDialog({ open, onOpenChange, learner, onCommitte
     [rooms],
   );
 
-  const payToConfirm = !!picked && picked.meets_threshold && (picked.upgrade_fee ?? 0) > 0;
+  const hasFee = (picked?.upgrade_fee ?? 0) > 0;
 
   async function confirm() {
     if (!learnerId || !picked || !selectedRoom || upgrade.isPending) return;
@@ -95,7 +95,7 @@ export function AdminRoomUpgradeDialog({ open, onOpenChange, learner, onCommitte
               ? 'Pick a room category to move this learner into. Only room-picked (e.g. Premium) categories are shown here — Classic/Deluxe and mess use the bulk flow.'
               : step === 'room'
                 ? `Only ${picked?.name} rooms with a free bed are shown. Pick a room.`
-                : 'Review and confirm. The learner follows the same pay-to-confirm flow as a self-upgrade.'}
+                : 'Review and confirm — the learner is moved into the room immediately and the upgrade fee is billed.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -123,11 +123,6 @@ export function AdminRoomUpgradeDialog({ open, onOpenChange, learner, onCommitte
                       </p>
                       <p className='text-xs text-muted-foreground'>
                         Upgrade fee {inr(opt.upgrade_fee)} · {opt.available_beds} bed{opt.available_beds === 1 ? '' : 's'} free
-                        {opt.meets_threshold === false && (
-                          <span className='text-amber-700 dark:text-amber-400'>
-                            {' '}· paid {opt.paid_pct ?? 0}% of {opt.threshold_pct}%
-                          </span>
-                        )}
                       </p>
                     </div>
                     {hasRooms ? (
@@ -199,27 +194,12 @@ export function AdminRoomUpgradeDialog({ open, onOpenChange, learner, onCommitte
               </Row>
               <Row label='Upgrade fee'><span className='font-semibold'>{inr(picked.upgrade_fee)}</span></Row>
             </div>
-            {payToConfirm ? (
-              <div className='rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm'>
-                On confirm, a bed is reserved and an upgrade bill of {inr(picked.upgrade_fee)} is generated.
-                The move confirms automatically once the bill is fully paid; if unpaid by the deadline it reverts.
-              </div>
-            ) : picked.meets_threshold ? (
-              <div className='rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm'>
-                On confirm, the learner is moved into this room. No upgrade fee is due.
-              </div>
-            ) : (
-              <div className='rounded-md border border-amber-400/60 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-sm'>
-                <p className='flex items-center gap-1.5 font-medium text-amber-800 dark:text-amber-300'>
-                  <CalendarClock className='h-4 w-4 shrink-0' /> Fee payment below the required level
-                </p>
-                <p className='text-amber-800/90 dark:text-amber-200/90'>
-                  Paid {picked.paid_pct ?? 0}% of {picked.threshold_pct}%. A bed is reserved for {picked.hold_days} day
-                  {picked.hold_days === 1 ? '' : 's'}; the upgrade proceeds once payments reach {picked.threshold_pct}%,
-                  else it reverts.
-                </p>
-              </div>
-            )}
+            <div className='rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm'>
+              On confirm, the learner is moved into this room immediately
+              {hasFee
+                ? <> and an upgrade bill of <span className='font-semibold'>{inr(picked.upgrade_fee)}</span> is generated (payable by the learner).</>
+                : <> at no extra fee.</>}
+            </div>
           </div>
         )}
 
@@ -240,7 +220,7 @@ export function AdminRoomUpgradeDialog({ open, onOpenChange, learner, onCommitte
               <Button variant='outline' onClick={() => setStep('room')} disabled={upgrade.isPending}>Back</Button>
               <Button onClick={confirm} disabled={upgrade.isPending}>
                 {upgrade.isPending && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
-                {payToConfirm ? 'Reserve & generate bill' : picked?.meets_threshold ? 'Confirm upgrade' : 'Reserve room'}
+                {hasFee ? 'Move & bill' : 'Confirm move'}
               </Button>
             </>
           )}

@@ -13422,7 +13422,7 @@ RETURNS TABLE(id uuid, webhook_ref text)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
 DECLARE v_id uuid; v_ref text; v_head text := NULLIF(trim(p_fee_head), '');
 BEGIN
-  IF p_institution_id IS NULL THEN RAISE EXCEPTION 'fn_set_razorpay_account: p_institution_id must not be NULL'; END IF;
+  IF p_institution_id IS NULL AND v_head IS NULL THEN RAISE EXCEPTION 'fn_set_razorpay_account: a global account (no institution) must target a specific fee head'; END IF;
   IF p_key_id IS NULL OR length(trim(p_key_id)) = 0 THEN RAISE EXCEPTION 'fn_set_razorpay_account: p_key_id must not be NULL or empty'; END IF;
   IF p_key_secret IS NULL OR length(trim(p_key_secret)) = 0 THEN RAISE EXCEPTION 'fn_set_razorpay_account: p_key_secret must not be NULL or empty'; END IF;
   IF p_webhook_secret IS NULL OR length(trim(p_webhook_secret)) = 0 THEN RAISE EXCEPTION 'fn_set_razorpay_account: p_webhook_secret must not be NULL or empty'; END IF;
@@ -13431,7 +13431,8 @@ BEGIN
   v_ref := COALESCE(NULLIF(trim(p_webhook_ref), ''), encode(gen_random_bytes(18), 'hex'));
   -- Deactivate only the prior active account in THIS (institution, fee_head) slot.
   UPDATE public.razorpay_accounts SET is_active = false, updated_at = now(), updated_by = p_actor
-    WHERE institution_id = p_institution_id
+    WHERE COALESCE(institution_id, '00000000-0000-0000-0000-000000000000'::uuid)
+            = COALESCE(p_institution_id, '00000000-0000-0000-0000-000000000000'::uuid)
       AND COALESCE(fee_head, '__default__') = COALESCE(v_head, '__default__') AND is_active;
   INSERT INTO public.razorpay_accounts (
     institution_id, key_id, key_secret_encrypted, webhook_secret_encrypted,
@@ -13455,8 +13456,9 @@ BEGIN
   RETURN QUERY SELECT a.id, a.key_id, pgp_sym_decrypt(a.key_secret_encrypted, p_master_secret),
     pgp_sym_decrypt(a.webhook_secret_encrypted, p_master_secret), a.mode, a.webhook_ref
   FROM public.razorpay_accounts a
-  WHERE a.institution_id = p_institution_id AND a.is_active AND (a.fee_head = v_head OR a.fee_head IS NULL)
-  ORDER BY (a.fee_head IS NOT DISTINCT FROM v_head) DESC LIMIT 1;
+  WHERE a.is_active AND (a.institution_id = p_institution_id OR a.institution_id IS NULL)
+    AND (a.fee_head = v_head OR a.fee_head IS NULL)
+  ORDER BY (a.fee_head IS NOT DISTINCT FROM v_head) DESC, (a.institution_id IS NOT NULL) DESC LIMIT 1;
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.fn_get_razorpay_account_by_id(p_account_id uuid, p_master_secret text)
@@ -13516,11 +13518,11 @@ RETURNS uuid
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
 DECLARE v_id uuid; v_head text := NULLIF(trim(p_fee_head), ''); v_mode text := CASE WHEN p_mode IN ('test','live') THEN p_mode ELSE 'live' END;
 BEGIN
-  IF p_institution_id IS NULL THEN RAISE EXCEPTION 'fn_create_razorpay_draft: p_institution_id must not be NULL'; END IF;
+  IF p_institution_id IS NULL AND v_head IS NULL THEN RAISE EXCEPTION 'fn_create_razorpay_draft: a global account (no institution) must target a specific fee head'; END IF;
   UPDATE public.razorpay_accounts
     SET account_label = p_label, mid = NULLIF(trim(p_mid),''), tid = NULLIF(trim(p_tid),''),
         dba_name = NULLIF(trim(p_dba_name),''), mode = v_mode, updated_at = now(), updated_by = p_actor
-    WHERE institution_id = p_institution_id AND COALESCE(fee_head,'__default__') = COALESCE(v_head,'__default__') AND key_id IS NULL
+    WHERE COALESCE(institution_id,'00000000-0000-0000-0000-000000000000'::uuid) = COALESCE(p_institution_id,'00000000-0000-0000-0000-000000000000'::uuid) AND COALESCE(fee_head,'__default__') = COALESCE(v_head,'__default__') AND key_id IS NULL
     RETURNING id INTO v_id;
   IF v_id IS NULL THEN
     INSERT INTO public.razorpay_accounts (institution_id, fee_head, account_label, mid, tid, dba_name, mode, is_active, created_by, updated_by)
@@ -13545,10 +13547,10 @@ BEGIN
   IF p_webhook_secret IS NULL OR length(trim(p_webhook_secret)) = 0 THEN RAISE EXCEPTION 'fn_activate_razorpay_account: p_webhook_secret must not be NULL or empty'; END IF;
   IF p_master_secret IS NULL OR length(trim(p_master_secret)) = 0 THEN RAISE EXCEPTION 'fn_activate_razorpay_account: p_master_secret must not be NULL or empty'; END IF;
   SELECT a.institution_id, a.fee_head INTO v_inst, v_head FROM public.razorpay_accounts a WHERE a.id = p_account_id;
-  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_activate_razorpay_account: account % not found', p_account_id; END IF;
+  IF NOT FOUND THEN RAISE EXCEPTION 'fn_activate_razorpay_account: account % not found', p_account_id; END IF;
   v_ref := COALESCE(NULLIF(trim(p_webhook_ref),''), encode(gen_random_bytes(18),'hex'));
   UPDATE public.razorpay_accounts AS a SET is_active = false, updated_at = now(), updated_by = p_actor
-    WHERE a.institution_id = v_inst AND COALESCE(a.fee_head,'__default__') = COALESCE(v_head,'__default__') AND a.is_active AND a.id <> p_account_id;
+    WHERE COALESCE(a.institution_id,'00000000-0000-0000-0000-000000000000'::uuid) = COALESCE(v_inst,'00000000-0000-0000-0000-000000000000'::uuid) AND COALESCE(a.fee_head,'__default__') = COALESCE(v_head,'__default__') AND a.is_active AND a.id <> p_account_id;
   UPDATE public.razorpay_accounts AS a
     SET key_id = p_key_id, key_secret_encrypted = pgp_sym_encrypt(p_key_secret, p_master_secret),
         webhook_secret_encrypted = pgp_sym_encrypt(p_webhook_secret, p_master_secret),
@@ -13589,10 +13591,13 @@ BEGIN
   IF p_account_id IS NULL THEN RAISE EXCEPTION 'fn_update_razorpay_account_meta: p_account_id must not be NULL'; END IF;
   SELECT (a.key_id IS NULL) INTO v_is_draft FROM public.razorpay_accounts a WHERE a.id = p_account_id;
   IF v_is_draft IS NULL THEN RAISE EXCEPTION 'fn_update_razorpay_account_meta: account % not found', p_account_id; END IF;
+  IF p_change_slot AND v_is_draft AND p_institution_id IS NULL AND v_head IS NULL THEN
+    RAISE EXCEPTION 'fn_update_razorpay_account_meta: a global account (no institution) must target a specific fee head';
+  END IF;
   UPDATE public.razorpay_accounts AS a SET
     account_label = p_label, mid = NULLIF(trim(p_mid),''), tid = NULLIF(trim(p_tid),''), dba_name = NULLIF(trim(p_dba_name),''),
     mode = COALESCE(CASE WHEN p_mode IN ('test','live') THEN p_mode END, a.mode),
-    institution_id = CASE WHEN v_is_draft AND p_change_slot AND p_institution_id IS NOT NULL THEN p_institution_id ELSE a.institution_id END,
+    institution_id = CASE WHEN v_is_draft AND p_change_slot THEN p_institution_id ELSE a.institution_id END,
     fee_head = CASE WHEN v_is_draft AND p_change_slot THEN v_head ELSE a.fee_head END,
     updated_at = now(), updated_by = p_actor
   WHERE a.id = p_account_id;
@@ -13615,6 +13620,53 @@ REVOKE ALL ON FUNCTION public.fn_update_razorpay_account_meta(uuid, text, text, 
 GRANT EXECUTE ON FUNCTION public.fn_update_razorpay_account_meta(uuid, text, text, text, text, text, uuid, text, boolean, uuid) TO service_role;
 REVOKE ALL ON FUNCTION public.fn_delete_razorpay_account_by_id(uuid, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_delete_razorpay_account_by_id(uuid, uuid) TO service_role;
+
+-- Resolve the active GLOBAL account for a fee head (admin Test action; the normal router needs an institution).
+CREATE OR REPLACE FUNCTION public.fn_get_razorpay_account_global(p_master_secret text, p_fee_head text)
+RETURNS TABLE(id uuid, key_id text, key_secret text, webhook_secret text, mode text, webhook_ref text)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
+DECLARE v_head text := NULLIF(trim(p_fee_head), '');
+BEGIN
+  IF p_master_secret IS NULL OR length(trim(p_master_secret)) = 0 THEN RAISE EXCEPTION 'fn_get_razorpay_account_global: p_master_secret must not be NULL or empty'; END IF;
+  IF v_head IS NULL THEN RAISE EXCEPTION 'fn_get_razorpay_account_global: p_fee_head must not be NULL'; END IF;
+  RETURN QUERY SELECT a.id, a.key_id, pgp_sym_decrypt(a.key_secret_encrypted, p_master_secret),
+    pgp_sym_decrypt(a.webhook_secret_encrypted, p_master_secret), a.mode, a.webhook_ref
+  FROM public.razorpay_accounts a
+  WHERE a.is_active AND a.institution_id IS NULL AND a.fee_head = v_head LIMIT 1;
+END; $$;
+REVOKE ALL ON FUNCTION public.fn_get_razorpay_account_global(text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_get_razorpay_account_global(text, text) TO service_role;
+
+-- Transport (bus) fee collection list for /billing/transport: bus-requiring dayscholars with transport
+-- bills. Gated by billing.transport.view; self-scopes to the caller's accessible institutions.
+CREATE OR REPLACE FUNCTION public.fn_list_transport_collectables(p_institution_ids uuid[] DEFAULT NULL, p_academic_year_id uuid DEFAULT NULL)
+RETURNS TABLE(student_id uuid, first_name text, last_name text, roll_number text, institution_id uuid, route_number text, route_name text, stop_name text, outstanding_amount numeric, payable_bill_ids uuid[], bill_count integer)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE v_accessible uuid[];
+BEGIN
+  IF NOT public.user_has_permission('billing.transport.view') THEN RAISE EXCEPTION 'Not authorized: billing.transport.view required'; END IF;
+  SELECT array_agg(gai.institution_id) INTO v_accessible FROM public.get_user_accessible_institutions(auth.uid()) AS gai;
+  IF v_accessible IS NULL THEN v_accessible := ARRAY[]::uuid[]; END IF;
+  RETURN QUERY
+  SELECT lp.id, lp.first_name, lp.last_name, lp.roll_number, lp.institution_id,
+    rt.route_number, rt.route_name, st.stop_name,
+    COALESCE(SUM(CASE WHEN bsb.status IN ('unpaid','partially_paid') THEN COALESCE(bsb.balance_amount, bsb.final_amount, bsb.total_amount, 0) ELSE 0 END), 0),
+    COALESCE(array_agg(bsb.id) FILTER (WHERE bsb.status IN ('unpaid','partially_paid')), ARRAY[]::uuid[]),
+    COUNT(bsb.id)::int
+  FROM public.learners_profiles lp
+  JOIN public.accommodation_types acc ON acc.id = lp.accommodation_type_id AND acc.code = 'dayscholar'
+  JOIN public.billing_student_bills bsb ON bsb.student_id = lp.id
+  JOIN public.billing_categories bc ON bc.id = bsb.item_category_id AND bc.kind = 'transport'
+  LEFT JOIN public.tms_route rt ON rt.id = lp.transport_route_id
+  LEFT JOIN public.tms_route_stop st ON st.id = lp.transport_stop_id
+  WHERE lp.bus_required = true AND lp.institution_id = ANY(v_accessible)
+    AND (p_institution_ids IS NULL OR lp.institution_id = ANY(p_institution_ids))
+    AND (p_academic_year_id IS NULL OR bsb.academic_year_id = p_academic_year_id)
+  GROUP BY lp.id, lp.first_name, lp.last_name, lp.roll_number, lp.institution_id, rt.route_number, rt.route_name, st.stop_name
+  ORDER BY lp.first_name, lp.last_name;
+END; $$;
+REVOKE ALL ON FUNCTION public.fn_list_transport_collectables(uuid[], uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_list_transport_collectables(uuid[], uuid) TO authenticated;
 
 -- Defense-in-depth: revoke Supabase default broad grants on the credentials table.
 -- Access is service_role-only via RLS + the RPCs above; the app never touches this
@@ -15975,6 +16027,85 @@ GRANT EXECUTE ON FUNCTION public.fn_cl_admin_room_upgrade_options(uuid) TO authe
 REVOKE ALL ON FUNCTION public.fn_cl_admin_upgrade_room(uuid,uuid,uuid,uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_cl_admin_upgrade_room(uuid,uuid,uuid,uuid) TO authenticated;
 
+-- 20260617170000: room upgrades MOVE-NOW. Supersedes the _cl_upgrade_room_category
+-- above (CREATE OR REPLACE — last wins). Drops the reserve/pay-to-confirm branch:
+-- the room move (or first booking) happens immediately on confirm + the upgrade fee
+-- is billed. Reverts a prior optimistic flip so the fee computes original->target.
+CREATE OR REPLACE FUNCTION public._cl_upgrade_room_category(
+  p_profile uuid, p_lp uuid, p_new_category_id uuid, p_room_id uuid,
+  p_bed_id uuid DEFAULT NULL, p_enforce_self_gates boolean DEFAULT true
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+  v_lp uuid := p_lp; v_profile uuid := p_profile;
+  v_year uuid; v_cur_cat uuid; v_cur_fee numeric := 0; v_new_fee numeric;
+  v_new_name text; v_gate jsonb; v_has_alloc boolean; v_result jsonb; v_orig uuid;
+BEGIN
+  SELECT id INTO v_year FROM hostel_years WHERE is_current LIMIT 1;
+  IF v_year IS NULL THEN RAISE EXCEPTION 'No current hostel year configured'; END IF;
+  SELECT amount INTO v_new_fee FROM hostel_fees
+    WHERE hostel_category_id = p_new_category_id AND hostel_year_id = v_year AND mess_category_id IS NULL AND is_active LIMIT 1;
+  IF v_new_fee IS NULL THEN RAISE EXCEPTION 'Selected category has no published fee for the current hostel year'; END IF;
+  SELECT name INTO v_new_name FROM hostel_categories WHERE id = p_new_category_id;
+  SELECT hostel_category_id INTO v_cur_cat FROM learners_profiles WHERE id = v_lp;
+  v_has_alloc := EXISTS (SELECT 1 FROM hostel_allocations WHERE learner_id = v_profile AND status = 'active');
+  IF v_cur_cat = p_new_category_id THEN
+    SELECT from_hostel_category_id INTO v_orig FROM hostel_waitlist
+     WHERE learner_id = v_profile AND entry_kind='upgrade' AND target_hostel_category_id = p_new_category_id
+       AND from_hostel_category_id IS NOT NULL ORDER BY updated_at DESC LIMIT 1;
+    IF v_orig IS NOT NULL THEN
+      UPDATE learners_profiles SET hostel_category_id = v_orig WHERE id = v_lp;
+      v_cur_cat := v_orig;
+    END IF;
+  END IF;
+  SELECT COALESCE(amount,0) INTO v_cur_fee FROM hostel_fees
+    WHERE hostel_category_id = v_cur_cat AND hostel_year_id = v_year AND mess_category_id IS NULL AND is_active LIMIT 1;
+  IF v_cur_cat IS NOT NULL AND v_new_fee < v_cur_fee THEN
+    RAISE EXCEPTION 'Downgrades are not allowed (new fee < current fee)';
+  END IF;
+  IF p_enforce_self_gates AND v_has_alloc
+     AND NOT COALESCE((SELECT upgrades_enabled FROM hostel_categories WHERE id = v_cur_cat), false) THEN
+    RAISE EXCEPTION 'Room upgrades are currently disabled for your category';
+  END IF;
+  UPDATE hostel_beds b SET status='available'
+    FROM hostel_waitlist w
+   WHERE w.learner_id = v_profile AND w.entry_kind='upgrade' AND w.status='waiting'
+     AND w.held_bed_id = b.id AND b.status='reserved';
+  UPDATE billing_student_bills bb SET status='cancelled', updated_at=now()
+    FROM hostel_waitlist w
+   WHERE w.learner_id = v_profile AND w.entry_kind='upgrade' AND w.status='waiting'
+     AND w.target_hostel_category_id <> p_new_category_id
+     AND w.upgrade_bill_id = bb.id AND bb.status='unpaid'
+     AND NOT EXISTS (SELECT 1 FROM billing_receipt_items ri WHERE ri.bill_id = bb.id);
+  UPDATE hostel_waitlist
+     SET status='declined', held_room_id=NULL, held_bed_id=NULL, hold_expires_at=NULL, updated_at=now()
+   WHERE learner_id = v_profile AND entry_kind='upgrade' AND status='waiting'
+     AND target_hostel_category_id <> p_new_category_id;
+  UPDATE hostel_waitlist
+     SET held_room_id=NULL, held_bed_id=NULL, hold_expires_at=NULL, updated_at=now()
+   WHERE learner_id = v_profile AND entry_kind='upgrade' AND status='waiting'
+     AND target_hostel_category_id = p_new_category_id;
+  IF p_bed_id IS NULL THEN
+    SELECT o.bed_id INTO p_bed_id FROM _cl_room_options(v_profile, v_lp, p_new_category_id) o
+    WHERE o.room_id = p_room_id ORDER BY o.bed_number LIMIT 1;
+    IF p_bed_id IS NULL THEN RAISE EXCEPTION 'No available bed left in that room. Pick another room.'; END IF;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM _cl_room_options(v_profile, v_lp, p_new_category_id) o
+                 WHERE o.bed_id = p_bed_id AND o.room_id = p_room_id) THEN
+    RAISE EXCEPTION 'That room/bed is not an available option for this learner';
+  END IF;
+  v_gate := public._cl_upgrade_threshold_check(v_lp, p_new_category_id);
+  IF NOT v_has_alloc THEN
+    v_result := public._cl_execute_first_booking(v_profile, v_lp, p_new_category_id, p_room_id, p_bed_id, false);
+    RETURN v_result || jsonb_build_object('new_fee', v_new_fee,
+      'threshold_pct', v_gate->'threshold_pct', 'paid_pct', v_gate->'paid_pct');
+  END IF;
+  v_result := public._cl_execute_room_upgrade(v_profile, v_lp, p_new_category_id, p_room_id, p_bed_id, false);
+  RETURN v_result || jsonb_build_object('threshold_pct', v_gate->'threshold_pct', 'paid_pct', v_gate->'paid_pct');
+END $$;
+REVOKE ALL ON FUNCTION public._cl_upgrade_room_category(uuid,uuid,uuid,uuid,uuid,boolean) FROM PUBLIC, anon, authenticated;
+
 CREATE OR REPLACE FUNCTION public.fn_self_join_upgrade_waitlist(p_target_category_id uuid)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
@@ -17404,13 +17535,22 @@ END $function$;
 REVOKE EXECUTE ON FUNCTION public.fn_cl_expire_upgrade_holds() FROM anon, authenticated, PUBLIC;
 
 -- 8) Leaving the waitlist cancels the linked unpaid bill + releases the bed ------
+-- 20260617160000: revert the optimistic category flip on learner cancel (parity
+-- with fn_cl_admin_cancel_upgrade) so My Hostel + admin views converge.
 CREATE OR REPLACE FUNCTION public.fn_self_leave_upgrade_waitlist(p_target_category_id uuid)
 RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
+DECLARE v_lp uuid := get_my_learner_id(); v_from uuid; v_found boolean;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Not authenticated'; END IF;
+  SELECT from_hostel_category_id INTO v_from
+    FROM hostel_waitlist
+   WHERE learner_id = auth.uid() AND entry_kind='upgrade'
+     AND target_hostel_category_id = p_target_category_id AND status='waiting'
+     AND from_hostel_category_id IS NOT NULL
+   ORDER BY updated_at DESC LIMIT 1;
   UPDATE hostel_beds b SET status='available'
     FROM hostel_waitlist w
    WHERE w.learner_id = auth.uid() AND w.entry_kind='upgrade'
@@ -17428,7 +17568,18 @@ BEGIN
      AND entry_kind = 'upgrade'
      AND target_hostel_category_id = p_target_category_id
      AND status = 'waiting';
-  RETURN FOUND;
+  v_found := FOUND;
+  IF v_lp IS NOT NULL THEN
+    IF v_from IS NOT NULL THEN
+      UPDATE learners_profiles
+         SET hostel_category_id = v_from, pending_hostel_category_id = NULL, updated_at=now()
+       WHERE id = v_lp AND hostel_category_id = p_target_category_id;
+    ELSE
+      UPDATE learners_profiles SET pending_hostel_category_id = NULL, updated_at=now()
+       WHERE id = v_lp AND pending_hostel_category_id = p_target_category_id;
+    END IF;
+  END IF;
+  RETURN v_found;
 END $function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_self_leave_upgrade_waitlist(uuid) FROM anon, PUBLIC;
