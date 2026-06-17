@@ -145,6 +145,8 @@ export class LearnerHosteliteService {
         }
       }
 
+      if (filters?.hostel_category_id) query = query.eq('hostel_category_id', filters.hostel_category_id);
+
       // Academic cascade filters (parity with Learners Profiles).
       if (filters?.degree_id) query = query.eq('degree_id', filters.degree_id);
       if (filters?.department_id) query = query.eq('department_id', filters.department_id);

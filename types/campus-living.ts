@@ -228,6 +228,7 @@ export interface LearnerHostelitesFilters {
   year_of_study?: number;
   gender?: 'Male' | 'Female' | 'Other';
   block_id?: BlockFilterValue;
+  hostel_category_id?: string;
   // Academic cascade filters (parity with Learners Profiles).
   degree_id?: string;
   department_id?: string;
