@@ -37,6 +37,12 @@ export interface ManageEventType {
   description: string | null;
   locationMode: MeetingLocationMode;
   locationText: string | null;
+  // M2 slot rules — see the native slot engine (computeSlots).
+  bufferBeforeMin: number;
+  bufferAfterMin: number;
+  minNoticeMin: number;
+  /** null = back-to-back (engine uses duration as the step). */
+  slotIntervalMin: number | null;
 }
 
 /** Payload accepted by create / update from the client. */
@@ -51,6 +57,12 @@ export interface EventTypeFormInput {
   locationMode?: MeetingLocationMode;
   /** Free-text place for in_person (e.g. "Pharmacy block, Room 204"). */
   locationText?: string;
+  // M2 slot rules (all optional — omitted fields keep the DB default).
+  bufferBeforeMin?: number;
+  bufferAfterMin?: number;
+  minNoticeMin?: number;
+  /** null/0 from the form → stored as NULL (back-to-back). */
+  slotIntervalMin?: number | null;
 }
 
 // The native tables aren't in generated types yet — untyped client (TS2589 class).
@@ -75,7 +87,15 @@ interface MeetingTypeRow {
   description: string | null;
   location_mode: MeetingLocationMode | null;
   location_text: string | null;
+  buffer_before_min: number | null;
+  buffer_after_min: number | null;
+  min_notice_min: number | null;
+  slot_interval_min: number | null;
 }
+
+/** Columns the manage actions select / round-trip (kept in one place). */
+const MT_COLUMNS =
+  'id, title, slug, duration_min, hidden, description, location_mode, location_text, buffer_before_min, buffer_after_min, min_notice_min, slot_interval_min';
 
 function toManageEventType(row: MeetingTypeRow): ManageEventType {
   return {
@@ -87,6 +107,10 @@ function toManageEventType(row: MeetingTypeRow): ManageEventType {
     description: row.description ?? null,
     locationMode: row.location_mode ?? 'in_person',
     locationText: row.location_text ?? null,
+    bufferBeforeMin: row.buffer_before_min ?? 0,
+    bufferAfterMin: row.buffer_after_min ?? 0,
+    minNoticeMin: row.min_notice_min ?? 0,
+    slotIntervalMin: row.slot_interval_min ?? null,
   };
 }
 
@@ -103,6 +127,14 @@ function normaliseSlug(raw: string): string {
     .slice(0, 64);
 }
 
+/** Coerce an optional integer field; returns null on null/undefined/non-number. */
+function optInt(v: number | null | undefined): number | null {
+  if (v === null || v === undefined) return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n);
+}
+
 function validateForm(
   input: EventTypeFormInput,
 ): {
@@ -114,6 +146,10 @@ function validateForm(
     description?: string;
     location_mode: MeetingLocationMode;
     location_text: string | null;
+    buffer_before_min: number;
+    buffer_after_min: number;
+    min_notice_min: number;
+    slot_interval_min: number | null;
   };
   error?: string;
 } {
@@ -142,6 +178,31 @@ function validateForm(
   }
   const locationText = input.locationText?.trim().slice(0, 200);
 
+  // ── M2 slot rules ──────────────────────────────────────────────────────────
+  const bufferBefore = optInt(input.bufferBeforeMin) ?? 0;
+  const bufferAfter = optInt(input.bufferAfterMin) ?? 0;
+  const minNotice = optInt(input.minNoticeMin) ?? 0;
+  if (bufferBefore < 0 || bufferAfter < 0) {
+    return { ok: false, error: 'Buffers cannot be negative.' };
+  }
+  if (bufferBefore > 1440 || bufferAfter > 1440) {
+    return { ok: false, error: 'A buffer cannot exceed 24 hours (1440 minutes).' };
+  }
+  if (minNotice < 0) {
+    return { ok: false, error: 'Minimum notice cannot be negative.' };
+  }
+  if (minNotice > 525600) {
+    return { ok: false, error: 'Minimum notice cannot exceed one year.' };
+  }
+  // 0 / blank → NULL = back-to-back (engine uses duration as the step).
+  let slotInterval = optInt(input.slotIntervalMin);
+  if (slotInterval !== null) {
+    if (slotInterval <= 0) slotInterval = null;
+    else if (slotInterval > 1440) {
+      return { ok: false, error: 'Slot increment cannot exceed 24 hours (1440 minutes).' };
+    }
+  }
+
   return {
     ok: true,
     value: {
@@ -152,6 +213,10 @@ function validateForm(
       location_mode: locationMode,
       // Only in-person meetings carry a free-text place; clear it otherwise.
       location_text: locationMode === 'in_person' && locationText ? locationText : null,
+      buffer_before_min: bufferBefore,
+      buffer_after_min: bufferAfter,
+      min_notice_min: minNotice,
+      slot_interval_min: slotInterval,
     },
   };
 }
@@ -168,7 +233,7 @@ export async function listMyEventTypes(): Promise<ActionResult<ManageEventType[]
 
     const { data, error } = await supabase
       .from('meeting_types')
-      .select('id, title, slug, duration_min, hidden, description, location_mode, location_text')
+      .select(MT_COLUMNS)
       .eq('host_profile_id', userId)
       .eq('is_active', true)
       .order('created_at', { ascending: true });
@@ -199,7 +264,7 @@ export async function createMyEventType(
     const { data, error } = await supabase
       .from('meeting_types')
       .insert({ host_profile_id: userId, ...validated.value })
-      .select('id, title, slug, duration_min, hidden, description, location_mode, location_text')
+      .select(MT_COLUMNS)
       .single();
     if (error) {
       if (error.code === '23505') {
@@ -240,7 +305,7 @@ export async function updateMyEventType(
       .update(patch)
       .eq('id', id)
       .eq('host_profile_id', userId)
-      .select('id, title, slug, duration_min, hidden, description, location_mode, location_text')
+      .select(MT_COLUMNS)
       .maybeSingle();
     if (error) {
       if (error.code === '23505') {

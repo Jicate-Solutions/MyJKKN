@@ -433,7 +433,9 @@ function rowsCourseContent(data: CourseSyllabusDOCXData): TableRow[] {
 		const sectionRefs = [...new Set(unit.chapters.map(ch => ch.sections).filter(Boolean))]
 		const paragraphs: Paragraph[] = []
 
-		if (unitTitle) paragraphs.push(p(unitTitle, { bold: true }))
+		// Match the PDF: unit title is fully bold AND justified (the PDF
+		// justifies every content line except a paragraph's last line).
+		if (unitTitle) paragraphs.push(p(unitTitle, { bold: true, alignment: AlignmentType.JUSTIFIED }))
 
 		for (const ch of chapterEntries) {
 			const cleanTitle = ch.title.replace(/[:\s]+$/, '')
@@ -446,7 +448,8 @@ function rowsCourseContent(data: CourseSyllabusDOCXData): TableRow[] {
 					),
 				)
 			} else if (cleanTitle) {
-				paragraphs.push(p(cleanTitle, { bold: true }))
+				// Match the PDF: a title-only chapter is bold AND justified.
+				paragraphs.push(p(cleanTitle, { bold: true, alignment: AlignmentType.JUSTIFIED }))
 			} else if (subsText) {
 				paragraphs.push(p(subsText, { alignment: AlignmentType.JUSTIFIED }))
 			}

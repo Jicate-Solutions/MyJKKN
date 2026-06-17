@@ -24,6 +24,10 @@
       "schedule": "0 * * * *"
     },
     {
+      "path": "/api/cron/coe-course-sync?secret=${CRON_SECRET}",
+      "schedule": "0 * * * *"
+    },
+    {
       "path": "/api/dashboard/cron/refresh-sla-leaderboard",
       "schedule": "*/5 * * * *"
     },

@@ -22,12 +22,14 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   evaluateGates,
   useLiveSession,
 } from '@/lib/services/ai-pulse/live-session-service';
 import { JoinButton } from './join-button';
 import { PollsPanel } from './polls-panel';
+import { ChampionPollsControl } from './champion-polls-control';
 import { QuizPanel } from './quiz-panel';
 import { EngagementProgress } from './engagement-progress';
 import { StayHeartbeat } from './stay-heartbeat';
@@ -50,6 +52,10 @@ function formatIst(iso: string | null): string {
 
 export function LiveSessionShell({ cycleId }: LiveSessionShellProps) {
   const { data, isLoading, error } = useLiveSession(cycleId);
+  // Champion + Co-Champion both hold the ai_pulse_champion role — gate the
+  // "Issue poll" control on the SAME role the RLS write policy enforces.
+  const { userRoles } = usePermissions();
+  const isChampion = userRoles.some((r) => r.role_key === 'ai_pulse_champion');
 
   if (isLoading) {
     return (
@@ -79,14 +85,14 @@ export function LiveSessionShell({ cycleId }: LiveSessionShellProps) {
   }
 
   const { cycle, attendance, polls, quiz_open, quiz_async_window_open } = data;
-  // polls = ALL polls issued this cycle (gate requirement is min(3, issued));
-  // the panel only shows the still-open ones.
+  // polls = ALL polls issued this cycle (gate requirement is min(3, issued)).
+  // The panel shows every poll — accepting ones are answerable, closed ones
+  // render as "Closed" so a learner can see one existed (and was missed).
   const gates = evaluateGates(
     attendance.engagement_signals,
     cycle.ends_at,
     polls.length,
   );
-  const openPolls = polls.filter((p) => !p.closed_at);
   const alreadyJoined = !!attendance.joined_at;
   const heartbeatEnabled =
     alreadyJoined && (cycle.status === 'live' || cycle.status === 'execution');
@@ -159,11 +165,17 @@ export function LiveSessionShell({ cycleId }: LiveSessionShellProps) {
       {/* Engagement gate visualisation */}
       <EngagementProgress gates={gates} />
 
+      {/* Champion-only — issue / close live polls for this cycle */}
+      {isChampion && (
+        <ChampionPollsControl cycleId={cycle.id} endsAt={cycle.ends_at} />
+      )}
+
       {/* Polls + Quiz side-by-side on wide screens, stacked on mobile */}
       <div className="grid gap-6 lg:grid-cols-2">
         <PollsPanel
           cycleId={cycle.id}
-          polls={openPolls}
+          polls={polls}
+          endsAt={cycle.ends_at}
           pollsRespondedCount={
             attendance.engagement_signals.polls_responded ?? 0
           }

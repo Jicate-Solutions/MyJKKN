@@ -10,6 +10,8 @@ import type {
   PendingSession,
   ConfirmationStatusRow,
   FacultySummaryRow,
+  FacultyCompletionRow,
+  PendingRosterRow,
   EscalationRow,
   EscalationFollowupRow,
   ChecklistConfigItem,
@@ -86,6 +88,34 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to load faculty summary: ${error.message}`);
     return (data || []) as FacultySummaryRow[];
+  }
+
+  /** Coverage per faculty session: how many Present students gave feedback (counts only). */
+  static async getFacultyCompletion(from: string, to: string): Promise<FacultyCompletionRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_faculty_completion', {
+      p_from: from,
+      p_to: to,
+    });
+    if (error) throw new Error(`Failed to load faculty completion: ${error.message}`);
+    return (data || []) as FacultyCompletionRow[];
+  }
+
+  /** Names of Present students who haven't submitted, for ONE session (identity only — never content).
+   *  The RPC raises unless the caller is the assigned faculty for that session. */
+  static async getPendingRoster(
+    attendanceDate: string,
+    timetableId: string,
+    periodId: string,
+  ): Promise<PendingRosterRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_faculty_pending_roster', {
+      p_attendance_date: attendanceDate,
+      p_timetable_id: timetableId,
+      p_period_id: periodId,
+    });
+    if (error) throw new Error(`Failed to load pending roster: ${error.message}`);
+    return (data || []) as PendingRosterRow[];
   }
 
   /** Institution sessions breaching the understanding threshold (Principal view). */
