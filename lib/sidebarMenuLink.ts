@@ -1227,26 +1227,11 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: GraduationCap,
           submenus: []
         },
-        {
-          // Learner post-class feedback — 10-second confirm that doubles as
-          // attendance confirmation. Lives under /academic/session-feedback/learn.
-          href: '/academic/session-feedback/learn',
-          label: 'Class Feedback',
-          active: pathname.startsWith('/academic/session-feedback/learn'),
-          icon: MessageSquare,
-          submenus: []
-        },
-        {
-          // Post-class feedback — learner attendance-confirmation view (L2).
-          // Sessions stay "present-pending" until the learner gives feedback.
-          href: '/academic/session-feedback/me',
-          label: 'My Attendance Feedback',
-          active:
-            pathname === '/academic/session-feedback/me' ||
-            pathname.startsWith('/academic/session-feedback/me/'),
-          icon: ClipboardCheck,
-          submenus: []
-        },
+        // NOTE: the learner lanes (Class Feedback /learn, My Attendance Feedback
+        // /me) were moved OUT of this admin/faculty "Academic" group into the
+        // student "Learners" group below — students never see "Academic", so they
+        // could not reach Class Feedback (root cause of 0 submissions). The
+        // faculty (/faculty) + principal (/principal) lanes remain here.
         {
           // Board of Studies — institutional governance + expert management.
           // Navigation lives in the module's in-page tab bar (BOS_NAV_TABS,
@@ -1686,6 +1671,29 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Attendance',
           active: pathname.startsWith('/learners/my-attendance'),
           icon: ClipboardCheck,
+          submenus: []
+        },
+        {
+          // Post-class feedback — the student gives a 10-second rating that
+          // CONFIRMS their attendance. Lives in the student /learners namespace
+          // (relocated out of /academic so it no longer inherits the Academic
+          // module tab bar). Visibility gated to students by the session-feedback
+          // special-case in GetRoleBasedPages.
+          href: '/learners/class-feedback',
+          label: 'Class Feedback',
+          active: pathname.startsWith('/learners/class-feedback'),
+          icon: MessageSquare,
+          submenus: []
+        },
+        {
+          // Student's per-session attendance-confirmation view (present-pending
+          // until feedback given).
+          href: '/learners/my-attendance-feedback',
+          label: 'My Attendance Feedback',
+          active:
+            pathname === '/learners/my-attendance-feedback' ||
+            pathname.startsWith('/learners/my-attendance-feedback/'),
+          icon: MessageSquare,
           submenus: []
         },
         {
@@ -2336,7 +2344,10 @@ export function normalizeRoute(href: string): string {
 export function isStudentPortalRoute(href: string): boolean {
   return (
     href.includes('/learners/my-') ||
-    href === '/learners/leave-onduty/my-applications'
+    href === '/learners/leave-onduty/my-applications' ||
+    // Post-class feedback (Class Feedback) — student-only lane relocated out of
+    // /academic. (My Attendance Feedback already matches /learners/my- above.)
+    href === '/learners/class-feedback'
   );
 }
 

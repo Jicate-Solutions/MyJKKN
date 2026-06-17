@@ -31,7 +31,7 @@ export const GUIDES: GuideBook = {
         "Apply for leave, confirm your attendance with feedback, and check your privileges.",
       whyItMatters:
         "Two small habits keep your record clean: apply for leave before you miss class, and give one-tap feedback after each session so your attendance is confirmed instead of left pending.",
-      startHere: { label: "Give Class Feedback", href: "/academic/session-feedback/learn" },
+      startHere: { label: "Give Class Feedback", href: "/learners/class-feedback" },
       journey: ["Give class feedback", "Check it confirmed", "Apply for leave", "See your privileges"],
       sections: [
         {
@@ -46,13 +46,13 @@ export const GUIDES: GuideBook = {
                 web: "left sidebar → Academic → Session Feedback → Give Class Feedback",
                 mobile: "tap the menu (☰) → Academic → Session Feedback",
               },
-              link: { label: "Give Class Feedback", href: "/academic/session-feedback/learn" },
+              link: { label: "Give Class Feedback", href: "/learners/class-feedback" },
             },
             {
               action: "Open **My Attendance Feedback** to see which sessions are confirmed.",
               detail:
                 "Anything still marked present-pending means you have not given feedback yet — finish it so it counts.",
-              link: { label: "Open My Feedback", href: "/academic/session-feedback/me" },
+              link: { label: "Open My Feedback", href: "/learners/my-attendance-feedback" },
             },
           ],
         },

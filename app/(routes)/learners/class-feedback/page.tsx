@@ -51,7 +51,6 @@ export default function LearnerSessionFeedbackPage() {
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Academic', href: '/academic' },
           { label: 'Class Feedback' },
         ]}
       />
