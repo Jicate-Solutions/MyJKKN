@@ -2480,17 +2480,7 @@ export function GetRoleBasedPages(
 
           // Special case: Student portal pages (my-* and leave-onduty) are ONLY for students
           // This check must come BEFORE the submenus check
-<<<<<<< HEAD
-          if (
-            menu.href.includes('/learners/my-') ||
-            menu.href === '/learners/leave-onduty/my-applications' ||
-            // Post-class feedback (Class Feedback) — student-only lane.
-            // (My Attendance Feedback already matches /learners/my- above.)
-            menu.href === '/learners/class-feedback'
-          ) {
-=======
           if (isStudentPortalRoute(menu.href)) {
->>>>>>> jicate/main
             return userRole.role_key === 'student';
           }
 
