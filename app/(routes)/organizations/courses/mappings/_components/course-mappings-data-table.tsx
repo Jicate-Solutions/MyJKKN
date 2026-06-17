@@ -13,7 +13,8 @@ import {
   ChevronDown,
   FileSpreadsheet,
   FileText,
-  FileJson
+  FileJson,
+  RefreshCw
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { CourseMappingService } from '@/lib/services/organization/course-mapping-service';
@@ -59,6 +60,7 @@ export function CourseMappingsDataTable({
   const [isDeleting, setIsDeleting] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const canCreate =
     isSuperAdmin || canAccess('organizations.course.mappings', 'create');
@@ -215,6 +217,74 @@ export function CourseMappingsDataTable({
     router.refresh();
   };
 
+  // Manual "Sync from COE": forces an immediate mirror + mapping sync for the
+  // selected institution. Same engine as the courses page — one pass refreshes
+  // both courses and course_mappings, so mappings never lag their courses.
+  const handleCoeSync = async () => {
+    if (!search.institution_id) {
+      toast.error('Select an institution first to sync from COE');
+      return;
+    }
+    setIsSyncing(true);
+    const toastId = toast.loading('Syncing from COE…');
+    try {
+      const res = await fetch('/api/coe-sync/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ institutionId: search.institution_id }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'Sync failed');
+      if (!j.coeMastered) {
+        toast(j.message, { id: toastId, icon: 'ℹ️' });
+        return;
+      }
+      const skipNote = j.mappingsSkipped ? `, ${j.mappingsSkipped} skipped` : '';
+      toast.success(
+        `Synced from COE: ${j.coursesUpserted} ${adapt('course').toLowerCase()}(s), ${j.mappingsUpserted} mapping(s)${skipNote}`,
+        { id: toastId },
+      );
+      if (j.errors?.length) {
+        toast.error(`${j.errors.length} error(s) during sync — see server logs`);
+      }
+      setRefreshTrigger((prev) => prev + 1);
+      router.refresh();
+    } catch (e) {
+      toast.error((e as Error).message || 'Sync failed', { id: toastId });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Super-admin: sync EVERY COE-mastered institution in one pass. No filter needed.
+  const handleCoeSyncAll = async () => {
+    setIsSyncing(true);
+    const toastId = toast.loading('Syncing all COE institutions…');
+    try {
+      const res = await fetch('/api/coe-sync/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ all: true }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'Sync failed');
+      const skipNote = j.mappingsSkipped ? `, ${j.mappingsSkipped} skipped` : '';
+      toast.success(
+        `Synced ${j.institutionsProcessed} COE institution(s): ${j.coursesUpserted} ${adapt('course').toLowerCase()}(s), ${j.mappingsUpserted} mapping(s)${skipNote}`,
+        { id: toastId },
+      );
+      if (j.errors?.length) {
+        toast.error(`${j.errors.length} error(s) during sync — see server logs`);
+      }
+      setRefreshTrigger((prev) => prev + 1);
+      router.refresh();
+    } catch (e) {
+      toast.error((e as Error).message || 'Sync failed', { id: toastId });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const renderCustomToolbar = (props: {
     selectedRows: any[];
     allSelectedIds: (string | number)[];
@@ -242,6 +312,42 @@ export function CourseMappingsDataTable({
         >
           <Upload className='mr-2 h-4 w-4' />
           Import
+        </Button>
+      )}
+
+      {canCreate && (
+        <Button
+          onClick={handleCoeSync}
+          disabled={isSyncing}
+          variant='outline'
+          size='sm'
+          className='h-8'
+          title='Pull the latest courses & mappings from the COE portal for the selected institution'
+        >
+          {isSyncing ? (
+            <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+          ) : (
+            <RefreshCw className='mr-2 h-4 w-4' />
+          )}
+          Sync from COE
+        </Button>
+      )}
+
+      {isSuperAdmin && (
+        <Button
+          onClick={handleCoeSyncAll}
+          disabled={isSyncing}
+          variant='outline'
+          size='sm'
+          className='h-8'
+          title='Super-admin: pull latest courses & mappings from COE for ALL COE-mastered institutions'
+        >
+          {isSyncing ? (
+            <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+          ) : (
+            <RefreshCw className='mr-2 h-4 w-4' />
+          )}
+          Sync all COE
         </Button>
       )}
 
@@ -297,6 +403,7 @@ export function CourseMappingsDataTable({
   return (
     <>
       <DataTable
+        key={refreshTrigger}
         fetchDataFn={fetchData}
         getColumns={() => getCourseMappingColumns(adapt) as any}
         exportConfig={{
