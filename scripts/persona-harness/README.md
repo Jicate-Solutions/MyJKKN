@@ -35,8 +35,9 @@ node scripts/persona-harness/harness.mjs
 # any role:path pairs, run in parallel
 node scripts/persona-harness/harness.mjs hod:/ai-pulse/lab superadmin:/billing student:/dashboard
 
-# WATCH it run in real windows (headless is the default)
-PERSONA_HEADED=1 node scripts/persona-harness/harness.mjs hod:/ai-pulse/lab
+# DEFAULT opens visible windows you can watch. For an invisible/CI run that also
+# captures screenshots:
+PERSONA_HEADLESS=1 node scripts/persona-harness/harness.mjs hod:/ai-pulse/lab
 
 # point at a local dev server instead of production
 PERSONA_BASE_URL=http://localhost:3104 node scripts/persona-harness/harness.mjs
@@ -48,7 +49,19 @@ PERSONA_DISMISS_MODALS=1 node scripts/persona-harness/harness.mjs hod:/ai-pulse/
 ```
 
 Output: a JSON array on stdout (`role`, `authed`, `finalUrl`, `deniedAccess`,
-`heading`, `screenshot`) + a PNG per persona in `.screenshots/persona-<role>.png`.
+`heading`). In **headless** mode it also writes a PNG per persona to
+`.screenshots/persona-<role>.png`; in **headed** mode it doesn't (you watched it live).
+
+## Two modes — watch vs. record
+
+These are orthogonal jobs, so the harness does exactly one per mode:
+
+| Mode | Default? | Windows | Screenshots | Use for |
+|---|---|---|---|---|
+| **Headed** (`PERSONA_HEADLESS` unset) | ✅ | visible | none — *you* are the camera | watching a flow live |
+| **Headless** (`PERSONA_HEADLESS=1`) | | invisible | one PNG per persona | CI, batch, async proof |
+
+A screenshot exists to show a human something they didn't watch happen — so capturing one in headed mode is redundant (and, on macOS headed Chrome, crash-prone). Want a saved image? Run headless.
 
 ## Personas
 
@@ -68,7 +81,7 @@ All use password `Test@1234` (the dev test-account password).
 | Flag | Effect |
 |---|---|
 | `PERSONA_BASE_URL` | Target origin (default `https://www.jkkn.ai`) |
-| `PERSONA_HEADED=1` | Run visible Chrome windows (with slow-mo) instead of headless |
+| `PERSONA_HEADLESS=1` | Invisible run (CI/batch) **and** captures screenshots. Default is visible windows. |
 | `PERSONA_DISMISS_MODALS=1` | Acknowledge a blocking mandatory-ack modal (a write) |
 | `PERSONA_PASSWORD` | Override the test-account password (default `Test@1234`) |
 

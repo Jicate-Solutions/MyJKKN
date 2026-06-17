@@ -149,10 +149,23 @@ async function runPersona(browser, role, path) {
     });
     out.deniedAccess = await page.evaluate(() =>
       /you don'?t have access|restricted to/i.test(document.body.innerText));
-    const shot = `.screenshots/persona-${role}.png`;
-    await page.screenshot({ path: shot });
-    out.screenshot = shot;
-    out.ok = true;
+    // A screenshot is PROOF for a run no human watched — so capture it only in
+    // headless mode. In headed mode the human IS the camera; attempting a
+    // captureScreenshot here only courts the macOS headed-Chrome crash for zero
+    // gain. Orthogonal jobs: headed = observe live, headless = record proof.
+    if (process.env.PERSONA_HEADLESS) {
+      const shot = `.screenshots/persona-${role}.png`;
+      try {
+        await page.screenshot({ path: shot });
+        out.screenshot = shot;
+      } catch (se) {
+        out.screenshotError = String((se && se.message) || se);
+      }
+    } else {
+      out.note = 'headed — watched live; rerun with PERSONA_HEADLESS=1 to capture a screenshot';
+      await new Promise((r) => setTimeout(r, 5000)); // linger so the window is watchable
+    }
+    out.ok = true; // auth + navigation succeeded
   } catch (e) {
     out.error = String((e && e.message) || e);
   } finally {
@@ -167,19 +180,18 @@ const set = args.length
   ? args.map((a) => { const [r, ...p] = a.split(':'); return [r, p.join(':') || '/']; })
   : DEFAULT_SET;
 
-// Headless by default (fast, parallel, invisible — its own Chrome process, NOT
-// your visible tabs). Set PERSONA_HEADED=1 to watch real windows open.
-const HEADED = !!process.env.PERSONA_HEADED;
+// VISIBLE WINDOWS BY DEFAULT — you watch it test in real Chrome windows.
+// Set PERSONA_HEADLESS=1 for an invisible background run (CI, batch, no display).
+const HEADLESS = !!process.env.PERSONA_HEADLESS;
 const browser = await puppeteer.launch({
-  headless: !HEADED,
-  slowMo: HEADED ? 60 : 0, // slow actions down so they're watchable
-  args: ['--no-sandbox', '--window-size=1460,920'],
+  headless: HEADLESS,
+  args: ['--no-sandbox', '--window-size=1460,920', '--disable-dev-shm-usage', '--disable-gpu'],
 });
-console.error(`[harness] base=${BASE} headed=${HEADED} personas=${set.map((s) => s[0]).join(',')}`);
+console.error(`[harness] base=${BASE} headless=${HEADLESS} personas=${set.map((s) => s[0]).join(',')}`);
+
+// Personas run in parallel, each in its own window/context. In headed mode each
+// window lingers ~5s (see runPersona) so you can watch it before it closes.
 const results = await Promise.all(set.map(([r, p]) => runPersona(browser, r, p)));
-if (HEADED) {
-  console.error('[harness] holding windows open 10s so you can see them…');
-  await new Promise((r) => setTimeout(r, 10000));
-}
-await browser.close();
-console.log(JSON.stringify(results, null, 2));
+console.log(JSON.stringify(results, null, 2)); // print results FIRST — before any close hang
+browser.close().catch(() => {}); // fire-and-forget; headed Chrome can hang on close (macOS)
+setTimeout(() => process.exit(0), 1500); // hard-exit shortly after, regardless of close state
