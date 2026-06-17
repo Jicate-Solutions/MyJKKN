@@ -75,6 +75,17 @@ export function useHostelAllocation(id: string) {
   });
 }
 
+// Category-wise room/bed availability for the transfer modal. Keyed on the
+// chosen block; short staleTime so it reflects beds freed/taken by other moves.
+export function useTransferRoomOptions(blockId: string | undefined) {
+  return useQuery({
+    queryKey: ['hostel-allocations', 'transfer-room-options', blockId] as const,
+    queryFn: () => HostelAllocationService.getTransferRoomOptions(blockId as string),
+    enabled: !!blockId,
+    staleTime: 15_000,
+  });
+}
+
 // --- Mutation hooks ---
 
 export function useCreateHostelAllocation() {

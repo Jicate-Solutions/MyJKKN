@@ -288,6 +288,13 @@ export default function AllocationsPage() {
           currentBlockId={transferTarget.block_id}
           currentRoomId={transferTarget.room_id}
           currentBedId={transferTarget.bed_id}
+          current={{
+            learnerName: getJoined(transferTarget, 'learner', 'full_name') || null,
+            blockName: getJoined(transferTarget, 'hostel_blocks', 'name') || null,
+            roomNumber: getJoined(transferTarget, 'hostel_rooms', 'room_number') || null,
+            bedNumber: getJoined(transferTarget, 'hostel_beds', 'bed_number') || null,
+            roomCategory: transferTarget.learner?.academic?.room_category?.name ?? null,
+          }}
           open={!!transferTarget}
           onOpenChange={(o) => { if (!o) setTransferTarget(null); }}
           onSuccess={() => setTransferTarget(null)}
