@@ -64,7 +64,7 @@ export function AttendanceViewSelector({
   isSuperAdmin = false
 }: AttendanceViewSelectorProps) {
   // Updated: 2025-11-29 - Include isLoading to prevent showing "no permission" during permission load
-  const { isSuperAdmin: isUserSuperAdmin, userProfile, isLoading: permissionsLoading } = usePermissions();
+  const { isSuperAdmin: isUserSuperAdmin, userProfile, isLoading: permissionsLoading, canAccess } = usePermissions();
   const { profile, isLoading: authLoading } = useAuth();
   const [staffId, setStaffId] = useState<string | null>(null);
   // Updated: 2025-10-09 - Track if section is required for validation
@@ -75,14 +75,26 @@ export function AttendanceViewSelector({
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [isClient, setIsClient] = useState(false);
 
-  // Determine initial loading state based on role
-  const isFaculty = profile?.role === 'faculty';
+  // Determine initial loading state based on role.
+  // Updated: 2026-06-17 — Honor multi-role / merged permissions. A user's PRIMARY
+  // profiles.role may not be 'faculty' (e.g. a 'staff_counselor' who also holds a
+  // secondary 'faculty' role), but if they were granted academic.attendance.mark
+  // they are faculty-capable and must reach the period-marking flow. Gating on the
+  // single role string alone wrongly denied such users (their real staff record
+  // still resolves by email below, routing them into "My Classes").
+  const canMarkAttendance = canAccess('academic.attendance', 'mark');
+  const isFaculty = profile?.role === 'faculty' || canMarkAttendance;
   const isHOD = profile?.role === 'hod';
   const isAdmin =
     profile?.role === 'administrator' || profile?.role === 'principal';
   const shouldCheckStaff = isFaculty && !isUserSuperAdmin;
 
   const [loadingStaffId, setLoadingStaffId] = useState(shouldCheckStaff);
+  // Tracks whether the staff-record lookup has finished. Permission-based faculty
+  // only become isFaculty=true AFTER permissions load, so without this flag they
+  // would briefly flash the "not linked to a staff record" / "no permission"
+  // fallback in the render window before their staffId resolves.
+  const [staffChecked, setStaffChecked] = useState(false);
 
   // Updated: 2026-06-10 - Class incharges (any role) may mark day-wise
   // (session_wise) attendance. Detect incharge status so they reach the search
@@ -167,11 +179,13 @@ export function AttendanceViewSelector({
       // Skip faculty check for super admins, admin roles, and HOD roles
       if (isUserSuperAdmin || isAdmin || isHOD || !isFaculty) {
         setLoadingStaffId(false);
+        setStaffChecked(true);
         return;
       }
 
       if (!profile?.email) {
         setLoadingStaffId(false);
+        setStaffChecked(true);
         return;
       }
 
@@ -185,6 +199,7 @@ export function AttendanceViewSelector({
         logger.error('academic/attendance', 'Error checking faculty status', error);
       } finally {
         setLoadingStaffId(false);
+        setStaffChecked(true);
       }
     };
 
@@ -314,7 +329,14 @@ export function AttendanceViewSelector({
   // Loading state - Updated: 2025-11-29 - Include initial loading to prevent premature "no permission" message
   // Updated: 2026-06-10 - Also wait for the class-incharge check so incharges
   // don't briefly see the "no permission" fallback before being admitted.
-  if (isInitialLoading || loadingStaffId || checkingIncharge) {
+  if (
+    isInitialLoading ||
+    loadingStaffId ||
+    checkingIncharge ||
+    // Permission-based faculty (non-admin): wait for the staff lookup to finish
+    // so we don't flash a denial before staffId resolves. Added: 2026-06-17.
+    (isFaculty && !isUserSuperAdmin && !isAdmin && !isHOD && !staffChecked)
+  ) {
     return (
       <div className='flex items-center justify-center py-8'>
         <Loader2 className='h-6 w-6 animate-spin mr-2' />
