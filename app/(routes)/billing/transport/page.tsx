@@ -31,7 +31,7 @@ export default function BillingTransportPage() {
           <div>
             <h1 className='py-1 text-2xl font-bold'>Transport Fees</h1>
             <p className='text-muted-foreground text-sm sm:text-base'>
-              Collect bus (transport) fees from day scholars who use college transport. Every
+              Collect bus (transport) fees from learners who use college transport. Every
               transport payment is routed to the dedicated transport account, the same for all
               institutions.
             </p>

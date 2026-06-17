@@ -70,7 +70,7 @@ export function TransportCollectionManager() {
     <div className='space-y-4'>
       <p className='text-muted-foreground text-sm'>
         {filtered.length} learner{filtered.length === 1 ? '' : 's'} · {inr(totalOutstanding)} outstanding.
-        Bus (transport) fees for day scholars who use college transport — paid online to the dedicated
+        Bus (transport) fees for learners who use college transport — paid online to the dedicated
         transport account.
       </p>
 
@@ -130,7 +130,7 @@ export function TransportCollectionManager() {
           ) : filtered.length === 0 ? (
             <div className='text-muted-foreground py-10 text-center text-sm'>
               No transport bills to collect. Bills appear here once transport fees are generated for
-              bus-using day scholars.
+              learners who use college transport.
             </div>
           ) : (
             <TransportBillsTable rows={filtered} instName={instName} canCollect={canCollect} />
