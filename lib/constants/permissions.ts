@@ -1311,6 +1311,9 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.residents.edit', label: 'Edit Hostel Resident Record' },
       { key: 'campus_living.residents.delete', label: 'Delete Hostel Resident (no allocation history)' },
 
+      // Category upgrades (office-side room/mess upgrades — single + bulk, added 2026-06-17)
+      { key: 'campus_living.upgrades.manage', label: 'Manage Category Upgrades (Office-Side)' },
+
       // My Hostel — resident self-service portal (added 2026-05-31)
       { key: 'campus_living.my_hostel.view', label: 'View My Hostel (Resident Self-Service)' },
       { key: 'campus_living.profile.view_own', label: 'View Own Hostel Profile (Emergency/Medical)' },

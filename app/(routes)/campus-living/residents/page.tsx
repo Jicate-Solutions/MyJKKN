@@ -19,15 +19,20 @@ import { ResidentFormDialog } from './_components/resident-form-dialog';
 import { LearnersTab } from './_components/learners-tab';
 import { GenerateBillsTab } from './_components/generate-bills-tab';
 import { UpgradesTab } from './_components/upgrades-tab';
+import { UpgradeCategoriesTab } from './_components/upgrade-categories-tab';
+import { usePermissions } from '@/hooks/use-permissions';
 import { HOSTEL_RESIDENT_TYPES, type HostelResidentType } from '@/types/hostel-residents';
 import type { ResidentFilters } from '@/types/hostel-residents';
 
-const TAB_VALUES = ['learners', 'non-learners', 'generate', 'upgrades'] as const;
+const TAB_VALUES = ['learners', 'non-learners', 'generate', 'upgrade-categories', 'upgrades'] as const;
 type TabValue = (typeof TAB_VALUES)[number];
 
 export default function HostelResidentsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { isSuperAdmin, permissions } = usePermissions();
+  const canManageUpgrades =
+    isSuperAdmin || !!permissions?.['campus_living.upgrades.manage'];
 
   // URL-driven tab (?tab=…). Only the active tab's content is rendered for the
   // heavy "generate" tab so its hostel-year hooks + dry-run state don't mount
@@ -82,6 +87,9 @@ export default function HostelResidentsPage() {
             <TabsTrigger value='learners'>Learners</TabsTrigger>
             <TabsTrigger value='non-learners'>Non-learners</TabsTrigger>
             <TabsTrigger value='generate'>Generate Hostel-Year Bills</TabsTrigger>
+            {canManageUpgrades && (
+              <TabsTrigger value='upgrade-categories'>Upgrade Categories</TabsTrigger>
+            )}
             <TabsTrigger value='upgrades'>Upgrades</TabsTrigger>
           </TabsList>
 
@@ -162,6 +170,25 @@ export default function HostelResidentsPage() {
               </>
             )}
           </TabsContent>
+
+          {canManageUpgrades && (
+            <TabsContent value='upgrade-categories' className='space-y-4'>
+              {/* Lazy-mount — keeps its catalog/table hooks off the other tabs
+                  and avoids URL-state collision with the Learners tab table. */}
+              {activeTab === 'upgrade-categories' && (
+                <>
+                  <div>
+                    <p className='text-sm text-muted-foreground'>
+                      Upgrade a learner&apos;s room (auto-allocated categories) and/or mess category
+                      on their behalf — single or in bulk. Eligible learners follow the same
+                      pay-to-confirm flow as a self-service upgrade.
+                    </p>
+                  </div>
+                  <UpgradeCategoriesTab />
+                </>
+              )}
+            </TabsContent>
+          )}
 
           <TabsContent value='upgrades' className='space-y-4'>
             <div>
