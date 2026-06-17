@@ -431,7 +431,13 @@ export default function AdminCapabilitiesPage() {
                 </TableHeader>
                 <TableBody>
                   {filtered.map((cap: PDECapability) => {
-                    const catConfig = CATEGORY_CONFIG[cap.category];
+                    // Fallback guard: the `category` column is plain text with no DB
+                    // constraint, so a row may carry a value absent from CATEGORY_CONFIG.
+                    // Render a neutral badge instead of crashing the whole table.
+                    const catConfig = CATEGORY_CONFIG[cap.category] ?? {
+                      label: cap.category,
+                      color: 'bg-gray-100 text-gray-700 dark:bg-gray-800/40',
+                    };
                     return (
                       <TableRow key={cap.id}>
                         <TableCell>

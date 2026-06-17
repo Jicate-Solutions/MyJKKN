@@ -10,6 +10,7 @@
  * Route: /pde/learn/demonstrations/new
  */
 
+import { Suspense } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { DemonstrationForm } from './_components/DemonstrationForm';
@@ -28,7 +29,15 @@ export default function NewDemonstrationPage() {
         ]}
       />
       <div className="mt-6 max-w-3xl">
-        <DemonstrationForm />
+        {/* DemonstrationForm reads ?edit=<id> via useSearchParams, which Next 15
+            requires to sit inside a Suspense boundary. */}
+        <Suspense
+          fallback={
+            <div className="py-12 text-center text-sm text-muted-foreground">Loading…</div>
+          }
+        >
+          <DemonstrationForm />
+        </Suspense>
       </div>
     </ContentLayout>
   );

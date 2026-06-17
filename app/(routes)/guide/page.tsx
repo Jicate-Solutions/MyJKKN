@@ -95,11 +95,23 @@ export default async function PlatformGuidePage({
   const scopedModule = isModule(moduleRaw) ? moduleRaw! : null;
   let moduleScope: string | null = null;
   if (scopedModule) {
-    const ml = composeModuleLane(scopedModule, persona);
-    const scoped = ml ? filterLaneSections(ml, access.can) : null;
-    if (scoped && scoped.sections.length > 0) {
-      lanes[persona] = scoped;
+    const activeMl = composeModuleLane(scopedModule, persona);
+    const activeScoped = activeMl ? filterLaneSections(activeMl, access.can) : null;
+    // Enter module scope only when the viewer's OWN lane is fillable here
+    // (else fall back to the full cross-module lane — never an empty view).
+    if (activeScoped && activeScoped.sections.length > 0) {
+      lanes[persona] = activeScoped;
       moduleScope = scopedModule;
+      // Re-skin the OTHER lanes this module fills too, so the switcher chips
+      // carry the module's own labels (e.g. AI Pulse "Champion" / "Class
+      // Incharge"), not just the active header. Module titles ride
+      // composeModuleLane; modules without overrides keep canonical labels.
+      for (const p of modulePersonas(scopedModule)) {
+        if (p === persona) continue;
+        const ml = composeModuleLane(scopedModule, p);
+        const scoped = ml ? filterLaneSections(ml, access.can) : null;
+        if (scoped && scoped.sections.length > 0) lanes[p] = scoped;
+      }
     }
   }
 

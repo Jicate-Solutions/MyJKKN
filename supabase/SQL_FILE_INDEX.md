@@ -1600,3 +1600,37 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - RLS: both tables SELECT-only direct policies (leadership + own rows); no direct write policies
 - Location: `supabase/migrations/20260612180000_care_audit_framework.sql` (applied live via Management API 2026-06-12)
 - Purpose: Digitize the JKKN CARE Audit Framework v1.0 inside /audit — 20-item 0–4 scoring, two-scorer blind variance, pillar/index/gap-rule math, corrective moves as findings. Spec: specs/care-audit-module-spec-2026-06-12.md
+
+### AI Pulse Department Interventions (2026-06-16)
+- Table: `ai_pulse_interventions` (id, dept_id, institution_id, cycle_id, tier, requested_by, note, created_at) — append-only audit of HOD heatmap "Intervene" actions. Index `(dept_id, created_at DESC)` for the latest-per-dept "last intervened" grid hint.
+- RLS: standardized pattern — SELECT is_super_admin/is_admin OR `aiPulse:dept.heatmap`; INSERT (authenticated) is_super_admin/is_admin OR `aiPulse:dept.intervene`. No UPDATE/DELETE. REVOKE anon/PUBLIC + GRANT SELECT,INSERT authenticated + NOTIFY pgrst reload.
+- Location: `supabase/migrations/20260616120000_ai_pulse_interventions.sql` (NOT yet applied — apply via exec_sql/Management API at merge; the write + grid hint degrade to no-op until applied)
+- Purpose: SOP last-mile fix #19 — give HOD interventions a durable record so the heatmap can show "last intervened" and governance has a trail (was notification-only).
+
+### AI Pulse Live Polls (2026-06-17)
+- Tables: `ai_pulse_polls` (id, cycle_id→startup_events, question, options jsonb [{id,label}], is_open, issued_at, closed_at, created_by, institution_id, created_at/updated_at — index `(cycle_id, issued_at)`) + `ai_pulse_poll_responses` (id, poll_id→ai_pulse_polls, profile_id, option_id, responded_at, UNIQUE(poll_id, profile_id)). Backs the live-session polls gate: polls_responded = COUNT(DISTINCT poll_id) per learner; gate passes iff ≥ min(3, polls_issued).
+- Column note: cycle FK is `cycle_id` (NOT event_id) to match the pre-existing `live-session-service.getLiveSession` read (`.eq('cycle_id', …)`).
+- RLS: polls SELECT = is_super_admin/is_admin OR `aiPulse:view.self`; polls INSERT/UPDATE = admin bypass OR `ai_pulse_champion` role (Champion + Co-Champion only, EXISTS user_roles→custom_roles, mirrors rotation-service.escalateAbsence). responses SELECT = own OR champion/admin; responses INSERT = own (profile_id = auth.uid()). REVOKE anon/PUBLIC + GRANT (polls SELECT,INSERT,UPDATE / responses SELECT,INSERT) authenticated + NOTIFY pgrst reload.
+- Location: `supabase/migrations/20260617123300_ai_pulse_polls.sql` (NOT yet applied — supervisor applies via exec_sql/Management API before deploy; the Champion authoring control + real polls gate degrade to no-op/auto-pass until applied)
+- Purpose: Give live polls real storage + a Champion authoring surface so polls_issued is no longer always 0 (the gate was auto-passing by construction). Director-approved spec 2026-06-17.
+
+### PDE Faculty Review RPCs (2026-06-15)
+- Functions: `fn_pde_review_queue(p_category text, p_status text)` (STABLE, enriched institution-scoped read of `pde_demonstrations` joined to `profiles` for the learner name; hides draft/withdrawn; mirrors the SELECT-RLS reviewer roles) and `fn_pde_validate_demonstration(p_demonstration_id uuid, p_decision text, p_raw_score numeric, p_notes text)` (VOLATILE, the only faculty write path — faculty RLS is SELECT-only; re-checks same-institution reviewer, enforces submitted/under_review → validated|rejected, appends validator id + note, sets raw_score on validate). Both SECURITY DEFINER, REVOKE anon/PUBLIC + GRANT authenticated.
+- RLS: no table changes; reuses existing `pde_demonstrations` policies (learner own, faculty SELECT same-inst, super_admin all). Weighted scoring stays downstream (scoring engine writes weighted_score/passed).
+- Location: `supabase/migrations/20260615170000_pde_faculty_review_rpcs.sql` (applied live via Management API 2026-06-15)
+- Purpose: Back the rebuilt faculty Demonstration Reviews page (Option A — durable-value taxonomy). Resolves friction X1 (faculty surface now speaks the 7 durable-value categories learners submit under, not the legacy capability vocabulary). Decision doc: docs/modules/pde/2026-06-14-DECISION-pde-category-taxonomy-split.md
+
+### Lock Privilege-Resolver Views + DDL Functions from anon (2026-06-16)
+- Views locked (revoke anon+PUBLIC, keep authenticated+service_role): `v_privilege_memberships_effective` (8 client call sites) + 4 children `_resolver_privilege_{lc_members,manual,yuva_chapter_chairs,yuva_vertical_chairs}` — all `security_invoker=false`, so authenticated reads via the parent only.
+- Functions locked (revoke anon+authenticated+PUBLIC, keep service_role; 0 app callers, DDL-executing, no internal guard): `privilege_source_register(...)`, `privilege_source_unregister(text)`, `_privilege_rebuild_effective_view()`.
+- Durable fix: `REVOKE ALL ... FROM anon, PUBLIC` baked INTO `privilege_source_register` (after each `CREATE OR REPLACE VIEW _resolver_privilege_<kind>`) and `_privilege_rebuild_effective_view` (after the parent-view rebuild, both branches) — so every future source_kind is born locked. The original `20260422_privilege_source_registry_and_resolvers.sql` created these bare, inheriting Supabase's default anon grant; PR #1256's one-time revoke didn't survive view recreation.
+- Location: `supabase/migrations/20260616000000_lock_privilege_resolver_views_and_fns_from_anon.sql` (applied live via Management API 2026-06-16; verified anon REST → HTTP 401 on views + RPC).
+- Reference: reference_myjkkn_live_anon_exposure_2026_06_07, feedback_supabase_anon_execute_default_grant, CLAUDE.md "Lock new RPCs from anon".
+
+### Anon EXECUTE Function Sweep — 383→34 (2026-06-16)
+- Closes the 2026-06-07 sweep's last open item: ~383 non-ai_rpc SECURITY DEFINER functions were anon-executable (Postgres default PUBLIC EXECUTE grant + Supabase anon default grant). Now 34 remain anon-exec, all intentional: 29 RLS-gatekeeper functions (referenced in RLS policy expressions — anon must keep them or queries error) + 5 fn_get_policy* config readers (documented intentional-public).
+- Phase 3a: 126 trigger functions → revoke anon+PUBLIC (trigger EXECUTE isn't checked when fired by a trigger; direct RPC errors anyway).
+- Phase 3b Bucket A (7, service_role only): exec_sql_safe (arbitrary SQL — was anon-callable RCE), create_user_profile (arbitrary-role profile creation), get_rls_policies, get_tables_with_rls, ensure_usage_events_partitions, sync_user_role_enum, hr_policy_restore. Unguarded + dangerous → must NOT be granted to authenticated (would expose as direct PostgREST RPC to any logged-in user).
+- Phase 3b Bucket B (213): revoke anon+PUBLIC, GRANT authenticated. Verified every caller is an authenticated session client or a service_role server route; none reached from a public/anon-browser page.
+- Location: `supabase/migrations/20260616001000_lock_anon_execute_function_sweep.sql` (applied live via Management API 2026-06-16; verified anon REST → HTTP 401 on exec_sql_safe/create_user_profile/business fns; fn_get_policy* still anon-reachable).
+- Follow-up (separate): add internal is_super_admin/permission guards to unguarded functions now authenticated-callable via direct REST (e.g. hr_policy_diff/history).

@@ -13,14 +13,23 @@
  * cycle id down.
  */
 
-import { Loader2, AlertCircle, Languages, Calendar, Radio } from 'lucide-react';
+import {
+  Loader2,
+  AlertCircle,
+  Languages,
+  Calendar,
+  Radio,
+  Sparkles,
+} from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   evaluateGates,
   useLiveSession,
 } from '@/lib/services/ai-pulse/live-session-service';
 import { JoinButton } from './join-button';
 import { PollsPanel } from './polls-panel';
+import { ChampionPollsControl } from './champion-polls-control';
 import { QuizPanel } from './quiz-panel';
 import { EngagementProgress } from './engagement-progress';
 import { StayHeartbeat } from './stay-heartbeat';
@@ -43,6 +52,10 @@ function formatIst(iso: string | null): string {
 
 export function LiveSessionShell({ cycleId }: LiveSessionShellProps) {
   const { data, isLoading, error } = useLiveSession(cycleId);
+  // Champion + Co-Champion both hold the ai_pulse_champion role — gate the
+  // "Issue poll" control on the SAME role the RLS write policy enforces.
+  const { userRoles } = usePermissions();
+  const isChampion = userRoles.some((r) => r.role_key === 'ai_pulse_champion');
 
   if (isLoading) {
     return (
@@ -72,14 +85,14 @@ export function LiveSessionShell({ cycleId }: LiveSessionShellProps) {
   }
 
   const { cycle, attendance, polls, quiz_open, quiz_async_window_open } = data;
-  // polls = ALL polls issued this cycle (gate requirement is min(3, issued));
-  // the panel only shows the still-open ones.
+  // polls = ALL polls issued this cycle (gate requirement is min(3, issued)).
+  // The panel shows every poll — accepting ones are answerable, closed ones
+  // render as "Closed" so a learner can see one existed (and was missed).
   const gates = evaluateGates(
     attendance.engagement_signals,
     cycle.ends_at,
     polls.length,
   );
-  const openPolls = polls.filter((p) => !p.closed_at);
   const alreadyJoined = !!attendance.joined_at;
   const heartbeatEnabled =
     alreadyJoined && (cycle.status === 'live' || cycle.status === 'execution');
@@ -122,6 +135,21 @@ export function LiveSessionShell({ cycleId }: LiveSessionShellProps) {
             </span>
           </div>
 
+          {/* Champion's featured AI tool for this week — surfaced to learners
+              (previously admin/NAAC-only). */}
+          {data.featured_tool ? (
+            <div className="flex items-center gap-1.5 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm">
+              <Sparkles className="h-4 w-4 text-primary shrink-0" aria-hidden />
+              <span>
+                This week&apos;s featured tool:{' '}
+                <strong>{data.featured_tool.label_en}</strong>
+                {data.featured_tool.vendor_name
+                  ? ` — ${data.featured_tool.vendor_name}`
+                  : ''}
+              </span>
+            </div>
+          ) : null}
+
           <div className="pt-2">
             <JoinButton
               cycleId={cycle.id}
@@ -137,11 +165,17 @@ export function LiveSessionShell({ cycleId }: LiveSessionShellProps) {
       {/* Engagement gate visualisation */}
       <EngagementProgress gates={gates} />
 
+      {/* Champion-only — issue / close live polls for this cycle */}
+      {isChampion && (
+        <ChampionPollsControl cycleId={cycle.id} endsAt={cycle.ends_at} />
+      )}
+
       {/* Polls + Quiz side-by-side on wide screens, stacked on mobile */}
       <div className="grid gap-6 lg:grid-cols-2">
         <PollsPanel
           cycleId={cycle.id}
-          polls={openPolls}
+          polls={polls}
+          endsAt={cycle.ends_at}
           pollsRespondedCount={
             attendance.engagement_signals.polls_responded ?? 0
           }

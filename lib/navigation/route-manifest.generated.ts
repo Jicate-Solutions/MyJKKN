@@ -251,6 +251,37 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/academic/session-feedback",
+        "label": "Session Feedback",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/academic/session-feedback/faculty",
+            "label": "Faculty",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/academic/session-feedback/learn",
+            "label": "Learn",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/academic/session-feedback/me",
+            "label": "Me",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/academic/session-feedback/principal",
+            "label": "Principal",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/academic/staff-planning",
         "label": "Staff Planning",
         "iconName": "Users",
@@ -4465,9 +4496,27 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/meetings/analytics",
+        "label": "Analytics",
+        "iconName": "BarChart",
+        "children": []
+      },
+      {
         "path": "/meetings/availability",
         "label": "Availability",
         "iconName": "CalendarCheck",
+        "children": []
+      },
+      {
+        "path": "/meetings/contacts",
+        "label": "Contacts",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/meetings/embed",
+        "label": "Embed",
+        "iconName": "FileText",
         "children": []
       },
       {
@@ -4480,6 +4529,30 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/meetings/manage",
         "label": "Manage",
         "iconName": "Settings",
+        "children": []
+      },
+      {
+        "path": "/meetings/polls",
+        "label": "Polls",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/meetings/routing-forms",
+        "label": "Routing Forms",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/meetings/webhooks",
+        "label": "Webhooks",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/meetings/workflows",
+        "label": "Workflows",
+        "iconName": "FileText",
         "children": []
       }
     ]

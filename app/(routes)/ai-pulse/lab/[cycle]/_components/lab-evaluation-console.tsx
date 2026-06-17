@@ -9,7 +9,7 @@
 // Pattern source: admin/quiz/[cycle]/_components/quiz-editor.tsx
 
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CalendarClock, Medal } from 'lucide-react';
+import { AlertTriangle, CalendarClock, ListOrdered, Medal, Trophy } from 'lucide-react';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -21,13 +21,16 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
+  deriveDeptRankings,
   useLabCycleEvaluation,
   useLabPolicies,
   type DeptGoldSelection,
 } from '@/lib/services/ai-pulse/lab-evaluation-service';
 
 import { DeptEvaluationPanel } from './dept-evaluation-panel';
+import { DeptRankingPanel } from './dept-ranking-panel';
 
 interface LabEvaluationConsoleProps {
   cycleId: string;
@@ -69,6 +72,13 @@ export function LabEvaluationConsole({
 
   const serverSelections = useMemo(
     () => evaluation?.gold_selections ?? {},
+    [evaluation],
+  );
+
+  // Ranking is derived (read-only) from the server selections — never the local
+  // editing drafts — so it reflects saved faculty judgment, not in-flight edits.
+  const rankings = useMemo(
+    () => (evaluation ? deriveDeptRankings(evaluation) : []),
     [evaluation],
   );
 
@@ -148,7 +158,7 @@ export function LabEvaluationConsole({
         </CardContent>
       </Card>
 
-      {/* Department panels */}
+      {/* Department panels: Evaluate (score + pick Gold) | Ranking (leaderboard) */}
       {evaluation.departments.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="py-10 text-center">
@@ -160,20 +170,56 @@ export function LabEvaluationConsole({
           </CardContent>
         </Card>
       ) : (
-        evaluation.departments.map((dept) => (
-          <DeptEvaluationPanel
-            key={dept.department_id}
-            cycleId={cycleId}
-            dept={dept}
-            draft={drafts[dept.department_id] ?? emptySelection()}
-            serverSelection={serverSelections[dept.department_id] ?? null}
-            goldCap={goldCap}
-            canSelectGold={canSelectGold}
-            onChange={(next) =>
-              setDrafts((prev) => ({ ...prev, [dept.department_id]: next }))
-            }
-          />
-        ))
+        <Tabs defaultValue="evaluate" className="space-y-6">
+          <TabsList>
+            <TabsTrigger value="evaluate" className="gap-1.5">
+              <Medal className="h-3.5 w-3.5" />
+              Evaluate
+            </TabsTrigger>
+            <TabsTrigger value="ranking" className="gap-1.5">
+              <ListOrdered className="h-3.5 w-3.5" />
+              Ranking
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="evaluate" className="space-y-6">
+            {evaluation.departments.map((dept) => (
+              <DeptEvaluationPanel
+                key={dept.department_id}
+                cycleId={cycleId}
+                dept={dept}
+                draft={drafts[dept.department_id] ?? emptySelection()}
+                serverSelection={serverSelections[dept.department_id] ?? null}
+                goldCap={goldCap}
+                canSelectGold={canSelectGold}
+                onChange={(next) =>
+                  setDrafts((prev) => ({ ...prev, [dept.department_id]: next }))
+                }
+              />
+            ))}
+          </TabsContent>
+
+          <TabsContent value="ranking" className="space-y-6">
+            <Card className="border-amber-200 bg-amber-50/40">
+              <CardContent className="flex items-start gap-2 py-3 text-xs text-muted-foreground">
+                <Trophy className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                <span>
+                  Submissions are ranked per department by faculty score (domain
+                  relevance + clarity). The {goldCap} faculty-selected Gold
+                  Standard team{goldCap === 1 ? '' : 's'} are highlighted. Save a
+                  department on the Evaluate tab to update its ranking.
+                </span>
+              </CardContent>
+            </Card>
+            {rankings.map((ranking) => (
+              <DeptRankingPanel
+                key={ranking.department_id}
+                ranking={ranking}
+                goldCap={goldCap}
+              />
+            ))}
+          </TabsContent>
+        </Tabs>
       )}
     </div>
   );

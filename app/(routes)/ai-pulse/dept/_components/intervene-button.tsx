@@ -14,6 +14,17 @@
 import { useState } from 'react';
 import { BellRing, Check, Loader2 } from 'lucide-react';
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 
 import { usePermissions } from '@/hooks/use-permissions';
@@ -29,6 +40,7 @@ interface InterveneButtonProps {
   departmentName: string;
   missCount: number;
   tier: ConsequenceTier;
+  institutionId?: string | null;
 }
 
 export function InterveneButton({
@@ -36,6 +48,7 @@ export function InterveneButton({
   departmentName,
   missCount,
   tier,
+  institutionId,
 }: InterveneButtonProps) {
   const { can, isSuperAdmin } = usePermissions();
   const intervene = useInterveneDept();
@@ -53,6 +66,7 @@ export function InterveneButton({
         department_name: departmentName,
         miss_count: missCount,
         tier,
+        institution_id: institutionId ?? null,
       });
       setResult(
         notified > 0 ? `Notified ${notified}` : 'No recipients found',
@@ -64,22 +78,45 @@ export function InterveneButton({
 
   return (
     <div className="flex flex-col items-center gap-1">
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={handleClick}
-        disabled={intervene.isPending}
-        title={`Send an intervention notification about ${departmentName} to its HOD and the AI Pulse Champions.`}
-      >
-        {intervene.isPending ? (
-          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-        ) : result ? (
-          <Check className="mr-1 h-3.5 w-3.5 text-emerald-600" />
-        ) : (
-          <BellRing className="mr-1 h-3.5 w-3.5" />
-        )}
-        Intervene
-      </Button>
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={intervene.isPending}
+            title={`Send an intervention notification about ${departmentName} to its HOD and the AI Pulse Champions.`}
+          >
+            {intervene.isPending ? (
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            ) : result ? (
+              <Check className="mr-1 h-3.5 w-3.5 text-emerald-600" />
+            ) : (
+              <BellRing className="mr-1 h-3.5 w-3.5" />
+            )}
+            Intervene
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Send intervention notice?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This notifies the department&apos;s HOD and the AI Pulse Champion
+              and records the intervention. It can&apos;t be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={intervene.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleClick}
+              disabled={intervene.isPending}
+            >
+              Yes, notify
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {result && (
         <span className="text-[10px] text-muted-foreground">{result}</span>
       )}

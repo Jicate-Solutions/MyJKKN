@@ -1,0 +1,427 @@
+'use client';
+
+// Faculty session feedback — two views:
+//  1) COMPLETION (coverage): how many of the Present students confirmed each
+//     session (fn_scf_faculty_completion) + a "who hasn't submitted" roster
+//     (fn_scf_faculty_pending_roster — identity ONLY, never feedback content).
+//  2) UNDERSTANDING (quality): anonymized aggregate signal (fn_scf_faculty_summary).
+// Spec: specs/session-feedback-faculty-completion-lane-2026-06-17.md (A — visibility).
+
+import { useMemo, useState } from 'react';
+import { format, subDays } from 'date-fns';
+import { BeatLoader } from 'react-spinners';
+import {
+  MessageSquare,
+  ShieldCheck,
+  AlertTriangle,
+  Users,
+  ClipboardCheck,
+  Clock,
+  CheckCircle2,
+} from 'lucide-react';
+
+import { ContentLayout } from '@/components/layout/content-layout';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import {
+  useFacultyFeedbackSummary,
+  useFacultyCompletion,
+  useSessionPendingRoster,
+} from '@/hooks/use-session-feedback';
+import type { FacultySummaryRow, FacultyCompletionRow } from '@/types/session-feedback';
+
+const BRAND_GREEN = '#0b6d41';
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : format(d, 'd MMM yyyy');
+}
+
+// ── Understanding (quality) — unchanged from the original L3 view ────────────
+function understandingBand(avg: number | null): 'good' | 'warn' | 'bad' | 'none' {
+  if (avg === null || Number.isNaN(avg)) return 'none';
+  if (avg >= 4) return 'good';
+  if (avg >= 3) return 'warn';
+  return 'bad';
+}
+
+const BAND_BAR: Record<'good' | 'warn' | 'bad' | 'none', string> = {
+  good: 'bg-green-500',
+  warn: 'bg-amber-500',
+  bad: 'bg-red-500',
+  none: 'bg-muted-foreground/30',
+};
+
+const BAND_BADGE: Record<'good' | 'warn' | 'bad' | 'none', string> = {
+  good: 'bg-green-100 text-green-800 border-green-200',
+  warn: 'bg-amber-100 text-amber-800 border-amber-200',
+  bad: 'bg-red-100 text-red-800 border-red-200',
+  none: 'bg-muted text-muted-foreground border-border',
+};
+
+function UnderstandingCell({ avg }: { avg: number | null }) {
+  const band = understandingBand(avg);
+  const pct =
+    avg === null || Number.isNaN(avg) ? 0 : Math.max(0, Math.min(100, (avg / 5) * 100));
+  return (
+    <div className="flex items-center gap-2">
+      <Badge variant="outline" className={BAND_BADGE[band]}>
+        {avg === null || Number.isNaN(avg) ? '—' : avg.toFixed(1)}
+      </Badge>
+      <div
+        className="h-2 w-20 overflow-hidden rounded-full bg-muted"
+        role="img"
+        aria-label={
+          avg === null || Number.isNaN(avg)
+            ? 'No understanding signal'
+            : `Average understanding ${avg.toFixed(1)} out of 5`
+        }
+      >
+        <div className={`h-full rounded-full ${BAND_BAR[band]}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+// ── Completion (coverage) ────────────────────────────────────────────────────
+function completionBand(pct: number, present: number): 'good' | 'warn' | 'bad' | 'none' {
+  if (present === 0) return 'none';
+  if (pct >= 100) return 'good';
+  if (pct > 0) return 'warn';
+  return 'bad';
+}
+
+function CompletionCell({ row }: { row: FacultyCompletionRow }) {
+  const band = completionBand(row.completion_pct, row.present_count);
+  const pct = Math.max(0, Math.min(100, row.completion_pct));
+  return (
+    <div className="flex items-center gap-2">
+      <span className="tabular-nums font-medium">
+        {row.confirmed_count}/{row.present_count}
+      </span>
+      <div className="h-2 w-24 overflow-hidden rounded-full bg-muted">
+        <div className={`h-full rounded-full ${BAND_BAR[band]}`} style={{ width: `${pct}%` }} />
+      </div>
+      <Badge variant="outline" className={BAND_BADGE[band]}>
+        {pct}%
+      </Badge>
+    </div>
+  );
+}
+
+/** Drawer of Present students who haven't submitted. Lazy — only fetches when opened.
+ *  Shows identity (name + register) ONLY; the RPC never returns feedback content. */
+function PendingRosterDialog({ row }: { row: FacultyCompletionRow }) {
+  const [open, setOpen] = useState(false);
+  const { data, isLoading, isError, error } = useSessionPendingRoster(
+    row.attendance_date,
+    row.timetable_id,
+    row.period_id,
+    open,
+  );
+  const roster = data ?? [];
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" disabled={row.pending_count === 0}>
+          <Users className="mr-1.5 h-3.5 w-3.5" />
+          {row.pending_count === 0 ? 'All in' : `${row.pending_count} pending`}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            Who hasn&apos;t submitted — {row.course_code ?? 'Session'}
+          </DialogTitle>
+          <DialogDescription>
+            {formatDate(row.attendance_date)} · {row.pending_count} pending. You can see{' '}
+            <strong>who</strong>{' '}hasn&apos;t submitted — never <strong>what</strong>{' '}anyone said.
+          </DialogDescription>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="flex justify-center py-8">
+            <BeatLoader color={BRAND_GREEN} size={8} />
+          </div>
+        ) : isError ? (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              {error instanceof Error ? error.message : 'Could not load the pending list.'}
+            </AlertDescription>
+          </Alert>
+        ) : roster.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-8 text-center">
+            <CheckCircle2 className="h-9 w-9 text-green-500" />
+            <p className="text-sm font-medium">Everyone has submitted.</p>
+          </div>
+        ) : (
+          <ul className="max-h-72 divide-y overflow-y-auto rounded-md border">
+            {roster.map((s, i) => (
+              <li key={`${s.register_number ?? ''}-${i}`} className="flex items-center justify-between px-3 py-2 text-sm">
+                <span className="font-medium">{s.student_name ?? '—'}</span>
+                <span className="tabular-nums text-muted-foreground">{s.register_number ?? ''}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CompletionSection({ from, to }: { from: string; to: string }) {
+  const { data, isLoading, isError, error } = useFacultyCompletion(from, to);
+  const rows: FacultyCompletionRow[] = data ?? [];
+
+  return (
+    <Card className="mb-6">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <ClipboardCheck className="h-5 w-5" style={{ color: BRAND_GREEN }} />
+          <CardTitle>Feedback Completion</CardTitle>
+        </div>
+        <CardDescription>
+          How many of the students you marked Present have confirmed each session by giving
+          feedback. Open a session to see who is still pending.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Alert className="mb-4 border-green-200 bg-green-50">
+          <ShieldCheck className="h-4 w-4" style={{ color: BRAND_GREEN }} />
+          <AlertDescription className="text-green-900">
+            You see <strong>who</strong>{' '}hasn&apos;t submitted so you can remind them — never
+            their ratings or comments.
+          </AlertDescription>
+        </Alert>
+
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-16">
+            <BeatLoader color={BRAND_GREEN} size={10} />
+            <p className="text-sm text-muted-foreground">Loading your sessions…</p>
+          </div>
+        ) : isError ? (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              {error instanceof Error ? error.message : 'Could not load completion. Please try again.'}
+            </AlertDescription>
+          </Alert>
+        ) : rows.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+            <ClipboardCheck className="h-10 w-10 text-muted-foreground/40" />
+            <p className="text-sm font-medium">No sessions to show yet.</p>
+            <p className="text-xs text-muted-foreground">
+              Sessions appear here once you mark attendance for a class.
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Course</TableHead>
+                  <TableHead>Confirmed</TableHead>
+                  <TableHead>Window</TableHead>
+                  <TableHead className="text-right">Pending</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((r, i) => (
+                  <TableRow key={`${r.attendance_date}-${r.period_id}-${i}`}>
+                    <TableCell className="whitespace-nowrap font-medium">
+                      {formatDate(r.attendance_date)}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span className="font-medium">{r.course_code ?? 'Unspecified'}</span>
+                        {r.course_name ? (
+                          <span className="text-xs text-muted-foreground">{r.course_name}</span>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <CompletionCell row={r} />
+                    </TableCell>
+                    <TableCell>
+                      {r.within_window ? (
+                        <Badge variant="outline" className="border-border text-muted-foreground">
+                          <Clock className="mr-1 h-3 w-3" />
+                          Open
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className={BAND_BADGE.none}>
+                          Closed
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <PendingRosterDialog row={r} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export default function FacultySessionInsightPage() {
+  // Default range: last 30 days (inclusive of today).
+  const { from, to } = useMemo(() => {
+    const today = new Date();
+    return {
+      from: format(subDays(today, 30), 'yyyy-MM-dd'),
+      to: format(today, 'yyyy-MM-dd'),
+    };
+  }, []);
+
+  const { data, isLoading, isError, error } = useFacultyFeedbackSummary(from, to);
+  const rows: FacultySummaryRow[] = data ?? [];
+
+  return (
+    <ContentLayout>
+      <Breadcrumb className="mb-6">
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/academic">Academic</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>Session Feedback (Faculty)</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+
+      {/* Coverage — who confirmed, who's pending */}
+      <CompletionSection from={from} to={to} />
+
+      {/* Quality — anonymized understanding signal */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <MessageSquare className="h-5 w-5" style={{ color: BRAND_GREEN }} />
+            <CardTitle>My Session Feedback</CardTitle>
+          </div>
+          <CardDescription>
+            Understanding signal across your own sessions (last 30 days:{' '}
+            {format(new Date(from), 'd MMM')} – {format(new Date(to), 'd MMM yyyy')}).
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Alert className="mb-4 border-green-200 bg-green-50">
+            <ShieldCheck className="h-4 w-4" style={{ color: BRAND_GREEN }} />
+            <AlertDescription className="text-green-900">
+              Aggregated and anonymous — individual learner responses are never shown.
+            </AlertDescription>
+          </Alert>
+
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-16">
+              <BeatLoader color={BRAND_GREEN} size={10} />
+              <p className="text-sm text-muted-foreground">Loading your session feedback…</p>
+            </div>
+          ) : isError ? (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                {error instanceof Error
+                  ? error.message
+                  : 'Could not load your session feedback. Please try again.'}
+              </AlertDescription>
+            </Alert>
+          ) : rows.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+              <MessageSquare className="h-10 w-10 text-muted-foreground/40" />
+              <p className="text-sm font-medium">No feedback on your sessions yet.</p>
+              <p className="text-xs text-muted-foreground">
+                Feedback appears here once learners submit it for the sessions you taught.
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Course</TableHead>
+                    <TableHead className="text-right">Responses</TableHead>
+                    <TableHead>Avg. understood</TableHead>
+                    <TableHead className="text-right">Low understanding</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((r, i) => (
+                    <TableRow key={`${r.attendance_date}-${r.period_id}-${i}`}>
+                      <TableCell className="whitespace-nowrap font-medium">
+                        {formatDate(r.attendance_date)}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col">
+                          <span className="font-medium">{r.course_code ?? 'Unspecified'}</span>
+                          {r.course_name ? (
+                            <span className="text-xs text-muted-foreground">{r.course_name}</span>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">{r.responses}</TableCell>
+                      <TableCell>
+                        <UnderstandingCell avg={r.avg_understood} />
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {r.low_understanding > 0 ? (
+                          <Badge variant="outline" className={BAND_BADGE.bad}>
+                            {r.low_understanding}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">0</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </ContentLayout>
+  );
+}

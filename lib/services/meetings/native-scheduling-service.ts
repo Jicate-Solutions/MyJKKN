@@ -49,6 +49,8 @@ export interface NativeMeetingType {
   min_notice_min: number;
   buffer_before_min: number;
   buffer_after_min: number;
+  /** M2: step between candidate slot starts; null = use duration_min. */
+  slot_interval_min: number | null;
   max_days_ahead: number;
   /** U1 (D4): where the meeting happens. */
   location_mode: 'in_person' | 'phone' | 'online';
@@ -237,6 +239,7 @@ export class NativeSchedulingService {
       bufferBeforeMin: mt.buffer_before_min,
       bufferAfterMin: mt.buffer_after_min,
       minNoticeMin: mt.min_notice_min,
+      slotIntervalMin: mt.slot_interval_min ?? undefined,
       fromDate,
       toDate,
       now,
@@ -287,6 +290,7 @@ export class NativeSchedulingService {
       bufferBeforeMin: mt.buffer_before_min,
       bufferAfterMin: mt.buffer_after_min,
       minNoticeMin: mt.min_notice_min,
+      slotIntervalMin: mt.slot_interval_min ?? undefined,
       fromDate: candidateDate,
       toDate: candidateDate,
       now,
@@ -565,6 +569,7 @@ export class NativeSchedulingService {
       bufferBeforeMin: mt.buffer_before_min,
       bufferAfterMin: mt.buffer_after_min,
       minNoticeMin: mt.min_notice_min,
+      slotIntervalMin: mt.slot_interval_min ?? undefined,
       fromDate: candidateDate,
       toDate: candidateDate,
       now,

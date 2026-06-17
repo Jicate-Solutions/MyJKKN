@@ -15,7 +15,10 @@ import type {
   HealthProgramWithDays,
   WellnessProgramConfig,
   ProgramImpact,
-  QuizSpec,
+  ProgramResponseData,
+  ProgramResponseRow,
+  FormSpec,
+  FormResponses,
 } from '@/types/health-programs';
 import { WELLNESS_CONFIG_DEFAULTS } from '@/types/health-programs';
 
@@ -135,12 +138,14 @@ export class WellnessProgramsService {
     });
   }
 
-  static async submitQuiz(args: {
+  static async submitForm(args: {
     programId: string;
     dayId: string;
     userId: string;
     learnerId?: string | null;
-    score: number;
+    /** Percent of graded fields correct, or null for a pure (ungraded) survey. */
+    score: number | null;
+    responses: FormResponses;
   }): Promise<HealthProgramParticipation> {
     return this.upsertParticipation({
       program_id: args.programId,
@@ -148,6 +153,7 @@ export class WellnessProgramsService {
       user_id: args.userId,
       learner_id: args.learnerId ?? null,
       quiz_score: args.score,
+      form_responses: args.responses,
     });
   }
 
@@ -179,6 +185,45 @@ export class WellnessProgramsService {
     });
     if (error) throw error;
     return data as ProgramImpact;
+  }
+
+  // --------------------------------------------------------------------------
+  // Response-viewer (manager-only via hpp_select). Reads the raw per-field
+  // answers + each day's form spec + participant identity. Read-only; touches
+  // nothing that feeds quiz_score / impact.
+  // --------------------------------------------------------------------------
+
+  static async getProgramResponseData(
+    programId: string
+  ): Promise<ProgramResponseData> {
+    const [programRes, daysRes, responsesRes] = await Promise.all([
+      (supabase as any)
+        .from('health_programs')
+        .select('*')
+        .eq('id', programId)
+        .maybeSingle(),
+      (supabase as any)
+        .from('health_program_days')
+        .select('*')
+        .eq('program_id', programId)
+        .order('day_number', { ascending: true }),
+      // Left embed on profiles (profile:user_id) — a profile the manager can't
+      // read comes back null without dropping the participation row.
+      (supabase as any)
+        .from('health_program_participation')
+        .select(
+          'id,user_id,day_id,quiz_score,form_responses,created_at,updated_at,profile:user_id(full_name,email,role)'
+        )
+        .eq('program_id', programId)
+        .not('form_responses', 'is', null)
+        .order('created_at', { ascending: false }),
+    ]);
+
+    return {
+      program: programRes.data ?? null,
+      days: daysRes.data ?? [],
+      responses: (responsesRes.data ?? []) as ProgramResponseRow[],
+    };
   }
 
   // --------------------------------------------------------------------------
@@ -221,7 +266,7 @@ export class WellnessProgramsService {
     program_id: string;
     day_number: number;
     title: string;
-    quiz?: QuizSpec | null;
+    quiz?: FormSpec | null;
   }): Promise<HealthProgramDay> {
     const { data, error } = await (supabase as any)
       .from('health_program_days')

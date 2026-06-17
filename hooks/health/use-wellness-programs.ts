@@ -18,6 +18,7 @@ const KEYS = {
   participation: (programId: string, userId: string) =>
     ['wellness-participation', programId, userId] as const,
   impact: (programId: string) => ['wellness-impact', programId] as const,
+  responses: (programId: string) => ['wellness-responses', programId] as const,
 };
 
 // --- Config (director-editable policies) ------------------------------------
@@ -77,16 +78,16 @@ export function useMarkWatched() {
   });
 }
 
-export function useSubmitQuiz() {
+export function useSubmitForm() {
   const invalidate = useInvalidateParticipation();
   return useMutation({
-    mutationFn: (args: Parameters<typeof WellnessProgramsService.submitQuiz>[0]) =>
-      WellnessProgramsService.submitQuiz(args),
+    mutationFn: (args: Parameters<typeof WellnessProgramsService.submitForm>[0]) =>
+      WellnessProgramsService.submitForm(args),
     onSuccess: (_, args) => {
       invalidate(args.programId, args.userId);
-      toast.success('Quiz submitted');
+      toast.success('Submitted');
     },
-    onError: () => toast.error('Could not submit quiz'),
+    onError: () => toast.error('Could not submit'),
   });
 }
 
@@ -109,6 +110,16 @@ export function useProgramImpact(programId: string | undefined) {
   return useQuery({
     queryKey: KEYS.impact(programId || ''),
     queryFn: () => WellnessProgramsService.getImpact(programId!),
+    enabled: !!programId,
+  });
+}
+
+// --- Response-viewer (manager-only) -----------------------------------------
+
+export function useProgramResponses(programId: string | undefined) {
+  return useQuery({
+    queryKey: KEYS.responses(programId || ''),
+    queryFn: () => WellnessProgramsService.getProgramResponseData(programId!),
     enabled: !!programId,
   });
 }

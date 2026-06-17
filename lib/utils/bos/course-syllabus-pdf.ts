@@ -229,41 +229,79 @@ function span(content: string, colSpan: number, extra: AnyCell = {}): AnyCell {
 }
 
 // ── Mixed-style line wrap (bold prefix + regular rest) ─────────────────────────
-// Splits `rest` into lines that fit in `maxWidth`. The first line has its
-// available width reduced by the bold prefix's measured width; subsequent
-// lines use the full width. The returned array stores complete display lines
-// (line 0 already has the prefix prepended).
+// Wraps a bold `prefix` followed by a regular `rest` into display lines that
+// each fit within `maxWidth`, returning fully-styled BosMixedLine entries ready
+// to hand to the _bosMixed renderer:
+//   • A prefix wider than the cell breaks across multiple fully-bold lines
+//     (prefixEnd === text.length) — without this a long heading overflows.
+//   • The trailing fragment of the prefix shares a line with the start of the
+//     rest as a mixed line (bold prefixEnd, regular tail).
+//   • Continuation lines of the rest are fully regular (prefixEnd === 0).
+// Every line except the paragraph's final line is justified, matching the
+// halign:'justify' behaviour autoTable applies to plain cells. Passing rest=''
+// yields a cleanly-wrapped fully-bold heading.
 function wrapBoldPrefixRest(
 	doc: jsPDF,
 	prefix: string,
 	rest: string,
 	maxWidth: number,
-): string[] {
+): BosMixedLine[] {
 	doc.setFontSize(FONT_SIZE)
+	const out: BosMixedLine[] = []
+
+	// Step 1 — break the bold prefix into full-width bold lines, keeping the
+	// trailing fragment as the bold lead-in that shares a line with the rest.
 	doc.setFont('times', 'bold')
-	const prefixW = doc.getTextWidth(prefix)
+	const pTokens = prefix.split(/(\s+)/).filter(t => t.length > 0)
+	let lead = ''
+	for (const tok of pTokens) {
+		const candidate = lead + tok
+		if (doc.getTextWidth(candidate) <= maxWidth || lead.trim().length === 0) {
+			lead = candidate
+		} else {
+			const done = lead.replace(/\s+$/, '')
+			out.push({ text: done, prefixEnd: done.length, justify: true })
+			lead = /^\s+$/.test(tok) ? '' : tok
+		}
+	}
+
+	// Step 2 — if not even the first rest word fits beside the bold lead-in,
+	// flush the lead onto its own bold line so the rest starts at full width.
 	doc.setFont('times', 'normal')
+	const rTokens = rest.split(/(\s+)/).filter(t => t.length > 0)
+	const firstWord = rTokens.find(t => t.trim().length > 0) ?? ''
+	doc.setFont('times', 'bold')
+	let leadW = doc.getTextWidth(lead)
+	doc.setFont('times', 'normal')
+	if (lead.trim().length > 0 && firstWord && doc.getTextWidth(firstWord) > maxWidth - leadW) {
+		const done = lead.replace(/\s+$/, '')
+		out.push({ text: done, prefixEnd: done.length, justify: true })
+		lead = ''
+		leadW = 0
+	}
 
-	const tokens = rest.split(/(\s+)/).filter(t => t.length > 0)
-	const lines: string[] = []
+	// Step 3 — wrap the regular rest. The first emitted line carries the bold
+	// lead-in (mixed); subsequent lines are fully regular.
 	let cur = ''
-	let curMax = Math.max(0, maxWidth - prefixW)
-
-	for (const tok of tokens) {
+	let curMax = Math.max(0, maxWidth - leadW)
+	let combined = true
+	for (const tok of rTokens) {
 		const candidate = cur + tok
 		if (doc.getTextWidth(candidate) <= curMax || cur.trim().length === 0) {
 			cur = candidate
 		} else {
-			lines.push(cur.replace(/\s+$/, ''))
+			const text = (combined ? lead : '') + cur.replace(/\s+$/, '')
+			out.push({ text, prefixEnd: combined ? lead.length : 0, justify: true })
+			combined = false
 			cur = /^\s+$/.test(tok) ? '' : tok
 			curMax = maxWidth
 		}
 	}
-	if (cur.trim()) lines.push(cur.replace(/\s+$/, ''))
-	if (lines.length === 0) lines.push('')
+	// Final line of the paragraph is never justified.
+	const lastText = (combined ? lead : '') + cur.replace(/\s+$/, '')
+	out.push({ text: lastText, prefixEnd: combined ? lead.length : 0, justify: false })
 
-	lines[0] = prefix + lines[0]
-	return lines
+	return out
 }
 
 // ── Book formatter ────────────────────────────────────────────────────────────
@@ -636,8 +674,9 @@ export function renderCourseSyllabusPDF(
 			const allLines: BosMixedLine[] = []
 
 			if (unitTitle) {
-				// Render unit_title as a fully-bold heading line at the top.
-				allLines.push({ text: unitTitle, prefixEnd: unitTitle.length })
+				// Render unit_title as a fully-bold heading, wrapped if it's wider
+				// than the cell (rest='' → cleanly-wrapped fully-bold lines).
+				allLines.push(...wrapBoldPrefixRest(doc, unitTitle, '', contentMaxTextW))
 			}
 
 			for (const ch of chapterEntries) {
@@ -648,19 +687,11 @@ export function renderCourseSyllabusPDF(
 				const subsText = ch.subs.length > 0 ? `${ch.subs.join(', ')}.` : ''
 
 				if (cleanTitle && subsText) {
-					const prefix = `${cleanTitle}: `
-					const wrapped = wrapBoldPrefixRest(doc, prefix, subsText, contentMaxTextW)
-					wrapped.forEach((line, idx) => {
-						allLines.push({
-							text: line,
-							prefixEnd: idx === 0 ? prefix.length : 0,
-							// Justify every wrapped line except the last — matches the
-							// halign:'justify' behaviour autoTable uses for regular cells.
-							justify: idx < wrapped.length - 1,
-						})
-					})
+					// wrapBoldPrefixRest returns fully-styled lines (bold-prefix
+					// wrapping, mixed transition line, justified-except-last).
+					allLines.push(...wrapBoldPrefixRest(doc, `${cleanTitle}: `, subsText, contentMaxTextW))
 				} else if (cleanTitle) {
-					allLines.push({ text: cleanTitle, prefixEnd: cleanTitle.length })
+					allLines.push(...wrapBoldPrefixRest(doc, cleanTitle, '', contentMaxTextW))
 				} else if (subsText) {
 					doc.setFont('times', 'normal')
 					doc.setFontSize(FONT_SIZE)

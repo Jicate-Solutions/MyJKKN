@@ -344,6 +344,30 @@ const NAV_EXCLUDE = new Set<string>([
   '/admission/consultants/admin/portal-access',
   '/admission/consultants/admin/tier-policy',
 
+  // ════════════════════════════════════════════════════════════
+  // 2026-06-17 reachability re-tighten — three redirect/hub landings + two
+  // button-invoked CARE pages that drifted in via recent direct-to-main
+  // merges, pushing the count to 62 and prompting a baseline bump to 62
+  // (a loosening). These are NOT genuine unwired destinations — each is a
+  // redirect or a card-hub whose real targets ARE chip-reachable, exactly the
+  // NAV_EXCLUDE convention. Excluding them brings the real count to 57, and the
+  // baseline is re-tightened 62 → 58 (package.json) to undo the bump.
+  //  - /academic/session-feedback : hub landing; cards link to the 4 persona
+  //    sub-pages (learn/me/faculty/principal), which ARE chip-reachable.
+  //  - /moments                   : redirect('/moments/submit').
+  //  - /audit/care                : redirect('/audit/dashboard') (the CARE list
+  //    lives on the audit dashboard; navMeta.invokedFrom is ignored here).
+  //  - /audit/care/new            : "Open a CARE audit" form, button-invoked
+  //    from the chip-reachable /audit/dashboard CARE section.
+  //  - /audit/care/score          : token-less fallback for the invite-link
+  //    scoring route (/audit/care/[cycleId]); no chip surface by design.
+  // ════════════════════════════════════════════════════════════
+  '/academic/session-feedback',
+  '/moments',
+  '/audit/care',
+  '/audit/care/new',
+  '/audit/care/score',
+
 ]);
 
 /** Walk app/(routes)/ collecting {url} for every static page.tsx. */

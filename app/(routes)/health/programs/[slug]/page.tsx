@@ -36,7 +36,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -49,6 +57,7 @@ import {
   ArrowLeft,
   PlayCircle,
   CheckCircle2,
+  Check,
   Lock,
   Flame,
   Star,
@@ -63,7 +72,7 @@ import {
   useProgram,
   useMyParticipation,
   useMarkWatched,
-  useSubmitQuiz,
+  useSubmitForm,
   useRateUsefulness,
   useWellnessConfig,
 } from '@/hooks/health/use-wellness-programs';
@@ -75,12 +84,17 @@ import { CrossoverCTA } from './_components/crossover-cta';
 import {
   isDayComplete,
   WELLNESS_CONFIG_DEFAULTS,
+  type FormAnswer,
+  type FormField,
+  type FormResponses,
+  type FormSpec,
   type HealthProgramDay,
   type HealthProgramParticipation,
   type HealthProgramWithDays,
-  type QuizSpec,
   type WellnessProgramConfig,
 } from '@/types/health-programs';
+import { formIsGraded, normalizeForm, scoreForm } from '@/lib/health/forms';
+import { toYouTubeEmbed } from '@/lib/health/youtube';
 
 // ============================================================================
 // Helpers
@@ -101,31 +115,6 @@ function formatDayDate(iso: string | null): string | null {
     day: 'numeric',
     month: 'short',
   });
-}
-
-/** Convert a video URL into an embeddable src (YouTube/Vimeo aware, else raw). */
-function toEmbedSrc(url: string): { kind: 'iframe' | 'video'; src: string } {
-  try {
-    const u = new URL(url);
-    const host = u.hostname.replace(/^www\./, '');
-    if (host === 'youtube.com' || host === 'm.youtube.com') {
-      const id = u.searchParams.get('v');
-      if (id) return { kind: 'iframe', src: `https://www.youtube.com/embed/${id}` };
-    }
-    if (host === 'youtu.be') {
-      const id = u.pathname.slice(1);
-      if (id) return { kind: 'iframe', src: `https://www.youtube.com/embed/${id}` };
-    }
-    if (host === 'vimeo.com') {
-      const id = u.pathname.split('/').filter(Boolean)[0];
-      if (id) return { kind: 'iframe', src: `https://player.vimeo.com/video/${id}` };
-    }
-  } catch {
-    /* fall through */
-  }
-  // Direct file (mp4/webm) or already an embed URL
-  if (/\.(mp4|webm|ogg)$/i.test(url)) return { kind: 'video', src: url };
-  return { kind: 'iframe', src: url };
 }
 
 /** Find the participation row for a given day. */
@@ -219,50 +208,264 @@ function WeekRibbon({
 }
 
 // ============================================================================
-// Quiz
+// Form (Google-Forms-style: graded + ungraded fields)
 // ============================================================================
 
-function QuizBlock({
-  quiz,
+function isAnswered(field: FormField, value: FormAnswer | undefined): boolean {
+  if (value === undefined || value === null) return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'string') return value.trim() !== '';
+  return true; // number (scale)
+}
+
+/** Renders one field by its type and reports answer changes upward. */
+function FormFieldInput({
+  index,
+  field,
+  value,
+  onText,
+  onChoose,
+  onToggleMulti,
+  onScale,
+}: {
+  index: number;
+  field: FormField;
+  value: FormAnswer | undefined;
+  onText: (v: string) => void;
+  onChoose: (optId: string) => void;
+  onToggleMulti: (optId: string) => void;
+  onScale: (n: number) => void;
+}) {
+  const opts = field.options ?? [];
+  const label = (
+    <p className="text-sm font-medium leading-snug text-slate-800">
+      {index + 1}. {field.label}
+      {field.required && <span className="ml-1 text-rose-500">*</span>}
+    </p>
+  );
+
+  if (field.type === 'single_choice') {
+    return (
+      <div className="space-y-2.5">
+        {label}
+        <div className="space-y-2">
+          {opts.map((opt) => {
+            const selected = value === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => onChoose(opt.id)}
+                className={`flex w-full items-center gap-3 rounded-xl border-2 px-4 py-3 text-left text-sm transition-all ${
+                  selected
+                    ? 'border-emerald-400 bg-emerald-50 text-slate-900'
+                    : 'border-slate-100 bg-slate-50 text-slate-600 hover:border-slate-200'
+                }`}
+              >
+                <span
+                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                    selected ? 'border-emerald-500 bg-emerald-500' : 'border-slate-300'
+                  }`}
+                >
+                  {selected && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+                </span>
+                {opt.text}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  if (field.type === 'multi_choice') {
+    const sel = Array.isArray(value) ? value : [];
+    return (
+      <div className="space-y-2.5">
+        {label}
+        <div className="space-y-2">
+          {opts.map((opt) => {
+            const checked = sel.includes(opt.id);
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => onToggleMulti(opt.id)}
+                className={`flex w-full items-center gap-3 rounded-xl border-2 px-4 py-3 text-left text-sm transition-all ${
+                  checked
+                    ? 'border-emerald-400 bg-emerald-50 text-slate-900'
+                    : 'border-slate-100 bg-slate-50 text-slate-600 hover:border-slate-200'
+                }`}
+              >
+                <span
+                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                    checked ? 'border-emerald-500 bg-emerald-500' : 'border-slate-300'
+                  }`}
+                >
+                  {checked && <Check className="h-3 w-3 text-white" />}
+                </span>
+                {opt.text}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  if (field.type === 'dropdown') {
+    return (
+      <div className="space-y-2.5">
+        {label}
+        <Select
+          value={typeof value === 'string' ? value : undefined}
+          onValueChange={(v) => onChoose(v)}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Choose…" />
+          </SelectTrigger>
+          <SelectContent>
+            {opts.map((opt) => (
+              <SelectItem key={opt.id} value={opt.id}>
+                {opt.text}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  }
+
+  if (field.type === 'short_text') {
+    return (
+      <div className="space-y-2.5">
+        {label}
+        <Input
+          value={typeof value === 'string' ? value : ''}
+          onChange={(e) => onText(e.target.value)}
+          placeholder="Your answer"
+        />
+      </div>
+    );
+  }
+
+  if (field.type === 'paragraph') {
+    return (
+      <div className="space-y-2.5">
+        {label}
+        <Textarea
+          value={typeof value === 'string' ? value : ''}
+          onChange={(e) => onText(e.target.value)}
+          placeholder="Your answer"
+          className="min-h-[80px]"
+        />
+      </div>
+    );
+  }
+
+  if (field.type === 'scale') {
+    const lo = field.scale_min ?? 1;
+    const hi = field.scale_max ?? 5;
+    const nums: number[] = [];
+    for (let n = lo; n <= hi; n++) nums.push(n);
+    const cur = typeof value === 'number' ? value : null;
+    return (
+      <div className="space-y-2.5">
+        {label}
+        <div className="flex flex-wrap items-center gap-2">
+          {nums.map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => onScale(n)}
+              className={`h-9 w-9 rounded-full border-2 text-sm font-semibold transition-all ${
+                cur === n
+                  ? 'border-emerald-500 bg-emerald-500 text-white'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-300'
+              }`}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+        {(field.scale_min_label || field.scale_max_label) && (
+          <div className="flex justify-between text-[11px] text-slate-400">
+            <span>{field.scale_min_label}</span>
+            <span>{field.scale_max_label}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function FormBlock({
+  form,
   alreadyScore,
+  alreadyResponses,
   onSubmit,
   isSubmitting,
 }: {
-  quiz: QuizSpec;
+  form: FormSpec;
   alreadyScore: number | null;
-  onSubmit: (score: number) => void;
+  alreadyResponses: FormResponses | null;
+  onSubmit: (score: number | null, responses: FormResponses) => void;
   isSubmitting: boolean;
 }) {
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [submittedScore, setSubmittedScore] = useState<number | null>(alreadyScore);
+  const [responses, setResponses] = useState<FormResponses>(
+    alreadyResponses ?? {}
+  );
+  const [submitted, setSubmitted] = useState(
+    alreadyResponses !== null || alreadyScore !== null
+  );
+  const [score, setScore] = useState<number | null>(alreadyScore);
 
-  const total = quiz.questions.length;
-  const allAnswered = quiz.questions.every((q) => answers[q.id] !== undefined);
+  const graded = formIsGraded(form);
+  const allRequiredAnswered = form.fields.every(
+    (f) => !f.required || isAnswered(f, responses[f.id])
+  );
 
-  function handleSubmit() {
-    let correct = 0;
-    for (const q of quiz.questions) {
-      const chosen = answers[q.id];
-      const opt = q.options.find((o) => o.id === chosen);
-      if (opt?.is_correct) correct += 1;
-    }
-    const pct = total > 0 ? Math.round((correct / total) * 100) : 0;
-    setSubmittedScore(pct);
-    onSubmit(pct);
+  function setAnswer(id: string, value: FormAnswer) {
+    setResponses((prev) => ({ ...prev, [id]: value }));
+  }
+  function toggleMulti(id: string, optId: string) {
+    setResponses((prev) => {
+      const cur = Array.isArray(prev[id]) ? (prev[id] as string[]) : [];
+      const next = cur.includes(optId)
+        ? cur.filter((x) => x !== optId)
+        : [...cur, optId];
+      return { ...prev, [id]: next };
+    });
   }
 
-  if (submittedScore !== null) {
+  function handleSubmit() {
+    const s = scoreForm(form, responses);
+    setScore(s);
+    setSubmitted(true);
+    onSubmit(s, responses);
+  }
+
+  if (submitted) {
     return (
       <Card className="border-emerald-100">
-        <CardContent className="flex items-center gap-3 py-4 px-5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-50 border border-emerald-100">
+        <CardContent className="flex items-center gap-3 px-5 py-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-emerald-100 bg-emerald-50">
             <Trophy className="h-5 w-5 text-emerald-600" />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-semibold text-slate-800">Quiz complete</p>
-            <p className="text-xs text-slate-500">
-              You scored <span className="font-semibold text-emerald-700">{submittedScore}%</span>
+            <p className="text-sm font-semibold text-slate-800">
+              {graded ? 'Quiz complete' : 'Response saved'}
             </p>
+            {graded && score !== null ? (
+              <p className="text-xs text-slate-500">
+                You scored{' '}
+                <span className="font-semibold text-emerald-700">{score}%</span>
+              </p>
+            ) : (
+              <p className="text-xs text-slate-500">Thanks for your responses.</p>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -272,51 +475,31 @@ function QuizBlock({
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2 text-base">
           <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-          Quick check ({total} question{total !== 1 ? 's' : ''})
+          {graded ? 'Quick check' : 'Quick form'} ({form.fields.length} question
+          {form.fields.length !== 1 ? 's' : ''})
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-5">
-        {quiz.questions.map((q, qi) => (
-          <div key={q.id} className="space-y-2.5">
-            <p className="text-sm font-medium text-slate-800 leading-snug">
-              {qi + 1}. {q.question}
-            </p>
-            <div className="space-y-2">
-              {q.options.map((opt) => {
-                const selected = answers[q.id] === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => setAnswers((prev) => ({ ...prev, [q.id]: opt.id }))}
-                    className={`flex w-full items-center gap-3 rounded-xl border-2 px-4 py-3 text-left text-sm transition-all ${
-                      selected
-                        ? 'border-emerald-400 bg-emerald-50 text-slate-900'
-                        : 'border-slate-100 bg-slate-50 text-slate-600 hover:border-slate-200'
-                    }`}
-                  >
-                    <span
-                      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
-                        selected ? 'border-emerald-500 bg-emerald-500' : 'border-slate-300'
-                      }`}
-                    >
-                      {selected && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
-                    </span>
-                    {opt.text}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+        {form.fields.map((f, i) => (
+          <FormFieldInput
+            key={f.id}
+            index={i}
+            field={f}
+            value={responses[f.id]}
+            onText={(v) => setAnswer(f.id, v)}
+            onChoose={(optId) => setAnswer(f.id, optId)}
+            onToggleMulti={(optId) => toggleMulti(f.id, optId)}
+            onScale={(n) => setAnswer(f.id, n)}
+          />
         ))}
         <Button
           onClick={handleSubmit}
-          disabled={!allAnswered || isSubmitting}
-          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+          disabled={!allRequiredAnswered || isSubmitting}
+          className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
         >
-          {isSubmitting ? 'Submitting…' : 'Submit answers'}
+          {isSubmitting ? 'Submitting…' : 'Submit'}
         </Button>
       </CardContent>
     </Card>
@@ -432,20 +615,30 @@ function VideoPanel({ day }: { day: HealthProgramDay }) {
     );
   }
 
-  const embed = toEmbedSrc(day.video_url);
+  const embed = toYouTubeEmbed(day.video_url);
+  if (!embed) {
+    // Legacy / non-YouTube link still stored — link out rather than break.
+    return (
+      <a
+        href={day.video_url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex aspect-video w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-sm font-medium text-emerald-700 hover:bg-slate-100"
+      >
+        <PlayCircle className="h-5 w-5" />
+        Watch the video
+      </a>
+    );
+  }
   return (
     <div className="overflow-hidden rounded-2xl bg-black aspect-video">
-      {embed.kind === 'iframe' ? (
-        <iframe
-          src={embed.src}
-          title={day.title}
-          className="h-full w-full"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
-        />
-      ) : (
-        <video src={embed.src} controls className="h-full w-full" />
-      )}
+      <iframe
+        src={embed}
+        title={day.title}
+        className="h-full w-full"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowFullScreen
+      />
     </div>
   );
 }
@@ -584,7 +777,7 @@ function ProgramDetailInner({ slug }: { slug: string }) {
   const { data: participation } = useMyParticipation(program?.id, userId);
 
   const markWatched = useMarkWatched();
-  const submitQuiz = useSubmitQuiz();
+  const submitForm = useSubmitForm();
   const rateUsefulness = useRateUsefulness();
 
   // --- Light program consent (gates the TRACKED writes only) ---------------
@@ -669,6 +862,7 @@ function ProgramDetailInner({ slug }: { slug: string }) {
   const activeDayId = selectedDayId || defaultDayId;
   const day = days.find((d) => d.id === activeDayId) ?? days[0];
   const dayParticipation = day ? participationFor(participation, day.id) : undefined;
+  const dayForm = day ? normalizeForm(day.quiz) : null;
 
   const completedCount = days.filter((d) => {
     const p = participationFor(participation, d.id);
@@ -707,15 +901,16 @@ function ProgramDetailInner({ slug }: { slug: string }) {
     );
   }
 
-  function handleSubmitQuiz(score: number) {
+  function handleSubmitForm(score: number | null, responses: FormResponses) {
     if (!day || !userId) return;
     withConsent(() =>
-      submitQuiz.mutate({
+      submitForm.mutate({
         programId: program.id,
         dayId: day.id,
         userId,
         learnerId,
         score,
+        responses,
       })
     );
   }
@@ -852,13 +1047,14 @@ function ProgramDetailInner({ slug }: { slug: string }) {
             )}
           </Button>
 
-          {/* Quiz (if any) */}
-          {day.quiz && day.quiz.questions?.length > 0 && (
-            <QuizBlock
-              quiz={day.quiz}
+          {/* Form (if any) */}
+          {dayForm && dayForm.fields.length > 0 && (
+            <FormBlock
+              form={dayForm}
               alreadyScore={dayParticipation?.quiz_score ?? null}
-              onSubmit={handleSubmitQuiz}
-              isSubmitting={submitQuiz.isPending}
+              alreadyResponses={dayParticipation?.form_responses ?? null}
+              onSubmit={handleSubmitForm}
+              isSubmitting={submitForm.isPending}
             />
           )}
 

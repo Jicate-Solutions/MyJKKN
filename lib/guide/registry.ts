@@ -34,6 +34,12 @@ import { GUIDES as PDE_GUIDES, REQUIRES as PDE_REQUIRES } from "../pde/guide/con
 import { GUIDES as HR_GUIDES, REQUIRES as HR_REQUIRES } from "../hr/guide/content";
 import { GUIDES as ADMISSION_GUIDES, REQUIRES as ADMISSION_REQUIRES } from "../admission/guide/content";
 import { GUIDES as BILLING_GUIDES, REQUIRES as BILLING_REQUIRES } from "../billing/guide/content";
+import { GUIDES as ACADEMIC_GUIDES, REQUIRES as ACADEMIC_REQUIRES } from "../academic/guide/content";
+import { GUIDES as STARTUP_GUIDES, REQUIRES as STARTUP_REQUIRES } from "../startup-studio/guide/content";
+import { GUIDES as SOLUTIONS_GUIDES, REQUIRES as SOLUTIONS_REQUIRES } from "../solutions/guide/content";
+import { GUIDES as ORGANIZATIONS_GUIDES, REQUIRES as ORGANIZATIONS_REQUIRES } from "../organizations/guide/content";
+import { GUIDES as IMS_GUIDES, REQUIRES as IMS_REQUIRES } from "../ims/guide/content";
+import { GUIDES as BOS_GUIDES, REQUIRES as BOS_REQUIRES } from "../bos/guide/content";
 
 /* ────────────────────────────────────────────────────────────────────────
  * PERSONA ACCESS — which permission keys grant each canonical persona (OR'd
@@ -49,11 +55,11 @@ import { GUIDES as BILLING_GUIDES, REQUIRES as BILLING_REQUIRES } from "../billi
  * ──────────────────────────────────────────────────────────────────────── */
 export const PERSONA_REQUIRES: Record<CanonicalPersona, string[]> = {
   learner: [],
-  facilitator: [AI_PULSE_REQUIRES.faculty, PDE_REQUIRES.faculty],
-  "unit-lead": [AI_PULSE_REQUIRES.champion, CAMPUS_REQUIRES.warden, CAMPUS_REQUIRES.mess],
-  coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor, BILLING_REQUIRES["finance-officer"]],
-  supervisor: [AI_PULSE_REQUIRES.hod, HR_REQUIRES.manager],
-  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin, BILLING_REQUIRES["finance-admin"]],
+  facilitator: [AI_PULSE_REQUIRES.faculty, PDE_REQUIRES.faculty, ACADEMIC_REQUIRES.faculty, STARTUP_REQUIRES.mentor, STARTUP_REQUIRES.evaluator, SOLUTIONS_REQUIRES.delivery_team, IMS_REQUIRES.cashier, BOS_REQUIRES.member],
+  "unit-lead": [AI_PULSE_REQUIRES.champion, CAMPUS_REQUIRES.warden, CAMPUS_REQUIRES.mess, IMS_REQUIRES.storekeeper, BOS_REQUIRES.chairman],
+  coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor, BILLING_REQUIRES["finance-officer"], ACADEMIC_REQUIRES.coordinator, STARTUP_REQUIRES.coordinator, SOLUTIONS_REQUIRES.sales_lead, ORGANIZATIONS_REQUIRES.viewer, IMS_REQUIRES.requester],
+  supervisor: [AI_PULSE_REQUIRES.hod, HR_REQUIRES.manager, ACADEMIC_REQUIRES.hod, ACADEMIC_REQUIRES.principal, SOLUTIONS_REQUIRES.finance_officer, IMS_REQUIRES.approver, BOS_REQUIRES.principal],
+  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin, BILLING_REQUIRES["finance-admin"], STARTUP_REQUIRES.admin, SOLUTIONS_REQUIRES.module_admin, ORGANIZATIONS_REQUIRES["registry-admin"], IMS_REQUIRES.admin, BOS_REQUIRES.coordinator],
   "platform-admin": [],
   parent: [],
   external: [],
@@ -235,27 +241,43 @@ export const aiPulseGuide: ModuleGuide = {
   module: "ai-pulse",
   basePath: "/ai-pulse",
   lanes: {
+    // Module-specific lane titles/taglines reuse AI Pulse's OWN vocabulary
+    // (Student / Champion / Class Incharge / HOD / Faculty / Admin), sourced
+    // from content.ts so they stay in sync. They re-skin ONLY this module's
+    // scoped guide (/guide?module=ai-pulse); the cross-module overview keeps the
+    // canonical platform labels. Restores module relevance lost when AI Pulse's
+    // lanes were mapped onto canonical personas (champion→unit-lead "Running your unit").
     learner: {
       sections: AI_PULSE_GUIDES.lanes.student.sections,
       startHere: AI_PULSE_GUIDES.lanes.student.startHere,
+      title: AI_PULSE_GUIDES.lanes.student.title,
+      tagline: AI_PULSE_GUIDES.lanes.student.tagline,
     },
     facilitator: {
       sections: AI_PULSE_GUIDES.lanes.faculty.sections,
       startHere: AI_PULSE_GUIDES.lanes.faculty.startHere,
+      title: AI_PULSE_GUIDES.lanes.faculty.title,
+      tagline: AI_PULSE_GUIDES.lanes.faculty.tagline,
     },
     "unit-lead": {
       // champion sections → requires "aiPulse:cycles.manage"
       sections: withRequires(AI_PULSE_GUIDES.lanes.champion.sections, AI_PULSE_REQUIRES.champion),
       startHere: AI_PULSE_GUIDES.lanes.champion.startHere,
+      title: AI_PULSE_GUIDES.lanes.champion.title,
+      tagline: AI_PULSE_GUIDES.lanes.champion.tagline,
     },
     coordinator: {
       // incharge sections → requires "aiPulse:attendance.mark"
       sections: withRequires(AI_PULSE_GUIDES.lanes.incharge.sections, AI_PULSE_REQUIRES.incharge),
       // incharge lane has no startHere in the source — omit
+      title: AI_PULSE_GUIDES.lanes.incharge.title,
+      tagline: AI_PULSE_GUIDES.lanes.incharge.tagline,
     },
     supervisor: {
       sections: AI_PULSE_GUIDES.lanes.hod.sections,
       startHere: AI_PULSE_GUIDES.lanes.hod.startHere,
+      title: AI_PULSE_GUIDES.lanes.hod.title,
+      tagline: AI_PULSE_GUIDES.lanes.hod.tagline,
     },
     "module-admin": {
       // admin sections → requires "aiPulse:policies.manage" so a viewer who reached
@@ -263,6 +285,8 @@ export const aiPulseGuide: ModuleGuide = {
       // AI Pulse admin permission (fail-closed; matches HR/Admission/Billing).
       sections: withRequires(AI_PULSE_GUIDES.lanes.admin.sections, AI_PULSE_REQUIRES.admin),
       startHere: AI_PULSE_GUIDES.lanes.admin.startHere,
+      title: AI_PULSE_GUIDES.lanes.admin.title,
+      tagline: AI_PULSE_GUIDES.lanes.admin.tagline,
     },
   },
   routes: [],
@@ -277,10 +301,14 @@ export const aiPulseGuide: ModuleGuide = {
 export const campusLivingGuide: ModuleGuide = {
   module: "campus-living",
   basePath: "/campus-living",
+  // Module-specific lane labels (see aiPulseGuide for the rationale): re-skin
+  // ONLY campus-living's scoped guide; cross-module overview stays canonical.
   lanes: {
     learner: {
       sections: CAMPUS_GUIDES.lanes.resident.sections,
       startHere: CAMPUS_GUIDES.lanes.resident.startHere,
+      title: CAMPUS_GUIDES.lanes.resident.title,
+      tagline: CAMPUS_GUIDES.lanes.resident.tagline,
     },
     "unit-lead": {
       // warden sections → requires allocations.approve; mess sections → requires mess.menu.publish
@@ -289,11 +317,17 @@ export const campusLivingGuide: ModuleGuide = {
         ...withRequires(CAMPUS_GUIDES.lanes.mess.sections, CAMPUS_REQUIRES.mess),
       ],
       startHere: CAMPUS_GUIDES.lanes.warden.startHere,
+      // Collapsed lane (warden + mess); label follows the primary source (warden,
+      // whose startHere this lane uses), matching the AI Pulse collapsed-lane convention.
+      title: CAMPUS_GUIDES.lanes.warden.title,
+      tagline: CAMPUS_GUIDES.lanes.warden.tagline,
     },
     "module-admin": {
       // admin sections → requires "campus_living.settings.edit" (section-gated, fail-closed)
       sections: withRequires(CAMPUS_GUIDES.lanes.admin.sections, CAMPUS_REQUIRES.admin),
       startHere: CAMPUS_GUIDES.lanes.admin.startHere,
+      title: CAMPUS_GUIDES.lanes.admin.title,
+      tagline: CAMPUS_GUIDES.lanes.admin.tagline,
     },
   },
   routes: [],
@@ -306,19 +340,26 @@ export const campusLivingGuide: ModuleGuide = {
 export const pdeGuide: ModuleGuide = {
   module: "pde",
   basePath: "/pde",
+  // Module-specific lane labels (re-skin PDE's scoped guide only).
   lanes: {
     learner: {
       sections: PDE_GUIDES.lanes.learner.sections,
       startHere: PDE_GUIDES.lanes.learner.startHere,
+      title: PDE_GUIDES.lanes.learner.title,
+      tagline: PDE_GUIDES.lanes.learner.tagline,
     },
     facilitator: {
       sections: PDE_GUIDES.lanes.faculty.sections,
       startHere: PDE_GUIDES.lanes.faculty.startHere,
+      title: PDE_GUIDES.lanes.faculty.title,
+      tagline: PDE_GUIDES.lanes.faculty.tagline,
     },
     "module-admin": {
       // admin sections → requires "pde.admin.view" (section-gated, fail-closed)
       sections: withRequires(PDE_GUIDES.lanes.admin.sections, PDE_REQUIRES.admin),
       startHere: PDE_GUIDES.lanes.admin.startHere,
+      title: PDE_GUIDES.lanes.admin.title,
+      tagline: PDE_GUIDES.lanes.admin.tagline,
     },
   },
   routes: [],
@@ -336,18 +377,26 @@ export const pdeGuide: ModuleGuide = {
 export const hrGuide: ModuleGuide = {
   module: "hr",
   basePath: "/hr",
+  // Module-specific lane labels (re-skin HR's scoped guide only).
   lanes: {
     learner: {
       sections: HR_GUIDES.lanes.employee.sections,
       startHere: HR_GUIDES.lanes.employee.startHere,
+      title: HR_GUIDES.lanes.employee.title,
+      tagline: HR_GUIDES.lanes.employee.tagline,
     },
     supervisor: {
       sections: withRequires(HR_GUIDES.lanes.manager.sections, HR_REQUIRES.manager),
       startHere: HR_GUIDES.lanes.manager.startHere,
+      title: HR_GUIDES.lanes.manager.title,
+      tagline: HR_GUIDES.lanes.manager.tagline,
     },
     "module-admin": {
+      // hr-admin is a hyphenated key → bracket access (dot access is a syntax error)
       sections: withRequires(HR_GUIDES.lanes["hr-admin"].sections, HR_REQUIRES["hr-admin"]),
       startHere: HR_GUIDES.lanes["hr-admin"].startHere,
+      title: HR_GUIDES.lanes["hr-admin"].title,
+      tagline: HR_GUIDES.lanes["hr-admin"].tagline,
     },
   },
   routes: [],
@@ -360,14 +409,19 @@ export const hrGuide: ModuleGuide = {
 export const admissionGuide: ModuleGuide = {
   module: "admission",
   basePath: "/admission",
+  // Module-specific lane labels (re-skin Admission's scoped guide only).
   lanes: {
     coordinator: {
       sections: withRequires(ADMISSION_GUIDES.lanes.counsellor.sections, ADMISSION_REQUIRES.counsellor),
       startHere: ADMISSION_GUIDES.lanes.counsellor.startHere,
+      title: ADMISSION_GUIDES.lanes.counsellor.title,
+      tagline: ADMISSION_GUIDES.lanes.counsellor.tagline,
     },
     "module-admin": {
       sections: withRequires(ADMISSION_GUIDES.lanes.admin.sections, ADMISSION_REQUIRES.admin),
       startHere: ADMISSION_GUIDES.lanes.admin.startHere,
+      title: ADMISSION_GUIDES.lanes.admin.title,
+      tagline: ADMISSION_GUIDES.lanes.admin.tagline,
     },
   },
   routes: [],
@@ -380,24 +434,271 @@ export const admissionGuide: ModuleGuide = {
 export const billingGuide: ModuleGuide = {
   module: "billing",
   basePath: "/billing",
+  // Module-specific lane labels (re-skin Billing's scoped guide only).
   lanes: {
     learner: {
       sections: BILLING_GUIDES.lanes.payer.sections,
       startHere: BILLING_GUIDES.lanes.payer.startHere,
+      title: BILLING_GUIDES.lanes.payer.title,
+      tagline: BILLING_GUIDES.lanes.payer.tagline,
     },
     coordinator: {
+      // finance-officer is a hyphenated key → bracket access
       sections: withRequires(BILLING_GUIDES.lanes["finance-officer"].sections, BILLING_REQUIRES["finance-officer"]),
       startHere: BILLING_GUIDES.lanes["finance-officer"].startHere,
+      title: BILLING_GUIDES.lanes["finance-officer"].title,
+      tagline: BILLING_GUIDES.lanes["finance-officer"].tagline,
     },
     "module-admin": {
+      // finance-admin is a hyphenated key → bracket access
       sections: withRequires(BILLING_GUIDES.lanes["finance-admin"].sections, BILLING_REQUIRES["finance-admin"]),
       startHere: BILLING_GUIDES.lanes["finance-admin"].startHere,
+      title: BILLING_GUIDES.lanes["finance-admin"].title,
+      tagline: BILLING_GUIDES.lanes["finance-admin"].tagline,
     },
   },
   routes: [],
 };
 
-export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide];
+/* ── Academic ───────────────────────────────────────────────────────────────
+ * learner→learner (open baseline), faculty→facilitator, hod+principal→supervisor
+ * (COLLAPSED — each tagged with its own academic key, fail-closed), coordinator→
+ * coordinator. Non-learner lanes section-gated by their own Academic permission.
+ * ────────────────────────────────────────────────────────────────────────── */
+export const academicGuide: ModuleGuide = {
+  module: "academic",
+  basePath: "/academic",
+  lanes: {
+    learner: {
+      sections: ACADEMIC_GUIDES.lanes.learner.sections,
+      startHere: ACADEMIC_GUIDES.lanes.learner.startHere,
+      title: ACADEMIC_GUIDES.lanes.learner.title,
+      tagline: ACADEMIC_GUIDES.lanes.learner.tagline,
+    },
+    facilitator: {
+      sections: withRequires(ACADEMIC_GUIDES.lanes.faculty.sections, ACADEMIC_REQUIRES.faculty),
+      startHere: ACADEMIC_GUIDES.lanes.faculty.startHere,
+      title: ACADEMIC_GUIDES.lanes.faculty.title,
+      tagline: ACADEMIC_GUIDES.lanes.faculty.tagline,
+    },
+    supervisor: {
+      // hod + principal collapsed → each tagged with its own key (a viewer sees
+      // only the sections their permission unlocks; matches campus-living unit-lead).
+      sections: [
+        ...withRequires(ACADEMIC_GUIDES.lanes.hod.sections, ACADEMIC_REQUIRES.hod),
+        ...withRequires(ACADEMIC_GUIDES.lanes.principal.sections, ACADEMIC_REQUIRES.principal),
+      ],
+      startHere: ACADEMIC_GUIDES.lanes.hod.startHere,
+      title: ACADEMIC_GUIDES.lanes.hod.title,
+      tagline: ACADEMIC_GUIDES.lanes.hod.tagline,
+    },
+    coordinator: {
+      sections: withRequires(ACADEMIC_GUIDES.lanes.coordinator.sections, ACADEMIC_REQUIRES.coordinator),
+      startHere: ACADEMIC_GUIDES.lanes.coordinator.startHere,
+      title: ACADEMIC_GUIDES.lanes.coordinator.title,
+      tagline: ACADEMIC_GUIDES.lanes.coordinator.tagline,
+    },
+  },
+  routes: [],
+};
+
+/* ── Startup Studio ──────────────────────────────────────────────────────────
+ * founder→learner (open baseline), mentor+evaluator→facilitator (COLLAPSED),
+ * coordinator→coordinator, admin→module-admin. Non-learner lanes section-gated.
+ * ────────────────────────────────────────────────────────────────────────── */
+export const startupStudioGuide: ModuleGuide = {
+  module: "startup-studio",
+  basePath: "/startup-studio",
+  lanes: {
+    learner: {
+      sections: STARTUP_GUIDES.lanes.founder.sections,
+      startHere: STARTUP_GUIDES.lanes.founder.startHere,
+      title: STARTUP_GUIDES.lanes.founder.title,
+      tagline: STARTUP_GUIDES.lanes.founder.tagline,
+    },
+    facilitator: {
+      // mentor + evaluator collapsed → each tagged with its own key (fail-closed).
+      sections: [
+        ...withRequires(STARTUP_GUIDES.lanes.mentor.sections, STARTUP_REQUIRES.mentor),
+        ...withRequires(STARTUP_GUIDES.lanes.evaluator.sections, STARTUP_REQUIRES.evaluator),
+      ],
+      startHere: STARTUP_GUIDES.lanes.mentor.startHere,
+      title: STARTUP_GUIDES.lanes.mentor.title,
+      tagline: STARTUP_GUIDES.lanes.mentor.tagline,
+    },
+    coordinator: {
+      sections: withRequires(STARTUP_GUIDES.lanes.coordinator.sections, STARTUP_REQUIRES.coordinator),
+      startHere: STARTUP_GUIDES.lanes.coordinator.startHere,
+      title: STARTUP_GUIDES.lanes.coordinator.title,
+      tagline: STARTUP_GUIDES.lanes.coordinator.tagline,
+    },
+    "module-admin": {
+      sections: withRequires(STARTUP_GUIDES.lanes.admin.sections, STARTUP_REQUIRES.admin),
+      startHere: STARTUP_GUIDES.lanes.admin.startHere,
+      title: STARTUP_GUIDES.lanes.admin.title,
+      tagline: STARTUP_GUIDES.lanes.admin.tagline,
+    },
+  },
+  routes: [],
+};
+
+/* ── Solutions (JKKN Solutions Hub — internal staff back-office) ──────────────
+ * No learner lane (no open everyday user). delivery_team→facilitator,
+ * sales_lead→coordinator, finance_officer→supervisor, module_admin→module-admin.
+ * Each lane section-gated by its area's solutions.*.view key (writes are guarded
+ * at the service layer; flagged for the module owner to refine).
+ * ────────────────────────────────────────────────────────────────────────── */
+export const solutionsGuide: ModuleGuide = {
+  module: "solutions",
+  basePath: "/solutions",
+  lanes: {
+    facilitator: {
+      sections: withRequires(SOLUTIONS_GUIDES.lanes.delivery_team.sections, SOLUTIONS_REQUIRES.delivery_team),
+      startHere: SOLUTIONS_GUIDES.lanes.delivery_team.startHere,
+      title: SOLUTIONS_GUIDES.lanes.delivery_team.title,
+      tagline: SOLUTIONS_GUIDES.lanes.delivery_team.tagline,
+    },
+    coordinator: {
+      sections: withRequires(SOLUTIONS_GUIDES.lanes.sales_lead.sections, SOLUTIONS_REQUIRES.sales_lead),
+      startHere: SOLUTIONS_GUIDES.lanes.sales_lead.startHere,
+      title: SOLUTIONS_GUIDES.lanes.sales_lead.title,
+      tagline: SOLUTIONS_GUIDES.lanes.sales_lead.tagline,
+    },
+    supervisor: {
+      sections: withRequires(SOLUTIONS_GUIDES.lanes.finance_officer.sections, SOLUTIONS_REQUIRES.finance_officer),
+      startHere: SOLUTIONS_GUIDES.lanes.finance_officer.startHere,
+      title: SOLUTIONS_GUIDES.lanes.finance_officer.title,
+      tagline: SOLUTIONS_GUIDES.lanes.finance_officer.tagline,
+    },
+    "module-admin": {
+      sections: withRequires(SOLUTIONS_GUIDES.lanes.module_admin.sections, SOLUTIONS_REQUIRES.module_admin),
+      startHere: SOLUTIONS_GUIDES.lanes.module_admin.startHere,
+      title: SOLUTIONS_GUIDES.lanes.module_admin.title,
+      tagline: SOLUTIONS_GUIDES.lanes.module_admin.tagline,
+    },
+  },
+  routes: [],
+};
+
+/* ── Organizations (academic-structure registry — master data) ───────────────
+ * registry-admin→module-admin (builds the hierarchy), viewer→coordinator
+ * (read-only lookup). No learner lane: this is staff config, not an everyday
+ * end-user surface — both lanes are section-gated by their own key (fail-closed)
+ * so org content never appears in the open learner baseline.
+ * ────────────────────────────────────────────────────────────────────────── */
+export const organizationsGuide: ModuleGuide = {
+  module: "organizations",
+  basePath: "/organizations",
+  lanes: {
+    "module-admin": {
+      // "registry-admin" is a hyphenated key → bracket access
+      sections: withRequires(ORGANIZATIONS_GUIDES.lanes["registry-admin"].sections, ORGANIZATIONS_REQUIRES["registry-admin"]),
+      startHere: ORGANIZATIONS_GUIDES.lanes["registry-admin"].startHere,
+      title: ORGANIZATIONS_GUIDES.lanes["registry-admin"].title,
+      tagline: ORGANIZATIONS_GUIDES.lanes["registry-admin"].tagline,
+    },
+    coordinator: {
+      // read-only structure viewer; gated by organizations.dashboard.view.
+      // FLAG (SME): "viewer" is an imperfect fit for the canonical "coordinator"
+      // title — kept gated/fail-closed; the module-scoped guide shows the module's
+      // own "Viewer Guide" label, only the cross-module compose uses "Coordinator".
+      sections: withRequires(ORGANIZATIONS_GUIDES.lanes.viewer.sections, ORGANIZATIONS_REQUIRES.viewer),
+      startHere: ORGANIZATIONS_GUIDES.lanes.viewer.startHere,
+      title: ORGANIZATIONS_GUIDES.lanes.viewer.title,
+      tagline: ORGANIZATIONS_GUIDES.lanes.viewer.tagline,
+    },
+  },
+  routes: [],
+};
+
+/* ── IMS (Inventory Management — operational back-office) ─────────────────────
+ * requester→coordinator, approver→supervisor, storekeeper→unit-lead,
+ * cashier→facilitator, admin→module-admin. NO learner lane: an inventory
+ * requester is staff, not an everyday everyone-user, so requester is mapped to a
+ * GATED canonical (coordinator) rather than the open learner lane — IMS content
+ * must never surface in a student's getting-started guide. Every lane is
+ * section-gated by its own ims.* key (fail-closed).
+ * ────────────────────────────────────────────────────────────────────────── */
+export const imsGuide: ModuleGuide = {
+  module: "ims",
+  basePath: "/ims",
+  lanes: {
+    coordinator: {
+      sections: withRequires(IMS_GUIDES.lanes.requester.sections, IMS_REQUIRES.requester),
+      startHere: IMS_GUIDES.lanes.requester.startHere,
+      title: IMS_GUIDES.lanes.requester.title,
+      tagline: IMS_GUIDES.lanes.requester.tagline,
+    },
+    supervisor: {
+      sections: withRequires(IMS_GUIDES.lanes.approver.sections, IMS_REQUIRES.approver),
+      startHere: IMS_GUIDES.lanes.approver.startHere,
+      title: IMS_GUIDES.lanes.approver.title,
+      tagline: IMS_GUIDES.lanes.approver.tagline,
+    },
+    "unit-lead": {
+      sections: withRequires(IMS_GUIDES.lanes.storekeeper.sections, IMS_REQUIRES.storekeeper),
+      startHere: IMS_GUIDES.lanes.storekeeper.startHere,
+      title: IMS_GUIDES.lanes.storekeeper.title,
+      tagline: IMS_GUIDES.lanes.storekeeper.tagline,
+    },
+    facilitator: {
+      sections: withRequires(IMS_GUIDES.lanes.cashier.sections, IMS_REQUIRES.cashier),
+      startHere: IMS_GUIDES.lanes.cashier.startHere,
+      title: IMS_GUIDES.lanes.cashier.title,
+      tagline: IMS_GUIDES.lanes.cashier.tagline,
+    },
+    "module-admin": {
+      sections: withRequires(IMS_GUIDES.lanes.admin.sections, IMS_REQUIRES.admin),
+      startHere: IMS_GUIDES.lanes.admin.startHere,
+      title: IMS_GUIDES.lanes.admin.title,
+      tagline: IMS_GUIDES.lanes.admin.tagline,
+    },
+  },
+  routes: [],
+};
+
+/* ── BoS (Board of Studies — academic governance) ────────────────────────────
+ * coordinator(role)→module-admin (academic office builds master data),
+ * chairman→unit-lead (runs one board), member→facilitator (does the academic
+ * work), principal→supervisor (oversight + approval). Each lane gated by its own
+ * academic.bos-* key. NOTE: BoS also enforces a STRUCTURAL chairman/member/
+ * principal split at runtime (lib/utils/bos/bos-access.ts via board membership +
+ * profiles.role) that no permission key captures — `requires` here only decides
+ * whether a lane is OFFERED; the deeper distinction is enforced in-app.
+ * ────────────────────────────────────────────────────────────────────────── */
+export const bosGuide: ModuleGuide = {
+  module: "bos",
+  basePath: "/bos",
+  lanes: {
+    "module-admin": {
+      sections: withRequires(BOS_GUIDES.lanes.coordinator.sections, BOS_REQUIRES.coordinator),
+      startHere: BOS_GUIDES.lanes.coordinator.startHere,
+      title: BOS_GUIDES.lanes.coordinator.title,
+      tagline: BOS_GUIDES.lanes.coordinator.tagline,
+    },
+    "unit-lead": {
+      sections: withRequires(BOS_GUIDES.lanes.chairman.sections, BOS_REQUIRES.chairman),
+      startHere: BOS_GUIDES.lanes.chairman.startHere,
+      title: BOS_GUIDES.lanes.chairman.title,
+      tagline: BOS_GUIDES.lanes.chairman.tagline,
+    },
+    facilitator: {
+      sections: withRequires(BOS_GUIDES.lanes.member.sections, BOS_REQUIRES.member),
+      startHere: BOS_GUIDES.lanes.member.startHere,
+      title: BOS_GUIDES.lanes.member.title,
+      tagline: BOS_GUIDES.lanes.member.tagline,
+    },
+    supervisor: {
+      sections: withRequires(BOS_GUIDES.lanes.principal.sections, BOS_REQUIRES.principal),
+      startHere: BOS_GUIDES.lanes.principal.startHere,
+      title: BOS_GUIDES.lanes.principal.title,
+      tagline: BOS_GUIDES.lanes.principal.tagline,
+    },
+  },
+  routes: [],
+};
+
+export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide, academicGuide, startupStudioGuide, solutionsGuide, organizationsGuide, imsGuide, bosGuide];
 
 /** Canonical personas at least one module contributes real sections to. A
  *  persona NOT in this set is sparse (composeLane returns the platform-overview
@@ -421,6 +722,12 @@ const MODULE_LABELS: Record<string, string> = {
   hr: "HR",
   admission: "Admission",
   billing: "Fees & Billing",
+  academic: "Academic",
+  "startup-studio": "Startup Studio",
+  solutions: "Solutions",
+  organizations: "Organizations",
+  ims: "Inventory (IMS)",
+  bos: "Board of Studies",
 };
 
 /** Human label for a module namespace; falls back to the raw id if unknown. */
@@ -448,6 +755,12 @@ const MODULE_GLOSSARIES: Record<string, GlossaryTerm[]> = {
   hr: HR_GUIDES.glossary ?? [],
   admission: ADMISSION_GUIDES.glossary ?? [],
   billing: BILLING_GUIDES.glossary ?? [],
+  academic: ACADEMIC_GUIDES.glossary ?? [],
+  "startup-studio": STARTUP_GUIDES.glossary ?? [],
+  solutions: SOLUTIONS_GUIDES.glossary ?? [],
+  organizations: ORGANIZATIONS_GUIDES.glossary ?? [],
+  ims: IMS_GUIDES.glossary ?? [],
+  bos: BOS_GUIDES.glossary ?? [],
 };
 
 /** "Words to know" terms for one module; empty array if module unknown. */
@@ -545,8 +858,10 @@ export function composeModuleLane(
 
   return {
     persona,
-    title: meta.title,
-    tagline: meta.tagline,
+    // Module's own label wins in its scoped guide; fall back to the canonical
+    // platform identity when the module didn't override (HR / Billing / etc.).
+    title: frag.title ?? meta.title,
+    tagline: frag.tagline ?? meta.tagline,
     startHere: frag.startHere,
     journey: sections.map((s) => s.title),
     sections,

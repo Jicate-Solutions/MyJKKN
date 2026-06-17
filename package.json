@@ -23,8 +23,9 @@
     "check:audit-coverage": "tsx scripts/check-permission-audit-coverage.ts",
     "check:menus": "npm run check:permissions && npm run check:menu-coverage && npm run check:tier2-coverage && npm run check:audit-coverage",
     "check:nav": "echo '[deprecated] check:nav retired — superseded by check:reachability (#441, #442). Script retained for historical/debug; removed from build gate 2026-04-24.' && node scripts/assert-nav-coverage.mjs --max-unverified 99 --max-orphans 99 || true",
-    "check:reachability": "tsx scripts/check-nav-reachability.ts --max-unreachable 60",
+    "check:reachability": "tsx scripts/check-nav-reachability.ts --max-unreachable 58",
     "check:guide-smoke": "tsx scripts/guide-smoke.ts",
+    "check:guide-labels": "tsx scripts/guide-labels-guard.ts",
     "check:attention-bar": "tsx scripts/check-attention-bar-coverage.ts",
     "check:attention-bar-layer2": "tsx scripts/check-attention-bar-layer2-rules.ts",
     "check:attention-bar-layer3": "tsx scripts/check-attention-bar-layer3-rails.ts",
@@ -36,7 +37,9 @@
     "backfill:cdc-idp:dry": "tsx --env-file=.env.local scripts/backfill-cdc-idp.ts --dry-run",
     "batch:autofill-schools": "tsx scripts/batch-autofill-school-learners.ts",
     "seed:razorpay": "tsx --env-file=.env.local scripts/seed-razorpay-accounts.ts",
-    "list:razorpay": "tsx --env-file=.env.local scripts/seed-razorpay-accounts.ts --list"
+    "list:razorpay": "tsx --env-file=.env.local scripts/seed-razorpay-accounts.ts --list",
+    "gen:guide-e2e": "tsx scripts/e2e-nav.ts",
+    "gen:guide-load": "tsx scripts/load-profile.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
@@ -154,6 +157,7 @@
     "nodemailer": "^8.0.7",
     "papaparse": "^5.5.2",
     "pdf-parse": "^2.4.5",
+    "pg": "^8.13.1",
     "puppeteer-core": "^24.43.1",
     "qrcode": "^1.5.4",
     "react": "^19.2.4",
@@ -186,10 +190,10 @@
     "web-push": "^3.6.7",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^3.25.76",
-    "zustand": "^5.0.0",
-    "pg": "^8.13.1"
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.0",
     "@serwist/cli": "^9.5.6",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
@@ -201,14 +205,15 @@
     "@types/html2canvas": "^0.5.35",
     "@types/json2csv": "^5.0.7",
     "@types/node": "^20",
+    "@types/nodemailer": "^8.0.0",
     "@types/papaparse": "^5.3.15",
+    "@types/pdf-parse": "^1.1.5",
+    "@types/pg": "^8.11.10",
     "@types/prismjs": "^1.26.5",
     "@types/qrcode": "^1.5.5",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@types/recharts": "^1.8.29",
-    "@types/nodemailer": "^8.0.0",
-    "@types/pdf-parse": "^1.1.5",
     "@vercel/functions": "^3.4.3",
     "@vitejs/plugin-react": "^6.0.2",
     "cross-env": "^10.1.0",
@@ -222,8 +227,7 @@
     "tailwindcss": "^3.4.1",
     "tsx": "^4.21.0",
     "typescript": "^5",
-    "vitest": "^4.1.7",
-    "@types/pg": "^8.11.10"
+    "vitest": "^4.1.7"
   },
   "overrides": {
     "prismjs": "^1.30.0"
