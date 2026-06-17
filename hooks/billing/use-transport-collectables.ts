@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query/query-keys';
 
-// One row per bus-requiring dayscholar who has transport-kind bills.
+// One row per learner who has transport-kind bills.
 export interface TransportCollectable {
   student_id: string;
   first_name: string | null;
@@ -13,6 +13,8 @@ export interface TransportCollectable {
   route_number: string | null;
   route_name: string | null;
   stop_name: string | null;
+  /** Total transport fee billed (excl. cancelled/superseded). */
+  total_billed: number;
   outstanding_amount: number;
   payable_bill_ids: string[];
   bill_count: number;
