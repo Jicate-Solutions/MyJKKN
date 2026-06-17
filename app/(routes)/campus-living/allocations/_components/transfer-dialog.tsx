@@ -163,11 +163,16 @@ export function TransferDialog({
                   />
                 </SelectTrigger>
                 <SelectContent>
-                  {((beds as any) ?? []).map((bed: any) => (
-                    <SelectItem key={bed.id} value={bed.id}>
-                      Bed {bed.bed_number} {bed.bed_type ? `· ${bed.bed_type}` : ''}
-                    </SelectItem>
-                  ))}
+                  {/* Only free beds are selectable (plus the learner's current
+                      bed). The RPC also rejects an occupied target bed. */}
+                  {((beds as any) ?? [])
+                    .filter((bed: any) => bed.status === 'available' || bed.id === currentBedId)
+                    .map((bed: any) => (
+                      <SelectItem key={bed.id} value={bed.id}>
+                        Bed {bed.bed_number} {bed.bed_type ? `· ${bed.bed_type}` : ''}
+                        {bed.id === currentBedId ? ' · current' : ''}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>

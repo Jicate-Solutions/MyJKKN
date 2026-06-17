@@ -114,7 +114,13 @@ export function useTransferAllocation() {
     mutationFn: ({ id, payload }: { id: string; payload: { new_room_id: string; new_bed_id: string; new_block_id?: string } }) =>
       HostelAllocationService.transfer(id, payload.new_room_id, payload.new_bed_id, payload.new_block_id),
     onSuccess: () => {
+      // The move touches allocations + bed status (old freed, new occupied),
+      // so refresh every surface that reads them: the allocations tables, the
+      // rooms/beds occupancy feeds, and the resident's own My Hostel view.
       queryClient.invalidateQueries({ queryKey: hostelAllocationKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['hostel-rooms'] });
+      queryClient.invalidateQueries({ queryKey: ['hostel-beds'] });
+      queryClient.invalidateQueries({ queryKey: ['my-hostel'] });
       toast.success('Allocation transferred');
     },
     onError: (error: Error) => {

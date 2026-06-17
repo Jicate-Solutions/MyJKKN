@@ -257,6 +257,13 @@ export class HostelAllocationService {
   }
 
   // ── Transfer to different room/bed ────────────────────────────────
+  // Routes through fn_cl_admin_transfer_allocation (SECURITY DEFINER) instead of
+  // a bare hostel_allocations UPDATE so the move is atomic AND keeps the bed
+  // inventory invariant: the old bed is freed (status='available',
+  // current_occupant_id NULL) and the new bed is occupied (status='occupied',
+  // current_occupant_id = learner). A plain row update left the old bed stuck
+  // 'occupied' and the new bed bookable by someone else. Gated on
+  // campus_living.upgrades.manage (super-admin + the 5 hostel-admin roles).
   static async transfer(
     allocationId: string,
     newRoomId: string,
@@ -265,25 +272,18 @@ export class HostelAllocationService {
   ) {
     try {
       const supabase = createClientSupabaseClient();
-      const updatePayload: Record<string, unknown> = {
-        room_id: newRoomId,
-        bed_id: newBedId,
-        allocation_type: 'transfer',
-      };
-      if (newBlockId) updatePayload.block_id = newBlockId;
-
-      const { data, error } = await supabase
-        .from('hostel_allocations')
-        .update(updatePayload)
-        .eq('id', allocationId)
-        .select()
-        .single();
+      const { data, error } = await supabase.rpc('fn_cl_admin_transfer_allocation', {
+        p_allocation_id: allocationId,
+        p_room_id: newRoomId,
+        p_bed_id: newBedId,
+        p_block_id: newBlockId ?? null,
+      });
 
       if (error) {
         logger.error('campus-living/allocations', 'Failed to transfer allocation', error);
         throw error;
       }
-      return data as HostelAllocation;
+      return data as { success: boolean; allocation_id: string; room_id: string; bed_id: string; block_id: string; freed_bed_id: string | null };
     } catch (error) {
       logger.error('campus-living/allocations', 'Unexpected error in transfer', error);
       throw error;
