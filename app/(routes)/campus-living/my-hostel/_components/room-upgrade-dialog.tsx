@@ -6,7 +6,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowRight, BedDouble, CalendarClock, DoorOpen, Loader2 } from 'lucide-react';
+import { ArrowRight, BedDouble, DoorOpen, Loader2 } from 'lucide-react';
 import { useUpgradeRooms, useUpgradeRoom, useUpgradeCategoryOnly } from '@/hooks/campus-living/use-category-upgrade';
 import type { UpgradeRoomOption } from '@/types/campus-living/category-upgrade';
 
@@ -37,9 +37,8 @@ export function RoomUpgradeDialog({
   thresholdPct, paidPct, meetsThreshold, holdDays, mode = 'upgrade', autoPick = false,
 }: Props) {
   const isBook = mode === 'book';
-  // Pay-to-confirm: a threshold-met upgrade with a real fee reserves the bed
-  // and bills the fee — the move confirms only when the bill is fully paid.
-  const payToConfirm = !isBook && meetsThreshold && upgradeFee > 0;
+  // Move-now: on confirm the learner is moved into the room immediately and the
+  // upgrade fee (if any) is billed — no reserve-and-pay-to-confirm.
   const { data: rooms = [], isLoading } = useUpgradeRooms(open && !autoPick ? categoryId : null);
   const upgrade = useUpgradeRoom();
   const categoryOnly = useUpgradeCategoryOnly();
@@ -178,23 +177,10 @@ export function RoomUpgradeDialog({
         ) : (
           <>
             <DialogHeader>
-              <DialogTitle>
-                {isBook && meetsThreshold
-                  ? 'Confirm your booking'
-                  : payToConfirm
-                    ? 'Reserve & pay to confirm'
-                    : meetsThreshold && !isBook
-                      ? 'Confirm your upgrade'
-                      : 'Reserve this room'}
-              </DialogTitle>
+              <DialogTitle>{isBook ? 'Confirm your booking' : 'Confirm your upgrade'}</DialogTitle>
               <DialogDescription>
-                {isBook && meetsThreshold
-                  ? 'Please review the details below — the room is booked instantly on confirm.'
-                  : payToConfirm
-                    ? 'Please review the details below — the room is held for you and confirms once the upgrade fee is fully paid.'
-                    : meetsThreshold && !isBook
-                      ? 'Please review the details below — this happens instantly on confirm.'
-                      : 'Please review the details below — the room will be held for you while you complete your fee payment.'}
+                Please review the details below — you&apos;re moved into this room immediately on confirm
+                {!isBook && upgradeFee > 0 ? ', and the upgrade fee is billed.' : '.'}
               </DialogDescription>
             </DialogHeader>
 
@@ -227,41 +213,16 @@ export function RoomUpgradeDialog({
                     </div>
                   )}
                 </div>
-                {isBook && meetsThreshold ? (
-                  <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
-                    On confirm, this room is booked and assigned to you. Your hostel fee is
-                    raised by the hostel office.
-                  </div>
-                ) : payToConfirm ? (
-                  <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
-                    On confirm, a bed in this room is <span className="font-semibold">reserved for
-                    you for {holdDays} day{holdDays === 1 ? '' : 's'}</span> and an upgrade bill of{' '}
-                    <span className="font-semibold">{inr(upgradeFee)}</span> is generated. The
-                    upgrade confirms automatically once the bill is fully paid — if it isn&apos;t
-                    paid before the deadline, the reservation is cancelled and the room is released.
-                  </div>
-                ) : meetsThreshold && !isBook ? (
-                  <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
-                    On confirm, a bed in this room is assigned to you. No upgrade fee is due.
-                  </div>
-                ) : (
-                  <div className="rounded-md border border-amber-400/60 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-sm space-y-1.5">
-                    <p className="flex items-center gap-1.5 font-medium text-amber-800 dark:text-amber-300">
-                      <CalendarClock className="h-4 w-4 shrink-0" />
-                      Fee payment below the required level
-                    </p>
-                    <p className="text-amber-800/90 dark:text-amber-200/90">
-                      You&apos;ve paid <span className="font-semibold">{paidPct ?? 0}%</span> of this
-                      academic year&apos;s fees; <span className="font-semibold">{thresholdPct}%</span> is
-                      required to {isBook ? 'book' : 'upgrade'}. A bed in this room will be{' '}
-                      <span className="font-semibold">reserved for you for {holdDays} day{holdDays === 1 ? '' : 's'}</span>{' '}
-                      — the {isBook ? 'booking' : 'upgrade'} moves ahead automatically as soon as your
-                      payments reach {thresholdPct}%
-                      {isBook ? '' : ', after which the upgrade fee must be fully paid to confirm'}.
-                      If not, the reservation is cancelled and the room is released.
-                    </p>
-                  </div>
-                )}
+                <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+                  On confirm, this room is assigned to you immediately
+                  {isBook ? (
+                    '. Your hostel fee is raised by the hostel office.'
+                  ) : upgradeFee > 0 ? (
+                    <> and an upgrade bill of <span className="font-semibold">{inr(upgradeFee)}</span> is generated.</>
+                  ) : (
+                    '. No upgrade fee is due.'
+                  )}
+                </div>
               </div>
             )}
 
@@ -271,13 +232,7 @@ export function RoomUpgradeDialog({
               </Button>
               <Button onClick={confirm} disabled={!selected || upgrade.isPending}>
                 {upgrade.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {isBook && meetsThreshold
-                  ? 'Book now'
-                  : payToConfirm
-                    ? 'Reserve & generate bill'
-                    : meetsThreshold && !isBook
-                      ? 'Confirm upgrade'
-                      : <>Reserve room for {holdDays} day{holdDays === 1 ? '' : 's'}</>}
+                {isBook ? 'Book now' : 'Confirm upgrade'}
               </Button>
             </DialogFooter>
           </>

@@ -147,6 +147,7 @@ export const GUIDES: GuideBook = {
               action: "Open a team and **read its latest check-ins and paid-user numbers**.",
               detail:
                 "Look at progress against the program phases — from first users through to 100 paying users.",
+              tip: "Opening a team's weekly check-in detail may need a separate Solve for 100 check-in permission. If a team's check-ins won't open, ask your studio admin to grant it.",
             },
             {
               action: "Leave feedback and **flag any team that is stuck** so it gets help early.",
