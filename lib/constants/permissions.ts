@@ -544,7 +544,9 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.payment.delete', label: 'Delete Payments' },
       { key: 'billing.activities.view', label: 'View Billing Activities' },
       { key: 'billing.payment_accounts.view', label: 'View Payment Gateway Accounts' },
-      { key: 'billing.payment_accounts.manage', label: 'Manage Payment Gateway Accounts' }
+      { key: 'billing.payment_accounts.manage', label: 'Manage Payment Gateway Accounts' },
+      { key: 'billing.transport.view', label: 'View Transport Fees' },
+      { key: 'billing.transport.collect', label: 'Collect Transport Fees online' }
     ]
   },
   {
@@ -1308,6 +1310,9 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.residents.create', label: 'Create Hostel Resident Record' },
       { key: 'campus_living.residents.edit', label: 'Edit Hostel Resident Record' },
       { key: 'campus_living.residents.delete', label: 'Delete Hostel Resident (no allocation history)' },
+
+      // Category upgrades (office-side room/mess upgrades — single + bulk, added 2026-06-17)
+      { key: 'campus_living.upgrades.manage', label: 'Manage Category Upgrades (Office-Side)' },
 
       // My Hostel — resident self-service portal (added 2026-05-31)
       { key: 'campus_living.my_hostel.view', label: 'View My Hostel (Resident Self-Service)' },

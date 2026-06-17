@@ -43,7 +43,8 @@ export type RazorpayAccountStatus = 'draft' | 'active' | 'inactive';
 
 export interface RazorpayAccountSummary {
   id: string;
-  institutionId: string;
+  /** null = GLOBAL account (common to all institutions for its fee head). */
+  institutionId: string | null;
   /** null for a draft (keys not added yet). */
   keyId: string | null;
   accountLabel: string | null;
@@ -63,7 +64,8 @@ export interface RazorpayAccountSummary {
 }
 
 export interface CreateRazorpayDraftInput {
-  institutionId: string;
+  /** null = GLOBAL account; a global draft must target a specific fee head. */
+  institutionId: string | null;
   feeHead?: string | null;
   label?: string | null;
   mid?: string | null;
@@ -97,7 +99,8 @@ export interface UpdateRazorpayMetaInput {
 }
 
 export interface SetRazorpayAccountInput {
-  institutionId: string;
+  /** null = GLOBAL account; a global account must target a specific fee head. */
+  institutionId: string | null;
   keyId: string;
   keySecret: string;
   webhookSecret: string;
@@ -160,6 +163,35 @@ export class RazorpayAccountVault {
     };
   }
 
+  /**
+   * Active GLOBAL account credentials for a fee head (institution-agnostic), or null.
+   * Used by the admin Test action to validate a global account's keys — the normal
+   * router (getForInstitution) needs an institution and won't resolve a pure-global slot.
+   */
+  static async getGlobal(feeHead: string): Promise<RazorpayCredentials | null> {
+    const supabase = createServiceRoleClient();
+    const { data, error } = await supabase.rpc('fn_get_razorpay_account_global', {
+      p_master_secret: getMasterSecret(),
+      p_fee_head: feeHead,
+    });
+    if (error) {
+      throw new Error(
+        `[razorpay-account-vault] fn_get_razorpay_account_global failed for feeHead ${feeHead}: ${error.message}`,
+      );
+    }
+    const row = (data as Array<Record<string, any>> | null)?.[0];
+    if (!row) return null;
+    return {
+      keyId: row.key_id,
+      keySecret: row.key_secret,
+      webhookSecret: row.webhook_secret,
+      mode: toMode(row.mode),
+      source: 'institution',
+      accountId: row.id,
+      webhookRef: row.webhook_ref,
+    };
+  }
+
   /** Credentials for a specific account row (incl. deactivated) — pinned-account resolution. */
   static async getById(accountId: string): Promise<RazorpayCredentials | null> {
     const supabase = createServiceRoleClient();
@@ -215,7 +247,7 @@ export class RazorpayAccountVault {
   static async set(input: SetRazorpayAccountInput): Promise<{ id: string; webhookRef: string }> {
     const supabase = createServiceRoleClient();
     const { data, error } = await supabase.rpc('fn_set_razorpay_account', {
-      p_institution_id: input.institutionId,
+      p_institution_id: input.institutionId ?? null,
       p_key_id: input.keyId,
       p_key_secret: input.keySecret,
       p_webhook_secret: input.webhookSecret,

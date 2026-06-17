@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, Save, RefreshCw, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Save, RefreshCw, AlertTriangle, CheckCircle2, X } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -259,6 +259,20 @@ export default function NewReceiptPage() {
     }
   };
 
+  // Remove a bill from this receipt. Does NOT delete the bill — it just excludes it
+  // from the receipt being generated, for when only some of the loaded bills were paid.
+  const removeBill = (billId: string) => {
+    const nextBills = selectedBills.filter((b) => b.id !== billId);
+    const nextAmounts = { ...billPayAmounts };
+    delete nextAmounts[billId];
+    setSelectedBills(nextBills);
+    setBillPayAmounts(nextAmounts);
+    setFormData((prev) => ({
+      ...prev,
+      payment_amount: Object.values(nextAmounts).reduce((s, a) => s + a, 0),
+    }));
+  };
+
   const validateForm = (): boolean => {
     if (!formData.student_id) {
       toast.error('Please select a student');
@@ -426,6 +440,7 @@ export default function NewReceiptPage() {
                         <TableHead className='text-right'>Pending</TableHead>
                         <TableHead className='text-right w-[160px]'>Pay Amount</TableHead>
                         <TableHead className='text-center'>Status</TableHead>
+                        <TableHead className='text-center w-[60px]'>Remove</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -481,6 +496,18 @@ export default function NewReceiptPage() {
                                 <Badge className='text-xs bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'>Partial</Badge>
                               )}
                             </TableCell>
+                            <TableCell className='text-center'>
+                              <Button
+                                type='button'
+                                variant='ghost'
+                                size='sm'
+                                className='h-7 w-7 p-0 text-muted-foreground hover:text-destructive'
+                                title='Remove this bill from the receipt'
+                                onClick={() => removeBill(bill.id)}
+                              >
+                                <X className='h-4 w-4' />
+                              </Button>
+                            </TableCell>
                           </TableRow>
                         );
                       })}
@@ -497,6 +524,7 @@ export default function NewReceiptPage() {
                         <TableCell className='text-right text-green-600 text-lg'>
                           ₹{totalPayAmount.toLocaleString()}
                         </TableCell>
+                        <TableCell />
                         <TableCell />
                       </TableRow>
                     </tfoot>

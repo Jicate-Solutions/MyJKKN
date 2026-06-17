@@ -60,6 +60,12 @@ const VIEW_SELECT = [
   'semester_name',
   'academic_year_name',
   'lifecycle_status',
+  // Current room/mess categories (admin Category Upgrade tab — 2026-06-17)
+  'hostel_category_id',
+  'hostel_category_name',
+  'hostel_category_type',
+  'mess_category_id',
+  'mess_category_name',
 ].join(',');
 
 // learners_profiles columns NOT exposed on the view (used by mutations and the
@@ -138,6 +144,8 @@ export class LearnerHosteliteService {
           query = query.eq('current_block_id', filters.block_id);
         }
       }
+
+      if (filters?.hostel_category_id) query = query.eq('hostel_category_id', filters.hostel_category_id);
 
       // Academic cascade filters (parity with Learners Profiles).
       if (filters?.degree_id) query = query.eq('degree_id', filters.degree_id);

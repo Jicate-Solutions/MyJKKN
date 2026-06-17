@@ -23,6 +23,9 @@ interface InstitutionOption {
 
 // Routing slot. '__default__' = the institution's general account (fee_head NULL).
 const DEFAULT_HEAD = '__default__';
+// Institution selector sentinel: a GLOBAL account (institution_id NULL) serves its fee
+// head for every institution (e.g. one transport MID group-wide).
+const GLOBAL = '__global__';
 const FEE_HEAD_OPTIONS: { value: string; label: string }[] = [
   { value: DEFAULT_HEAD, label: 'Default — all other fees' },
   { value: 'transport', label: 'Transport / Bus Fee' },
@@ -98,7 +101,7 @@ export function AccountFormDialog({ open, onOpenChange, institutions, target }: 
     if (!open) return;
     if (target.mode === 'edit') {
       const a = target.account;
-      setInstitutionId(a.institutionId);
+      setInstitutionId(a.institutionId ?? GLOBAL);
       setFeeHead(a.feeHead ?? DEFAULT_HEAD);
       setLabel(a.accountLabel ?? '');
       setMode(a.mode);
@@ -124,7 +127,14 @@ export function AccountFormDialog({ open, onOpenChange, institutions, target }: 
   async function handleSubmit() {
     if (pending) return;
     if (showMetaForm && !institutionId) {
-      toast.error('Select an institution.');
+      toast.error('Select an institution (or “All Institutions (Global)”).');
+      return;
+    }
+    // GLOBAL sentinel -> null institution. A global account must target a fee head.
+    const instParam = institutionId === GLOBAL ? null : institutionId;
+    const head = feeHead === DEFAULT_HEAD ? null : feeHead;
+    if (showMetaForm && !slotDisabled && instParam === null && head === null) {
+      toast.error('A global account must target a specific fee head (not “Default”).');
       return;
     }
     if (needsKeys && (!keyId.trim() || !keySecret.trim() || !webhookSecret.trim())) {
@@ -136,8 +146,8 @@ export function AccountFormDialog({ open, onOpenChange, institutions, target }: 
 
       if (target.mode === 'draft') {
         await createDraft.mutateAsync({
-          institutionId,
-          feeHead: feeHead === DEFAULT_HEAD ? null : feeHead,
+          institutionId: instParam,
+          feeHead: head,
           label: label.trim() || undefined,
           mid: mid.trim() || null,
           tid: tid.trim() || null,
@@ -153,8 +163,8 @@ export function AccountFormDialog({ open, onOpenChange, institutions, target }: 
           tid: tid.trim() || null,
           dbaName: dbaName.trim() || null,
           mode,
-          institutionId: institutionId || null,
-          feeHead: feeHead === DEFAULT_HEAD ? null : feeHead,
+          institutionId: instParam,
+          feeHead: head,
           changeSlot: target.account.status === 'draft',
         });
         toast.success('Account updated.');
@@ -168,9 +178,10 @@ export function AccountFormDialog({ open, onOpenChange, institutions, target }: 
         webhookRef = r.webhookRef;
       } else {
         // 'add' or 'rotate' — create a fresh active row (rotate keeps the old one).
+        // For rotate, keep the existing row's slot (institution may be null = global).
         const r = await upsert.mutateAsync({
-          institutionId: summaryAcct?.institutionId ?? institutionId,
-          feeHead: summaryAcct ? (summaryAcct.feeHead ?? null) : (feeHead === DEFAULT_HEAD ? null : feeHead),
+          institutionId: summaryAcct ? (summaryAcct.institutionId ?? null) : instParam,
+          feeHead: summaryAcct ? (summaryAcct.feeHead ?? null) : head,
           keyId: keyId.trim(),
           keySecret: keySecret.trim(),
           webhookSecret: webhookSecret.trim(),
@@ -235,11 +246,18 @@ export function AccountFormDialog({ open, onOpenChange, institutions, target }: 
                 <Select value={institutionId} onValueChange={setInstitutionId} disabled={slotDisabled}>
                   <SelectTrigger id='institution'><SelectValue placeholder='Select institution' /></SelectTrigger>
                   <SelectContent>
+                    <SelectItem value={GLOBAL}>🌐 All Institutions (Global)</SelectItem>
                     {institutions.map((inst) => (
                       <SelectItem key={inst.id} value={inst.id}>{inst.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {!slotDisabled && institutionId === GLOBAL && (
+                  <p className='text-muted-foreground text-xs'>
+                    This MID settles the selected fee head for <strong>every</strong> institution (e.g. one
+                    transport account group-wide). Pick a specific fee head below.
+                  </p>
+                )}
               </div>
 
               <div className='space-y-1.5'>

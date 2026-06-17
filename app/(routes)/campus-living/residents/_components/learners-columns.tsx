@@ -114,6 +114,22 @@ export function getLearnerColumns(
     size: 160,
   };
 
+  // Current room category (learners_profiles.hostel_category_id → name via
+  // v_learner_hostelites). '—' when not yet assigned.
+  const roomCategoryCol: ColumnDef<LearnerHostelite> = {
+    id: 'room_category',
+    accessorFn: (r) => r.hostel_category_name,
+    header: ({ column }) => <DataTableColumnHeader column={column} title='Room Category' />,
+    cell: ({ row }) =>
+      row.original.hostel_category_name ? (
+        <span className='text-sm'>{row.original.hostel_category_name}</span>
+      ) : (
+        <span className='text-sm text-muted-foreground'>—</span>
+      ),
+    enableSorting: false,
+    size: 140,
+  };
+
   // Lifecycle status — the view is filtered to active/reserved/admitted, so only
   // those three appear, but the column makes the distinction explicit.
   const statusCol: ColumnDef<LearnerHostelite> = {
@@ -214,6 +230,7 @@ export function getLearnerColumns(
     semesterCol,
     academicYearCol,
     blockCol,
+    roomCategoryCol,
     statusCol,
     billsCol,
     actionsCol,

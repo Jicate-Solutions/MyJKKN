@@ -204,6 +204,13 @@ export interface LearnerHostelite {
   lifecycle_status?: string | null;
   /** Which date source produced year_of_study. NULL when no source available. PR #823. */
   year_source?: 'admission_year' | 'batch' | 'enquiry' | null;
+  // Current room/mess categories (surfaced from v_learner_hostelites, 2026-06-17)
+  // for the admin Category Upgrade tab.
+  hostel_category_id?: string | null;
+  hostel_category_name?: string | null;
+  hostel_category_type?: string | null;
+  mess_category_id?: string | null;
+  mess_category_name?: string | null;
   // Current-academic-year billing rollup, merged in by LearnersTab.fetchData
   // from campus_living_get_hostelite_bill_status (not part of v_learner_hostelites).
   bill_status?: HosteliteBillStatus;
@@ -221,6 +228,7 @@ export interface LearnerHostelitesFilters {
   year_of_study?: number;
   gender?: 'Male' | 'Female' | 'Other';
   block_id?: BlockFilterValue;
+  hostel_category_id?: string;
   // Academic cascade filters (parity with Learners Profiles).
   degree_id?: string;
   department_id?: string;

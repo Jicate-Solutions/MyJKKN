@@ -46,6 +46,39 @@ export class HostelAllocationService {
     }
   }
 
+  // ── All allocations for the admin list (no page cap) ──────────────
+  // The /campus-living/allocations page computes summary counts + an advanced
+  // client-side table/filters over the WHOLE set, so it must not be capped to
+  // one page (the old getAllocations(pageSize=50) under-counted). Soft cap of
+  // 5000 rows guards a runaway query; revisit with true server-side pagination
+  // if a single institution ever exceeds it.
+  static async getAllAllocations(institutionId: string | undefined, filters?: AllocationFilters) {
+    try {
+      const supabase = createClientSupabaseClient();
+      let query = supabase
+        .from('hostel_allocations')
+        .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email, academic:learners_profiles!profiles_learner_id_fkey(institution_id, program_id, semester_id, hostel_category_id, mess_category_id, institution:institutions!fk_learners_profiles_institution(name), program:programs!fk_learners_profiles_program(program_name), semester:semesters!fk_learners_profiles_semester(semester_name), room_category:hostel_categories!learners_profiles_hostel_category_id_fkey(name), mess_category:mess_categories!learners_profiles_mess_category_id_fkey(name))), hostel_blocks(name, code), hostel_rooms(room_number, floor), hostel_beds(bed_number)');
+
+      if (institutionId) query = query.eq('institution_id', institutionId);
+      if (filters?.block_id) query = query.eq('block_id', filters.block_id);
+      if (filters?.status) query = query.eq('status', filters.status);
+      if (filters?.academic_year_id) query = query.eq('academic_year_id', filters.academic_year_id);
+      if (filters?.fee_status) query = query.eq('fee_status', filters.fee_status);
+
+      query = query.order('allocation_date', { ascending: false }).range(0, 4999);
+
+      const { data, error } = await query;
+      if (error) {
+        logger.error('campus-living/allocations', 'Failed to fetch all allocations', error);
+        throw error;
+      }
+      return (data ?? []) as (HostelAllocation & Record<string, unknown>)[];
+    } catch (error) {
+      logger.error('campus-living/allocations', 'Unexpected error in getAllAllocations', error);
+      throw error;
+    }
+  }
+
   // ── Active allocations ────────────────────────────────────────────
   static async getActiveAllocations(institutionId: string | undefined, blockId?: string) {
     try {

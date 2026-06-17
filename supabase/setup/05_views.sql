@@ -1003,7 +1003,14 @@ CREATE VIEW v_learner_hostelites AS
     dg.degree_name,
     sm.semester_name,
     lp.lifecycle_status,
-    acy.academic_year_name
+    acy.academic_year_name,
+    -- Current room/mess categories (admin Category Upgrade tab —
+    -- migration 20260617110000_v_learner_hostelites_add_categories.sql)
+    lp.hostel_category_id,
+    hc.name AS hostel_category_name,
+    hc.type AS hostel_category_type,
+    lp.mess_category_id,
+    mc.name AS mess_category_name
    FROM learners_profiles lp
      LEFT JOIN accommodation_types acc ON acc.id = lp.accommodation_type_id
      LEFT JOIN admission_years ay ON ay.id = lp.admission_year_id
@@ -1018,6 +1025,8 @@ CREATE VIEW v_learner_hostelites AS
      LEFT JOIN degrees dg ON dg.id = lp.degree_id
      LEFT JOIN semesters sm ON sm.id = lp.semester_id
      LEFT JOIN academic_years acy ON acy.id = lp.academic_year_id
+     LEFT JOIN hostel_categories hc ON hc.id = lp.hostel_category_id
+     LEFT JOIN mess_categories mc ON mc.id = lp.mess_category_id
   WHERE acc.code = 'hostel'::text
     AND lp.lifecycle_status::text = 'active';
 

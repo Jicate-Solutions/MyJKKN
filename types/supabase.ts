@@ -75623,7 +75623,7 @@ export type Database = {
           dba_name: string | null
           fee_head: string | null
           id: string
-          institution_id: string
+          institution_id: string | null
           is_active: boolean
           key_id: string | null
           key_secret_encrypted: string | null
@@ -75642,7 +75642,7 @@ export type Database = {
           dba_name?: string | null
           fee_head?: string | null
           id?: string
-          institution_id: string
+          institution_id?: string | null
           is_active?: boolean
           key_id?: string | null
           key_secret_encrypted?: string | null
@@ -75661,7 +75661,7 @@ export type Database = {
           dba_name?: string | null
           fee_head?: string | null
           id?: string
-          institution_id?: string
+          institution_id?: string | null
           is_active?: boolean
           key_id?: string | null
           key_secret_encrypted?: string | null
@@ -102588,6 +102588,17 @@ export type Database = {
           webhook_ref: string
         }[]
       }
+      fn_get_razorpay_account_global: {
+        Args: { p_master_secret: string; p_fee_head: string }
+        Returns: {
+          id: string
+          key_id: string
+          key_secret: string
+          webhook_secret: string
+          mode: string
+          webhook_ref: string
+        }[]
+      }
       fn_get_razorpay_account_by_id: {
         Args: { p_account_id: string; p_master_secret: string }
         Returns: {
@@ -102623,6 +102634,23 @@ export type Database = {
           tid: string | null
           dba_name: string | null
           status: string
+        }[]
+      }
+      fn_list_transport_collectables: {
+        Args: { p_institution_ids?: string[] | null; p_academic_year_id?: string | null }
+        Returns: {
+          student_id: string
+          first_name: string | null
+          last_name: string | null
+          roll_number: string | null
+          institution_id: string
+          route_number: string | null
+          route_name: string | null
+          stop_name: string | null
+          total_billed: number
+          outstanding_amount: number
+          payable_bill_ids: string[]
+          bill_count: number
         }[]
       }
       fn_create_razorpay_draft: {

@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils';
 import {
   Search,
   CalendarDays,
+  CalendarCheck,
   Loader2,
   Info,
   AlertTriangle,
@@ -63,7 +64,7 @@ export function AttendanceViewSelector({
   isSuperAdmin = false
 }: AttendanceViewSelectorProps) {
   // Updated: 2025-11-29 - Include isLoading to prevent showing "no permission" during permission load
-  const { isSuperAdmin: isUserSuperAdmin, userProfile, isLoading: permissionsLoading } = usePermissions();
+  const { isSuperAdmin: isUserSuperAdmin, userProfile, isLoading: permissionsLoading, canAccess } = usePermissions();
   const { profile, isLoading: authLoading } = useAuth();
   const [staffId, setStaffId] = useState<string | null>(null);
   // Updated: 2025-10-09 - Track if section is required for validation
@@ -74,14 +75,26 @@ export function AttendanceViewSelector({
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [isClient, setIsClient] = useState(false);
 
-  // Determine initial loading state based on role
-  const isFaculty = profile?.role === 'faculty';
+  // Determine initial loading state based on role.
+  // Updated: 2026-06-17 — Honor multi-role / merged permissions. A user's PRIMARY
+  // profiles.role may not be 'faculty' (e.g. a 'staff_counselor' who also holds a
+  // secondary 'faculty' role), but if they were granted academic.attendance.mark
+  // they are faculty-capable and must reach the period-marking flow. Gating on the
+  // single role string alone wrongly denied such users (their real staff record
+  // still resolves by email below, routing them into "My Classes").
+  const canMarkAttendance = canAccess('academic.attendance', 'mark');
+  const isFaculty = profile?.role === 'faculty' || canMarkAttendance;
   const isHOD = profile?.role === 'hod';
   const isAdmin =
     profile?.role === 'administrator' || profile?.role === 'principal';
   const shouldCheckStaff = isFaculty && !isUserSuperAdmin;
 
   const [loadingStaffId, setLoadingStaffId] = useState(shouldCheckStaff);
+  // Tracks whether the staff-record lookup has finished. Permission-based faculty
+  // only become isFaculty=true AFTER permissions load, so without this flag they
+  // would briefly flash the "not linked to a staff record" / "no permission"
+  // fallback in the render window before their staffId resolves.
+  const [staffChecked, setStaffChecked] = useState(false);
 
   // Updated: 2026-06-10 - Class incharges (any role) may mark day-wise
   // (session_wise) attendance. Detect incharge status so they reach the search
@@ -104,11 +117,12 @@ export function AttendanceViewSelector({
   const [detectingMode, setDetectingMode] = useState(false);
 
   useEffect(() => {
-    // Only relevant for the admin/HOD search flow, only after a search, and only
-    // once an institution is chosen (else a bare date-only search could match an
-    // unrelated school's day-wise class).
+    // Relevant for the admin/HOD search flow AND the faculty "Search Classes"
+    // tab (staffId set). Only after a search, and only once an institution is
+    // chosen (else a bare date-only search could match an unrelated school's
+    // day-wise class).
     if (
-      !(isUserSuperAdmin || isAdmin || isHOD) ||
+      !(isUserSuperAdmin || isAdmin || isHOD || !!staffId) ||
       !showResults ||
       !searchContext.institution_id
     ) {
@@ -143,6 +157,7 @@ export function AttendanceViewSelector({
     isUserSuperAdmin,
     isAdmin,
     isHOD,
+    staffId,
     showResults,
     searchContext.institution_id,
     searchContext.academic_year_id,
@@ -164,11 +179,13 @@ export function AttendanceViewSelector({
       // Skip faculty check for super admins, admin roles, and HOD roles
       if (isUserSuperAdmin || isAdmin || isHOD || !isFaculty) {
         setLoadingStaffId(false);
+        setStaffChecked(true);
         return;
       }
 
       if (!profile?.email) {
         setLoadingStaffId(false);
+        setStaffChecked(true);
         return;
       }
 
@@ -182,6 +199,7 @@ export function AttendanceViewSelector({
         logger.error('academic/attendance', 'Error checking faculty status', error);
       } finally {
         setLoadingStaffId(false);
+        setStaffChecked(true);
       }
     };
 
@@ -223,6 +241,12 @@ export function AttendanceViewSelector({
 
     checkIncharge();
   }, [profile?.email, isUserSuperAdmin, isAdmin, isHOD]);
+
+  // Faculty-incharges land on the "Day Attendance" tab by default — their
+  // "My Classes" period list is empty for schools, so day-wise is what they want.
+  useEffect(() => {
+    if (staffId && isClassIncharge && inchargeStaffId) setActiveTab('day');
+  }, [staffId, isClassIncharge, inchargeStaffId]);
 
   // Updated: 2025-10-09 - Validate search criteria before search
   const validateSearch = (): boolean => {
@@ -305,7 +329,14 @@ export function AttendanceViewSelector({
   // Loading state - Updated: 2025-11-29 - Include initial loading to prevent premature "no permission" message
   // Updated: 2026-06-10 - Also wait for the class-incharge check so incharges
   // don't briefly see the "no permission" fallback before being admitted.
-  if (isInitialLoading || loadingStaffId || checkingIncharge) {
+  if (
+    isInitialLoading ||
+    loadingStaffId ||
+    checkingIncharge ||
+    // Permission-based faculty (non-admin): wait for the staff lookup to finish
+    // so we don't flash a denial before staffId resolves. Added: 2026-06-17.
+    (isFaculty && !isUserSuperAdmin && !isAdmin && !isHOD && !staffChecked)
+  ) {
     return (
       <div className='flex items-center justify-center py-8'>
         <Loader2 className='h-6 w-6 animate-spin mr-2' />
@@ -394,12 +425,11 @@ export function AttendanceViewSelector({
     );
   }
 
-  // For faculty members, show tabbed interface.
-  // Updated: 2026-06-11 - "My Classes" shows ALL of the faculty's attendance for
-  // the day in one place: period cards for period_wise classes they teach, AND
-  // the Day-wise (FN/AN) marker for any session_wise class they're incharge of.
-  // session_wise periods are excluded from the period cards (they're not marked
-  // per-period), so a pure school incharge sees only the day-wise marker here.
+  // For faculty (staff record): tabbed interface.
+  //   My Classes  — period classes they teach (period_wise)
+  //   Day Attendance — FN/AN marking for the class they're incharge of (only
+  //                    shown when they are a class incharge)
+  //   Search Periods — find any class to mark
   if (staffId) {
     const facultyIsIncharge = isClassIncharge && !!inchargeStaffId;
     return (
@@ -408,16 +438,41 @@ export function AttendanceViewSelector({
         onValueChange={setActiveTab}
         className='space-y-4'
       >
-        <TabsList className='grid w-full max-w-md grid-cols-2'>
+        <TabsList
+          className={cn(
+            'grid w-full',
+            facultyIsIncharge ? 'max-w-xl grid-cols-3' : 'max-w-md grid-cols-2'
+          )}
+        >
           <TabsTrigger value='quick' className='flex items-center gap-2'>
             <CalendarDays className='h-4 w-4' />
             My Classes
           </TabsTrigger>
+          {facultyIsIncharge && (
+            <TabsTrigger value='day' className='flex items-center gap-2'>
+              <CalendarCheck className='h-4 w-4' />
+              Day Attendance
+            </TabsTrigger>
+          )}
           <TabsTrigger value='search' className='flex items-center gap-2'>
             <Search className='h-4 w-4' />
-            Search Classes
+            Search Periods
           </TabsTrigger>
         </TabsList>
+
+        {/* Day Attendance — FN/AN marking for the incharge's class */}
+        {facultyIsIncharge && (
+          <TabsContent value='day' className='space-y-4'>
+            <Alert className='flex items-center gap-2 border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800'>
+              <AlertDescription className='flex items-center gap-2'>
+                <Info className='h-4 w-4' />
+                As class incharge, mark day-wise (FN &amp; AN) attendance for
+                your class. Both sessions present = full day, one = half day.
+              </AlertDescription>
+            </Alert>
+            <DaySessionAttendance staffId={inchargeStaffId} />
+          </TabsContent>
+        )}
 
         <TabsContent value='quick' className='space-y-4'>
           {/* Updated: 2025-10-14 - Add date picker for My Classes tab */}
@@ -489,26 +544,6 @@ export function AttendanceViewSelector({
             onPeriodSelect={handleQuickPeriodSelect}
             selectedDate={searchContext.attendance_date || undefined}
           />
-
-          {/* Day-wise (FN/AN) marking shown right here in "My Classes" for
-              faculty who are also class incharges of a session_wise class —
-              their school class isn't markable per-period, so it appears as the
-              day-wise marker alongside any period classes they teach. */}
-          {facultyIsIncharge && (
-            <div className='space-y-4 pt-2'>
-              <Alert className='flex items-center gap-2 border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800'>
-                <AlertDescription className='flex items-center gap-2'>
-                  <Info className='h-4 w-4' />
-                  As class incharge, mark day-wise (FN &amp; AN) attendance for
-                  your class. Both sessions present = full day, one = half day.
-                </AlertDescription>
-              </Alert>
-              <DaySessionAttendance
-                staffId={inchargeStaffId}
-                initialDate={searchContext.attendance_date || undefined}
-              />
-            </div>
-          )}
         </TabsContent>
 
         <TabsContent value='search' className='space-y-4'>
@@ -537,17 +572,42 @@ export function AttendanceViewSelector({
             </Button>
           </div>
 
-          {/* Show search results in card format only when activeTab is 'search' */}
+          {/* Show search results when activeTab is 'search'. The attendance type
+              is decided from the selected class: a Day-wise (session_wise) class
+              shows the FN/AN marker (save still requires the user be its
+              incharge); otherwise the period cards. */}
           {showResults && activeTab === 'search' && (
             <div ref={periodsRef} className='mt-6'>
-              <AvailablePeriodsCards
-                periods={availablePeriods}
-                onPeriodSelect={onPeriodSelect}
-                loading={loading}
-                selectedDate={searchContext.attendance_date || undefined}
-                attendancePermissions={attendancePermissions}
-                isSuperAdmin={isSuperAdmin}
-              />
+              {detectingMode ? (
+                <div className='flex items-center justify-center py-8'>
+                  <Loader2 className='h-6 w-6 animate-spin mr-2' />
+                  <span>Checking attendance type…</span>
+                </div>
+              ) : dayClass ? (
+                <div className='space-y-4'>
+                  <Alert className='flex items-center gap-2 border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800'>
+                    <AlertDescription className='flex items-center gap-2'>
+                      <Info className='h-4 w-4' />
+                      This class uses Day-wise attendance. Mark Forenoon (FN) &amp;
+                      Afternoon (AN) below — you must be the class incharge to save.
+                    </AlertDescription>
+                  </Alert>
+                  <DaySessionAttendance
+                    staffId={null}
+                    fixedClass={dayClass}
+                    initialDate={searchContext.attendance_date || undefined}
+                  />
+                </div>
+              ) : (
+                <AvailablePeriodsCards
+                  periods={availablePeriods}
+                  onPeriodSelect={onPeriodSelect}
+                  loading={loading}
+                  selectedDate={searchContext.attendance_date || undefined}
+                  attendancePermissions={attendancePermissions}
+                  isSuperAdmin={isSuperAdmin}
+                />
+              )}
             </div>
           )}
         </TabsContent>
@@ -555,21 +615,18 @@ export function AttendanceViewSelector({
     );
   }
 
-  // For class incharges (any role): auto-load their assigned class(es) — no
-  // search needed. They can change the date to mark/view other days. The
-  // per-slot permission gate (canMarkAttendanceForSlot) still ensures they can
-  // only mark session_wise periods; period-wise stays subject-staff only.
+  // Non-faculty class incharges (no staff/teaching record, e.g. a facilitator
+  // role) get the clean day-wise panel — they only mark FN/AN for their class.
   if (isClassIncharge && inchargeStaffId) {
     return (
       <div className='space-y-4'>
         <Alert className='flex items-center gap-2 border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800'>
           <AlertDescription className='flex items-center gap-2'>
             <Info className='h-4 w-4' />
-            As a class incharge, mark day-wise (FN &amp; AN) attendance for your
-            class below.
+            As class incharge, mark day-wise (FN &amp; AN) attendance for your
+            class. Both sessions present = full day, one = half day.
           </AlertDescription>
         </Alert>
-
         <DaySessionAttendance staffId={inchargeStaffId} />
       </div>
     );

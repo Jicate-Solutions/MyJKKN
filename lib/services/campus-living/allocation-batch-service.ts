@@ -182,7 +182,7 @@ export class AllocationBatchService {
         // Institution + program come off the learner's profile. profiles has
         // TWO FKs to institutions, so the constraint must be named explicitly;
         // program is profiles.learner_id -> learners_profiles.program_id -> programs.
-        `id, status,
+        `id, status, learner_id, created_at,
          block:hostel_blocks(name),
          room:hostel_rooms(room_number, floor, category:hostel_categories(name)),
          bed:hostel_beds(bed_number),
@@ -220,6 +220,8 @@ export class AllocationBatchService {
       } | null;
       return {
         id: a.id as string,
+        learner_id: (a.learner_id as string) ?? '',
+        created_at: (a.created_at as string) ?? '',
         learner_name: learner?.full_name || learner?.email || '—',
         learner_institution: learner?.institution?.name ?? null,
         learner_program: learner?.learner_profile?.program?.program_name ?? null,
@@ -233,9 +235,25 @@ export class AllocationBatchService {
       };
     });
 
+    // A room upgrade vacates the original batch allocation and adds a new active
+    // one (which carries batch_id forward), so a learner can have two rows here.
+    // Keep the live (non-vacated/cancelled) one — the upgraded room — falling back
+    // to the latest otherwise, so the batch reflects the learner's current room.
+    const isLive = (s: string) => s !== 'vacated' && s !== 'cancelled';
+    const byLearner = new Map<string, (typeof rawRows)[number]>();
+    for (const r of rawRows) {
+      const key = r.learner_id || r.id;
+      const prev = byLearner.get(key);
+      if (!prev) { byLearner.set(key, r); continue; }
+      const rLive = isLive(r.status), prevLive = isLive(prev.status);
+      if (rLive !== prevLive) { if (rLive) byLearner.set(key, r); }
+      else if ((r.created_at ?? '') > (prev.created_at ?? '')) byLearner.set(key, r);
+    }
+    const dedupedRows = [...byLearner.values()];
+
     // learners_profiles.semester_id has no embeddable named FK, so resolve names
     // in one lightweight follow-up query keyed by the distinct semester ids.
-    const semesterIds = [...new Set(rawRows.map((r) => r.semester_id).filter(Boolean))] as string[];
+    const semesterIds = [...new Set(dedupedRows.map((r) => r.semester_id).filter(Boolean))] as string[];
     const semesterNames = new Map<string, string>();
     if (semesterIds.length > 0) {
       const { data: sems } = await this.supabase
@@ -261,8 +279,8 @@ export class AllocationBatchService {
       });
     }
 
-    const allocations: ProposedAllocation[] = rawRows
-      .map(({ semester_id, ...r }) => ({
+    const allocations: ProposedAllocation[] = dedupedRows
+      .map(({ semester_id, learner_id: _lid, created_at: _ca, ...r }) => ({
         ...r,
         learner_semester: semester_id ? semesterNames.get(semester_id) ?? null : null,
         mess_category: messCategories.get(r.id) ?? null,

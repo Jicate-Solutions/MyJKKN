@@ -257,83 +257,44 @@ export async function GET(request: NextRequest) {
             try {
               const oldProfileId = emailProfile.id;
 
-              // Step 1: Detach NO ACTION FK references before deleting old profile.
-              // These tables reference profiles.id with ON DELETE NO ACTION which blocks deletion.
-
-              // 1a. Delete bug_report_participants (participation log - safe to lose on migration)
-              const { error: brrError } = await adminClient
-                .from('bug_report_participants')
-                .delete()
-                .eq('user_id', oldProfileId);
-              if (brrError) console.warn(`[Auth Migration] Could not delete bug_report_participants:`, brrError);
-
-              // 1b. Null out event_registrations.owner_id (preserve the registration, just unlink)
+              // Capture event ownership so it can be re-linked to the new
+              // profile id after migration. The RPC below nulls these as part
+              // of its generic nullable-FK detach, so we snapshot them first.
               const { data: affectedRegs } = await adminClient
                 .from('event_registrations')
                 .select('id')
                 .eq('owner_id', oldProfileId);
-              if (affectedRegs && affectedRegs.length > 0) {
-                await adminClient
-                  .from('event_registrations')
-                  .update({ owner_id: null } as any)
-                  .eq('owner_id', oldProfileId);
-              }
-
-              // 1c. Null out event_team_members.profile_id (preserve membership, just unlink)
               const { data: affectedMembers } = await adminClient
                 .from('event_team_members')
                 .select('id')
                 .eq('profile_id', oldProfileId);
-              if (affectedMembers && affectedMembers.length > 0) {
-                await adminClient
-                  .from('event_team_members')
-                  .update({ profile_id: null } as any)
-                  .eq('profile_id', oldProfileId);
+
+              // Delegate the swap to migrate_pre_registered_profile_to_auth —
+              // the SAME robust RPC the pre-registered path uses. It dynamically
+              // detaches EVERY blocking FK to profiles.id (notifications.created_by
+              // and 280+ others), re-attaches staff, and re-inserts user_roles
+              // idempotently. The previous hand-rolled delete only knew about 3 FK
+              // tables and threw on the rest (e.g. orphan school-student profiles
+              // referenced by notifications), which dropped the user into the
+              // approved-learner path and a duplicate-email/learner_id failure.
+              // Routing every email-matched migration through the RPC makes login
+              // self-heal for ANY pre-created/mismatched profile regardless of how
+              // it was provisioned or what is_pre_registered says.
+              console.log(`[Auth Migration] Migrating profile ${oldProfileId} → ${user.id} via RPC`);
+              const { error: rpcError } = await adminClient.rpc(
+                'migrate_pre_registered_profile_to_auth',
+                {
+                  p_old_profile_id: oldProfileId,
+                  p_new_auth_id: user.id
+                } as any
+              );
+
+              if (rpcError) {
+                console.error('[Auth Migration] Migration RPC failed:', rpcError);
+                throw rpcError;
               }
 
-              // Step 2: Delete the old profile (CASCADE drops user_roles, activity_logs, etc.)
-              console.log(`[Auth Migration] Deleting old profile: ${oldProfileId}`);
-              const { error: deleteError } = await adminClient
-                .from('profiles')
-                .delete()
-                .eq('id', oldProfileId);
-
-              if (deleteError) {
-                console.error('[Auth Migration] Delete old profile failed:', deleteError);
-                throw deleteError;
-              }
-
-              // Step 3: Create new profile with Google auth user ID (preserving all fields)
-              // Note: learner_id included so trigger auto_assign_student_role fires correctly
-              const legacyProfileData = {
-                id: user.id,
-                email: emailProfile.email ?? null,
-                full_name: emailProfile.full_name ?? null,
-                role: emailProfile.role,
-                phone_number: emailProfile.phone_number ?? null,
-                institution_id: emailProfile.institution_id ?? null,
-                department_id: emailProfile.department_id ?? null,
-                gender: emailProfile.gender ?? null,
-                designation: emailProfile.designation ?? null,
-                profile_completed: emailProfile.profile_completed ?? false,
-                is_active: emailProfile.is_active ?? true,
-                is_pre_registered: false,
-                bio: emailProfile.bio ?? null,
-                avatar_url: emailProfile.avatar_url ?? null,
-                learner_id: (emailProfile as any).learner_id ?? null
-              };
-
-              console.log(`[Auth Migration] Creating new profile with auth ID: ${user.id}`);
-              const { error: insertError } = await adminClient
-                .from('profiles')
-                .insert(legacyProfileData as any);
-
-              if (insertError) {
-                console.error('[Auth Migration] Insert new profile failed:', insertError);
-                throw insertError;
-              }
-
-              // Step 4: Re-link event records to the new profile ID
+              // Re-link event records to the new profile ID (RPC nulled them).
               if (affectedRegs && affectedRegs.length > 0) {
                 const regIds = affectedRegs.map((r: any) => r.id);
                 await adminClient
@@ -351,11 +312,13 @@ export async function GET(request: NextRequest) {
                 console.log(`[Auth Migration] Re-linked ${memberIds.length} event team member(s)`);
               }
 
-              migratedProfile = {
-                ...emailProfile,
-                id: user.id,
-                is_pre_registered: false
-              };
+              // Re-fetch the freshly inserted profile (RPC writes with auth.users id).
+              const { data: newProfile } = (await adminClient
+                .from('profiles')
+                .select('*')
+                .eq('id', user.id)
+                .maybeSingle()) as { data: Profile | null; error: any };
+              migratedProfile = newProfile;
 
               console.log(
                 `✓ Successfully migrated profile for ${user.email} to Google auth`

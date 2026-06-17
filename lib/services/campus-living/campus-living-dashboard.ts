@@ -96,10 +96,28 @@ export class CampusLivingDashboard {
         alertsQ,
       ]);
 
-      // Process blocks
+      // Process blocks. The stored hostel_blocks counters (total_capacity /
+      // current_occupancy) drift — nothing maintains them — so derive
+      // capacity/occupancy LIVE from hostel_rooms + v_hostel_room_occupancy.
       const blocks = blocksResult.data ?? [];
-      const totalCapacity = blocks.reduce((s, b) => s + (b.total_capacity ?? 0), 0);
-      const totalOccupancy = blocks.reduce((s, b) => s + (b.current_occupancy ?? 0), 0);
+      const blockIds = blocks.map((b) => b.id);
+      const capByBlock = new Map<string, number>();
+      const occByBlock = new Map<string, number>();
+      if (blockIds.length > 0) {
+        const [roomsRes, occRes] = await Promise.all([
+          supabase.from('hostel_rooms').select('block_id, capacity').in('block_id', blockIds),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (supabase as any).from('v_hostel_room_occupancy').select('block_id, active_residents').in('block_id', blockIds),
+        ]);
+        for (const r of (roomsRes.data ?? []) as Array<{ block_id: string; capacity: number | null }>) {
+          capByBlock.set(r.block_id, (capByBlock.get(r.block_id) ?? 0) + Number(r.capacity ?? 0));
+        }
+        for (const o of (occRes.data ?? []) as Array<{ block_id: string; active_residents: number | null }>) {
+          occByBlock.set(o.block_id, (occByBlock.get(o.block_id) ?? 0) + Number(o.active_residents ?? 0));
+        }
+      }
+      const totalCapacity = blockIds.reduce((s, id) => s + (capByBlock.get(id) ?? 0), 0);
+      const totalOccupancy = blockIds.reduce((s, id) => s + (occByBlock.get(id) ?? 0), 0);
 
       // Process attendance
       const attendance = todayAttendanceResult.data ?? [];
@@ -125,8 +143,8 @@ export class CampusLivingDashboard {
           available: totalCapacity - totalOccupancy,
           percentage: totalCapacity > 0 ? Math.round((totalOccupancy / totalCapacity) * 100) : 0,
           blocks: blocks.map((b) => {
-            const cap = b.total_capacity ?? 0;
-            const occ = b.current_occupancy ?? 0;
+            const cap = capByBlock.get(b.id) ?? 0;
+            const occ = occByBlock.get(b.id) ?? 0;
             return {
               id: b.id,
               name: b.name,
@@ -264,6 +282,63 @@ export class CampusLivingDashboard {
       };
     } catch (error) {
       logger.error('campus-living/dashboard', 'Unexpected error in getBlockDashboard', error);
+      throw error;
+    }
+  }
+
+  // ── Resident demographics & category mix (advanced analytics) ─────
+  // Aggregates the active hostelite population (v_learner_hostelites) by
+  // gender / year of study / room category / mess category for the dashboard
+  // distribution charts. One scoped query, aggregated in JS.
+  static async getResidentDemographics(institutionId: string | undefined) {
+    try {
+      const supabase = createClientSupabaseClient();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let q = (supabase as any)
+        .from('v_learner_hostelites')
+        .select('id, gender, year_of_study, hostel_category_name, mess_category_name');
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
+      if (error) {
+        logger.error('campus-living/dashboard', 'Failed to fetch resident demographics', error);
+        throw error;
+      }
+      const rows = (data ?? []) as Array<{
+        gender: string | null;
+        year_of_study: number | null;
+        hostel_category_name: string | null;
+        mess_category_name: string | null;
+      }>;
+
+      const tally = (vals: (string | null)[]) => {
+        const m = new Map<string, number>();
+        for (const v of vals) {
+          const key = v && v.trim() ? v.trim() : 'Unspecified';
+          m.set(key, (m.get(key) ?? 0) + 1);
+        }
+        return Array.from(m.entries())
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value);
+      };
+
+      const normGender = (g: string | null) => {
+        const v = (g ?? '').trim().toLowerCase();
+        if (v === 'male' || v === 'm') return 'Male';
+        if (v === 'female' || v === 'f') return 'Female';
+        return v ? g!.trim() : 'Unspecified';
+      };
+
+      return {
+        total: rows.length,
+        byGender: tally(rows.map((r) => normGender(r.gender))),
+        byYear: tally(
+          rows.map((r) => (r.year_of_study != null ? `Year ${r.year_of_study}` : 'Unknown'))
+        ),
+        byRoomCategory: tally(rows.map((r) => r.hostel_category_name)),
+        byMessCategory: tally(rows.map((r) => r.mess_category_name)),
+      };
+    } catch (error) {
+      logger.error('campus-living/dashboard', 'Unexpected error in getResidentDemographics', error);
       throw error;
     }
   }

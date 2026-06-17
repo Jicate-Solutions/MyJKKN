@@ -10,11 +10,10 @@
 //     toggle and one OR MORE start/end time ranges (add/remove per day).
 //   - The schedule timezone.
 //
-// What it intentionally does NOT edit yet (later iteration):
-//   - Date-specific overrides (holidays, one-off changes). Cal.com supports
-//     these via schedule.overrides; saveMySchedule preserves any existing
-//     overrides by omitting them from the PATCH. A future version can add an
-//     overrides calendar here.
+// What it intentionally does NOT edit (handled by a sibling component):
+//   - Date-specific overrides (holidays, one-off changes) live in
+//     holidays-editor.tsx (M2). saveMySchedule only touches the weekly windows,
+//     so the two editors never clobber each other.
 //
 // Data model bridge:
 //   Cal.com stores availability as windows keyed by a `days[]` array
@@ -373,8 +372,8 @@ export function AvailabilityEditor({ schedule }: AvailabilityEditorProps) {
       </Card>
 
       <p className="px-1 text-[11px] text-muted-foreground">
-        These are your recurring weekly hours. Date-specific changes (holidays, one-off
-        closures) are coming in a later update.
+        These are your recurring weekly hours. For date-specific changes (holidays,
+        one-off closures or special hours) use the editor below.
       </p>
     </div>
   );

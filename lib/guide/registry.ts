@@ -37,6 +37,9 @@ import { GUIDES as BILLING_GUIDES, REQUIRES as BILLING_REQUIRES } from "../billi
 import { GUIDES as ACADEMIC_GUIDES, REQUIRES as ACADEMIC_REQUIRES } from "../academic/guide/content";
 import { GUIDES as STARTUP_GUIDES, REQUIRES as STARTUP_REQUIRES } from "../startup-studio/guide/content";
 import { GUIDES as SOLUTIONS_GUIDES, REQUIRES as SOLUTIONS_REQUIRES } from "../solutions/guide/content";
+import { GUIDES as ORGANIZATIONS_GUIDES, REQUIRES as ORGANIZATIONS_REQUIRES } from "../organizations/guide/content";
+import { GUIDES as IMS_GUIDES, REQUIRES as IMS_REQUIRES } from "../ims/guide/content";
+import { GUIDES as BOS_GUIDES, REQUIRES as BOS_REQUIRES } from "../bos/guide/content";
 
 /* ────────────────────────────────────────────────────────────────────────
  * PERSONA ACCESS — which permission keys grant each canonical persona (OR'd
@@ -52,11 +55,11 @@ import { GUIDES as SOLUTIONS_GUIDES, REQUIRES as SOLUTIONS_REQUIRES } from "../s
  * ──────────────────────────────────────────────────────────────────────── */
 export const PERSONA_REQUIRES: Record<CanonicalPersona, string[]> = {
   learner: [],
-  facilitator: [AI_PULSE_REQUIRES.faculty, PDE_REQUIRES.faculty, ACADEMIC_REQUIRES.faculty, STARTUP_REQUIRES.mentor, STARTUP_REQUIRES.evaluator, SOLUTIONS_REQUIRES.delivery_team],
-  "unit-lead": [AI_PULSE_REQUIRES.champion, CAMPUS_REQUIRES.warden, CAMPUS_REQUIRES.mess],
-  coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor, BILLING_REQUIRES["finance-officer"], ACADEMIC_REQUIRES.coordinator, STARTUP_REQUIRES.coordinator, SOLUTIONS_REQUIRES.sales_lead],
-  supervisor: [AI_PULSE_REQUIRES.hod, HR_REQUIRES.manager, ACADEMIC_REQUIRES.hod, ACADEMIC_REQUIRES.principal, SOLUTIONS_REQUIRES.finance_officer],
-  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin, BILLING_REQUIRES["finance-admin"], STARTUP_REQUIRES.admin, SOLUTIONS_REQUIRES.module_admin],
+  facilitator: [AI_PULSE_REQUIRES.faculty, PDE_REQUIRES.faculty, ACADEMIC_REQUIRES.faculty, STARTUP_REQUIRES.mentor, STARTUP_REQUIRES.evaluator, SOLUTIONS_REQUIRES.delivery_team, IMS_REQUIRES.cashier, BOS_REQUIRES.member],
+  "unit-lead": [AI_PULSE_REQUIRES.champion, CAMPUS_REQUIRES.warden, CAMPUS_REQUIRES.mess, IMS_REQUIRES.storekeeper, BOS_REQUIRES.chairman],
+  coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor, BILLING_REQUIRES["finance-officer"], ACADEMIC_REQUIRES.coordinator, STARTUP_REQUIRES.coordinator, SOLUTIONS_REQUIRES.sales_lead, ORGANIZATIONS_REQUIRES.viewer, IMS_REQUIRES.requester],
+  supervisor: [AI_PULSE_REQUIRES.hod, HR_REQUIRES.manager, ACADEMIC_REQUIRES.hod, ACADEMIC_REQUIRES.principal, SOLUTIONS_REQUIRES.finance_officer, IMS_REQUIRES.approver, BOS_REQUIRES.principal],
+  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin, BILLING_REQUIRES["finance-admin"], STARTUP_REQUIRES.admin, SOLUTIONS_REQUIRES.module_admin, ORGANIZATIONS_REQUIRES["registry-admin"], IMS_REQUIRES.admin, BOS_REQUIRES.coordinator],
   "platform-admin": [],
   parent: [],
   external: [],
@@ -577,7 +580,125 @@ export const solutionsGuide: ModuleGuide = {
   routes: [],
 };
 
-export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide, academicGuide, startupStudioGuide, solutionsGuide];
+/* ── Organizations (academic-structure registry — master data) ───────────────
+ * registry-admin→module-admin (builds the hierarchy), viewer→coordinator
+ * (read-only lookup). No learner lane: this is staff config, not an everyday
+ * end-user surface — both lanes are section-gated by their own key (fail-closed)
+ * so org content never appears in the open learner baseline.
+ * ────────────────────────────────────────────────────────────────────────── */
+export const organizationsGuide: ModuleGuide = {
+  module: "organizations",
+  basePath: "/organizations",
+  lanes: {
+    "module-admin": {
+      // "registry-admin" is a hyphenated key → bracket access
+      sections: withRequires(ORGANIZATIONS_GUIDES.lanes["registry-admin"].sections, ORGANIZATIONS_REQUIRES["registry-admin"]),
+      startHere: ORGANIZATIONS_GUIDES.lanes["registry-admin"].startHere,
+      title: ORGANIZATIONS_GUIDES.lanes["registry-admin"].title,
+      tagline: ORGANIZATIONS_GUIDES.lanes["registry-admin"].tagline,
+    },
+    coordinator: {
+      // read-only structure viewer; gated by organizations.dashboard.view.
+      // FLAG (SME): "viewer" is an imperfect fit for the canonical "coordinator"
+      // title — kept gated/fail-closed; the module-scoped guide shows the module's
+      // own "Viewer Guide" label, only the cross-module compose uses "Coordinator".
+      sections: withRequires(ORGANIZATIONS_GUIDES.lanes.viewer.sections, ORGANIZATIONS_REQUIRES.viewer),
+      startHere: ORGANIZATIONS_GUIDES.lanes.viewer.startHere,
+      title: ORGANIZATIONS_GUIDES.lanes.viewer.title,
+      tagline: ORGANIZATIONS_GUIDES.lanes.viewer.tagline,
+    },
+  },
+  routes: [],
+};
+
+/* ── IMS (Inventory Management — operational back-office) ─────────────────────
+ * requester→coordinator, approver→supervisor, storekeeper→unit-lead,
+ * cashier→facilitator, admin→module-admin. NO learner lane: an inventory
+ * requester is staff, not an everyday everyone-user, so requester is mapped to a
+ * GATED canonical (coordinator) rather than the open learner lane — IMS content
+ * must never surface in a student's getting-started guide. Every lane is
+ * section-gated by its own ims.* key (fail-closed).
+ * ────────────────────────────────────────────────────────────────────────── */
+export const imsGuide: ModuleGuide = {
+  module: "ims",
+  basePath: "/ims",
+  lanes: {
+    coordinator: {
+      sections: withRequires(IMS_GUIDES.lanes.requester.sections, IMS_REQUIRES.requester),
+      startHere: IMS_GUIDES.lanes.requester.startHere,
+      title: IMS_GUIDES.lanes.requester.title,
+      tagline: IMS_GUIDES.lanes.requester.tagline,
+    },
+    supervisor: {
+      sections: withRequires(IMS_GUIDES.lanes.approver.sections, IMS_REQUIRES.approver),
+      startHere: IMS_GUIDES.lanes.approver.startHere,
+      title: IMS_GUIDES.lanes.approver.title,
+      tagline: IMS_GUIDES.lanes.approver.tagline,
+    },
+    "unit-lead": {
+      sections: withRequires(IMS_GUIDES.lanes.storekeeper.sections, IMS_REQUIRES.storekeeper),
+      startHere: IMS_GUIDES.lanes.storekeeper.startHere,
+      title: IMS_GUIDES.lanes.storekeeper.title,
+      tagline: IMS_GUIDES.lanes.storekeeper.tagline,
+    },
+    facilitator: {
+      sections: withRequires(IMS_GUIDES.lanes.cashier.sections, IMS_REQUIRES.cashier),
+      startHere: IMS_GUIDES.lanes.cashier.startHere,
+      title: IMS_GUIDES.lanes.cashier.title,
+      tagline: IMS_GUIDES.lanes.cashier.tagline,
+    },
+    "module-admin": {
+      sections: withRequires(IMS_GUIDES.lanes.admin.sections, IMS_REQUIRES.admin),
+      startHere: IMS_GUIDES.lanes.admin.startHere,
+      title: IMS_GUIDES.lanes.admin.title,
+      tagline: IMS_GUIDES.lanes.admin.tagline,
+    },
+  },
+  routes: [],
+};
+
+/* ── BoS (Board of Studies — academic governance) ────────────────────────────
+ * coordinator(role)→module-admin (academic office builds master data),
+ * chairman→unit-lead (runs one board), member→facilitator (does the academic
+ * work), principal→supervisor (oversight + approval). Each lane gated by its own
+ * academic.bos-* key. NOTE: BoS also enforces a STRUCTURAL chairman/member/
+ * principal split at runtime (lib/utils/bos/bos-access.ts via board membership +
+ * profiles.role) that no permission key captures — `requires` here only decides
+ * whether a lane is OFFERED; the deeper distinction is enforced in-app.
+ * ────────────────────────────────────────────────────────────────────────── */
+export const bosGuide: ModuleGuide = {
+  module: "bos",
+  basePath: "/bos",
+  lanes: {
+    "module-admin": {
+      sections: withRequires(BOS_GUIDES.lanes.coordinator.sections, BOS_REQUIRES.coordinator),
+      startHere: BOS_GUIDES.lanes.coordinator.startHere,
+      title: BOS_GUIDES.lanes.coordinator.title,
+      tagline: BOS_GUIDES.lanes.coordinator.tagline,
+    },
+    "unit-lead": {
+      sections: withRequires(BOS_GUIDES.lanes.chairman.sections, BOS_REQUIRES.chairman),
+      startHere: BOS_GUIDES.lanes.chairman.startHere,
+      title: BOS_GUIDES.lanes.chairman.title,
+      tagline: BOS_GUIDES.lanes.chairman.tagline,
+    },
+    facilitator: {
+      sections: withRequires(BOS_GUIDES.lanes.member.sections, BOS_REQUIRES.member),
+      startHere: BOS_GUIDES.lanes.member.startHere,
+      title: BOS_GUIDES.lanes.member.title,
+      tagline: BOS_GUIDES.lanes.member.tagline,
+    },
+    supervisor: {
+      sections: withRequires(BOS_GUIDES.lanes.principal.sections, BOS_REQUIRES.principal),
+      startHere: BOS_GUIDES.lanes.principal.startHere,
+      title: BOS_GUIDES.lanes.principal.title,
+      tagline: BOS_GUIDES.lanes.principal.tagline,
+    },
+  },
+  routes: [],
+};
+
+export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide, academicGuide, startupStudioGuide, solutionsGuide, organizationsGuide, imsGuide, bosGuide];
 
 /** Canonical personas at least one module contributes real sections to. A
  *  persona NOT in this set is sparse (composeLane returns the platform-overview
@@ -604,6 +725,9 @@ const MODULE_LABELS: Record<string, string> = {
   academic: "Academic",
   "startup-studio": "Startup Studio",
   solutions: "Solutions",
+  organizations: "Organizations",
+  ims: "Inventory (IMS)",
+  bos: "Board of Studies",
 };
 
 /** Human label for a module namespace; falls back to the raw id if unknown. */
@@ -634,6 +758,9 @@ const MODULE_GLOSSARIES: Record<string, GlossaryTerm[]> = {
   academic: ACADEMIC_GUIDES.glossary ?? [],
   "startup-studio": STARTUP_GUIDES.glossary ?? [],
   solutions: SOLUTIONS_GUIDES.glossary ?? [],
+  organizations: ORGANIZATIONS_GUIDES.glossary ?? [],
+  ims: IMS_GUIDES.glossary ?? [],
+  bos: BOS_GUIDES.glossary ?? [],
 };
 
 /** "Words to know" terms for one module; empty array if module unknown. */

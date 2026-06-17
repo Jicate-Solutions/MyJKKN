@@ -34,6 +34,7 @@ import { Button } from '@/components/ui/button';
 import { createClient } from '@/lib/supabase/server';
 import { getMySchedule, getBookingPageState } from './actions';
 import { AvailabilityEditor } from './_components/availability-editor';
+import { HolidaysEditor } from './_components/holidays-editor';
 import { BookingPageCard } from './_components/booking-page-card';
 
 // Cal.com reads/writes are user-specific and mutable — never statically cache.
@@ -147,6 +148,7 @@ export default async function MeetingsAvailabilityPage({
   return (
     <Shell>
       <AvailabilityEditor schedule={result.data} />
+      <HolidaysEditor scheduleId={result.data.scheduleId} />
       {pageState.success && pageState.data && (
         <BookingPageCard initial={pageState.data} googleFlag={googleFlag} />
       )}
