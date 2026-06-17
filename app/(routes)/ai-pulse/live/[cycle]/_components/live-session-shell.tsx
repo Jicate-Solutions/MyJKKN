@@ -13,7 +13,14 @@
  * cycle id down.
  */
 
-import { Loader2, AlertCircle, Languages, Calendar, Radio } from 'lucide-react';
+import {
+  Loader2,
+  AlertCircle,
+  Languages,
+  Calendar,
+  Radio,
+  Sparkles,
+} from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   evaluateGates,
@@ -72,7 +79,14 @@ export function LiveSessionShell({ cycleId }: LiveSessionShellProps) {
   }
 
   const { cycle, attendance, polls, quiz_open, quiz_async_window_open } = data;
-  const gates = evaluateGates(attendance.engagement_signals, cycle.ends_at);
+  // polls = ALL polls issued this cycle (gate requirement is min(3, issued));
+  // the panel only shows the still-open ones.
+  const gates = evaluateGates(
+    attendance.engagement_signals,
+    cycle.ends_at,
+    polls.length,
+  );
+  const openPolls = polls.filter((p) => !p.closed_at);
   const alreadyJoined = !!attendance.joined_at;
   const heartbeatEnabled =
     alreadyJoined && (cycle.status === 'live' || cycle.status === 'execution');
@@ -115,11 +129,28 @@ export function LiveSessionShell({ cycleId }: LiveSessionShellProps) {
             </span>
           </div>
 
+          {/* Champion's featured AI tool for this week — surfaced to learners
+              (previously admin/NAAC-only). */}
+          {data.featured_tool ? (
+            <div className="flex items-center gap-1.5 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm">
+              <Sparkles className="h-4 w-4 text-primary shrink-0" aria-hidden />
+              <span>
+                This week&apos;s featured tool:{' '}
+                <strong>{data.featured_tool.label_en}</strong>
+                {data.featured_tool.vendor_name
+                  ? ` — ${data.featured_tool.vendor_name}`
+                  : ''}
+              </span>
+            </div>
+          ) : null}
+
           <div className="pt-2">
             <JoinButton
               cycleId={cycle.id}
               meetUrl={cycle.meet_url}
               alreadyJoined={alreadyJoined}
+              joinOpen={data.join_open}
+              joinOpensAt={data.join_opens_at}
             />
           </div>
         </CardContent>
@@ -132,7 +163,7 @@ export function LiveSessionShell({ cycleId }: LiveSessionShellProps) {
       <div className="grid gap-6 lg:grid-cols-2">
         <PollsPanel
           cycleId={cycle.id}
-          polls={polls}
+          polls={openPolls}
           pollsRespondedCount={
             attendance.engagement_signals.polls_responded ?? 0
           }

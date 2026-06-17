@@ -20,6 +20,12 @@ export interface HostelCategory {
   upgrade_threshold_pct: number | null;
   /** Days a below-threshold upgrade reservation is held before auto-expiry. */
   upgrade_hold_days: number;
+  /** Add-on category (e.g. "Premium Room + AC"): reachable ONLY when an explicit
+   *  upgrade-fee pair is configured from the resident's current category — never via
+   *  the fee-difference fallback. Keeps it scoped to one source category. */
+  requires_explicit_upgrade: boolean;
+  /** When true, residents in this category see/can use self-service upgrades on My Hostel. Default false. */
+  upgrades_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -33,6 +39,7 @@ export interface CreateHostelCategoryDto {
   sort_order?: number;
   upgrade_threshold_pct?: number | null;
   upgrade_hold_days?: number;
+  upgrades_enabled?: boolean;
 }
 
 export interface UpdateHostelCategoryDto {
@@ -44,6 +51,7 @@ export interface UpdateHostelCategoryDto {
   sort_order?: number;
   upgrade_threshold_pct?: number | null;
   upgrade_hold_days?: number;
+  upgrades_enabled?: boolean;
 }
 
 export interface HostelCategoryFilters {

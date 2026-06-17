@@ -79,6 +79,15 @@ export default function FacultyClinicalCasesPage() {
     });
   }, [cases, search, courseFilter]);
 
+  const filtersActive =
+    statusFilter !== 'all' || courseFilter !== 'all' || search.trim() !== '';
+
+  const clearFilters = () => {
+    setStatusFilter('all');
+    setCourseFilter('all');
+    setSearch('');
+  };
+
   return (
     <ContentLayout title="Clinical Cases">
       <PageBreadcrumb
@@ -148,6 +157,23 @@ export default function FacultyClinicalCasesPage() {
             </Select>
           </CardContent>
         </Card>
+
+        {/* Result count + clear filters */}
+        {!isLoading && (
+          <div className="flex items-center justify-between gap-3 px-1 text-sm text-muted-foreground">
+            <span>
+              Showing <span className="font-medium text-foreground">{filtered.length}</span> of{' '}
+              <span className="font-medium text-foreground">{cases.length}</span>{' '}
+              case{cases.length !== 1 ? 's' : ''}
+              {filtersActive ? ' (filtered)' : ''}
+            </span>
+            {filtersActive && (
+              <Button variant="ghost" size="sm" onClick={clearFilters} className="h-7">
+                Clear filters
+              </Button>
+            )}
+          </div>
+        )}
 
         {/* Cases Table */}
         <Card className="bg-[#fbfbee]/30 dark:bg-card">

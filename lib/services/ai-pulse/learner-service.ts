@@ -46,6 +46,13 @@ export interface AiPulseCycle {
   config: AiPulseCycleConfig | null;
 }
 
+export interface AiPulseGoldWeek {
+  cycle_id: string;
+  cycle_name: string;
+  demo_date: string | null;
+  winners: Array<{ department_name: string; team_names: string[] }>;
+}
+
 export interface AiPulseTeamSummary {
   registration_id: string;
   team_name: string | null;
@@ -293,6 +300,105 @@ export class AiPulseLearnerService {
     } catch (e) {
       console.error('[ai-pulse/learner] getMyStreak threw:', e);
       return 0;
+    }
+  }
+
+  /**
+   * Most recent cycle's Gold Standard winners, resolved to team + department
+   * names — the learner-facing recognition surface (CARE R-move, audit
+   * 2026-06-12: gold_selections existed only behind admin/NAAC surfaces).
+   *
+   * Reads config.ai_pulse.gold_selections (shape documented in
+   * lab-evaluation-service) from the newest cycle that has any, then resolves
+   * submission_ids → event_submissions → event_registrations.team_name.
+   * Defensive: returns null on any error or when RLS hides the rows — the
+   * card hides rather than rendering an empty shell.
+   */
+  static async getLatestGoldServer(
+    client?: any
+  ): Promise<AiPulseGoldWeek | null> {
+    try {
+      const supabase = client ?? (await createServerSupabaseClient());
+
+      const { data: cycles, error: cyErr } = await (supabase as any)
+        .from('startup_events')
+        .select('id, name, demo_date, config')
+        .filter('config->>kind', 'eq', 'ai_pulse')
+        .order('demo_date', { ascending: false, nullsFirst: false })
+        .limit(6);
+      if (cyErr || !cycles) return null;
+
+      for (const cycle of cycles as any[]) {
+        const aiPulse = (cycle.config?.ai_pulse ?? cycle.config ?? {}) as Record<
+          string,
+          any
+        >;
+        const selections = (aiPulse.gold_selections ?? {}) as Record<
+          string,
+          { submission_ids?: string[] }
+        >;
+        const deptIds = Object.keys(selections);
+        if (deptIds.length === 0) continue;
+
+        const submissionIds = deptIds.flatMap(
+          (d) => selections[d]?.submission_ids ?? []
+        );
+        if (submissionIds.length === 0) continue;
+
+        // submission → registration → team name
+        const { data: subs } = await (supabase as any)
+          .from('event_submissions')
+          .select('id, registration_id')
+          .in('id', submissionIds);
+        const regIds = Array.from(
+          new Set(
+            ((subs ?? []) as any[]).map((s) => s.registration_id).filter(Boolean)
+          )
+        );
+        const { data: regs } = regIds.length
+          ? await (supabase as any)
+              .from('event_registrations')
+              .select('id, team_name')
+              .in('id', regIds)
+          : { data: [] };
+        const teamByReg = new Map(
+          ((regs ?? []) as any[]).map((r) => [r.id, r.team_name ?? 'Team'])
+        );
+        const regBySub = new Map(
+          ((subs ?? []) as any[]).map((s) => [s.id, s.registration_id])
+        );
+
+        const { data: depts } = await (supabase as any)
+          .from('departments')
+          .select('id, department_name')
+          .in('id', deptIds);
+        const deptName = new Map(
+          ((depts ?? []) as any[]).map((d) => [d.id, d.department_name ?? '—'])
+        );
+
+        const winners = deptIds
+          .map((d) => ({
+            department_name: (deptName.get(d) ?? '—') as string,
+            team_names: (selections[d]?.submission_ids ?? [])
+              .map((sid) => teamByReg.get(regBySub.get(sid)))
+              .filter((t): t is string => !!t),
+          }))
+          .filter((w) => w.team_names.length > 0);
+        if (winners.length === 0) return null; // RLS hid the rows — hide card
+
+        return {
+          cycle_id: cycle.id as string,
+          cycle_name: (cycle.name ?? 'AI Pulse Cycle') as string,
+          demo_date: cycle.demo_date
+            ? String(cycle.demo_date).slice(0, 10)
+            : null,
+          winners,
+        };
+      }
+      return null;
+    } catch (e) {
+      console.error('[ai-pulse/learner] getLatestGoldServer threw:', e);
+      return null;
     }
   }
 }

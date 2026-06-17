@@ -19,12 +19,13 @@
 // ============================================================================
 
 import { use } from 'react';
+import Link from 'next/link';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ShieldAlert } from 'lucide-react';
+import { ShieldAlert, Info } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 
 import { LabEvaluationConsole } from './_components/lab-evaluation-console';
@@ -74,13 +75,22 @@ export default function LabEvaluationPage({ params }: LabCyclePageProps) {
 
   return (
     <ContentLayout title="AI Pulse · Lab Evaluation">
-      <PageBreadcrumb
-        items={[
-          { label: 'AI Pulse', href: '/ai-pulse' },
-          { label: 'Lab', href: '/ai-pulse/lab' },
-          { label: 'Evaluate' },
-        ]}
-      />
+      <div className="flex items-center justify-between gap-4">
+        <PageBreadcrumb
+          items={[
+            { label: 'AI Pulse', href: '/ai-pulse' },
+            { label: 'Lab', href: '/ai-pulse/lab' },
+            { label: 'Evaluate' },
+          ]}
+        />
+        <Link
+          href="/ai-pulse/guide"
+          className="shrink-0 inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted"
+        >
+          <Info className="h-3.5 w-3.5" aria-hidden />
+          How this works
+        </Link>
+      </div>
 
       <LabEvaluationConsole cycleId={cycle} canSelectGold={canSelectGold} />
     </ContentLayout>

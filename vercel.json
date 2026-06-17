@@ -64,6 +64,10 @@
       "schedule": "23 1 * * *"
     },
     {
+      "path": "/api/cron/ai-pulse-weekly-digest?secret=${CRON_SECRET}",
+      "schedule": "17 4 * * 2"
+    },
+    {
       "path": "/api/cron/dashboard-work-items?secret=${CRON_SECRET}",
       "schedule": "7 * * * *"
     },

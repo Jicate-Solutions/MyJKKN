@@ -22,7 +22,8 @@ export type BillingCategoryKind =
   | 'exam'
   | 'library'
   | 'other'
-  | 'university_fee';
+  | 'university_fee'
+  | 'establishment';
 
 export interface BillingCategory {
   id: string;

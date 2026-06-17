@@ -5,6 +5,7 @@ import type {
   ProgramEligibilityRow,
   CreateProgramEligibilityDto,
   UpdateProgramEligibilityDto,
+  CategorySyncPreviewRow,
 } from '@/types/program-eligibility';
 
 const LOG = 'campus-living/program-eligibility';
@@ -40,7 +41,7 @@ export class ProgramEligibilityService {
     let query = sb
       .from('hostel_program_eligibility')
       .select(
-        '*, institution:institutions(name), program:programs(program_name), quota:quotas(name), room_category:hostel_categories(name), mess_category:mess_categories(name)'
+        '*, institution:institutions(name), program:programs(program_name), room_category:hostel_categories(name), mess_category:mess_categories(name)'
       )
       .order('institution_id', { ascending: true })
       .order('program_id', { ascending: true, nullsFirst: true })
@@ -53,18 +54,40 @@ export class ProgramEligibilityService {
       logger.error(LOG, 'Database error listing eligibility', error);
       throw new Error(error.message || 'Failed to fetch eligibility');
     }
-    return (data ?? []).map((r: Record<string, unknown>) => {
+    const rows = (data ?? []) as Record<string, unknown>[];
+
+    // quota_ids is a uuid[] with no FK, so PostgREST can't embed quota names —
+    // resolve them in one extra lookup. Names stay aligned 1:1 with quota_ids.
+    const quotaIdSet = new Set<string>();
+    for (const r of rows)
+      for (const id of ((r.quota_ids as string[] | null) ?? [])) quotaIdSet.add(id);
+    const quotaNameById = new Map<string, string>();
+    if (quotaIdSet.size > 0) {
+      const { data: qrows, error: qerr } = await sb
+        .from('quotas')
+        .select('id, name')
+        .in('id', Array.from(quotaIdSet));
+      if (qerr) {
+        logger.error(LOG, 'Database error resolving quota names', qerr);
+        throw new Error(qerr.message || 'Failed to resolve quota names');
+      }
+      for (const q of (qrows ?? []) as { id: string; name: string }[])
+        quotaNameById.set(q.id, q.name);
+    }
+
+    return rows.map((r) => {
       const institution = r.institution as { name?: string } | null;
       const program = r.program as { program_name?: string } | null;
-      const quota = r.quota as { name?: string } | null;
       const room = r.room_category as { name?: string } | null;
       const mess = r.mess_category as { name?: string } | null;
-      const { institution: _i, program: _p, quota: _q, room_category: _rc, mess_category: _mc, ...rest } = r;
+      const { institution: _i, program: _p, room_category: _rc, mess_category: _mc, ...rest } = r;
+      const quotaIds = (rest as ProgramEligibility).quota_ids ?? [];
       return {
+        // `...rest` carries the stored `hostel_type` + `quota_ids` columns.
         ...(rest as ProgramEligibility),
         institution_name: institution?.name ?? null,
         program_name: program?.program_name ?? null,
-        quota_name: quota?.name ?? null,
+        quota_names: quotaIds.map((id) => quotaNameById.get(id) ?? id),
         room_category_name: room?.name ?? null,
         mess_category_name: mess?.name ?? null,
       };
@@ -78,11 +101,12 @@ export class ProgramEligibilityService {
       .insert([{
         institution_id: dto.institution_id,
         program_id: dto.program_id ?? null,
-        quota_id: dto.quota_id || null,
+        quota_ids: dto.quota_ids && dto.quota_ids.length ? dto.quota_ids : null,
         fee_min: dto.fee_min ?? null,
         fee_max: dto.fee_max ?? null,
         room_category_id: dto.room_category_id || null,
         mess_category_id: dto.mess_category_id || null,
+        hostel_type: dto.hostel_type ?? 'both',
         is_monthly_mess_allowed: dto.is_monthly_mess_allowed ?? false,
         is_active: dto.is_active ?? true,
         effective_from: dto.effective_from ?? null,
@@ -93,7 +117,7 @@ export class ProgramEligibilityService {
       logger.error(LOG, 'Database error creating eligibility', error);
       throw new Error(
         error.code === '23505'
-          ? 'A rule already exists for this institution / program / quota / fee band.'
+          ? 'A rule already exists for this institution / program / quota / fee band / gender.'
           : error.message || 'Failed to create eligibility'
       );
     }
@@ -112,7 +136,7 @@ export class ProgramEligibilityService {
       logger.error(LOG, 'Database error updating eligibility', error);
       throw new Error(
         error.code === '23505'
-          ? 'A rule already exists for this institution / program / quota / fee band.'
+          ? 'A rule already exists for this institution / program / quota / fee band / gender.'
           : error.message || 'Failed to update eligibility'
       );
     }
@@ -146,6 +170,23 @@ export class ProgramEligibilityService {
     }
     const result = (data ?? {}) as { scanned?: number; updated?: number };
     return { scanned: result.scanned ?? 0, updated: result.updated ?? 0 };
+  }
+
+  // Dry-run of the sync above: per active hostel learner, the matched condition
+  // and the proposed room/mess categories — nothing is written. Also lists the
+  // no-academic-bill learners the sync skips, so operators see the full picture.
+  static async previewLearnerCategorySync(
+    institutionId?: string
+  ): Promise<CategorySyncPreviewRow[]> {
+    const { data, error } = await (this.supabase.rpc as any)(
+      'fn_preview_hostel_fee_categories',
+      { p_institution: institutionId ?? null }
+    );
+    if (error) {
+      logger.error(LOG, 'Database error previewing learner category sync', error);
+      throw new Error(error.message || 'Failed to preview learner category sync');
+    }
+    return (data ?? []) as CategorySyncPreviewRow[];
   }
 
   // ─── Effective resolution helper (fee-aware, learner-based) ──────────────

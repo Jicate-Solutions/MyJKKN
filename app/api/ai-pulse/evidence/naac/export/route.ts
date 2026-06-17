@@ -42,7 +42,8 @@ const CSV_FIELDS: Array<{ label: string; value: string }> = [
   { label: 'Live App URL', value: 'live_app_url' },
   { label: 'Featured Tool', value: 'featured_tool' },
   { label: 'Champion at time', value: 'champion_at_time' },
-  { label: 'IG Reach', value: 'ig_reach' },
+  // Self-reported active-users count; real IG reach (ig_post_metrics) available via pulse-analytics-service as a future upgrade.
+  { label: 'Active Users (self-reported)', value: 'ig_reach' },
   { label: 'Verification', value: 'verification' },
   { label: 'Proof URLs', value: 'proof_urls' },
 ];

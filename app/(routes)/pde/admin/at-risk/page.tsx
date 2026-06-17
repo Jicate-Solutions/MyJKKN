@@ -244,7 +244,7 @@ export default function AtRiskLearnersPage() {
                         <ArrowUpDown className="h-3 w-3 ml-1" />
                       </Button>
                     </TableHead>
-                    <TableHead className="w-[60px]" />
+                    <TableHead className="w-[140px] text-right">Progress</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -274,10 +274,15 @@ export default function AtRiskLearnersPage() {
                       </TableCell>
                       <TableCell>{learner.total_lessons_completed}</TableCell>
                       <TableCell>{riskBadge(learner.risk_level)}</TableCell>
-                      <TableCell>
-                        <Link href={`/vac/progress?user=${learner.learner_id}`}>
-                          <Button variant="ghost" size="icon" title="View progress">
-                            <ExternalLink className="h-4 w-4" />
+                      <TableCell className="text-right">
+                        <Link
+                          href={`/vac/progress?user=${learner.learner_id}`}
+                          title="Opens this learner's progress in the VAC area (leaves PDE)"
+                          aria-label="View in VAC — leaves the PDE admin area"
+                        >
+                          <Button variant="outline" size="sm" className="gap-1.5">
+                            View in VAC
+                            <ExternalLink className="h-3.5 w-3.5" />
                           </Button>
                         </Link>
                       </TableCell>

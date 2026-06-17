@@ -448,6 +448,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/refunds/new': 'billing.refunds.create',
   '/billing/refunds/[id]': 'billing.refunds.view',
   '/billing/refunds/[id]/edit': 'billing.refunds.edit',
+  '/billing/apportionment': 'billing.apportionment.view',
+  '/billing/apportionment/rules': 'billing.apportionment.view',
   '/billing/invoices': 'billing.invoices.view',
   '/billing/invoices/[id]': 'billing.invoices.view',
   '/billing/invoices/[id]/edit': 'billing.invoices.edit',
@@ -636,6 +638,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   '/staff': 'staff.view',
   '/hr': 'hr.view',
+
+  // Family Moments (2026-06-12 — Father's Day 2026, NV CBSE + Matric HSS)
+  '/moments/submit': 'moments.submissions.create',
+  '/moments/campaigns': 'moments.campaigns.view',
 
   // Solution Hub
   '/solutions': 'solutions.dashboard.view',
@@ -895,6 +901,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Board of Studies — parent landing (children /bos/{compositions,experts,...} above)
   '/bos': 'bos.view',
+  // EKSAQ RCLTP — gated to content managers for now (only admin authoring +
+  // policies exist in Phase 4a); broaden when student/teacher surfaces (4b/4c) land.
+  '/rcltp': 'rcltp.config.manage',
 
   // Events — Marathon submenu (companion to existing /events/propose entry)
   '/events/marathon': 'events.marathon.view',
@@ -918,7 +927,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/health/training': 'health.training.view',
   '/health/achievements': 'health.achievements.view',
   '/health/assessments': 'health.assessments.view',
+  '/health/admin/programs': 'health.programs.manage',
   '/health/counselor': 'health.counselor.view',
+  '/health/programs': 'health.programs.view',
 
   // IMS (Inventory Management System) — Added 2026-04-27. Module-level
   // taxonomy mirrors Admission CRM precedent; gateway permission `ims.view`
@@ -1092,6 +1103,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/ai-query',
           icon: Sparkles,
           submenus: []
+        },
+        {
+          href: '/guide',
+          label: 'Guide',
+          active: pathname === '/guide' || pathname.startsWith('/guide/'),
+          icon: BookOpen,
+          submenus: []
         }
       ]
     },
@@ -1188,6 +1206,26 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // Learner post-class feedback — 10-second confirm that doubles as
+          // attendance confirmation. Lives under /academic/session-feedback/learn.
+          href: '/academic/session-feedback/learn',
+          label: 'Class Feedback',
+          active: pathname.startsWith('/academic/session-feedback/learn'),
+          icon: MessageSquare,
+          submenus: []
+        },
+        {
+          // Post-class feedback — learner attendance-confirmation view (L2).
+          // Sessions stay "present-pending" until the learner gives feedback.
+          href: '/academic/session-feedback/me',
+          label: 'My Attendance Feedback',
+          active:
+            pathname === '/academic/session-feedback/me' ||
+            pathname.startsWith('/academic/session-feedback/me/'),
+          icon: ClipboardCheck,
+          submenus: []
+        },
+        {
           // Board of Studies — institutional governance + expert management.
           // Navigation lives in the module's in-page tab bar (BOS_NAV_TABS,
           // see app/(routes)/bos/layout.tsx) and nav-config.ts.
@@ -1195,6 +1233,33 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Board of Studies',
           active: pathname === '/bos' || pathname.startsWith('/bos/'),
           icon: ClipboardList,
+          submenus: []
+        },
+        {
+          // EKSAQ RCLTP — reading-assessment module. Role-aware landing at /rcltp
+          // routes each persona to their lane (admin authoring + policies live now;
+          // student/teacher/principal surfaces land in Phase 4b/4c).
+          href: '/rcltp',
+          label: 'Reading (RCLTP)',
+          active: pathname === '/rcltp' || pathname.startsWith('/rcltp/'),
+          icon: BookOpen,
+          submenus: []
+        },
+        {
+          // Post-class feedback — faculty's own anonymized session-understanding signal.
+          href: '/academic/session-feedback/faculty',
+          label: 'Session Feedback (Faculty)',
+          active: pathname.startsWith('/academic/session-feedback/faculty'),
+          icon: MessageSquare,
+          submenus: []
+        },
+        {
+          // Post-class feedback — principal escalation dashboard (L4). Sessions
+          // where learners reported low understanding, for follow-up with faculty.
+          href: '/academic/session-feedback/principal',
+          label: 'Session Escalations',
+          active: pathname.startsWith('/academic/session-feedback/principal'),
+          icon: Activity,
           submenus: []
         }
       ]
@@ -1569,6 +1634,22 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
+      // Family Moments — campaign-based parent engagement (Father's Day 2026).
+      groupLabel: 'Family Moments',
+      menus: [
+        {
+          href: '/moments/submit',
+          label: 'Family Moments',
+          active: pathname.startsWith('/moments'),
+          icon: Heart,
+          submenus: [
+            { href: '/moments/submit', label: 'Collect Messages', active: pathname === '/moments/submit' },
+            { href: '/moments/campaigns', label: 'Campaigns', active: pathname === '/moments/campaigns' },
+          ]
+        }
+      ]
+    },
+    {
       groupLabel: 'Learners',
       menus: [
         {
@@ -1656,6 +1737,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/receipts', label: 'Receipts', active: pathname.startsWith('/billing/receipts') },
             { href: '/billing/discounts', label: 'Scholarships', active: pathname.startsWith('/billing/discounts') },
             { href: '/billing/refunds', label: 'Refunds', active: pathname.startsWith('/billing/refunds') },
+            { href: '/billing/apportionment', label: 'Apportionment', active: pathname.startsWith('/billing/apportionment') },
             { href: '/billing/invoices', label: 'Invoices', active: pathname.startsWith('/billing/invoices') },
             { href: '/billing/reports', label: 'Reports', active: pathname.startsWith('/billing/reports') },
             { href: '/billing/analytics', label: 'Analytics', active: pathname.startsWith('/billing/analytics') },
@@ -1869,6 +1951,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/learn/channels', label: 'Channels', active: pathname.startsWith('/learn/channels') },
             { href: '/learn/profile', label: 'Profile', active: pathname === '/learn/profile' },
             { href: '/learn/leaderboard', label: 'Leaderboard', active: pathname === '/learn/leaderboard' },
+            { href: '/guide', label: 'Guide', active: pathname.startsWith('/guide') },
           ]
         },
         {
@@ -1883,6 +1966,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/pde/faculty/demonstrations', label: 'Demonstrations', active: pathname === '/pde/faculty/demonstrations' },
             { href: '/pde/faculty/cases', label: 'Clinical Cases', active: pathname.startsWith('/pde/faculty/cases') },
             { href: '/pde/faculty/analytics', label: 'Analytics', active: pathname === '/pde/faculty/analytics' },
+            { href: '/guide', label: 'Guide', active: pathname.startsWith('/guide') },
           ]
         },
         {
@@ -1898,6 +1982,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/pde/admin/engagement', label: 'Engagement', active: pathname === '/pde/admin/engagement' },
             { href: '/pde/admin/at-risk', label: 'At-Risk', active: pathname === '/pde/admin/at-risk' },
             { href: '/pde/admin/lti', label: 'LTI Config', active: pathname === '/pde/admin/lti' },
+            { href: '/guide', label: 'Guide', active: pathname.startsWith('/guide') },
           ]
         }
       ]
@@ -1919,7 +2004,9 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/health/training', label: 'Training Log', active: pathname === '/health/training' },
             { href: '/health/achievements', label: 'Achievements', active: pathname === '/health/achievements' },
             { href: '/health/assessments', label: 'Mental Health Check-In', active: pathname === '/health/assessments' },
+            { href: '/health/admin/programs', label: 'Manage Programs', active: pathname.startsWith('/health/admin/programs') },
             { href: '/health/counselor', label: 'Counselor Dashboard', active: pathname === '/health/counselor' },
+            { href: '/health/programs', label: 'Wellness Programs', active: pathname === '/health/programs' || pathname.startsWith('/health/programs/') },
           ]
         }
       ]
@@ -2324,6 +2411,9 @@ export function GetRoleBasedPages(
           if (menu.href === '/admin/bug-reports' && menu.submenus.length > 0) {
             return true;
           }
+
+          // Platform Guide is always visible for all users (universal in-app help)
+          if (menu.href === '/guide') return true;
 
           // Check if menu requires super admin
           if ((menu as any).requiresSuperAdmin) {

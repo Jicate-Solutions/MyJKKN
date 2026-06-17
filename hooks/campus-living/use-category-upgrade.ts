@@ -64,10 +64,33 @@ export function useUpgradeRoom() {
       invalidate();
       if (res.state === 'booked') {
         toast.success('Room booked — it is now assigned to you');
+      } else if (res.state === 'pending_payment') {
+        toast.success(
+          `Room reserved — pay the upgrade fee of ₹${(res.upgrade_fee ?? 0).toLocaleString('en-IN')} to confirm`
+        );
       } else if (res.state === 'waitlisted') {
         toast.success('Room reserved — it confirms automatically once your fee payment reaches the required level');
       } else {
-        toast.success(`Upgraded · new bill ₹${(res.bill?.billed ?? 0).toLocaleString('en-IN')} generated`);
+        toast.success('Upgraded — the room is now assigned to you');
+      }
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Upgrade failed'),
+  });
+}
+
+// AUTO category upgrade: bill generated now, category changes on payment, no room reserved.
+export function useUpgradeCategoryOnly() {
+  const invalidate = useUpgradeInvalidator();
+  return useMutation({
+    mutationFn: (categoryId: string) => CategoryUpgradeService.upgradeCategoryOnly(categoryId),
+    onSuccess: (res) => {
+      invalidate();
+      if (res.state === 'upgraded') {
+        toast.success('Category upgraded — no fee was due');
+      } else {
+        toast.success(
+          `Upgrade bill of ₹${(res.upgrade_fee ?? 0).toLocaleString('en-IN')} generated — your category changes once it is fully paid`
+        );
       }
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Upgrade failed'),

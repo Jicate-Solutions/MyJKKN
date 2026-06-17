@@ -60,6 +60,8 @@ export interface EngagementSignals {
   quiz_score?: number; // 0–100
   quiz_passed?: boolean;
   quiz_async_makeup?: boolean;
+  /** CARE E-move: optional "what should change next week?" free text. */
+  feedback_text?: string;
 }
 
 export interface LivePoll {
@@ -74,6 +76,19 @@ export interface LivePoll {
 export interface LivePollResponse {
   poll_id: string;
   option_id: string;
+}
+
+/**
+ * This week's Champion-chosen featured AI tool, resolved from
+ * config.ai_pulse.featured_tool_id (standardized nested shape, with legacy
+ * flat config.featured_tool_id fallback) → ai_pulse_featured_tools. Mirrors
+ * the admin/NAAC read in cycles-service hydrateCycle; surfaced here so the
+ * learner-facing live page can show it too.
+ */
+export interface LiveFeaturedTool {
+  id: string;
+  label_en: string;
+  vendor_name: string | null;
 }
 
 export interface LiveSessionData {
@@ -96,6 +111,19 @@ export interface LiveSessionData {
   polls: LivePoll[];
   quiz_open: boolean;
   quiz_async_window_open: boolean; // 48h async make-up window
+  /**
+   * Join button window. Cycles appear on My Pulse up to a week early —
+   * join_open gates the button so an early click can't farm the on-time
+   * gate. Opens `join_doors_open_minutes` (policy, seeded 15) before
+   * starts_at, closes at ends_at.
+   */
+  join_open: boolean;
+  join_opens_at: string | null; // ISO — when the button unlocks
+  /**
+   * The Champion's featured AI tool for this cycle, or null when none is set
+   * (or the tool row was removed). Shown in the live-session header card.
+   */
+  featured_tool: LiveFeaturedTool | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -187,7 +215,7 @@ function isoToIstHHMM(iso: string): string {
  * `session_end_time` (seeded defaults 18:55–19:30). We compose them into IST
  * timestamps the 4-AND gate can compare against.
  */
-function deriveCycleTimes(row: {
+export function deriveCycleTimes(row: {
   demo_date?: string | null;
   start_date?: string | null;
   end_date?: string | null;
@@ -210,6 +238,34 @@ function deriveCycleTimes(row: {
     ? `${date}T${endHHMM}:00+05:30`
     : ((row.end_date ?? null) as string | null);
   return { starts_at, ends_at };
+}
+
+/**
+ * Effective cycle status, derived from the session window.
+ *
+ * Nothing in the platform transitions a cycle out of 'draft' (cycles-service
+ * only ever writes 'draft' on create and 'cancelled' on cancel), so the
+ * heartbeat gate ("only while live") and the quiz gate ("opens post_event")
+ * were unreachable — cycle #1 (2026-06-11) recorded zero engagement because
+ * of it. Instead of adding status-flipping machinery someone must remember
+ * to run, derive the status from the clock: a draft cycle inside its session
+ * window IS live, and past its window IS post_event. Explicit non-draft
+ * statuses (cancelled, or anything set by hand) always win.
+ */
+export function deriveEffectiveStatus(
+  rawStatus: string,
+  startsAt: string | null,
+  endsAt: string | null,
+  nowMs: number = Date.now(),
+): string {
+  if (rawStatus !== 'draft') return rawStatus;
+  if (!startsAt || !endsAt) return rawStatus;
+  const start = new Date(startsAt).getTime();
+  const end = new Date(endsAt).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return rawStatus;
+  if (nowMs >= start && nowMs <= end) return 'live';
+  if (nowMs > end) return 'post_event';
+  return rawStatus;
 }
 
 // ---------------------------------------------------------------------------
@@ -252,6 +308,33 @@ export class LiveSessionService {
     const config = (cycleRow.config ?? {}) as Record<string, unknown>;
     const aiPulse = (config.ai_pulse ?? {}) as Record<string, unknown>;
 
+    // Champion-chosen featured tool — read the raw config in code (NOT a
+    // PostgREST `->>dotted.key` filter, which returns false-empty on dotted
+    // JSON keys). Nested-first (config.ai_pulse.featured_tool_id), with a
+    // fallback to the legacy flat shape (config.featured_tool_id), matching
+    // the canonical read in cycles-service hydrateCycle. Then join the
+    // featured-tools master for its label + vendor (same columns the admin
+    // side reads). Best-effort: a missing/removed tool degrades to null.
+    let featured_tool: LiveFeaturedTool | null = null;
+    const featuredToolId =
+      (aiPulse.featured_tool_id as string | null | undefined) ??
+      (config.featured_tool_id as string | null | undefined) ??
+      null;
+    if (featuredToolId) {
+      const { data: ft } = await supabase
+        .from('ai_pulse_featured_tools')
+        .select('id, label_en, vendor_name')
+        .eq('id', featuredToolId)
+        .maybeSingle();
+      if (ft) {
+        featured_tool = {
+          id: ft.id as string,
+          label_en: ft.label_en as string,
+          vendor_name: (ft.vendor_name ?? null) as string | null,
+        };
+      }
+    }
+
     // Existing per-learner attendance row (if any)
     const { data: attRow } = await supabase
       .from('ai_pulse_live_attendance')
@@ -261,14 +344,15 @@ export class LiveSessionService {
       .eq('day_type', 'live_session')
       .maybeSingle();
 
-    // Open polls for this cycle (best-effort — table may not exist on all branches)
+    // ALL polls for this cycle, open and closed (best-effort — table may not
+    // exist on all branches). The gate needs the full issued count so closing
+    // a poll doesn't shrink the requirement; the panel filters to open ones.
     let polls: LivePoll[] = [];
     try {
       const { data: pollRows } = await supabase
         .from('ai_pulse_polls')
         .select('id, cycle_id, question, options, issued_at, closed_at')
         .eq('cycle_id', cycleId)
-        .is('closed_at', null)
         .order('issued_at', { ascending: true });
       polls = (pollRows ?? []) as unknown as LivePoll[];
     } catch (e) {
@@ -276,9 +360,14 @@ export class LiveSessionService {
       polls = [];
     }
 
-    const status = (cycleRow.status ?? 'draft') as string;
     const { starts_at: startsAt, ends_at: endsAt } = deriveCycleTimes(cycleRow);
     const now = Date.now();
+    const status = deriveEffectiveStatus(
+      (cycleRow.status ?? 'draft') as string,
+      startsAt,
+      endsAt,
+      now,
+    );
 
     // Async make-up window is policy-driven (async_makeup_window_hours, seeded 48).
     const policies = await readPolicies(supabase);
@@ -289,6 +378,18 @@ export class LiveSessionService {
 
     const quiz_async_window_open = status === 'post_event' && !!endsAt &&
       diffMinutes(new Date(now).toISOString(), endsAt) <= asyncWindowHours * 60;
+
+    // Join window — doors open `join_doors_open_minutes` before start
+    // (Director decision 2026-06-12; policy-seeded 15), close at session end.
+    const doorsOpenMinutes = policyNumber(policies, 'join_doors_open_minutes', 15);
+    let join_open = true; // no derivable window → don't block (legacy cycles)
+    let join_opens_at: string | null = null;
+    if (startsAt) {
+      const opensMs = new Date(startsAt).getTime() - doorsOpenMinutes * 60_000;
+      join_opens_at = new Date(opensMs).toISOString();
+      const endMs = endsAt ? new Date(endsAt).getTime() : Number.POSITIVE_INFINITY;
+      join_open = now >= opensMs && now <= endMs;
+    }
 
     return {
       cycle: {
@@ -310,6 +411,9 @@ export class LiveSessionService {
       polls,
       quiz_open,
       quiz_async_window_open,
+      join_open,
+      join_opens_at,
+      featured_tool,
     };
   }
 
@@ -516,12 +620,15 @@ export class LiveSessionService {
   /**
    * Submit the post-session quiz. Writes quiz_score + quiz_passed into
    * engagement_signals, plus a quiz_async_makeup flag if submitted in the
-   * 60min–48h window.
+   * 60min–48h window. Optional `feedback` ("what should change next week?")
+   * rides the same write — the CARE E-move voice channel; surfaced to the
+   * Champion on the admin cycle page, anonymously.
    */
   static async submitQuiz(
     cycleId: string,
     score: number,
     asyncMakeup: boolean,
+    feedback?: string,
   ): Promise<EngagementSignals> {
     // Cast to any: this service touches ai_pulse_live_attendance (+ the deferred
     // ai_pulse_polls/poll_responses), which are not yet in the generated
@@ -555,11 +662,13 @@ export class LiveSessionService {
       : policyNumber(policies, 'quiz_pass_threshold_live', 40);
 
     const prevSignals = (existing?.engagement_signals ?? {}) as EngagementSignals;
+    const trimmedFeedback = feedback?.trim();
     const nextSignals: EngagementSignals = {
       ...prevSignals,
       quiz_score: score,
       quiz_passed: score >= passThreshold,
       quiz_async_makeup: asyncMakeup,
+      ...(trimmedFeedback ? { feedback_text: trimmedFeedback } : {}),
     };
 
     // Always write to the learner's live_session row (async make-up is a flag
@@ -596,25 +705,47 @@ export interface GateStatus {
   polls_responded_ok: boolean;
   stayed_until_end: boolean;
   quiz_passed: boolean;
+  /** How many polls the Champion issued this cycle (0 = polls gate auto-passes). */
+  polls_issued: number;
+  /** How many poll responses this learner needs (min(3, polls_issued)). */
+  polls_required: number;
   passed_count: number; // 0..4
   total: 4;
   is_engaged: boolean;
 }
 
 /**
+ * The last heartbeat can land up to one interval (60s) before ends_at, and
+ * isoToIstHHMM truncates seconds — so requiring stayed_until >= the exact end
+ * HH:MM fails learners who genuinely stayed. Accept heartbeats within this
+ * many minutes of the end.
+ */
+const STAY_TOLERANCE_MINUTES = 5;
+
+/**
  * Evaluate the 4-AND gate from raw signals + cycle end time.
  * Pure function, used by both the progress bar and the engagement card.
+ *
+ * `pollsIssued` is how many polls exist for the cycle: the polls requirement
+ * is min(3, pollsIssued), so a cycle with no polls (the polls feature has no
+ * authoring surface yet) doesn't make engagement unattainable.
  */
 export function evaluateGates(
   signals: EngagementSignals,
   endsAt: string | null,
+  pollsIssued: number = 0,
 ): GateStatus {
   const joined_within_5min = !!signals.joined_within_5min;
-  const polls_responded_ok = (signals.polls_responded ?? 0) >= 3;
+  const polls_required = Math.min(3, Math.max(0, pollsIssued));
+  const polls_responded_ok =
+    polls_required === 0 || (signals.polls_responded ?? 0) >= polls_required;
 
   let stayed_until_end = false;
   if (signals.stayed_until && endsAt) {
-    const endHHMM = isoToIstHHMM(endsAt);
+    const endWithTolerance = new Date(
+      new Date(endsAt).getTime() - STAY_TOLERANCE_MINUTES * 60_000,
+    ).toISOString();
+    const endHHMM = isoToIstHHMM(endWithTolerance);
     // Compare HH:MM strings — works for same-day sessions.
     stayed_until_end = signals.stayed_until >= endHHMM;
   }
@@ -632,6 +763,8 @@ export function evaluateGates(
     polls_responded_ok,
     stayed_until_end,
     quiz_passed,
+    polls_issued: Math.max(0, pollsIssued),
+    polls_required,
     passed_count,
     total: 4,
     is_engaged: passed_count === 4,
@@ -653,6 +786,10 @@ export function useLiveSession(
     queryFn: () => LiveSessionService.getLiveSession(cycleId),
     enabled: !!cycleId,
     staleTime: 15 * 1000, // 15s — live session, signals change fast
+    // Effective status is clock-derived server-side at fetch time; poll so the
+    // page crosses draft → live → post_event (heartbeat start, quiz opening)
+    // without the learner having to reload.
+    refetchInterval: 60 * 1000,
     refetchOnWindowFocus: true,
   });
 }
@@ -710,16 +847,16 @@ export function useSubmitQuiz(
 ): UseMutationResult<
   EngagementSignals,
   Error,
-  { score: number; asyncMakeup: boolean }
+  { score: number; asyncMakeup: boolean; feedback?: string }
 > {
   const queryClient = useQueryClient();
   return useMutation<
     EngagementSignals,
     Error,
-    { score: number; asyncMakeup: boolean }
+    { score: number; asyncMakeup: boolean; feedback?: string }
   >({
-    mutationFn: ({ score, asyncMakeup }) =>
-      LiveSessionService.submitQuiz(cycleId, score, asyncMakeup),
+    mutationFn: ({ score, asyncMakeup, feedback }) =>
+      LiveSessionService.submitQuiz(cycleId, score, asyncMakeup, feedback),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: liveSessionKey(cycleId) });
     },

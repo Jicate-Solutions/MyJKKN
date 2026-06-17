@@ -104,7 +104,7 @@ export class PaymentGatewayService {
       // Step 1: Validate bills and calculate total amount
       const { data: bills, error: billsError } = await supabase
         .from('billing_student_bills')
-        .select('id, bill_description, total_amount, final_amount, balance_amount, status, institution_id')
+        .select('id, bill_description, total_amount, final_amount, balance_amount, status, institution_id, item_category_id')
         .in('id', sessionData.bill_ids);
 
       if (billsError) {
@@ -225,9 +225,35 @@ export class PaymentGatewayService {
       // Otherwise, fall through to the existing HDFC SmartGateway flow below.
       // ----------------------------------------------------------------------
       if (getActiveProviderName('billing') === 'razorpay') {
-        // Resolve the institution's Razorpay account (falls back to the common env
-        // account when this institution has none configured).
-        const provider = await getPaymentProvider('billing', { institutionId });
+        // Determine the order's fee head for account routing. Route to a
+        // head-specific MID ONLY when every bill in the order shares one
+        // billing_categories.kind (and every category resolves); a mixed-head or
+        // uncategorised bundle falls back to the institution's default account
+        // (fee_head NULL). Verify/refund later resolve by the pinned account, so
+        // only order creation needs to be fee-head-aware.
+        let feeHead: string | null = null;
+        const categoryIds = [
+          ...new Set(bills.map((b) => b.item_category_id).filter(Boolean)),
+        ] as string[];
+        const allBillsCategorised = bills.every((b) => b.item_category_id);
+        if (allBillsCategorised && categoryIds.length > 0) {
+          const { data: cats, error: catsError } = await supabase
+            .from('billing_categories')
+            .select('id, kind')
+            .in('id', categoryIds);
+          if (catsError) {
+            logger.error('billing/payment-gateway', 'Failed to fetch bill categories for fee-head routing', catsError);
+            throw catsError;
+          }
+          const kinds = [...new Set((cats ?? []).map((c) => c.kind))];
+          if (kinds.length === 1 && (cats?.length ?? 0) === categoryIds.length) {
+            feeHead = kinds[0];
+          }
+        }
+
+        // Resolve the institution + fee-head Razorpay account (falls back to the
+        // institution default, then the common env account when unconfigured).
+        const provider = await getPaymentProvider('billing', { institutionId, feeHead });
         const rzpAccountId = (provider as RazorpayProvider).accountId ?? null;
         const amountPaise = toPaise(totalAmount);
 

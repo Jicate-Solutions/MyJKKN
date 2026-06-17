@@ -33,6 +33,9 @@ export default function CampusLivingLayout({ children }: CLLayoutProps) {
       >
         <CampusLivingResidentGuard>{children}</CampusLivingResidentGuard>
       </Suspense>
+      {/* The per-module "?Help" FAB was removed — the ONE route-aware platform
+          guide FAB (root layout) now covers every screen, campus-living
+          included. The campus-living guide PAGE is untouched. */}
     </div>
   );
 }

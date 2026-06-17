@@ -14,13 +14,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { Loader2, Wand2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+
+const ALL_BLOCKS = '__all_blocks__';
+const ALL_FLOORS = '__all_floors__';
+const floorLabel = (f: number) => (f === 0 ? 'Ground floor' : `Floor ${f}`);
 import { usePermissions } from '@/hooks/use-permissions';
 import { CandidateValidationTable } from './_components/candidate-validation-table';
 import type { AllocationCandidate } from '@/types/allocation-batch';
 import {
   useAutoBlocks,
+  useBlockFloors,
   useHostelYears,
   useAllocationBatchActions,
 } from '@/hooks/campus-living/use-allocation-batches';
@@ -35,8 +41,16 @@ export default function AutoAllocatePage() {
 
   const [genderType, setGenderType] = useState('');
   const [blockId, setBlockId] = useState('');
+  const [floor, setFloor] = useState(ALL_FLOORS);
   const [yearId, setYearId] = useState('');
+  // Strict physical rules: only allocate cohorts that match a physical-room rule (default
+  // on). Physical condition first, then category. Off = today's fail-open catch-all.
+  const [strict, setStrict] = useState(true);
   const { years } = useHostelYears();
+
+  // Floors of the chosen block (single-block only — floor is ambiguous across "All blocks").
+  const { floors } = useBlockFloors(blockId && blockId !== ALL_BLOCKS ? blockId : '');
+  const floorParam = floor === ALL_FLOORS ? null : Number(floor);
 
   // Block list is per-gender — pick a type first to narrow it.
   const typedBlocks = genderType ? blocks.filter((b) => b.type === genderType) : [];
@@ -50,13 +64,14 @@ export default function AutoAllocatePage() {
   const canGenerate = isSuperAdmin || can('campus_living.allocations.create');
 
   const runPreview = async () => {
-    if (!blockId) return;
+    // Preview is per-block (the candidate table is one block's cohort).
+    if (!blockId || blockId === ALL_BLOCKS) return;
     setPreviewing(true);
     setCandidates(null);
     try {
       const [cands, agg] = await Promise.all([
-        AllocationBatchService.previewCandidates(blockId),
-        AllocationBatchService.preview(blockId),
+        AllocationBatchService.previewCandidates(blockId, strict, floorParam),
+        AllocationBatchService.preview(blockId, floorParam),
       ]);
       setCandidates(cands);
       setAvailableBeds(agg.available_beds);
@@ -71,9 +86,21 @@ export default function AutoAllocatePage() {
     if (!blockId || !yearId) return;
     setGenerating(true);
     try {
-      const batchId = await generate(blockId, yearId);
-      toast.success('Proposed allocation generated — awaiting warden approval');
-      router.push(`/campus-living/allocations/batches/${batchId}`);
+      if (blockId === ALL_BLOCKS) {
+        // One proposed batch per block of the selected gender. Floor scope is single-block
+        // only, so "All blocks" always runs across all floors (floorParam is null here).
+        let made = 0;
+        for (const b of typedBlocks) {
+          await generate(b.id, yearId, strict, null);
+          made += 1;
+        }
+        toast.success(`Generated a proposed batch for ${made} block${made === 1 ? '' : 's'} — awaiting warden approval`);
+        router.push('/campus-living/allocations/batches');
+      } else {
+        const batchId = await generate(blockId, yearId, strict, floorParam);
+        toast.success('Proposed allocation generated — awaiting warden approval');
+        router.push(`/campus-living/allocations/batches/${batchId}`);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to generate');
     } finally {
@@ -108,12 +135,12 @@ export default function AutoAllocatePage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Selection</CardTitle>
-            <CardDescription>Type, block, and hostel year</CardDescription>
+            <CardDescription>Type, block, floor, and hostel year</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-3">
+          <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-2">
               <Label>Type</Label>
-              <Select value={genderType} onValueChange={(v) => { setGenderType(v); setBlockId(''); setCandidates(null); }}>
+              <Select value={genderType} onValueChange={(v) => { setGenderType(v); setBlockId(''); setFloor(ALL_FLOORS); setCandidates(null); }}>
                 <SelectTrigger><SelectValue placeholder="Boys / Girls" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="boys">Boys</SelectItem>
@@ -123,10 +150,33 @@ export default function AutoAllocatePage() {
             </div>
             <div className="space-y-2">
               <Label>Block</Label>
-              <Select value={blockId} onValueChange={(v) => { setBlockId(v); setCandidates(null); }} disabled={!genderType}>
+              <Select value={blockId} onValueChange={(v) => { setBlockId(v); setFloor(ALL_FLOORS); setCandidates(null); }} disabled={!genderType}>
                 <SelectTrigger><SelectValue placeholder={genderType ? 'Select block' : 'Pick a type first'} /></SelectTrigger>
                 <SelectContent>
+                  {typedBlocks.length > 1 && (
+                    <SelectItem value={ALL_BLOCKS}>
+                      All blocks ({genderType === 'boys' ? 'Boys' : 'Girls'})
+                    </SelectItem>
+                  )}
                   {typedBlocks.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Floor</Label>
+              <Select
+                value={floor}
+                onValueChange={(v) => { setFloor(v); setCandidates(null); }}
+                disabled={!blockId || blockId === ALL_BLOCKS}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="All floors" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FLOORS}>All floors</SelectItem>
+                  {floors.map((f) => (
+                    <SelectItem key={f} value={String(f)}>{floorLabel(f)}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -142,11 +192,23 @@ export default function AutoAllocatePage() {
           </CardContent>
         </Card>
 
+        <div className="flex items-center justify-between rounded-lg border p-3 sm:max-w-xl">
+          <div className="space-y-0.5 pr-3">
+            <Label className="text-sm">Strict physical rules</Label>
+            <p className="text-xs text-muted-foreground">
+              Check the physical-room condition first: only allocate cohorts that match a
+              physical-room rule. Open (rule-free) rooms are not used as a catch-all, so cohorts
+              with no rule (e.g. 3-Year) are skipped. Turn off for the open, fill-everyone mode.
+            </p>
+          </div>
+          <Switch checked={strict} onCheckedChange={(v) => { setStrict(v); setCandidates(null); }} />
+        </div>
+
         <div className="flex gap-3">
           <Button
             variant="outline"
             onClick={runPreview}
-            disabled={!blockId || previewing}
+            disabled={!blockId || blockId === ALL_BLOCKS || previewing}
           >
             {previewing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Preview
           </Button>

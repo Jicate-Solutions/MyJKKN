@@ -31,6 +31,13 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
   const waitlistFor = (categoryId: string) =>
     myWaitlist.find((w) => w.target_category_id === categoryId) ?? null;
 
+  // A pending upgrade target locks LOWER-category upgrades (no downgrades): once the learner
+  // has chosen e.g. Premium, the Deluxe row is disabled; choosing Deluxe instead still leaves
+  // the higher Premium row selectable as the next level up.
+  const pendingTarget = options.find((o) => waitlistFor(o.category_id)) ?? null;
+  const pendingTargetFee = pendingTarget?.current_year_fee ?? null;
+  const pendingTargetName = pendingTarget?.name ?? null;
+
   return (
     <Card>
       <CardHeader>
@@ -39,8 +46,8 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
         </CardTitle>
         <CardDescription>
           {isBook
-            ? 'Pick a room to move into. Confirming books it instantly and it leaves everyone else’s options.'
-            : 'Move up to a higher room category. If a room is free you move instantly and a new bill is generated; otherwise you can join the waitlist (your current stay & bill stay as-is).'}
+            ? 'Pick a room to move into. It books once your academic-year fee payment meets the required level — otherwise the room is reserved for you while you pay.'
+            : 'Move up to a higher room category. The room is reserved and an upgrade bill is generated — the upgrade confirms once the bill is fully paid.'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -56,10 +63,20 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
           </p>
         ) : (
           options.map((opt) => {
-            const waitlisted = isBook ? null : waitlistFor(opt.category_id);
-            // A below-threshold reservation: bed is hard-held until paid or expiry.
+            // Book mode participates too: a below-threshold first booking also
+            // hard-reserves the bed on the waitlist.
+            const waitlisted = waitlistFor(opt.category_id);
+            // A reservation: bed is hard-held until confirmed (paid) or expiry.
             const held = waitlisted?.held_room_number ? waitlisted : null;
+            // Pay-to-confirm: threshold met, upgrade bill generated — show
+            // payment progress instead of the threshold message.
+            const pendingBill = held?.upgrade_bill_id ? held : null;
+            // Category-only upgrade (auto category): a bill exists but NO room is held —
+            // awaiting payment; the category changes on full payment, room assigned later.
+            const categoryPending = !held && waitlisted?.upgrade_bill_id ? waitlisted : null;
             const hasRooms = opt.available_beds > 0;
+            // Locked: a higher upgrade is already pending → this lower option is a downgrade.
+            const locked = pendingTargetFee != null && opt.current_year_fee < pendingTargetFee;
             return (
               <div
                 key={opt.category_id}
@@ -69,15 +86,22 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                     : waitlisted && hasRooms
                       ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-950/30'
                       : ''
-                }`}
+                } ${locked ? 'opacity-60' : ''}`}
               >
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                   <div className="min-w-0">
-                    <p className="font-medium truncate">
-                      {!isBook && currentCategoryName ? `${currentCategoryName} → ` : ''}{opt.name}
+                    <p className="font-medium">
+                      {!isBook && currentCategoryName && (
+                        <span className="text-muted-foreground">{currentCategoryName} → </span>
+                      )}
+                      <span className="text-base">{opt.name}</span>
                     </p>
                   </div>
-                  {isBook ? (
+                  {locked ? (
+                    <Badge variant="outline" className="w-fit text-muted-foreground">
+                      Lower than your pending {pendingTargetName} upgrade
+                    </Badge>
+                  ) : isBook && !held ? (
                     hasRooms ? (
                       <Button size="sm" onClick={() => setPicked(opt)}>
                         <ArrowUpCircle className="mr-1.5 h-4 w-4" /> Book now
@@ -100,10 +124,29 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                         Cancel
                       </Button>
                     </div>
+                  ) : categoryPending ? (
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-400">
+                        <CalendarClock className="mr-1 h-3 w-3" /> Pending payment
+                      </Badge>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={leaveWaitlist.isPending}
+                        onClick={() => { if (!leaveWaitlist.isPending) leaveWaitlist.mutate(opt.category_id); }}
+                      >
+                        {leaveWaitlist.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                        Cancel
+                      </Button>
+                    </div>
                   ) : hasRooms ? (
                     <Button size="sm" onClick={() => setPicked(opt)}>
                       <ArrowUpCircle className="mr-1.5 h-4 w-4" />
-                      {opt.meets_threshold ? 'Upgrade now' : 'Reserve room'}
+                      {opt.allocation_mode === 'auto'
+                        ? 'Upgrade'
+                        : opt.meets_threshold
+                          ? opt.upgrade_fee > 0 ? 'Reserve & pay' : 'Upgrade now'
+                          : 'Reserve room'}
                     </Button>
                   ) : waitlisted ? (
                     <div className="flex items-center gap-2">
@@ -135,32 +178,69 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                     </div>
                   )}
                 </div>
-                {held && (
+                {locked && (
+                  <p className="text-xs text-muted-foreground">
+                    You&apos;ve already chosen the higher {pendingTargetName} upgrade — cancel it
+                    first to pick this instead.
+                  </p>
+                )}
+                {pendingBill && (
+                  <p className="text-xs text-amber-800 dark:text-amber-300">
+                    Room {pendingBill.held_room_number}
+                    {pendingBill.held_block_name ? ` (${pendingBill.held_block_name})` : ''} is held for you
+                    {pendingBill.hold_expires_at
+                      ? ` until ${new Date(pendingBill.hold_expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
+                      : ''}
+                    . Pay the upgrade fee of{' '}
+                    <span className="font-semibold">
+                      ₹{(pendingBill.upgrade_fee_amount ?? 0).toLocaleString('en-IN')}
+                    </span>
+                    {(pendingBill.upgrade_fee_paid ?? 0) > 0
+                      ? ` (₹${(pendingBill.upgrade_fee_paid ?? 0).toLocaleString('en-IN')} paid so far)`
+                      : ''}{' '}
+                    to confirm — the reservation is cancelled after the deadline.
+                  </p>
+                )}
+                {held && !pendingBill && (
                   <p className="text-xs text-amber-800 dark:text-amber-300">
                     Room {held.held_room_number}
                     {held.held_block_name ? ` (${held.held_block_name})` : ''} is held for you
                     {held.hold_expires_at
                       ? ` until ${new Date(held.hold_expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
                       : ''}
-                    . You&apos;ve paid {held.paid_pct ?? 0}% of this year&apos;s fees — it confirms
-                    automatically at {held.threshold_pct}%; the reservation is cancelled after the
-                    deadline.
+                    . You&apos;ve paid {held.paid_pct ?? 0}% of this year&apos;s fees — it moves ahead
+                    automatically at {held.threshold_pct}%
+                    {isBook ? '' : ' (the upgrade fee is then billed and must be fully paid to confirm)'};
+                    the reservation is cancelled after the deadline.
                   </p>
                 )}
-                {!isBook && !held && hasRooms && !opt.meets_threshold && (
+                {!isBook && !locked && !held && hasRooms && !opt.meets_threshold && (
                   <p className="text-xs text-muted-foreground">
                     You&apos;ve paid {opt.paid_pct ?? 0}% of this year&apos;s fees; {opt.threshold_pct}% is
                     needed for an instant upgrade — you can still reserve a room for {opt.hold_days} day
                     {opt.hold_days === 1 ? '' : 's'} while you pay.
                   </p>
                 )}
-                {!held && waitlisted && hasRooms && (
+                {categoryPending && (
+                  <p className="text-xs text-amber-800 dark:text-amber-300">
+                    Upgrade to {opt.name} billed — pay{' '}
+                    <span className="font-semibold">
+                      ₹{(categoryPending.upgrade_fee_amount ?? 0).toLocaleString('en-IN')}
+                    </span>
+                    {(categoryPending.upgrade_fee_paid ?? 0) > 0
+                      ? ` (₹${(categoryPending.upgrade_fee_paid ?? 0).toLocaleString('en-IN')} paid so far)`
+                      : ''}{' '}
+                    to confirm. Your category changes to {opt.name} once the bill is fully paid; the room is
+                    then assigned by the hostel office.
+                  </p>
+                )}
+                {!held && !categoryPending && waitlisted && hasRooms && (
                   <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
                     <Sparkles className="h-3.5 w-3.5" />
                     A room is now available — upgrade now to claim it.
                   </p>
                 )}
-                {!held && waitlisted && !hasRooms && (
+                {!held && !categoryPending && waitlisted && !hasRooms && (
                   <p className="text-xs text-muted-foreground">
                     Joined {new Date(waitlisted.created_at).toLocaleDateString('en-IN')} — we&apos;ll show the
                     rooms here as soon as one frees up.
@@ -185,6 +265,7 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
           meetsThreshold={picked.meets_threshold}
           holdDays={picked.hold_days}
           mode={mode}
+          autoPick={picked.allocation_mode === 'auto'}
         />
       )}
     </Card>

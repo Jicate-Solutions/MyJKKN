@@ -182,6 +182,18 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    // Added 2026-06-12 — Family Moments engine (Father's Day 2026 rollout,
+    // NV CBSE + Matric HSS). Campaign-based parent engagement: teachers
+    // collect child messages, parents receive tokenized public gift cards.
+    name: 'Family Moments',
+    key: 'moments',
+    permissions: [
+      { key: 'moments.submissions.create', label: 'Submit Child Messages (Teachers)' },
+      { key: 'moments.campaigns.view', label: 'View Campaign Dashboards' },
+      { key: 'moments.campaigns.manage', label: 'Create & Manage Campaigns' }
+    ]
+  },
+  {
     name: 'Organizations',
     key: 'organizations',
     permissions: [
@@ -511,6 +523,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.refunds.delete', label: 'Delete Refunds' },
       { key: 'billing.refunds.approve', label: 'Approve Refunds' },
       { key: 'billing.refunds.process', label: 'Process Refunds' },
+      { key: 'billing.apportionment.view', label: 'View Revenue Apportionment' },
+      { key: 'billing.apportionment.create', label: 'Create Revenue Apportionment' },
+      { key: 'billing.apportionment.edit', label: 'Edit Revenue Apportionment' },
+      { key: 'billing.apportionment.delete', label: 'Delete Revenue Apportionment' },
+      { key: 'billing.apportionment.approve', label: 'Approve Revenue Apportionment' },
       { key: 'billing.invoices.view', label: 'View Invoices' },
       { key: 'billing.invoices.create', label: 'Create Invoices' },
       { key: 'billing.invoices.edit', label: 'Edit Invoices' },
@@ -1704,7 +1721,9 @@ export const PERMISSION_CATEGORIES = [
       { key: 'health.training.view', label: 'View Training Log' },
       { key: 'health.achievements.view', label: 'View Achievements' },
       { key: 'health.assessments.view', label: 'View Mental Health Check-In' },
-      { key: 'health.counselor.view', label: 'View Counselor Dashboard' }
+      { key: 'health.counselor.view', label: 'View Counselor Dashboard' },
+      { key: 'health.programs.view', label: 'View Wellness Programs' },
+      { key: 'health.programs.manage', label: 'Manage Wellness Programs' }
     ]
   },
   // Added 2026-04-27 — IMS (Inventory Management System) module integration
@@ -2086,6 +2105,18 @@ export const PERMISSION_CATEGORIES = [
       { key: 'social.meta_audiences.manage', label: 'Manage Meta Audiences' },
       { key: 'social.messenger.view', label: 'View Messenger / Instagram Inbox' },
       { key: 'social.messenger.send', label: 'Send Messenger / Instagram Replies' }
+    ]
+  },
+  // Added 2026-06-15 — catalog-coverage fix. MENU_PERMISSIONS enforces
+  // rcltp.config.manage for /rcltp (EKSAQ reading-assessment module) but the
+  // module had no PERMISSION_CATEGORIES entry, failing the repo-wide
+  // permissions-catalog gate on every open PR and hiding the toggle from the
+  // Role-Management Edit dialog.
+  {
+    name: 'RCLTP',
+    key: 'rcltp',
+    permissions: [
+      { key: 'rcltp.config.manage', label: 'Manage RCLTP Config' }
     ]
   }
 ];

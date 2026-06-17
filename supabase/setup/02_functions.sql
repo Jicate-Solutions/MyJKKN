@@ -13373,22 +13373,34 @@ GRANT EXECUTE ON FUNCTION public.sync_bus_pass_to_learner_profile(uuid) TO authe
 CREATE TABLE IF NOT EXISTS public.razorpay_accounts (
   id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   institution_id            uuid NOT NULL REFERENCES public.institutions(id) ON DELETE RESTRICT,
-  key_id                    text NOT NULL,
-  key_secret_encrypted      bytea NOT NULL,
-  webhook_secret_encrypted  bytea NOT NULL,
-  webhook_ref               text NOT NULL UNIQUE,
+  key_id                    text,            -- NULL for a DRAFT (keys added on activation)
+  key_secret_encrypted      bytea,           -- NULL until activated
+  webhook_secret_encrypted  bytea,           -- NULL until activated
+  webhook_ref               text UNIQUE,     -- NULL until activated
   account_label             text,
   mode                      text NOT NULL DEFAULT 'live' CHECK (mode IN ('test','live')),
   is_active                 boolean NOT NULL DEFAULT true,
+  fee_head                  text,   -- billing_categories.kind this account settles (NULL = institution default MID)
+  mid                       text,   -- HDFC MID (reconciliation reference)
+  tid                       text,   -- HDFC TID (reconciliation reference)
+  dba_name                  text,   -- HDFC DBA name (reconciliation reference)
   created_at                timestamptz NOT NULL DEFAULT now(),
   updated_at                timestamptz NOT NULL DEFAULT now(),
   created_by                uuid REFERENCES public.profiles(id),
   updated_by                uuid REFERENCES public.profiles(id)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS razorpay_accounts_active_institution_uidx
-  ON public.razorpay_accounts (institution_id) WHERE is_active;
+-- One ACTIVE account per (institution, fee_head); COALESCE so NULL-head rows still collide.
+CREATE UNIQUE INDEX IF NOT EXISTS razorpay_accounts_active_inst_feehead_uidx
+  ON public.razorpay_accounts (institution_id, COALESCE(fee_head, '__default__')) WHERE is_active;
 CREATE INDEX IF NOT EXISTS idx_razorpay_accounts_institution
   ON public.razorpay_accounts (institution_id);
+-- An ACTIVE account must carry full credentials (drafts are inactive + keyless).
+ALTER TABLE public.razorpay_accounts DROP CONSTRAINT IF EXISTS razorpay_accounts_active_requires_keys;
+ALTER TABLE public.razorpay_accounts ADD CONSTRAINT razorpay_accounts_active_requires_keys
+  CHECK (is_active = false OR (key_id IS NOT NULL AND key_secret_encrypted IS NOT NULL AND webhook_secret_encrypted IS NOT NULL AND webhook_ref IS NOT NULL));
+-- At most one DRAFT (keyless) per (institution, fee_head) slot.
+CREATE UNIQUE INDEX IF NOT EXISTS razorpay_accounts_draft_inst_feehead_uidx
+  ON public.razorpay_accounts (institution_id, COALESCE(fee_head, '__default__')) WHERE key_id IS NULL;
 
 -- razorpay_account_id pin on transaction tables (NULL = common env account)
 ALTER TABLE public.payment_transactions
@@ -13397,17 +13409,18 @@ ALTER TABLE public.event_payment_transactions
   ADD COLUMN IF NOT EXISTS razorpay_account_id uuid REFERENCES public.razorpay_accounts(id);
 
 CREATE OR REPLACE FUNCTION public.update_razorpay_accounts_updated_at()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER LANGUAGE plpgsql SET search_path = '' AS $$
 BEGIN NEW.updated_at = now(); RETURN NEW; END;
-$$ LANGUAGE plpgsql;
+$$;
 
 CREATE OR REPLACE FUNCTION public.fn_set_razorpay_account(
   p_institution_id uuid, p_key_id text, p_key_secret text, p_webhook_secret text,
-  p_label text, p_mode text, p_webhook_ref text, p_master_secret text, p_actor uuid DEFAULT NULL
+  p_label text, p_mode text, p_webhook_ref text, p_master_secret text, p_actor uuid DEFAULT NULL,
+  p_fee_head text DEFAULT NULL, p_mid text DEFAULT NULL, p_tid text DEFAULT NULL, p_dba_name text DEFAULT NULL
 )
 RETURNS TABLE(id uuid, webhook_ref text)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
-DECLARE v_id uuid; v_ref text;
+DECLARE v_id uuid; v_ref text; v_head text := NULLIF(trim(p_fee_head), '');
 BEGIN
   IF p_institution_id IS NULL THEN RAISE EXCEPTION 'fn_set_razorpay_account: p_institution_id must not be NULL'; END IF;
   IF p_key_id IS NULL OR length(trim(p_key_id)) = 0 THEN RAISE EXCEPTION 'fn_set_razorpay_account: p_key_id must not be NULL or empty'; END IF;
@@ -13416,27 +13429,34 @@ BEGIN
   IF p_master_secret IS NULL OR length(trim(p_master_secret)) = 0 THEN RAISE EXCEPTION 'fn_set_razorpay_account: p_master_secret must not be NULL or empty'; END IF;
   IF p_mode IS NULL OR p_mode NOT IN ('test','live') THEN RAISE EXCEPTION 'fn_set_razorpay_account: p_mode must be test or live'; END IF;
   v_ref := COALESCE(NULLIF(trim(p_webhook_ref), ''), encode(gen_random_bytes(18), 'hex'));
+  -- Deactivate only the prior active account in THIS (institution, fee_head) slot.
   UPDATE public.razorpay_accounts SET is_active = false, updated_at = now(), updated_by = p_actor
-    WHERE institution_id = p_institution_id AND is_active;
+    WHERE institution_id = p_institution_id
+      AND COALESCE(fee_head, '__default__') = COALESCE(v_head, '__default__') AND is_active;
   INSERT INTO public.razorpay_accounts (
     institution_id, key_id, key_secret_encrypted, webhook_secret_encrypted,
-    webhook_ref, account_label, mode, is_active, created_by, updated_by
+    webhook_ref, account_label, mode, is_active, created_by, updated_by, fee_head, mid, tid, dba_name
   ) VALUES (
     p_institution_id, p_key_id, pgp_sym_encrypt(p_key_secret, p_master_secret),
-    pgp_sym_encrypt(p_webhook_secret, p_master_secret), v_ref, p_label, p_mode, true, p_actor, p_actor
+    pgp_sym_encrypt(p_webhook_secret, p_master_secret), v_ref, p_label, p_mode, true, p_actor, p_actor,
+    v_head, NULLIF(trim(p_mid), ''), NULLIF(trim(p_tid), ''), NULLIF(trim(p_dba_name), '')
   ) RETURNING razorpay_accounts.id, razorpay_accounts.webhook_ref INTO v_id, v_ref;
   RETURN QUERY SELECT v_id, v_ref;
 END; $$;
 
-CREATE OR REPLACE FUNCTION public.fn_get_razorpay_account(p_institution_id uuid, p_master_secret text)
+CREATE OR REPLACE FUNCTION public.fn_get_razorpay_account(p_institution_id uuid, p_master_secret text, p_fee_head text DEFAULT NULL)
 RETURNS TABLE(id uuid, key_id text, key_secret text, webhook_secret text, mode text, webhook_ref text)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
+DECLARE v_head text := NULLIF(trim(p_fee_head), '');
 BEGIN
   IF p_institution_id IS NULL THEN RAISE EXCEPTION 'fn_get_razorpay_account: p_institution_id must not be NULL'; END IF;
   IF p_master_secret IS NULL OR length(trim(p_master_secret)) = 0 THEN RAISE EXCEPTION 'fn_get_razorpay_account: p_master_secret must not be NULL or empty'; END IF;
+  -- Best match: exact fee_head wins, else institution default (fee_head IS NULL).
   RETURN QUERY SELECT a.id, a.key_id, pgp_sym_decrypt(a.key_secret_encrypted, p_master_secret),
     pgp_sym_decrypt(a.webhook_secret_encrypted, p_master_secret), a.mode, a.webhook_ref
-  FROM public.razorpay_accounts a WHERE a.institution_id = p_institution_id AND a.is_active LIMIT 1;
+  FROM public.razorpay_accounts a
+  WHERE a.institution_id = p_institution_id AND a.is_active AND (a.fee_head = v_head OR a.fee_head IS NULL)
+  ORDER BY (a.fee_head IS NOT DISTINCT FROM v_head) DESC LIMIT 1;
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.fn_get_razorpay_account_by_id(p_account_id uuid, p_master_secret text)
@@ -13461,11 +13481,12 @@ BEGIN
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.fn_list_razorpay_accounts()
-RETURNS TABLE(id uuid, institution_id uuid, key_id text, account_label text, mode text, is_active boolean, webhook_ref text, created_at timestamptz)
+RETURNS TABLE(id uuid, institution_id uuid, key_id text, account_label text, mode text, is_active boolean, webhook_ref text, created_at timestamptz, fee_head text, mid text, tid text, dba_name text, status text)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
 BEGIN
-  RETURN QUERY SELECT a.id, a.institution_id, a.key_id, a.account_label, a.mode, a.is_active, a.webhook_ref, a.created_at
-  FROM public.razorpay_accounts a ORDER BY a.created_at DESC;
+  RETURN QUERY SELECT a.id, a.institution_id, a.key_id, a.account_label, a.mode, a.is_active, a.webhook_ref, a.created_at, a.fee_head, a.mid, a.tid, a.dba_name,
+    CASE WHEN a.key_id IS NULL THEN 'draft' WHEN a.is_active THEN 'active' ELSE 'inactive' END
+  FROM public.razorpay_accounts a ORDER BY a.institution_id, COALESCE(a.fee_head, ''), a.created_at DESC;
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.fn_deactivate_razorpay_account(p_institution_id uuid, p_actor uuid DEFAULT NULL)
@@ -13477,10 +13498,69 @@ BEGIN
     WHERE institution_id = p_institution_id AND is_active;
 END; $$;
 
-REVOKE ALL ON FUNCTION public.fn_set_razorpay_account(uuid, text, text, text, text, text, text, text, uuid) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.fn_set_razorpay_account(uuid, text, text, text, text, text, text, text, uuid) TO service_role;
-REVOKE ALL ON FUNCTION public.fn_get_razorpay_account(uuid, text) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.fn_get_razorpay_account(uuid, text) TO service_role;
+CREATE OR REPLACE FUNCTION public.fn_deactivate_razorpay_account_by_id(p_account_id uuid, p_actor uuid DEFAULT NULL)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
+BEGIN
+  IF p_account_id IS NULL THEN RAISE EXCEPTION 'fn_deactivate_razorpay_account_by_id: p_account_id must not be NULL'; END IF;
+  UPDATE public.razorpay_accounts SET is_active = false, updated_at = now(), updated_by = p_actor
+    WHERE id = p_account_id AND is_active;
+END; $$;
+
+-- Create/update a DRAFT account (no keys) for an (institution, fee_head) slot.
+CREATE OR REPLACE FUNCTION public.fn_create_razorpay_draft(
+  p_institution_id uuid, p_fee_head text, p_label text, p_mid text, p_tid text, p_dba_name text,
+  p_mode text DEFAULT 'live', p_actor uuid DEFAULT NULL
+)
+RETURNS uuid
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
+DECLARE v_id uuid; v_head text := NULLIF(trim(p_fee_head), ''); v_mode text := CASE WHEN p_mode IN ('test','live') THEN p_mode ELSE 'live' END;
+BEGIN
+  IF p_institution_id IS NULL THEN RAISE EXCEPTION 'fn_create_razorpay_draft: p_institution_id must not be NULL'; END IF;
+  UPDATE public.razorpay_accounts
+    SET account_label = p_label, mid = NULLIF(trim(p_mid),''), tid = NULLIF(trim(p_tid),''),
+        dba_name = NULLIF(trim(p_dba_name),''), mode = v_mode, updated_at = now(), updated_by = p_actor
+    WHERE institution_id = p_institution_id AND COALESCE(fee_head,'__default__') = COALESCE(v_head,'__default__') AND key_id IS NULL
+    RETURNING id INTO v_id;
+  IF v_id IS NULL THEN
+    INSERT INTO public.razorpay_accounts (institution_id, fee_head, account_label, mid, tid, dba_name, mode, is_active, created_by, updated_by)
+    VALUES (p_institution_id, v_head, p_label, NULLIF(trim(p_mid),''), NULLIF(trim(p_tid),''), NULLIF(trim(p_dba_name),''), v_mode, false, p_actor, p_actor)
+    RETURNING id INTO v_id;
+  END IF;
+  RETURN v_id;
+END; $$;
+
+-- Activate a draft (or rotate in place) by adding encrypted keys.
+CREATE OR REPLACE FUNCTION public.fn_activate_razorpay_account(
+  p_account_id uuid, p_key_id text, p_key_secret text, p_webhook_secret text, p_master_secret text,
+  p_webhook_ref text DEFAULT NULL, p_actor uuid DEFAULT NULL
+)
+RETURNS TABLE(id uuid, webhook_ref text)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
+DECLARE v_ref text; v_inst uuid; v_head text;
+BEGIN
+  IF p_account_id IS NULL THEN RAISE EXCEPTION 'fn_activate_razorpay_account: p_account_id must not be NULL'; END IF;
+  IF p_key_id IS NULL OR length(trim(p_key_id)) = 0 THEN RAISE EXCEPTION 'fn_activate_razorpay_account: p_key_id must not be NULL or empty'; END IF;
+  IF p_key_secret IS NULL OR length(trim(p_key_secret)) = 0 THEN RAISE EXCEPTION 'fn_activate_razorpay_account: p_key_secret must not be NULL or empty'; END IF;
+  IF p_webhook_secret IS NULL OR length(trim(p_webhook_secret)) = 0 THEN RAISE EXCEPTION 'fn_activate_razorpay_account: p_webhook_secret must not be NULL or empty'; END IF;
+  IF p_master_secret IS NULL OR length(trim(p_master_secret)) = 0 THEN RAISE EXCEPTION 'fn_activate_razorpay_account: p_master_secret must not be NULL or empty'; END IF;
+  SELECT a.institution_id, a.fee_head INTO v_inst, v_head FROM public.razorpay_accounts a WHERE a.id = p_account_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_activate_razorpay_account: account % not found', p_account_id; END IF;
+  v_ref := COALESCE(NULLIF(trim(p_webhook_ref),''), encode(gen_random_bytes(18),'hex'));
+  UPDATE public.razorpay_accounts AS a SET is_active = false, updated_at = now(), updated_by = p_actor
+    WHERE a.institution_id = v_inst AND COALESCE(a.fee_head,'__default__') = COALESCE(v_head,'__default__') AND a.is_active AND a.id <> p_account_id;
+  UPDATE public.razorpay_accounts AS a
+    SET key_id = p_key_id, key_secret_encrypted = pgp_sym_encrypt(p_key_secret, p_master_secret),
+        webhook_secret_encrypted = pgp_sym_encrypt(p_webhook_secret, p_master_secret),
+        webhook_ref = v_ref, is_active = true, updated_at = now(), updated_by = p_actor
+    WHERE a.id = p_account_id;
+  RETURN QUERY SELECT p_account_id, v_ref;
+END; $$;
+
+REVOKE ALL ON FUNCTION public.fn_set_razorpay_account(uuid, text, text, text, text, text, text, text, uuid, text, text, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_set_razorpay_account(uuid, text, text, text, text, text, text, text, uuid, text, text, text, text) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_get_razorpay_account(uuid, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_get_razorpay_account(uuid, text, text) TO service_role;
 REVOKE ALL ON FUNCTION public.fn_get_razorpay_account_by_id(uuid, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_get_razorpay_account_by_id(uuid, text) TO service_role;
 REVOKE ALL ON FUNCTION public.fn_get_razorpay_account_by_webhook_ref(text, text) FROM PUBLIC, anon, authenticated;
@@ -13489,6 +13569,57 @@ REVOKE ALL ON FUNCTION public.fn_list_razorpay_accounts() FROM PUBLIC, anon, aut
 GRANT EXECUTE ON FUNCTION public.fn_list_razorpay_accounts() TO service_role;
 REVOKE ALL ON FUNCTION public.fn_deactivate_razorpay_account(uuid, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_deactivate_razorpay_account(uuid, uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_deactivate_razorpay_account_by_id(uuid, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_deactivate_razorpay_account_by_id(uuid, uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_create_razorpay_draft(uuid, text, text, text, text, text, text, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_create_razorpay_draft(uuid, text, text, text, text, text, text, uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_activate_razorpay_account(uuid, text, text, text, text, text, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_activate_razorpay_account(uuid, text, text, text, text, text, uuid) TO service_role;
+
+-- Edit reconciliation/display metadata; routing slot changes only for DRAFTS when p_change_slot=true.
+CREATE OR REPLACE FUNCTION public.fn_update_razorpay_account_meta(
+  p_account_id uuid, p_label text, p_mid text, p_tid text, p_dba_name text,
+  p_mode text DEFAULT NULL, p_institution_id uuid DEFAULT NULL, p_fee_head text DEFAULT NULL,
+  p_change_slot boolean DEFAULT false, p_actor uuid DEFAULT NULL
+)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
+DECLARE v_is_draft boolean; v_head text := NULLIF(trim(p_fee_head), '');
+BEGIN
+  IF p_account_id IS NULL THEN RAISE EXCEPTION 'fn_update_razorpay_account_meta: p_account_id must not be NULL'; END IF;
+  SELECT (a.key_id IS NULL) INTO v_is_draft FROM public.razorpay_accounts a WHERE a.id = p_account_id;
+  IF v_is_draft IS NULL THEN RAISE EXCEPTION 'fn_update_razorpay_account_meta: account % not found', p_account_id; END IF;
+  UPDATE public.razorpay_accounts AS a SET
+    account_label = p_label, mid = NULLIF(trim(p_mid),''), tid = NULLIF(trim(p_tid),''), dba_name = NULLIF(trim(p_dba_name),''),
+    mode = COALESCE(CASE WHEN p_mode IN ('test','live') THEN p_mode END, a.mode),
+    institution_id = CASE WHEN v_is_draft AND p_change_slot AND p_institution_id IS NOT NULL THEN p_institution_id ELSE a.institution_id END,
+    fee_head = CASE WHEN v_is_draft AND p_change_slot THEN v_head ELSE a.fee_head END,
+    updated_at = now(), updated_by = p_actor
+  WHERE a.id = p_account_id;
+END; $$;
+
+-- Hard-delete an account; blocked when any transaction pins it (deactivate instead).
+CREATE OR REPLACE FUNCTION public.fn_delete_razorpay_account_by_id(p_account_id uuid, p_actor uuid DEFAULT NULL)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
+BEGIN
+  IF p_account_id IS NULL THEN RAISE EXCEPTION 'fn_delete_razorpay_account_by_id: p_account_id must not be NULL'; END IF;
+  IF EXISTS (SELECT 1 FROM public.payment_transactions t WHERE t.razorpay_account_id = p_account_id)
+     OR EXISTS (SELECT 1 FROM public.event_payment_transactions t WHERE t.razorpay_account_id = p_account_id) THEN
+    RAISE EXCEPTION 'Cannot delete an account that has payment transactions. Deactivate it instead.';
+  END IF;
+  DELETE FROM public.razorpay_accounts a WHERE a.id = p_account_id;
+END; $$;
+
+REVOKE ALL ON FUNCTION public.fn_update_razorpay_account_meta(uuid, text, text, text, text, text, uuid, text, boolean, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_update_razorpay_account_meta(uuid, text, text, text, text, text, uuid, text, boolean, uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_delete_razorpay_account_by_id(uuid, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_delete_razorpay_account_by_id(uuid, uuid) TO service_role;
+
+-- Defense-in-depth: revoke Supabase default broad grants on the credentials table.
+-- Access is service_role-only via RLS + the RPCs above; the app never touches this
+-- table as anon/authenticated.
+REVOKE ALL ON public.razorpay_accounts FROM anon, authenticated;
 
 -- fn_admission_lead_scope (2026-06-03): single-round-trip lead-access resolver
 -- for the service-role admission leads list + [id] detail routes. Delegates to
@@ -14155,79 +14286,137 @@ $$;
 --    Empty result => caller fails open.
 --    Reads hostel_program_eligibility (single combined table; replaces the former
 --    split hostel_program_room_eligibility + hostel_program_mess_eligibility).
+-- hostel_program_eligibility.quota_ids normalisation + validation (replaces the
+-- dropped quota_id FK): empty -> NULL; de-dupe + sort ascending (canonical form
+-- for the order-insensitive unique index); reject ids that aren't real quotas.
+-- Migration: 20260615120000_hostel_program_eligibility_multi_quota.sql
+CREATE OR REPLACE FUNCTION public.fn_prog_elig_normalize_quotas()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_clean uuid[];
+  v_bad uuid;
+BEGIN
+  IF NEW.quota_ids IS NULL OR cardinality(NEW.quota_ids) = 0 THEN
+    NEW.quota_ids := NULL;
+    RETURN NEW;
+  END IF;
+
+  SELECT array_agg(q ORDER BY q) INTO v_clean
+  FROM (SELECT DISTINCT unnest(NEW.quota_ids) AS q) s;
+
+  SELECT v INTO v_bad
+  FROM unnest(v_clean) AS v
+  WHERE NOT EXISTS (SELECT 1 FROM public.quotas WHERE id = v);
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION 'quota_ids contains a non-existent quota id: %', v_bad
+      USING ERRCODE = '23503';
+  END IF;
+
+  NEW.quota_ids := v_clean;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_prog_elig_normalize_quotas ON public.hostel_program_eligibility;
+CREATE TRIGGER trg_prog_elig_normalize_quotas
+  BEFORE INSERT OR UPDATE ON public.hostel_program_eligibility
+  FOR EACH ROW EXECUTE FUNCTION public.fn_prog_elig_normalize_quotas();
+
 CREATE OR REPLACE FUNCTION public.fn_hostel_effective_room_categories(
-  p_institution uuid, p_program uuid, p_quota uuid, p_fee numeric
+  p_institution uuid, p_program uuid, p_quota uuid, p_fee numeric, p_gender text DEFAULT NULL
 ) RETURNS TABLE(category_id uuid)
 LANGUAGE sql STABLE
 SET search_path TO 'public'
 AS $$
   WITH candidates AS (
     SELECT e.room_category_id AS cat,
-           e.program_id, e.quota_id, e.fee_min, e.fee_max,
+           e.program_id, e.quota_ids, e.fee_min, e.fee_max,
            ( (e.program_id IS NOT NULL)::int * 4
-           + (e.quota_id   IS NOT NULL)::int * 2
+           + (e.quota_ids  IS NOT NULL)::int * 2
            + ((e.fee_min IS NOT NULL OR e.fee_max IS NOT NULL))::int * 1 ) AS specificity
     FROM hostel_program_eligibility e
     WHERE e.institution_id = p_institution
       AND e.is_active
       AND e.room_category_id IS NOT NULL
+      AND (p_gender IS NULL OR e.hostel_type = 'both' OR e.hostel_type = p_gender)
       AND (e.program_id = p_program OR e.program_id IS NULL)
-      AND (e.quota_id   = p_quota   OR e.quota_id   IS NULL)
+      AND (e.quota_ids IS NULL OR p_quota = ANY(e.quota_ids))
       -- half-open interval [fee_min, fee_max): includes min, excludes max
       AND (e.fee_min IS NULL OR p_fee >= e.fee_min)
       AND (e.fee_max IS NULL OR p_fee <  e.fee_max)
   ),
   winner AS (
-    SELECT program_id, quota_id, fee_min, fee_max
+    SELECT program_id, quota_ids, fee_min, fee_max
     FROM candidates
     ORDER BY specificity DESC,
              (COALESCE(fee_max, 9.9e14::numeric) - COALESCE(fee_min, 0)) ASC
     LIMIT 1
   )
-  SELECT c.cat
+  -- Gender translation (20260615): map the winning band's category to the learner's
+  -- gender variant (same NAME, matching type) so one shared 'both' band serves boys and
+  -- girls. Falls back to the stored category when no same-name sibling exists.
+  SELECT COALESCE(
+           CASE WHEN p_gender IS NOT NULL AND oc.type IS NOT NULL AND oc.type <> p_gender
+                THEN (SELECT sib.id FROM hostel_categories sib
+                       WHERE sib.name = oc.name AND sib.type = p_gender LIMIT 1)
+                ELSE NULL END,
+           c.cat)
   FROM candidates c JOIN winner w
     ON c.program_id IS NOT DISTINCT FROM w.program_id
-   AND c.quota_id   IS NOT DISTINCT FROM w.quota_id
+   AND c.quota_ids  IS NOT DISTINCT FROM w.quota_ids
    AND c.fee_min    IS NOT DISTINCT FROM w.fee_min
-   AND c.fee_max    IS NOT DISTINCT FROM w.fee_max;
+   AND c.fee_max    IS NOT DISTINCT FROM w.fee_max
+  LEFT JOIN hostel_categories oc ON oc.id = c.cat;
 $$;
 
 -- 3. Parametric resolver (mess) — identical shape, reads hostel_program_eligibility.
 CREATE OR REPLACE FUNCTION public.fn_hostel_effective_mess_categories(
-  p_institution uuid, p_program uuid, p_quota uuid, p_fee numeric
+  p_institution uuid, p_program uuid, p_quota uuid, p_fee numeric, p_gender text DEFAULT NULL
 ) RETURNS TABLE(category_id uuid)
 LANGUAGE sql STABLE
 SET search_path TO 'public'
 AS $$
   WITH candidates AS (
     SELECT e.mess_category_id AS cat,
-           e.program_id, e.quota_id, e.fee_min, e.fee_max,
+           e.program_id, e.quota_ids, e.fee_min, e.fee_max,
            ( (e.program_id IS NOT NULL)::int * 4
-           + (e.quota_id   IS NOT NULL)::int * 2
+           + (e.quota_ids  IS NOT NULL)::int * 2
            + ((e.fee_min IS NOT NULL OR e.fee_max IS NOT NULL))::int * 1 ) AS specificity
     FROM hostel_program_eligibility e
     WHERE e.institution_id = p_institution
       AND e.is_active
       AND e.mess_category_id IS NOT NULL
+      AND (p_gender IS NULL OR e.hostel_type = 'both' OR e.hostel_type = p_gender)
       AND (e.program_id = p_program OR e.program_id IS NULL)
-      AND (e.quota_id   = p_quota   OR e.quota_id   IS NULL)
+      AND (e.quota_ids IS NULL OR p_quota = ANY(e.quota_ids))
       -- half-open interval [fee_min, fee_max): includes min, excludes max
       AND (e.fee_min IS NULL OR p_fee >= e.fee_min)
       AND (e.fee_max IS NULL OR p_fee <  e.fee_max)
   ),
   winner AS (
-    SELECT program_id, quota_id, fee_min, fee_max
+    SELECT program_id, quota_ids, fee_min, fee_max
     FROM candidates
     ORDER BY specificity DESC,
              (COALESCE(fee_max, 9.9e14::numeric) - COALESCE(fee_min, 0)) ASC
     LIMIT 1
   )
-  SELECT c.cat
+  -- Gender translation (20260615): map the winning band's mess category to the learner's
+  -- gender variant (same NAME, matching type) so one shared 'both' band serves boys and
+  -- girls. Falls back to the stored category when no same-name sibling exists.
+  SELECT COALESCE(
+           CASE WHEN p_gender IS NOT NULL AND oc.type IS NOT NULL AND oc.type <> p_gender
+                THEN (SELECT sib.id FROM mess_categories sib
+                       WHERE sib.name = oc.name AND sib.type = p_gender LIMIT 1)
+                ELSE NULL END,
+           c.cat)
   FROM candidates c JOIN winner w
     ON c.program_id IS NOT DISTINCT FROM w.program_id
-   AND c.quota_id   IS NOT DISTINCT FROM w.quota_id
+   AND c.quota_ids  IS NOT DISTINCT FROM w.quota_ids
    AND c.fee_min    IS NOT DISTINCT FROM w.fee_min
-   AND c.fee_max    IS NOT DISTINCT FROM w.fee_max;
+   AND c.fee_max    IS NOT DISTINCT FROM w.fee_max
+  LEFT JOIN mess_categories oc ON oc.id = c.cat;
 $$;
 
 -- 4. Composite (room): the interface callers use. Reads the learner's dims +
@@ -14239,10 +14428,10 @@ LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
 DECLARE
-  v_institution uuid; v_program uuid; v_quota uuid; v_fee numeric;
+  v_institution uuid; v_program uuid; v_quota uuid; v_fee numeric; v_gender text; v_gt text;
 BEGIN
-  SELECT lp.institution_id, lp.program_id, lp.quota_id
-    INTO v_institution, v_program, v_quota
+  SELECT lp.institution_id, lp.program_id, lp.quota_id, lp.gender
+    INTO v_institution, v_program, v_quota, v_gender
   FROM learners_profiles lp WHERE lp.id = p_learner_id;
 
   IF v_institution IS NULL THEN RETURN; END IF;        -- no institution => fail-open
@@ -14250,9 +14439,12 @@ BEGIN
   v_fee := fn_learner_current_year_academic_fee(p_learner_id);
   IF v_fee IS NULL THEN RETURN; END IF;                -- no bill data => fail-open
 
+  v_gt := CASE WHEN lower(v_gender) LIKE 'm%' THEN 'boys'
+               WHEN lower(v_gender) LIKE 'f%' THEN 'girls' ELSE NULL END;
+
   RETURN QUERY
     SELECT r.category_id
-    FROM fn_hostel_effective_room_categories(v_institution, v_program, v_quota, v_fee) r;
+    FROM fn_hostel_effective_room_categories(v_institution, v_program, v_quota, v_fee, v_gt) r;
 END $$;
 
 -- 5. Composite (mess).
@@ -14262,10 +14454,10 @@ LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
 DECLARE
-  v_institution uuid; v_program uuid; v_quota uuid; v_fee numeric;
+  v_institution uuid; v_program uuid; v_quota uuid; v_fee numeric; v_gender text; v_gt text;
 BEGIN
-  SELECT lp.institution_id, lp.program_id, lp.quota_id
-    INTO v_institution, v_program, v_quota
+  SELECT lp.institution_id, lp.program_id, lp.quota_id, lp.gender
+    INTO v_institution, v_program, v_quota, v_gender
   FROM learners_profiles lp WHERE lp.id = p_learner_id;
 
   IF v_institution IS NULL THEN RETURN; END IF;        -- no institution => fail-open
@@ -14273,9 +14465,12 @@ BEGIN
   v_fee := fn_learner_current_year_academic_fee(p_learner_id);
   IF v_fee IS NULL THEN RETURN; END IF;                -- no bill data => fail-open
 
+  v_gt := CASE WHEN lower(v_gender) LIKE 'm%' THEN 'boys'
+               WHEN lower(v_gender) LIKE 'f%' THEN 'girls' ELSE NULL END;
+
   RETURN QUERY
     SELECT m.category_id
-    FROM fn_hostel_effective_mess_categories(v_institution, v_program, v_quota, v_fee) m;
+    FROM fn_hostel_effective_mess_categories(v_institution, v_program, v_quota, v_fee, v_gt) m;
 END $$;
 
 GRANT EXECUTE ON FUNCTION public.fn_hostel_learner_room_categories(uuid) TO authenticated;
@@ -14975,7 +15170,7 @@ REVOKE EXECUTE ON FUNCTION public._cl_execute_room_upgrade(uuid, uuid, uuid, uui
 -- 20260611150000: + threshold_pct / paid_pct / meets_threshold / hold_days (payment-threshold gate).
 CREATE OR REPLACE FUNCTION public.fn_my_upgrade_room_categories()
 RETURNS TABLE (
-  category_id uuid, name text, type text, current_year_fee numeric, upgrade_fee numeric,
+  category_id uuid, name text, type text, allocation_mode text, current_year_fee numeric, upgrade_fee numeric,
   available_beds int, threshold_pct numeric, paid_pct numeric, meets_threshold boolean,
   hold_days int
 )
@@ -14994,7 +15189,7 @@ BEGIN
   SELECT pp.paid_pct INTO v_paid_pct FROM fn_learner_academic_payment_progress(v_lp) pp;
 
   RETURN QUERY
-  SELECT c.id, c.name, c.type, hf.amount,
+  SELECT c.id, c.name, c.type, c.allocation_mode, hf.amount,
          COALESCE(
            (SELECT uf.amount FROM hostel_category_upgrade_fees uf
             WHERE uf.hostel_year_id = v_year AND uf.is_active
@@ -15010,11 +15205,18 @@ BEGIN
   FROM hostel_categories c
   JOIN hostel_fees hf
     ON hf.hostel_category_id = c.id AND hf.hostel_year_id = v_year AND hf.mess_category_id IS NULL AND hf.is_active
-  WHERE c.is_active AND c.allocation_mode = 'manual'
+  WHERE c.is_active   -- any allocation_mode: auto (Deluxe) categories are upgrade targets too
     AND ((v_gender IN ('male','m')   AND c.type='boys')
          OR (v_gender IN ('female','f') AND c.type='girls'))
     AND c.id <> COALESCE(v_cur_cat, '00000000-0000-0000-0000-000000000000'::uuid)
     AND hf.amount > v_cur_fee
+    -- Add-on categories appear ONLY when an explicit upgrade pair is configured from the
+    -- resident's current category — never via fee-difference fallback (Premium → Premium + AC).
+    AND (NOT c.requires_explicit_upgrade
+         OR EXISTS (SELECT 1 FROM hostel_category_upgrade_fees uf2
+                    WHERE uf2.hostel_year_id = v_year AND uf2.is_active
+                      AND uf2.from_hostel_category_id = v_cur_cat
+                      AND uf2.to_hostel_category_id = c.id))
   ORDER BY hf.amount;
 END $$;
 
@@ -15227,6 +15429,9 @@ BEGIN
 
   -- 20260610220000: no fee-eligibility gate — the upgrade fee is the gate (downgrade still blocked).
   SELECT lp.mess_category_id INTO v_cur_mess FROM learners_profiles lp WHERE lp.id = v_lp;
+  IF NOT COALESCE((SELECT upgrades_enabled FROM mess_categories WHERE id = v_cur_mess), false) THEN
+    RAISE EXCEPTION 'Mess upgrades are currently disabled for your category';
+  END IF;
   SELECT name INTO v_cur_name FROM mess_categories WHERE id = v_cur_mess;
   SELECT COALESCE(hf.amount,0) INTO v_cur_fee FROM hostel_fees hf
     WHERE hf.mess_category_id = v_cur_mess AND hf.hostel_year_id = v_year AND hf.is_active LIMIT 1;
@@ -15256,6 +15461,10 @@ DECLARE
 BEGIN
   IF v_lp IS NULL OR v_profile IS NULL OR NOT user_is_hosteler() THEN
     RAISE EXCEPTION 'Only a hostel resident can join the waitlist';
+  END IF;
+  IF NOT COALESCE((SELECT upgrades_enabled FROM hostel_categories
+                   WHERE id = (SELECT hostel_category_id FROM learners_profiles WHERE id = v_lp)), false) THEN
+    RAISE EXCEPTION 'Upgrades are currently disabled for your category';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM fn_my_manual_categories() mc WHERE mc.id = p_target_category_id) THEN
     RAISE EXCEPTION 'You are not eligible for this category';
@@ -15342,31 +15551,31 @@ BEGIN
   WITH rules AS (
     SELECT e.*,
            COALESCE(e.program_id IS NULL OR e.program_id = v_program, false) AS program_ok,
-           COALESCE(e.quota_id   IS NULL OR e.quota_id   = v_quota,   false) AS quota_ok,
+           COALESCE(e.quota_ids IS NULL OR v_quota = ANY(e.quota_ids), false) AS quota_ok,
            (v_fee IS NOT NULL
               AND (e.fee_min IS NULL OR v_fee >= e.fee_min)
               AND (e.fee_max IS NULL OR v_fee <  e.fee_max)) AS fee_ok,
            ( (e.program_id IS NOT NULL)::int * 4
-           + (e.quota_id   IS NOT NULL)::int * 2
+           + (e.quota_ids  IS NOT NULL)::int * 2
            + ((e.fee_min IS NOT NULL OR e.fee_max IS NOT NULL))::int ) AS specificity
     FROM hostel_program_eligibility e
     WHERE e.institution_id = v_inst AND e.is_active
   ),
   room_winner AS (
-    SELECT program_id, quota_id, fee_min, fee_max FROM rules
+    SELECT program_id, quota_ids, fee_min, fee_max FROM rules
     WHERE room_category_id IS NOT NULL AND program_ok AND quota_ok AND fee_ok
     ORDER BY specificity DESC, (COALESCE(fee_max, 9.9e14::numeric) - COALESCE(fee_min, 0)) ASC
     LIMIT 1
   ),
   mess_winner AS (
-    SELECT program_id, quota_id, fee_min, fee_max FROM rules
+    SELECT program_id, quota_ids, fee_min, fee_max FROM rules
     WHERE mess_category_id IS NOT NULL AND program_ok AND quota_ok AND fee_ok
     ORDER BY specificity DESC, (COALESCE(fee_max, 9.9e14::numeric) - COALESCE(fee_min, 0)) ASC
     LIMIT 1
   )
   SELECT jsonb_agg(jsonb_build_object(
       'program', (SELECT program_name FROM programs WHERE id = r.program_id),
-      'quota',   (SELECT name FROM quotas WHERE id = r.quota_id),
+      'quota',   (SELECT string_agg(name, ', ' ORDER BY name) FROM quotas WHERE id = ANY(r.quota_ids)),
       'fee_min', r.fee_min,
       'fee_max', r.fee_max,
       'room_category', (SELECT name FROM hostel_categories WHERE id = r.room_category_id),
@@ -15378,13 +15587,13 @@ BEGIN
       'selected_room', (r.room_category_id IS NOT NULL AND EXISTS (
         SELECT 1 FROM room_winner w
         WHERE r.program_id IS NOT DISTINCT FROM w.program_id
-          AND r.quota_id   IS NOT DISTINCT FROM w.quota_id
+          AND r.quota_ids  IS NOT DISTINCT FROM w.quota_ids
           AND r.fee_min    IS NOT DISTINCT FROM w.fee_min
           AND r.fee_max    IS NOT DISTINCT FROM w.fee_max)),
       'selected_mess', (r.mess_category_id IS NOT NULL AND EXISTS (
         SELECT 1 FROM mess_winner w
         WHERE r.program_id IS NOT DISTINCT FROM w.program_id
-          AND r.quota_id   IS NOT DISTINCT FROM w.quota_id
+          AND r.quota_ids  IS NOT DISTINCT FROM w.quota_ids
           AND r.fee_min    IS NOT DISTINCT FROM w.fee_min
           AND r.fee_max    IS NOT DISTINCT FROM w.fee_max))
     ) ORDER BY (r.program_ok AND r.quota_ok AND r.fee_ok) DESC, r.specificity DESC,
@@ -16015,16 +16224,22 @@ BEGIN
       AND ha.status = 'active'
   );
 
-  SELECT r.category_id INTO v_room
+  -- (1) Fee-band category, GENDER-AGNOSTIC: the band condition is the same for both
+  --     genders. Resolve the band's category by NAME, map to the learner-gender variant.
+  SELECT gv.id INTO v_room
   FROM fn_hostel_learner_room_categories(p_learner_id) r
-  JOIN hostel_categories hc ON hc.id = r.category_id
-  WHERE hc.type = v_gender_type
+  JOIN hostel_categories bc ON bc.id = r.category_id
+  JOIN hostel_categories gv ON gv.name = bc.name
+                           AND gv.type = v_gender_type
+                           AND gv.is_active
   LIMIT 1;
 
-  SELECT m.category_id INTO v_mess
+  SELECT gv.id INTO v_mess
   FROM fn_hostel_learner_mess_categories(p_learner_id) m
-  JOIN mess_categories mc ON mc.id = m.category_id
-  WHERE mc.type = v_gender_type
+  JOIN mess_categories bc ON bc.id = m.category_id
+  JOIN mess_categories gv ON gv.name = bc.name
+                         AND gv.type = v_gender_type
+                         AND gv.is_active
   LIMIT 1;
 
   IF v_room IS NULL AND v_has_bill AND v_gender_type IS NOT NULL THEN
@@ -16134,3 +16349,876 @@ $function$;
 REVOKE EXECUTE ON FUNCTION public.fn_apply_hostel_fee_categories(uuid) FROM anon, authenticated, PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.fn_apply_hostel_fee_categories_bulk(uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_apply_hostel_fee_categories_bulk(uuid) TO authenticated;
+
+-- =============================================================================
+-- 2026-06-12 — Room booking / upgrade PAY-TO-CONFIRM
+-- (migration 20260612200000_room_booking_pay_to_confirm.sql; bodies below are
+-- the authoritative latest versions, superseding earlier definitions above)
+--
+--   * hostel_waitlist.upgrade_bill_id links the pending upgrade-fee bill
+--   * _cl_apply_upgrade_fee_bill returns the created bill id
+--   * _cl_execute_first_booking — first-allocation executor (RPC + holds path)
+--   * _cl_execute_room_upgrade — skips billing when a bill is already linked
+--   * fn_self_upgrade_room_category — threshold gate on first bookings too;
+--     threshold-met upgrades reserve the bed + bill the fee (pending_payment)
+--   * fn_cl_process_upgrade_holds — two-stage confirm engine (threshold → bill
+--     → fully paid → move); confirms held first bookings as well
+--   * fn_cl_expire_upgrade_holds / fn_self_leave_upgrade_waitlist — cancel the
+--     linked unpaid upgrade bill
+--   * fn_my_upgrade_waitlist — exposes upgrade_bill_id / fee amount / fee paid
+-- =============================================================================
+ALTER TABLE public.hostel_waitlist
+  ADD COLUMN IF NOT EXISTS upgrade_bill_id uuid
+    REFERENCES public.billing_student_bills(id) ON DELETE SET NULL;
+
+COMMENT ON COLUMN public.hostel_waitlist.upgrade_bill_id IS
+  'Upgrade-fee bill that must be FULLY paid before the held room upgrade confirms. NULL until the academic threshold is met (bill is generated at that point).';
+
+-- 2) _cl_apply_upgrade_fee_bill now returns the created bill id -----------------
+CREATE OR REPLACE FUNCTION public._cl_apply_upgrade_fee_bill(
+  p_learner_lp uuid, p_hostel_year_id uuid, p_kind text, p_upgrade_amount numeric, p_description text
+)
+RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst uuid; v_bcat uuid; v_bill_id uuid;
+BEGIN
+  IF p_upgrade_amount IS NULL OR p_upgrade_amount <= 0 THEN
+    RETURN jsonb_build_object('action','none','new_amount',COALESCE(p_upgrade_amount,0),
+                              'billed',0,'bill_id',NULL,'old_bill_id',NULL);
+  END IF;
+  SELECT institution_id INTO v_inst FROM learners_profiles WHERE id = p_learner_lp;
+  v_bcat := public._cl_ensure_upgrade_billing_category(p_kind);
+  INSERT INTO billing_student_bills (
+    student_id, institution_id, item_category_id, hostel_year_id, fee_source,
+    bill_description, due_date, quantity, unit_amount, total_amount, final_amount,
+    balance_amount, status
+  ) VALUES (
+    p_learner_lp, v_inst, v_bcat, p_hostel_year_id, 'hostel_category',
+    p_description, now() + interval '30 day', 1, p_upgrade_amount, p_upgrade_amount,
+    p_upgrade_amount, p_upgrade_amount, 'unpaid'
+  ) RETURNING id INTO v_bill_id;
+  RETURN jsonb_build_object('action','created','new_amount',p_upgrade_amount,
+                            'billed',p_upgrade_amount,'bill_id',v_bill_id,'old_bill_id',NULL);
+END $function$;
+
+-- 3) First-booking executor (extracted from fn_self_upgrade_room_category so the
+--    holds-processor can confirm held FIRST bookings too) -----------------------
+CREATE OR REPLACE FUNCTION public._cl_execute_first_booking(
+  p_profile uuid, p_lp uuid, p_new_category_id uuid, p_room_id uuid, p_bed_id uuid,
+  p_from_hold boolean DEFAULT false
+)
+RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_bed_status text; v_inst uuid; v_ay uuid; v_sem uuid; v_tier uuid;
+  v_block uuid; v_new_alloc uuid;
+BEGIN
+  IF NOT pg_try_advisory_xact_lock(hashtext(p_bed_id::text)) THEN
+    RAISE EXCEPTION 'Another resident is claiming this bed. Try again.';
+  END IF;
+  SELECT status INTO v_bed_status FROM hostel_beds WHERE id = p_bed_id AND room_id = p_room_id;
+  IF p_from_hold THEN
+    IF v_bed_status IS DISTINCT FROM 'reserved' THEN
+      RAISE EXCEPTION 'Held bed is no longer reserved';
+    END IF;
+  ELSE
+    IF v_bed_status IS DISTINCT FROM 'available' THEN
+      RAISE EXCEPTION 'That bed is no longer available';
+    END IF;
+  END IF;
+
+  SELECT institution_id, semester_id, academic_year_id INTO v_inst, v_sem, v_ay
+    FROM learners_profiles WHERE id = p_lp;
+  v_ay := COALESCE(v_ay, (SELECT id FROM academic_years WHERE institution_id=v_inst AND is_active ORDER BY start_date DESC LIMIT 1));
+  IF v_ay IS NULL THEN RAISE EXCEPTION 'No academic year configured'; END IF;
+  SELECT block_id INTO v_block FROM hostel_rooms WHERE id = p_room_id;
+  SELECT id INTO v_tier FROM hostel_tier_policy WHERE tier_key='standard' AND is_active
+    ORDER BY institution_id NULLS LAST LIMIT 1;
+  IF v_tier IS NULL THEN RAISE EXCEPTION 'No standard tier policy found'; END IF;
+
+  INSERT INTO hostel_allocations (
+    institution_id, learner_id, block_id, room_id, bed_id, academic_year_id, semester_id,
+    allocation_type, allocation_date, status,
+    emergency_contact_name, emergency_contact_phone, emergency_contact_relation,
+    tier_id, allocated_by, warden_id
+  ) VALUES (
+    v_inst, p_profile, v_block, p_room_id, p_bed_id, v_ay, v_sem,
+    'fresh', CURRENT_DATE, 'active', '', '', '',
+    v_tier, p_profile,
+    (SELECT user_id FROM user_block_access WHERE block_id=v_block AND revoked_at IS NULL LIMIT 1)
+  ) RETURNING id INTO v_new_alloc;
+  UPDATE hostel_beds SET status='occupied', current_occupant_id=p_profile WHERE id = p_bed_id;
+  -- learners_profiles.hostel_category_id / mess_category_id set by
+  -- trg_allocation_sync_learner_categories. No bill on a first booking.
+
+  UPDATE hostel_waitlist
+     SET status='allocated', allocated_allocation_id=v_new_alloc,
+         held_room_id=NULL, held_bed_id=NULL, hold_expires_at=NULL, updated_at=now()
+   WHERE learner_id = p_profile AND entry_kind='upgrade'
+     AND target_hostel_category_id = p_new_category_id AND status='waiting';
+
+  RETURN jsonb_build_object('success', true, 'state', 'booked',
+    'new_allocation_id', v_new_alloc, 'new_bed_id', p_bed_id,
+    'new_category_id', p_new_category_id);
+END $function$;
+
+REVOKE EXECUTE ON FUNCTION public._cl_execute_first_booking(uuid, uuid, uuid, uuid, uuid, boolean) FROM anon, authenticated, PUBLIC;
+
+-- 4) Mover: never double-bill — skip billing when the waitlist row already
+--    carries the upgrade bill (pay-to-confirm path bills up front) --------------
+CREATE OR REPLACE FUNCTION public._cl_execute_room_upgrade(
+  p_profile uuid, p_lp uuid, p_new_category_id uuid, p_room_id uuid, p_bed_id uuid,
+  p_from_hold boolean DEFAULT false
+)
+RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_year uuid; v_cur_cat uuid; v_cur_fee numeric := 0; v_new_fee numeric;
+  v_new_name text; v_cur_name text; v_upgrade_fee numeric;
+  v_bed_status text; v_old RECORD; v_new_alloc uuid; v_bill jsonb; v_linked_bill uuid;
+BEGIN
+  SELECT id INTO v_year FROM hostel_years WHERE is_current LIMIT 1;
+  IF v_year IS NULL THEN RAISE EXCEPTION 'No current hostel year configured'; END IF;
+
+  SELECT amount INTO v_new_fee FROM hostel_fees
+    WHERE hostel_category_id = p_new_category_id AND hostel_year_id = v_year AND mess_category_id IS NULL AND is_active LIMIT 1;
+  IF v_new_fee IS NULL THEN RAISE EXCEPTION 'Selected category has no published fee for the current hostel year'; END IF;
+  SELECT name INTO v_new_name FROM hostel_categories WHERE id = p_new_category_id;
+
+  SELECT hostel_category_id INTO v_cur_cat FROM learners_profiles WHERE id = p_lp;
+  SELECT name INTO v_cur_name FROM hostel_categories WHERE id = v_cur_cat;
+  SELECT COALESCE(amount,0) INTO v_cur_fee FROM hostel_fees
+    WHERE hostel_category_id = v_cur_cat AND hostel_year_id = v_year AND mess_category_id IS NULL AND is_active LIMIT 1;
+  -- Re-checked here (not only in the public RPC): a hold can be confirmed days
+  -- later, after the learner's current category has already changed.
+  IF v_new_fee < v_cur_fee THEN RAISE EXCEPTION 'Downgrades are not allowed (new fee < current fee)'; END IF;
+
+  IF NOT pg_try_advisory_xact_lock(hashtext(p_bed_id::text)) THEN
+    RAISE EXCEPTION 'Another resident is claiming this bed. Try again.';
+  END IF;
+  SELECT status INTO v_bed_status FROM hostel_beds WHERE id = p_bed_id AND room_id = p_room_id;
+  IF p_from_hold THEN
+    IF v_bed_status IS DISTINCT FROM 'reserved' THEN
+      RAISE EXCEPTION 'Held bed is no longer reserved';
+    END IF;
+  ELSE
+    IF v_bed_status IS DISTINCT FROM 'available' THEN
+      RAISE EXCEPTION 'That bed is no longer available';
+    END IF;
+  END IF;
+
+  SELECT id, bed_id, tier_id, academic_year_id, semester_id, institution_id,
+         emergency_contact_name, emergency_contact_phone, emergency_contact_relation
+    INTO v_old
+    FROM hostel_allocations
+    WHERE learner_id = p_profile AND status = 'active'
+    ORDER BY allocation_date DESC LIMIT 1;
+  IF v_old.id IS NULL THEN RAISE EXCEPTION 'No active allocation to upgrade from'; END IF;
+
+  UPDATE hostel_allocations SET status='vacated', actual_vacate_date=CURRENT_DATE, updated_at=now()
+    WHERE id = v_old.id;
+  UPDATE hostel_beds SET status='available', current_occupant_id=NULL WHERE id = v_old.bed_id;
+
+  INSERT INTO hostel_allocations (
+    institution_id, learner_id, block_id, room_id, bed_id, academic_year_id, semester_id,
+    allocation_type, allocation_date, status,
+    emergency_contact_name, emergency_contact_phone, emergency_contact_relation,
+    tier_id, allocated_by
+  )
+  SELECT v_old.institution_id, p_profile, r.block_id, p_room_id, p_bed_id,
+         v_old.academic_year_id, v_old.semester_id, 'transfer', CURRENT_DATE, 'active',
+         v_old.emergency_contact_name, v_old.emergency_contact_phone, v_old.emergency_contact_relation,
+         v_old.tier_id, p_profile
+  FROM hostel_rooms r WHERE r.id = p_room_id
+  RETURNING id INTO v_new_alloc;
+  UPDATE hostel_beds SET status='occupied', current_occupant_id=p_profile WHERE id = p_bed_id;
+
+  UPDATE learners_profiles SET hostel_category_id = p_new_category_id, updated_at=now() WHERE id = p_lp;
+
+  -- Pay-to-confirm: the bill was generated when the bed was reserved (or at
+  -- threshold-met time by the holds processor). Bill here ONLY when no linked
+  -- bill exists (e.g. zero-fee instant path, or legacy callers).
+  SELECT upgrade_bill_id INTO v_linked_bill FROM hostel_waitlist
+   WHERE learner_id = p_profile AND entry_kind='upgrade'
+     AND target_hostel_category_id = p_new_category_id AND status='waiting'
+     AND upgrade_bill_id IS NOT NULL
+   LIMIT 1;
+  IF v_linked_bill IS NULL THEN
+    SELECT amount INTO v_upgrade_fee FROM hostel_category_upgrade_fees
+      WHERE hostel_year_id = v_year AND is_active
+        AND from_hostel_category_id = v_cur_cat AND to_hostel_category_id = p_new_category_id LIMIT 1;
+    v_upgrade_fee := COALESCE(v_upgrade_fee, v_new_fee - v_cur_fee);
+    v_bill := public._cl_apply_upgrade_fee_bill(p_lp, v_year, 'hostel', v_upgrade_fee,
+                format('Hostel room upgrade: %s → %s', COALESCE(v_cur_name,'—'), v_new_name));
+  ELSE
+    v_upgrade_fee := NULL;
+    v_bill := jsonb_build_object('action','linked','bill_id',v_linked_bill);
+  END IF;
+
+  UPDATE hostel_waitlist
+     SET status='allocated', allocated_allocation_id=v_new_alloc,
+         held_room_id=NULL, held_bed_id=NULL, hold_expires_at=NULL, updated_at=now()
+   WHERE learner_id = p_profile AND entry_kind='upgrade'
+     AND target_hostel_category_id = p_new_category_id AND status='waiting';
+
+  RETURN jsonb_build_object('success', true, 'state', 'upgraded',
+    'old_allocation_id', v_old.id, 'new_allocation_id', v_new_alloc, 'new_bed_id', p_bed_id,
+    'old_category_id', v_cur_cat, 'new_category_id', p_new_category_id,
+    'old_fee', v_cur_fee, 'new_fee', v_new_fee, 'upgrade_fee', v_upgrade_fee, 'bill', v_bill);
+END $function$;
+
+-- 5) Self-service RPC: threshold gate + pay-to-confirm --------------------------
+CREATE OR REPLACE FUNCTION public.fn_self_upgrade_room_category(
+  p_new_category_id uuid, p_room_id uuid, p_bed_id uuid DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_lp uuid := get_my_learner_id();
+  v_profile uuid := auth.uid();
+  v_year uuid; v_cur_cat uuid; v_cur_fee numeric := 0; v_new_fee numeric;
+  v_cur_name text; v_new_name text;
+  v_gate jsonb; v_hold_days int; v_bed_status text; v_existing uuid;
+  v_inst uuid; v_ay uuid; v_expires timestamptz; v_result jsonb; v_has_alloc boolean;
+  v_upgrade_fee numeric; v_bill jsonb; v_bill_id uuid; v_meets boolean;
+BEGIN
+  IF v_lp IS NULL OR v_profile IS NULL OR NOT user_is_hosteler() THEN
+    RAISE EXCEPTION 'Only a hostel resident can book or upgrade a room';
+  END IF;
+  SELECT id INTO v_year FROM hostel_years WHERE is_current LIMIT 1;
+  IF v_year IS NULL THEN RAISE EXCEPTION 'No current hostel year configured'; END IF;
+
+  SELECT amount INTO v_new_fee FROM hostel_fees
+    WHERE hostel_category_id = p_new_category_id AND hostel_year_id = v_year AND mess_category_id IS NULL AND is_active LIMIT 1;
+  IF v_new_fee IS NULL THEN RAISE EXCEPTION 'Selected category has no published fee for the current hostel year'; END IF;
+  SELECT name INTO v_new_name FROM hostel_categories WHERE id = p_new_category_id;
+
+  SELECT hostel_category_id INTO v_cur_cat FROM learners_profiles WHERE id = v_lp;
+  SELECT name INTO v_cur_name FROM hostel_categories WHERE id = v_cur_cat;
+  SELECT COALESCE(amount,0) INTO v_cur_fee FROM hostel_fees
+    WHERE hostel_category_id = v_cur_cat AND hostel_year_id = v_year AND mess_category_id IS NULL AND is_active LIMIT 1;
+  -- Downgrade guard applies only when moving FROM a real current category.
+  IF v_cur_cat IS NOT NULL AND v_new_fee < v_cur_fee THEN
+    RAISE EXCEPTION 'Downgrades are not allowed (new fee < current fee)';
+  END IF;
+
+  v_has_alloc := EXISTS (SELECT 1 FROM hostel_allocations WHERE learner_id = v_profile AND status = 'active');
+
+  -- Gate: upgrades disabled for the resident's current room category. First-booking
+  -- (no active allocation) is exempt — that path is initial room selection, not an upgrade.
+  IF v_has_alloc AND NOT COALESCE((SELECT upgrades_enabled FROM hostel_categories WHERE id = v_cur_cat), false) THEN
+    RAISE EXCEPTION 'Room upgrades are currently disabled for your category';
+  END IF;
+
+  -- Room-level flow: auto-assign the lowest-numbered available bed
+  IF p_bed_id IS NULL THEN
+    SELECT o.bed_id INTO p_bed_id
+    FROM fn_my_room_options(p_new_category_id) o
+    WHERE o.room_id = p_room_id
+    ORDER BY o.bed_number LIMIT 1;
+    IF p_bed_id IS NULL THEN
+      RAISE EXCEPTION 'No available bed left in that room. Pick another room.';
+    END IF;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM fn_my_room_options(p_new_category_id) o
+    WHERE o.bed_id = p_bed_id AND o.room_id = p_room_id
+  ) THEN
+    RAISE EXCEPTION 'That room/bed is not an available option for you';
+  END IF;
+
+  v_gate := public._cl_upgrade_threshold_check(v_lp, p_new_category_id);
+  v_meets := (v_gate->>'meets')::boolean;
+
+  -- ── FIRST BOOKING: threshold met → instant; below → bed hold + waitlist ──────
+  IF NOT v_has_alloc AND v_meets THEN
+    v_result := public._cl_execute_first_booking(v_profile, v_lp, p_new_category_id, p_room_id, p_bed_id, false);
+    RETURN v_result || jsonb_build_object('new_fee', v_new_fee,
+      'threshold_pct', v_gate->'threshold_pct', 'paid_pct', v_gate->'paid_pct');
+  END IF;
+
+  -- ── UPGRADE, threshold met, nothing to pay → instant move ────────────────────
+  IF v_has_alloc THEN
+    SELECT amount INTO v_upgrade_fee FROM hostel_category_upgrade_fees
+      WHERE hostel_year_id = v_year AND is_active
+        AND from_hostel_category_id = v_cur_cat AND to_hostel_category_id = p_new_category_id LIMIT 1;
+    v_upgrade_fee := COALESCE(v_upgrade_fee, v_new_fee - v_cur_fee);
+    IF v_meets AND COALESCE(v_upgrade_fee, 0) <= 0 THEN
+      v_result := public._cl_execute_room_upgrade(v_profile, v_lp, p_new_category_id, p_room_id, p_bed_id, false);
+      RETURN v_result || jsonb_build_object('threshold_pct', v_gate->'threshold_pct', 'paid_pct', v_gate->'paid_pct');
+    END IF;
+  END IF;
+
+  -- ── HOLD: reserve the bed and wait (for threshold and/or upgrade-fee payment)
+  IF NOT pg_try_advisory_xact_lock(hashtext(p_bed_id::text)) THEN
+    RAISE EXCEPTION 'Another resident is claiming this bed. Try again.';
+  END IF;
+  SELECT status INTO v_bed_status FROM hostel_beds WHERE id = p_bed_id AND room_id = p_room_id;
+  IF v_bed_status IS DISTINCT FROM 'available' THEN RAISE EXCEPTION 'That bed is no longer available'; END IF;
+
+  -- One upgrade intent per learner: release every held bed, decline waiting
+  -- entries for OTHER target categories, and cancel their unpaid linked bills
+  -- (bills with any receipt are left for office follow-up).
+  UPDATE hostel_beds b SET status='available'
+    FROM hostel_waitlist w
+   WHERE w.learner_id = v_profile AND w.entry_kind='upgrade' AND w.status='waiting'
+     AND w.held_bed_id = b.id AND b.status='reserved';
+  UPDATE billing_student_bills bb SET status='cancelled', updated_at=now()
+    FROM hostel_waitlist w
+   WHERE w.learner_id = v_profile AND w.entry_kind='upgrade' AND w.status='waiting'
+     AND w.target_hostel_category_id <> p_new_category_id
+     AND w.upgrade_bill_id = bb.id AND bb.status='unpaid'
+     AND NOT EXISTS (SELECT 1 FROM billing_receipt_items ri WHERE ri.bill_id = bb.id);
+  UPDATE hostel_waitlist
+     SET status='declined', held_room_id=NULL, held_bed_id=NULL, hold_expires_at=NULL, updated_at=now()
+   WHERE learner_id = v_profile AND entry_kind='upgrade' AND status='waiting'
+     AND target_hostel_category_id <> p_new_category_id;
+  UPDATE hostel_waitlist
+     SET held_room_id=NULL, held_bed_id=NULL, hold_expires_at=NULL, updated_at=now()
+   WHERE learner_id = v_profile AND entry_kind='upgrade' AND status='waiting'
+     AND target_hostel_category_id = p_new_category_id AND held_bed_id IS NOT NULL;
+
+  UPDATE hostel_beds SET status='reserved' WHERE id = p_bed_id;
+
+  SELECT upgrade_hold_days INTO v_hold_days FROM hostel_categories WHERE id = p_new_category_id;
+  v_expires := now() + make_interval(days => COALESCE(v_hold_days, 5));
+
+  SELECT institution_id, academic_year_id INTO v_inst, v_ay FROM learners_profiles WHERE id = v_lp;
+  v_ay := COALESCE(v_ay, (SELECT id FROM academic_years WHERE institution_id=v_inst AND is_active ORDER BY start_date DESC LIMIT 1));
+  IF v_ay IS NULL THEN RAISE EXCEPTION 'No academic year configured'; END IF;
+
+  SELECT id INTO v_existing FROM hostel_waitlist
+    WHERE learner_id = v_profile AND entry_kind='upgrade'
+      AND target_hostel_category_id = p_new_category_id AND status='waiting' LIMIT 1;
+  IF v_existing IS NOT NULL THEN
+    UPDATE hostel_waitlist
+       SET held_room_id=p_room_id, held_bed_id=p_bed_id, hold_expires_at=v_expires, updated_at=now()
+     WHERE id = v_existing;
+  ELSE
+    INSERT INTO hostel_waitlist (
+      institution_id, learner_id, academic_year_id, status, entry_kind,
+      target_hostel_category_id, held_room_id, held_bed_id, hold_expires_at
+    ) VALUES (
+      v_inst, v_profile, v_ay, 'waiting', 'upgrade',
+      p_new_category_id, p_room_id, p_bed_id, v_expires
+    ) RETURNING id INTO v_existing;
+  END IF;
+
+  -- ── UPGRADE + threshold met: bill the upgrade fee NOW; confirm on full payment
+  IF v_has_alloc AND v_meets THEN
+    SELECT upgrade_bill_id INTO v_bill_id FROM hostel_waitlist WHERE id = v_existing;
+    IF v_bill_id IS NULL THEN
+      v_bill := public._cl_apply_upgrade_fee_bill(v_lp, v_year, 'hostel', v_upgrade_fee,
+                  format('Hostel room upgrade: %s → %s', COALESCE(v_cur_name,'—'), v_new_name));
+      v_bill_id := (v_bill->>'bill_id')::uuid;
+      UPDATE hostel_waitlist SET upgrade_bill_id = v_bill_id, updated_at=now() WHERE id = v_existing;
+    END IF;
+    RETURN jsonb_build_object('success', true, 'state', 'pending_payment',
+      'waitlist_id', v_existing, 'upgrade_bill_id', v_bill_id, 'upgrade_fee', v_upgrade_fee,
+      'threshold_pct', v_gate->'threshold_pct', 'paid_pct', v_gate->'paid_pct',
+      'hold_expires_at', v_expires, 'held_room_id', p_room_id, 'held_bed_id', p_bed_id,
+      'old_category_id', v_cur_cat, 'new_category_id', p_new_category_id,
+      'old_fee', v_cur_fee, 'new_fee', v_new_fee);
+  END IF;
+
+  -- ── Below threshold (first booking or upgrade): plain waitlist hold ──────────
+  RETURN jsonb_build_object('success', true, 'state', 'waitlisted',
+    'waitlist_id', v_existing,
+    'threshold_pct', v_gate->'threshold_pct', 'paid_pct', v_gate->'paid_pct',
+    'total_billed', v_gate->'total_billed', 'total_paid', v_gate->'total_paid',
+    'hold_expires_at', v_expires, 'held_room_id', p_room_id, 'held_bed_id', p_bed_id,
+    'old_category_id', v_cur_cat, 'new_category_id', p_new_category_id,
+    'old_fee', v_cur_fee, 'new_fee', v_new_fee, 'upgrade_fee', v_upgrade_fee);
+END $function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_self_upgrade_room_category(uuid, uuid, uuid) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_self_upgrade_room_category(uuid, uuid, uuid) TO authenticated;
+
+-- 6) Holds processor: two-stage confirm engine (runs on every receipt item) ------
+CREATE OR REPLACE FUNCTION public.fn_cl_process_upgrade_holds(p_student_lp uuid)
+RETURNS integer
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_profile uuid; v_row RECORD; v_gate jsonb; v_count int := 0;
+  v_has_alloc boolean; v_year uuid; v_cur_cat uuid; v_cur_fee numeric;
+  v_new_fee numeric; v_cur_name text; v_new_name text;
+  v_upgrade_fee numeric; v_bill jsonb; v_bill_id uuid;
+  v_bill_amount numeric; v_bill_paid numeric; v_bill_status text;
+BEGIN
+  -- Bridge: waitlist/allocations key on profiles.id; billing keys on learners_profiles.id
+  SELECT id INTO v_profile FROM profiles WHERE learner_id = p_student_lp;
+  IF v_profile IS NULL THEN RETURN 0; END IF;
+  SELECT id INTO v_year FROM hostel_years WHERE is_current LIMIT 1;
+
+  FOR v_row IN
+    SELECT id, target_hostel_category_id, held_room_id, held_bed_id, upgrade_bill_id
+    FROM hostel_waitlist
+    WHERE learner_id = v_profile AND entry_kind='upgrade' AND status='waiting'
+      AND held_bed_id IS NOT NULL AND hold_expires_at > now()
+    ORDER BY created_at
+  LOOP
+    BEGIN
+      v_gate := public._cl_upgrade_threshold_check(p_student_lp, v_row.target_hostel_category_id);
+      IF NOT (v_gate->>'meets')::boolean THEN CONTINUE; END IF;
+
+      v_has_alloc := EXISTS (SELECT 1 FROM hostel_allocations WHERE learner_id = v_profile AND status='active');
+
+      -- Held FIRST booking: confirms as soon as the academic threshold is met.
+      IF NOT v_has_alloc THEN
+        PERFORM public._cl_execute_first_booking(
+          v_profile, p_student_lp, v_row.target_hostel_category_id,
+          v_row.held_room_id, v_row.held_bed_id, true);
+        v_count := v_count + 1;
+        CONTINUE;
+      END IF;
+
+      -- Held UPGRADE, stage 1: threshold just met but no upgrade bill yet —
+      -- generate (and link) it; confirmation waits for it to be fully paid.
+      v_bill_id := v_row.upgrade_bill_id;
+      IF v_bill_id IS NOT NULL THEN
+        SELECT final_amount, status INTO v_bill_amount, v_bill_status
+          FROM billing_student_bills WHERE id = v_bill_id;
+        IF v_bill_amount IS NULL OR v_bill_status IN ('cancelled','superseded') THEN
+          v_bill_id := NULL;  -- bill vanished/cancelled externally → re-bill
+        END IF;
+      END IF;
+      IF v_bill_id IS NULL THEN
+        SELECT hostel_category_id INTO v_cur_cat FROM learners_profiles WHERE id = p_student_lp;
+        SELECT COALESCE(amount,0) INTO v_cur_fee FROM hostel_fees
+          WHERE hostel_category_id = v_cur_cat AND hostel_year_id = v_year AND mess_category_id IS NULL AND is_active LIMIT 1;
+        SELECT amount INTO v_new_fee FROM hostel_fees
+          WHERE hostel_category_id = v_row.target_hostel_category_id AND hostel_year_id = v_year AND mess_category_id IS NULL AND is_active LIMIT 1;
+        SELECT amount INTO v_upgrade_fee FROM hostel_category_upgrade_fees
+          WHERE hostel_year_id = v_year AND is_active
+            AND from_hostel_category_id = v_cur_cat AND to_hostel_category_id = v_row.target_hostel_category_id LIMIT 1;
+        v_upgrade_fee := COALESCE(v_upgrade_fee, COALESCE(v_new_fee,0) - COALESCE(v_cur_fee,0));
+
+        IF COALESCE(v_upgrade_fee, 0) <= 0 THEN
+          -- Nothing to pay → confirm straight away.
+          PERFORM public._cl_execute_room_upgrade(
+            v_profile, p_student_lp, v_row.target_hostel_category_id,
+            v_row.held_room_id, v_row.held_bed_id, true);
+          v_count := v_count + 1;
+          CONTINUE;
+        END IF;
+
+        SELECT name INTO v_cur_name FROM hostel_categories WHERE id = v_cur_cat;
+        SELECT name INTO v_new_name FROM hostel_categories WHERE id = v_row.target_hostel_category_id;
+        v_bill := public._cl_apply_upgrade_fee_bill(p_student_lp, v_year, 'hostel', v_upgrade_fee,
+                    format('Hostel room upgrade: %s → %s', COALESCE(v_cur_name,'—'), v_new_name));
+        UPDATE hostel_waitlist SET upgrade_bill_id = (v_bill->>'bill_id')::uuid, updated_at=now()
+         WHERE id = v_row.id;
+        CONTINUE;  -- stage 2 happens when this bill's payments arrive
+      END IF;
+
+      -- Held UPGRADE, stage 2: confirm only when the upgrade bill is FULLY paid.
+      SELECT COALESCE(SUM(ri.amount_paid),0) INTO v_bill_paid
+        FROM billing_receipt_items ri WHERE ri.bill_id = v_bill_id;
+      IF v_bill_paid >= v_bill_amount THEN
+        PERFORM public._cl_execute_room_upgrade(
+          v_profile, p_student_lp, v_row.target_hostel_category_id,
+          v_row.held_room_id, v_row.held_bed_id, true);
+        v_count := v_count + 1;
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      -- Leave the hold in place; expiry will clean it up if it never resolves.
+      RAISE WARNING 'fn_cl_process_upgrade_holds: % (waitlist %)', SQLERRM, v_row.id;
+    END;
+  END LOOP;
+  RETURN v_count;
+END $function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_cl_process_upgrade_holds(uuid) FROM anon, authenticated, PUBLIC;
+
+-- 7) Hold expiry: also cancel the linked unpaid upgrade bill ---------------------
+CREATE OR REPLACE FUNCTION public.fn_cl_expire_upgrade_holds()
+RETURNS integer
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_count int;
+BEGIN
+  -- held_room_id/held_bed_id are kept on expired rows as an audit trail;
+  -- the status transition itself is the idempotency stamp.
+  WITH expired AS (
+    UPDATE hostel_waitlist
+       SET status='expired', updated_at=now()
+     WHERE entry_kind='upgrade' AND status='waiting'
+       AND held_bed_id IS NOT NULL AND hold_expires_at < now()
+     RETURNING held_bed_id, upgrade_bill_id
+  ), released AS (
+    UPDATE hostel_beds b SET status='available'
+    FROM expired e
+    WHERE b.id = e.held_bed_id AND b.status='reserved'
+    RETURNING b.id
+  ), bills_cancelled AS (
+    -- Unpaid + zero receipts only; partially paid bills are left for office
+    -- follow-up (money was collected against them).
+    UPDATE billing_student_bills bb
+       SET status='cancelled', updated_at=now()
+    FROM expired e
+    WHERE bb.id = e.upgrade_bill_id AND bb.status='unpaid'
+      AND NOT EXISTS (SELECT 1 FROM billing_receipt_items ri WHERE ri.bill_id = bb.id)
+    RETURNING bb.id
+  )
+  SELECT count(*) INTO v_count FROM expired;
+  RETURN COALESCE(v_count, 0);
+END $function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_cl_expire_upgrade_holds() FROM anon, authenticated, PUBLIC;
+
+-- 8) Leaving the waitlist cancels the linked unpaid bill + releases the bed ------
+CREATE OR REPLACE FUNCTION public.fn_self_leave_upgrade_waitlist(p_target_category_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Not authenticated'; END IF;
+  UPDATE hostel_beds b SET status='available'
+    FROM hostel_waitlist w
+   WHERE w.learner_id = auth.uid() AND w.entry_kind='upgrade'
+     AND w.target_hostel_category_id = p_target_category_id AND w.status='waiting'
+     AND w.held_bed_id = b.id AND b.status='reserved';
+  UPDATE billing_student_bills bb SET status='cancelled', updated_at=now()
+    FROM hostel_waitlist w
+   WHERE w.learner_id = auth.uid() AND w.entry_kind='upgrade'
+     AND w.target_hostel_category_id = p_target_category_id AND w.status='waiting'
+     AND w.upgrade_bill_id = bb.id AND bb.status='unpaid'
+     AND NOT EXISTS (SELECT 1 FROM billing_receipt_items ri WHERE ri.bill_id = bb.id);
+  UPDATE hostel_waitlist
+     SET status='declined', held_room_id=NULL, held_bed_id=NULL, hold_expires_at=NULL, updated_at=now()
+   WHERE learner_id = auth.uid()
+     AND entry_kind = 'upgrade'
+     AND target_hostel_category_id = p_target_category_id
+     AND status = 'waiting';
+  RETURN FOUND;
+END $function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_self_leave_upgrade_waitlist(uuid) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_self_leave_upgrade_waitlist(uuid) TO authenticated;
+
+-- 9) Waitlist list RPC exposes the pending upgrade bill (new OUT cols → DROP) ----
+DROP FUNCTION IF EXISTS public.fn_my_upgrade_waitlist();
+CREATE FUNCTION public.fn_my_upgrade_waitlist()
+RETURNS TABLE(
+  waitlist_id uuid, target_category_id uuid, target_category_name text,
+  status text, created_at timestamptz,
+  held_room_id uuid, held_room_number text, held_block_name text, held_bed_number text,
+  hold_expires_at timestamptz, threshold_pct numeric, paid_pct numeric,
+  upgrade_bill_id uuid, upgrade_fee_amount numeric, upgrade_fee_paid numeric
+)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT w.id, w.target_hostel_category_id, c.name, w.status::text, w.created_at,
+         w.held_room_id, r.room_number, bl.name, b.bed_number,
+         w.hold_expires_at, c.upgrade_threshold_pct,
+         (SELECT pp.paid_pct FROM fn_learner_academic_payment_progress(get_my_learner_id()) pp),
+         w.upgrade_bill_id,
+         bill.final_amount,
+         (SELECT COALESCE(SUM(ri.amount_paid),0) FROM billing_receipt_items ri WHERE ri.bill_id = w.upgrade_bill_id)
+  FROM hostel_waitlist w
+  LEFT JOIN hostel_categories c ON c.id = w.target_hostel_category_id
+  LEFT JOIN hostel_rooms r ON r.id = w.held_room_id
+  LEFT JOIN hostel_blocks bl ON bl.id = r.block_id
+  LEFT JOIN hostel_beds b ON b.id = w.held_bed_id
+  LEFT JOIN billing_student_bills bill ON bill.id = w.upgrade_bill_id
+  WHERE w.learner_id = auth.uid()
+    AND w.entry_kind = 'upgrade'
+    AND w.status IN ('waiting','offered')
+  ORDER BY w.created_at DESC;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_my_upgrade_waitlist() FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_my_upgrade_waitlist() TO authenticated;
+
+-- =============================================================================
+-- 2026-06-12 — Preview (dry-run) for the fee-condition category sync
+-- (migration 20260612220000_preview_hostel_fee_category_sync.sql)
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_preview_hostel_fee_categories(p_institution uuid DEFAULT NULL)
+RETURNS TABLE(
+  learner_id uuid,
+  learner_name text,
+  roll_number text,
+  institution_name text,
+  program_name text,
+  quota_name text,
+  gender text,
+  current_year_fee numeric,
+  has_academic_bill boolean,
+  is_allocated boolean,
+  reason text,
+  current_room text,
+  new_room text,
+  current_mess text,
+  new_mess text,
+  will_change boolean
+)
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  r RECORD;
+  v_gender_type text; v_fee numeric; v_has_bill boolean; v_allocated boolean;
+  v_room uuid; v_mess uuid; v_new_room uuid; v_new_mess uuid; v_reason text;
+BEGIN
+  -- Same gate as the bulk sync RPC.
+  IF auth.uid() IS NOT NULL
+     AND NOT user_has_permission('campus_living.settings.edit') THEN
+    RAISE EXCEPTION 'Not authorized to preview learner category sync'
+      USING ERRCODE = '42501';
+  END IF;
+
+  FOR r IN
+    SELECT lp.id AS lid,
+           NULLIF(trim(concat_ws(' ', lp.first_name, lp.last_name)), '') AS lname,
+           lp.roll_number AS lroll, lp.gender AS lgender,
+           lp.hostel_category_id AS cur_room_id, lp.mess_category_id AS cur_mess_id,
+           i.name AS inst_name, p.program_name AS prog_name, q.name AS q_name
+    FROM learners_profiles lp
+    JOIN accommodation_types acc ON acc.id = lp.accommodation_type_id AND acc.code = 'hostel'
+    LEFT JOIN institutions i ON i.id = lp.institution_id
+    LEFT JOIN programs p ON p.id = lp.program_id
+    LEFT JOIN quotas q ON q.id = lp.quota_id
+    WHERE lp.lifecycle_status = 'active'
+      AND (p_institution IS NULL OR lp.institution_id = p_institution)
+    ORDER BY i.name, p.program_name, lname
+  LOOP
+    v_gender_type := CASE WHEN lower(r.lgender) LIKE 'm%' THEN 'boys'
+                          WHEN lower(r.lgender) LIKE 'f%' THEN 'girls' ELSE NULL END;
+    v_has_bill := EXISTS (
+      SELECT 1 FROM billing_student_bills b
+      WHERE b.student_id = r.lid AND b.fee_source = 'academic'
+        AND b.status NOT IN ('cancelled','superseded'));
+    v_fee := fn_learner_current_year_academic_fee(r.lid);
+    v_allocated := EXISTS (
+      SELECT 1 FROM hostel_allocations ha
+      JOIN profiles pr ON pr.id = ha.learner_id
+      WHERE pr.learner_id = r.lid AND ha.status = 'active');
+
+    v_room := NULL; v_mess := NULL;
+
+    IF v_has_bill THEN
+      -- Band match + gender-name translation (mirrors fn_apply mig 20260612170000).
+      SELECT gv.id INTO v_room
+      FROM fn_hostel_learner_room_categories(r.lid) rr
+      JOIN hostel_categories bc ON bc.id = rr.category_id
+      JOIN hostel_categories gv ON gv.name = bc.name
+                               AND gv.type = v_gender_type AND gv.is_active
+      LIMIT 1;
+
+      SELECT gv.id INTO v_mess
+      FROM fn_hostel_learner_mess_categories(r.lid) mm
+      JOIN mess_categories bc ON bc.id = mm.category_id
+      JOIN mess_categories gv ON gv.name = bc.name
+                             AND gv.type = v_gender_type AND gv.is_active
+      LIMIT 1;
+
+      IF v_room IS NOT NULL OR v_mess IS NOT NULL THEN
+        v_reason := 'band_match';
+      ELSIF v_fee IS NULL THEN
+        v_reason := 'classic_default_fee_unknown';
+      ELSE
+        v_reason := 'classic_default_no_band';
+      END IF;
+
+      IF v_room IS NULL AND v_gender_type IS NOT NULL THEN
+        SELECT hc.id INTO v_room FROM hostel_categories hc
+        WHERE hc.name = 'Classic Room' AND hc.type = v_gender_type AND hc.is_active
+        ORDER BY hc.sort_order LIMIT 1;
+      END IF;
+      IF v_mess IS NULL AND v_gender_type IS NOT NULL THEN
+        SELECT mc.id INTO v_mess FROM mess_categories mc
+        WHERE mc.name = 'Classic' AND mc.type = v_gender_type AND mc.is_active
+        ORDER BY mc.sort_order LIMIT 1;
+      END IF;
+    ELSE
+      v_reason := 'no_academic_bill';
+    END IF;
+
+    -- Apply rules: allocation-wins (room) + overwrite-never-wipe.
+    v_new_room := CASE WHEN v_allocated THEN r.cur_room_id
+                       ELSE COALESCE(v_room, r.cur_room_id) END;
+    v_new_mess := COALESCE(v_mess, r.cur_mess_id);
+
+    learner_id        := r.lid;
+    learner_name      := r.lname;
+    roll_number       := r.lroll;
+    institution_name  := r.inst_name;
+    program_name      := r.prog_name;
+    quota_name        := r.q_name;
+    gender            := r.lgender;
+    current_year_fee  := v_fee;
+    has_academic_bill := v_has_bill;
+    is_allocated      := v_allocated;
+    reason            := v_reason;
+    current_room      := (SELECT hc.name FROM hostel_categories hc WHERE hc.id = r.cur_room_id);
+    new_room          := (SELECT hc.name FROM hostel_categories hc WHERE hc.id = v_new_room);
+    current_mess      := (SELECT mc.name FROM mess_categories mc WHERE mc.id = r.cur_mess_id);
+    new_mess          := (SELECT mc.name FROM mess_categories mc WHERE mc.id = v_new_mess);
+    will_change       := (v_new_room IS DISTINCT FROM r.cur_room_id)
+                      OR (v_new_mess IS DISTINCT FROM r.cur_mess_id);
+    RETURN NEXT;
+  END LOOP;
+END
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_preview_hostel_fee_categories(uuid) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_preview_hostel_fee_categories(uuid) TO authenticated;
+
+-- =============================================================================
+-- 2026-06-12 — preview gains semester_name (filterable preview dialog)
+-- (migration 20260612230000_preview_sync_semester_column.sql; supersedes the
+-- fn_preview_hostel_fee_categories definition above)
+-- =============================================================================
+DROP FUNCTION IF EXISTS public.fn_preview_hostel_fee_categories(uuid);
+CREATE FUNCTION public.fn_preview_hostel_fee_categories(p_institution uuid DEFAULT NULL)
+RETURNS TABLE(
+  learner_id uuid,
+  learner_name text,
+  roll_number text,
+  institution_name text,
+  program_name text,
+  semester_name text,
+  quota_name text,
+  gender text,
+  current_year_fee numeric,
+  has_academic_bill boolean,
+  is_allocated boolean,
+  reason text,
+  current_room text,
+  new_room text,
+  current_mess text,
+  new_mess text,
+  will_change boolean
+)
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  r RECORD;
+  v_gender_type text; v_fee numeric; v_has_bill boolean; v_allocated boolean;
+  v_room uuid; v_mess uuid; v_new_room uuid; v_new_mess uuid; v_reason text;
+BEGIN
+  -- Same gate as the bulk sync RPC.
+  IF auth.uid() IS NOT NULL
+     AND NOT user_has_permission('campus_living.settings.edit') THEN
+    RAISE EXCEPTION 'Not authorized to preview learner category sync'
+      USING ERRCODE = '42501';
+  END IF;
+
+  FOR r IN
+    SELECT lp.id AS lid,
+           NULLIF(trim(concat_ws(' ', lp.first_name, lp.last_name)), '') AS lname,
+           lp.roll_number AS lroll, lp.gender AS lgender,
+           lp.hostel_category_id AS cur_room_id, lp.mess_category_id AS cur_mess_id,
+           i.name AS inst_name, p.program_name AS prog_name,
+           s.semester_name AS sem_name, q.name AS q_name
+    FROM learners_profiles lp
+    JOIN accommodation_types acc ON acc.id = lp.accommodation_type_id AND acc.code = 'hostel'
+    LEFT JOIN institutions i ON i.id = lp.institution_id
+    LEFT JOIN programs p ON p.id = lp.program_id
+    LEFT JOIN semesters s ON s.id = lp.semester_id
+    LEFT JOIN quotas q ON q.id = lp.quota_id
+    WHERE lp.lifecycle_status = 'active'
+      AND (p_institution IS NULL OR lp.institution_id = p_institution)
+    ORDER BY i.name, p.program_name, lname
+  LOOP
+    v_gender_type := CASE WHEN lower(r.lgender) LIKE 'm%' THEN 'boys'
+                          WHEN lower(r.lgender) LIKE 'f%' THEN 'girls' ELSE NULL END;
+    v_has_bill := EXISTS (
+      SELECT 1 FROM billing_student_bills b
+      WHERE b.student_id = r.lid AND b.fee_source = 'academic'
+        AND b.status NOT IN ('cancelled','superseded'));
+    v_fee := fn_learner_current_year_academic_fee(r.lid);
+    v_allocated := EXISTS (
+      SELECT 1 FROM hostel_allocations ha
+      JOIN profiles pr ON pr.id = ha.learner_id
+      WHERE pr.learner_id = r.lid AND ha.status = 'active');
+
+    v_room := NULL; v_mess := NULL;
+
+    IF v_has_bill THEN
+      -- Band match + gender-name translation (mirrors fn_apply mig 20260612170000).
+      SELECT gv.id INTO v_room
+      FROM fn_hostel_learner_room_categories(r.lid) rr
+      JOIN hostel_categories bc ON bc.id = rr.category_id
+      JOIN hostel_categories gv ON gv.name = bc.name
+                               AND gv.type = v_gender_type AND gv.is_active
+      LIMIT 1;
+
+      SELECT gv.id INTO v_mess
+      FROM fn_hostel_learner_mess_categories(r.lid) mm
+      JOIN mess_categories bc ON bc.id = mm.category_id
+      JOIN mess_categories gv ON gv.name = bc.name
+                             AND gv.type = v_gender_type AND gv.is_active
+      LIMIT 1;
+
+      IF v_room IS NOT NULL OR v_mess IS NOT NULL THEN
+        v_reason := 'band_match';
+      ELSIF v_fee IS NULL THEN
+        v_reason := 'classic_default_fee_unknown';
+      ELSE
+        v_reason := 'classic_default_no_band';
+      END IF;
+
+      IF v_room IS NULL AND v_gender_type IS NOT NULL THEN
+        SELECT hc.id INTO v_room FROM hostel_categories hc
+        WHERE hc.name = 'Classic Room' AND hc.type = v_gender_type AND hc.is_active
+        ORDER BY hc.sort_order LIMIT 1;
+      END IF;
+      IF v_mess IS NULL AND v_gender_type IS NOT NULL THEN
+        SELECT mc.id INTO v_mess FROM mess_categories mc
+        WHERE mc.name = 'Classic' AND mc.type = v_gender_type AND mc.is_active
+        ORDER BY mc.sort_order LIMIT 1;
+      END IF;
+    ELSE
+      v_reason := 'no_academic_bill';
+    END IF;
+
+    -- Apply rules: allocation-wins (room) + overwrite-never-wipe.
+    v_new_room := CASE WHEN v_allocated THEN r.cur_room_id
+                       ELSE COALESCE(v_room, r.cur_room_id) END;
+    v_new_mess := COALESCE(v_mess, r.cur_mess_id);
+
+    learner_id        := r.lid;
+    learner_name      := r.lname;
+    roll_number       := r.lroll;
+    institution_name  := r.inst_name;
+    program_name      := r.prog_name;
+    semester_name     := r.sem_name;
+    quota_name        := r.q_name;
+    gender            := r.lgender;
+    current_year_fee  := v_fee;
+    has_academic_bill := v_has_bill;
+    is_allocated      := v_allocated;
+    reason            := v_reason;
+    current_room      := (SELECT hc.name FROM hostel_categories hc WHERE hc.id = r.cur_room_id);
+    new_room          := (SELECT hc.name FROM hostel_categories hc WHERE hc.id = v_new_room);
+    current_mess      := (SELECT mc.name FROM mess_categories mc WHERE mc.id = r.cur_mess_id);
+    new_mess          := (SELECT mc.name FROM mess_categories mc WHERE mc.id = v_new_mess);
+    will_change       := (v_new_room IS DISTINCT FROM r.cur_room_id)
+                      OR (v_new_mess IS DISTINCT FROM r.cur_mess_id);
+    RETURN NEXT;
+  END LOOP;
+END
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_preview_hostel_fee_categories(uuid) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_preview_hostel_fee_categories(uuid) TO authenticated;

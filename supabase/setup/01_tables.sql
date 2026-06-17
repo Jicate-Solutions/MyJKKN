@@ -484,6 +484,12 @@ CREATE INDEX IF NOT EXISTS idx_intake_history_program ON intake_history(program_
 CREATE INDEX IF NOT EXISTS idx_intake_history_year ON intake_history(academic_year_id);
 CREATE INDEX IF NOT EXISTS idx_intake_history_institution ON intake_history(institution_id);
 
+-- Pending (staged) hostel category for in-flight upgrades (20260616010000): set on confirm,
+-- promoted to hostel_category_id on payment + threshold, cleared on hold expiry.
+ALTER TABLE public.learners_profiles
+  ADD COLUMN IF NOT EXISTS pending_hostel_category_id uuid
+    REFERENCES public.hostel_categories(id) ON DELETE SET NULL;
+
 -- Indexes for learners_profiles analytics fields
 CREATE INDEX IF NOT EXISTS idx_learners_profiles_school_type ON learners_profiles(school_type);
 CREATE INDEX IF NOT EXISTS idx_learners_profiles_location_type ON learners_profiles(location_type);
@@ -1278,6 +1284,7 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
         WHEN page_url ~ '/admin/'     THEN 'admin'
         WHEN page_url ~ '/resource-management/' THEN 'resource-management'
         WHEN page_url ~ '/startup-studio/' THEN 'startup-studio'
+        WHEN page_url ~ '/moments/' THEN 'moments'  -- Added: 2026-06-12 Family Moments
         WHEN page_url ~ '/settings/' THEN 'settings'
         ELSE 'other'
       END
@@ -1307,6 +1314,8 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
           THEN substring(page_url FROM '/resource-management/([^/?#]+)')
         WHEN page_url ~ '/startup-studio/'
           THEN substring(page_url FROM '/startup-studio/([^/?#]+)')
+        WHEN page_url ~ '/moments/'  -- Added: 2026-06-12 Family Moments
+          THEN substring(page_url FROM '/moments/([^/?#]+)')
         WHEN page_url ~ '/settings/'
           THEN substring(page_url FROM '/settings/([^/?#]+)')
         WHEN page_url ~ '/service-requests/'
@@ -4917,11 +4926,12 @@ CREATE TABLE IF NOT EXISTS public.hostel_program_eligibility (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   institution_id uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
   program_id uuid REFERENCES public.programs(id) ON DELETE CASCADE,   -- NULL = institution default
-  quota_id   uuid REFERENCES public.quotas(id) ON DELETE CASCADE,     -- NULL = any quota
+  quota_ids  uuid[],                                                  -- NULL/empty = any quota; one rule can target many quotas. No FK (arrays can't); validated + canonicalised by trg_prog_elig_normalize_quotas
   fee_min numeric(12,2),                                              -- inclusive lower (rupees), NULL = unbounded
   fee_max numeric(12,2),                                              -- exclusive upper (rupees), NULL = unbounded
   room_category_id uuid REFERENCES public.hostel_categories(id) ON DELETE CASCADE,
   mess_category_id uuid REFERENCES public.mess_categories(id)  ON DELETE CASCADE,
+  hostel_type text NOT NULL DEFAULT 'both' CHECK (hostel_type IN ('boys','girls','both')), -- which gender(s) the band applies to
   is_monthly_mess_allowed boolean NOT NULL DEFAULT false,
   is_active boolean NOT NULL DEFAULT true,
   effective_from date,
@@ -4933,16 +4943,23 @@ CREATE TABLE IF NOT EXISTS public.hostel_program_eligibility (
   CONSTRAINT chk_prog_elig_has_category CHECK (room_category_id IS NOT NULL OR mess_category_id IS NOT NULL)
 );
 
--- One row per band (institution, program, quota, fee_min, fee_max).
+-- One row per band PER GENDER (institution, program, quota, fee_min, fee_max, hostel_type).
+-- hostel_type is part of the key so a fee tier can hold a boys row AND a girls row;
+-- categories are gender-typed and the resolver filters bands by hostel_type.
+-- quota_ids is canonicalised (sorted + de-duped) by the trigger so this btree
+-- index treats {A,B} and {B,A} as the same key; COALESCE(...,'{}') collapses NULL.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_prog_elig_band ON public.hostel_program_eligibility (
   institution_id,
   COALESCE(program_id, '00000000-0000-0000-0000-000000000000'::uuid),
-  COALESCE(quota_id,   '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(quota_ids,  '{}'::uuid[]),
   COALESCE(fee_min, -1),
-  COALESCE(fee_max, -1)
+  COALESCE(fee_max, -1),
+  hostel_type
 );
 CREATE INDEX IF NOT EXISTS idx_prog_elig_resolve
-  ON public.hostel_program_eligibility (institution_id, program_id, quota_id, is_active);
+  ON public.hostel_program_eligibility (institution_id, program_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_prog_elig_quota_ids
+  ON public.hostel_program_eligibility USING gin (quota_ids);
 
 -- hostel_waitlist: waitlist for hostel room allocation and self-service category-upgrade intent.
 -- Originally created in migration 20260222000015_campus_living_enums_and_tables.sql.
@@ -4981,6 +4998,12 @@ ALTER TABLE public.hostel_categories
     CHECK (upgrade_threshold_pct >= 0 AND upgrade_threshold_pct <= 100),
   ADD COLUMN IF NOT EXISTS upgrade_hold_days integer NOT NULL DEFAULT 5
     CHECK (upgrade_hold_days BETWEEN 1 AND 60);
+
+-- Add-on categories (e.g. "Premium Room + AC", 20260615235500): reachable as an upgrade
+-- target ONLY via an explicit hostel_category_upgrade_fees pair from the resident's current
+-- category — never through the fee-difference fallback. Keeps it scoped to one source tier.
+ALTER TABLE public.hostel_categories
+  ADD COLUMN IF NOT EXISTS requires_explicit_upgrade boolean NOT NULL DEFAULT false;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_hostel_waitlist_active_upgrade
   ON public.hostel_waitlist (learner_id, target_hostel_category_id)
@@ -5053,3 +5076,27 @@ CREATE INDEX IF NOT EXISTS idx_upgrade_fee_mess ON public.hostel_category_upgrad
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cleaning_task_schedule_date
   ON public.hostel_cleaning_tasks (schedule_id, date)
   WHERE schedule_id IS NOT NULL;
+
+-- =====================================================
+-- 20260711000000: Family Moments engine (2026-06-12)
+-- Campaign-based parent engagement — Father's Day 2026
+-- (NV CBSE + Matric HSS). Tokenized public gift cards.
+-- Full DDL + RLS + storage bucket in the migration file:
+-- supabase/migrations/20260711000000_family_moments_engine.sql
+-- =====================================================
+-- family_moments_campaigns: one row per occasion per institution
+--   (slug UNIQUE, recipient_type father|mother|both, status lifecycle)
+-- family_moments: one row per child per campaign
+--   (token UNIQUE unguessable, content_type auto|text|image,
+--    recipient snapshots, opened/install/push tracking columns)
+
+-- =====================================================
+-- 20260616080000: Per-category "allow upgrades" flag
+-- Default false = opt-in; no learner sees upgrade options
+-- until admin enables it per category.
+-- =====================================================
+ALTER TABLE public.hostel_categories
+  ADD COLUMN IF NOT EXISTS upgrades_enabled boolean NOT NULL DEFAULT false;
+
+ALTER TABLE public.mess_categories
+  ADD COLUMN IF NOT EXISTS upgrades_enabled boolean NOT NULL DEFAULT false;

@@ -1,8 +1,9 @@
 export const dynamic = 'force-dynamic';
 
 // POST /api/billing/payment-accounts/deactivate  — billing.payment_accounts.manage
-// Deactivates an institution's active account. After this it falls back to the
-// common env account (existing transactions still resolve by pinned account id).
+// Deactivates a SPECIFIC account (by id). After this the institution+fee-head slot
+// falls back to the institution default, then the common env account (existing
+// transactions still resolve by their pinned account id).
 
 import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/auth/with-auth';
@@ -12,14 +13,14 @@ import { logger } from '@/lib/utils/enhanced-logger';
 export const POST = withAuth(
   async (request, auth) => {
     const body = await request.json().catch(() => null);
-    const institutionId = body?.institutionId;
-    if (!institutionId) {
-      return NextResponse.json({ success: false, error: 'missing_institution_id' }, { status: 400 });
+    const accountId = body?.accountId;
+    if (!accountId) {
+      return NextResponse.json({ success: false, error: 'missing_account_id' }, { status: 400 });
     }
 
-    await RazorpayAccountVault.deactivate(institutionId, auth.user.id);
+    await RazorpayAccountVault.deactivateById(accountId, auth.user.id);
     logger.info('billing/payment-accounts', 'Razorpay account deactivated', {
-      institutionId,
+      accountId,
       actor: auth.user.id,
     });
     return NextResponse.json({ success: true });

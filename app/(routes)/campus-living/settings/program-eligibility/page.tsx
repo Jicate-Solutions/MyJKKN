@@ -12,8 +12,9 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import { useEligibility } from '@/hooks/campus-living/use-program-eligibility';
 import { EligibilityDataTable } from './_components/data-table';
 import { ProgramEligibilityFormDialog } from './_components/form-dialog';
@@ -21,18 +22,60 @@ import { createEligibilityColumns } from './_components/columns';
 import { RoomRulesTable } from './_components/room-rules-table';
 import { RoomEligibilityFormDialog } from './_components/room-eligibility-form-dialog';
 import { SyncCategoriesButton } from './_components/sync-categories-button';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { PermissionError } from '@/components/errors/permission-error';
+import {
+  EligibilityFiltersPanel,
+  EMPTY_ELIGIBILITY_FILTERS,
+  countActiveEligibilityFilters,
+  eligibilityMatchesFilters,
+} from './_components/eligibility-filters';
 
 export default function ProgramEligibilityPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [addRoomRuleOpen, setAddRoomRuleOpen] = useState(false);
+  const [filters, setFilters] = useState(EMPTY_ELIGIBILITY_FILTERS);
+  const [search, setSearch] = useState('');
 
   // null => list across ALL institutions; each row carries its own institution,
   // picked inside the Add dialog (no page-level institution gate).
   const eligibility = useEligibility(null);
   const columns = useMemo(() => createEligibilityColumns(), []);
 
+  const filtering =
+    countActiveEligibilityFilters(filters) > 0 || search.trim().length > 0;
+  const filteredRows = useMemo(
+    () =>
+      eligibility.rows.filter((r) =>
+        eligibilityMatchesFilters(r, filters, search)
+      ),
+    [eligibility.rows, filters, search]
+  );
+
   return (
-    <ContentLayout title='Program Eligibility'>
+    // Authorization gate (added 2026-06-16): this settings sub-page previously
+    // had NO in-page permission guard and relied on Supabase RLS only, so a
+    // direct-URL visitor without a campus-living settings role wasn't
+    // access-controlled in the page itself. Gate on `campus_living.settings.view`
+    // (defined in lib/constants/permissions.ts; the same section key
+    // /campus-living/settings maps to in MENU_PERMISSIONS). The bulk eligibility
+    // RPC already self-gates on campus_living.settings.edit at the DB layer; this
+    // adds the matching view gate at the page layer. Fail-closed: PermissionGuard
+    // renders the fallback on deny and nothing while loading; super-admins bypass.
+    // Explicit denial, never a silent redirect (CLAUDE.md rule #27).
+    <PermissionGuard
+      module='campus_living.settings'
+      action='view'
+      fallback={
+        <ContentLayout title='Program Eligibility'>
+          <PermissionError
+            message='Campus Living settings are restricted to hostel administrators.'
+            requiredPermission='campus_living.settings.view'
+          />
+        </ContentLayout>
+      }
+    >
+      <ContentLayout title='Program Eligibility'>
       <div className='space-y-6'>
         <Breadcrumb>
           <BreadcrumbList>
@@ -74,17 +117,46 @@ export default function ProgramEligibilityPage() {
               </TabsList>
 
               <TabsContent value='category' className='space-y-4 pt-4'>
-                <div className='flex justify-end gap-2'>
-                  <SyncCategoriesButton />
-                  <Button onClick={() => setAddOpen(true)}>
-                    <Plus className='h-4 w-4 mr-2' /> Add Rule
-                  </Button>
+                <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+                  <div className='flex items-center gap-2'>
+                    <div className='relative'>
+                      <Search className='absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
+                      <Input
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder='Search rules…'
+                        className='h-9 w-full pl-8 sm:w-64'
+                      />
+                    </div>
+                    <EligibilityFiltersPanel
+                      rows={eligibility.rows}
+                      value={filters}
+                      onChange={setFilters}
+                    />
+                  </div>
+                  <div className='flex justify-end gap-2'>
+                    <SyncCategoriesButton />
+                    <Button onClick={() => setAddOpen(true)}>
+                      <Plus className='h-4 w-4 mr-2' /> Add Rule
+                    </Button>
+                  </div>
                 </div>
+                {filtering && !eligibility.loading && (
+                  <p className='text-xs text-muted-foreground'>
+                    Showing {filteredRows.length} of {eligibility.rows.length}{' '}
+                    rules
+                  </p>
+                )}
                 <EligibilityDataTable
                   columns={columns}
-                  data={eligibility.rows}
+                  data={filteredRows}
                   loading={eligibility.loading}
                   error={eligibility.error}
+                  emptyMessage={
+                    filtering
+                      ? 'No rules match the current search / filters.'
+                      : undefined
+                  }
                 />
               </TabsContent>
 
@@ -112,6 +184,7 @@ export default function ProgramEligibilityPage() {
           mode='create'
         />
       </div>
-    </ContentLayout>
+      </ContentLayout>
+    </PermissionGuard>
   );
 }

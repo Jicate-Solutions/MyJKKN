@@ -37,7 +37,9 @@ import {
   CircleDashed,
   FileText,
   MessageSquareHeart,
+  Pencil,
   PlusCircle,
+  RotateCcw,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -49,6 +51,7 @@ import type {
   PDEDemonstration,
   PDEDemonstrationStatus,
 } from '@/lib/types/pde-demonstrations';
+import { PDEAppreciationService } from '@/lib/services/pde-appreciation-service';
 import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -146,7 +149,27 @@ export function DemonstrationList({ initialRows, initialError }: DemonstrationLi
   const router = useRouter();
   const [rows, setRows] = useState<PDEDemonstration[]>(initialRows);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [thankedIds, setThankedIds] = useState<Set<string>>(new Set());
   const [, startTransition] = useTransition();
+
+  // Learner → validator thanks (CARE corrective move A — A5: two-way
+  // appreciation channel). One in-app notification per validator on the row.
+  const handleThanks = async (row: PDEDemonstration) => {
+    setPendingId(row.id);
+    try {
+      await PDEAppreciationService.sendThanks({
+        demonstrationId: row.id,
+        validatorIds: row.validator_ids ?? [],
+        skillName: row.skill_name,
+      });
+      setThankedIds((prev) => new Set(prev).add(row.id));
+      toast.success('Thanks sent to your validator.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not send thanks.');
+    } finally {
+      setPendingId(null);
+    }
+  };
 
   const handleWithdraw = async (id: string) => {
     if (pendingId) return;
@@ -156,18 +179,18 @@ export function DemonstrationList({ initialRows, initialError }: DemonstrationLi
         method: 'POST',
       });
       if (!res.ok) {
-        // Fallback: T1.1 ships only POST /demonstrations; withdraw endpoint
-        // lands in T1.2. For now, surface a friendly note + ask the learner
-        // to refresh once the endpoint is live.
+        // Self-service withdraw isn't available for this submission yet. Show a
+        // friendly, actionable message instead of leaking the HTTP status or any
+        // implementation detail to the learner.
         if (res.status === 404) {
           toast(
-            'Withdraw endpoint ships in T1.2. Mark as withdrawn manually via support for now.',
+            'This submission can’t be withdrawn here yet — please contact support to withdraw it.',
             { icon: 'ℹ️' }
           );
           return;
         }
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Request failed (${res.status})`);
+        throw new Error(body.error || 'Sorry, we couldn’t withdraw this submission. Please try again or contact support.');
       }
       const { data } = (await res.json()) as { data: PDEDemonstration };
       setRows((prev) => prev.map((r) => (r.id === id ? data : r)));
@@ -251,6 +274,10 @@ export function DemonstrationList({ initialRows, initialError }: DemonstrationLi
           const StatusIcon = statusCfg.icon;
           const canWithdraw = WITHDRAWABLE_STATUSES.includes(row.status);
           const categoryLabel = CATEGORY_LABELS[row.category_key] ?? row.category_key;
+          // A draft carrying validator feedback was returned via "Request
+          // changes" (#9b) — offer the edit/resubmit path.
+          const feedback = validatorFeedback(row.validator_notes);
+          const wasReturned = row.status === 'draft' && feedback.length > 0;
 
           return (
             <Card key={row.id} className="border-border/60">
@@ -294,11 +321,32 @@ export function DemonstrationList({ initialRows, initialError }: DemonstrationLi
                   <p className="text-sm text-muted-foreground line-clamp-2">{row.evidence.notes}</p>
                 )}
 
-                {/* Validator feedback (CARE-A): the appreciation loop closes here. */}
-                {(() => {
-                  const feedback = validatorFeedback(row.validator_notes);
-                  if (feedback.length === 0) return null;
-                  return (
+                {/* Validator feedback. When the demo was RETURNED (#9b — a draft
+                    that carries a note), frame it as "changes requested" with an
+                    edit/resubmit CTA. Otherwise it's the appreciation loop. */}
+                {feedback.length > 0 && (
+                  wasReturned ? (
+                    <div className="rounded-md bg-[#ffde59]/20 border border-amber-300 p-3 space-y-2">
+                      <p className="text-xs font-medium text-amber-900 flex items-center gap-1.5">
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        Changes requested
+                      </p>
+                      {feedback.map((note, i) => (
+                        <p key={i} className="text-sm text-amber-900/90 whitespace-pre-wrap">
+                          {note}
+                        </p>
+                      ))}
+                      <Link href={`/pde/learn/demonstrations/new?edit=${row.id}`}>
+                        <Button
+                          size="sm"
+                          className="h-7 text-xs bg-[#ffde59] text-amber-900 hover:bg-[#ffde59]/90 border border-amber-300"
+                        >
+                          <Pencil className="h-3 w-3 mr-1" />
+                          Edit &amp; resubmit
+                        </Button>
+                      </Link>
+                    </div>
+                  ) : (
                     <div className="rounded-md bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40 p-3 space-y-1.5">
                       <p className="text-xs font-medium text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
                         <MessageSquareHeart className="h-3.5 w-3.5" />
@@ -309,9 +357,25 @@ export function DemonstrationList({ initialRows, initialError }: DemonstrationLi
                           {note}
                         </p>
                       ))}
+                      {(row.validator_ids?.length ?? 0) > 0 && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs text-emerald-800 hover:text-emerald-900 hover:bg-emerald-100/60 dark:text-emerald-300"
+                          onClick={() => handleThanks(row)}
+                          disabled={thankedIds.has(row.id) || pendingId === row.id}
+                        >
+                          <MessageSquareHeart className="h-3 w-3 mr-1" />
+                          {thankedIds.has(row.id)
+                            ? 'Thanks sent'
+                            : pendingId === row.id
+                              ? 'Sending…'
+                              : 'Thank your validator'}
+                        </Button>
+                      )}
                     </div>
-                  );
-                })()}
+                  )
+                )}
 
                 <Separator />
 

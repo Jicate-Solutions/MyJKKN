@@ -85,6 +85,11 @@ export function ActiveHoursChart({ accountId }: ActiveHoursChartProps) {
       value: h.value,
     }));
 
+  // Meta returns nothing (null or {}) for many accounts; the API then emits 24
+  // zero-value hours. An all-zero series is "no data", not a real distribution —
+  // rendering it draws empty axes that look broken.
+  const hasOnlineData = chartData.some((h) => h.value > 0);
+
   return (
     <Card>
       <CardHeader>
@@ -99,10 +104,9 @@ export function ActiveHoursChart({ accountId }: ActiveHoursChartProps) {
           <Alert variant="destructive">
             <AlertDescription>Failed to load active hours: {error.message}</AlertDescription>
           </Alert>
-        ) : chartData.length === 0 ? (
+        ) : chartData.length === 0 || !hasOnlineData ? (
           <p className="text-sm text-muted-foreground text-center py-8">
-            No online-followers data yet. Meta provides this once the account has
-            sufficient followers and a snapshot has been captured.
+            Meta has not provided audience-online data for this account.
           </p>
         ) : (
           <>

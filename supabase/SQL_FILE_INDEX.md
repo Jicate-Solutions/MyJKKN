@@ -1581,3 +1581,49 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Function: `fn_pde_list_vac_courses()` — now own-institution OR universal (institution_id IS NULL)
 - Index: `vac_courses_code_key` UNIQUE(code) — staging parity + double-run guard
 - Location: `supabase/migrations/20260612084500_vac_universal_picker_and_code_unique.sql` (applied live 2026-06-12)
+
+### PDE Validation SLA Policy (2026-06-12)
+- Policy row: `pde.scoring.validation_sla_days` = 7 (global, number, system, tunable without deploy)
+- Location: `supabase/migrations/20260612190000_pde_validation_sla_policy.sql` (applied live via Management API 2026-06-12)
+- Purpose: Connector PR 2 — bounds time-to-first-acknowledgment for PDE demonstrations (aging badge + latency/coverage KPIs on /pde/admin/demonstrations). CARE audit corrective move A (A3 scored 1).
+
+### Family Moments Engine (2026-06-12)
+- Tables: `family_moments_campaigns` (occasion per institution) + `family_moments` (tokenized card per child per campaign) + storage bucket `family-moments` (public read, permission-gated write)
+- Location: `supabase/migrations/20260711000000_family_moments_engine.sql`
+- RLS: NO anon policies by design — public gift page reads server-side via service role keyed on unguessable token. Teacher writes via `moments.submissions.create`; dashboards via `moments.campaigns.view`.
+- Seed: `scripts/moments/seed-fathers-day.ts` (2 campaigns + 456 pre-seeded auto-cards, NV CBSE + Matric HSS)
+
+### CARE Audit Framework v1.0 (2026-06-12)
+- Data: 20 system rows in `audit_parameter_catalog` — codes `CARE-C1`…`CARE-E5`, parameter_group 1–4 = pillar C/A/R/E, framework_mapping `{"care":"C1"}` (existing body→criterion shape), evidence_required from the framework doc
+- Tables: `care_audit_scores` (cycle_id → audit_cycles CASCADE, scorer_role owner/participant, score 0–4 CHECK, UNIQUE(cycle,code,scorer)), `care_scorer_invites` (token UNIQUE default gen_random_bytes(24) hex, accepted_by claims, 14-day expiry)
+- Functions: `fn_care_create_audit`, `fn_care_list_audits`, `fn_care_get_audit`, `fn_care_upsert_score`, `fn_care_create_invite`, `fn_care_get_invite_context`, `fn_care_submit_participant_scores`, `fn_care_is_cycle_owner` — all SECURITY DEFINER, REVOKE anon/PUBLIC + GRANT authenticated. ALL writes flow through RPCs (audit_cycles INSERT RLS needs audit.cycle.manage but any staff opens a CARE audit; learner second-scorer passes via token, not staff RLS)
+- RLS: both tables SELECT-only direct policies (leadership + own rows); no direct write policies
+- Location: `supabase/migrations/20260612180000_care_audit_framework.sql` (applied live via Management API 2026-06-12)
+- Purpose: Digitize the JKKN CARE Audit Framework v1.0 inside /audit — 20-item 0–4 scoring, two-scorer blind variance, pillar/index/gap-rule math, corrective moves as findings. Spec: specs/care-audit-module-spec-2026-06-12.md
+
+### AI Pulse Department Interventions (2026-06-16)
+- Table: `ai_pulse_interventions` (id, dept_id, institution_id, cycle_id, tier, requested_by, note, created_at) — append-only audit of HOD heatmap "Intervene" actions. Index `(dept_id, created_at DESC)` for the latest-per-dept "last intervened" grid hint.
+- RLS: standardized pattern — SELECT is_super_admin/is_admin OR `aiPulse:dept.heatmap`; INSERT (authenticated) is_super_admin/is_admin OR `aiPulse:dept.intervene`. No UPDATE/DELETE. REVOKE anon/PUBLIC + GRANT SELECT,INSERT authenticated + NOTIFY pgrst reload.
+- Location: `supabase/migrations/20260616120000_ai_pulse_interventions.sql` (NOT yet applied — apply via exec_sql/Management API at merge; the write + grid hint degrade to no-op until applied)
+- Purpose: SOP last-mile fix #19 — give HOD interventions a durable record so the heatmap can show "last intervened" and governance has a trail (was notification-only).
+
+### PDE Faculty Review RPCs (2026-06-15)
+- Functions: `fn_pde_review_queue(p_category text, p_status text)` (STABLE, enriched institution-scoped read of `pde_demonstrations` joined to `profiles` for the learner name; hides draft/withdrawn; mirrors the SELECT-RLS reviewer roles) and `fn_pde_validate_demonstration(p_demonstration_id uuid, p_decision text, p_raw_score numeric, p_notes text)` (VOLATILE, the only faculty write path — faculty RLS is SELECT-only; re-checks same-institution reviewer, enforces submitted/under_review → validated|rejected, appends validator id + note, sets raw_score on validate). Both SECURITY DEFINER, REVOKE anon/PUBLIC + GRANT authenticated.
+- RLS: no table changes; reuses existing `pde_demonstrations` policies (learner own, faculty SELECT same-inst, super_admin all). Weighted scoring stays downstream (scoring engine writes weighted_score/passed).
+- Location: `supabase/migrations/20260615170000_pde_faculty_review_rpcs.sql` (applied live via Management API 2026-06-15)
+- Purpose: Back the rebuilt faculty Demonstration Reviews page (Option A — durable-value taxonomy). Resolves friction X1 (faculty surface now speaks the 7 durable-value categories learners submit under, not the legacy capability vocabulary). Decision doc: docs/modules/pde/2026-06-14-DECISION-pde-category-taxonomy-split.md
+
+### Lock Privilege-Resolver Views + DDL Functions from anon (2026-06-16)
+- Views locked (revoke anon+PUBLIC, keep authenticated+service_role): `v_privilege_memberships_effective` (8 client call sites) + 4 children `_resolver_privilege_{lc_members,manual,yuva_chapter_chairs,yuva_vertical_chairs}` — all `security_invoker=false`, so authenticated reads via the parent only.
+- Functions locked (revoke anon+authenticated+PUBLIC, keep service_role; 0 app callers, DDL-executing, no internal guard): `privilege_source_register(...)`, `privilege_source_unregister(text)`, `_privilege_rebuild_effective_view()`.
+- Durable fix: `REVOKE ALL ... FROM anon, PUBLIC` baked INTO `privilege_source_register` (after each `CREATE OR REPLACE VIEW _resolver_privilege_<kind>`) and `_privilege_rebuild_effective_view` (after the parent-view rebuild, both branches) — so every future source_kind is born locked. The original `20260422_privilege_source_registry_and_resolvers.sql` created these bare, inheriting Supabase's default anon grant; PR #1256's one-time revoke didn't survive view recreation.
+- Location: `supabase/migrations/20260616000000_lock_privilege_resolver_views_and_fns_from_anon.sql` (applied live via Management API 2026-06-16; verified anon REST → HTTP 401 on views + RPC).
+- Reference: reference_myjkkn_live_anon_exposure_2026_06_07, feedback_supabase_anon_execute_default_grant, CLAUDE.md "Lock new RPCs from anon".
+
+### Anon EXECUTE Function Sweep — 383→34 (2026-06-16)
+- Closes the 2026-06-07 sweep's last open item: ~383 non-ai_rpc SECURITY DEFINER functions were anon-executable (Postgres default PUBLIC EXECUTE grant + Supabase anon default grant). Now 34 remain anon-exec, all intentional: 29 RLS-gatekeeper functions (referenced in RLS policy expressions — anon must keep them or queries error) + 5 fn_get_policy* config readers (documented intentional-public).
+- Phase 3a: 126 trigger functions → revoke anon+PUBLIC (trigger EXECUTE isn't checked when fired by a trigger; direct RPC errors anyway).
+- Phase 3b Bucket A (7, service_role only): exec_sql_safe (arbitrary SQL — was anon-callable RCE), create_user_profile (arbitrary-role profile creation), get_rls_policies, get_tables_with_rls, ensure_usage_events_partitions, sync_user_role_enum, hr_policy_restore. Unguarded + dangerous → must NOT be granted to authenticated (would expose as direct PostgREST RPC to any logged-in user).
+- Phase 3b Bucket B (213): revoke anon+PUBLIC, GRANT authenticated. Verified every caller is an authenticated session client or a service_role server route; none reached from a public/anon-browser page.
+- Location: `supabase/migrations/20260616001000_lock_anon_execute_function_sweep.sql` (applied live via Management API 2026-06-16; verified anon REST → HTTP 401 on exec_sql_safe/create_user_profile/business fns; fn_get_policy* still anon-reachable).
+- Follow-up (separate): add internal is_super_admin/permission guards to unguarded functions now authenticated-callable via direct REST (e.g. hr_policy_diff/history).

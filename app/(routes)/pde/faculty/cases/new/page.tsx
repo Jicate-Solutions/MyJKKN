@@ -15,6 +15,11 @@ import type { CreateClinicalCaseInput } from '@/types/pde';
 export default function NewClinicalCasePage() {
   const router = useRouter();
   const [imported, setImported] = useState<Partial<CreateClinicalCaseInput> | undefined>(undefined);
+  // Bumped only when a JSON import is applied. The builder is force-mounted (so
+  // its in-progress state survives plain tab switches), which means a changed
+  // initialValue prop alone won't re-seed it — so we key the builder on this
+  // counter to deliberately remount + reseed ONLY on an actual import.
+  const [importSeq, setImportSeq] = useState(0);
   const [tab, setTab] = useState<'builder' | 'json'>('builder');
   const create = useCreateFacultyCase();
 
@@ -32,6 +37,7 @@ export default function NewClinicalCasePage() {
 
   const handleImport = (parsed: Partial<CreateClinicalCaseInput>) => {
     setImported(parsed);
+    setImportSeq((n) => n + 1);
     setTab('builder');
   };
 
@@ -63,8 +69,16 @@ export default function NewClinicalCasePage() {
             <TabsTrigger value="json">Paste JSON</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="builder" className="mt-4">
+          {/* forceMount keeps BOTH panels mounted across tab switches so the
+              Builder's in-progress form state is preserved when the user pops
+              over to "Paste JSON" and back. Inactive panel is hidden via CSS. */}
+          <TabsContent
+            value="builder"
+            forceMount
+            className="mt-4 data-[state=inactive]:hidden"
+          >
             <CaseFormBuilder
+              key={importSeq}
               initialValue={imported}
               courseOptions={courseOptions}
               saving={create.isPending}
@@ -73,7 +87,11 @@ export default function NewClinicalCasePage() {
             />
           </TabsContent>
 
-          <TabsContent value="json" className="mt-4">
+          <TabsContent
+            value="json"
+            forceMount
+            className="mt-4 data-[state=inactive]:hidden"
+          >
             <Card>
               <CardContent className="p-4">
                 <JsonImportTab onApply={handleImport} />

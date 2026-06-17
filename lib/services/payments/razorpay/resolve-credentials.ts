@@ -22,6 +22,13 @@ export interface ResolveContext {
   accountId?: string | null;
   /** Institution to match an active account for. */
   institutionId?: string | null;
+  /**
+   * Fee head (billing_categories.kind) of the payment, used only at order
+   * creation. Resolves the institution's account for this head, falling back to
+   * the institution default (fee_head NULL). Ignored once an account is pinned
+   * (verify/refund/webhook resolve by accountId). Null/omit = institution default.
+   */
+  feeHead?: string | null;
 }
 
 function envCredentials(): RazorpayCredentials | null {
@@ -51,7 +58,7 @@ export async function resolveRazorpayCredentials(ctx: ResolveContext): Promise<R
   // behavior). A pinned accountId above still requires the secret — a per-inst
   // transaction can't be served by the env account.
   if (ctx.institutionId && RazorpayAccountVault.isConfigured()) {
-    const active = await RazorpayAccountVault.getForInstitution(ctx.institutionId);
+    const active = await RazorpayAccountVault.getForInstitution(ctx.institutionId, ctx.feeHead ?? null);
     if (active) return active;
   }
 

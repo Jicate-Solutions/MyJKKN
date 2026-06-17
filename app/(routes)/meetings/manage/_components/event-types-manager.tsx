@@ -83,6 +83,28 @@ const formSchema = z.object({
   hidden: z.boolean(),
   locationMode: z.enum(['in_person', 'phone', 'online']),
   locationText: z.string().trim().max(200, 'Keep the location short').optional().or(z.literal('')),
+  // ── M2 slot rules ──────────────────────────────────────────────────────────
+  bufferBeforeMin: z.coerce
+    .number({ invalid_type_error: 'Enter a number' })
+    .int('Whole minutes only')
+    .min(0, 'Cannot be negative')
+    .max(1440, 'Max 24 hours'),
+  bufferAfterMin: z.coerce
+    .number({ invalid_type_error: 'Enter a number' })
+    .int('Whole minutes only')
+    .min(0, 'Cannot be negative')
+    .max(1440, 'Max 24 hours'),
+  minNoticeMin: z.coerce
+    .number({ invalid_type_error: 'Enter a number' })
+    .int('Whole minutes only')
+    .min(0, 'Cannot be negative')
+    .max(525600, 'Max one year'),
+  // 0 (and the "Back-to-back" preset) means: use the meeting duration as the step.
+  slotIntervalMin: z.coerce
+    .number({ invalid_type_error: 'Enter a number' })
+    .int('Whole minutes only')
+    .min(0, 'Cannot be negative')
+    .max(1440, 'Max 24 hours'),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -110,6 +132,14 @@ function slugify(raw: string): string {
 }
 
 const DURATION_PRESETS = [15, 30, 45, 60] as const;
+
+// M2: slot-increment quick picks. 0 = back-to-back (engine uses the duration).
+const SLOT_INTERVAL_PRESETS = [
+  { value: 0, label: 'Back-to-back' },
+  { value: 15, label: '15' },
+  { value: 30, label: '30' },
+  { value: 60, label: '60' },
+] as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Main manager
@@ -341,6 +371,11 @@ function EventTypeDialog({
       hidden: editing?.hidden ?? false,
       locationMode: editing?.locationMode ?? 'in_person',
       locationText: editing?.locationText ?? '',
+      bufferBeforeMin: editing?.bufferBeforeMin ?? 0,
+      bufferAfterMin: editing?.bufferAfterMin ?? 0,
+      minNoticeMin: editing?.minNoticeMin ?? 0,
+      // null in the DB ↔ 0 in the form ("back-to-back").
+      slotIntervalMin: editing?.slotIntervalMin ?? 0,
     },
   });
 
@@ -350,6 +385,7 @@ function EventTypeDialog({
   const hiddenValue = watch('hidden');
   const locationModeValue = watch('locationMode');
   const locationTextValue = watch('locationText');
+  const slotIntervalValue = watch('slotIntervalMin');
 
   function onTitleChange(value: string) {
     setValue('title', value, { shouldValidate: true });
@@ -368,6 +404,11 @@ function EventTypeDialog({
       hidden: values.hidden,
       locationMode: values.locationMode,
       locationText: values.locationText?.trim() || undefined,
+      bufferBeforeMin: values.bufferBeforeMin,
+      bufferAfterMin: values.bufferAfterMin,
+      minNoticeMin: values.minNoticeMin,
+      // 0 → null (back-to-back) is handled server-side in validateForm.
+      slotIntervalMin: values.slotIntervalMin,
     };
 
     startSave(async () => {
@@ -547,6 +588,125 @@ function EventTypeDialog({
               {errors.description && (
                 <p className="text-xs text-destructive">{errors.description.message}</p>
               )}
+            </div>
+
+            {/* ── M2 scheduling rules ─────────────────────────────────────────
+                Buffers, minimum notice and slot increment. All optional; the
+                native slot engine consumes them (computeSlots). */}
+            <div className="space-y-3 rounded-md border p-3">
+              <div className="space-y-0.5">
+                <Label className="text-sm">Scheduling rules</Label>
+                <p className="text-xs text-muted-foreground">
+                  Control the gaps around each meeting and how the times are offered.
+                </p>
+              </div>
+
+              {/* Buffers */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="et-buffer-before" className="text-xs">
+                    Buffer before (min)
+                  </Label>
+                  <Input
+                    id="et-buffer-before"
+                    type="number"
+                    min={0}
+                    max={1440}
+                    {...register('bufferBeforeMin')}
+                    aria-invalid={!!errors.bufferBeforeMin}
+                  />
+                  {errors.bufferBeforeMin && (
+                    <p className="text-xs text-destructive">
+                      {errors.bufferBeforeMin.message}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="et-buffer-after" className="text-xs">
+                    Buffer after (min)
+                  </Label>
+                  <Input
+                    id="et-buffer-after"
+                    type="number"
+                    min={0}
+                    max={1440}
+                    {...register('bufferAfterMin')}
+                    aria-invalid={!!errors.bufferAfterMin}
+                  />
+                  {errors.bufferAfterMin && (
+                    <p className="text-xs text-destructive">
+                      {errors.bufferAfterMin.message}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Padding kept free on either side of the meeting (e.g. travel or
+                notes time). Other bookings can&rsquo;t fall inside the padding.
+              </p>
+
+              {/* Minimum notice */}
+              <div className="space-y-1.5">
+                <Label htmlFor="et-min-notice" className="text-xs">
+                  Minimum notice (min)
+                </Label>
+                <Input
+                  id="et-min-notice"
+                  type="number"
+                  min={0}
+                  className="w-32"
+                  {...register('minNoticeMin')}
+                  aria-invalid={!!errors.minNoticeMin}
+                />
+                {errors.minNoticeMin && (
+                  <p className="text-xs text-destructive">{errors.minNoticeMin.message}</p>
+                )}
+                <p className="text-[11px] text-muted-foreground">
+                  How far ahead someone must book. e.g. 120 = no bookings within
+                  the next 2 hours.
+                </p>
+              </div>
+
+              {/* Slot increment */}
+              <div className="space-y-1.5">
+                <Label htmlFor="et-slot-interval" className="text-xs">
+                  Slot increment (min)
+                </Label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    id="et-slot-interval"
+                    type="number"
+                    min={0}
+                    max={1440}
+                    className="w-32"
+                    {...register('slotIntervalMin')}
+                    aria-invalid={!!errors.slotIntervalMin}
+                  />
+                  <div className="flex gap-1">
+                    {SLOT_INTERVAL_PRESETS.map((preset) => (
+                      <Button
+                        key={preset.value}
+                        type="button"
+                        variant={Number(slotIntervalValue) === preset.value ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() =>
+                          setValue('slotIntervalMin', preset.value, { shouldValidate: true })
+                        }
+                      >
+                        {preset.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                {errors.slotIntervalMin && (
+                  <p className="text-xs text-destructive">{errors.slotIntervalMin.message}</p>
+                )}
+                <p className="text-[11px] text-muted-foreground">
+                  The grid start times sit on. <strong>0 = back-to-back</strong>{' '}
+                  (offered every {durationValue || 30} min, your meeting length).
+                  Set e.g. 15 to offer a 60-min meeting at :00, :15, :30, :45.
+                </p>
+              </div>
             </div>
 
             {/* Hidden toggle (edit only — new types default visible) */}

@@ -20,6 +20,11 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { useHostelAllocations } from '@/hooks/campus-living/use-hostel-allocations';
 import {
+  AllocationFiltersPanel,
+  EMPTY_ALLOCATION_FILTERS,
+  allocationMatchesFilters,
+} from './_components/allocation-filters';
+import {
   Plus,
   Search,
   BedDouble,
@@ -57,17 +62,24 @@ export default function AllocationsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('active');
   const [blockFilter, setBlockFilter] = useState<string>('all');
+  const [advancedFilters, setAdvancedFilters] = useState(EMPTY_ALLOCATION_FILTERS);
 
   const filteredAllocations = allocations?.filter((a: any) => {
     const blockName = getJoined(a, 'hostel_blocks', 'name');
     const roomNumber = getJoined(a, 'hostel_rooms', 'room_number');
     const matchesSearch =
       (a.emergency_contact_name ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (a.learner_id ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      getJoined(a, 'learner', 'full_name').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      getJoined(a, 'learner', 'email').toLowerCase().includes(searchQuery.toLowerCase()) ||
       roomNumber.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || a.status === statusFilter;
     const matchesBlock = blockFilter === 'all' || blockName === blockFilter;
-    return matchesSearch && matchesStatus && matchesBlock;
+    return (
+      matchesSearch &&
+      matchesStatus &&
+      matchesBlock &&
+      allocationMatchesFilters(a, advancedFilters)
+    );
   }) ?? [];
 
   const blockNames = [...new Set(allocations?.map((a: any) => getJoined(a, 'hostel_blocks', 'name')).filter(Boolean) ?? [])];
@@ -162,7 +174,7 @@ export default function AllocationsPage() {
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search by name, roll number, room..."
+              placeholder="Search by name, email, room..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9"
@@ -190,6 +202,11 @@ export default function AllocationsPage() {
               <option key={bn} value={bn}>{bn}</option>
             ))}
           </select>
+          <AllocationFiltersPanel
+            rows={allocations ?? []}
+            value={advancedFilters}
+            onChange={setAdvancedFilters}
+          />
         </div>
 
         {/* Allocations Table */}
@@ -198,10 +215,12 @@ export default function AllocationsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Learner ID</TableHead>
+                  <TableHead>Learner</TableHead>
                   <TableHead>Block</TableHead>
                   <TableHead>Room</TableHead>
                   <TableHead>Bed</TableHead>
+                  <TableHead>Room Category</TableHead>
+                  <TableHead>Mess Category</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead>Status</TableHead>
@@ -215,10 +234,29 @@ export default function AllocationsPage() {
                   const fCfg = feeStatusConfig[alloc.fee_status] ?? { label: alloc.fee_status, variant: 'outline' as const };
                   return (
                     <TableRow key={alloc.id}>
-                      <TableCell className="font-medium">{alloc.learner_id}</TableCell>
+                      <TableCell>
+                        <span className="font-medium">
+                          {getJoined(alloc, 'learner', 'full_name') || '—'}
+                        </span>
+                        {getJoined(alloc, 'learner', 'email') && (
+                          <span className="block text-xs text-muted-foreground">
+                            {getJoined(alloc, 'learner', 'email')}
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell>{getJoined(alloc, 'hostel_blocks', 'name')}</TableCell>
                       <TableCell>{getJoined(alloc, 'hostel_rooms', 'room_number')}</TableCell>
                       <TableCell>{getJoined(alloc, 'hostel_beds', 'bed_number')}</TableCell>
+                      <TableCell>
+                        {alloc.learner?.academic?.room_category?.name ?? (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {alloc.learner?.academic?.mess_category?.name ?? (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <Badge variant="outline" className="text-xs capitalize">{alloc.allocation_type}</Badge>
                       </TableCell>
@@ -241,7 +279,7 @@ export default function AllocationsPage() {
                 })}
                 {filteredAllocations.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
                       No allocations found matching your filters
                     </TableCell>
                   </TableRow>

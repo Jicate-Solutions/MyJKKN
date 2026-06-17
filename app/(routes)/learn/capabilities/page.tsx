@@ -54,6 +54,17 @@ const CATEGORY_CONFIG: Record<CapabilityCategory, { label: string; icon: typeof 
   professional: { label: 'Professional', icon: Briefcase, color: 'text-teal-600 bg-teal-50 dark:bg-teal-950/30' },
 };
 
+// Fallback guard: capability rows can carry a `category` value absent from
+// CATEGORY_CONFIG (the column is unconstrained text). Resolve via this helper so
+// an unknown category renders a neutral tab instead of crashing the skill tree.
+const FALLBACK_CATEGORY = {
+  label: 'Other',
+  icon: Circle,
+  color: 'text-gray-600 bg-gray-50 dark:bg-gray-800/30',
+};
+const getCategoryConfig = (cat: CapabilityCategory) =>
+  CATEGORY_CONFIG[cat] ?? FALLBACK_CATEGORY;
+
 const STATUS_CONFIG: Record<CapabilityStatus, { label: string; icon: typeof Lock; color: string; bgColor: string }> = {
   locked: {
     label: 'Locked',
@@ -529,7 +540,7 @@ export default function CapabilityTreePage() {
               <div className="overflow-x-auto -mx-4 px-4 pb-2">
                 <TabsList className="inline-flex h-auto p-1 gap-1">
                   {availableCategories.map((cat) => {
-                    const config = CATEGORY_CONFIG[cat];
+                    const config = getCategoryConfig(cat);
                     const Icon = config.icon;
                     const count = categoryCounts[cat];
                     return (
@@ -563,10 +574,10 @@ export default function CapabilityTreePage() {
                       <div className="flex items-center justify-between">
                         <CardTitle className="text-base flex items-center gap-2">
                           {(() => {
-                            const Icon = CATEGORY_CONFIG[cat].icon;
+                            const Icon = getCategoryConfig(cat).icon;
                             return <Icon className="h-4 w-4" />;
                           })()}
-                          {CATEGORY_CONFIG[cat].label} Capabilities
+                          {getCategoryConfig(cat).label} Capabilities
                         </CardTitle>
                         {categoryCounts[cat] && (
                           <span className="text-xs text-muted-foreground">

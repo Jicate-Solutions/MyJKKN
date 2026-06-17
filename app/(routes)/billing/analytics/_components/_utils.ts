@@ -65,6 +65,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
   exam: 'Exam',
   university_fee: 'University Fee',
   application_fee: 'Application Fee',
+  establishment: 'Establishment',
   other: 'Other',
   uncategorized: 'Uncategorized',
 };

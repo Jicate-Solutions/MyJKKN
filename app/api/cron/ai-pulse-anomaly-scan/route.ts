@@ -5,16 +5,32 @@
 // flag_type CHECK-constrained — only the five allowed values are used).
 // Reviewed by Champion/Co-Champion at /ai-pulse/admin/anomalies.
 //
-// Detectors (thresholds READ from ai_pulse_policies at runtime):
+// Detectors (thresholds READ from ai_pulse_policies at runtime, each with a
+// sensible CODE DEFAULT so no new policy migration is required). All five
+// CHECK-allowed flag_types now have a producer (SOP last-mile #21):
 //   1. Quiz pass without attending — quiz_score >= quiz_pass_threshold_live
 //      while joined_within_5min=false AND stayed_until missing on the
 //      live_session attendance row (async make-up rows are exempt).
 //      flag_type: 'intra_dept_scoring_outlier' (closest allowed value;
-//      details_json.detector identifies the exact pattern).
+//      details_json.detector = 'quiz_pass_no_attend' distinctly tags this
+//      pattern so it is NOT conflated with a true intra-dept scoring outlier).
 //   2. Reach outlier — submission reach (active_users_count, the same field
 //      naac-evidence-service reports as ig_reach) greater than
 //      ig_reach_threshold * reach_outlier_multiplier (possible bought reach).
 //      flag_type: 'ig_reach_inconsistent'.
+//   3. Random poll response pattern — a learner whose poll responses this
+//      cycle are degenerate: all the SAME option across >= a floor of polls
+//      (rubber-stamping). flag_type: 'random_poll_response_pattern'.
+//      Data source: ai_pulse_poll_responses (substrate optional → no flags
+//      when absent/empty).
+//   4. Rotation gaming — a learner drawn (times_participated > 0) while far
+//      from the front of their section's queue (queue_position above a slack
+//      threshold), which violates front-of-queue fairness.
+//      flag_type: 'rotation_gaming'. Data source: ai_pulse_rotation_state.
+//   5. Excuse frequency outlier — a learner whose excused-absence count in
+//      the scan window exceeds a threshold (default 3). flag_type:
+//      'excuse_frequency_outlier'. Data source: event_team_attendance
+//      live_session rows (per_member[].{status:'Absent', excuse_reason}).
 //
 // Idempotent: skips when an open (pending / unreviewed) flag of the same
 // type already exists for the same target + cycle. Safe to fire often.
@@ -43,7 +59,13 @@ const SCAN_WINDOW_DAYS = 14;
 
 type FlagInsert = {
   startup_event_id: string;
-  flag_type: 'intra_dept_scoring_outlier' | 'ig_reach_inconsistent';
+  // All five CHECK-allowed flag_types now have a producer (SOP last-mile #21).
+  flag_type:
+    | 'intra_dept_scoring_outlier'
+    | 'ig_reach_inconsistent'
+    | 'random_poll_response_pattern'
+    | 'rotation_gaming'
+    | 'excuse_frequency_outlier';
   target_user_id: string | null;
   signal_value: number | null;
   signal_threshold: number | null;
@@ -96,6 +118,24 @@ export async function GET(req: NextRequest) {
   );
   const reachOutlierThreshold = igReachThreshold * reachOutlierMultiplier;
 
+  // Detector 3 (random poll pattern): a learner is flagged when they answered
+  // at least this many polls AND chose the SAME option every time.
+  const pollPatternMinResponses = Number(
+    readPolicy<number>(policies, 'poll_pattern_min_responses', 3)
+  );
+  // Detector 4 (rotation gaming): a learner drawn (times_participated > 0)
+  // while their queue_position exceeds this slack is flagged. The front of a
+  // fair draw covers a few teams' worth of learners; positions far down the
+  // queue should not have been drawn yet.
+  const rotationFairnessSlack = Number(
+    readPolicy<number>(policies, 'rotation_fairness_slack', 12)
+  );
+  // Detector 5 (excuse frequency): more than this many excused absences in
+  // the scan window flags the learner for review.
+  const excuseFrequencyThreshold = Number(
+    readPolicy<number>(policies, 'excuse_frequency_threshold', 3)
+  );
+
   // -- 2. Recent AI Pulse cycles ------------------------------------------
   const since = new Date();
   since.setDate(since.getDate() - SCAN_WINDOW_DAYS);
@@ -129,9 +169,13 @@ export async function GET(req: NextRequest) {
   }
 
   // -- 3. Existing open flags (idempotency set) ---------------------------
+  // details_json is read too so the excuse-frequency detector (which has a
+  // null target_user_id — the id is a team_member_id, not a profiles.id) can
+  // dedup on details_json.team_member_id instead of collapsing every member
+  // on a cycle onto one null key.
   const { data: openFlagsRaw, error: openFlagsError } = await (supabase as any)
     .from('ai_pulse_anomaly_flags')
-    .select('startup_event_id, flag_type, target_user_id, review_outcome')
+    .select('startup_event_id, flag_type, target_user_id, details_json, review_outcome')
     .in('startup_event_id', cycleIds)
     .or('review_outcome.is.null,review_outcome.eq.pending');
 
@@ -141,13 +185,23 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
+  // Dedup identity: target_user_id when present, else the team_member_id from
+  // details_json (excuse detector), else empty. Keeps per-target idempotency
+  // for the null-FK excuse flags without changing the other detectors.
+  const flagKey = (f: {
+    startup_event_id: string;
+    flag_type: string;
+    target_user_id: string | null;
+    details_json?: Record<string, unknown> | null;
+  }) => {
+    const subject =
+      f.target_user_id ??
+      ((f.details_json?.team_member_id as string | undefined) ?? '');
+    return `${f.startup_event_id}::${f.flag_type}::${subject}`;
+  };
   const openKeys = new Set(
-    ((openFlagsRaw || []) as any[]).map(
-      (f) => `${f.startup_event_id}::${f.flag_type}::${f.target_user_id ?? ''}`
-    )
+    ((openFlagsRaw || []) as any[]).map((f) => flagKey(f)),
   );
-  const flagKey = (f: FlagInsert) =>
-    `${f.startup_event_id}::${f.flag_type}::${f.target_user_id ?? ''}`;
 
   const candidates: FlagInsert[] = [];
 
@@ -189,7 +243,11 @@ export async function GET(req: NextRequest) {
       signal_value: quizScore,
       signal_threshold: quizPassThreshold,
       details_json: {
-        detector: 'quiz_pass_without_attendance',
+        // Tagged distinctly so this quiz-pass-without-attending pattern is not
+        // conflated with a TRUE intra-dept scoring outlier sharing the same
+        // CHECK-allowed flag_type (reviewers + future detectors discriminate
+        // on details_json.detector).
+        detector: 'quiz_pass_no_attend',
         joined_within_5min: signals.joined_within_5min ?? null,
         stayed_until: signals.stayed_until ?? null,
         policy_key: 'quiz_pass_threshold_live',
@@ -231,10 +289,188 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // Collects non-fatal detector errors (a flaky optional substrate must not
+  // 500 the whole scan). Declared here because detectors 3–5 below push to it.
+  const errors: string[] = [];
+
+  // The most recent in-scope cycle — used as the anchoring startup_event_id
+  // for detectors whose source data is NOT cycle-keyed (rotation state,
+  // excuse rollups). cycleIds came back newest-first from the cycles query.
+  const anchorCycleId = cycleIds[0];
+
+  // -- 5b. Detector 3: random poll response pattern ------------------------
+  // A learner is "rubber-stamping" when, within one cycle, they answered
+  // >= poll_pattern_min_responses polls and picked the SAME option every
+  // time. Poll responses are not cycle-keyed, so we join through
+  // ai_pulse_polls to resolve each response's cycle. Best-effort: the polls
+  // substrate is optional in v1 — a missing/empty table yields no flags.
+  try {
+    const { data: pollRows } = await (supabase as any)
+      .from('ai_pulse_polls')
+      .select('id, cycle_id')
+      .in('cycle_id', cycleIds);
+    const cycleByPoll = new Map<string, string>();
+    for (const p of (pollRows || []) as any[]) {
+      if (p.id && p.cycle_id) cycleByPoll.set(p.id, p.cycle_id);
+    }
+    const pollIds = Array.from(cycleByPoll.keys());
+    if (pollIds.length > 0) {
+      const { data: respRows } = await (supabase as any)
+        .from('ai_pulse_poll_responses')
+        .select('poll_id, profile_id, option_id')
+        .in('poll_id', pollIds);
+      // Group by (cycle, learner) → list of chosen option_ids.
+      const byKey = new Map<
+        string,
+        { cycle_id: string; profile_id: string; options: string[] }
+      >();
+      for (const r of (respRows || []) as any[]) {
+        const cycleId = cycleByPoll.get(r.poll_id);
+        if (!cycleId || !r.profile_id) continue;
+        const key = `${cycleId}::${r.profile_id}`;
+        const bucket =
+          byKey.get(key) ??
+          { cycle_id: cycleId, profile_id: r.profile_id as string, options: [] };
+        bucket.options.push(String(r.option_id ?? ''));
+        byKey.set(key, bucket);
+      }
+      for (const { cycle_id, profile_id, options } of byKey.values()) {
+        if (options.length < pollPatternMinResponses) continue;
+        const allSame = options.every((o) => o === options[0]);
+        if (!allSame) continue;
+        candidates.push({
+          startup_event_id: cycle_id,
+          flag_type: 'random_poll_response_pattern',
+          target_user_id: profile_id,
+          signal_value: options.length,
+          signal_threshold: pollPatternMinResponses,
+          details_json: {
+            detector: 'identical_poll_options',
+            responses: options.length,
+            policy_key: 'poll_pattern_min_responses',
+          },
+        });
+      }
+    }
+  } catch (e) {
+    // Polls substrate optional — degrade to "no poll-pattern flags" silently.
+    errors.push(
+      `detector_3_poll_pattern: ${e instanceof Error ? e.message : String(e)}`
+    );
+  }
+
+  // -- 5c. Detector 4: rotation gaming -------------------------------------
+  // Queue fairness: learners are drawn from the FRONT of their section's
+  // queue. A learner who has been drawn (times_participated > 0) while sitting
+  // far down the queue (queue_position > rotation_fairness_slack) violates
+  // that ordering — a possible manual override / gaming. rotation_state is
+  // section-keyed (no cycle_id), so flags anchor to the latest cycle.
+  if (anchorCycleId) {
+    try {
+      const { data: stateRows } = await (supabase as any)
+        .from('ai_pulse_rotation_state')
+        .select('profile_id, queue_position, times_participated, section_id')
+        .gt('times_participated', 0)
+        .gt('queue_position', rotationFairnessSlack);
+      for (const s of (stateRows || []) as any[]) {
+        if (!s.profile_id) continue;
+        candidates.push({
+          startup_event_id: anchorCycleId,
+          flag_type: 'rotation_gaming',
+          target_user_id: s.profile_id,
+          signal_value:
+            typeof s.queue_position === 'number' ? s.queue_position : null,
+          signal_threshold: rotationFairnessSlack,
+          details_json: {
+            detector: 'drawn_from_back_of_queue',
+            section_id: s.section_id ?? null,
+            queue_position: s.queue_position ?? null,
+            times_participated: s.times_participated ?? null,
+            policy_key: 'rotation_fairness_slack',
+          },
+        });
+      }
+    } catch (e) {
+      errors.push(
+        `detector_4_rotation_gaming: ${e instanceof Error ? e.message : String(e)}`
+      );
+    }
+  }
+
+  // -- 5d. Detector 5: excuse frequency outlier ----------------------------
+  // Excuse data lives inside event_team_attendance.engagement_signals
+  // .per_member[] (status 'Absent' + excuse_reason), keyed by team_member_id
+  // (an event_team_members.id, NOT a profiles.id). We count excused absences
+  // per team_member_id across the in-scope live_session rows; a learner over
+  // excuse_frequency_threshold is flagged. target_user_id is left null (the
+  // id is not a profiles.id → would violate the FK); team_member_id is kept
+  // in details_json so reviewers can resolve the learner. Anchors to the
+  // latest cycle the member was excused in.
+  if (anchorCycleId) {
+    try {
+      const { data: etaRows } = await (supabase as any)
+        .from('event_team_attendance')
+        .select('event_id, engagement_signals, day_type')
+        .in('event_id', cycleIds)
+        .eq('day_type', 'live_session');
+      // team_member_id → { count, lastEventId }
+      const excuseByMember = new Map<
+        string,
+        { count: number; lastEventId: string }
+      >();
+      for (const row of (etaRows || []) as any[]) {
+        const sig = (row.engagement_signals ?? {}) as {
+          per_member?: Array<{
+            team_member_id?: string;
+            status?: string;
+            excuse_reason?: string;
+          }>;
+        };
+        for (const m of sig.per_member ?? []) {
+          if (
+            m.status === 'Absent' &&
+            m.excuse_reason &&
+            m.team_member_id
+          ) {
+            const prev = excuseByMember.get(m.team_member_id) ?? {
+              count: 0,
+              lastEventId: row.event_id,
+            };
+            prev.count += 1;
+            prev.lastEventId = row.event_id;
+            excuseByMember.set(m.team_member_id, prev);
+          }
+        }
+      }
+      for (const [teamMemberId, { count, lastEventId }] of excuseByMember) {
+        if (count <= excuseFrequencyThreshold) continue;
+        candidates.push({
+          startup_event_id: lastEventId ?? anchorCycleId,
+          flag_type: 'excuse_frequency_outlier',
+          // team_member_id is NOT a profiles.id → leave the FK column null and
+          // carry the resolvable id in details_json.
+          target_user_id: null,
+          signal_value: count,
+          signal_threshold: excuseFrequencyThreshold,
+          details_json: {
+            detector: 'excessive_excused_absences',
+            team_member_id: teamMemberId,
+            excused_count: count,
+            window_days: SCAN_WINDOW_DAYS,
+            policy_key: 'excuse_frequency_threshold',
+          },
+        });
+      }
+    } catch (e) {
+      errors.push(
+        `detector_5_excuse_frequency: ${e instanceof Error ? e.message : String(e)}`
+      );
+    }
+  }
+
   // -- 6. Idempotent insert -------------------------------------------------
   let created = 0;
   let skipped = 0;
-  const errors: string[] = [];
 
   for (const candidate of candidates) {
     const key = flagKey(candidate);

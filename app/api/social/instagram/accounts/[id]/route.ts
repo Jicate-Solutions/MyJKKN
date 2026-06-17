@@ -82,25 +82,34 @@ export async function GET(
     ]);
 
     // Latest post-metric snapshot per post (batched, newest-first dedupe).
+    // Posts can have MANY snapshots since the 2026-06-11 hourly re-poll
+    // feature; pre-fix snapshots carry likes NULL, so likes falls back to
+    // the newest NON-NULL value when the latest snapshot lacks it.
     const postIds = (posts ?? []).map((p) => p.id);
     const latestPostMetrics = new Map<
       string,
-      { reach: number; impressions: number; engagement: number; comments: number }
+      { reach: number; impressions: number; engagement: number; comments: number; likes: number | null }
     >();
     if (postIds.length > 0) {
       const { data: pmRows } = await supabase
         .from('ig_post_metrics')
-        .select('post_id, reach, impressions, engagement, comments, snapshot_at')
+        .select('post_id, reach, impressions, engagement, comments, likes, snapshot_at')
         .in('post_id', postIds)
         .order('snapshot_at', { ascending: false });
       for (const pm of pmRows ?? []) {
-        if (!latestPostMetrics.has(pm.post_id)) {
+        const existing = latestPostMetrics.get(pm.post_id);
+        if (!existing) {
           latestPostMetrics.set(pm.post_id, {
             reach: pm.reach ?? 0,
             impressions: pm.impressions ?? 0,
             engagement: pm.engagement ?? 0,
             comments: pm.comments ?? 0,
+            likes: pm.likes ?? null,
           });
+        } else if (existing.likes === null && pm.likes !== null && pm.likes !== undefined) {
+          // Newest snapshot had likes NULL — backfill from the newest
+          // older snapshot that recorded likes.
+          existing.likes = pm.likes;
         }
       }
     }
@@ -157,7 +166,7 @@ export async function GET(
           caption: p.caption,
           media_url: null,
           permalink: p.permalink ?? '',
-          like_count: 0,
+          like_count: pm?.likes ?? 0,
           comments_count: pm?.comments ?? 0,
           reach: pm?.reach ?? null,
           impressions: pm?.impressions ?? null,

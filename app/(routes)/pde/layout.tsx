@@ -1,5 +1,3 @@
-'use client';
-
 /**
  * PDE Module — top-level layout shell.
  *
@@ -15,6 +13,12 @@
  *
  * Behaviour at /pde itself is handled by app/(routes)/pde/page.tsx — a
  * config-driven redirect via platform_policies (nav.pde.default_landing).
+ *
+ * The per-module "?Help" Smart Guide FAB that previously rode here has been
+ * REPLACED by the ONE route-aware platform FAB in the root layout
+ * (components/guide/platform-guide-fab-mount.tsx), so help is one tap away on
+ * every PDE screen via that single platform FAB. The PDE guide PAGE (/pde/guide)
+ * is untouched. With the FAB gone this shell is a plain pass-through.
  */
 
 import type { ReactNode } from 'react';

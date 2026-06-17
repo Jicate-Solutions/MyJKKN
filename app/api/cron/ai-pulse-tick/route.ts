@@ -34,6 +34,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import {
+  deriveCycleTimes,
+  evaluateGates,
+  type EngagementSignals,
+} from '@/lib/services/ai-pulse/live-session-service';
 
 interface PolicyRow {
   config_key: string;
@@ -256,6 +261,133 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // -- 5. CARE A-move: engagement acknowledgments ------------------------
+  // Every learner who passed the 4-AND gates gets a named acknowledgment —
+  // appreciation must reach the median, not just Gold winners (CARE audit
+  // 2026-06-12, pillar A scored 2/20). Runs once per cycle, after the async
+  // make-up window has fully closed so late quiz passes are included.
+  // Dispatch shape: notifications row + user_notifications links — the
+  // pattern the bell actually reads (verbatim from app/api/learn/notify's
+  // createNotification, itself copied from work-pulse/notify).
+  const acknowledgments: Array<{
+    cycle_id: string;
+    action: 'acknowledged' | 'skipped' | 'error';
+    passers?: number;
+    detail?: string;
+  }> = [];
+  {
+    const asyncWindowHours = readPolicy<number>(
+      policies,
+      'async_makeup_window_hours',
+      48,
+    );
+    const nowMs = Date.now();
+    const fourteenDaysAgo = new Date(nowMs - 14 * 86_400_000)
+      .toISOString()
+      .split('T')[0];
+
+    const { data: recentCycles } = await (supabase as any)
+      .from('startup_events')
+      .select('id, name, demo_date, start_date, end_date, config')
+      .filter('config->>kind', 'eq', 'ai_pulse')
+      .gte('demo_date', fourteenDaysAgo)
+      .order('demo_date', { ascending: true });
+
+    for (const cycle of (recentCycles ?? []) as any[]) {
+      try {
+        const config = (cycle.config ?? {}) as Record<string, unknown>;
+        const aiPulse = (config.ai_pulse ?? {}) as Record<string, unknown>;
+        if (aiPulse.engagement_acknowledged_at) continue; // already done
+        const { ends_at } = deriveCycleTimes(cycle);
+        if (!ends_at) continue;
+        const windowClosesMs =
+          new Date(ends_at).getTime() + asyncWindowHours * 3_600_000;
+        if (nowMs < windowClosesMs) continue; // make-up window still open
+
+        // Attendance + polls-issued count (polls substrate optional in v1)
+        const { data: attRows, error: attErr } = await (supabase as any)
+          .from('ai_pulse_live_attendance')
+          .select('profile_id, engagement_signals')
+          .eq('event_id', cycle.id)
+          .eq('day_type', 'live_session');
+        if (attErr) throw new Error(attErr.message);
+
+        const { count: pollsIssued } = await (supabase as any)
+          .from('ai_pulse_polls')
+          .select('id', { count: 'exact', head: true })
+          .eq('cycle_id', cycle.id);
+
+        const passerIds = ((attRows ?? []) as any[])
+          .filter((r) =>
+            evaluateGates(
+              (r.engagement_signals ?? {}) as EngagementSignals,
+              ends_at,
+              pollsIssued ?? 0,
+            ).is_engaged,
+          )
+          .map((r) => r.profile_id as string)
+          .filter(Boolean);
+
+        if (passerIds.length > 0) {
+          const { data: notification, error: notifErr } = await (supabase as any)
+            .from('notifications')
+            .insert({
+              type: 'ai_pulse',
+              title: `Engaged — ${cycle.name ?? 'AI Pulse cycle'}`,
+              message:
+                'You passed all engagement gates this week — joined on time, stayed to the end, and passed the quiz. That counts toward your streak. Well done.',
+              metadata: {
+                source: 'ai_pulse_engagement_acknowledgment',
+                cycle_id: cycle.id,
+                acknowledged_count: passerIds.length,
+              },
+            })
+            .select('id')
+            .single();
+          if (notifErr || !notification) {
+            throw new Error(notifErr?.message ?? 'notification insert failed');
+          }
+          const links = passerIds.map((uid) => ({
+            notification_id: notification.id,
+            user_id: uid,
+          }));
+          const { error: linkErr } = await (supabase as any)
+            .from('user_notifications')
+            .insert(links);
+          if (linkErr) throw new Error(linkErr.message);
+        }
+
+        // Mark acknowledged (read-merge-write preserves sibling config keys).
+        // acknowledged_count is the A4 "coverage of the median" measurement.
+        const mergedConfig = {
+          ...config,
+          ai_pulse: {
+            ...aiPulse,
+            engagement_acknowledged_at: new Date(nowMs).toISOString(),
+            engagement_acknowledged_count: passerIds.length,
+          },
+        };
+        const { error: markErr } = await (supabase as any)
+          .from('startup_events')
+          .update({ config: mergedConfig })
+          .eq('id', cycle.id);
+        if (markErr) throw new Error(markErr.message);
+
+        acknowledgments.push({
+          cycle_id: cycle.id,
+          action: 'acknowledged',
+          passers: passerIds.length,
+        });
+      } catch (e) {
+        acknowledgments.push({
+          cycle_id: cycle.id,
+          action: 'error',
+          detail: e instanceof Error ? e.message : 'unknown',
+        });
+      }
+    }
+  }
+
   const summary = {
     multi_campus_mode: multiCampusMode,
     upcoming_session_date: sessionDateISO,
@@ -263,6 +395,7 @@ export async function GET(req: NextRequest) {
     created: results.filter((r) => r.action === 'created').length,
     existed: results.filter((r) => r.action === 'exists').length,
     errors: results.filter((r) => r.action === 'error').length,
+    acknowledgments,
     elapsed_ms: Date.now() - startedAt,
     results,
   };

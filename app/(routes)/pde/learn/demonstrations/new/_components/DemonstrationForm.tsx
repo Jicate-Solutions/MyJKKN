@@ -13,19 +13,30 @@
  *   - Evidence URL (optional)
  *   - Notes / free-form text (optional)
  *
- * Submit actions:
+ * Submit actions (create mode):
  *   - "Save as draft"      → POST { status='draft' }, then redirect to inbox
  *   - "Submit for review"  → POST { submit: true }, server flips to 'submitted'
+ *
+ * Edit mode (#9b): when the URL carries ?edit=<id> the form prefills from the
+ * existing DRAFT row (fetched via the getMyDemonstrationForEdit server action)
+ * and SAVES via the editDemonstration server action (update, not create). This
+ * is the resubmit path for a demonstration a validator returned with
+ * "Request changes" (which set the row back to 'draft'). Same route, no new
+ * page — just a query param.
  *
  * No react-hook-form — this codebase uses both RHF and plain useState forms
  * (see admin/pde/rubrics pages for plain-useState pattern). Plain state is
  * the lower-overhead choice for 6 fields.
  */
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
+import {
+  editDemonstration,
+  getMyDemonstrationForEdit,
+} from '../../_actions/edit-demonstration';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -152,10 +163,25 @@ function rubricLabel(choice: RubricChoice): string {
 
 export function DemonstrationForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editId = searchParams.get('edit');
+  const isEditMode = !!editId;
+
   const [form, setForm] = useState<FormState>(INITIAL);
   const [rubrics, setRubrics] = useState<RubricChoice[]>([]);
   const [loadingRubrics, setLoadingRubrics] = useState(false);
   const [saving, setSaving] = useState<'draft' | 'submit' | null>(null);
+
+  // ---- Edit-mode prefill (#9b) ----
+  // When ?edit=<id> is present, load the existing draft and seed the form. A
+  // load error or non-draft row downgrades to a clear banner instead of a blank
+  // create form silently masquerading as an edit.
+  const [loadingExisting, setLoadingExisting] = useState(isEditMode);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [returnedNote, setReturnedNote] = useState<string | null>(null);
+  // Set true while a prefill is seeding the form so the category-change rubric
+  // effect doesn't wipe the prefilled rubric_policy_key on the initial edit load.
+  const prefillingRef = useRef(false);
 
   // ---- Curriculum link state (dual-lane picker) ----
   const [syllabi, setSyllabi] = useState<BosSyllabusOption[] | null>(null);
@@ -164,6 +190,64 @@ export function DemonstrationForm() {
   const [cloTagCap, setCloTagCap] = useState(2);
   const [loadingCurriculum, setLoadingCurriculum] = useState(false);
   const [loadingClos, setLoadingClos] = useState(false);
+
+  // ---- Prefill from the existing draft when in edit mode ----
+  useEffect(() => {
+    if (!editId) return;
+    let cancelled = false;
+    setLoadingExisting(true);
+    setEditError(null);
+    getMyDemonstrationForEdit(editId)
+      .then((row) => {
+        if (cancelled) return;
+        if (!row) {
+          setEditError('We couldn’t find this demonstration, or it isn’t yours to edit.');
+          return;
+        }
+        if (row.status !== 'draft') {
+          setEditError(
+            'This demonstration is no longer a draft, so it can’t be edited. You can start a new one instead.'
+          );
+          return;
+        }
+        const ev = (row.evidence ?? {}) as Record<string, unknown>;
+        const lane: CurriculumLane = row.bos_syllabus_id
+          ? 'bos'
+          : row.vac_course_id
+            ? 'vac'
+            : '';
+        // Guard the next category-change rubric effect run so it preserves the
+        // prefilled rubric_policy_key instead of resetting it to ''.
+        prefillingRef.current = true;
+        setForm({
+          category_key: row.category_key,
+          rubric_policy_key: row.rubric_policy_key ?? '',
+          skill_name: row.skill_name ?? '',
+          evidence_type: row.evidence_type ?? '',
+          evidence_url: typeof ev.url === 'string' ? ev.url : '',
+          notes: typeof ev.notes === 'string' ? ev.notes : '',
+          curriculum_lane: lane,
+          bos_syllabus_id: row.bos_syllabus_id ?? '',
+          vac_course_id: row.vac_course_id ?? '',
+          clo_refs: Array.isArray(row.clo_refs) ? row.clo_refs : [],
+        });
+        // Surface the validator's "what to fix" note (the last one wins; the
+        // map is { validatorId: note }).
+        const noteValues = Object.values((row.validator_notes ?? {}) as Record<string, unknown>)
+          .filter((n): n is string => typeof n === 'string' && n.trim().length > 0);
+        setReturnedNote(noteValues.length > 0 ? noteValues[noteValues.length - 1] : null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setEditError(err instanceof Error ? err.message : 'Failed to load the demonstration.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingExisting(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editId]);
 
   // ---- Lazy-fetch the lane's option list the first time it's opened ----
   useEffect(() => {
@@ -266,6 +350,9 @@ export function DemonstrationForm() {
       setForm((prev) => ({ ...prev, rubric_policy_key: '' }));
       return;
     }
+    // On the initial edit prefill, keep the rubric the learner already chose.
+    const preserveRubric = prefillingRef.current;
+    prefillingRef.current = false;
     let cancelled = false;
     setLoadingRubrics(true);
     fetch(`/api/pde/demonstrations/rubrics?category=${form.category_key}`)
@@ -274,7 +361,9 @@ export function DemonstrationForm() {
         const json = (await res.json()) as { data: RubricChoice[] };
         if (cancelled) return;
         setRubrics(json.data || []);
-        setForm((prev) => ({ ...prev, rubric_policy_key: '' }));
+        if (!preserveRubric) {
+          setForm((prev) => ({ ...prev, rubric_policy_key: '' }));
+        }
       })
       .catch((err) => {
         if (cancelled) return;
@@ -327,6 +416,32 @@ export function DemonstrationForm() {
     }
     setSaving(action);
     try {
+      if (isEditMode && editId) {
+        // Edit/resubmit path (#9b): update the existing draft via the server
+        // action, optionally promoting it back to 'submitted'.
+        const payload = buildPayload(action === 'submit');
+        const result = await editDemonstration({
+          id: editId,
+          category_key: payload.category_key,
+          rubric_policy_key: payload.rubric_policy_key ?? null,
+          skill_name: payload.skill_name ?? null,
+          evidence: payload.evidence,
+          evidence_type: payload.evidence_type ?? null,
+          bos_syllabus_id: payload.bos_syllabus_id ?? null,
+          vac_course_id: payload.vac_course_id ?? null,
+          clo_refs: payload.clo_refs ?? null,
+          submit: action === 'submit',
+        });
+        if (!result.ok) throw new Error(result.error);
+        toast.success(
+          action === 'submit' ? 'Resubmitted for review.' : 'Changes saved.'
+        );
+        router.push('/pde/learn/demonstrations');
+        router.refresh();
+        return result.data;
+      }
+
+      // Create path (default).
       const res = await fetch('/api/pde/demonstrations', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -356,13 +471,60 @@ export function DemonstrationForm() {
 
   const showRubricHint = form.category_key && rubrics.length === 0 && !loadingRubrics;
 
+  // Edit mode: still loading the existing draft.
+  if (isEditMode && loadingExisting) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center text-sm text-muted-foreground">
+          Loading your demonstration…
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Edit mode: the row couldn't be loaded / isn't editable.
+  if (isEditMode && editError) {
+    return (
+      <Card className="border-rose-200 bg-rose-50/40">
+        <CardContent className="py-6 flex items-start gap-3">
+          <FileText className="h-5 w-5 text-rose-600 mt-0.5 shrink-0" />
+          <div className="space-y-2">
+            <p className="font-medium text-rose-800">Can’t edit this demonstration</p>
+            <p className="text-sm text-rose-700">{editError}</p>
+            <Link href="/pde/learn/demonstrations" className="inline-block">
+              <Button variant="outline" size="sm">
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to my demonstrations
+              </Button>
+            </Link>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardContent className="py-6 space-y-6">
         <div className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-[#0b6d41]" />
-          <h2 className="text-lg font-semibold">Describe your demonstration</h2>
+          <h2 className="text-lg font-semibold">
+            {isEditMode ? 'Edit your demonstration' : 'Describe your demonstration'}
+          </h2>
         </div>
+
+        {/* Validator's "what to fix" note when this draft was returned (#9b). */}
+        {isEditMode && returnedNote && (
+          <div className="rounded-md border border-amber-300 bg-[#ffde59]/20 p-3 space-y-1">
+            <p className="text-xs font-semibold text-amber-900">
+              Your validator asked for changes:
+            </p>
+            <p className="text-sm text-amber-900/90 whitespace-pre-wrap">{returnedNote}</p>
+            <p className="text-xs text-amber-800/80">
+              Make the fixes below, then resubmit for review.
+            </p>
+          </div>
+        )}
 
         {/* --- Category --- */}
         <div className="space-y-2">
@@ -480,11 +642,11 @@ export function DemonstrationForm() {
                   setForm((prev) => ({ ...prev, bos_syllabus_id: v, clo_refs: [] }))
                 }
               >
-                <SelectTrigger id="bos_syllabus">
+                <SelectTrigger id="bos_syllabus" disabled={loadingCurriculum}>
                   <SelectValue
                     placeholder={
                       loadingCurriculum
-                        ? 'Loading syllabi…'
+                        ? 'Loading courses…'
                         : 'Pick the BoS-approved course this evidence belongs to'
                     }
                   />
@@ -570,7 +732,7 @@ export function DemonstrationForm() {
                 value={form.vac_course_id || undefined}
                 onValueChange={(v) => setForm((prev) => ({ ...prev, vac_course_id: v }))}
               >
-                <SelectTrigger id="vac_course">
+                <SelectTrigger id="vac_course" disabled={loadingCurriculum}>
                   <SelectValue
                     placeholder={
                       loadingCurriculum
@@ -602,9 +764,14 @@ export function DemonstrationForm() {
         </div>
 
         {showRubricHint && (
-          <p className="text-xs text-muted-foreground italic">
-            No rubric required for this category yet — describe your evidence below and a reviewer will score free-form.
-          </p>
+          <div className="rounded-md border border-border/60 bg-muted/30 p-3 flex items-start gap-2 text-xs text-muted-foreground">
+            <BookOpenCheck className="h-4 w-4 mt-0.5 shrink-0 text-[#0b6d41]" />
+            <p>
+              <span className="font-medium text-foreground">No rubric for this category.</span>{' '}
+              That&apos;s expected — your validator scores this demonstration free-form. Just
+              describe your evidence below.
+            </p>
+          </div>
         )}
 
         {/* --- Skill name --- */}
@@ -685,7 +852,11 @@ export function DemonstrationForm() {
               disabled={saving !== null}
             >
               <Save className="h-4 w-4 mr-2" />
-              {saving === 'draft' ? 'Saving…' : 'Save as draft'}
+              {saving === 'draft'
+                ? 'Saving…'
+                : isEditMode
+                  ? 'Save changes'
+                  : 'Save as draft'}
             </Button>
             <Button
               type="button"
@@ -694,7 +865,13 @@ export function DemonstrationForm() {
               disabled={saving !== null}
             >
               <Send className="h-4 w-4 mr-2" />
-              {saving === 'submit' ? 'Submitting…' : 'Submit for review'}
+              {saving === 'submit'
+                ? isEditMode
+                  ? 'Resubmitting…'
+                  : 'Submitting…'
+                : isEditMode
+                  ? 'Resubmit for review'
+                  : 'Submit for review'}
             </Button>
           </div>
         </div>
@@ -704,7 +881,11 @@ export function DemonstrationForm() {
           <p>
             Drafts stay private. Once submitted, a faculty / peer / AI validator from your
             institution can review under the rubric you anchored to (or free-form if none).
-            The scoring engine writes the final weighted score back onto this row.
+            The scoring engine writes the final weighted score back onto this row.{' '}
+            <span className="font-medium text-foreground">
+              Every validated demonstration becomes part of your verified skill
+              transcript — the record employers and accreditors see.
+            </span>
           </p>
         </div>
       </CardContent>

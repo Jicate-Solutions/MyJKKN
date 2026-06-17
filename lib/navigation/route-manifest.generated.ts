@@ -1380,6 +1380,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/ai-pulse/guide",
+        "label": "Guide",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/ai-pulse/lab",
         "label": "Lab",
         "iconName": "FileText",
@@ -1482,6 +1488,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "ClipboardCheck",
     "children": [
       {
+        "path": "/audit/care",
+        "label": "Care",
+        "iconName": "ClipboardCheck",
+        "children": [
+          {
+            "path": "/audit/care/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/audit/care/score",
+            "label": "Score",
+            "iconName": "ClipboardCheck",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/audit/cycles",
         "label": "Cycles",
         "iconName": "RotateCw",
@@ -1568,6 +1593,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Analytics",
         "iconName": "BarChart",
         "children": []
+      },
+      {
+        "path": "/billing/apportionment",
+        "label": "Apportionment",
+        "iconName": "Wallet",
+        "children": [
+          {
+            "path": "/billing/apportionment/rules",
+            "label": "Rules",
+            "iconName": "Wallet",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/billing/categories",
@@ -2253,6 +2291,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/campus-living/my-hostel/guide",
+            "label": "Guide",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/campus-living/my-hostel/housekeeping",
             "label": "Room Cleaning",
             "iconName": "Brush",
@@ -2900,6 +2944,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       }
     ]
+  },
+  {
+    "path": "/guide",
+    "label": "Guide",
+    "iconName": "FileText",
+    "children": []
   },
   {
     "path": "/health",
@@ -4410,6 +4460,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/moments",
+    "label": "Moments",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/moments/campaigns",
+        "label": "Campaigns",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/moments/submit",
+        "label": "Submit",
+        "iconName": "FileText",
+        "children": []
+      }
+    ]
+  },
+  {
     "path": "/my-bug-reports",
     "label": "My Bug Reports",
     "iconName": "FileText",
@@ -4981,6 +5050,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/pde/guide",
+        "label": "Guide",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/pde/learn",
         "label": "Learn",
         "iconName": "FileText",
@@ -5042,6 +5117,106 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Templates",
         "iconName": "FileText",
         "children": []
+      }
+    ]
+  },
+  {
+    "path": "/rcltp",
+    "label": "Rcltp",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/rcltp/admin",
+        "label": "Admin",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/rcltp/admin/bands",
+            "label": "RCLTP Bands",
+            "iconName": "SlidersHorizontal",
+            "children": []
+          },
+          {
+            "path": "/rcltp/admin/content",
+            "label": "RCLTP Content",
+            "iconName": "BookOpenCheck",
+            "children": []
+          },
+          {
+            "path": "/rcltp/admin/gamification",
+            "label": "RCLTP Badges",
+            "iconName": "Award",
+            "children": []
+          },
+          {
+            "path": "/rcltp/admin/policies",
+            "label": "RCLTP Policies",
+            "iconName": "BookOpenCheck",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/rcltp/principal",
+        "label": "RCLTP Principal",
+        "iconName": "LayoutDashboard",
+        "children": []
+      },
+      {
+        "path": "/rcltp/reports",
+        "label": "RCLTP Reports",
+        "iconName": "FileBarChart",
+        "children": []
+      },
+      {
+        "path": "/rcltp/student",
+        "label": "Student",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/rcltp/student/assessment",
+            "label": "Assessment",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/rcltp/student/practice",
+            "label": "Practice",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/rcltp/student/vbb",
+            "label": "Vbb",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/rcltp/teacher",
+        "label": "RCLTP Teacher",
+        "iconName": "Users",
+        "children": [
+          {
+            "path": "/rcltp/teacher/assessments",
+            "label": "Open Assessment",
+            "iconName": "ClipboardList",
+            "children": []
+          },
+          {
+            "path": "/rcltp/teacher/questions",
+            "label": "Question Review",
+            "iconName": "ListChecks",
+            "children": []
+          },
+          {
+            "path": "/rcltp/teacher/recordings",
+            "label": "Recording Review",
+            "iconName": "Mic",
+            "children": []
+          }
+        ]
       }
     ]
   },

@@ -27,6 +27,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Textarea } from '@/components/ui/textarea';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useSubmitQuiz } from '@/lib/services/ai-pulse/live-session-service';
 
@@ -55,6 +56,7 @@ export function QuizPanel({
   const [questions, setQuestions] = useState<QuizQuestion[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [picks, setPicks] = useState<Record<string, string>>({});
+  const [feedback, setFeedback] = useState('');
   const [submitted, setSubmitted] = useState(alreadySubmitted);
   const [shownScore, setShownScore] = useState<number | null>(
     existingScore ?? null,
@@ -119,7 +121,7 @@ export function QuizPanel({
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            The quiz unlocks when the Champion ends the session. You&apos;ll
+            The quiz unlocks when the session ends. You&apos;ll
             have 60 minutes for the live window, then 48 hours for the async
             make-up.
           </p>
@@ -174,7 +176,7 @@ export function QuizPanel({
     }
     const score = computeScore();
     try {
-      await submitQuiz.mutateAsync({ score, asyncMakeup });
+      await submitQuiz.mutateAsync({ score, asyncMakeup, feedback });
       setShownScore(score);
       setSubmitted(true);
       toast.success(
@@ -247,6 +249,25 @@ export function QuizPanel({
                 </li>
               ))}
             </ol>
+
+            {/* CARE E-move: voice channel. Anonymous to the Champion —
+                surfaced as text only on the admin cycle page. */}
+            <div className="space-y-1.5">
+              <Label htmlFor="quiz-feedback" className="text-sm font-medium">
+                What should change next week?{' '}
+                <span className="text-muted-foreground font-normal">
+                  (optional, anonymous)
+                </span>
+              </Label>
+              <Textarea
+                id="quiz-feedback"
+                value={feedback}
+                onChange={(e) => setFeedback(e.target.value)}
+                placeholder="Pace, topic, format, tools — anything."
+                rows={2}
+                maxLength={500}
+              />
+            </div>
 
             <Button
               onClick={handleSubmit}

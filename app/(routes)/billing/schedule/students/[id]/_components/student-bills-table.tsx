@@ -455,6 +455,13 @@ export function StudentBillsTable({
           <div className='text-sm font-medium text-gray-900 dark:text-gray-100'>
             {bill.item_category?.category_name}
           </div>
+          {(bill.item_category?.category_name === 'Hostel Upgrade Fee' ||
+            bill.item_category?.category_name === 'Mess Upgrade Fee') &&
+            bill.bill_description && (
+              <div className='text-xs text-muted-foreground'>
+                {bill.bill_description}
+              </div>
+            )}
           {bill.item_category?.frequency && (
             <div className='text-xs text-muted-foreground capitalize'>
               {bill.item_category.frequency}

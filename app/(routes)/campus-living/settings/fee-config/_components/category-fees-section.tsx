@@ -33,6 +33,9 @@ import {
   getFeeTargetKind,
   type HostelFee,
 } from '@/types/hostel-fees';
+// Hostel + mess category type unions/labels are identical ('boys'|'girls'|'mixed'),
+// so one label map renders the gender for either kind of row.
+import { HOSTEL_CATEGORY_TYPE_LABELS } from '@/types/hostel-categories';
 import { CategoryFeeDialog } from './category-fee-dialog';
 
 const formatCurrency = (amount: number) =>
@@ -64,6 +67,16 @@ export function CategoryFeesSection({ hostelYearId, canEdit }: Props) {
     const id = getFeeTargetId(fee);
     const list = kind === 'hostel_room' ? hostelCategories : messCategories;
     return list.find((c) => c.id === id)?.name ?? '—';
+  };
+
+  // Boys/Girls of the targeted category — categories are gender-typed, so the same
+  // name (e.g. "Classic Room") appears once per hostel type.
+  const typeLabelFor = (fee: HostelFee) => {
+    const kind = getFeeTargetKind(fee);
+    const id = getFeeTargetId(fee);
+    const list = kind === 'hostel_room' ? hostelCategories : messCategories;
+    const t = list.find((c) => c.id === id)?.type;
+    return t ? HOSTEL_CATEGORY_TYPE_LABELS[t] : null;
   };
 
   const handleAdd = () => {
@@ -124,6 +137,7 @@ export function CategoryFeesSection({ hostelYearId, canEdit }: Props) {
             <TableRow>
               <TableHead>Type</TableHead>
               <TableHead>Category</TableHead>
+              <TableHead>Hostel Type</TableHead>
               <TableHead>Amount</TableHead>
               <TableHead>Frequency</TableHead>
               <TableHead>Status</TableHead>
@@ -137,6 +151,13 @@ export function CategoryFeesSection({ hostelYearId, canEdit }: Props) {
                   <Badge variant="outline">{FEE_TARGET_LABELS[getFeeTargetKind(fee)]}</Badge>
                 </TableCell>
                 <TableCell className="font-medium">{nameFor(fee)}</TableCell>
+                <TableCell>
+                  {typeLabelFor(fee) ? (
+                    <Badge variant="outline">{typeLabelFor(fee)}</Badge>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </TableCell>
                 <TableCell>{formatCurrency(fee.amount)}</TableCell>
                 <TableCell>{FEE_FREQUENCY_LABELS[fee.frequency]}</TableCell>
                 <TableCell>

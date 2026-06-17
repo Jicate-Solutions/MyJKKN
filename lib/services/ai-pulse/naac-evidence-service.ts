@@ -501,6 +501,8 @@ export class NaacEvidenceService extends BaseService {
         live_app_url: s.live_app_url ?? '',
         featured_tool: featuredToolName,
         champion_at_time: championName,
+        // Self-reported active-users count; real IG reach (ig_post_metrics) available via pulse-analytics-service as a future upgrade.
+        // Field key stays `ig_reach` for back-compat; surfaced label is now "Active Users (self-reported)".
         ig_reach: typeof s.active_users_count === 'number' ? s.active_users_count : 0,
         proof_urls: proofUrls,
         is_faculty_verified: isFacultyVerified,

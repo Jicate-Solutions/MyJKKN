@@ -10,10 +10,16 @@ import { formatFeeBand } from './format';
 function FeeBandCell({ min, max }: { min: number | null; max: number | null }) {
   return <span className='text-sm tabular-nums'>{formatFeeBand(min, max)}</span>;
 }
-function QuotaCell({ name }: { name: string | null }) {
-  return name
-    ? <span className='text-sm'>{name}</span>
-    : <Badge variant='secondary' className='font-normal'>Any quota</Badge>;
+function QuotaCell({ names }: { names: string[] }) {
+  if (!names || names.length === 0)
+    return <Badge variant='secondary' className='font-normal'>Any quota</Badge>;
+  return (
+    <span className='flex flex-wrap gap-1'>
+      {names.map((n) => (
+        <Badge key={n} variant='outline' className='font-normal'>{n}</Badge>
+      ))}
+    </span>
+  );
 }
 function ScopeCell({ programName }: { programName: string | null }) {
   if (!programName) {
@@ -40,14 +46,28 @@ export const createEligibilityColumns = (): ColumnDef<ProgramEligibilityRow>[] =
     cell: ({ row }) => <ScopeCell programName={row.original.program_name} />,
   },
   {
-    accessorKey: 'quota_name',
+    accessorKey: 'quota_names',
     header: 'Quota',
-    cell: ({ row }) => <QuotaCell name={row.original.quota_name} />,
+    cell: ({ row }) => <QuotaCell names={row.original.quota_names} />,
   },
   {
     id: 'fee_band',
     header: 'Fee Band',
     cell: ({ row }) => <FeeBandCell min={row.original.fee_min} max={row.original.fee_max} />,
+  },
+  {
+    accessorKey: 'hostel_type',
+    header: 'Hostel Type',
+    cell: ({ row }) => {
+      const t = row.original.hostel_type;
+      if (!t) return <span className='text-muted-foreground text-sm'>—</span>;
+      const label = t === 'boys' ? 'Boys' : t === 'girls' ? 'Girls' : t === 'both' ? 'Both' : t;
+      return (
+        <Badge variant={t === 'both' ? 'secondary' : 'outline'} className='font-normal'>
+          {label}
+        </Badge>
+      );
+    },
   },
   {
     accessorKey: 'room_category_name',
@@ -63,13 +83,7 @@ export const createEligibilityColumns = (): ColumnDef<ProgramEligibilityRow>[] =
       <span className='text-sm'>{row.original.mess_category_name || '—'}</span>
     ),
   },
-  {
-    accessorKey: 'is_monthly_mess_allowed',
-    header: 'Monthly Mess',
-    cell: ({ row }) => (
-      <Switch checked={row.original.is_monthly_mess_allowed} disabled aria-readonly />
-    ),
-  },
+  
   {
     accessorKey: 'is_active',
     header: 'Status',
@@ -79,15 +93,7 @@ export const createEligibilityColumns = (): ColumnDef<ProgramEligibilityRow>[] =
       </Badge>
     ),
   },
-  {
-    accessorKey: 'effective_from',
-    header: 'Effective From',
-    cell: ({ row }) => (
-      <span className='text-muted-foreground text-sm'>
-        {row.original.effective_from || '—'}
-      </span>
-    ),
-  },
+ 
   {
     id: 'actions',
     header: '',

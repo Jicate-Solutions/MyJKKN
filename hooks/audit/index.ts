@@ -6,3 +6,4 @@ export * from './use-audit-attestations';
 export * from './use-audit-parameters';
 export * from './use-audit-coverage';
 export * from './use-audit-discovery';
+export * from './use-care-audits';

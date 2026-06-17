@@ -112,7 +112,7 @@ async function fetchBusinessDiscovery(
   originId: string,
   username: string,
   token: string
-): Promise<BusinessDiscovery | null> {
+): Promise<{ bd: BusinessDiscovery | null; error: string | null }> {
   const fields =
     `business_discovery.username(${username})` +
     `{id,username,name,followers_count,media_count,` +
@@ -123,8 +123,41 @@ async function fetchBusinessDiscovery(
     business_discovery?: BusinessDiscovery;
     error?: { message?: string };
   };
-  if (json.error || !json.business_discovery) return null;
-  return json.business_discovery;
+  if (json.error || !json.business_discovery) {
+    return {
+      bd: null,
+      error:
+        json.error?.message ??
+        `no business_discovery in response (HTTP ${res.status})`,
+    };
+  }
+  return { bd: json.business_discovery, error: null };
+}
+
+/**
+ * One social_instagram_logs row per failed handle. Hygiene fix 2026-06-12:
+ * @jkkn_otat failed fetchBusinessDiscovery EVERY tick with a bare
+ * `failed++; continue;` — no log row, no per-handle trace in the response
+ * (prod recon 2026-06-11: 54 active bd handles, only 53 rows per tick).
+ * Logging must never kill the tick — its own failures are swallowed.
+ */
+async function logHandleFailure(
+  supabase: SupabaseClient,
+  username: string,
+  message: string
+): Promise<void> {
+  try {
+    await supabase.from('social_instagram_logs').insert({
+      account_id: null,
+      event_type: 'business_discovery_fetch',
+      status: 'error',
+      payload: { username },
+      error_message: message.slice(0, 500),
+      occurred_at: new Date().toISOString(),
+    });
+  } catch {
+    /* never throw from logging */
+  }
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -187,6 +220,7 @@ export async function GET(request: Request): Promise<Response> {
   let metricsWritten = 0;
   let postsWritten = 0;
   let failed = 0;
+  const failedHandles: string[] = [];
   const now = new Date().toISOString();
 
   let skippedUpgraded = 0;
@@ -197,9 +231,19 @@ export async function GET(request: Request): Promise<Response> {
       continue;
     }
     try {
-      const bd = await fetchBusinessDiscovery(originId, dept.username, token);
+      const { bd, error: bdError } = await fetchBusinessDiscovery(
+        originId,
+        dept.username,
+        token
+      );
       if (!bd || !bd.id) {
         failed++;
+        failedHandles.push(dept.username);
+        await logHandleFailure(
+          supabase,
+          dept.username,
+          bdError ?? 'empty business_discovery response'
+        );
         continue;
       }
       // Second skip axis: the discovery id IS the upsert conflict key — this
@@ -238,6 +282,12 @@ export async function GET(request: Request): Promise<Response> {
         .maybeSingle();
       if (acctErr || !acct?.id) {
         failed++;
+        failedHandles.push(dept.username);
+        await logHandleFailure(
+          supabase,
+          dept.username,
+          `ig_accounts upsert failed: ${acctErr?.message ?? 'no id returned'}`
+        );
         continue;
       }
       seeded++;
@@ -298,8 +348,14 @@ export async function GET(request: Request): Promise<Response> {
         });
         if (!pmErr) postsWritten++;
       }
-    } catch {
+    } catch (e) {
       failed++;
+      failedHandles.push(dept.username);
+      await logHandleFailure(
+        supabase,
+        dept.username,
+        e instanceof Error ? e.message : 'unknown'
+      );
     }
   }
 
@@ -314,6 +370,7 @@ export async function GET(request: Request): Promise<Response> {
       account_metrics: metricsWritten,
       post_metrics: postsWritten,
       failed,
+      failed_handles: failedHandles,
       duration_ms: Date.now() - start,
     },
   });
