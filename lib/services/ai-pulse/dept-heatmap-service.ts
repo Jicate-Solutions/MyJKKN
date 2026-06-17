@@ -228,6 +228,12 @@ export class DeptHeatmapService {
       .from('departments')
       .select('id, department_name, display_name, institution_id')
       .eq('is_active', true)
+      // Exclude the virtual "Academic" placeholder SchoolDefaultsService creates
+      // for K-12 schools (department_code 'ACAD') — an enrollment FK anchor, not a
+      // real department, so it must not surface on the governance heatmap.
+      // NULL-safe: real departments with no department_code are retained
+      // (a plain .neq would drop them, since NULL <> 'ACAD' is unknown).
+      .or('department_code.is.null,department_code.neq.ACAD')
       .order('department_name', { ascending: true });
 
     if (deptsErr) {
