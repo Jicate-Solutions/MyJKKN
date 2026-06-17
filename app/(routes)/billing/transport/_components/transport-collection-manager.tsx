@@ -23,6 +23,7 @@ function inr(n: number): string {
 export function TransportCollectionManager() {
   const { can } = usePermissions();
   const canCollect = can('billing.transport.collect');
+  const canReceipt = can('billing.receipts.create');
   const { institutions } = useInstitutionsWithAccess();
 
   const [fInstitution, setFInstitution] = useState(ALL);
@@ -70,7 +71,7 @@ export function TransportCollectionManager() {
     <div className='space-y-4'>
       <p className='text-muted-foreground text-sm'>
         {filtered.length} learner{filtered.length === 1 ? '' : 's'} · {inr(totalOutstanding)} outstanding.
-        Bus (transport) fees for day scholars who use college transport — paid online to the dedicated
+        Bus (transport) fees for learners who use college transport — paid online to the dedicated
         transport account.
       </p>
 
@@ -130,10 +131,10 @@ export function TransportCollectionManager() {
           ) : filtered.length === 0 ? (
             <div className='text-muted-foreground py-10 text-center text-sm'>
               No transport bills to collect. Bills appear here once transport fees are generated for
-              bus-using day scholars.
+              learners who use college transport.
             </div>
           ) : (
-            <TransportBillsTable rows={filtered} instName={instName} canCollect={canCollect} />
+            <TransportBillsTable rows={filtered} instName={instName} canCollect={canCollect} canReceipt={canReceipt} />
           )}
         </CardContent>
       </Card>
