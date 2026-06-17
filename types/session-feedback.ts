@@ -62,6 +62,28 @@ export interface FacultySummaryRow {
   low_understanding: number;
 }
 
+/** Faculty completion (coverage) per session. fn_scf_faculty_completion.
+ *  Counts only — confirms how MANY of the Present students gave feedback, never WHO/what. */
+export interface FacultyCompletionRow {
+  attendance_date: string;
+  timetable_id: string;
+  period_id: string;
+  course_code: string | null;
+  course_name: string | null;
+  present_count: number;
+  confirmed_count: number;
+  pending_count: number;
+  completion_pct: number;        // 0..100
+  within_window: boolean;        // feedback still inside the due window
+}
+
+/** A Present student who has NOT submitted feedback. fn_scf_faculty_pending_roster.
+ *  Identity ONLY — the RPC never returns any feedback content (understood/checklist/free_text). */
+export interface PendingRosterRow {
+  student_name: string | null;
+  register_number: string | null;
+}
+
 /** Principal escalation row. fn_scf_principal_escalations. */
 export interface EscalationRow {
   attendance_date: string;
