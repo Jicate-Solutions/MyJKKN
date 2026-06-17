@@ -266,6 +266,202 @@ export async function saveMySchedule(
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// M2 — date-specific overrides (holidays / special hours)
+//
+// Semantics (engine: native-slot-engine.ts): if ANY override rows exist for a
+// date they REPLACE that date's weekly windows. A single NULL/NULL row closes
+// the whole day; one or more start/end rows define that date's open windows.
+// All writes are scoped to the caller's OWN schedule (ownership re-checked here
+// AND enforced by RLS mso_host_all).
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface ScheduleOverride {
+  id: string;
+  /** "YYYY-MM-DD" (schedule timezone). */
+  date: string;
+  /** null = closed all day. */
+  startMinute: number | null;
+  endMinute: number | null;
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Verify the schedule belongs to the signed-in host; returns it or null. */
+async function ownedSchedule(
+  supabase: SupabaseClient,
+  scheduleId: string,
+  userId: string,
+): Promise<{ id: string } | null> {
+  const { data } = await supabase
+    .from('meeting_host_schedules')
+    .select('id')
+    .eq('id', scheduleId)
+    .eq('host_profile_id', userId)
+    .maybeSingle();
+  return data ?? null;
+}
+
+/** List a schedule's date overrides (future-first), for the holidays editor. */
+export async function listScheduleOverrides(
+  scheduleId: string,
+): Promise<ActionResult<ScheduleOverride[]>> {
+  try {
+    if (!scheduleId || typeof scheduleId !== 'string') {
+      return { success: false, error: 'Invalid schedule reference. Please reload the page.' };
+    }
+    const userId = await getCurrentUserId();
+    const supabase = await untypedClient();
+    if (!(await ownedSchedule(supabase, scheduleId, userId))) {
+      return { success: false, error: 'Schedule not found. Please reload the page.' };
+    }
+
+    const { data, error } = await supabase
+      .from('meeting_schedule_overrides')
+      .select('id, date, start_minute, end_minute')
+      .eq('schedule_id', scheduleId)
+      .order('date', { ascending: true });
+    if (error) {
+      console.error('[meetings/availability] override list failed:', error.message);
+      return { success: false, error: 'Could not load your date overrides. Please try again.' };
+    }
+    return {
+      success: true,
+      data: (data ?? []).map((r) => ({
+        id: r.id,
+        date: r.date,
+        startMinute: r.start_minute,
+        endMinute: r.end_minute,
+      })),
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Could not load your date overrides.',
+    };
+  }
+}
+
+export interface AddOverrideInput {
+  scheduleId: string;
+  /** "YYYY-MM-DD". */
+  date: string;
+  /** true = closed all day (writes one NULL/NULL row). */
+  closed: boolean;
+  /** Required when !closed — "HH:mm". */
+  startTime?: string;
+  endTime?: string;
+}
+
+/**
+ * Set a date's override. REPLACE semantics per date: any existing rows for that
+ * date are removed first, then the new row(s) inserted — so toggling a day
+ * between "closed" and "special hours" is clean and idempotent.
+ */
+export async function setScheduleOverride(
+  input: AddOverrideInput,
+): Promise<ActionResult<ScheduleOverride[]>> {
+  try {
+    const { scheduleId, date, closed } = input;
+    if (!scheduleId || typeof scheduleId !== 'string') {
+      return { success: false, error: 'Invalid schedule reference. Please reload the page.' };
+    }
+    if (!DATE_RE.test(date ?? '')) {
+      return { success: false, error: 'Please choose a valid date.' };
+    }
+
+    const timeRe = /^([01]\d|2[0-3]):[0-5]\d$/;
+    let startMinute: number | null = null;
+    let endMinute: number | null = null;
+    if (!closed) {
+      const s = input.startTime ?? '';
+      const e = input.endTime ?? '';
+      if (!timeRe.test(s) || !timeRe.test(e)) {
+        return { success: false, error: 'Times must be in 24-hour HH:mm format.' };
+      }
+      if (s >= e) {
+        return {
+          success: false,
+          error: `Start time (${s}) must be before end time (${e}).`,
+        };
+      }
+      startMinute = toMinutes(s);
+      endMinute = toMinutes(e);
+    }
+
+    const userId = await getCurrentUserId();
+    const supabase = await untypedClient();
+    if (!(await ownedSchedule(supabase, scheduleId, userId))) {
+      return { success: false, error: 'Schedule not found. Please reload the page.' };
+    }
+
+    // REPLACE this date's rows.
+    const { error: delErr } = await supabase
+      .from('meeting_schedule_overrides')
+      .delete()
+      .eq('schedule_id', scheduleId)
+      .eq('date', date);
+    if (delErr) {
+      console.error('[meetings/availability] override clear failed:', delErr.message);
+      return { success: false, error: 'Could not save the override. Please try again.' };
+    }
+
+    const { error: insErr } = await supabase.from('meeting_schedule_overrides').insert({
+      schedule_id: scheduleId,
+      date,
+      start_minute: startMinute,
+      end_minute: endMinute,
+    });
+    if (insErr) {
+      console.error('[meetings/availability] override insert failed:', insErr.message);
+      return { success: false, error: 'Could not save the override. Please try again.' };
+    }
+
+    return listScheduleOverrides(scheduleId);
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Could not save the override.',
+    };
+  }
+}
+
+/** Remove ALL override rows for a date (reverts the date to weekly hours). */
+export async function deleteScheduleOverrideDate(
+  scheduleId: string,
+  date: string,
+): Promise<ActionResult<ScheduleOverride[]>> {
+  try {
+    if (!scheduleId || typeof scheduleId !== 'string') {
+      return { success: false, error: 'Invalid schedule reference. Please reload the page.' };
+    }
+    if (!DATE_RE.test(date ?? '')) {
+      return { success: false, error: 'Invalid date.' };
+    }
+    const userId = await getCurrentUserId();
+    const supabase = await untypedClient();
+    if (!(await ownedSchedule(supabase, scheduleId, userId))) {
+      return { success: false, error: 'Schedule not found. Please reload the page.' };
+    }
+
+    const { error } = await supabase
+      .from('meeting_schedule_overrides')
+      .delete()
+      .eq('schedule_id', scheduleId)
+      .eq('date', date);
+    if (error) {
+      console.error('[meetings/availability] override delete failed:', error.message);
+      return { success: false, error: 'Could not remove the override. Please try again.' };
+    }
+    return listScheduleOverrides(scheduleId);
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Could not remove the override.',
+    };
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // U3 — public booking page + Google connection state (Universal Booking)
 // Spec: specs/universal-booking-module-2026-06-12.md (D1/D5/D19/D20)
 // ──────────────────────────────────────────────────────────────────────────
