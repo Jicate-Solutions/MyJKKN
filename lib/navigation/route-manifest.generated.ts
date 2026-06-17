@@ -1738,6 +1738,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/billing/transport",
+        "label": "Transport",
+        "iconName": "Wallet",
+        "children": []
       }
     ]
   },
@@ -2963,6 +2969,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/health/admin",
+        "label": "Admin",
+        "iconName": "Heart",
+        "children": [
+          {
+            "path": "/health/admin/programs",
+            "label": "Programs",
+            "iconName": "BookOpen",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/health/assessments",
         "label": "Assessments",
         "iconName": "Heart",
@@ -2996,6 +3015,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/health/profile",
         "label": "Profile",
         "iconName": "UserCircle",
+        "children": []
+      },
+      {
+        "path": "/health/programs",
+        "label": "Programs",
+        "iconName": "BookOpen",
         "children": []
       },
       {

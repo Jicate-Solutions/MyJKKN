@@ -30,4 +30,9 @@ export const queryKeys = {
     all: ['razorpay-accounts'] as const,
     list: () => [...queryKeys.razorpayAccounts.all, 'list'] as const,
   },
+  transportCollectables: {
+    all: ['transport-collectables'] as const,
+    list: (institutionId: string | null, academicYearId: string | null) =>
+      [...queryKeys.transportCollectables.all, 'list', institutionId, academicYearId] as const,
+  },
 } as const;
