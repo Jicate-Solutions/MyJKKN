@@ -23,6 +23,7 @@ function inr(n: number): string {
 export function TransportCollectionManager() {
   const { can } = usePermissions();
   const canCollect = can('billing.transport.collect');
+  const canReceipt = can('billing.receipts.create');
   const { institutions } = useInstitutionsWithAccess();
 
   const [fInstitution, setFInstitution] = useState(ALL);
@@ -133,7 +134,7 @@ export function TransportCollectionManager() {
               learners who use college transport.
             </div>
           ) : (
-            <TransportBillsTable rows={filtered} instName={instName} canCollect={canCollect} />
+            <TransportBillsTable rows={filtered} instName={instName} canCollect={canCollect} canReceipt={canReceipt} />
           )}
         </CardContent>
       </Card>
