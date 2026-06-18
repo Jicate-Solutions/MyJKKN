@@ -58,6 +58,19 @@ export const SERVICE_TYPE_SCOPE_OPTIONS: Array<{
   { value: 'program', label: 'Program', description: 'Available only to selected programs' },
 ];
 
+// ---------- Role Eligibility ----------
+
+/**
+ * Sentinel value for `service_types.allowed_roles` meaning "available to every
+ * authenticated user". When present, both the visibility filter
+ * (ServiceTypeService.getServiceTypes) and the submit gate
+ * (ServiceRequestService.createRequest) bypass the per-role check, so any
+ * logged-in user — including custom roles created in the future — can see and
+ * submit the request. Prefer this over enumerating every role key, which goes
+ * stale the moment a new role is added.
+ */
+export const ALL_ROLES_WILDCARD = '*';
+
 // ---------- Status Transitions ----------
 
 export const SERVICE_REQUEST_STATUS_TRANSITIONS: Record<ServiceRequestStatus, ServiceRequestStatus[]> = {
