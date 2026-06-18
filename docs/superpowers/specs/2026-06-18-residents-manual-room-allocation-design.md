@@ -101,11 +101,17 @@ panel and availability never go stale. Mirror into `02_functions.sql`.
 > The occupancy RPC (B) must resolve occupant names through the same bridge.
 
 ### Permission gate
-Reuse the tab's existing `canEdit = isSuperAdmin || campus_living.residents.edit` (the key
-already gating Edit/Remove on this table). Both new RPCs gate on the same key server-side
-(`user_has_permission('campus_living.residents.edit')`), plus institution access via the
-existing helper. The actual row write remains RLS-gated. Do **not** gate on
-`campus_living.allocations.*` — those keys are mass-granted to every role.
+Gate on **`campus_living.upgrades.manage`** (super-admin + the 5 hostel-admin roles), the
+same tight key the merged transfer RPC uses and which the Residents page already computes as
+`canManageUpgrades` for the Upgrade Categories tab. Reuse that flag for the new
+Allocate/Change-room actions.
+
+> **Do NOT gate on `campus_living.residents.edit`.** Verified 2026-06-18: it is mass-granted
+> to 64 roles (incl. `student`, `parent`, `driver`, `mess_caterer`, `gate_security`) — the
+> same useless-as-a-gate trap as `campus_living.allocations.*`. Gating the allocate RPC on it
+> would be a privilege-escalation hole. Both new RPCs gate server-side on
+> `is_super_admin() OR user_has_permission('campus_living.upgrades.manage')`, plus institution
+> access via `get_user_accessible_institutions(auth.uid())`. The actual write stays RLS-gated.
 
 ## Scope boundaries (out, by YAGNI)
 - No fee preview in this dialog (the wizard keeps it).
