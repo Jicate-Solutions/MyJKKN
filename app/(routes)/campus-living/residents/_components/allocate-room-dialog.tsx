@@ -13,12 +13,11 @@ import {
 } from '@/components/ui/select';
 import { Loader2, BedDouble, Info } from 'lucide-react';
 import { useHostelBlocks } from '@/hooks/campus-living/use-hostel-blocks';
-import { useRoomsByBlock } from '@/hooks/campus-living/use-hostel-rooms';
 import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
+import { useEffectiveMessCategories } from '@/hooks/campus-living/use-allocation-eligibility';
 import {
-  useEffectiveRoomCategories, useEffectiveMessCategories,
-} from '@/hooks/campus-living/use-allocation-eligibility';
-import { useRoomBedOccupancy, useAllocateBedAdmin } from '@/hooks/campus-living/use-hostel-allocations';
+  useRoomBedOccupancy, useAllocateBedAdmin, useAllocatableRooms,
+} from '@/hooks/campus-living/use-hostel-allocations';
 import type { LearnerHostelite } from '@/types/campus-living';
 
 interface Props {
@@ -46,18 +45,19 @@ export function AllocateRoomDialog({ learner, onClose, onSuccess }: Props) {
 
   const { data: blocksResult } = useHostelBlocks(profile?.institution_id ?? '');
   const blocks = blocksResult?.data ?? [];
-  const { data: rooms } = useRoomsByBlock(blockId);
+  // Rooms in the chosen block the learner can ACTUALLY be allocated to: physical
+  // (student room, gender, institution-serving, cohort eligibility, free beds) +
+  // category conditions are all applied server-side (fn_cl_admin_allocatable_rooms).
+  const { data: allocatableRooms, isLoading: roomsLoading } = useAllocatableRooms(
+    learner?.id ?? null,
+    blockId,
+  );
   const { data: occupancy, isLoading: occLoading } = useRoomBedOccupancy(roomId);
   const { messCategories } = useActiveMessCategories();
-  const { data: eligibleRoomCats } = useEffectiveRoomCategories(learner?.id ?? null);
   const { data: eligibleMessCats } = useEffectiveMessCategories(learner?.id ?? null);
   const allocateMut = useAllocateBedAdmin();
 
-  const roomFilterActive = (eligibleRoomCats?.length ?? 0) > 0;
   const messFilterActive = (eligibleMessCats?.length ?? 0) > 0;
-  const visibleRooms = roomFilterActive
-    ? (rooms ?? []).filter((r) => r.category_id && eligibleRoomCats!.includes(r.category_id))
-    : rooms ?? [];
   const visibleMess = messFilterActive
     ? messCategories.filter((m) => eligibleMessCats!.includes(m.id))
     : messCategories;
@@ -120,16 +120,23 @@ export function AllocateRoomDialog({ learner, onClose, onSuccess }: Props) {
           </div>
           <div className="space-y-1">
             <Label>Room</Label>
-            <Select value={roomId} onValueChange={(v) => { setRoomId(v); setBedId(''); }} disabled={!blockId}>
-              <SelectTrigger><SelectValue placeholder="Select room" /></SelectTrigger>
+            <Select value={roomId} onValueChange={(v) => { setRoomId(v); setBedId(''); }} disabled={!blockId || roomsLoading}>
+              <SelectTrigger><SelectValue placeholder={roomsLoading ? 'Loading rooms…' : 'Select room'} /></SelectTrigger>
               <SelectContent>
-                {visibleRooms.map((r) => (
-                  <SelectItem key={r.id} value={r.id}>{r.room_number} (cap {r.capacity})</SelectItem>
+                {(allocatableRooms ?? []).map((r) => (
+                  <SelectItem key={r.room_id} value={r.room_id}>
+                    {r.room_number}{r.category_name ? ` · ${r.category_name}` : ''} · {r.available_beds} free
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            {blockId && roomFilterActive && (
-              <p className="text-[11px] text-muted-foreground">Eligible rooms for this program.</p>
+            {blockId && !roomsLoading && (allocatableRooms?.length ?? 0) === 0 && (
+              <p className="text-[11px] text-muted-foreground inline-flex items-center gap-1">
+                <Info className="h-3 w-3" /> No allocatable rooms for this learner here (gender, eligibility, or no free beds). Try another block.
+              </p>
+            )}
+            {blockId && (allocatableRooms?.length ?? 0) > 0 && (
+              <p className="text-[11px] text-muted-foreground">Rooms this learner is eligible for, with free beds.</p>
             )}
           </div>
           <div className="space-y-1">

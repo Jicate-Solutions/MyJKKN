@@ -504,6 +504,19 @@ export interface RoomBedOccupancy {
   occupant_roll: string | null;
 }
 
+// A room in a block the learner can actually be allocated to — physical (student
+// room, gender, institution-serving, cohort eligibility, free beds) + category
+// conditions applied server-side by fn_cl_admin_allocatable_rooms.
+export interface AllocatableRoom {
+  room_id: string;
+  room_number: string | null;
+  floor: number | null;
+  category_id: string | null;
+  category_name: string | null;
+  capacity: number | null;
+  available_beds: number | null;
+}
+
 export interface WardenFilters {
   block_id?: string;
   designation?: WardenDesignation;

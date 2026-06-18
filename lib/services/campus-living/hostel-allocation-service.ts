@@ -7,6 +7,7 @@ import type {
   AllocationFilters,
   VacateReason,
   RoomBedOccupancy,
+  AllocatableRoom,
 } from '@/types/campus-living';
 
 // Row shape returned by fn_cl_transfer_room_options (transfer-modal availability).
@@ -240,6 +241,26 @@ export class HostelAllocationService {
       throw error;
     }
     return (data ?? []) as RoomBedOccupancy[];
+  }
+
+  // ── Allocatable rooms (fn_cl_admin_allocatable_rooms) ─────────────
+  // Rooms in a block the learner can actually be allocated to — physical
+  // (student room, gender, institution-serving, cohort eligibility, free beds)
+  // + category conditions applied server-side. Drives the dialog's room picker.
+  static async getAllocatableRooms(
+    learnerProfileId: string,
+    blockId: string,
+  ): Promise<AllocatableRoom[]> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc('fn_cl_admin_allocatable_rooms', {
+      p_learner_profile_id: learnerProfileId,
+      p_block_id: blockId,
+    });
+    if (error) {
+      logger.error('campus-living/allocations', 'Failed to load allocatable rooms', error);
+      throw error;
+    }
+    return (data ?? []) as AllocatableRoom[];
   }
 
   // ── Admin allocate bed (fn_cl_admin_allocate_bed) ─────────────────
