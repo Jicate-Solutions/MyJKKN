@@ -59,6 +59,10 @@ interface Props {
   onClose: () => void;
   onEdit?: () => void; // opens existing edit drawer (warden+ only)
   canEdit?: boolean;
+  /** Open the inline room-allocation dialog for this (unallocated) learner.
+   *  When provided, the "Allocate to a block" CTA uses it instead of the old
+   *  /allocations/new wizard (which ignores the learner + has a broken submit). */
+  onAllocate?: () => void;
 }
 
 function fullName(first: string | null, last: string | null): string {
@@ -85,7 +89,7 @@ function formatRupees(n: number | null | undefined): string {
   return `₹${n.toLocaleString('en-IN')}`;
 }
 
-export function LearnerDetailDrawer({ learnerId, onClose, onEdit, canEdit }: Props) {
+export function LearnerDetailDrawer({ learnerId, onClose, onEdit, canEdit, onAllocate }: Props) {
   const open = !!learnerId;
   const router = useRouter();
   const { institutions } = useInstitutionsWithAccess();
@@ -117,6 +121,10 @@ export function LearnerDetailDrawer({ learnerId, onClose, onEdit, canEdit }: Pro
     if (!data?.learner) return;
     if (data.currentAllocation) {
       router.push(`/campus-living/allocations`);
+    } else if (onAllocate) {
+      // Open the inline allocate dialog (pre-selected learner, occupancy panel,
+      // working RPC) instead of the old wizard.
+      onAllocate();
     } else {
       router.push(`/campus-living/allocations/new?learner=${data.learner.id}`);
     }

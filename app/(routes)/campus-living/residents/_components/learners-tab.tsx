@@ -50,8 +50,10 @@ export function LearnersTab() {
     return (id: string) => map.get(id) ?? '—';
   }, [institutions]);
 
-  // Drawer / dialog state
-  const [detailId, setDetailId] = useState<string | null>(null);
+  // Drawer / dialog state. detailLearner holds the whole row (not just the id)
+  // so the detail drawer's "Allocate" CTA can hand the same LearnerHostelite to
+  // the inline allocate dialog.
+  const [detailLearner, setDetailLearner] = useState<LearnerHostelite | null>(null);
   const [editTarget, setEditTarget] = useState<LearnerHostelite | null>(null);
   const [removeTarget, setRemoveTarget] = useState<LearnerHostelite | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -125,7 +127,7 @@ export function LearnersTab() {
         canAllocate,
         isSuperAdmin,
         instName,
-        onView: (l) => setDetailId(l.id),
+        onView: (l) => setDetailLearner(l),
         onEdit: (l) => setEditTarget(l),
         onRemove: (l) => setRemoveTarget(l),
         onAllocate: (l) => setAllocateTarget(l),
@@ -171,10 +173,15 @@ export function LearnersTab() {
       <EditHosteliteDrawer learner={editTarget} onClose={() => setEditTarget(null)} />
       <AddLearnerToHostelDialog open={addOpen} onOpenChange={setAddOpen} institutionId={effectiveInstitutionId} />
       <LearnerDetailDrawer
-        learnerId={detailId}
-        onClose={() => setDetailId(null)}
+        learnerId={detailLearner?.id ?? null}
+        onClose={() => setDetailLearner(null)}
         canEdit={canEdit}
-        onEdit={canEdit && detailId ? () => { setDetailId(null); } : undefined}
+        onEdit={canEdit && detailLearner ? () => { setDetailLearner(null); } : undefined}
+        onAllocate={
+          canAllocate && detailLearner
+            ? () => { setAllocateTarget(detailLearner); setDetailLearner(null); }
+            : undefined
+        }
       />
       <AllocateRoomDialog
         learner={allocateTarget}
