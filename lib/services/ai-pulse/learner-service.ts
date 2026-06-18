@@ -101,44 +101,45 @@ function currentWeekBounds(now: Date = new Date()): { start: string; end: string
   };
 }
 
-function classifyAttendance(row: {
-  status: string | null;
-  day_type: string | null;
-  engagement_signals?: Record<string, unknown> | null;
-}): AttendanceState {
-  if (!row || !row.status) return 'unknown';
-  if (row.status === 'excused') return 'engaged';
-  if (row.status === 'present') {
-    const sig = row.engagement_signals || {};
-    const joined = sig['joined_within_5min'] === true;
-    const polls = typeof sig['polls_responded'] === 'number' && (sig['polls_responded'] as number) >= 2;
-    // This badge reads from event_team_attendance with no cycle config in
-    // scope, so there is no session end "HH:MM" here — pass null and let the
-    // shared present-at-end helper fall back to the live-quiz proxy (the
-    // heartbeat is unobservable on external meetings anyway).
-    const stayed = isPresentAtEnd(
-      {
-        stayed_until:
-          typeof sig['stayed_until'] === 'string'
-            ? (sig['stayed_until'] as string)
-            : undefined,
-        quiz_score:
-          typeof sig['quiz_score'] === 'number'
-            ? (sig['quiz_score'] as number)
-            : undefined,
-        quiz_async_makeup: sig['quiz_async_makeup'] === true,
-      },
-      null,
-    );
-    const quiz = typeof sig['quiz_score'] === 'number' && (sig['quiz_score'] as number) >= 50;
-    // Shared robust 3-of-4 verdict — same rule as evaluateGates / heatmap /
-    // digest / PDE bridge.
-    return isEngagedFromGates({ joined, polls, stayed, quiz })
-      ? 'engaged'
-      : 'partial';
-  }
-  if (row.status === 'absent') return 'absent';
-  return 'unknown';
+/**
+ * Classify a learner's state from raw `ai_pulse_live_attendance` engagement
+ * signals. This table has no status column — a row's existence IS presence (the
+ * learner joined). So we only decide engaged vs partial, using the SAME shared
+ * verdict
+ * (`isEngagedFromGates`, honest 2-of-3) as the dept heatmap / digest / PDE
+ * bridge, so the learner card and the admin views agree exactly.
+ *
+ * No session-end "HH:MM" is in scope here → pass null to isPresentAtEnd so it
+ * falls back to the live-quiz proxy (the heartbeat is unobservable on external
+ * meetings anyway). quiz uses the authoritative `quiz_passed` flag (matches the
+ * admin readers), not a hardcoded score threshold.
+ */
+function classifyFromSignals(
+  sig: Record<string, unknown> | null,
+): AttendanceState {
+  if (!sig) return 'partial'; // joined (row exists) but no signals captured
+  const joined = sig['joined_within_5min'] === true;
+  const polls =
+    typeof sig['polls_responded'] === 'number' &&
+    (sig['polls_responded'] as number) >= 2;
+  const stayed = isPresentAtEnd(
+    {
+      stayed_until:
+        typeof sig['stayed_until'] === 'string'
+          ? (sig['stayed_until'] as string)
+          : undefined,
+      quiz_score:
+        typeof sig['quiz_score'] === 'number'
+          ? (sig['quiz_score'] as number)
+          : undefined,
+      quiz_async_makeup: sig['quiz_async_makeup'] === true,
+    },
+    null,
+  );
+  const quiz = sig['quiz_passed'] === true;
+  return isEngagedFromGates({ joined, polls, stayed, quiz })
+    ? 'engaged'
+    : 'partial';
 }
 
 // --- Service -------------------------------------------------------------
@@ -255,28 +256,40 @@ export class AiPulseLearnerService {
    */
   static async getMyAttendance(
     eventId: string,
-    registrationId: string,
+    profileId: string,
     client?: any
   ): Promise<AiPulseAttendance> {
     try {
       const supabase = client ?? (await createServerSupabaseClient());
+      // AI Pulse attendance lives in `ai_pulse_live_attendance` (profile-keyed) —
+      // the SAME source-of-truth every admin surface reads (dept heatmap,
+      // participation card, weekly digest, PDE bridge). The older
+      // `event_team_attendance` table is never populated for AI Pulse cycles, so
+      // reading it showed EVERY learner "pending — session not yet started"
+      // even after they attended. Keyed on profile_id (NOT team registration) so
+      // it works whether or not the learner has been assigned to a team.
       const { data, error } = await supabase
-        .from('event_team_attendance')
-        .select('status, day_type, marked_at, engagement_signals, notes')
+        .from('ai_pulse_live_attendance')
+        .select('day_type, joined_at, engagement_signals')
         .eq('event_id', eventId)
-        .eq('registration_id', registrationId)
-        .order('marked_at', { ascending: false })
+        .eq('profile_id', profileId)
+        .order('joined_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (error || !data) {
+        // No row = the learner has not joined this cycle's session.
         return { state: 'pending', day_type: null, marked_at: null, signals: null };
       }
-      const state = classifyAttendance(data as any);
+      // A row's existence == presence (there is no status column here). Classify
+      // engaged/partial from the engagement signals via the shared gate.
+      const state = classifyFromSignals(
+        (data as any).engagement_signals as Record<string, unknown> | null,
+      );
       return {
         state,
         day_type: data.day_type ?? null,
-        marked_at: data.marked_at ?? null,
+        marked_at: (data as any).joined_at ?? null,
         signals: (data as any).engagement_signals ?? null,
       };
     } catch (e) {
@@ -307,11 +320,11 @@ export class AiPulseLearnerService {
 
       let streak = 0;
       for (const c of cycles as Array<{ id: string }>) {
-        const team = await AiPulseLearnerService.getMyTeam(c.id, profileId, supabase);
-        if (!team) break;
+        // Attendance is profile-keyed in ai_pulse_live_attendance — no team
+        // lookup needed (and a learner can be engaged before team assignment).
         const att = await AiPulseLearnerService.getMyAttendance(
           c.id,
-          team.registration_id,
+          profileId,
           supabase
         );
         if (att.state === 'engaged') {
@@ -458,19 +471,19 @@ export function useMyAiPulseTeam(cycleId: string | null, profileId: string | nul
   });
 }
 
-export function useMyAiPulseAttendance(cycleId: string | null, registrationId: string | null) {
+export function useMyAiPulseAttendance(cycleId: string | null, profileId: string | null) {
   return useQuery({
-    queryKey: cycleId && registrationId
-      ? QK_ATT(cycleId, registrationId)
+    queryKey: cycleId && profileId
+      ? QK_ATT(cycleId, profileId)
       : ['ai-pulse', 'learner', 'attendance', 'idle'],
     queryFn: async () => {
-      if (!cycleId || !registrationId) {
+      if (!cycleId || !profileId) {
         return { state: 'unknown' as AttendanceState, day_type: null, marked_at: null, signals: null };
       }
       const supabase = createClientSupabaseClient();
-      return AiPulseLearnerService.getMyAttendance(cycleId, registrationId, supabase);
+      return AiPulseLearnerService.getMyAttendance(cycleId, profileId, supabase);
     },
-    enabled: !!cycleId && !!registrationId,
+    enabled: !!cycleId && !!profileId,
     staleTime: 30_000,
   });
 }
