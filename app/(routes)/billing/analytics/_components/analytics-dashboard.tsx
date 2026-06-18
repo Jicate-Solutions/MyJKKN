@@ -13,6 +13,7 @@ import {
   useAgingBuckets,
   useCategoryBreakdown,
   useUserActivity,
+  useDailyActivity,
 } from '@/hooks/billing/use-billing-analytics';
 import type {
   BillingAnalyticsFilters,
@@ -28,7 +29,7 @@ import { CollectionTrendChart } from './collection-trend-chart';
 import { AgingChart } from './aging-chart';
 import { CategoryBreakdownChart } from './category-breakdown-chart';
 import { InstitutionComparison } from './institution-comparison';
-import { UserActivityLeaderboard } from './user-activity-leaderboard';
+import { AccountsTeamActivity } from './accounts-team-activity';
 import { exportAnalyticsWorkbook } from './export-analytics';
 import { presetRange, type DatePreset } from './_utils';
 
@@ -104,6 +105,7 @@ export function AnalyticsDashboard() {
   const aging = useAgingBuckets(filters);
   const byCategory = useCategoryBreakdown(filters);
   const userActivity = useUserActivity(filters);
+  const dailyActivity = useDailyActivity(filters);
 
   const refetchAll = useCallback(() => {
     overview.refetch();
@@ -113,7 +115,17 @@ export function AnalyticsDashboard() {
     aging.refetch();
     byCategory.refetch();
     userActivity.refetch();
-  }, [overview, today, trend, byInstitution, aging, byCategory, userActivity]);
+    dailyActivity.refetch();
+  }, [
+    overview,
+    today,
+    trend,
+    byInstitution,
+    aging,
+    byCategory,
+    userActivity,
+    dailyActivity,
+  ]);
 
   const handleExport = useCallback(async () => {
     setExporting(true);
@@ -124,6 +136,7 @@ export function AnalyticsDashboard() {
         byCategory: byCategory.data,
         aging: aging.data,
         userActivity: userActivity.data,
+        dailyActivity: dailyActivity.data,
         range: { from: filters.date_from, to: filters.date_to },
       });
     } catch {
@@ -137,6 +150,7 @@ export function AnalyticsDashboard() {
     byCategory.data,
     aging.data,
     userActivity.data,
+    dailyActivity.data,
     filters.date_from,
     filters.date_to,
   ]);
@@ -185,9 +199,11 @@ export function AnalyticsDashboard() {
         onSelect={(id) => handleChange({ institution: id })}
       />
 
-      <UserActivityLeaderboard
-        data={userActivity.data}
-        loading={userActivity.isLoading}
+      <AccountsTeamActivity
+        userActivity={userActivity.data}
+        userLoading={userActivity.isLoading}
+        dailyActivity={dailyActivity.data}
+        dailyLoading={dailyActivity.isLoading}
       />
     </div>
   );

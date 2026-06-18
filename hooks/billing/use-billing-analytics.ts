@@ -22,6 +22,8 @@ export const billingAnalyticsKeys = {
     [...billingAnalyticsKeys.all, 'by-category', institutionIds ?? null] as const,
   userActivity: (f: BillingAnalyticsFilters) =>
     [...billingAnalyticsKeys.all, 'user-activity', f] as const,
+  dailyActivity: (f: BillingAnalyticsFilters) =>
+    [...billingAnalyticsKeys.all, 'daily-activity', f] as const,
 };
 
 const STALE = 2 * 60 * 1000; // 2 minutes
@@ -88,6 +90,15 @@ export function useUserActivity(filters: BillingAnalyticsFilters) {
   return useQuery({
     queryKey: billingAnalyticsKeys.userActivity(filters),
     queryFn: () => BillingAnalyticsService.getUserActivity(filters),
+    staleTime: STALE,
+    placeholderData: (prev) => prev,
+  });
+}
+
+export function useDailyActivity(filters: BillingAnalyticsFilters) {
+  return useQuery({
+    queryKey: billingAnalyticsKeys.dailyActivity(filters),
+    queryFn: () => BillingAnalyticsService.getDailyActivity(filters),
     staleTime: STALE,
     placeholderData: (prev) => prev,
   });
