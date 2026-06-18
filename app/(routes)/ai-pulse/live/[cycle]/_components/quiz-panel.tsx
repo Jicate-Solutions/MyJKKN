@@ -7,15 +7,18 @@
  *   - Live window: 60 minutes after session ends → counts as live engagement
  *   - Async make-up: 60 min – 48 hours → counts as async make-up (Q5 spec)
  *
- * Quiz content itself comes from the Quiz Authoring console (different agent).
+ * Quiz content itself comes from the Quiz Authoring console.
  * This panel is the LEARNER-side submission UI: pick answers, see score,
- * submit. Pass mark = 60 (centralised in the service).
+ * submit. Pass threshold is policy-driven in the submit service.
  *
- * v1 contract:
- *   - Quiz questions are fetched from `ai_pulse_quizzes` if available; if the
- *     table doesn't exist yet (table is in another in-flight PR), we render a
- *     "Quiz not yet authored" notice and let the learner submit a 0 score.
- *     This avoids blocking the learner UI on Quiz Authoring shipping first.
+ * v2 contract:
+ *   - Quiz questions are read from the cycle's `config.quiz` JSONB via
+ *     QuizService.getQuiz — the SAME store the Quiz Authoring console writes.
+ *     (The previous read targeted an `ai_pulse_quizzes` table that was never
+ *     created and had no writer, so it always degraded to "not authored".)
+ *   - Bilingual: English is primary; Tamil is shown beneath when authored.
+ *   - If no answerable questions are authored, we render a "not yet authored"
+ *     notice and the learner cannot submit.
  *   - Score is a percentage 0–100. We compute it client-side from the
  *     learner's picks; the service stores both score and quiz_passed.
  */
@@ -28,8 +31,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useSubmitQuiz } from '@/lib/services/ai-pulse/live-session-service';
+import { QuizService } from '@/lib/services/ai-pulse/quiz-service';
 
 interface QuizPanelProps {
   cycleId: string;
@@ -42,7 +45,8 @@ interface QuizPanelProps {
 interface QuizQuestion {
   id: string;
   prompt: string;
-  options: Array<{ id: string; label: string; is_correct: boolean }>;
+  prompt_ta?: string;
+  options: Array<{ id: string; label: string; label_ta?: string; is_correct: boolean }>;
 }
 
 export function QuizPanel({
@@ -70,19 +74,42 @@ export function QuizPanel({
     async function load() {
       setLoading(true);
       try {
-        const supabase = createClientSupabaseClient();
-        const { data, error } = await supabase
-          .from('ai_pulse_quizzes')
-          .select('id, prompt, options')
-          .eq('cycle_id', cycleId)
-          .order('order_index', { ascending: true });
+        // Read from config.quiz (the store the Quiz Authoring console writes),
+        // NOT the never-created ai_pulse_quizzes table. Map the authored
+        // bilingual shape (question_en/_ta, text_en/_ta) → the panel's shape.
+        const ctx = await QuizService.getQuiz(cycleId);
         if (cancelled) return;
-        if (error) {
-          // Table missing or RLS reject → degrade gracefully
-          setQuestions([]);
-        } else {
-          setQuestions((data ?? []) as unknown as QuizQuestion[]);
-        }
+        const mapped: QuizQuestion[] = (ctx?.quiz.questions ?? [])
+          .map((q) => {
+            const en = q.question_en?.trim() ?? '';
+            const ta = q.question_ta?.trim() ?? '';
+            const options = q.options
+              .map((o) => {
+                const oen = o.text_en?.trim() ?? '';
+                const ota = o.text_ta?.trim() ?? '';
+                return {
+                  id: o.id,
+                  label: oen || ota,
+                  label_ta: oen && ota && ota !== oen ? ota : undefined,
+                  is_correct: o.is_correct === true,
+                };
+              })
+              .filter((o) => o.label.length > 0);
+            return {
+              id: q.id,
+              prompt: en || ta,
+              prompt_ta: en && ta && ta !== en ? ta : undefined,
+              options,
+            };
+          })
+          // Only render answerable questions: a prompt, ≥2 options, and a key.
+          .filter(
+            (q) =>
+              q.prompt.length > 0 &&
+              q.options.length >= 2 &&
+              q.options.some((o) => o.is_correct),
+          );
+        setQuestions(mapped);
       } catch (e) {
         if (!cancelled) setQuestions([]);
       } finally {
@@ -228,6 +255,11 @@ export function QuizPanel({
               {questions.map((q) => (
                 <li key={q.id} className="space-y-2">
                   <p className="text-sm font-medium">{q.prompt}</p>
+                  {q.prompt_ta && (
+                    <p className="-mt-1 text-sm text-muted-foreground">
+                      {q.prompt_ta}
+                    </p>
+                  )}
                   <RadioGroup
                     value={picks[q.id] ?? ''}
                     onValueChange={(val) =>
@@ -242,6 +274,12 @@ export function QuizPanel({
                           className="text-sm font-normal cursor-pointer"
                         >
                           {opt.label}
+                          {opt.label_ta && (
+                            <span className="text-muted-foreground">
+                              {' '}
+                              — {opt.label_ta}
+                            </span>
+                          )}
                         </Label>
                       </div>
                     ))}
