@@ -262,18 +262,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
-            "path": "/academic/session-feedback/learn",
-            "label": "Learn",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/academic/session-feedback/me",
-            "label": "Me",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
             "path": "/academic/session-feedback/principal",
             "label": "Principal",
             "iconName": "FileText",
@@ -1311,6 +1299,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admission/social/facebook",
             "label": "Facebook",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/social/governance",
+            "label": "Governance",
             "iconName": "GraduationCap",
             "children": []
           },
@@ -4225,6 +4219,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/learners/class-feedback",
+        "label": "Class Feedback",
+        "iconName": "GraduationCap",
+        "children": []
+      },
+      {
         "path": "/learners/enquiries",
         "label": "Enquiries",
         "iconName": "GraduationCap",
@@ -4265,6 +4265,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/learners/my-attendance",
         "label": "My Attendance",
+        "iconName": "GraduationCap",
+        "children": []
+      },
+      {
+        "path": "/learners/my-attendance-feedback",
+        "label": "My Attendance Feedback",
         "iconName": "GraduationCap",
         "children": []
       },
