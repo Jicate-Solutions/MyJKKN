@@ -17930,3 +17930,166 @@ $function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_preview_hostel_fee_categories(uuid) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_preview_hostel_fee_categories(uuid) TO authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- fn_cl_admin_transfer_allocation — admin manual room/bed transfer.
+-- Mirrored from migration 20260617200000_admin_transfer_allocation_rpc.sql.
+-- Moves an active allocation to a new room/bed/block AND maintains the bed
+-- inventory invariant (old bed freed, new bed occupied). Gated on
+-- campus_living.upgrades.manage (super-admin + the 5 hostel-admin roles); the
+-- catalog .transfer/.edit keys are mass-granted to every role so are not used.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_cl_admin_transfer_allocation(
+  p_allocation_id uuid,
+  p_room_id uuid,
+  p_bed_id uuid,
+  p_block_id uuid DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $function$
+DECLARE
+  v_alloc      hostel_allocations%ROWTYPE;
+  v_bed        hostel_beds%ROWTYPE;
+  v_room       hostel_rooms%ROWTYPE;
+  v_old_bed    uuid;
+  v_learner    uuid;
+  v_block_id   uuid;
+  v_mapped     boolean;
+  v_accessible boolean;
+BEGIN
+  IF NOT user_has_permission('campus_living.upgrades.manage') THEN
+    RAISE EXCEPTION 'Not authorized to transfer hostel allocations'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT * INTO v_alloc FROM hostel_allocations WHERE id = p_allocation_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Allocation % not found', p_allocation_id USING ERRCODE = 'P0002';
+  END IF;
+  IF v_alloc.status <> 'active' OR v_alloc.check_out_date IS NOT NULL THEN
+    RAISE EXCEPTION 'Only an active allocation can be transferred (current status: %)', v_alloc.status
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  v_old_bed := v_alloc.bed_id;
+  v_learner := v_alloc.learner_id;
+
+  SELECT * INTO v_room FROM hostel_rooms WHERE id = p_room_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Room % not found', p_room_id USING ERRCODE = 'P0002';
+  END IF;
+
+  SELECT * INTO v_bed FROM hostel_beds WHERE id = p_bed_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Bed % not found', p_bed_id USING ERRCODE = 'P0002';
+  END IF;
+  IF v_bed.room_id <> p_room_id THEN
+    RAISE EXCEPTION 'Bed does not belong to the selected room' USING ERRCODE = 'P0001';
+  END IF;
+
+  v_block_id := COALESCE(p_block_id, v_room.block_id);
+
+  SELECT EXISTS (SELECT 1 FROM hostel_block_institutions WHERE block_id = v_block_id)
+    INTO v_mapped;
+  IF v_mapped THEN
+    SELECT EXISTS (
+      SELECT 1 FROM hostel_block_institutions hbi
+      WHERE hbi.block_id = v_block_id
+        AND hbi.institution_id IN (
+          SELECT institution_id FROM get_user_accessible_institutions(auth.uid())
+        )
+    ) INTO v_accessible;
+    IF NOT v_accessible THEN
+      RAISE EXCEPTION 'No access to the target block''s institution'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  IF p_bed_id <> COALESCE(v_old_bed, '00000000-0000-0000-0000-000000000000'::uuid)
+     AND EXISTS (
+       SELECT 1 FROM hostel_allocations a
+       WHERE a.bed_id = p_bed_id
+         AND a.status = 'active'
+         AND a.check_out_date IS NULL
+     ) THEN
+    RAISE EXCEPTION 'The selected bed is already occupied' USING ERRCODE = '23505';
+  END IF;
+
+  UPDATE hostel_allocations
+     SET room_id         = p_room_id,
+         bed_id          = p_bed_id,
+         block_id        = v_block_id,
+         allocation_type = 'transfer',
+         updated_at      = now()
+   WHERE id = p_allocation_id;
+
+  IF v_old_bed IS NOT NULL AND v_old_bed <> p_bed_id THEN
+    UPDATE hostel_beds
+       SET status = 'available', current_occupant_id = NULL, updated_at = now()
+     WHERE id = v_old_bed;
+  END IF;
+  UPDATE hostel_beds
+     SET status = 'occupied', current_occupant_id = v_learner, updated_at = now()
+   WHERE id = p_bed_id;
+
+  RETURN jsonb_build_object(
+    'success',       true,
+    'allocation_id', p_allocation_id,
+    'room_id',       p_room_id,
+    'bed_id',        p_bed_id,
+    'block_id',      v_block_id,
+    'freed_bed_id',  CASE WHEN v_old_bed IS DISTINCT FROM p_bed_id THEN v_old_bed END
+  );
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_cl_admin_transfer_allocation(uuid, uuid, uuid, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_cl_admin_transfer_allocation(uuid, uuid, uuid, uuid) TO authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- fn_cl_transfer_room_options — category-wise room/bed availability for the
+-- admin transfer modal. Mirrored from migration
+-- 20260617210000_transfer_room_options_rpc.sql.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_cl_transfer_room_options(p_block_id uuid)
+RETURNS TABLE (
+  room_id       uuid,
+  room_number   text,
+  room_type     text,
+  floor         integer,
+  category_id   uuid,
+  category_name text,
+  category_type text,
+  total_beds    bigint,
+  free_beds     bigint,
+  occupied_beds bigint
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $function$
+  SELECT
+    r.id,
+    r.room_number,
+    r.room_type::text,
+    r.floor,
+    r.category_id,
+    c.name,
+    c.type,
+    count(b.id)                                          AS total_beds,
+    count(b.id) FILTER (WHERE b.status = 'available')    AS free_beds,
+    count(b.id) FILTER (WHERE b.status = 'occupied')     AS occupied_beds
+  FROM hostel_rooms r
+  LEFT JOIN hostel_categories c ON c.id = r.category_id
+  LEFT JOIN hostel_beds b ON b.room_id = r.id
+  WHERE r.block_id = p_block_id
+    AND user_has_permission('campus_living.upgrades.manage')
+  GROUP BY r.id, r.room_number, r.room_type, r.floor, r.category_id, c.name, c.type
+  ORDER BY c.name NULLS LAST, r.room_number;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_cl_transfer_room_options(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_cl_transfer_room_options(uuid) TO authenticated;
