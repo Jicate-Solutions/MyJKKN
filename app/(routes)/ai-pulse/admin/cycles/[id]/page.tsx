@@ -11,6 +11,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { CycleEditForm } from '../_components/cycle-edit-form';
 import { PublicationMetricsCard } from './_components/publication-metrics-card';
+import { ParticipationCard } from './_components/participation-card';
 import { LearnerFeedbackCard } from './_components/learner-feedback-card';
 
 interface Props {
@@ -34,6 +35,8 @@ export default function AIPulseCycleEditPage({ params }: Props) {
         <CycleEditForm cycleId={id} />
         {/* Publication Metrics — SOP Phase V read path (2026-06-11) */}
         <PublicationMetricsCard cycleId={id} />
+        {/* Participation — observable raw turnout, independent of engaged-rate (2026-06-18) */}
+        <ParticipationCard cycleId={id} />
         {/* Learner feedback — CARE E-move voice channel (2026-06-12) */}
         <LearnerFeedbackCard cycleId={id} />
       </div>
