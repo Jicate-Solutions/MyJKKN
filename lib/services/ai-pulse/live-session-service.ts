@@ -929,12 +929,16 @@ export interface GateStatus {
   polls_responded_ok: boolean;
   stayed_until_end: boolean;
   quiz_passed: boolean;
-  /** How many polls the Champion issued this cycle (0 = polls gate auto-passes). */
+  /** How many polls the Champion issued this cycle. Informational only — polls
+   *  are NOT part of the engagement verdict until poll authoring is wired into
+   *  live sessions (see specs/ai-pulse-graph-attendance-integration-2026-06-18.md). */
   polls_issued: number;
-  /** How many poll responses this learner needs (min(3, polls_issued)). */
+  /** How many poll responses this learner needs (min(3, polls_issued)). Display only. */
   polls_required: number;
-  passed_count: number; // 0..4
-  total: 4;
+  /** Real signals passed (0..3): joined / stayed / quiz. Polls excluded. */
+  passed_count: number; // 0..3
+  /** Number of gates counted toward the verdict (currently 3 — polls excluded). */
+  total: number;
   is_engaged: boolean;
 }
 
@@ -1003,27 +1007,38 @@ export function isPresentAtEnd(
 }
 
 /**
- * The engagement verdict from the four sub-gates: robust 3-of-4.
+ * The engagement verdict — honest "2 of 3 real signals" (Model B, 2026-06-18).
  *
- * One unmeasurable sensor must not zero the whole reading. Historically this
- * was a 4-of-4 AND, but the externally-hosted meeting breaks the
- * `stayed_until` heartbeat for everyone, so a strict AND read 0% engagement
- * platform-wide despite real attendance. 3-of-4 keeps the gate meaningful
- * (you still need three independent signals) while tolerating the one sensor
- * we cannot reliably observe. Shared so every consumer agrees.
+ * The three REAL, measurable signals are:
+ *   - joined  (clicked Join on time — real in-app event)
+ *   - stayed  (present at end: heartbeat OR took the quiz live — see isPresentAtEnd)
+ *   - quiz    (passed the weekly check — the actual learning outcome)
+ *
+ * `polls` is deliberately EXCLUDED from the verdict. It used to be the 4th gate,
+ * but it was never a trustworthy signal: no cycle has issued polls, so the old
+ * `evaluateGates` auto-PASSED it as a free point (inflating the score) while the
+ * learner badge required real responses (deflating it) — the same learner read
+ * "engaged" on the heatmap and "partial" on their badge. Until poll authoring is
+ * wired into live sessions (blocked on the external-meeting venue — see
+ * specs/ai-pulse-graph-attendance-integration-2026-06-18.md), polls is neither a
+ * free pass nor a hard requirement: it simply doesn't count. Re-add it as a 4th
+ * measurable gate (verdict → 3-of-4) once it's a working signal.
+ *
+ * History: 4-of-4 AND → 0% by construction (dead heartbeat) → 3-of-4 robust
+ * (#1503, but with the polls free-pass) → this honest 2-of-3.
+ *
+ * `polls` is accepted for call-site compatibility but ignored. Shared so every
+ * consumer (heatmap, learner badge, weekly digest, PDE bridge) agrees exactly.
  */
 export function isEngagedFromGates(gates: {
   joined: boolean;
-  polls: boolean;
   stayed: boolean;
   quiz: boolean;
+  polls?: boolean; // accepted but NOT counted — see doc above
 }): boolean {
   const passed =
-    Number(gates.joined) +
-    Number(gates.polls) +
-    Number(gates.stayed) +
-    Number(gates.quiz);
-  return passed >= 3;
+    Number(gates.joined) + Number(gates.stayed) + Number(gates.quiz);
+  return passed >= 2;
 }
 
 /**
@@ -1056,9 +1071,10 @@ export function evaluateGates(
 
   const quiz_passed = !!signals.quiz_passed;
 
+  // Honest verdict (Model B): count only the 3 real signals. Polls is excluded
+  // (it was a free auto-pass when un-issued); see isEngagedFromGates.
   const passed_count =
     Number(joined_within_5min) +
-    Number(polls_responded_ok) +
     Number(stayed_until_end) +
     Number(quiz_passed);
 
@@ -1070,9 +1086,8 @@ export function evaluateGates(
     polls_issued: Math.max(0, pollsIssued),
     polls_required,
     passed_count,
-    total: 4,
-    // One unmeasurable sensor (the heartbeat on external meetings) shouldn't
-    // zero the whole reading — robust 3-of-4 via the shared rule.
+    total: 3,
+    // Engaged = 2 of the 3 real signals (joined / stayed / quiz). Polls excluded.
     is_engaged: isEngagedFromGates({
       joined: joined_within_5min,
       polls: polls_responded_ok,
