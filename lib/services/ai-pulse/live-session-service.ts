@@ -944,10 +944,90 @@ export interface GateStatus {
  * HH:MM fails learners who genuinely stayed. Accept heartbeats within this
  * many minutes of the end.
  */
-const STAY_TOLERANCE_MINUTES = 5;
+export const STAY_TOLERANCE_MINUTES = 5;
+
+/** Subtract `minutes` from an "HH:MM" string, clamped at 00:00 (same-day). */
+export function hhmmMinusMinutes(hhmm: string, minutes: number): string {
+  const [h, m] = hhmm.split(':').map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return hhmm;
+  const total = Math.max(0, h * 60 + m - minutes);
+  const hh = String(Math.floor(total / 60)).padStart(2, '0');
+  const mm = String(total % 60).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
 
 /**
- * Evaluate the 4-AND gate from raw signals + cycle end time.
+ * Observable "present at session end" — the single source of truth for the
+ * `stayed_until_end` sub-gate, shared across evaluateGates, the dept heatmap,
+ * the weekly digest, the learner badge, and the PDE bridge.
+ *
+ * It is TRUE if EITHER:
+ *   1. the client-side heartbeat recorded `stayed_until` at/after the end
+ *      threshold (the original sensor), OR
+ *   2. the learner took the quiz IN THE LIVE WINDOW —
+ *      `typeof signals.quiz_score === 'number'` AND not an async make-up.
+ *
+ * Rationale: AI Pulse sessions run on an EXTERNAL meeting link
+ * (jkkn.in/ai-pulse), so learners leave the MyJKKN page and the heartbeat
+ * never fires — `stayed_until` is never recorded and the heartbeat sensor
+ * reads false for everyone despite real attendance. The live quiz only opens
+ * at session end, so having taken it live is an observable substitute for
+ * being present at the end. Async make-ups (`quiz_async_makeup === true`) are
+ * taken AFTER the session, so they are NOT credited as "stayed".
+ *
+ * `endThresholdHHMM` is the cycle's session-end "HH:MM" (already
+ * tolerance-adjusted by the caller via hhmmMinusMinutes, or pass the raw end
+ * and let this apply the tolerance). Pass `null` when no end time is available
+ * (e.g. the learner badge reads from event_team_attendance with no cycle
+ * config in scope) — the heartbeat branch is then skipped and only the
+ * quiz-live proxy can satisfy presence.
+ */
+export function isPresentAtEnd(
+  signals: Pick<
+    EngagementSignals,
+    'stayed_until' | 'quiz_score' | 'quiz_async_makeup'
+  >,
+  endThresholdHHMM: string | null,
+): boolean {
+  // Proxy: took the quiz live (not an async make-up) ⇒ present at end.
+  const tookQuizLive =
+    typeof signals.quiz_score === 'number' &&
+    signals.quiz_async_makeup !== true;
+  if (tookQuizLive) return true;
+
+  // Original heartbeat sensor (only usable when we know the end time).
+  if (signals.stayed_until && endThresholdHHMM) {
+    return signals.stayed_until >= endThresholdHHMM;
+  }
+  return false;
+}
+
+/**
+ * The engagement verdict from the four sub-gates: robust 3-of-4.
+ *
+ * One unmeasurable sensor must not zero the whole reading. Historically this
+ * was a 4-of-4 AND, but the externally-hosted meeting breaks the
+ * `stayed_until` heartbeat for everyone, so a strict AND read 0% engagement
+ * platform-wide despite real attendance. 3-of-4 keeps the gate meaningful
+ * (you still need three independent signals) while tolerating the one sensor
+ * we cannot reliably observe. Shared so every consumer agrees.
+ */
+export function isEngagedFromGates(gates: {
+  joined: boolean;
+  polls: boolean;
+  stayed: boolean;
+  quiz: boolean;
+}): boolean {
+  const passed =
+    Number(gates.joined) +
+    Number(gates.polls) +
+    Number(gates.stayed) +
+    Number(gates.quiz);
+  return passed >= 3;
+}
+
+/**
+ * Evaluate the engagement gate from raw signals + cycle end time.
  * Pure function, used by both the progress bar and the engagement card.
  *
  * `pollsIssued` is how many polls exist for the cycle: the polls requirement
@@ -964,15 +1044,15 @@ export function evaluateGates(
   const polls_responded_ok =
     polls_required === 0 || (signals.polls_responded ?? 0) >= polls_required;
 
-  let stayed_until_end = false;
-  if (signals.stayed_until && endsAt) {
-    const endWithTolerance = new Date(
-      new Date(endsAt).getTime() - STAY_TOLERANCE_MINUTES * 60_000,
-    ).toISOString();
-    const endHHMM = isoToIstHHMM(endWithTolerance);
-    // Compare HH:MM strings — works for same-day sessions.
-    stayed_until_end = signals.stayed_until >= endHHMM;
-  }
+  // Derive the tolerance-adjusted end "HH:MM" from the ISO end, then delegate
+  // to the shared present-at-end helper (heartbeat OR live-quiz proxy).
+  const endThresholdHHMM = endsAt
+    ? hhmmMinusMinutes(
+        isoToIstHHMM(endsAt),
+        STAY_TOLERANCE_MINUTES,
+      )
+    : null;
+  const stayed_until_end = isPresentAtEnd(signals, endThresholdHHMM);
 
   const quiz_passed = !!signals.quiz_passed;
 
@@ -991,7 +1071,14 @@ export function evaluateGates(
     polls_required,
     passed_count,
     total: 4,
-    is_engaged: passed_count === 4,
+    // One unmeasurable sensor (the heartbeat on external meetings) shouldn't
+    // zero the whole reading — robust 3-of-4 via the shared rule.
+    is_engaged: isEngagedFromGates({
+      joined: joined_within_5min,
+      polls: polls_responded_ok,
+      stayed: stayed_until_end,
+      quiz: quiz_passed,
+    }),
   };
 }
 
