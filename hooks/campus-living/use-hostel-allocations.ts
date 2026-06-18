@@ -4,6 +4,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { HostelAllocationService } from '@/lib/services/campus-living/hostel-allocation-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { hostelBedKeys } from '@/hooks/campus-living/use-hostel-beds';
+import { getErrorMessage } from '@/lib/utils';
 import type {
   HostelAllocation,
   CreateHostelAllocationDTO,
@@ -205,6 +207,38 @@ export function useDeleteHostelAllocation() {
     },
     onError: (error: Error) => {
       toast.error(`Failed to delete allocation: ${error.message}`);
+    },
+  });
+}
+
+// ── Room bed occupancy query (fn_cl_room_bed_occupancy) ───────────────────────
+// Returns one row per bed: is_occupied + occupant details. Used by the
+// manual-allocation dialog to display which beds are free vs taken.
+export function useRoomBedOccupancy(roomId: string) {
+  return useQuery({
+    queryKey: ['campus-living', 'room-bed-occupancy', roomId],
+    queryFn: () => HostelAllocationService.getRoomBedOccupancy(roomId),
+    enabled: !!roomId,
+  });
+}
+
+// ── Admin allocate bed mutation (fn_cl_admin_allocate_bed) ────────────────────
+// Allocates a specific bed to a learner via a SECURITY DEFINER RPC.
+// On success invalidates allocations, beds, and the occupancy panel so all
+// surfaces reflect the new state immediately.
+export function useAllocateBedAdmin() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { learnerProfileId: string; roomId: string; bedId: string; messCategoryId?: string | null }) =>
+      HostelAllocationService.adminAllocateBed(args),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: hostelAllocationKeys.all });
+      queryClient.invalidateQueries({ queryKey: hostelBedKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['campus-living', 'room-bed-occupancy'] });
+      toast.success('Room allocated');
+    },
+    onError: (error: unknown) => {
+      toast.error(`Failed to allocate room: ${getErrorMessage(error)}`);
     },
   });
 }

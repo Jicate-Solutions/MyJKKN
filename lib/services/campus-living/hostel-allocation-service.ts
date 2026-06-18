@@ -6,6 +6,7 @@ import type {
   UpdateHostelAllocationDTO,
   AllocationFilters,
   VacateReason,
+  RoomBedOccupancy,
 } from '@/types/campus-living';
 
 // Row shape returned by fn_cl_transfer_room_options (transfer-modal availability).
@@ -226,6 +227,42 @@ export class HostelAllocationService {
       logger.error('campus-living/allocations', 'Unexpected error in allocate', error);
       throw error;
     }
+  }
+
+  // ── Room bed occupancy (fn_cl_room_bed_occupancy) ────────────────
+  // Returns one row per bed in the room: is_occupied + occupant details.
+  // Used by the manual-allocation dialog to show which beds are free.
+  static async getRoomBedOccupancy(roomId: string): Promise<RoomBedOccupancy[]> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc('fn_cl_room_bed_occupancy', { p_room_id: roomId });
+    if (error) {
+      logger.error('campus-living/allocations', 'Failed to load room occupancy', error);
+      throw error;
+    }
+    return (data ?? []) as RoomBedOccupancy[];
+  }
+
+  // ── Admin allocate bed (fn_cl_admin_allocate_bed) ─────────────────
+  // SECURITY DEFINER RPC that creates a new active allocation atomically,
+  // updating bed status. Gated on campus_living.allocations.manage.
+  static async adminAllocateBed(args: {
+    learnerProfileId: string;
+    roomId: string;
+    bedId: string;
+    messCategoryId?: string | null;
+  }): Promise<{ success: boolean; allocation_id: string }> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc('fn_cl_admin_allocate_bed', {
+      p_learner_profile_id: args.learnerProfileId,
+      p_room_id: args.roomId,
+      p_bed_id: args.bedId,
+      p_mess_category_id: args.messCategoryId ?? null,
+    });
+    if (error) {
+      logger.error('campus-living/allocations', 'Failed to allocate bed', error);
+      throw error;
+    }
+    return data as { success: boolean; allocation_id: string };
   }
 
   // ── Bulk allocate ─────────────────────────────────────────────────

@@ -492,6 +492,18 @@ export interface UpdateHostelWardenDTO {
   relieved_at?: string | null;
 }
 
+// ─── Room bed occupancy (fn_cl_room_bed_occupancy RPC) ────────────────────────
+// One row per bed in the room: whether it's occupied and, if so, who is in it.
+// Consumed by the manual-allocation dialog (Task 5).
+export interface RoomBedOccupancy {
+  bed_id: string;
+  bed_number: string | null;
+  is_occupied: boolean;
+  occupant_profile_id: string | null;
+  occupant_name: string | null;
+  occupant_roll: string | null;
+}
+
 export interface WardenFilters {
   block_id?: string;
   designation?: WardenDesignation;
