@@ -13231,9 +13231,9 @@ BEGIN
     RAISE EXCEPTION 'permission denied: billing.analytics.view' USING ERRCODE = '42501';
   END IF;
 
-  SELECT array_agg(institution_id) INTO v_inst
-  FROM public.get_user_accessible_institutions(auth.uid())
-  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+  SELECT array_agg(gua.institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid()) gua
+  WHERE (p_institution_ids IS NULL OR gua.institution_id = ANY(p_institution_ids));
   IF v_inst IS NULL THEN RETURN; END IF;
 
   RETURN QUERY
