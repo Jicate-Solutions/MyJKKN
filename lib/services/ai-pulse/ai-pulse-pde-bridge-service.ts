@@ -50,6 +50,10 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logger } from '@/lib/utils/enhanced-logger';
+import {
+  isPresentAtEnd,
+  isEngagedFromGates,
+} from '@/lib/services/ai-pulse/live-session-service';
 
 const MODULE = 'ai-pulse/pde-bridge';
 
@@ -335,14 +339,31 @@ export class AiPulsePdeBridgeService {
         const sig = (row.engagement_signals ?? {}) as Record<string, unknown>;
         const joinedOk = sig.joined_within_5min === true;
         const pollsOk = asNumber(sig.polls_responded, 0) >= minPolls;
-        const stayedOk =
-          typeof sig.stayed_until === 'string' && sig.stayed_until.length > 0;
+        // Shared present-at-end derivation. No session-end "HH:MM" is read
+        // here, so pass null → the heartbeat is unobservable on external
+        // meetings and only the live-quiz proxy can satisfy presence (same
+        // helper as evaluateGates / heatmap / digest / learner badge).
+        const stayedOk = isPresentAtEnd(
+          {
+            stayed_until:
+              typeof sig.stayed_until === 'string'
+                ? (sig.stayed_until as string)
+                : undefined,
+            quiz_score:
+              typeof sig.quiz_score === 'number'
+                ? (sig.quiz_score as number)
+                : undefined,
+            quiz_async_makeup: sig.quiz_async_makeup === true,
+          },
+          null,
+        );
         const quizScore =
           typeof sig.quiz_score === 'number' ? sig.quiz_score : null;
         const quizOk =
           sig.quiz_passed === true ||
           (quizScore !== null && quizScore >= quizPassThreshold);
-        if (!(joinedOk && pollsOk && stayedOk && quizOk)) continue;
+        // Robust 3-of-4 verdict via the shared rule (was a strict 4-AND).
+        if (!isEngagedFromGates({ joined: joinedOk, polls: pollsOk, stayed: stayedOk, quiz: quizOk })) continue;
         if (!row.profile_id) continue;
 
         candidates.push({

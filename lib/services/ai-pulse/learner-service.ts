@@ -20,6 +20,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import {
+  isPresentAtEnd,
+  isEngagedFromGates,
+} from '@/lib/services/ai-pulse/live-session-service';
 
 // --- Types ---------------------------------------------------------------
 
@@ -108,10 +112,30 @@ function classifyAttendance(row: {
     const sig = row.engagement_signals || {};
     const joined = sig['joined_within_5min'] === true;
     const polls = typeof sig['polls_responded'] === 'number' && (sig['polls_responded'] as number) >= 2;
-    const stayed = typeof sig['stayed_until'] === 'string' && (sig['stayed_until'] as string).length > 0;
+    // This badge reads from event_team_attendance with no cycle config in
+    // scope, so there is no session end "HH:MM" here — pass null and let the
+    // shared present-at-end helper fall back to the live-quiz proxy (the
+    // heartbeat is unobservable on external meetings anyway).
+    const stayed = isPresentAtEnd(
+      {
+        stayed_until:
+          typeof sig['stayed_until'] === 'string'
+            ? (sig['stayed_until'] as string)
+            : undefined,
+        quiz_score:
+          typeof sig['quiz_score'] === 'number'
+            ? (sig['quiz_score'] as number)
+            : undefined,
+        quiz_async_makeup: sig['quiz_async_makeup'] === true,
+      },
+      null,
+    );
     const quiz = typeof sig['quiz_score'] === 'number' && (sig['quiz_score'] as number) >= 50;
-    const fourAnd = joined && polls && stayed && quiz;
-    return fourAnd ? 'engaged' : 'partial';
+    // Shared robust 3-of-4 verdict — same rule as evaluateGates / heatmap /
+    // digest / PDE bridge.
+    return isEngagedFromGates({ joined, polls, stayed, quiz })
+      ? 'engaged'
+      : 'partial';
   }
   if (row.status === 'absent') return 'absent';
   return 'unknown';
