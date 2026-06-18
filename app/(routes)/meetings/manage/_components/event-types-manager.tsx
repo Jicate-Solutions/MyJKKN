@@ -105,6 +105,24 @@ const formSchema = z.object({
     .int('Whole minutes only')
     .min(0, 'Cannot be negative')
     .max(1440, 'Max 24 hours'),
+  // ── Wave-3: event-type variants + booking lifecycle ──────────────────────────
+  kind: z.enum(['solo', 'group', 'collective', 'round_robin']),
+  // group only — seats per slot. Ignored unless kind === 'group'.
+  capacity: z.coerce
+    .number({ invalid_type_error: 'Enter a number' })
+    .int('Whole numbers only')
+    .min(1, 'At least 1 seat')
+    .max(1000, 'Max 1000 seats'),
+  // collective (co-hosts) / round_robin (pool) — host emails, one per line.
+  hostEmails: z.string().trim().max(4000).optional().or(z.literal('')),
+  // lifecycle
+  redirectUrl: z
+    .string()
+    .trim()
+    .max(2000, 'URL is too long')
+    .optional()
+    .or(z.literal('')),
+  cancellationPolicy: z.string().trim().max(2000, 'Keep the policy under 2000 characters').optional().or(z.literal('')),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -114,6 +132,27 @@ const LOCATION_OPTIONS = [
   { value: 'phone', label: 'Phone call' },
   { value: 'online', label: 'Online (Google Meet)' },
 ] as const;
+
+// Wave-3 event-type variants. Each carries a one-line plain explanation for
+// the host (the manage UI's audience is staff, not developers).
+const KIND_OPTIONS = [
+  { value: 'solo', label: 'One-on-one', hint: 'Just you and one guest (default).' },
+  { value: 'group', label: 'Group', hint: 'You + many guests on the same slot (set seats).' },
+  {
+    value: 'collective',
+    label: 'Collective',
+    hint: 'You + co-hosts who must ALL be free for a slot.',
+  },
+  {
+    value: 'round_robin',
+    label: 'Round-robin',
+    hint: 'One of a pool of staff is auto-assigned, evenly shared.',
+  },
+] as const;
+
+function kindLabel(kind: ManageEventType['kind']): string {
+  return KIND_OPTIONS.find((k) => k.value === kind)?.label ?? 'One-on-one';
+}
 
 function locationLabel(et: ManageEventType): string {
   if (et.locationMode === 'phone') return 'Phone call';
@@ -233,8 +272,14 @@ export function EventTypesManager({
               <CardContent className="flex h-full flex-col gap-3 p-4">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 space-y-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <h3 className="truncate text-sm font-semibold">{et.title}</h3>
+                      {et.kind && et.kind !== 'solo' && (
+                        <Badge variant="outline" className="shrink-0">
+                          {kindLabel(et.kind)}
+                          {et.kind === 'group' && et.capacity ? ` · ${et.capacity}` : ''}
+                        </Badge>
+                      )}
                       {et.hidden && (
                         <Badge variant="secondary" className="shrink-0 gap-1">
                           <EyeOff className="h-3 w-3" aria-hidden />
@@ -376,6 +421,12 @@ function EventTypeDialog({
       minNoticeMin: editing?.minNoticeMin ?? 0,
       // null in the DB ↔ 0 in the form ("back-to-back").
       slotIntervalMin: editing?.slotIntervalMin ?? 0,
+      // Wave-3 variants + lifecycle.
+      kind: editing?.kind ?? 'solo',
+      capacity: editing?.capacity ?? 1,
+      hostEmails: (editing?.hostEmails ?? []).join('\n'),
+      redirectUrl: editing?.redirectUrl ?? '',
+      cancellationPolicy: editing?.cancellationPolicy ?? '',
     },
   });
 
@@ -386,6 +437,7 @@ function EventTypeDialog({
   const locationModeValue = watch('locationMode');
   const locationTextValue = watch('locationText');
   const slotIntervalValue = watch('slotIntervalMin');
+  const kindValue = watch('kind');
 
   function onTitleChange(value: string) {
     setValue('title', value, { shouldValidate: true });
@@ -396,6 +448,13 @@ function EventTypeDialog({
   }
 
   function onSubmit(values: FormValues) {
+    // Split the host-emails textarea (collective co-hosts / round-robin pool)
+    // into a clean list; the server resolves emails → profile ids.
+    const hostEmails = (values.hostEmails ?? '')
+      .split(/[\n,]+/)
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+
     const payload: EventTypeFormInput = {
       title: values.title,
       slug: (values.slug && values.slug.trim()) || slugify(values.title),
@@ -409,6 +468,12 @@ function EventTypeDialog({
       minNoticeMin: values.minNoticeMin,
       // 0 → null (back-to-back) is handled server-side in validateForm.
       slotIntervalMin: values.slotIntervalMin,
+      // Wave-3 variants + lifecycle.
+      kind: values.kind,
+      capacity: values.kind === 'group' ? values.capacity : undefined,
+      hostEmails: values.kind === 'collective' || values.kind === 'round_robin' ? hostEmails : [],
+      redirectUrl: values.redirectUrl?.trim() || undefined,
+      cancellationPolicy: values.cancellationPolicy?.trim() || undefined,
     };
 
     startSave(async () => {
@@ -530,6 +595,77 @@ function EventTypeDialog({
                 <p className="text-xs text-destructive">
                   {errors.lengthInMinutes.message}
                 </p>
+              )}
+            </div>
+
+            {/* Booking type (Wave-3 variants) — segmented buttons + a contextual
+                panel (seats for group, host list for collective/round-robin). */}
+            <div className="space-y-1.5">
+              <Label>Booking type</Label>
+              <div className="flex flex-wrap gap-1">
+                {KIND_OPTIONS.map((opt) => (
+                  <Button
+                    key={opt.value}
+                    type="button"
+                    variant={kindValue === opt.value ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setValue('kind', opt.value, { shouldValidate: true })}
+                  >
+                    {opt.label}
+                  </Button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {KIND_OPTIONS.find((k) => k.value === kindValue)?.hint}
+              </p>
+
+              {kindValue === 'group' && (
+                <div className="mt-2 space-y-1.5">
+                  <Label htmlFor="et-capacity" className="text-xs">
+                    Seats per slot
+                  </Label>
+                  <Input
+                    id="et-capacity"
+                    type="number"
+                    min={1}
+                    max={1000}
+                    className="w-32"
+                    {...register('capacity')}
+                    aria-invalid={!!errors.capacity}
+                  />
+                  {errors.capacity && (
+                    <p className="text-xs text-destructive">{errors.capacity.message}</p>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">
+                    How many people can book the same time. The slot shows
+                    &ldquo;seats left&rdquo; until it&rsquo;s full.
+                  </p>
+                </div>
+              )}
+
+              {(kindValue === 'collective' || kindValue === 'round_robin') && (
+                <div className="mt-2 space-y-1.5">
+                  <Label htmlFor="et-host-emails" className="text-xs">
+                    {kindValue === 'collective' ? 'Co-host emails' : 'Staff pool emails'}
+                  </Label>
+                  <Textarea
+                    id="et-host-emails"
+                    placeholder={'name1@jkkn.ac.in\nname2@jkkn.ac.in'}
+                    rows={3}
+                    className="font-mono text-xs"
+                    {...register('hostEmails')}
+                  />
+                  {errors.hostEmails && (
+                    <p className="text-xs text-destructive">{errors.hostEmails.message}</p>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">
+                    One email per line.{' '}
+                    {kindValue === 'collective'
+                      ? 'All of these people (plus you) must be free for a slot to be offered.'
+                      : 'One of these people (plus you) is auto-assigned to each booking, evenly shared.'}{' '}
+                    Unknown emails are ignored.
+                  </p>
+                </div>
               )}
             </div>
 
@@ -705,6 +841,57 @@ function EventTypeDialog({
                   The grid start times sit on. <strong>0 = back-to-back</strong>{' '}
                   (offered every {durationValue || 30} min, your meeting length).
                   Set e.g. 15 to offer a 60-min meeting at :00, :15, :30, :45.
+                </p>
+              </div>
+            </div>
+
+            {/* ── Wave-3 booking lifecycle ──────────────────────────────────
+                After-booking redirect + cancellation policy text. */}
+            <div className="space-y-3 rounded-md border p-3">
+              <div className="space-y-0.5">
+                <Label className="text-sm">After booking</Label>
+                <p className="text-xs text-muted-foreground">
+                  What happens once someone books, and what they see if they cancel.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="et-redirect" className="text-xs">
+                  Redirect URL <span className="text-muted-foreground">(optional)</span>
+                </Label>
+                <Input
+                  id="et-redirect"
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://… or /thank-you"
+                  {...register('redirectUrl')}
+                  aria-invalid={!!errors.redirectUrl}
+                />
+                {errors.redirectUrl && (
+                  <p className="text-xs text-destructive">{errors.redirectUrl.message}</p>
+                )}
+                <p className="text-[11px] text-muted-foreground">
+                  Send the booker here after a successful booking instead of the
+                  default confirmation. Leave blank to keep the default.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="et-cancel-policy" className="text-xs">
+                  Cancellation policy <span className="text-muted-foreground">(optional)</span>
+                </Label>
+                <Textarea
+                  id="et-cancel-policy"
+                  rows={2}
+                  placeholder="e.g. Please cancel at least 24 hours in advance."
+                  {...register('cancellationPolicy')}
+                  aria-invalid={!!errors.cancellationPolicy}
+                />
+                {errors.cancellationPolicy && (
+                  <p className="text-xs text-destructive">{errors.cancellationPolicy.message}</p>
+                )}
+                <p className="text-[11px] text-muted-foreground">
+                  Shown to the attendee on the cancel page.
                 </p>
               </div>
             </div>
