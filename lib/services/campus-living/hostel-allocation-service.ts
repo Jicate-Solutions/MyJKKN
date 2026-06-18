@@ -244,7 +244,9 @@ export class HostelAllocationService {
 
   // ── Admin allocate bed (fn_cl_admin_allocate_bed) ─────────────────
   // SECURITY DEFINER RPC that creates a new active allocation atomically,
-  // updating bed status. Gated on campus_living.allocations.manage.
+  // updating bed status. Gated on campus_living.upgrades.manage (super-admin +
+  // the 5 hostel-admin roles) — NOT .allocations.* / .residents.edit, which are
+  // mass-granted to every role and useless as a privilege gate.
   static async adminAllocateBed(args: {
     learnerProfileId: string;
     roomId: string;
