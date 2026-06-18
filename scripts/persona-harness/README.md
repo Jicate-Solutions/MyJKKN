@@ -35,9 +35,11 @@ node scripts/persona-harness/harness.mjs
 # any role:path pairs, run in parallel
 node scripts/persona-harness/harness.mjs hod:/ai-pulse/lab superadmin:/billing student:/dashboard
 
-# DEFAULT opens visible windows you can watch. For an invisible/CI run that also
-# captures screenshots:
-PERSONA_HEADLESS=1 node scripts/persona-harness/harness.mjs hod:/ai-pulse/lab
+# DEFAULT runs BOTH passes: headless first (captures screenshots for autonomous
+# UI/UX + bug analysis), THEN visible (you watch the windows). Single-pass:
+PERSONA_MODE=headless node scripts/persona-harness/harness.mjs hod:/ai-pulse/lab   # screenshots only
+PERSONA_MODE=visible  node scripts/persona-harness/harness.mjs hod:/ai-pulse/lab   # watch only
+PERSONA_HOLD=15000    node scripts/persona-harness/harness.mjs hod:/ai-pulse/lab   # linger windows ~15s
 
 # point at a local dev server instead of production
 PERSONA_BASE_URL=http://localhost:3104 node scripts/persona-harness/harness.mjs
@@ -49,19 +51,20 @@ PERSONA_DISMISS_MODALS=1 node scripts/persona-harness/harness.mjs hod:/ai-pulse/
 ```
 
 Output: a JSON array on stdout (`role`, `authed`, `finalUrl`, `deniedAccess`,
-`heading`). In **headless** mode it also writes a PNG per persona to
-`.screenshots/persona-<role>.png`; in **headed** mode it doesn't (you watched it live).
+`heading`). The **headless pass** writes a PNG per persona to
+`.screenshots/persona-<role>-<page-slug>.png` (the page slug keeps two same-role
+personas — e.g. learner + champion both on `test.student` — from overwriting each
+other); the **visible pass** writes none (you watched it).
 
-## Two modes — watch vs. record
+## Modes — `PERSONA_MODE`
 
-These are orthogonal jobs, so the harness does exactly one per mode:
+| Mode | Windows | Screenshots | Use for |
+|---|---|---|---|
+| **both** (DEFAULT) | visible (2nd pass) | yes (1st pass) | the normal flow — machine captures + analyzes, *then* you watch |
+| **headless** | none | yes | CI, batch, autonomous bug/UX analysis, async proof |
+| **visible** | visible | none | just watch, no capture |
 
-| Mode | Default? | Windows | Screenshots | Use for |
-|---|---|---|---|---|
-| **Headed** (`PERSONA_HEADLESS` unset) | ✅ | visible | none — *you* are the camera | watching a flow live |
-| **Headless** (`PERSONA_HEADLESS=1`) | | invisible | one PNG per persona | CI, batch, async proof |
-
-A screenshot exists to show a human something they didn't watch happen — so capturing one in headed mode is redundant (and, on macOS headed Chrome, crash-prone). Want a saved image? Run headless.
+`both` runs **headless first** (fast, parallel — grabs the screenshots so they can be analyzed for UI/UX issues autonomously) **then visible** (slow — windows you watch). The fast machine-pass preps for the slow human-pass. A screenshot only makes sense for a pass nobody watched, so the visible pass never takes one (and on macOS headed Chrome, `captureScreenshot` is crash-prone anyway). `PERSONA_HEADLESS=1` is a back-compat alias for `PERSONA_MODE=headless`.
 
 ## Personas
 
@@ -80,8 +83,10 @@ All use password `Test@1234` (the dev test-account password).
 
 | Flag | Effect |
 |---|---|
+| `PERSONA_MODE` | `both` (default) · `headless` · `visible`. `both` = headless screenshots then visible watch. |
+| `PERSONA_HOLD` | ms each visible window lingers so you can watch (default 5000) |
 | `PERSONA_BASE_URL` | Target origin (default `https://www.jkkn.ai`) |
-| `PERSONA_HEADLESS=1` | Invisible run (CI/batch) **and** captures screenshots. Default is visible windows. |
+| `PERSONA_HEADLESS=1` | Back-compat alias for `PERSONA_MODE=headless` (screenshots only, no windows) |
 | `PERSONA_DISMISS_MODALS=1` | Acknowledge a blocking mandatory-ack modal (a write) |
 | `PERSONA_PASSWORD` | Override the test-account password (default `Test@1234`) |
 

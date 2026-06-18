@@ -92,7 +92,7 @@ async function mintCookies(email) {
 }
 
 // ---- drive one persona in an isolated context -------------------------------
-async function runPersona(browser, role, path) {
+async function runPersona(browser, role, path, headless) {
   const email = ROLE_EMAIL[role];
   if (!email) return { role, path, ok: false, error: `unknown role: ${role}` };
   const out = { role, email, path, ok: false };
@@ -149,12 +149,14 @@ async function runPersona(browser, role, path) {
     });
     out.deniedAccess = await page.evaluate(() =>
       /you don'?t have access|restricted to/i.test(document.body.innerText));
-    // A screenshot is PROOF for a run no human watched — so capture it only in
-    // headless mode. In headed mode the human IS the camera; attempting a
-    // captureScreenshot here only courts the macOS headed-Chrome crash for zero
-    // gain. Orthogonal jobs: headed = observe live, headless = record proof.
-    if (process.env.PERSONA_HEADLESS) {
-      const shot = `.screenshots/persona-${role}.png`;
+    // Screenshots are PROOF for a pass no human watched — captured only in the
+    // HEADLESS pass (for autonomous UI/UX + bug analysis). In the VISIBLE pass the
+    // human is the camera; a captureScreenshot there only courts the macOS
+    // headed-Chrome crash. Filename includes a path slug so two same-role personas
+    // (e.g. learner + champion both = test.student) don't overwrite each other.
+    if (headless) {
+      const slug = path.replace(/^\/+/, '').replace(/[^a-z0-9]+/gi, '-').replace(/-+$/, '').slice(0, 40) || 'root';
+      const shot = `.screenshots/persona-${role}-${slug}.png`;
       try {
         await page.screenshot({ path: shot });
         out.screenshot = shot;
@@ -162,8 +164,8 @@ async function runPersona(browser, role, path) {
         out.screenshotError = String((se && se.message) || se);
       }
     } else {
-      out.note = 'headed — watched live; rerun with PERSONA_HEADLESS=1 to capture a screenshot';
-      await new Promise((r) => setTimeout(r, 5000)); // linger so the window is watchable
+      out.note = 'visible — watched live';
+      await new Promise((r) => setTimeout(r, Number(process.env.PERSONA_HOLD) || 5000)); // linger so the window is watchable (PERSONA_HOLD ms)
     }
     out.ok = true; // auth + navigation succeeded
   } catch (e) {
@@ -180,18 +182,28 @@ const set = args.length
   ? args.map((a) => { const [r, ...p] = a.split(':'); return [r, p.join(':') || '/']; })
   : DEFAULT_SET;
 
-// VISIBLE WINDOWS BY DEFAULT — you watch it test in real Chrome windows.
-// Set PERSONA_HEADLESS=1 for an invisible background run (CI, batch, no display).
-const HEADLESS = !!process.env.PERSONA_HEADLESS;
-const browser = await puppeteer.launch({
-  headless: HEADLESS,
-  args: ['--no-sandbox', '--window-size=1460,920', '--disable-dev-shm-usage', '--disable-gpu'],
-});
-console.error(`[harness] base=${BASE} headless=${HEADLESS} personas=${set.map((s) => s[0]).join(',')}`);
+// MODE picks which passes run, in order:
+//   both (DEFAULT) = HEADLESS pass first (captures screenshots for autonomous
+//                    UI/UX + bug analysis), THEN VISIBLE pass (you watch the windows).
+//   headless       = screenshots only.    visible = watch only.
+// PERSONA_HEADLESS=1 is a back-compat alias for MODE=headless.
+let MODE = (process.env.PERSONA_MODE || 'both').toLowerCase();
+if (process.env.PERSONA_HEADLESS) MODE = 'headless';
+const passes = MODE === 'headless' ? [true] : MODE === 'visible' ? [false] : [true, false]; // headless FIRST
 
-// Personas run in parallel, each in its own window/context. In headed mode each
-// window lingers ~5s (see runPersona) so you can watch it before it closes.
-const results = await Promise.all(set.map(([r, p]) => runPersona(browser, r, p)));
-console.log(JSON.stringify(results, null, 2)); // print results FIRST — before any close hang
-browser.close().catch(() => {}); // fire-and-forget; headed Chrome can hang on close (macOS)
-setTimeout(() => process.exit(0), 1500); // hard-exit shortly after, regardless of close state
+const LAUNCH = ['--no-sandbox', '--window-size=1460,920', '--disable-dev-shm-usage', '--disable-gpu'];
+async function runPass(headless) {
+  const browser = await puppeteer.launch({ headless, args: LAUNCH });
+  console.error(`[harness] base=${BASE} pass=${headless ? 'headless·screenshots' : 'visible·watch'} personas=${set.map((s) => s[0]).join(',')}`);
+  const res = await Promise.all(set.map(([r, p]) => runPersona(browser, r, p, headless)));
+  browser.close().catch(() => {}); // fire-and-forget; headed Chrome can hang on close (macOS)
+  return res;
+}
+
+let report;
+for (const h of passes) {
+  const res = await runPass(h);
+  if (h || !report) report = res; // prefer the headless pass's results (they carry the screenshots)
+}
+console.log(JSON.stringify(report, null, 2));
+setTimeout(() => process.exit(0), 1500); // hard-exit; headed Chrome can otherwise keep node alive
