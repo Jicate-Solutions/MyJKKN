@@ -200,6 +200,8 @@ export interface LearnerHostelite {
   current_room_id?: string | null;
   current_bed_id?: string | null;
   current_allocation_id?: string | null;
+  current_room_number?: string | null;
+  current_bed_number?: string | null;
   /** Learner lifecycle status (surfaced from v_learner_hostelites, which is filtered to active/reserved/admitted). */
   lifecycle_status?: string | null;
   /** Which date source produced year_of_study. NULL when no source available. PR #823. */
