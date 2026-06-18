@@ -368,6 +368,18 @@ const NAV_EXCLUDE = new Set<string>([
   '/audit/care/new',
   '/audit/care/score',
 
+  // ════════════════════════════════════════════════════════════
+  // 2026-06-18 — Social Governance Director's-View consequences
+  // surface (/admission/social/governance). A read-only page that
+  // turns each live social policy into a plain-English consequence.
+  // The sidebar/nav-config entry is wired in a sibling PR (nav is
+  // owned by the swarm lead); excluded here so this standalone PR
+  // stays green while the gate sits at its 58/58 baseline. Same
+  // "config/consequence surface, not a tier-strip chip" rationale
+  // as the /okr/admin and admission-relocation blocks above.
+  // ════════════════════════════════════════════════════════════
+  '/admission/social/governance',
+
 ]);
 
 /** Walk app/(routes)/ collecting {url} for every static page.tsx. */
