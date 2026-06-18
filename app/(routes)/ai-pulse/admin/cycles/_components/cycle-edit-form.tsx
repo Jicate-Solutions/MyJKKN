@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Save,
+  ScrollText,
   ShieldAlert,
   XCircle,
 } from 'lucide-react';
@@ -261,6 +262,16 @@ export function CycleEditForm({ cycleId }: CycleEditFormProps) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* The post-session quiz is authored on a separate console; without
+              this link it had no entry point from the UI. */}
+          <Button
+            variant="outline"
+            onClick={() => router.push(`/ai-pulse/admin/quiz/${cycleId}`)}
+            className="gap-2"
+          >
+            <ScrollText className="h-4 w-4" />
+            Edit quiz
+          </Button>
           <Button
             onClick={handleSave}
             disabled={!dirty || update.isPending || isCancelled}
