@@ -110,7 +110,8 @@ export default function ServiceTypesPage() {
   // Derive unique role set from the data so the filter dropdown is always in sync.
   const availableRoles = useMemo(() => {
     const set = new Set<string>();
-    (serviceTypes ?? []).forEach((t) => t.allowed_roles?.forEach((r) => set.add(r)));
+    // Skip the '*' wildcard ("all roles") — it's a sentinel, not a filterable role.
+    (serviceTypes ?? []).forEach((t) => t.allowed_roles?.forEach((r) => { if (r !== '*') set.add(r); }));
     return Array.from(set).sort();
   }, [serviceTypes]);
 
