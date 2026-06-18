@@ -109,6 +109,16 @@ const NAV_EXCLUDE = new Set<string>([
   '/admission/counselors/admin/tier-policy',
   '/admission/settings/lead-stages-policy',
   '/admission/settings/telephony-policies',
+  // 2026-06-18 — social governance config (super-admin write-UI for the
+  // social.* platform_policies rows). Same SuperAdminOnly/config rationale
+  // as the counselors/settings policy pages above: a chip would surface it
+  // to every social user (sidebar-shows/page-denies anti-pattern). Reached
+  // directly + via the director's-view governance page's "Edit policy →" links.
+  '/admission/social/admin/policies',
+  // The /admission/social/admin parent is a redirect-to-first-child landing
+  // (page.tsx → /admission/social/admin/policies) so the URL doesn't 404;
+  // not a chip surface itself — same class as the module-root landings above.
+  '/admission/social/admin',
 
   // ────────────────────────────────────────────────────────────
   // 2026-06-11 admin-cluster relocation wave-2 — departments
