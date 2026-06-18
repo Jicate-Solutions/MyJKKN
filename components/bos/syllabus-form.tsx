@@ -151,9 +151,20 @@ export function SyllabusForm({
     [taxonomy],
   );
 
+  // Scope the course list to the SELECTED composition's board (institution +
+  // regulation), not the creator's own board memberships — otherwise a user on
+  // a different board sees that board's courses (e.g. 24PCAC) and the picked
+  // board's courses (e.g. 24UCSC) are dropped. composition_id drives the
+  // institution-scoped, board-specific fetch in /api/bos/courses-master.
   const { data: coursesData, isLoading: coursesLoading } = useBosCourses(
-    formData.institutions_id && regulation_code
-      ? { institution_id: formData.institutions_id, regulation_code, limit: 200, is_active: 'true' }
+    formData.institutions_id && regulation_code && formData.composition_id
+      ? {
+          institution_id: formData.institutions_id,
+          regulation_code,
+          composition_id: formData.composition_id,
+          limit: 200,
+          is_active: 'true',
+        }
       : undefined,
   );
   const courseOptions = coursesData?.data ?? [];

@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { resolveBosAccess, guardInstitutionWrite } from '@/lib/utils/bos/bos-access';
+import { counsellingCodeFor } from '@/lib/utils/bos/institution-scope';
 import {
   BosSopDocumentSummary,
   BosSopFilters,
@@ -59,7 +60,12 @@ export async function GET(request: NextRequest) {
       );
 
     if (filters.institutionsId) {
-      query = query.eq('institutions_id', filters.institutionsId);
+      // CAS-aware via the denormalized counselling_code: list SOP documents from
+      // both Aided + Self-Financing UUIDs of a CAS college.
+      const code = await counsellingCodeFor(supabase, filters.institutionsId);
+      query = code
+        ? query.eq('counselling_code', code)
+        : query.eq('institutions_id', filters.institutionsId);
     }
     if (filters.status) query = query.eq('status', filters.status);
     if (filters.category) query = query.eq('category', filters.category);

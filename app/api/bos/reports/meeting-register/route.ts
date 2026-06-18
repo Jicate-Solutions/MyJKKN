@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { counsellingCodeFor } from '@/lib/utils/bos/institution-scope';
 
 // ── GET /api/bos/reports/meeting-register?boardId=&academicYear= ─────────────
 export async function GET(request: NextRequest) {
@@ -26,7 +27,14 @@ export async function GET(request: NextRequest) {
 
     if (boardId) query = query.eq('board_id', boardId);
     if (academicYear) query = query.eq('academic_year', academicYear);
-    if (institutionsId) query = query.eq('institutions_id', institutionsId);
+    // CAS-aware via the denormalized counselling_code: includes meetings filed
+    // under either Aided/Self-Financing UUID of the selected institution.
+    if (institutionsId) {
+      const code = await counsellingCodeFor(supabase, institutionsId);
+      query = code
+        ? query.eq('counselling_code', code)
+        : query.eq('institutions_id', institutionsId);
+    }
 
     const { data: meetings, error } = await query;
     if (error) throw error;

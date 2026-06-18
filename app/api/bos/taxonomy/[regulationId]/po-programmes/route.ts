@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { resolveBosAccess } from '@/lib/utils/bos/bos-access';
+import { counsellingCodeFor } from '@/lib/utils/bos/institution-scope';
 
 type Params = { params: Promise<{ regulationId: string }> };
 
@@ -38,12 +39,20 @@ export async function GET(_request: NextRequest, { params }: Params) {
 
     if (!resolvedId) return NextResponse.json({ data: [] });
 
-    const { data, error } = await supabase
+    // CAS-aware via the denormalized counselling_code: include programme
+    // outcomes recorded under either sibling UUID.
+    const code = await counsellingCodeFor(supabase, resolvedId);
+
+    let poQuery = supabase
       .from('bos_programme_outcomes')
       .select('programme_code')
-      .eq('institutions_id', resolvedId)
       .eq('regulation_id', regulationId)
       .order('programme_code', { ascending: true });
+    poQuery = code
+      ? poQuery.eq('counselling_code', code)
+      : poQuery.eq('institutions_id', resolvedId);
+
+    const { data, error } = await poQuery;
 
     if (error) throw error;
 

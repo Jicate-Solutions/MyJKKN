@@ -51,6 +51,32 @@ export interface BosInstitutionScopeServer {
  * to bypass institutions RLS (e.g. when user_institution_access fragments a
  * CAS pair and BoS spec requires both siblings to be treated as one).
  */
+/**
+ * Resolves a single MyJKKN institutions UUID to its `counselling_code` — the
+ * CAS-collapsed key shared by both Aided + SF siblings. Use this on read paths
+ * that filter a `bos_*` table by the denormalized `counselling_code` column
+ * (added 2026-06-18): one local lookup, no COE dependency, and it spans the CAS
+ * pair because both siblings carry the same code.
+ *
+ *   const code = await counsellingCodeFor(supabase, institutionsId);
+ *   if (code) query = query.eq('counselling_code', code);
+ *
+ * Returns null when the id is empty or not found (caller decides: empty result
+ * vs. fall back to an institutions_id filter).
+ */
+export async function counsellingCodeFor(
+  supabase: SupabaseClient,
+  institutionsId: string | null | undefined
+): Promise<string | null> {
+  if (!institutionsId) return null;
+  const { data } = await supabase
+    .from('institutions')
+    .select('counselling_code')
+    .eq('id', institutionsId)
+    .maybeSingle();
+  return (data?.counselling_code as string | undefined) ?? null;
+}
+
 export async function resolveBosInstitutionScope(
   supabase: SupabaseClient,
   institutionsId: string | null | undefined

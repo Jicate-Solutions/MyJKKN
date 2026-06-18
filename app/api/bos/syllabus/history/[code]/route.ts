@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { resolveBosAccess, applyInstitutionScope } from '@/lib/utils/bos/bos-access';
+import { counsellingCodeFor } from '@/lib/utils/bos/institution-scope';
 import { BosCourseSyllabus, BosSyllabusHistory } from '@/types/bos';
 
 /**
@@ -51,13 +52,20 @@ export async function GET(
       );
     }
 
+    // CAS-aware via the denormalized counselling_code: the full version history
+    // of a CAS course is returned regardless of which sibling UUID (Aided vs
+    // Self-Financing) a given version was authored under.
+    const code = await counsellingCodeFor(supabase, scopedInstitutionsId);
+
     // Step 5: Build query for all versions of this course code
     let query = supabase
       .from('bos_course_syllabi')
       .select('*')
-      .eq('institutions_id', scopedInstitutionsId)
       .eq('course_code', params.code)
       .order('version_number', { ascending: false });
+    query = code
+      ? query.eq('counselling_code', code)
+      : query.eq('institutions_id', scopedInstitutionsId);
 
     if (regulationId) {
       query = query.eq('regulation_id', regulationId);

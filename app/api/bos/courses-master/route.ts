@@ -10,6 +10,7 @@ import {
   applyInstitutionScope,
   guardCourseInstitutionWrite,
 } from '@/lib/utils/bos/bos-access';
+import { resolveBosInstitutionScope } from '@/lib/utils/bos/institution-scope';
 import { courseFormSchema, toCoeCreatePayload } from '@/lib/services/bos/courses-schemas';
 import type { BosCourseMaster, BosCourseListResponse } from '@/types/bos-courses';
 
@@ -59,6 +60,112 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const client = CoeRestClient.create();
 
+    // ── Composition-scoped mode (syllabus form course picker) ─────────────────
+    // When composition_id is supplied, return the courses that belong to THAT
+    // composition's board — NOT the union of the caller's own board memberships.
+    // Authorisation is institution-scoped (CAS-aware + cross-institution board
+    // membership), matching the composition picker which is also institution-
+    // scoped: a user may build a syllabus for any composition under one of their
+    // institutions, even a board they don't personally sit on. (Create itself is
+    // still gated by guardCourseInstitutionWrite on POST.)
+    const compositionId = searchParams.get('composition_id');
+    if (compositionId) {
+      const { data: comp } = await supabase
+        .from('bos_compositions')
+        .select('id, institutions_id, board_id')
+        .eq('id', compositionId)
+        .maybeSingle();
+
+      if (!comp?.institutions_id || !comp.board_id) {
+        return NextResponse.json({ data: [] });
+      }
+
+      if (!scope.isSuperAdmin) {
+        const allowed = new Set<string>([
+          ...(scope.institutionsId ? [scope.institutionsId] : []),
+          ...scope.allInstitutionIds,
+          ...boardScope.institutionsOf,
+        ]);
+        if (!allowed.has(comp.institutions_id)) {
+          return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
+      }
+
+      // COE course rows refer to the MyJKKN institutions_id, and a CAS college's
+      // counselling_code / institution_code maps to MULTIPLE MyJKKN ids (Aided +
+      // SF). So resolve the composition institution to its full MyJKKN sibling
+      // set via the shared code, then query COE once PER MyJKKN id and merge.
+      // (The COE institution id is added as an extra candidate so we don't
+      // regress on deployments that key courses by the COE institution.)
+      const sib = await resolveBosInstitutionScope(supabase, comp.institutions_id);
+      const coeId = await resolveCoeInstitutionId(comp.institutions_id);
+      const candidateIds = [...new Set([...sib.ids, ...(coeId ? [coeId] : [])])];
+
+      // Resolve the composition's board_code (bos_compositions.board_id is a COE
+      // board id) — try each candidate institution until the board is found.
+      interface CoeBoard { id: string; board_code: string }
+      let boardCodeRaw: string | null = null;
+      for (const instId of candidateIds) {
+        try {
+          const coeBoardsRaw = await client.get<unknown>('/api/v1/boards', {
+            institutions_id: instId,
+            is_active: 'true',
+          });
+          const coeBoards: CoeBoard[] = Array.isArray(coeBoardsRaw)
+            ? (coeBoardsRaw as CoeBoard[])
+            : ((coeBoardsRaw as { data?: CoeBoard[] })?.data ?? []);
+          const found = coeBoards.find((b) => b.id === comp.board_id)?.board_code ?? null;
+          if (found) { boardCodeRaw = found; break; }
+        } catch { /* try next candidate */ }
+      }
+      const boardCode = boardCodeRaw?.toUpperCase() ?? null;
+
+      // COE keys /api/v1/courses by the COE institution id (querying by the
+      // MyJKKN id returns nothing) and IGNORES board_code, returning a generic
+      // page that can be entirely one board (e.g. PCA). This board's courses
+      // (e.g. UCS) sit beyond that first page, so paginate the full course set
+      // for this institution+regulation and filter by board_code locally.
+      const coeInstId = coeId;
+      if (!coeInstId) {
+        return NextResponse.json({ error: 'Institution not mapped in COE' }, { status: 404 });
+      }
+
+      const PAGE = 200;
+      const MAX_PAGES = 12; // safety cap — 2400 courses
+      const collected: (BosCourseMaster & { board_code?: string })[] = [];
+      for (let p = 0; p < MAX_PAGES; p++) {
+        const raw = await client.get<unknown>('/api/v1/courses', {
+          institutions_id: coeInstId,
+          regulation_code: searchParams.get('regulation_code') ?? undefined,
+          program_code:    searchParams.get('program_code') ?? undefined,
+          is_active:       searchParams.get('is_active') ?? 'true',
+          limit:           String(PAGE),
+          offset:          String(p * PAGE),
+        }).catch((err) => {
+          console.error('[bos/courses-master] composition-scoped: courses page fetch failed', p, err);
+          return null;
+        });
+        if (!raw) break;
+        const institutionFiltered = filterByInstitution(raw, coeInstId);
+        const rows: (BosCourseMaster & { board_code?: string })[] = Array.isArray(institutionFiltered)
+          ? (institutionFiltered as (BosCourseMaster & { board_code?: string })[])
+          : (((institutionFiltered as BosCourseListResponse)?.data as (BosCourseMaster & { board_code?: string })[]) ?? []);
+        collected.push(...rows);
+        if (rows.length < PAGE) break;
+      }
+
+      const boardFiltered = boardCode
+        ? collected.filter((c) => (c.board_code ?? '').toUpperCase() === boardCode)
+        : collected;
+
+      // Dedupe by course_code.
+      const byCode = new Map<string, BosCourseMaster & { board_code?: string }>();
+      for (const c of boardFiltered) {
+        if (c.course_code && !byCode.has(c.course_code)) byCode.set(c.course_code, c);
+      }
+      return NextResponse.json({ data: Array.from(byCode.values()) });
+    }
+
     // ── Super-admin paths ────────────────────────────────────────────────────
     // Super-admins are not board-filtered. They may scope to one institution
     // via the institution_id query param, or omit it for an all-institutions
@@ -66,29 +173,64 @@ export async function GET(request: NextRequest) {
     if (scope.isSuperAdmin) {
       const effectiveInstitutionId = applyInstitutionScope(scope, searchParams.get('institution_id'));
       if (!effectiveInstitutionId) {
-        const raw = await client.get<unknown>('/api/v1/courses', {
-          regulation_code: searchParams.get('regulation_code') ?? undefined,
-          search:          searchParams.get('search') ?? undefined,
-          is_active:       searchParams.get('is_active') ?? 'true',
-          limit:           searchParams.get('limit') ?? '200',
-          offset:          searchParams.get('offset') ?? '0',
-        });
-        return NextResponse.json(raw);
+        // "All Institutions" browse. Paginate the full catalog: COE sorts by
+        // course_code so PG (24P*) precede UG (24U*); a single capped page is
+        // entirely PG and the UG courses never appear in the default (no-search)
+        // list. Generous cap for the cross-institution view; break when drained.
+        const ALL_PAGE = 200;
+        const ALL_MAX_PAGES = 25; // safety cap — 5000 courses
+        const allRows: BosCourseMaster[] = [];
+        for (let p = 0; p < ALL_MAX_PAGES; p++) {
+          const raw = await client.get<unknown>('/api/v1/courses', {
+            regulation_code: searchParams.get('regulation_code') ?? undefined,
+            search:          searchParams.get('search') ?? undefined,
+            is_active:       searchParams.get('is_active') ?? 'true',
+            limit:           String(ALL_PAGE),
+            offset:          String(p * ALL_PAGE),
+          }).catch((err) => {
+            console.error('[bos/courses-master] all-institutions courses page fetch failed', p, err);
+            return null;
+          });
+          if (!raw) break;
+          const rows: BosCourseMaster[] = Array.isArray(raw)
+            ? (raw as BosCourseMaster[])
+            : (((raw as BosCourseListResponse)?.data as BosCourseMaster[]) ?? []);
+          allRows.push(...rows);
+          if (rows.length < ALL_PAGE) break;
+        }
+        return NextResponse.json({ data: allRows });
       }
       const coeInstitutionId = await resolveCoeInstitutionId(effectiveInstitutionId);
       if (!coeInstitutionId) {
         return NextResponse.json({ error: 'Institution not mapped in COE' }, { status: 404 });
       }
-      const raw = await client.get<unknown>('/api/v1/courses', {
-        institutions_id: coeInstitutionId,
-        regulation_code: searchParams.get('regulation_code') ?? undefined,
-        program_code:    searchParams.get('program_code') ?? undefined,
-        search:          searchParams.get('search') ?? undefined,
-        is_active:       searchParams.get('is_active') ?? 'true',
-        limit:           searchParams.get('limit') ?? '100',
-        offset:          searchParams.get('offset') ?? '0',
-      });
-      return NextResponse.json(filterByInstitution(raw, coeInstitutionId));
+      // Paginate: COE sorts by course_code, so PG (24P*) precede UG (24U*) and a
+      // single capped page would drop the UG courses. Collect all pages.
+      const SA_PAGE = 200;
+      const SA_MAX_PAGES = 12; // safety cap — 2400 courses
+      const saAll: BosCourseMaster[] = [];
+      for (let p = 0; p < SA_MAX_PAGES; p++) {
+        const raw = await client.get<unknown>('/api/v1/courses', {
+          institutions_id: coeInstitutionId,
+          regulation_code: searchParams.get('regulation_code') ?? undefined,
+          program_code:    searchParams.get('program_code') ?? undefined,
+          search:          searchParams.get('search') ?? undefined,
+          is_active:       searchParams.get('is_active') ?? 'true',
+          limit:           String(SA_PAGE),
+          offset:          String(p * SA_PAGE),
+        }).catch((err) => {
+          console.error('[bos/courses-master] super-admin courses page fetch failed', p, err);
+          return null;
+        });
+        if (!raw) break;
+        const filtered = filterByInstitution(raw, coeInstitutionId);
+        const rows: BosCourseMaster[] = Array.isArray(filtered)
+          ? (filtered as BosCourseMaster[])
+          : (((filtered as BosCourseListResponse)?.data as BosCourseMaster[]) ?? []);
+        saAll.push(...rows);
+        if (rows.length < SA_PAGE) break;
+      }
+      return NextResponse.json({ data: saAll });
     }
 
     // ── Non-super-admin path: fan-out across every institution where the
@@ -152,21 +294,36 @@ export async function GET(request: NextRequest) {
         }
         if (allowedBoardCodes.size === 0) return [];
 
-        // 2. Fetch courses for THIS institution and filter by board_code.
-        const raw = await client.get<unknown>('/api/v1/courses', {
-          institutions_id: coeInstitutionId,
-          regulation_code: searchParams.get('regulation_code') ?? undefined,
-          program_code:    searchParams.get('program_code') ?? undefined,
-          search:          searchParams.get('search') ?? undefined,
-          is_active:       searchParams.get('is_active') ?? 'true',
-          limit:           searchParams.get('limit') ?? '100',
-          offset:          searchParams.get('offset') ?? '0',
-        });
-        const institutionFiltered = filterByInstitution(raw, coeInstitutionId);
-        const rows: (BosCourseMaster & { board_code?: string })[] = Array.isArray(institutionFiltered)
-          ? (institutionFiltered as (BosCourseMaster & { board_code?: string })[])
-          : (((institutionFiltered as BosCourseListResponse)?.data as (BosCourseMaster & { board_code?: string })[]) ?? []);
-        return rows.filter((c) => {
+        // 2. Fetch ALL courses for THIS institution (paginated) then filter by
+        //    board_code. COE ignores board filtering and returns a generic page
+        //    that can be entirely one busy board (e.g. PG/PCA), so a single
+        //    capped page would silently drop other boards the user belongs to
+        //    (e.g. UG/UCS). Paginate the full set before filtering.
+        const PAGE = 200;
+        const MAX_PAGES = 12; // safety cap — 2400 courses/institution
+        const all: (BosCourseMaster & { board_code?: string })[] = [];
+        for (let p = 0; p < MAX_PAGES; p++) {
+          const raw = await client.get<unknown>('/api/v1/courses', {
+            institutions_id: coeInstitutionId,
+            regulation_code: searchParams.get('regulation_code') ?? undefined,
+            program_code:    searchParams.get('program_code') ?? undefined,
+            search:          searchParams.get('search') ?? undefined,
+            is_active:       searchParams.get('is_active') ?? 'true',
+            limit:           String(PAGE),
+            offset:          String(p * PAGE),
+          }).catch((err) => {
+            console.error('[bos/courses-master] courses page fetch failed', myJkknId, p, err);
+            return null;
+          });
+          if (!raw) break;
+          const institutionFiltered = filterByInstitution(raw, coeInstitutionId);
+          const rows: (BosCourseMaster & { board_code?: string })[] = Array.isArray(institutionFiltered)
+            ? (institutionFiltered as (BosCourseMaster & { board_code?: string })[])
+            : (((institutionFiltered as BosCourseListResponse)?.data as (BosCourseMaster & { board_code?: string })[]) ?? []);
+          all.push(...rows);
+          if (rows.length < PAGE) break;
+        }
+        return all.filter((c) => {
           const code = (c.board_code ?? '').toUpperCase();
           return code !== '' && allowedBoardCodes.has(code);
         });
