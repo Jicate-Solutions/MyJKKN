@@ -1,59 +1,71 @@
-// .claude/persona-harness/harness.mjs
+// scripts/persona-harness/harness.mjs
 // ============================================================================
-// MyJKKN multi-persona test harness (read-only)
+// Multi-persona test harness (read-only) — works on ANY Supabase + Next.js app
 //
-// Problem it solves: testing role-gated pages on www.jkkn.ai meant logging in
-// and out of real Google accounts, one persona at a time. Chrome profiles are
-// hard-isolated, so a single automation session can't hold many personas.
+// Problem it solves: testing role-gated pages meant logging in and out of real
+// accounts, one persona at a time. Chrome profiles are hard-isolated, so a
+// single automation session can't hold many personas.
 //
 // How it works: for each persona it mints a VALID @supabase/ssr session using
 // the app's OWN auth library (createServerClient + signInWithPassword against a
 // test account) — so the chunked `sb-<ref>-auth-token` cookie is byte-correct,
-// no hand-rolled base64 chunking. That session is injected into an ISOLATED
-// Puppeteer browser context. N personas run in PARALLEL against the live site.
+// no hand-rolled base64. That session is injected into an ISOLATED Puppeteer
+// browser context. N personas run in PARALLEL against the live site.
 //
-// READ-ONLY by design: it navigates and screenshots. It never clicks a write
-// action — these are real test accounts on production.
+// GENERIC across platforms: everything app-specific lives in `personas.json`
+// next to this script (accounts, baseUrl, envPath, defaultSet). Drop this script
+// + a personas.json into any Supabase+Next.js repo and it works — the cookie name
+// and Supabase project are read from THAT repo's own .env.local + @supabase/ssr
+// version, so they always match the target app. Nothing here is hardcoded to one
+// platform.
+//
+// READ-ONLY by design (except the opt-in PERSONA_DISMISS_MODALS write).
 //
 // Usage:
-//   node .claude/persona-harness/harness.mjs                 # default proof set
-//   node .claude/persona-harness/harness.mjs hod:/ai-pulse/lab superadmin:/ai-pulse/dept
-//   PERSONA_BASE_URL=http://localhost:3104 node .claude/persona-harness/harness.mjs  # against a dev server
-//
-// Personas (complete-profile test accounts only): superadmin hod faculty student staff
-// Output: JSON summary on stdout + PNGs in .screenshots/persona-<role>.png
+//   node scripts/persona-harness/harness.mjs                 # default set (from config)
+//   node scripts/persona-harness/harness.mjs hod:/x admin:/y
+//   PERSONA_BASE_URL=http://localhost:3104 node ...          # against a dev server
+// Output: JSON on stdout + PNGs in .screenshots/persona-<role>-<page-slug>.png (headless pass)
 // ============================================================================
 
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import { createServerClient } from '@supabase/ssr';
 import puppeteer from 'puppeteer';
 
-// ---- config ----------------------------------------------------------------
-const BASE = process.env.PERSONA_BASE_URL || 'https://www.jkkn.ai';
-const PASSWORD = process.env.PERSONA_PASSWORD || 'Test@1234';
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+
+// ---- per-platform config: personas.json next to this script -----------------
+// { "baseUrl": "https://app", "accounts": { "role": "test.x@domain" },
+//   "password"?: "Test@1234", "envPath"?: "../../.env.local",
+//   "defaultSet"?: [["role","/path"], ...] }
+function loadConfig() {
+  const p = resolve(SCRIPT_DIR, 'personas.json');
+  let raw;
+  try { raw = readFileSync(p, 'utf8'); }
+  catch { throw new Error(`Missing ${p}\n  Create it: { "baseUrl": "...", "accounts": { "role": "test.x@domain" } }  — see README.`); }
+  const c = JSON.parse(raw);
+  if (!c.accounts || !Object.keys(c.accounts).length) throw new Error(`${p}: an "accounts" map is required.`);
+  if (!c.baseUrl && !process.env.PERSONA_BASE_URL) throw new Error(`${p}: "baseUrl" required (or pass PERSONA_BASE_URL).`);
+  return c;
+}
+const CONFIG = loadConfig();
+const ROLE_EMAIL = CONFIG.accounts;
+const BASE = process.env.PERSONA_BASE_URL || CONFIG.baseUrl;
+const PASSWORD = process.env.PERSONA_PASSWORD || CONFIG.password || 'Test@1234';
 const HOST = new URL(BASE).hostname;
+// default set when no role:path args given — from config, else each role at '/'
+const DEFAULT_SET = CONFIG.defaultSet && CONFIG.defaultSet.length
+  ? CONFIG.defaultSet
+  : Object.keys(ROLE_EMAIL).map((r) => [r, '/']);
 
-const ROLE_EMAIL = {
-  superadmin: 'test.superadmin@jkkn.ac.in',
-  hod: 'test.hod@jkkn.ac.in',
-  faculty: 'test.faculty@jkkn.ac.in',
-  student: 'test.student@jkkn.ac.in',
-  staff: 'test.staff@jkkn.ac.in',
-};
-
-// role -> default page to open when no explicit path is given
-const DEFAULT_SET = [
-  ['superadmin', '/ai-pulse/dept'],
-  ['hod', '/ai-pulse/lab'],
-  ['faculty', '/ai-pulse/my-pulse'],
-  ['student', '/ai-pulse'],
-];
-
-// ---- read public env from .env.local (NEXT_PUBLIC_* — safe) -----------------
+// ---- read public env from the app's .env.local (NEXT_PUBLIC_* — safe) -------
+const ENV_PATH = resolve(SCRIPT_DIR, CONFIG.envPath || '../../.env.local');
 function readEnv(key) {
-  const txt = readFileSync(new URL('../../.env.local', import.meta.url), 'utf8');
+  const txt = readFileSync(ENV_PATH, 'utf8');
   const m = txt.match(new RegExp('^' + key + '=(.*)$', 'm'));
-  if (!m) throw new Error('missing ' + key + ' in .env.local');
+  if (!m) throw new Error(`missing ${key} in ${ENV_PATH}`);
   return m[1].trim().replace(/^["']|["']$/g, '');
 }
 const SUPA_URL = readEnv('NEXT_PUBLIC_SUPABASE_URL');

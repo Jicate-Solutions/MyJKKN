@@ -1,7 +1,7 @@
 # Multi-persona test harness
 
-Test role-gated MyJKKN pages as **many personas at once**, without logging in and
-out of real accounts.
+Test role-gated pages of any **Supabase + Next.js** app as **many personas at once**,
+without logging in and out of real accounts.
 
 ## Why it exists
 
@@ -66,18 +66,46 @@ other); the **visible pass** writes none (you watched it).
 
 `both` runs **headless first** (fast, parallel — grabs the screenshots so they can be analyzed for UI/UX issues autonomously) **then visible** (slow — windows you watch). The fast machine-pass preps for the slow human-pass. A screenshot only makes sense for a pass nobody watched, so the visible pass never takes one (and on macOS headed Chrome, `captureScreenshot` is crash-prone anyway). `PERSONA_HEADLESS=1` is a back-compat alias for `PERSONA_MODE=headless`.
 
-## Personas
+## Personas — `personas.json`
 
-Built-in `role -> test account` map (complete-profile accounts only):
-`superadmin hod faculty student staff`. Add more in `ROLE_EMAIL` in `harness.mjs`.
-All use password `Test@1234` (the dev test-account password).
+The script has **no hardcoded accounts** — it reads `personas.json` (next to this
+script) for everything platform-specific:
+
+```json
+{
+  "baseUrl": "https://www.jkkn.ai",
+  "envPath": "../../.env.local",
+  "accounts": { "superadmin": "test.superadmin@jkkn.ac.in", "hod": "test.hod@jkkn.ac.in" },
+  "defaultSet": [["hod", "/some/page"], ["student", "/other/page"]]
+}
+```
+
+- **accounts** (required): `role -> test account email`; these roles are what you pass as `role:path`.
+- **baseUrl** (required unless `PERSONA_BASE_URL` is set): the app origin.
+- **envPath** (optional, default `../../.env.local`): where to read `NEXT_PUBLIC_SUPABASE_URL` + `_ANON_KEY`.
+- **defaultSet** (optional): the `role:path` pairs run when you pass no args.
+
+Accounts use `Test@1234` unless you set `PERSONA_PASSWORD` (or add `"password"` to the config).
+
+## Use on another Supabase + Next.js app
+
+The script is generic — the cookie name and Supabase project are read from the
+target repo's own `.env.local` + `@supabase/ssr` version, so they always match the
+app. To add a platform:
+
+1. Copy `harness.mjs` into that repo's `scripts/persona-harness/`.
+2. Add a `personas.json` next to it with that app's `baseUrl` + test-account map.
+3. Run it.
+
+The **hard dependency is the stack, not the platform**: any `@supabase/ssr` + Next.js
+app works; a non-Supabase app does not.
 
 ## Requirements
 
-- `.env.local` at repo root with `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-  (public values — the harness reads these at runtime; no secrets are committed).
-- `puppeteer` + `@supabase/ssr` (already in the repo's dependencies).
-- The `test.*` accounts must exist with password `Test@1234` and complete profiles.
+- `.env.local` (or `envPath`) with `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+  (public values — read at runtime; no secrets committed).
+- `puppeteer` + `@supabase/ssr` in the repo's dependencies.
+- Seeded `test.*` accounts with `Test@1234` (or `PERSONA_PASSWORD`) and complete profiles.
 
 ## Env flags
 
@@ -85,7 +113,7 @@ All use password `Test@1234` (the dev test-account password).
 |---|---|
 | `PERSONA_MODE` | `both` (default) · `headless` · `visible`. `both` = headless screenshots then visible watch. |
 | `PERSONA_HOLD` | ms each visible window lingers so you can watch (default 5000) |
-| `PERSONA_BASE_URL` | Target origin (default `https://www.jkkn.ai`) |
+| `PERSONA_BASE_URL` | Target origin (overrides `baseUrl` in `personas.json`) |
 | `PERSONA_HEADLESS=1` | Back-compat alias for `PERSONA_MODE=headless` (screenshots only, no windows) |
 | `PERSONA_DISMISS_MODALS=1` | Acknowledge a blocking mandatory-ack modal (a write) |
 | `PERSONA_PASSWORD` | Override the test-account password (default `Test@1234`) |
@@ -95,4 +123,4 @@ All use password `Test@1234` (the dev test-account password).
 - Read-only by default; only `PERSONA_DISMISS_MODALS` performs a write.
 - It signs in **real test accounts** on whatever `PERSONA_BASE_URL` points at. For
   write-heavy testing, point it at a local dev server, not production.
-- Don't add non-`test.*` (real-user) accounts to `ROLE_EMAIL`.
+- Don't add non-`test.*` (real-user) accounts to `personas.json`.
