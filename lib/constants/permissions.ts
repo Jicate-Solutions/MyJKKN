@@ -2109,7 +2109,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'social.meta_audiences.view', label: 'View Meta Audiences' },
       { key: 'social.meta_audiences.manage', label: 'Manage Meta Audiences' },
       { key: 'social.messenger.view', label: 'View Messenger / Instagram Inbox' },
-      { key: 'social.messenger.send', label: 'Send Messenger / Instagram Replies' }
+      { key: 'social.messenger.send', label: 'Send Messenger / Instagram Replies' },
+      // Added 2026-06-18 — Director's-View governance consequences surface.
+      // Read-only page at /admission/social/governance that turns each live
+      // social policy value into a plain-English consequence ("threshold = N
+      // days → M handles flagged dormant"). Gated alongside social.view today;
+      // its own key keeps future fine-grained control available.
+      { key: 'social.governance.view', label: "View Social Governance (Director's View)" }
     ]
   },
   // Added 2026-06-15 — catalog-coverage fix. MENU_PERMISSIONS enforces
