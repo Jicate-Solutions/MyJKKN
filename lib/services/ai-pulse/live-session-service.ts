@@ -461,6 +461,7 @@ export class LiveSessionService {
       polls,
       quiz_open,
       quiz_async_window_open,
+      async_makeup_window_hours: asyncWindowHours,
       join_open,
       join_opens_at,
       featured_tool,

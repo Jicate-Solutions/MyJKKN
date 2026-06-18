@@ -40,7 +40,8 @@ import { QuizService } from '@/lib/services/ai-pulse/quiz-service';
 interface QuizPanelProps {
   cycleId: string;
   quizOpen: boolean; // true within 60 min of session end
-  asyncWindowOpen: boolean; // true within 48h of session end
+  asyncWindowOpen: boolean; // true within the policy async window of session end
+  asyncWindowHours?: number; // policy-driven async make-up window; default 48
   alreadySubmitted: boolean;
   existingScore?: number;
 }
@@ -56,6 +57,7 @@ export function QuizPanel({
   cycleId,
   quizOpen,
   asyncWindowOpen,
+  asyncWindowHours = 48,
   alreadySubmitted,
   existingScore,
 }: QuizPanelProps) {
@@ -167,8 +169,8 @@ export function QuizPanel({
         <CardContent>
           <p className="text-sm text-muted-foreground">
             The quiz unlocks when the session ends. You&apos;ll
-            have 60 minutes for the live window, then 48 hours for the async
-            make-up.
+            have 60 minutes for the live window, then {asyncWindowHours} hours for
+            the async make-up.
           </p>
         </CardContent>
       </Card>
