@@ -7,15 +7,21 @@
  *   - Live window: 60 minutes after session ends → counts as live engagement
  *   - Async make-up: 60 min – 48 hours → counts as async make-up (Q5 spec)
  *
- * Quiz content itself comes from the Quiz Authoring console (different agent).
+ * Quiz content itself comes from the Quiz Authoring console.
  * This panel is the LEARNER-side submission UI: pick answers, see score,
- * submit. Pass mark = 60 (centralised in the service).
+ * submit. Pass threshold is policy-driven in the submit service.
  *
- * v1 contract:
- *   - Quiz questions are fetched from `ai_pulse_quizzes` if available; if the
- *     table doesn't exist yet (table is in another in-flight PR), we render a
- *     "Quiz not yet authored" notice and let the learner submit a 0 score.
- *     This avoids blocking the learner UI on Quiz Authoring shipping first.
+ * v2 contract:
+ *   - Quiz questions are read from the cycle's `config.quiz` JSONB via
+ *     QuizService.getQuiz — the SAME store the Quiz Authoring console writes.
+ *     (The previous read targeted an `ai_pulse_quizzes` table that was never
+ *     created and had no writer, so it always degraded to "not authored".)
+ *   - Bilingual: English is primary; Tamil is shown beneath when authored.
+ *   - A question with no correct answer marked is shown but excluded from
+ *     scoring (denominator counts only scoreable questions). If nothing is
+ *     authored at all, we show a "not yet authored" notice.
+ *   - Pass mark is policy-driven (live 40 / async 60 by default), read from
+ *     the authored quiz; displayed thresholds match the submit service.
  *   - Score is a percentage 0–100. We compute it client-side from the
  *     learner's picks; the service stores both score and quiz_passed.
  */
@@ -28,13 +34,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useSubmitQuiz } from '@/lib/services/ai-pulse/live-session-service';
+import { QuizService } from '@/lib/services/ai-pulse/quiz-service';
 
 interface QuizPanelProps {
   cycleId: string;
   quizOpen: boolean; // true within 60 min of session end
-  asyncWindowOpen: boolean; // true within 48h of session end
+  asyncWindowOpen: boolean; // true within the policy async window of session end
+  asyncWindowHours?: number; // policy-driven async make-up window; default 48
   alreadySubmitted: boolean;
   existingScore?: number;
 }
@@ -42,13 +49,15 @@ interface QuizPanelProps {
 interface QuizQuestion {
   id: string;
   prompt: string;
-  options: Array<{ id: string; label: string; is_correct: boolean }>;
+  prompt_ta?: string;
+  options: Array<{ id: string; label: string; label_ta?: string; is_correct: boolean }>;
 }
 
 export function QuizPanel({
   cycleId,
   quizOpen,
   asyncWindowOpen,
+  asyncWindowHours = 48,
   alreadySubmitted,
   existingScore,
 }: QuizPanelProps) {
@@ -61,28 +70,60 @@ export function QuizPanel({
   const [shownScore, setShownScore] = useState<number | null>(
     existingScore ?? null,
   );
+  // Pass thresholds come from the authored quiz (config.quiz). Defaults match
+  // the platform policy seeds: live 40, async make-up 60.
+  const [thresholds, setThresholds] = useState<{ live: number; async: number }>({
+    live: 40,
+    async: 60,
+  });
 
   // Async make-up = post-event + outside the 60-min live window
   const asyncMakeup = !quizOpen && asyncWindowOpen;
+  // Threshold that actually applies to this submission window.
+  const passThreshold = asyncMakeup ? thresholds.async : thresholds.live;
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
       try {
-        const supabase = createClientSupabaseClient();
-        const { data, error } = await supabase
-          .from('ai_pulse_quizzes')
-          .select('id, prompt, options')
-          .eq('cycle_id', cycleId)
-          .order('order_index', { ascending: true });
+        // Read from config.quiz (the store the Quiz Authoring console writes),
+        // NOT the never-created ai_pulse_quizzes table. Map the authored
+        // bilingual shape (question_en/_ta, text_en/_ta) → the panel's shape.
+        const ctx = await QuizService.getQuiz(cycleId);
         if (cancelled) return;
-        if (error) {
-          // Table missing or RLS reject → degrade gracefully
-          setQuestions([]);
-        } else {
-          setQuestions((data ?? []) as unknown as QuizQuestion[]);
-        }
+        setThresholds({
+          live: ctx?.quiz.pass_threshold_live ?? 40,
+          async: ctx?.quiz.pass_threshold_async ?? 60,
+        });
+        const mapped: QuizQuestion[] = (ctx?.quiz.questions ?? [])
+          .map((q) => {
+            const en = q.question_en?.trim() ?? '';
+            const ta = q.question_ta?.trim() ?? '';
+            const options = q.options
+              .map((o) => {
+                const oen = o.text_en?.trim() ?? '';
+                const ota = o.text_ta?.trim() ?? '';
+                return {
+                  id: o.id,
+                  label: oen || ota,
+                  label_ta: oen && ota && ota !== oen ? ota : undefined,
+                  is_correct: o.is_correct === true,
+                };
+              })
+              .filter((o) => o.label.length > 0);
+            return {
+              id: q.id,
+              prompt: en || ta,
+              prompt_ta: en && ta && ta !== en ? ta : undefined,
+              options,
+            };
+          })
+          // Render any question with a prompt and ≥2 options. A question with
+          // NO correct answer marked is shown but excluded from scoring (see
+          // computeScore) — product decision: show it, don't count it.
+          .filter((q) => q.prompt.length > 0 && q.options.length >= 2);
+        setQuestions(mapped);
       } catch (e) {
         if (!cancelled) setQuestions([]);
       } finally {
@@ -99,14 +140,20 @@ export function QuizPanel({
 
   const computeScore = useMemo(() => {
     if (!questions || questions.length === 0) return () => 0;
+    // Only questions with a correct answer marked count toward the score.
+    // Keyless questions are shown but excluded from the denominator.
+    const scoreable = questions.filter((q) =>
+      q.options.some((o) => o.is_correct),
+    );
+    if (scoreable.length === 0) return () => 0;
     return () => {
       let correct = 0;
-      for (const q of questions) {
+      for (const q of scoreable) {
         const pick = picks[q.id];
         const correctOpt = q.options.find((o) => o.is_correct);
         if (pick && correctOpt && pick === correctOpt.id) correct += 1;
       }
-      return Math.round((correct / questions.length) * 100);
+      return Math.round((correct / scoreable.length) * 100);
     };
   }, [questions, picks]);
 
@@ -122,8 +169,8 @@ export function QuizPanel({
         <CardContent>
           <p className="text-sm text-muted-foreground">
             The quiz unlocks when the session ends. You&apos;ll
-            have 60 minutes for the live window, then 48 hours for the async
-            make-up.
+            have 60 minutes for the live window, then {asyncWindowHours} hours for
+            the async make-up.
           </p>
         </CardContent>
       </Card>
@@ -148,7 +195,7 @@ export function QuizPanel({
                 <>
                   {' '}
                   Score: <strong>{shownScore}%</strong> —{' '}
-                  {shownScore >= 60 ? 'passed' : 'did not pass (need 60)'}.
+                  {shownScore >= passThreshold ? 'passed' : `did not pass (need ${passThreshold}%)`}.
                 </>
               )}
             </span>
@@ -169,9 +216,14 @@ export function QuizPanel({
       toast.error('No quiz questions available yet.');
       return;
     }
-    const allAnswered = questions.every((q) => !!picks[q.id]);
+    // Only scoreable questions must be answered — keyless questions are shown
+    // but optional, since they don't count toward the score.
+    const scoreable = questions.filter((q) =>
+      q.options.some((o) => o.is_correct),
+    );
+    const allAnswered = scoreable.every((q) => !!picks[q.id]);
     if (!allAnswered) {
-      toast.error('Answer every question before submitting.');
+      toast.error('Answer every scored question before submitting.');
       return;
     }
     const score = computeScore();
@@ -180,7 +232,7 @@ export function QuizPanel({
       setShownScore(score);
       setSubmitted(true);
       toast.success(
-        score >= 60 ? `Quiz passed (${score}%)` : `Quiz submitted (${score}%)`,
+        score >= passThreshold ? `Quiz passed (${score}%)` : `Quiz submitted (${score}%)`,
       );
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Could not submit quiz.';
@@ -228,6 +280,11 @@ export function QuizPanel({
               {questions.map((q) => (
                 <li key={q.id} className="space-y-2">
                   <p className="text-sm font-medium">{q.prompt}</p>
+                  {q.prompt_ta && (
+                    <p className="-mt-1 text-sm text-muted-foreground">
+                      {q.prompt_ta}
+                    </p>
+                  )}
                   <RadioGroup
                     value={picks[q.id] ?? ''}
                     onValueChange={(val) =>
@@ -242,6 +299,12 @@ export function QuizPanel({
                           className="text-sm font-normal cursor-pointer"
                         >
                           {opt.label}
+                          {opt.label_ta && (
+                            <span className="text-muted-foreground">
+                              {' '}
+                              — {opt.label_ta}
+                            </span>
+                          )}
                         </Label>
                       </div>
                     ))}

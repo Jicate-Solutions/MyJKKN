@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Save,
+  ScrollText,
   ShieldAlert,
   XCircle,
 } from 'lucide-react';
@@ -49,10 +50,17 @@ import {
   useUpdateCycleConfig,
   type UpdateCycleConfigInput,
 } from '@/lib/services/ai-pulse/cycles-service';
+import {
+  deriveCycleTimes,
+  deriveEffectiveStatus,
+} from '@/lib/services/ai-pulse/live-session-service';
 import { FeaturedToolSelect } from './featured-tool-select';
 import { HostUserSelect } from './host-user-select';
 
 const PERMISSION_KEY = 'aiPulse:cycles.manage';
+
+// "post_event" reads better than the raw enum once capitalised.
+const STATUS_LABELS: Record<string, string> = { post_event: 'Post-event' };
 
 interface CycleEditFormProps {
   cycleId: string;
@@ -104,6 +112,9 @@ export function CycleEditForm({ cycleId }: CycleEditFormProps) {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [cancelReason, setCancelReason] = useState('');
   const [dirty, setDirty] = useState(false);
+  // Status is clock-derived; compute after mount to avoid a hydration mismatch.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   // Hydrate form from cycle data
   useEffect(() => {
@@ -178,6 +189,15 @@ export function CycleEditForm({ cycleId }: CycleEditFormProps) {
   }
 
   const isCancelled = cycle.status === 'cancelled';
+  // Cycles never leave 'draft' in storage; show the real clock-derived status.
+  const { starts_at, ends_at } = deriveCycleTimes({
+    demo_date: cycle.demo_date,
+    config: { ai_pulse: cycle.ai_pulse },
+  });
+  const effectiveStatus = mounted
+    ? deriveEffectiveStatus(cycle.status, starts_at, ends_at)
+    : cycle.status;
+  const statusLabel = STATUS_LABELS[effectiveStatus] || effectiveStatus;
 
   // ---------------------------------------------------------------------------
   // Save handler
@@ -245,7 +265,7 @@ export function CycleEditForm({ cycleId }: CycleEditFormProps) {
               {cycle.name || 'Untitled cycle'}
             </h2>
             <Badge variant="outline" className="capitalize">
-              {cycle.status}
+              {statusLabel}
             </Badge>
             {cycle.demo_date && (
               <span className="text-sm text-muted-foreground">
@@ -261,6 +281,16 @@ export function CycleEditForm({ cycleId }: CycleEditFormProps) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* The post-session quiz is authored on a separate console; without
+              this link it had no entry point from the UI. */}
+          <Button
+            variant="outline"
+            onClick={() => router.push(`/ai-pulse/admin/quiz/${cycleId}`)}
+            className="gap-2"
+          >
+            <ScrollText className="h-4 w-4" />
+            Edit quiz
+          </Button>
           <Button
             onClick={handleSave}
             disabled={!dirty || update.isPending || isCancelled}

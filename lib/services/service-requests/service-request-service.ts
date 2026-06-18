@@ -9,14 +9,15 @@
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import type {
-  ServiceRequest,
-  ServiceRequestStatus,
-  CreateServiceRequestDto,
-  UpdateServiceRequestDto,
-  ServiceRequestFilters,
-  ServiceRequestListResponse,
-  ServiceRequestAnalytics,
+import {
+  ALL_ROLES_WILDCARD,
+  type ServiceRequest,
+  type ServiceRequestStatus,
+  type CreateServiceRequestDto,
+  type UpdateServiceRequestDto,
+  type ServiceRequestFilters,
+  type ServiceRequestListResponse,
+  type ServiceRequestAnalytics,
 } from '@/types/service-request';
 import { ServiceRequestTimelineService } from './service-request-timeline-service';
 
@@ -93,12 +94,33 @@ export class ServiceRequestService {
       throw new Error('User profile not found');
     }
 
-    if (
-      serviceType.allowed_roles &&
-      serviceType.allowed_roles.length > 0 &&
-      !serviceType.allowed_roles.includes(profile.role) &&
-      profile.role !== 'super_admin'
-    ) {
+    // Authorize against the requester's FULL role-key set — the legacy
+    // profiles.role column PLUS every dynamic custom role assigned via
+    // user_roles. This MUST mirror the visibility filter in
+    // ServiceTypeService.getServiceTypes (which uses the same combined set):
+    // ~99% of users carry their real role through user_roles, so checking only
+    // profiles.role here would reject users who can SEE the type but whose
+    // eligibility comes from a custom role — the "visible but can't submit" bug.
+    const roleKeys = new Set<string>();
+    if (profile.role) roleKeys.add(profile.role);
+
+    const { data: userRoles } = await supabase
+      .from('user_roles')
+      .select('custom_roles(role_key)')
+      .eq('user_id', userId);
+    for (const ur of (userRoles as any[]) || []) {
+      const key = ur.custom_roles?.role_key;
+      if (key) roleKeys.add(key);
+    }
+
+    const allowedRoles: string[] = serviceType.allowed_roles || [];
+    const roleAllowed =
+      allowedRoles.length === 0                              // no role restriction configured
+      || allowedRoles.includes(ALL_ROLES_WILDCARD)           // '*' = any authenticated user
+      || allowedRoles.some((r) => roleKeys.has(r))           // user holds an allowed role
+      || roleKeys.has('super_admin');
+
+    if (!roleAllowed) {
       throw new Error('You are not allowed to create this type of request');
     }
 

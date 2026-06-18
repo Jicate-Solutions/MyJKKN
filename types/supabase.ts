@@ -99638,10 +99638,12 @@ export type Database = {
           college_email: string | null
           current_allocation_id: string | null
           current_bed_id: string | null
+          current_bed_number: string | null
           current_block_code: string | null
           current_block_id: string | null
           current_block_name: string | null
           current_room_id: string | null
+          current_room_number: string | null
           dayscholar_fee: number | null
           degree_id: string | null
           degree_name: string | null
@@ -102647,6 +102649,7 @@ export type Database = {
           route_number: string | null
           route_name: string | null
           stop_name: string | null
+          total_billed: number
           outstanding_amount: number
           payable_bill_ids: string[]
           bill_count: number

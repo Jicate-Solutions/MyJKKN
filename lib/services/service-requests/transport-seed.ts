@@ -41,7 +41,9 @@ export async function seedTransportServiceType(userId: string) {
       icon: 'Bus',
       color: '#3B82F6',
       is_system_default: true,
-      allowed_roles: ['super_admin', 'student', 'staff', 'faculty', 'hod', 'principal', 'office_assistant'],
+      // '*' = available to every authenticated user (learners + all staff,
+      // including custom roles created later). See ALL_ROLES_WILDCARD.
+      allowed_roles: ['*'],
       max_active_requests: 1,
       auto_fulfill_on_approval: true,
       enable_priority: false,

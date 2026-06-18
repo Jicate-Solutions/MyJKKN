@@ -4,6 +4,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { HostelAllocationService } from '@/lib/services/campus-living/hostel-allocation-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { hostelBedKeys } from '@/hooks/campus-living/use-hostel-beds';
+import { getErrorMessage } from '@/lib/utils';
 import type {
   HostelAllocation,
   CreateHostelAllocationDTO,
@@ -75,6 +77,17 @@ export function useHostelAllocation(id: string) {
   });
 }
 
+// Category-wise room/bed availability for the transfer modal. Keyed on the
+// chosen block; short staleTime so it reflects beds freed/taken by other moves.
+export function useTransferRoomOptions(blockId: string | undefined) {
+  return useQuery({
+    queryKey: ['hostel-allocations', 'transfer-room-options', blockId] as const,
+    queryFn: () => HostelAllocationService.getTransferRoomOptions(blockId as string),
+    enabled: !!blockId,
+    staleTime: 15_000,
+  });
+}
+
 // --- Mutation hooks ---
 
 export function useCreateHostelAllocation() {
@@ -114,7 +127,13 @@ export function useTransferAllocation() {
     mutationFn: ({ id, payload }: { id: string; payload: { new_room_id: string; new_bed_id: string; new_block_id?: string } }) =>
       HostelAllocationService.transfer(id, payload.new_room_id, payload.new_bed_id, payload.new_block_id),
     onSuccess: () => {
+      // The move touches allocations + bed status (old freed, new occupied),
+      // so refresh every surface that reads them: the allocations tables, the
+      // rooms/beds occupancy feeds, and the resident's own My Hostel view.
       queryClient.invalidateQueries({ queryKey: hostelAllocationKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['hostel-rooms'] });
+      queryClient.invalidateQueries({ queryKey: ['hostel-beds'] });
+      queryClient.invalidateQueries({ queryKey: ['my-hostel'] });
       toast.success('Allocation transferred');
     },
     onError: (error: Error) => {
@@ -188,6 +207,49 @@ export function useDeleteHostelAllocation() {
     },
     onError: (error: Error) => {
       toast.error(`Failed to delete allocation: ${error.message}`);
+    },
+  });
+}
+
+// ── Room bed occupancy query (fn_cl_room_bed_occupancy) ───────────────────────
+// Returns one row per bed: is_occupied + occupant details. Used by the
+// manual-allocation dialog to display which beds are free vs taken.
+export function useRoomBedOccupancy(roomId: string) {
+  return useQuery({
+    queryKey: ['campus-living', 'room-bed-occupancy', roomId],
+    queryFn: () => HostelAllocationService.getRoomBedOccupancy(roomId),
+    enabled: !!roomId,
+  });
+}
+
+// ── Allocatable rooms query (fn_cl_admin_allocatable_rooms) ───────────────────
+// Rooms in a block the learner can actually be allocated to (physical + category
+// conditions applied server-side). Drives the allocate dialog's room dropdown.
+export function useAllocatableRooms(learnerProfileId: string | null, blockId: string) {
+  return useQuery({
+    queryKey: ['campus-living', 'allocatable-rooms', learnerProfileId, blockId],
+    queryFn: () => HostelAllocationService.getAllocatableRooms(learnerProfileId!, blockId),
+    enabled: !!learnerProfileId && !!blockId,
+  });
+}
+
+// ── Admin allocate bed mutation (fn_cl_admin_allocate_bed) ────────────────────
+// Allocates a specific bed to a learner via a SECURITY DEFINER RPC.
+// On success invalidates allocations, beds, and the occupancy panel so all
+// surfaces reflect the new state immediately.
+export function useAllocateBedAdmin() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { learnerProfileId: string; roomId: string; bedId: string; messCategoryId?: string | null }) =>
+      HostelAllocationService.adminAllocateBed(args),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: hostelAllocationKeys.all });
+      queryClient.invalidateQueries({ queryKey: hostelBedKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['campus-living', 'room-bed-occupancy'] });
+      toast.success('Room allocated');
+    },
+    onError: (error: unknown) => {
+      toast.error(`Failed to allocate room: ${getErrorMessage(error)}`);
     },
   });
 }

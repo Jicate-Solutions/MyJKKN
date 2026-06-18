@@ -124,11 +124,16 @@ export default function ServiceTypeDetailPage({
               <div className="pt-2">
                 <span className="text-sm text-muted-foreground">Allowed Roles:</span>
                 <div className="flex flex-wrap gap-1 mt-1">
-                  {serviceType.allowed_roles.map((role) => (
-                    <Badge key={role} variant="outline" className="text-xs capitalize">
-                      {role.replace(/_/g, ' ')}
-                    </Badge>
-                  ))}
+                  {/* '*' (ALL_ROLES_WILDCARD) = available to every logged-in user */}
+                  {serviceType.allowed_roles.includes('*') ? (
+                    <Badge variant="outline" className="text-xs">All roles</Badge>
+                  ) : (
+                    serviceType.allowed_roles.map((role) => (
+                      <Badge key={role} variant="outline" className="text-xs capitalize">
+                        {role.replace(/_/g, ' ')}
+                      </Badge>
+                    ))
+                  )}
                 </div>
               </div>
             </CardContent>

@@ -22,12 +22,13 @@ import { AcademicYearService } from '@/lib/services/academic/academic-year-servi
 import {
   useHostelBlocksForFilter, useAvailableYears,
 } from '@/hooks/campus-living/use-learner-hostelites';
+import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
 import { UNASSIGNED_BLOCK } from '@/types/campus-living';
 
 const FILTER_KEYS = [
   'institution_id', 'degree_id', 'department_id', 'program_id',
   'semester_id', 'section_id', 'academic_year_id', 'gender',
-  'block_id', 'year_of_study',
+  'block_id', 'year_of_study', 'hostel_category_id',
 ] as const;
 
 type LocalFilters = Partial<Record<(typeof FILTER_KEYS)[number], string>>;
@@ -61,6 +62,7 @@ export function LearnersFilters() {
   const effectiveInst = isSuperAdmin ? local.institution_id : (profile?.institution_id ?? undefined);
   const { data: blockList } = useHostelBlocksForFilter(effectiveInst);
   const { data: availableYears } = useAvailableYears(effectiveInst);
+  const { hostelCategories: roomCategories } = useActiveHostelCategories();
 
   // Sync local state when the URL changes externally.
   useEffect(() => {
@@ -239,6 +241,16 @@ export function LearnersFilters() {
               <SelectItem value='all'>All Years</SelectItem>
               {(availableYears && availableYears.length > 0 ? availableYears : [1, 2, 3, 4]).map((y) => (
                 <SelectItem key={y} value={String(y)}>Year {y}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {/* Room category */}
+          <Select value={local.hostel_category_id || ''} onValueChange={(v) => set({ hostel_category_id: v === 'all' ? undefined : v })}>
+            <SelectTrigger><SelectValue placeholder='Room Category' /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value='all'>All Room Categories</SelectItem>
+              {roomCategories.map((c) => (
+                <SelectItem key={c.id} value={c.id}>{c.name}{c.type ? ` (${c.type})` : ''}</SelectItem>
               ))}
             </SelectContent>
           </Select>

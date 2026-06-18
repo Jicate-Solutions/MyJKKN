@@ -19,6 +19,8 @@ import type { GateStatus } from '@/lib/services/ai-pulse/live-session-service';
 
 interface EngagementProgressProps {
   gates: GateStatus;
+  /** Policy-driven async make-up window (hours). Falls back to 48 if absent. */
+  asyncWindowHours?: number;
   className?: string;
 }
 
@@ -29,7 +31,7 @@ interface GateRow {
   Icon: React.ComponentType<{ className?: string }>;
 }
 
-export function EngagementProgress({ gates, className }: EngagementProgressProps) {
+export function EngagementProgress({ gates, asyncWindowHours = 48, className }: EngagementProgressProps) {
   const rows: GateRow[] = [
     {
       label: 'Joined within 5 minutes',
@@ -132,8 +134,8 @@ export function EngagementProgress({ gates, className }: EngagementProgressProps
         ) : (
           <div className="rounded-md border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-900 dark:text-amber-300">
             Engagement requires <strong>all four</strong> gates (AND, not OR).
-            Missed live? An async make-up window stays open for 48 hours after
-            the session ends.
+            Missed live? An async make-up window stays open for {asyncWindowHours} hours
+            after the session ends.
           </div>
         )}
       </CardContent>

@@ -64,6 +64,13 @@ interface GetEnquiriesParams {
   // is `admission_year_id` — translate at the page→service boundary.
   admission_year_id?: string;
   lifecycle_status?: string;
+  // 2026-06-17: Group Dashboard drill-down scope. The dashboard appends the
+  // selected admission YEAR (integer, e.g. 2026) + the scoped institution id
+  // list (plural). These mirror the year + institution scope the dashboard RPC
+  // applies, so the enquiries list total matches the KPI card the user clicked.
+  // `admission_year` (int) expands to the matching admission_year UUIDs.
+  admission_year?: number;
+  institution_ids?: string[];
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
 }
@@ -121,6 +128,8 @@ async function getEnquiriesInner(
     section_id,
     admission_year_id,
     lifecycle_status,
+    admission_year,
+    institution_ids,
     sortBy = 'created_at',
     sortOrder = 'desc'
   } = params;
@@ -226,6 +235,31 @@ async function getEnquiriesInner(
 
   if (admission_year_id) {
     query = query.eq('admission_year_id', admission_year_id);
+  }
+
+  // 2026-06-17: Group Dashboard drill-down scope. `admission_year` is the
+  // integer cohort year; expand it to the matching admission_year UUIDs
+  // (admission_year is per-institution) so the filtered total matches the
+  // dashboard's year-scoped KPI card. An empty id list yields no rows, which
+  // is correct — there is no cohort for that year. On lookup error we fail
+  // open (skip the filter) rather than crash the list.
+  if (admission_year != null && Number.isFinite(admission_year)) {
+    const { data: ayRows, error: ayErr } = await supabase
+      .from('admission_years')
+      .select('id')
+      .eq('year', admission_year);
+    if (ayErr) {
+      console.error('[getEnquiries] Failed to resolve admission years for scope:', ayErr);
+    } else {
+      query = query.in(
+        'admission_year_id',
+        (ayRows ?? []).map((r: { id: string }) => r.id)
+      );
+    }
+  }
+
+  if (institution_ids && institution_ids.length > 0) {
+    query = query.in('institution_id', institution_ids);
   }
 
   // Apply sorting

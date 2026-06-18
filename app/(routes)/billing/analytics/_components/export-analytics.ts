@@ -5,6 +5,7 @@ import type {
   BillingCategoryAnalytics,
   BillingAgingBucketRow,
   BillingUserActivityRow,
+  BillingDailyActivityRow,
 } from '@/types/billing-analytics';
 
 export interface AnalyticsExportData {
@@ -13,6 +14,7 @@ export interface AnalyticsExportData {
   byCategory?: BillingCategoryAnalytics[];
   aging?: BillingAgingBucketRow[];
   userActivity?: BillingUserActivityRow[];
+  dailyActivity?: BillingDailyActivityRow[];
   range: { from?: string; to?: string };
 }
 
@@ -108,6 +110,19 @@ export async function exportAnalyticsWorkbook(d: AnalyticsExportData): Promise<v
       'Last Active': r.last_active ?? '',
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.map(sanitizeRow)), 'User Activity');
+  }
+
+  if (d.dailyActivity?.length) {
+    const rows = d.dailyActivity.map((r) => ({
+      Date: r.activity_date,
+      Institution: r.institution_name,
+      'Bills Created': num(r.bills_created),
+      'Amount Billed': num(r.amount_billed),
+      'Students Billed': num(r.students_billed),
+      'Receipts Generated': num(r.receipts_created),
+      'Amount Collected': num(r.amount_collected),
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.map(sanitizeRow)), 'Daily Activity');
   }
 
   if (wb.SheetNames.length === 0) {

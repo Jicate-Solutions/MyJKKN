@@ -10,18 +10,24 @@ import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { DataTable } from '@/components/data-table/data-table';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useAllAllocations } from '@/hooks/campus-living/use-hostel-allocations';
 import {
   AllocationFiltersPanel,
   EMPTY_ALLOCATION_FILTERS,
   allocationMatchesFilters,
 } from './_components/allocation-filters';
+import { TransferDialog } from './_components/transfer-dialog';
 import {
   Plus, BedDouble, Loader2, Users, ArrowRightLeft, LogOut, UserCheck,
+  MoreHorizontal, Eye,
 } from 'lucide-react';
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
@@ -46,14 +52,21 @@ const getJoined = (row: any, relation: string, field: string): string => row?.[r
 
 export default function AllocationsPage() {
   const { profile } = useAuth();
+  const { isSuperAdmin, permissions } = usePermissions();
   const institutionId = profile?.institution_id ?? '';
   // Full set (no page cap) — summary counts + the table all read this, so they
   // reflect every allocation, not just the first page.
   const { data: allocations = [], isLoading } = useAllAllocations(institutionId);
 
+  // Manual room/bed edit is the same tight audience as category upgrades
+  // (super-admin + the 5 hostel-admin roles) — the catalog .transfer/.edit
+  // keys are mass-granted to every role, so we gate on upgrades.manage.
+  const canTransfer = isSuperAdmin || !!permissions?.['campus_living.upgrades.manage'];
+
   const [statusFilter, setStatusFilter] = useState<string>('active');
   const [blockFilter, setBlockFilter] = useState<string>('all');
   const [advancedFilters, setAdvancedFilters] = useState(EMPTY_ALLOCATION_FILTERS);
+  const [transferTarget, setTransferTarget] = useState<Alloc | null>(null);
 
   const blockNames = useMemo(
     () => [...new Set(allocations.map((a: Alloc) => getJoined(a, 'hostel_blocks', 'name')).filter(Boolean))] as string[],
@@ -156,12 +169,38 @@ export default function AllocationsPage() {
     {
       id: 'actions',
       header: '',
-      cell: ({ row }) => <Button variant="ghost" size="sm" asChild><Link href={`/campus-living/allocations/${row.original.id}`}>View</Link></Button>,
+      cell: ({ row }) => {
+        const a = row.original;
+        return (
+          <div className="flex justify-end">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                  <span className="sr-only">Open actions menu</span>
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem asChild>
+                  <Link href={`/campus-living/allocations/${a.id}`}>
+                    <Eye className="mr-2 h-4 w-4" /> View details
+                  </Link>
+                </DropdownMenuItem>
+                {canTransfer && a.status === 'active' && (
+                  <DropdownMenuItem onClick={() => setTransferTarget(a)}>
+                    <ArrowRightLeft className="mr-2 h-4 w-4" /> Change room / bed
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        );
+      },
       enableSorting: false,
       enableHiding: false,
       size: 80,
     },
-  ], []);
+  ], [canTransfer]);
 
   if (isLoading) {
     return (
@@ -224,14 +263,18 @@ export default function AllocationsPage() {
           <AllocationFiltersPanel rows={allocations} value={advancedFilters} onChange={setAdvancedFilters} />
         </div>
 
-        {/* Advanced data table — paginated, sortable, exportable */}
-        <DataTable
-          fetchDataFn={fetchData}
-          getColumns={() => columns}
-          idField="id"
-          exportConfig={{ entityName: 'hostel-allocations', columnMapping: {}, columnWidths: [], headers: [] }}
-          config={{ enableUrlState: false, enableDateFilter: false, enableExport: true, enableRowSelection: false }}
-        />
+        {/* Advanced data table — paginated, sortable, exportable.
+            Wrapped in .pinned-actions-col so the row-action column stays pinned
+            to the right edge when the table overflows horizontally. */}
+        <div className="pinned-actions-col">
+          <DataTable
+            fetchDataFn={fetchData}
+            getColumns={() => columns}
+            idField="id"
+            exportConfig={{ entityName: 'hostel-allocations', columnMapping: {}, columnWidths: [], headers: [] }}
+            config={{ enableUrlState: false, enableDateFilter: false, enableExport: true, enableRowSelection: false }}
+          />
+        </div>
 
         <div className="flex gap-3">
           <Button variant="outline" size="sm" asChild>
@@ -239,6 +282,28 @@ export default function AllocationsPage() {
           </Button>
         </div>
       </div>
+
+      {/* Manual room/bed reassignment. The mutation invalidates the
+          allocations, rooms, beds and My-Hostel caches, so this table and the
+          resident's own view both reflect the move. */}
+      {transferTarget && (
+        <TransferDialog
+          allocationId={transferTarget.id}
+          currentBlockId={transferTarget.block_id}
+          currentRoomId={transferTarget.room_id}
+          currentBedId={transferTarget.bed_id}
+          current={{
+            learnerName: getJoined(transferTarget, 'learner', 'full_name') || null,
+            blockName: getJoined(transferTarget, 'hostel_blocks', 'name') || null,
+            roomNumber: getJoined(transferTarget, 'hostel_rooms', 'room_number') || null,
+            bedNumber: getJoined(transferTarget, 'hostel_beds', 'bed_number') || null,
+            roomCategory: transferTarget.learner?.academic?.room_category?.name ?? null,
+          }}
+          open={!!transferTarget}
+          onOpenChange={(o) => { if (!o) setTransferTarget(null); }}
+          onSuccess={() => setTransferTarget(null)}
+        />
+      )}
     </ContentLayout>
   );
 }

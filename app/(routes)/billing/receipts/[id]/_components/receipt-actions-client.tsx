@@ -33,9 +33,9 @@ import {
 import toast from 'react-hot-toast';
 import {
   sendReceipt,
-  downloadReceiptPDF,
   deleteReceipt
 } from '../../../_actions/receipt-actions';
+import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-receipt-service';
 import type { BillingReceipt } from '@/types/billing-schedule';
 
 interface ReceiptActionsClientProps {
@@ -73,16 +73,18 @@ export function ReceiptActionsClient({
 
   const handleDownloadPDF = async () => {
     setDownloadLoading(true);
-    startTransition(async () => {
-      const result = await downloadReceiptPDF(receipt.id);
+    try {
+      // PDF generation is browser-only (jsPDF needs `document`), so it runs
+      // client-side here rather than through a server action.
+      await BillingReceiptService.downloadReceiptPDF(receipt.id);
+      toast.success('Receipt PDF downloaded');
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to download PDF'
+      );
+    } finally {
       setDownloadLoading(false);
-
-      if (result.success) {
-        toast.success('PDF download started');
-      } else {
-        toast.error(result.error || 'Failed to download PDF');
-      }
-    });
+    }
   };
 
   const handleDelete = async () => {

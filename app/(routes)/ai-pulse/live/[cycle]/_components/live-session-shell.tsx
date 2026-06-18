@@ -84,7 +84,14 @@ export function LiveSessionShell({ cycleId }: LiveSessionShellProps) {
     );
   }
 
-  const { cycle, attendance, polls, quiz_open, quiz_async_window_open } = data;
+  const {
+    cycle,
+    attendance,
+    polls,
+    quiz_open,
+    quiz_async_window_open,
+    async_makeup_window_hours,
+  } = data;
   // polls = ALL polls issued this cycle (gate requirement is min(3, issued)).
   // The panel shows every poll — accepting ones are answerable, closed ones
   // render as "Closed" so a learner can see one existed (and was missed).
@@ -163,7 +170,7 @@ export function LiveSessionShell({ cycleId }: LiveSessionShellProps) {
       </Card>
 
       {/* Engagement gate visualisation */}
-      <EngagementProgress gates={gates} />
+      <EngagementProgress gates={gates} asyncWindowHours={async_makeup_window_hours} />
 
       {/* Champion-only — issue / close live polls for this cycle */}
       {isChampion && (
@@ -184,6 +191,7 @@ export function LiveSessionShell({ cycleId }: LiveSessionShellProps) {
           cycleId={cycle.id}
           quizOpen={quiz_open}
           asyncWindowOpen={quiz_async_window_open}
+          asyncWindowHours={async_makeup_window_hours}
           alreadySubmitted={quizSubmitted}
           existingScore={attendance.engagement_signals.quiz_score}
         />

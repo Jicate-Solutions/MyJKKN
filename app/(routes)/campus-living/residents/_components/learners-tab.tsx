@@ -26,6 +26,8 @@ import { RemoveHosteliteDialog } from './remove-hostelite-dialog';
 import { AddLearnerToHostelDialog } from './add-learner-to-hostel-dialog';
 import { EditHosteliteDrawer } from './edit-hostelite-drawer';
 import { LearnerDetailDrawer } from './learner-detail-drawer';
+import { AllocateRoomDialog } from './allocate-room-dialog';
+import { TransferDialog } from '../../allocations/_components/transfer-dialog';
 
 export function LearnersTab() {
   const { profile } = useAuth();
@@ -34,6 +36,7 @@ export function LearnersTab() {
   const searchParams = useSearchParams();
 
   const canEdit = isSuperAdmin || !!permissions?.['campus_living.residents.edit'];
+  const canAllocate = isSuperAdmin || !!permissions?.['campus_living.upgrades.manage'];
 
   // Non-super-admins are pinned to their institution; super-admins use the
   // institution_id URL filter (handled inside fetchData via filters).
@@ -47,11 +50,16 @@ export function LearnersTab() {
     return (id: string) => map.get(id) ?? '—';
   }, [institutions]);
 
-  // Drawer / dialog state
-  const [detailId, setDetailId] = useState<string | null>(null);
+  // Drawer / dialog state. detailLearner holds the whole row (not just the id)
+  // so the detail drawer's "Allocate" CTA can hand the same LearnerHostelite to
+  // the inline allocate dialog.
+  const [detailLearner, setDetailLearner] = useState<LearnerHostelite | null>(null);
   const [editTarget, setEditTarget] = useState<LearnerHostelite | null>(null);
   const [removeTarget, setRemoveTarget] = useState<LearnerHostelite | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [allocateTarget, setAllocateTarget] = useState<LearnerHostelite | null>(null);
+  const [transferTarget, setTransferTarget] = useState<LearnerHostelite | null>(null);
+  const [refetchKey, setRefetchKey] = useState(0);
 
   // Build cascade filters from URL params. The closure captures these values,
   // so its identity changes when the URL changes → DataTable refetches
@@ -68,6 +76,7 @@ export function LearnersTab() {
     if (g('academic_year_id')) f.academic_year_id = g('academic_year_id');
     if (g('gender')) f.gender = g('gender') as 'Male' | 'Female' | 'Other';
     if (g('block_id')) f.block_id = g('block_id') as BlockFilterValue;
+    if (g('hostel_category_id')) f.hostel_category_id = g('hostel_category_id');
     const y = g('year_of_study');
     if (y) f.year_of_study = Number(y);
     return f;
@@ -115,13 +124,16 @@ export function LearnersTab() {
     () =>
       getLearnerColumns({
         canEdit,
+        canAllocate,
         isSuperAdmin,
         instName,
-        onView: (l) => setDetailId(l.id),
+        onView: (l) => setDetailLearner(l),
         onEdit: (l) => setEditTarget(l),
         onRemove: (l) => setRemoveTarget(l),
+        onAllocate: (l) => setAllocateTarget(l),
+        onChangeRoom: (l) => setTransferTarget(l),
       }),
-    [canEdit, isSuperAdmin, instName],
+    [canEdit, canAllocate, isSuperAdmin, instName],
   );
 
   return (
@@ -135,34 +147,65 @@ export function LearnersTab() {
 
       <LearnersFilters />
 
-      <DataTable
-        fetchDataFn={fetchData}
-        getColumns={() => columns}
-        idField='id'
-        exportConfig={{
-          entityName: 'hostel-learner-residents',
-          columnMapping: {},
-          columnWidths: [],
-          headers: [],
-        }}
-        config={{
-          enableUrlState: true,
-          enableDateFilter: false,
-          enableExport: true,
-          enableRowSelection: false,
-        }}
-      />
+      <div className="pinned-actions-col">
+        <DataTable
+          fetchDataFn={fetchData}
+          getColumns={() => columns}
+          idField='id'
+          refetchKey={refetchKey}
+          exportConfig={{
+            entityName: 'hostel-learner-residents',
+            columnMapping: {},
+            columnWidths: [],
+            headers: [],
+          }}
+          config={{
+            enableUrlState: true,
+            enableDateFilter: false,
+            enableExport: true,
+            enableRowSelection: false,
+          }}
+        />
+      </div>
 
       {/* Drawers + dialogs */}
       <RemoveHosteliteDialog learner={removeTarget} onClose={() => setRemoveTarget(null)} />
       <EditHosteliteDrawer learner={editTarget} onClose={() => setEditTarget(null)} />
       <AddLearnerToHostelDialog open={addOpen} onOpenChange={setAddOpen} institutionId={effectiveInstitutionId} />
       <LearnerDetailDrawer
-        learnerId={detailId}
-        onClose={() => setDetailId(null)}
+        learnerId={detailLearner?.id ?? null}
+        onClose={() => setDetailLearner(null)}
         canEdit={canEdit}
-        onEdit={canEdit && detailId ? () => { setDetailId(null); } : undefined}
+        onEdit={canEdit && detailLearner ? () => { setDetailLearner(null); } : undefined}
+        onAllocate={
+          canAllocate && detailLearner
+            ? () => { setAllocateTarget(detailLearner); setDetailLearner(null); }
+            : undefined
+        }
       />
+      <AllocateRoomDialog
+        learner={allocateTarget}
+        onClose={() => setAllocateTarget(null)}
+        onSuccess={() => { setAllocateTarget(null); setRefetchKey((k) => k + 1); }}
+      />
+      {transferTarget && (
+        <TransferDialog
+          allocationId={transferTarget.current_allocation_id!}
+          currentBlockId={transferTarget.current_block_id}
+          currentRoomId={transferTarget.current_room_id}
+          currentBedId={transferTarget.current_bed_id}
+          current={{
+            learnerName: [transferTarget.first_name, transferTarget.last_name].filter(Boolean).join(' ') || null,
+            blockName: transferTarget.current_block_name ?? null,
+            roomNumber: transferTarget.current_room_number ?? null,
+            bedNumber: transferTarget.current_bed_number ?? null,
+            roomCategory: transferTarget.hostel_category_name ?? null,
+          }}
+          open={!!transferTarget}
+          onOpenChange={(o) => { if (!o) setTransferTarget(null); }}
+          onSuccess={() => { setTransferTarget(null); setRefetchKey((k) => k + 1); }}
+        />
+      )}
     </div>
   );
 }
