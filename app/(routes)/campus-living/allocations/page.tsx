@@ -263,14 +263,18 @@ export default function AllocationsPage() {
           <AllocationFiltersPanel rows={allocations} value={advancedFilters} onChange={setAdvancedFilters} />
         </div>
 
-        {/* Advanced data table — paginated, sortable, exportable */}
-        <DataTable
-          fetchDataFn={fetchData}
-          getColumns={() => columns}
-          idField="id"
-          exportConfig={{ entityName: 'hostel-allocations', columnMapping: {}, columnWidths: [], headers: [] }}
-          config={{ enableUrlState: false, enableDateFilter: false, enableExport: true, enableRowSelection: false }}
-        />
+        {/* Advanced data table — paginated, sortable, exportable.
+            Wrapped in .pinned-actions-col so the row-action column stays pinned
+            to the right edge when the table overflows horizontally. */}
+        <div className="pinned-actions-col">
+          <DataTable
+            fetchDataFn={fetchData}
+            getColumns={() => columns}
+            idField="id"
+            exportConfig={{ entityName: 'hostel-allocations', columnMapping: {}, columnWidths: [], headers: [] }}
+            config={{ enableUrlState: false, enableDateFilter: false, enableExport: true, enableRowSelection: false }}
+          />
+        </div>
 
         <div className="flex gap-3">
           <Button variant="outline" size="sm" asChild>
