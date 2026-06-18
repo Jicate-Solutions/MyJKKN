@@ -17,8 +17,11 @@
  *     (The previous read targeted an `ai_pulse_quizzes` table that was never
  *     created and had no writer, so it always degraded to "not authored".)
  *   - Bilingual: English is primary; Tamil is shown beneath when authored.
- *   - If no answerable questions are authored, we render a "not yet authored"
- *     notice and the learner cannot submit.
+ *   - A question with no correct answer marked is shown but excluded from
+ *     scoring (denominator counts only scoreable questions). If nothing is
+ *     authored at all, we show a "not yet authored" notice.
+ *   - Pass mark is policy-driven (live 40 / async 60 by default), read from
+ *     the authored quiz; displayed thresholds match the submit service.
  *   - Score is a percentage 0–100. We compute it client-side from the
  *     learner's picks; the service stores both score and quiz_passed.
  */
@@ -65,9 +68,17 @@ export function QuizPanel({
   const [shownScore, setShownScore] = useState<number | null>(
     existingScore ?? null,
   );
+  // Pass thresholds come from the authored quiz (config.quiz). Defaults match
+  // the platform policy seeds: live 40, async make-up 60.
+  const [thresholds, setThresholds] = useState<{ live: number; async: number }>({
+    live: 40,
+    async: 60,
+  });
 
   // Async make-up = post-event + outside the 60-min live window
   const asyncMakeup = !quizOpen && asyncWindowOpen;
+  // Threshold that actually applies to this submission window.
+  const passThreshold = asyncMakeup ? thresholds.async : thresholds.live;
 
   useEffect(() => {
     let cancelled = false;
@@ -79,6 +90,10 @@ export function QuizPanel({
         // bilingual shape (question_en/_ta, text_en/_ta) → the panel's shape.
         const ctx = await QuizService.getQuiz(cycleId);
         if (cancelled) return;
+        setThresholds({
+          live: ctx?.quiz.pass_threshold_live ?? 40,
+          async: ctx?.quiz.pass_threshold_async ?? 60,
+        });
         const mapped: QuizQuestion[] = (ctx?.quiz.questions ?? [])
           .map((q) => {
             const en = q.question_en?.trim() ?? '';
@@ -102,13 +117,10 @@ export function QuizPanel({
               options,
             };
           })
-          // Only render answerable questions: a prompt, ≥2 options, and a key.
-          .filter(
-            (q) =>
-              q.prompt.length > 0 &&
-              q.options.length >= 2 &&
-              q.options.some((o) => o.is_correct),
-          );
+          // Render any question with a prompt and ≥2 options. A question with
+          // NO correct answer marked is shown but excluded from scoring (see
+          // computeScore) — product decision: show it, don't count it.
+          .filter((q) => q.prompt.length > 0 && q.options.length >= 2);
         setQuestions(mapped);
       } catch (e) {
         if (!cancelled) setQuestions([]);
@@ -126,14 +138,20 @@ export function QuizPanel({
 
   const computeScore = useMemo(() => {
     if (!questions || questions.length === 0) return () => 0;
+    // Only questions with a correct answer marked count toward the score.
+    // Keyless questions are shown but excluded from the denominator.
+    const scoreable = questions.filter((q) =>
+      q.options.some((o) => o.is_correct),
+    );
+    if (scoreable.length === 0) return () => 0;
     return () => {
       let correct = 0;
-      for (const q of questions) {
+      for (const q of scoreable) {
         const pick = picks[q.id];
         const correctOpt = q.options.find((o) => o.is_correct);
         if (pick && correctOpt && pick === correctOpt.id) correct += 1;
       }
-      return Math.round((correct / questions.length) * 100);
+      return Math.round((correct / scoreable.length) * 100);
     };
   }, [questions, picks]);
 
@@ -175,7 +193,7 @@ export function QuizPanel({
                 <>
                   {' '}
                   Score: <strong>{shownScore}%</strong> —{' '}
-                  {shownScore >= 60 ? 'passed' : 'did not pass (need 60)'}.
+                  {shownScore >= passThreshold ? 'passed' : `did not pass (need ${passThreshold}%)`}.
                 </>
               )}
             </span>
@@ -196,9 +214,14 @@ export function QuizPanel({
       toast.error('No quiz questions available yet.');
       return;
     }
-    const allAnswered = questions.every((q) => !!picks[q.id]);
+    // Only scoreable questions must be answered — keyless questions are shown
+    // but optional, since they don't count toward the score.
+    const scoreable = questions.filter((q) =>
+      q.options.some((o) => o.is_correct),
+    );
+    const allAnswered = scoreable.every((q) => !!picks[q.id]);
     if (!allAnswered) {
-      toast.error('Answer every question before submitting.');
+      toast.error('Answer every scored question before submitting.');
       return;
     }
     const score = computeScore();
@@ -207,7 +230,7 @@ export function QuizPanel({
       setShownScore(score);
       setSubmitted(true);
       toast.success(
-        score >= 60 ? `Quiz passed (${score}%)` : `Quiz submitted (${score}%)`,
+        score >= passThreshold ? `Quiz passed (${score}%)` : `Quiz submitted (${score}%)`,
       );
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Could not submit quiz.';
