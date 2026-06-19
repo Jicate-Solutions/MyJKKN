@@ -25,6 +25,19 @@ import { useCdcLookups, useCdcDrives } from '@/hooks/cdc/use-cdc-drives';
 import type { CdcPlacementInsert } from '@/types/cdc/placements';
 
 /**
+ * Local form-state shape. Extends the shared CdcPlacementInsert with the two
+ * service-agreement/bond columns added by migration
+ * 20260620T0030Z_cdc_placements_service_agreement.sql (BUG-004046).
+ * Kept local (not in types/cdc/placements.ts) to avoid touching the shared
+ * types file while other CDC forms are being edited concurrently — the extra
+ * keys pass straight through the POST body into the service-layer insert().
+ */
+type CdcPlacementFormState = Partial<CdcPlacementInsert> & {
+  has_service_agreement?: boolean;
+  service_agreement_details?: string | null;
+};
+
+/**
  * Active + graduated learners for the placement-recipient picker.
  *
  * BUG-004044: this used to read `learners_profiles` straight from the browser
@@ -65,15 +78,25 @@ export default function NewCdcPlacementPage() {
     pageSize: 500,
   });
 
-  const [form, setForm] = useState<Partial<CdcPlacementInsert>>({
+  const [form, setForm] = useState<CdcPlacementFormState>({
     is_remote: false,
     is_walk_in: false,
     batch_no: 1,
+    has_service_agreement: false,
   });
   const [error, setError] = useState<string | null>(null);
 
-  const set = <K extends keyof CdcPlacementInsert>(key: K, value: CdcPlacementInsert[K]) =>
+  const set = <K extends keyof CdcPlacementFormState>(key: K, value: CdcPlacementFormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
+
+  const handleServiceAgreementToggle = (checked: boolean) => {
+    setForm((f) => ({
+      ...f,
+      has_service_agreement: checked,
+      // Clear any captured bond details when the agreement is turned off
+      service_agreement_details: checked ? f.service_agreement_details : null,
+    }));
+  };
 
   const learnerOptions = useMemo(
     () => (learners ?? []).map((l: { id: string; label: string }) => ({ value: l.id, label: l.label })),
@@ -123,7 +146,9 @@ export default function NewCdcPlacementPage() {
     }
 
     try {
-      const placement = await createPlacement.mutateAsync(form as CdcPlacementInsert);
+      const placement = await createPlacement.mutateAsync(
+        form as unknown as CdcPlacementInsert
+      );
       router.push(`/cdc/placements/${placement.id}`);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to create placement.');
@@ -262,6 +287,40 @@ export default function NewCdcPlacementPage() {
                 />
                 <Label htmlFor="is_remote" className="cursor-pointer">Remote position</Label>
               </div>
+
+              {/* Service Agreement / Bond (BUG-004046) */}
+              <div className="space-y-3 pt-1">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="has_service_agreement"
+                    checked={form.has_service_agreement ?? false}
+                    onChange={(e) => handleServiceAgreementToggle(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <Label htmlFor="has_service_agreement" className="cursor-pointer">
+                    Service Agreement / Bond required?
+                  </Label>
+                </div>
+                {form.has_service_agreement && (
+                  <div className="space-y-1">
+                    <Label htmlFor="service_agreement_details">Bond period / terms</Label>
+                    <textarea
+                      id="service_agreement_details"
+                      placeholder="e.g. 2-year bond, ₹1,50,000 penalty for early exit…"
+                      value={form.service_agreement_details ?? ''}
+                      onChange={(e) =>
+                        set('service_agreement_details', e.target.value || null)
+                      }
+                      rows={3}
+                      className="w-full border rounded-md px-3 py-2 text-sm bg-background resize-none"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Capture the bond duration, penalty amount, and any other service-agreement terms.
+                    </p>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
 
@@ -307,7 +366,7 @@ export default function NewCdcPlacementPage() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <Label htmlFor="round_no">Round No.</Label>
+                  <Label htmlFor="round_no">Interview Round No.</Label>
                   <Input
                     id="round_no"
                     type="number"
@@ -316,9 +375,12 @@ export default function NewCdcPlacementPage() {
                     value={form.round_no ?? ''}
                     onChange={(e) => set('round_no', e.target.value ? Number(e.target.value) : null)}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Which interview round produced this offer (e.g. 1 = first round, 2 = second round).
+                  </p>
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="batch_no">Batch No.</Label>
+                  <Label htmlFor="batch_no">Recruitment Batch No.</Label>
                   <Input
                     id="batch_no"
                     type="number"
@@ -327,6 +389,9 @@ export default function NewCdcPlacementPage() {
                     value={form.batch_no ?? 1}
                     onChange={(e) => set('batch_no', Number(e.target.value) || 1)}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    The recruitment/placement batch for this drive — not the learner&apos;s academic year/batch.
+                  </p>
                 </div>
               </div>
               <div className="space-y-1">
