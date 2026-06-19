@@ -1285,6 +1285,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "GraduationCap",
         "children": [
           {
+            "path": "/admission/social/admin",
+            "label": "Admin",
+            "iconName": "GraduationCap",
+            "children": [
+              {
+                "path": "/admission/social/admin/policies",
+                "label": "Policies",
+                "iconName": "BookText",
+                "children": []
+              }
+            ]
+          },
+          {
             "path": "/admission/social/attribution",
             "label": "Attribution",
             "iconName": "GraduationCap",

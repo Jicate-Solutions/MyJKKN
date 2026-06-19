@@ -172,6 +172,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/users/roles': 'roles.assign',
   '/users/role-management': 'roles.create',
   '/users/permissions-audit': 'users.permissions_audit.view',
+  // Added 2026-06-19: dynamic user-detail routes were unguarded (no page guard,
+  // no MENU_PERMISSIONS entry) so they rendered to any authenticated user. Now
+  // declared canonically + enforced by RoutePermissionGuard (/users/layout.tsx).
+  '/users/[id]': 'users.view',
+  '/users/[id]/edit': 'users.edit',
 
   // Application Hub
   '/application-hub': 'application_hub.view',
@@ -960,6 +965,18 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // (ims.stock.adjust). Permission catalog: lib/constants/permissions.ts.
   '/ims': 'ims.view',
   '/meetings': 'meetings.view',
+  // Universal Booking sub-surfaces (reconcile 2026-06-19) — gate each by its
+  // module permission so the sidebar submenus render per-role.
+  '/meetings/availability': 'meetings.view',
+  '/meetings/manage': 'meetings.view',
+  '/meetings/inbox': 'meetings.view',
+  '/meetings/routing-forms': 'meetings.routing.view',
+  '/meetings/workflows': 'meetings.workflows.view',
+  '/meetings/polls': 'meetings.polls.view',
+  '/meetings/contacts': 'meetings.contacts.view',
+  '/meetings/analytics': 'meetings.analytics.view',
+  '/meetings/webhooks': 'meetings.webhooks.view',
+  '/meetings/embed': 'meetings.embed.manage',
 
   // CDC — module landing hub
   '/cdc': 'cdc.view',
@@ -1953,6 +1970,36 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ai-pulse/admin/anomalies', label: 'Champion · Anomalies', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
             { href: '/ai-pulse/admin/policies', label: 'Admin · Policies', active: pathname.startsWith('/ai-pulse/admin/policies') },
             { href: '/ai-pulse/evidence/naac', label: 'NAAC Evidence', active: pathname.startsWith('/ai-pulse/evidence/naac') },
+          ]
+        }
+      ]
+    },
+    {
+      // Meetings — Universal Booking module (Calendly-parity). Added to the
+      // sidebar 2026-06-19 in the post-merge reconcile: the 8 surfaces (PRs
+      // #1466–#1474) shipped pages + permissions but NO sidebar entry, so the
+      // module was unreachable by clicking. Each submenu is gated by its
+      // MENU_PERMISSIONS key. "My Availability & Page" is the self-service
+      // booking-page setup (handle + Google connect + public toggle).
+      groupLabel: 'Scheduling',
+      menus: [
+        {
+          href: '/meetings',
+          label: 'Meetings',
+          active: pathname === '/meetings' || pathname.startsWith('/meetings/'),
+          icon: CalendarClock,
+          submenus: [
+            { href: '/meetings', label: 'Home', active: pathname === '/meetings' },
+            { href: '/meetings/availability', label: 'My Availability & Page', active: pathname.startsWith('/meetings/availability') },
+            { href: '/meetings/manage', label: 'Meeting Types', active: pathname.startsWith('/meetings/manage') },
+            { href: '/meetings/inbox', label: 'Inbox', active: pathname.startsWith('/meetings/inbox') },
+            { href: '/meetings/routing-forms', label: 'Routing Forms', active: pathname.startsWith('/meetings/routing-forms') },
+            { href: '/meetings/workflows', label: 'Workflows', active: pathname.startsWith('/meetings/workflows') },
+            { href: '/meetings/polls', label: 'Polls', active: pathname.startsWith('/meetings/polls') },
+            { href: '/meetings/contacts', label: 'Contacts', active: pathname.startsWith('/meetings/contacts') },
+            { href: '/meetings/analytics', label: 'Analytics', active: pathname.startsWith('/meetings/analytics') },
+            { href: '/meetings/webhooks', label: 'Webhooks', active: pathname.startsWith('/meetings/webhooks') },
+            { href: '/meetings/embed', label: 'Embed & Theming', active: pathname.startsWith('/meetings/embed') },
           ]
         }
       ]

@@ -27,6 +27,9 @@ export interface ActionResult<T> {
 /** U1 (D4): where a meeting of this type happens. */
 export type MeetingLocationMode = 'in_person' | 'phone' | 'online';
 
+/** Wave-3: event-type variant. */
+export type MeetingKind = 'solo' | 'group' | 'collective' | 'round_robin';
+
 /** Subset of meeting-type fields the manage UI renders / round-trips. */
 export interface ManageEventType {
   id: string;
@@ -43,6 +46,19 @@ export interface ManageEventType {
   minNoticeMin: number;
   /** null = back-to-back (engine uses duration as the step). */
   slotIntervalMin: number | null;
+  // ── Wave-3 variants + lifecycle (migration 20260619000100) ─────────────────
+  kind: MeetingKind;
+  /** group only: seats per slot (null otherwise). */
+  capacity: number | null;
+  /**
+   * The host emails the manage form round-trips for collective (co-hosts) /
+   * round_robin (pool). Resolved from profile ids on read.
+   */
+  hostEmails: string[];
+  /** lifecycle: post-booking redirect target (null = default confirmation). */
+  redirectUrl: string | null;
+  /** lifecycle: free-text shown on the cancel page. */
+  cancellationPolicy: string | null;
 }
 
 /** Payload accepted by create / update from the client. */
@@ -63,6 +79,17 @@ export interface EventTypeFormInput {
   minNoticeMin?: number;
   /** null/0 from the form → stored as NULL (back-to-back). */
   slotIntervalMin?: number | null;
+  // ── Wave-3 variants + lifecycle ────────────────────────────────────────────
+  /** defaults to 'solo' when omitted. */
+  kind?: MeetingKind;
+  /** group only: seats per slot. */
+  capacity?: number | null;
+  /** collective co-hosts / round_robin pool, as host emails (resolved server-side). */
+  hostEmails?: string[];
+  /** lifecycle: post-booking redirect (http(s) or root-relative). */
+  redirectUrl?: string;
+  /** lifecycle: cancel-page policy text. */
+  cancellationPolicy?: string;
 }
 
 // The native tables aren't in generated types yet — untyped client (TS2589 class).
@@ -91,13 +118,21 @@ interface MeetingTypeRow {
   buffer_after_min: number | null;
   min_notice_min: number | null;
   slot_interval_min: number | null;
+  // Wave-3 columns (migration 20260619000100) — may be absent pre-migration.
+  kind?: MeetingKind | null;
+  capacity?: number | null;
+  host_pool?: string[] | null;
+  redirect_url?: string | null;
+  cancellation_policy?: string | null;
 }
 
 /** Columns the manage actions select / round-trip (kept in one place). */
 const MT_COLUMNS =
-  'id, title, slug, duration_min, hidden, description, location_mode, location_text, buffer_before_min, buffer_after_min, min_notice_min, slot_interval_min';
+  'id, title, slug, duration_min, hidden, description, location_mode, location_text, buffer_before_min, buffer_after_min, min_notice_min, slot_interval_min, kind, capacity, host_pool, redirect_url, cancellation_policy';
 
-function toManageEventType(row: MeetingTypeRow): ManageEventType {
+/** Base mapper; hostEmails is enriched separately (cohosts / pool lookup). */
+function toManageEventType(row: MeetingTypeRow, hostEmails: string[] = []): ManageEventType {
+  const kind = row.kind ?? 'solo';
   return {
     id: row.id,
     title: row.title,
@@ -111,7 +146,77 @@ function toManageEventType(row: MeetingTypeRow): ManageEventType {
     bufferAfterMin: row.buffer_after_min ?? 0,
     minNoticeMin: row.min_notice_min ?? 0,
     slotIntervalMin: row.slot_interval_min ?? null,
+    kind: (['solo', 'group', 'collective', 'round_robin'] as const).includes(kind as MeetingKind)
+      ? (kind as MeetingKind)
+      : 'solo',
+    capacity: row.capacity ?? null,
+    hostEmails,
+    redirectUrl: row.redirect_url ?? null,
+    cancellationPolicy: row.cancellation_policy ?? null,
   };
+}
+
+/** Resolve a list of host emails → existing profile ids (silently drop unknowns). */
+async function resolveHostEmails(
+  supabase: SupabaseClient,
+  emails: string[],
+): Promise<string[]> {
+  const clean = [...new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean))];
+  if (clean.length === 0) return [];
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, email')
+    .in('email', clean);
+  if (error) {
+    console.error('[meetings/manage] host email resolve failed:', error.message);
+    return [];
+  }
+  return [...new Set((data ?? []).map((p) => p.id as string))];
+}
+
+/** Resolve profile ids → emails for round-tripping the manage form. */
+async function emailsForProfileIds(
+  supabase: SupabaseClient,
+  ids: string[],
+): Promise<string[]> {
+  const clean = [...new Set(ids.filter(Boolean))];
+  if (clean.length === 0) return [];
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, email')
+    .in('id', clean);
+  if (error) {
+    console.error('[meetings/manage] profile email lookup failed:', error.message);
+    return [];
+  }
+  return (data ?? []).map((p) => p.email as string).filter(Boolean);
+}
+
+/**
+ * The host emails the manage form should show for a meeting type: collective →
+ * its meeting_type_cohosts; round_robin → its host_pool. Excludes the owner.
+ */
+async function hostEmailsForType(
+  supabase: SupabaseClient,
+  row: MeetingTypeRow,
+  ownerId: string,
+): Promise<string[]> {
+  const kind = row.kind ?? 'solo';
+  if (kind === 'collective') {
+    const { data } = await supabase
+      .from('meeting_type_cohosts')
+      .select('cohost_profile_id')
+      .eq('meeting_type_id', row.id);
+    const ids = (data ?? [])
+      .map((r) => r.cohost_profile_id as string)
+      .filter((id) => id !== ownerId);
+    return emailsForProfileIds(supabase, ids);
+  }
+  if (kind === 'round_robin') {
+    const ids = (row.host_pool ?? []).filter((id) => id && id !== ownerId);
+    return emailsForProfileIds(supabase, ids);
+  }
+  return [];
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -150,6 +255,11 @@ function validateForm(
     buffer_after_min: number;
     min_notice_min: number;
     slot_interval_min: number | null;
+    // Wave-3 columns (host_pool is filled by the action after email resolution).
+    kind: MeetingKind;
+    capacity: number | null;
+    redirect_url: string | null;
+    cancellation_policy: string | null;
   };
   error?: string;
 } {
@@ -203,6 +313,38 @@ function validateForm(
     }
   }
 
+  // ── Wave-3 variant + lifecycle ───────────────────────────────────────────────
+  const kind = input.kind ?? 'solo';
+  if (!['solo', 'group', 'collective', 'round_robin'].includes(kind)) {
+    return { ok: false, error: 'Invalid booking type.' };
+  }
+  // capacity only meaningful for group; clamp + default to 1 there, null otherwise.
+  let capacity: number | null = null;
+  if (kind === 'group') {
+    const c = optInt(input.capacity) ?? 1;
+    if (c < 1) return { ok: false, error: 'Group capacity must be at least 1.' };
+    if (c > 1000) return { ok: false, error: 'Group capacity cannot exceed 1000.' };
+    capacity = c;
+  }
+
+  // redirect_url: allow only absolute http(s) or root-relative paths.
+  let redirectUrl: string | null = null;
+  const rawRedirect = input.redirectUrl?.trim() ?? '';
+  if (rawRedirect) {
+    if (rawRedirect.length > 2000) {
+      return { ok: false, error: 'Redirect URL is too long (max 2000 characters).' };
+    }
+    if (!/^https?:\/\//i.test(rawRedirect) && !/^\/[^/]/.test(rawRedirect)) {
+      return {
+        ok: false,
+        error: 'Redirect URL must start with http(s):// or be a path beginning with /.',
+      };
+    }
+    redirectUrl = rawRedirect;
+  }
+
+  const cancellationPolicy = input.cancellationPolicy?.trim().slice(0, 2000) || null;
+
   return {
     ok: true,
     value: {
@@ -217,8 +359,46 @@ function validateForm(
       buffer_after_min: bufferAfter,
       min_notice_min: minNotice,
       slot_interval_min: slotInterval,
+      kind,
+      capacity,
+      redirect_url: redirectUrl,
+      cancellation_policy: cancellationPolicy,
     },
   };
+}
+
+/**
+ * Replace a collective meeting type's co-host set with exactly `cohostIds`
+ * (the owner is implicit and never stored here). Idempotent: deletes rows no
+ * longer present, inserts new ones. Non-fatal on error (the type still saves).
+ */
+async function syncCohosts(
+  supabase: SupabaseClient,
+  meetingTypeId: string,
+  cohostIds: string[],
+): Promise<void> {
+  const want = new Set(cohostIds.filter(Boolean));
+  const { data: existing } = await supabase
+    .from('meeting_type_cohosts')
+    .select('cohost_profile_id')
+    .eq('meeting_type_id', meetingTypeId);
+  const have = new Set((existing ?? []).map((r) => r.cohost_profile_id as string));
+
+  const toAdd = [...want].filter((id) => !have.has(id));
+  const toRemove = [...have].filter((id) => !want.has(id));
+
+  if (toRemove.length) {
+    await supabase
+      .from('meeting_type_cohosts')
+      .delete()
+      .eq('meeting_type_id', meetingTypeId)
+      .in('cohost_profile_id', toRemove);
+  }
+  if (toAdd.length) {
+    await supabase
+      .from('meeting_type_cohosts')
+      .insert(toAdd.map((cohost_profile_id) => ({ meeting_type_id: meetingTypeId, cohost_profile_id })));
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -241,7 +421,14 @@ export async function listMyEventTypes(): Promise<ActionResult<ManageEventType[]
       console.error('[meetings/manage] list failed:', error.message);
       return { success: false, error: 'Could not load your meeting types. Please try again.' };
     }
-    return { success: true, data: (data ?? []).map(toManageEventType) };
+    const rows = (data ?? []) as MeetingTypeRow[];
+    const enriched = await Promise.all(
+      rows.map(async (row) => {
+        const hostEmails = await hostEmailsForType(supabase, row, userId);
+        return toManageEventType(row, hostEmails);
+      }),
+    );
+    return { success: true, data: enriched };
   } catch (err) {
     return {
       success: false,
@@ -261,9 +448,17 @@ export async function createMyEventType(
     const supabase = await untypedClient();
     const userId = await getCurrentUserId(supabase);
 
+    // Resolve collective/round_robin host emails → ids (unknowns dropped),
+    // excluding the owner (who is always implicitly included).
+    const resolvedIds =
+      validated.value!.kind === 'collective' || validated.value!.kind === 'round_robin'
+        ? (await resolveHostEmails(supabase, input.hostEmails ?? [])).filter((id) => id !== userId)
+        : [];
+    const hostPool = validated.value!.kind === 'round_robin' ? resolvedIds : null;
+
     const { data, error } = await supabase
       .from('meeting_types')
-      .insert({ host_profile_id: userId, ...validated.value })
+      .insert({ host_profile_id: userId, ...validated.value, host_pool: hostPool })
       .select(MT_COLUMNS)
       .single();
     if (error) {
@@ -273,7 +468,11 @@ export async function createMyEventType(
       console.error('[meetings/manage] create failed:', error.message);
       return { success: false, error: 'Could not create the meeting type. Please try again.' };
     }
-    return { success: true, data: toManageEventType(data) };
+    if (validated.value!.kind === 'collective') {
+      await syncCohosts(supabase, (data as MeetingTypeRow).id, resolvedIds);
+    }
+    const hostEmails = await hostEmailsForType(supabase, data as MeetingTypeRow, userId);
+    return { success: true, data: toManageEventType(data as MeetingTypeRow, hostEmails) };
   } catch (err) {
     return {
       success: false,
@@ -297,7 +496,16 @@ export async function updateMyEventType(
     const supabase = await untypedClient();
     const userId = await getCurrentUserId(supabase);
 
-    const patch: Record<string, unknown> = { ...validated.value };
+    const kind = validated.value!.kind;
+    const resolvedIds =
+      kind === 'collective' || kind === 'round_robin'
+        ? (await resolveHostEmails(supabase, input.hostEmails ?? [])).filter((hid) => hid !== userId)
+        : [];
+    // host_pool is meaningful only for round_robin; clear it for other kinds so
+    // a type switched away from round_robin doesn't carry a stale pool.
+    const hostPool = kind === 'round_robin' ? resolvedIds : null;
+
+    const patch: Record<string, unknown> = { ...validated.value, host_pool: hostPool };
     if (typeof input.hidden === 'boolean') patch.hidden = input.hidden;
 
     const { data, error } = await supabase
@@ -317,7 +525,10 @@ export async function updateMyEventType(
     if (!data) {
       return { success: false, error: 'That meeting type no longer exists. Refresh the list and try again.' };
     }
-    return { success: true, data: toManageEventType(data) };
+    // Collective → sync co-hosts to exactly resolvedIds; any other kind → clear them.
+    await syncCohosts(supabase, id, kind === 'collective' ? resolvedIds : []);
+    const hostEmails = await hostEmailsForType(supabase, data as MeetingTypeRow, userId);
+    return { success: true, data: toManageEventType(data as MeetingTypeRow, hostEmails) };
   } catch (err) {
     return {
       success: false,

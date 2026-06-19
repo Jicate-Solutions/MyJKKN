@@ -20,12 +20,14 @@
  * "what do I test and in what order" tedium; it is the scaffold, not the test.
  * Copy the generated `.generated.spec.ts` into your own spec to add assertions.
  *
- * AUTH + multi-role login is DELEGATED, not reimplemented here: wire a Playwright
- * `storageState` per persona (see the `workflow-test` and `/browser` skills).
- * Point GUIDE_E2E_AUTH_DIR at a folder of `<persona>.json` storage states and
- * set GUIDE_E2E_AUTHED=1 to turn on the "did this bounce me to login?" assertion
- * (the gate-match check). Without auth wired, tests still run and still catch
- * 404/5xx — they just skip the login-bounce assertion (a login page is a 200).
+ * AUTH + multi-role login is wired in e2e/auth.setup.ts (the Playwright `setup`
+ * project): it mints a `<persona>.json` storageState per persona by logging in
+ * through the dev-only /auth/test-login page (mapping in e2e/persona-accounts.ts).
+ * Set GUIDE_E2E_AUTHED=1 to enable it; the generated spec then loads each
+ * persona's storageState and runs the "did this bounce me to login?" assertion —
+ * but ONLY for personas whose storageState was actually minted (it checks the
+ * file exists). Personas with no mapped account, or a run with auth off, still
+ * catch 404/5xx — they just skip the login-bounce assertion (a login page is 200).
  *
  * ── ADAPT THESE PER APP (the only per-app edits) ───────────────────────────
  *   1. THE GUIDE IMPORT (below). Same two shapes as guide-smoke.ts:
@@ -131,11 +133,14 @@ function emitSpec(lanes: LaneNav[]): string {
   L.push(`// COPY a describe block into your own spec; this file is overwritten.`);
   L.push(`//`);
   L.push(`// Nav-only skeleton: each test opens one guided screen and asserts it`);
-  L.push(`// renders (not 404/5xx) and — when GUIDE_E2E_AUTHED=1 — that a valid`);
-  L.push(`// persona is NOT bounced to login (the gate-match check). Wire a`);
-  L.push(`// per-persona storageState (see workflow-test / browser skills).`);
+  L.push(`// renders (not 404/5xx) and — when GUIDE_E2E_AUTHED=1 AND a storageState`);
+  L.push(`// was minted for that persona (e2e/auth.setup.ts) — that a valid persona`);
+  L.push(`// is NOT bounced to login (the gate-match check). Personas with no minted`);
+  L.push(`// storageState run nav-only.`);
   L.push(``);
   L.push(`import { test, expect } from "@playwright/test";`);
+  L.push(`import fs from "node:fs";`);
+  L.push(`import path from "node:path";`);
   L.push(``);
   L.push(`const BASE = process.env.GUIDE_E2E_BASE ?? "http://localhost:3104";`);
   L.push(`const LOGIN_PATH = process.env.GUIDE_E2E_LOGIN_PATH ?? ${q(DEFAULT_LOGIN_PATH)};`);
@@ -144,10 +149,17 @@ function emitSpec(lanes: LaneNav[]): string {
   L.push(``);
 
   for (const lane of lanes) {
+    // A JS-safe boolean per lane: authed iff GUIDE_E2E_AUTHED=1 AND that persona's
+    // storageState file exists (minted by e2e/auth.setup.ts). Personas with no
+    // mapped test account never get a file, so this stays false → they run nav-only
+    // and never crash on a missing storageState.
+    const authVar = `authed_${lane.persona.replace(/[^a-z0-9]/gi, "_")}`;
+    const stateFile = q(`${lane.persona}.json`);
+    L.push(`// ${lane.persona}: authed iff GUIDE_E2E_AUTHED=1 AND a storageState was minted for`);
+    L.push(`// it (e2e/auth.setup.ts). Unmapped personas have no file → stays false → nav-only.`);
+    L.push(`const ${authVar} = AUTHED && fs.existsSync(path.join(AUTH_DIR, ${stateFile}));`);
     L.push(`test.describe(${q(`${lane.title} (persona: ${lane.persona}, gate: ${lane.requires})`)}, () => {`);
-    L.push(`  // AUTH: drop a Playwright storageState at \`\${AUTH_DIR}/${lane.persona}.json\` and`);
-    L.push(`  // set GUIDE_E2E_AUTHED=1 to log in as this persona. See workflow-test / browser.`);
-    L.push(`  if (AUTHED) test.use({ storageState: \`\${AUTH_DIR}/${lane.persona}.json\` });`);
+    L.push(`  if (${authVar}) test.use({ storageState: path.join(AUTH_DIR, ${stateFile}) });`);
     L.push(``);
     for (const stop of lane.stops) {
       const name = `navigates to ${stop.title}`;
@@ -155,7 +167,7 @@ function emitSpec(lanes: LaneNav[]): string {
       L.push(`    const res = await page.goto(BASE + ${q(stop.href)});`);
       L.push(`    expect(res, ${q(`no response for ${stop.href}`)}).toBeTruthy();`);
       L.push(`    expect(res!.status(), ${q(`${stop.href} returned an error status`)}).toBeLessThan(400);`);
-      L.push(`    if (AUTHED) {`);
+      L.push(`    if (${authVar}) {`);
       L.push(`      expect(new URL(page.url()).pathname, ${q(`${stop.href} bounced a valid ${lane.persona} to login — page guard is stricter than guide.requires=${stop.requires}`)}).not.toBe(LOGIN_PATH);`);
       L.push(`    }`);
       L.push(`  });`);

@@ -70,6 +70,36 @@ export interface Slot {
 }
 
 // ============================================================================
+// VARIANT TYPES (Wave-3: group / collective / round_robin)
+// ============================================================================
+
+export type MeetingKind = 'solo' | 'group' | 'collective' | 'round_robin';
+
+/** A confirmed booking already counted against a GROUP slot. */
+export interface GroupSlotUsage {
+  /** ISO instant of the slot start the booking occupies. */
+  start: string;
+  /** confirmed bookings currently holding that start (>= 1). */
+  count: number;
+}
+
+/** A group slot with its remaining free seats (capacity − confirmed). */
+export interface GroupSlot extends Slot {
+  /** seats still bookable; always >= 1 (full slots are dropped). */
+  seatsLeft: number;
+}
+
+/** One candidate host for round-robin selection. */
+export interface RoundRobinCandidate {
+  hostProfileId: string;
+  /**
+   * ISO instant this host was last booked, or null if never booked.
+   * Least-recently-booked (null sorts as "longest ago") is preferred.
+   */
+  lastBookedAt: string | null;
+}
+
+// ============================================================================
 // TIMEZONE PRIMITIVES
 // ============================================================================
 
@@ -277,4 +307,91 @@ export function groupSlotsByDate(
     (grouped[key] ??= []).push(s);
   }
   return grouped;
+}
+
+// ============================================================================
+// VARIANT ENGINES (pure — no DB, no clock, no network)
+// ============================================================================
+
+/**
+ * GROUP capacity filter. The solo engine drops a slot the moment a single
+ * booking overlaps it; a GROUP slot instead has `capacity` seats and stays
+ * bookable until that many CONFIRMED bookings hold the exact slot start.
+ *
+ * The caller therefore computes the host's "structural" slots WITHOUT passing
+ * the group's own confirmed bookings as conflicts (so the slot is still
+ * generated), then passes the per-start confirmed counts here. A slot with
+ * confirmed >= capacity is removed; otherwise it carries its remaining seats.
+ *
+ * capacity <= 1 (or NULL upstream → 1) collapses to solo semantics: the first
+ * booking fills the only seat and the slot disappears.
+ */
+export function applyGroupCapacity(
+  slots: Slot[],
+  capacity: number,
+  usage: GroupSlotUsage[],
+): GroupSlot[] {
+  const cap = Number.isFinite(capacity) && capacity > 0 ? Math.floor(capacity) : 1;
+  const taken = new Map<string, number>();
+  for (const u of usage) {
+    // normalise the key to the canonical ISO the slots use
+    const key = new Date(u.start).toISOString();
+    taken.set(key, (taken.get(key) ?? 0) + Math.max(0, Math.floor(u.count)));
+  }
+  const out: GroupSlot[] = [];
+  for (const s of slots) {
+    const used = taken.get(s.start) ?? 0;
+    const seatsLeft = cap - used;
+    if (seatsLeft > 0) out.push({ start: s.start, seatsLeft });
+  }
+  return out;
+}
+
+/**
+ * COLLECTIVE intersection. A collective slot is offered only when EVERY
+ * required host can make it. Each host independently yields a set of slots
+ * (same windows, each host's own busy set); the collective offering is the
+ * INTERSECTION of those start instants.
+ *
+ * `perHostSlots` is one Slot[] per required host (any order). An empty input
+ * (no hosts) yields nothing — a collective with no hosts can't meet. The result
+ * is sorted ascending and unique.
+ */
+export function intersectCollectiveSlots(perHostSlots: Slot[][]): Slot[] {
+  if (perHostSlots.length === 0) return [];
+  // Start from the first host's instants, keep only those every other host has.
+  let common = new Set(perHostSlots[0].map((s) => s.start));
+  for (let i = 1; i < perHostSlots.length && common.size > 0; i++) {
+    const next = new Set(perHostSlots[i].map((s) => s.start));
+    common = new Set([...common].filter((iso) => next.has(iso)));
+  }
+  return [...common].sort((a, b) => a.localeCompare(b)).map((start) => ({ start }));
+}
+
+/**
+ * ROUND-ROBIN host selection. Among the candidate pool, pick the
+ * least-recently-booked host (a never-booked host — lastBookedAt null — is the
+ * "longest ago" and wins first). Ties broken deterministically by hostProfileId
+ * so the choice is stable and testable. Returns null for an empty pool.
+ *
+ * This only PICKS the host; the caller then computes/validates that host's slot
+ * the normal (solo) way. Load-balancing is therefore a function of historical
+ * bookings, recomputed on every request — no stored cursor to drift.
+ */
+export function pickRoundRobinHost(
+  candidates: RoundRobinCandidate[],
+): string | null {
+  if (candidates.length === 0) return null;
+  const ranked = [...candidates].sort((a, b) => {
+    // null lastBookedAt = never booked = highest priority (sorts first).
+    if (a.lastBookedAt === null && b.lastBookedAt === null) {
+      return a.hostProfileId.localeCompare(b.hostProfileId);
+    }
+    if (a.lastBookedAt === null) return -1;
+    if (b.lastBookedAt === null) return 1;
+    const cmp = a.lastBookedAt.localeCompare(b.lastBookedAt);
+    if (cmp !== 0) return cmp; // earlier (older) last-booking first
+    return a.hostProfileId.localeCompare(b.hostProfileId);
+  });
+  return ranked[0].hostProfileId;
 }

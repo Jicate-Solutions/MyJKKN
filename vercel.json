@@ -234,6 +234,14 @@
     {
       "path": "/api/cron/google-calendar-connection-check",
       "schedule": "19 1 * * *"
+    },
+    {
+      "path": "/api/cron/meeting-workflows?secret=${CRON_SECRET}",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/meeting-webhooks?secret=${CRON_SECRET}",
+      "schedule": "*/2 * * * *"
     }
   ]
 }

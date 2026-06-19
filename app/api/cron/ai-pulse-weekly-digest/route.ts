@@ -64,14 +64,21 @@ export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import {
+  STAY_TOLERANCE_MINUTES,
+  hhmmMinusMinutes,
+  isPresentAtEnd,
+  isEngagedFromGates,
+} from '@/lib/services/ai-pulse/live-session-service';
 
 const JOB_NAME = 'ai-pulse-weekly-digest';
 
 // ---------------------------------------------------------------------------
-// 4-AND engagement gate — re-derived from engagement_signals, identical
-// semantics to DeptHeatmapService.isEngaged / live-session-service
-// evaluateGates. Joined within 5 min AND >= min(3, pollsIssued) polls AND
-// stayed until ~session end AND quiz passed.
+// Engagement gate — uses the SHARED helpers from live-session-service so the
+// digest, the dept heatmap, the learner badge and the PDE bridge never
+// disagree. This route works in HH:MM space (it has the cycle's
+// config.ai_pulse.session_end_time, never an ISO end), so it applies the
+// shared tolerance + present-at-end derivation directly on the HH:MM string.
 // ---------------------------------------------------------------------------
 
 interface RawSignals {
@@ -79,17 +86,8 @@ interface RawSignals {
   polls_responded?: number;
   stayed_until?: string; // "HH:MM" IST
   quiz_passed?: boolean;
-}
-
-const STAY_TOLERANCE_MINUTES = 5;
-
-function hhmmMinusMinutes(hhmm: string, minutes: number): string {
-  const [h, m] = hhmm.split(':').map(Number);
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return hhmm;
-  const total = Math.max(0, h * 60 + m - minutes);
-  const hh = String(Math.floor(total / 60)).padStart(2, '0');
-  const mm = String(total % 60).padStart(2, '0');
-  return `${hh}:${mm}`;
+  quiz_score?: number;
+  quiz_async_makeup?: boolean;
 }
 
 function isEngaged(
@@ -102,9 +100,9 @@ function isEngaged(
   const polls =
     pollsRequired === 0 || (signals.polls_responded ?? 0) >= pollsRequired;
   const stayThreshold = hhmmMinusMinutes(sessionEndHHMM, STAY_TOLERANCE_MINUTES);
-  const stayed = !!signals.stayed_until && signals.stayed_until >= stayThreshold;
+  const stayed = isPresentAtEnd(signals, stayThreshold);
   const quiz = !!signals.quiz_passed;
-  return joined && polls && stayed && quiz;
+  return isEngagedFromGates({ joined, polls, stayed, quiz });
 }
 
 /** Session end "HH:MM" for a cycle (config.ai_pulse.session_end_time). */

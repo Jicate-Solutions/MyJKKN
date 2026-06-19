@@ -112,12 +112,29 @@ export async function POST(
       );
     }
 
+    // Wave-3 lifecycle: if this meeting type defines a post-booking redirect,
+    // hand it back so the widget can send the booker there instead of showing
+    // the default confirmation stub. Read the column directly (PublicHostService
+    // does not surface it); cast untyped — redirect_url isn't in generated types.
+    let redirectUrl: string | null = null;
+    const { data: lifecycle } = await (supabase as any)
+      .from('meeting_types')
+      .select('redirect_url')
+      .eq('id', mt.id)
+      .maybeSingle();
+    const candidate = String((lifecycle?.redirect_url as string | null) ?? '').trim();
+    // Only honour safe absolute http(s) or root-relative paths (no javascript:, etc.).
+    if (/^https?:\/\//i.test(candidate) || /^\/[^/]/.test(candidate)) {
+      redirectUrl = candidate;
+    }
+
     return NextResponse.json({
       success: true,
       uid: booking.uid,
       start: booking.start,
       hostName: host.name,
       durationMin: mt.durationMin,
+      redirectUrl,
     });
   } catch (err) {
     console.error('[public/meet/book] failed:', err);

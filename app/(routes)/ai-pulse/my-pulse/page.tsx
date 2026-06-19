@@ -90,13 +90,15 @@ export default async function AiPulseLearnerPage() {
   if (cycle) {
     const supabase = await createServerSupabaseClient();
     team = await AiPulseLearnerService.getMyTeam(cycle.id, profile.id, supabase);
-    if (team) {
-      attendance = await AiPulseLearnerService.getMyAttendance(
-        cycle.id,
-        team.registration_id,
-        supabase
-      );
-    }
+    // Attendance is keyed on profile_id in ai_pulse_live_attendance — it does
+    // NOT depend on a team assignment. Fetch it regardless so learners who
+    // attended (or whose team isn't assigned yet) see their real status instead
+    // of a permanent "pending".
+    attendance = await AiPulseLearnerService.getMyAttendance(
+      cycle.id,
+      profile.id,
+      supabase
+    );
     streak = await AiPulseLearnerService.getMyStreak(profile.id, supabase);
   }
 

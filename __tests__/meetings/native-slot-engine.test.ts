@@ -7,9 +7,13 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  applyGroupCapacity,
   computeSlots,
   groupSlotsByDate,
+  intersectCollectiveSlots,
+  pickRoundRobinHost,
   zonedToUtc,
+  type Slot,
 } from '@/lib/services/meetings/native-slot-engine';
 
 const IST = 'Asia/Kolkata';
@@ -355,5 +359,104 @@ describe('computeSlots — input validation', () => {
         now: NOW,
       }),
     ).toThrow();
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Wave-3 variants
+// ────────────────────────────────────────────────────────────────────────────
+
+const slot = (iso: string): Slot => ({ start: iso });
+const A = '2026-06-12T04:00:00.000Z';
+const B = '2026-06-12T04:30:00.000Z';
+const C = '2026-06-12T05:00:00.000Z';
+
+describe('applyGroupCapacity (group variant)', () => {
+  it('keeps a slot with free seats and reports seatsLeft', () => {
+    // capacity 3, slot A has 1 booking → 2 left; B has 0 → 3 left
+    const out = applyGroupCapacity([slot(A), slot(B)], 3, [{ start: A, count: 1 }]);
+    expect(out).toEqual([
+      { start: A, seatsLeft: 2 },
+      { start: B, seatsLeft: 3 },
+    ]);
+  });
+
+  it('drops a slot once it is full', () => {
+    // capacity 2, slot A already has 2 confirmed → removed entirely
+    const out = applyGroupCapacity([slot(A), slot(B)], 2, [{ start: A, count: 2 }]);
+    expect(out).toEqual([{ start: B, seatsLeft: 2 }]);
+  });
+
+  it('over-full (count > capacity) still drops the slot, never negative seats', () => {
+    const out = applyGroupCapacity([slot(A)], 2, [{ start: A, count: 5 }]);
+    expect(out).toEqual([]);
+  });
+
+  it('capacity <= 0 / NaN collapses to solo (1 seat)', () => {
+    expect(applyGroupCapacity([slot(A)], 0, [])).toEqual([{ start: A, seatsLeft: 1 }]);
+    expect(applyGroupCapacity([slot(A)], NaN, [{ start: A, count: 1 }])).toEqual([]);
+  });
+
+  it('normalises usage keys (non-canonical ISO) before counting', () => {
+    // '+00:00' offset form must match the canonical 'Z' slot start.
+    const out = applyGroupCapacity([slot(A)], 1, [
+      { start: '2026-06-12T04:00:00+00:00', count: 1 },
+    ]);
+    expect(out).toEqual([]);
+  });
+});
+
+describe('intersectCollectiveSlots (collective variant)', () => {
+  it('offers only instants EVERY host shares', () => {
+    const hostX = [slot(A), slot(B), slot(C)];
+    const hostY = [slot(B), slot(C)];
+    const hostZ = [slot(C), slot(B)];
+    expect(intersectCollectiveSlots([hostX, hostY, hostZ]).map((s) => s.start)).toEqual([B, C]);
+  });
+
+  it('a host with no free slots empties the intersection', () => {
+    expect(intersectCollectiveSlots([[slot(A), slot(B)], []])).toEqual([]);
+  });
+
+  it('returns nothing when there are no hosts', () => {
+    expect(intersectCollectiveSlots([])).toEqual([]);
+  });
+
+  it('single host yields that host’s slots (sorted, unique)', () => {
+    expect(intersectCollectiveSlots([[slot(C), slot(A), slot(A)]]).map((s) => s.start)).toEqual([
+      A,
+      C,
+    ]);
+  });
+});
+
+describe('pickRoundRobinHost (round_robin variant)', () => {
+  it('prefers a never-booked host over any booked host', () => {
+    const pick = pickRoundRobinHost([
+      { hostProfileId: 'h1', lastBookedAt: '2026-06-10T00:00:00Z' },
+      { hostProfileId: 'h2', lastBookedAt: null },
+    ]);
+    expect(pick).toBe('h2');
+  });
+
+  it('among booked hosts, picks the least-recently-booked (oldest)', () => {
+    const pick = pickRoundRobinHost([
+      { hostProfileId: 'h1', lastBookedAt: '2026-06-11T00:00:00Z' },
+      { hostProfileId: 'h2', lastBookedAt: '2026-06-09T00:00:00Z' }, // oldest
+      { hostProfileId: 'h3', lastBookedAt: '2026-06-10T00:00:00Z' },
+    ]);
+    expect(pick).toBe('h2');
+  });
+
+  it('breaks ties deterministically by hostProfileId', () => {
+    const pick = pickRoundRobinHost([
+      { hostProfileId: 'hZ', lastBookedAt: null },
+      { hostProfileId: 'hA', lastBookedAt: null },
+    ]);
+    expect(pick).toBe('hA');
+  });
+
+  it('returns null for an empty pool', () => {
+    expect(pickRoundRobinHost([])).toBeNull();
   });
 });

@@ -20,6 +20,8 @@ import {
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { AdminPermissionGuard } from '@/components/auth/admin-permission-guard';
+import { SYSTEM_ROLES } from '@/types/auth';
 
 type ActionCardProps = {
   href: string;
@@ -96,6 +98,19 @@ const CARDS: ActionCardProps[] = [
 
 export default function RecruitmentNeedAdminHub() {
   return (
+    // Matches the AdminPermissionGuard gate on every recruitment-need/* leaf
+    // (super admins + the 'administrator' role). Added 2026-06-19; the index
+    // page was unguarded and listed the recruitment-need configuration cards.
+    <AdminPermissionGuard
+      adminRoles={[SYSTEM_ROLES.SUPER_ADMIN, SYSTEM_ROLES.ADMINISTRATOR]}
+      fallback={
+        <ContentLayout title="Recruitment Need Signal — Admin">
+          <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+            Recruitment-need configuration is restricted to administrators.
+          </div>
+        </ContentLayout>
+      }
+    >
     <ContentLayout title="Recruitment Need Signal — Admin">
       <div className="space-y-6">
         <header>
@@ -119,6 +134,7 @@ export default function RecruitmentNeedAdminHub() {
         </div>
       </div>
     </ContentLayout>
+    </AdminPermissionGuard>
   );
 }
 
