@@ -77,6 +77,46 @@ export async function counsellingCodeFor(
   return (data?.counselling_code as string | undefined) ?? null;
 }
 
+/**
+ * Resolves a regulation id to ALL CAS-sibling regulations of the same code.
+ *
+ * A CAS college has TWO `regulations` rows for one code (e.g. "R-2024") — one
+ * per Aided/SF institution. PO/PSO and programme data may be entered under
+ * EITHER sibling, so any lookup keyed by a single regulation_id must expand to
+ * both to avoid missing data entered under the other sibling.
+ *
+ *   const regIds = await resolveCasRegulationIds(supabase, regulationId);
+ *   query = query.in('regulation_id', regIds);
+ *
+ * Returns [regulationId] when the regulation is non-CAS or can't be resolved.
+ */
+export async function resolveCasRegulationIds(
+  supabase: SupabaseClient,
+  regulationId: string | null | undefined
+): Promise<string[]> {
+  if (!regulationId) return [];
+  const { data: reg } = await supabase
+    .from('regulations')
+    .select('regulation_code, institution_id')
+    .eq('id', regulationId)
+    .maybeSingle();
+  const code = (reg as { regulation_code?: string } | null)?.regulation_code;
+  const instId = (reg as { institution_id?: string } | null)?.institution_id;
+  if (!code || !instId) return [regulationId];
+
+  const scope = await resolveBosInstitutionScope(supabase, instId);
+  if (scope.ids.length <= 1) return [regulationId];
+
+  const { data: sibRegs } = await supabase
+    .from('regulations')
+    .select('id')
+    .eq('regulation_code', code)
+    .in('institution_id', scope.ids);
+
+  const ids = (sibRegs ?? []).map((r: { id: string }) => r.id);
+  return ids.length > 0 ? [...new Set([regulationId, ...ids])] : [regulationId];
+}
+
 export async function resolveBosInstitutionScope(
   supabase: SupabaseClient,
   institutionsId: string | null | undefined
