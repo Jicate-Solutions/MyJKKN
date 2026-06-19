@@ -25,10 +25,7 @@ import {
   UserRound,
   Video,
 } from 'lucide-react';
-import {
-  BookingTrackingScripts,
-  getBookingPixelConfig,
-} from '@/lib/services/analytics/booking-pixel-service';
+import { getBookingPixelConfig } from '@/lib/services/analytics/booking-pixel-service';
 
 interface MeetingTypeOption {
   id: string;
