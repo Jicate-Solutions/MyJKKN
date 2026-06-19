@@ -25,6 +25,7 @@ import { ArrowRight, Banknote, Wallet } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 
 type ActionCardProps = {
   href: string;
@@ -52,6 +53,17 @@ const CARDS: ActionCardProps[] = [
 
 export default function AdminHRPayrollPage() {
   return (
+    // Restricted to super admins / HR Admin — matches the SuperAdminOnly gate on
+    // every payroll/* leaf. Added 2026-06-19; the hub was previously unguarded.
+    <SuperAdminOnly
+      fallback={
+        <ContentLayout title="HR Payroll">
+          <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+            Payroll administration is restricted to super administrators / HR Admin.
+          </div>
+        </ContentLayout>
+      }
+    >
     <ContentLayout title="HR Payroll">
       <div className="space-y-6">
         <header>
@@ -68,6 +80,7 @@ export default function AdminHRPayrollPage() {
         </div>
       </div>
     </ContentLayout>
+    </SuperAdminOnly>
   );
 }
 

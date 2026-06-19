@@ -11,6 +11,7 @@
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 
 export const navMeta = {
   label: 'Performance Reviews',
@@ -19,6 +20,17 @@ export const navMeta = {
 
 export default function HrPerformanceReviewsAdminLandingPage() {
   return (
+    // Restricted to super admins / HR Admin — matches the SuperAdminOnly gate on
+    // performance-reviews/cycles/*. Added 2026-06-19; landing was unguarded.
+    <SuperAdminOnly
+      fallback={
+        <ContentLayout title="Performance Reviews">
+          <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+            Performance review administration is restricted to super administrators / HR Admin.
+          </div>
+        </ContentLayout>
+      }
+    >
     <ContentLayout title="Performance Reviews">
       <Card>
         <CardHeader>
@@ -41,5 +53,6 @@ export default function HrPerformanceReviewsAdminLandingPage() {
         </CardContent>
       </Card>
     </ContentLayout>
+    </SuperAdminOnly>
   );
 }
