@@ -71,6 +71,9 @@ export async function POST(
       meetingTypeId: mt.id,
       durationMin: slots.durationMin,
       locationMode: mt.locationMode,
+      // Wave-3: variant kind + (group only) remaining seats per slot start.
+      kind: slots.kind,
+      seatsByStart: slots.seatsByStart ?? null,
       days: slots.days,
     });
   } catch (err) {

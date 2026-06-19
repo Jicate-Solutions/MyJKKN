@@ -24,8 +24,14 @@ import { GoogleCalendarService } from '@/lib/services/integrations/google-calend
 import {
   computeSlots,
   groupSlotsByDate,
+  applyGroupCapacity,
+  intersectCollectiveSlots,
+  pickRoundRobinHost,
   type EngineOverride,
   type EngineWindow,
+  type GroupSlotUsage,
+  type MeetingKind,
+  type RoundRobinCandidate,
   type Slot,
 } from './native-slot-engine';
 
@@ -55,6 +61,18 @@ export interface NativeMeetingType {
   /** U1 (D4): where the meeting happens. */
   location_mode: 'in_person' | 'phone' | 'online';
   location_text: string | null;
+  // ── Wave-3 variants + lifecycle (migration 20260619000100). The columns are
+  //    not in types/supabase.ts yet — getMeetingType reads them via select('*'). ──
+  /** solo (default) | group | collective | round_robin. */
+  kind: MeetingKind;
+  /** group only: seats per slot. NULL → treated as 1. */
+  capacity: number | null;
+  /** round_robin only: pool of interchangeable host profile ids. */
+  host_pool: string[] | null;
+  /** lifecycle: post-booking redirect target. NULL = default confirmation. */
+  redirect_url: string | null;
+  /** lifecycle: free-text message shown on the cancel page. */
+  cancellation_policy: string | null;
 }
 
 export interface NativeBookingInput {
@@ -92,7 +110,103 @@ export class NativeSchedulingService {
       console.error(`${LOG_PREFIX} meeting_type load failed:`, error.message);
       return null;
     }
-    return data as NativeMeetingType | null;
+    if (!data) return null;
+    // Wave-3 columns degrade to solo defaults if the migration is not yet applied.
+    const row = data as Record<string, unknown> & NativeMeetingType;
+    const kind = (row.kind as MeetingKind | undefined) ?? 'solo';
+    return {
+      ...row,
+      kind: ['solo', 'group', 'collective', 'round_robin'].includes(kind) ? kind : 'solo',
+      capacity: (row.capacity as number | null | undefined) ?? null,
+      host_pool: (row.host_pool as string[] | null | undefined) ?? null,
+      redirect_url: (row.redirect_url as string | null | undefined) ?? null,
+      cancellation_policy: (row.cancellation_policy as string | null | undefined) ?? null,
+    };
+  }
+
+  /**
+   * Required co-hosts for a COLLECTIVE meeting type (the host themselves plus
+   * every meeting_type_cohosts row). Always includes the owning host first.
+   * Deduplicated.
+   */
+  private static async loadCollectiveHosts(
+    supabase: SupabaseClient,
+    mt: NativeMeetingType,
+  ): Promise<string[]> {
+    const { data, error } = await supabase
+      .from('meeting_type_cohosts')
+      .select('cohost_profile_id')
+      .eq('meeting_type_id', mt.id);
+    if (error) {
+      console.error(`${LOG_PREFIX} cohost load failed:`, error.message);
+      // fail closed: with an unknown co-host set we cannot safely intersect,
+      // so behave as if only the host is required (no over-offering of slots).
+      return [mt.host_profile_id];
+    }
+    const ids = new Set<string>([mt.host_profile_id]);
+    for (const r of data ?? []) ids.add(r.cohost_profile_id as string);
+    return [...ids];
+  }
+
+  /**
+   * Confirmed booking counts per slot start for a GROUP meeting type — the
+   * input applyGroupCapacity needs. Counts confirmed bookings of THIS meeting
+   * type over the window so each slot knows its remaining seats.
+   */
+  private static async loadGroupUsage(
+    supabase: SupabaseClient,
+    meetingTypeId: string,
+    fromIso: string,
+    toIso: string,
+  ): Promise<GroupSlotUsage[] | null> {
+    const { data, error } = await supabase
+      .from('meeting_bookings')
+      .select('start_time')
+      .eq('meeting_type_id', meetingTypeId)
+      .eq('status', 'confirmed')
+      .gte('start_time', fromIso)
+      .lt('start_time', toIso);
+    if (error) {
+      console.error(`${LOG_PREFIX} group usage load failed:`, error.message);
+      // fail closed: null signals "cannot verify seats" → caller drops slots /
+      // refuses the booking rather than over-selling.
+      return null;
+    }
+    const counts = new Map<string, number>();
+    for (const b of data ?? []) {
+      const key = new Date(b.start_time as string).toISOString();
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return [...counts.entries()].map(([start, count]) => ({ start, count }));
+  }
+
+  /**
+   * Round-robin candidate inputs: each pool host's most-recent confirmed
+   * booking time (null = never booked → highest priority). Used by
+   * pickRoundRobinHost to load-balance.
+   */
+  private static async roundRobinCandidates(
+    supabase: SupabaseClient,
+    hostIds: string[],
+  ): Promise<RoundRobinCandidate[]> {
+    if (!hostIds.length) return [];
+    const { data, error } = await supabase
+      .from('meeting_bookings')
+      .select('host_profile_id, start_time')
+      .in('host_profile_id', hostIds)
+      .eq('status', 'confirmed')
+      .order('start_time', { ascending: false });
+    if (error) {
+      console.error(`${LOG_PREFIX} round-robin candidate load failed:`, error.message);
+      // degrade gracefully: treat all as never-booked (selection still deterministic).
+      return hostIds.map((h) => ({ hostProfileId: h, lastBookedAt: null }));
+    }
+    const lastByHost = new Map<string, string>();
+    for (const b of data ?? []) {
+      const h = b.host_profile_id as string;
+      if (!lastByHost.has(h)) lastByHost.set(h, b.start_time as string); // first = latest (desc)
+    }
+    return hostIds.map((h) => ({ hostProfileId: h, lastBookedAt: lastByHost.get(h) ?? null }));
   }
 
   /**
@@ -201,36 +315,39 @@ export class NativeSchedulingService {
   }
 
   /**
-   * Available slots for a meeting type over the next `days` calendar days
-   * (clamped to the type's max_days_ahead), grouped by IST date for display.
+   * Compute one host's structural slots for a meeting type over a date range.
+   * `excludeOwnGroupBookings = true` keeps a GROUP type's own confirmed
+   * bookings OUT of the busy set so a partly-filled slot is still generated
+   * (capacity is then applied separately); for solo/collective/round_robin the
+   * host's own bookings DO block (one seat).
    */
-  static async listSlots(
+  private static async computeHostSlots(
     supabase: SupabaseClient,
-    meetingTypeId: string,
-    opts: { days?: number; now?: Date; displayTimeZone?: string } = {},
-  ): Promise<{ days: Record<string, Slot[]>; durationMin: number } | null> {
-    const mt = await this.getMeetingType(supabase, meetingTypeId);
-    if (!mt) return null;
-    const sched = await this.loadSchedule(supabase, mt);
-    if (!sched) return { days: {}, durationMin: mt.duration_min };
-
-    const now = opts.now ?? new Date();
-    const horizon = Math.min(opts.days ?? 7, mt.max_days_ahead);
-
-    const fmt = new Intl.DateTimeFormat('en-CA', {
-      timeZone: sched.timezone, year: 'numeric', month: '2-digit', day: '2-digit',
-    });
-    const fromDate = fmt.format(now);
-    const toDate = fmt.format(new Date(now.getTime() + horizon * 86_400_000));
-
-    const busy = await this.loadBusy(
-      supabase,
-      mt.host_profile_id,
-      new Date(now.getTime() - 86_400_000).toISOString(),
-      new Date(now.getTime() + (horizon + 2) * 86_400_000).toISOString(),
-    );
-
-    const slots = computeSlots({
+    hostProfileId: string,
+    mt: NativeMeetingType,
+    sched: { timezone: string; windows: EngineWindow[]; overrides: EngineOverride[] },
+    fromDate: string,
+    toDate: string,
+    now: Date,
+    fromIso: string,
+    toIso: string,
+    excludeOwnGroupBookings: boolean,
+  ): Promise<Slot[]> {
+    let busy = await this.loadBusy(supabase, hostProfileId, fromIso, toIso);
+    if (excludeOwnGroupBookings) {
+      // Drop this meeting type's own confirmed bookings from the busy set —
+      // a group slot must remain offerable until its seats are full.
+      const { data: own } = await supabase
+        .from('meeting_bookings')
+        .select('start_time, end_time')
+        .eq('meeting_type_id', mt.id)
+        .eq('status', 'confirmed')
+        .lt('start_time', toIso)
+        .gt('end_time', fromIso);
+      const ownSet = new Set((own ?? []).map((b) => `${b.start_time}|${b.end_time}`));
+      busy = busy.filter((b) => !ownSet.has(`${b.start}|${b.end}`));
+    }
+    return computeSlots({
       timezone: sched.timezone,
       durationMin: mt.duration_min,
       windows: sched.windows,
@@ -244,11 +361,101 @@ export class NativeSchedulingService {
       toDate,
       now,
     });
+  }
 
-    return {
-      days: groupSlotsByDate(slots, opts.displayTimeZone ?? 'Asia/Kolkata'),
-      durationMin: mt.duration_min,
-    };
+  /**
+   * Available slots for a meeting type over the next `days` calendar days
+   * (clamped to the type's max_days_ahead), grouped by IST date for display.
+   *
+   * Variant-aware (Wave-3):
+   *   * solo        — host's own slots (unchanged).
+   *   * group       — host's slots minus this type's own bookings, then capacity
+   *                   filtered; `seatsByStart` carries remaining seats per slot.
+   *   * collective  — intersection of every required host's slots.
+   *   * round_robin — UNION of the pool's slots (a slot is offerable if ANY
+   *                   pool host is free; the specific host is chosen at booking).
+   */
+  static async listSlots(
+    supabase: SupabaseClient,
+    meetingTypeId: string,
+    opts: { days?: number; now?: Date; displayTimeZone?: string } = {},
+  ): Promise<{
+    days: Record<string, Slot[]>;
+    durationMin: number;
+    kind: MeetingKind;
+    seatsByStart?: Record<string, number>;
+  } | null> {
+    const mt = await this.getMeetingType(supabase, meetingTypeId);
+    if (!mt) return null;
+    const sched = await this.loadSchedule(supabase, mt);
+    if (!sched) return { days: {}, durationMin: mt.duration_min, kind: mt.kind };
+
+    const now = opts.now ?? new Date();
+    const horizon = Math.min(opts.days ?? 7, mt.max_days_ahead);
+
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: sched.timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    });
+    const fromDate = fmt.format(now);
+    const toDate = fmt.format(new Date(now.getTime() + horizon * 86_400_000));
+    const fromIso = new Date(now.getTime() - 86_400_000).toISOString();
+    const toIso = new Date(now.getTime() + (horizon + 2) * 86_400_000).toISOString();
+    const displayTz = opts.displayTimeZone ?? 'Asia/Kolkata';
+
+    // ── COLLECTIVE: intersect every required host's availability ──────────────
+    if (mt.kind === 'collective') {
+      const hosts = await this.loadCollectiveHosts(supabase, mt);
+      const perHost = await Promise.all(
+        hosts.map((h) =>
+          this.computeHostSlots(supabase, h, mt, sched, fromDate, toDate, now, fromIso, toIso, false),
+        ),
+      );
+      const slots = intersectCollectiveSlots(perHost);
+      return { days: groupSlotsByDate(slots, displayTz), durationMin: mt.duration_min, kind: mt.kind };
+    }
+
+    // ── ROUND-ROBIN: a slot is offerable if ANY pool host is free ─────────────
+    if (mt.kind === 'round_robin') {
+      const pool = (mt.host_pool ?? []).filter(Boolean);
+      const hosts = pool.length ? pool : [mt.host_profile_id];
+      const perHost = await Promise.all(
+        hosts.map((h) =>
+          this.computeHostSlots(supabase, h, mt, sched, fromDate, toDate, now, fromIso, toIso, false),
+        ),
+      );
+      const union = new Map<string, Slot>();
+      for (const list of perHost) for (const s of list) union.set(s.start, s);
+      const slots = [...union.values()].sort((a, b) => a.start.localeCompare(b.start));
+      return { days: groupSlotsByDate(slots, displayTz), durationMin: mt.duration_min, kind: mt.kind };
+    }
+
+    // ── GROUP: host slots (minus own bookings) + capacity filter ──────────────
+    if (mt.kind === 'group') {
+      const structural = await this.computeHostSlots(
+        supabase, mt.host_profile_id, mt, sched, fromDate, toDate, now, fromIso, toIso, true,
+      );
+      const usage = await this.loadGroupUsage(supabase, mt.id, fromIso, toIso);
+      if (usage === null) {
+        // cannot verify seats → offer nothing rather than over-sell.
+        return { days: {}, durationMin: mt.duration_min, kind: mt.kind, seatsByStart: {} };
+      }
+      const withSeats = applyGroupCapacity(structural, mt.capacity ?? 1, usage);
+      const seatsByStart: Record<string, number> = {};
+      for (const s of withSeats) seatsByStart[s.start] = s.seatsLeft;
+      const slots: Slot[] = withSeats.map((s) => ({ start: s.start }));
+      return {
+        days: groupSlotsByDate(slots, displayTz),
+        durationMin: mt.duration_min,
+        kind: mt.kind,
+        seatsByStart,
+      };
+    }
+
+    // ── SOLO (default): unchanged ─────────────────────────────────────────────
+    const slots = await this.computeHostSlots(
+      supabase, mt.host_profile_id, mt, sched, fromDate, toDate, now, fromIso, toIso, false,
+    );
+    return { days: groupSlotsByDate(slots, displayTz), durationMin: mt.duration_min, kind: mt.kind };
   }
 
   /**
@@ -270,34 +477,72 @@ export class NativeSchedulingService {
     const startDate = new Date(input.start);
     if (Number.isNaN(startDate.getTime())) return { success: false, error: 'INVALID_SLOT' };
 
-    // Re-derive validity: compute slots for just the candidate's local date.
     const fmt = new Intl.DateTimeFormat('en-CA', {
       timeZone: sched.timezone, year: 'numeric', month: '2-digit', day: '2-digit',
     });
     const candidateDate = fmt.format(startDate);
-    const busy = await this.loadBusy(
-      supabase,
-      mt.host_profile_id,
-      new Date(startDate.getTime() - 86_400_000).toISOString(),
-      new Date(startDate.getTime() + 86_400_000).toISOString(),
-    );
-    const offered = computeSlots({
-      timezone: sched.timezone,
-      durationMin: mt.duration_min,
-      windows: sched.windows,
-      overrides: sched.overrides,
-      bookings: busy,
-      bufferBeforeMin: mt.buffer_before_min,
-      bufferAfterMin: mt.buffer_after_min,
-      minNoticeMin: mt.min_notice_min,
-      slotIntervalMin: mt.slot_interval_min ?? undefined,
-      fromDate: candidateDate,
-      toDate: candidateDate,
-      now,
-    });
     const startIso = startDate.toISOString();
-    if (!offered.some((s) => s.start === startIso)) {
-      return { success: false, error: 'INVALID_SLOT' };
+    const candFrom = new Date(startDate.getTime() - 86_400_000).toISOString();
+    const candTo = new Date(startDate.getTime() + 86_400_000).toISOString();
+
+    /** Re-derive this start's validity against ONE host's live availability. */
+    const hostOffersStart = async (
+      hostId: string,
+      excludeOwnGroup: boolean,
+    ): Promise<boolean> => {
+      const offered = await this.computeHostSlots(
+        supabase, hostId, mt, sched, candidateDate, candidateDate, now, candFrom, candTo, excludeOwnGroup,
+      );
+      return offered.some((s) => s.start === startIso);
+    };
+
+    // ── Resolve the host(s) this booking must block, variant by variant ──────
+    //   primaryHost  = the row's host_profile_id (the one we book against).
+    //   blockHosts   = every host that must get a confirmed booking row
+    //                  (collective books ALL required hosts; others book one).
+    let primaryHost = mt.host_profile_id;
+    let blockHosts: string[] = [mt.host_profile_id];
+
+    if (mt.kind === 'collective') {
+      const hosts = await this.loadCollectiveHosts(supabase, mt);
+      // EVERY required host must currently offer the slot.
+      for (const h of hosts) {
+        if (!(await hostOffersStart(h, false))) {
+          return { success: false, error: 'INVALID_SLOT' };
+        }
+      }
+      primaryHost = mt.host_profile_id;
+      blockHosts = hosts;
+    } else if (mt.kind === 'round_robin') {
+      // Pick the least-recently-booked FREE host from the pool.
+      const pool = (mt.host_pool ?? []).filter(Boolean);
+      const candidatePool = pool.length ? pool : [mt.host_profile_id];
+      const freeHosts: string[] = [];
+      for (const h of candidatePool) {
+        if (await hostOffersStart(h, false)) freeHosts.push(h);
+      }
+      if (freeHosts.length === 0) return { success: false, error: 'INVALID_SLOT' };
+      const candidates = await this.roundRobinCandidates(supabase, freeHosts);
+      primaryHost = pickRoundRobinHost(candidates) ?? freeHosts[0];
+      blockHosts = [primaryHost];
+    } else if (mt.kind === 'group') {
+      // Capacity gate: the slot must still have a free seat AND the host's
+      // structure (minus this type's own bookings) must offer it.
+      if (!(await hostOffersStart(mt.host_profile_id, true))) {
+        return { success: false, error: 'INVALID_SLOT' };
+      }
+      const usage = await this.loadGroupUsage(supabase, mt.id, candFrom, candTo);
+      if (usage === null) return { success: false, error: 'INTERNAL' };
+      const used = usage.find((u) => new Date(u.start).toISOString() === startIso)?.count ?? 0;
+      const cap = mt.capacity && mt.capacity > 0 ? mt.capacity : 1;
+      if (used >= cap) return { success: false, error: 'SLOT_TAKEN' };
+      primaryHost = mt.host_profile_id;
+      blockHosts = [mt.host_profile_id];
+    } else {
+      // solo
+      if (!(await hostOffersStart(mt.host_profile_id, false))) {
+        return { success: false, error: 'INVALID_SLOT' };
+      }
     }
 
     const endIso = new Date(startDate.getTime() + mt.duration_min * 60_000).toISOString();
@@ -311,7 +556,7 @@ export class NativeSchedulingService {
       .insert({
         uid,
         meeting_type_id: mt.id,
-        host_profile_id: mt.host_profile_id,
+        host_profile_id: primaryHost,
         institution_id: mt.institution_id,
         attendee_name: input.attendeeName,
         attendee_email: input.attendeeEmail,
@@ -327,15 +572,63 @@ export class NativeSchedulingService {
 
     if (error) {
       // 23P01 = exclusion_violation: a concurrent booking won the slot.
+      // GROUP NOTE: a second seat on the same host+range also trips this
+      // constraint today — see NEEDS.md (meeting_bookings needs a group-aware
+      // exclusion before group capacity > 1 can fully persist).
       if (error.code === '23P01') return { success: false, error: 'SLOT_TAKEN' };
       console.error(`${LOG_PREFIX} booking insert failed:`, error.message);
       return { success: false, error: 'INTERNAL' };
     }
 
+    // ── COLLECTIVE: place a matching confirmed booking on every OTHER required
+    //    host so the slot is blocked on all their calendars too. Best-effort
+    //    per row; a co-host collision rolls the whole booking back to keep the
+    //    "all hosts free" guarantee honest. ─────────────────────────────────────
+    if (mt.kind === 'collective' && blockHosts.length > 1) {
+      const others = blockHosts.filter((h) => h !== primaryHost);
+      // Deterministic co-host uids — also what we roll back by (exact match,
+      // no fragile JSON-key filter; see feedback_postgrest_dotted_json_key_filter_fails).
+      const cohostUid = (h: string, i: number) => `${uid}-c${i}-${h.slice(0, 8)}`;
+      const insertedCohostUids: string[] = [];
+      for (let i = 0; i < others.length; i++) {
+        const h = others[i];
+        const thisUid = cohostUid(h, i);
+        const { error: coErr } = await supabase.from('meeting_bookings').insert({
+          uid: thisUid,
+          meeting_type_id: mt.id,
+          host_profile_id: h,
+          institution_id: mt.institution_id,
+          attendee_name: input.attendeeName,
+          attendee_email: input.attendeeEmail,
+          attendee_phone: input.attendeePhone ?? null,
+          answers: { ...(input.answers ?? {}), collective_primary_uid: uid },
+          start_time: startIso,
+          end_time: endIso,
+          status: 'confirmed',
+          source: input.source ?? 'direct',
+        });
+        if (coErr) {
+          // A co-host just got booked elsewhere — undo the whole collective by
+          // the exact uids we created (primary + every co-host inserted so far).
+          await supabase
+            .from('meeting_bookings')
+            .delete()
+            .in('uid', [uid, ...insertedCohostUids]);
+          if (coErr.code === '23P01') return { success: false, error: 'SLOT_TAKEN' };
+          console.error(`${LOG_PREFIX} collective co-host insert failed:`, coErr.message);
+          return { success: false, error: 'INTERNAL' };
+        }
+        insertedCohostUids.push(thisUid);
+      }
+    }
+
+    // Notifications + calendar follow the booked host (primaryHost) — for
+    // round_robin this is the auto-assigned pool member, not necessarily the
+    // meeting type's nominal owner.
     const { data: host } = await supabase
       .from('profiles')
       .select('full_name, email')
-      .eq('id', mt.host_profile_id)
+      .eq('id', primaryHost)
       .maybeSingle();
 
     // U2 (D12): Google Calendar event BEFORE the emails so the Meet link can
@@ -343,9 +636,9 @@ export class NativeSchedulingService {
     // committed booking; the event also makes Google invite the attendee.
     let videoUrl: string | null = null;
     let googleEventId: string | null = null;
-    const conn = await GoogleCalendarService.getConnection(supabase, mt.host_profile_id);
+    const conn = await GoogleCalendarService.getConnection(supabase, primaryHost);
     if (conn?.status === 'active') {
-      const event = await GoogleCalendarService.createEvent(supabase, mt.host_profile_id, {
+      const event = await GoogleCalendarService.createEvent(supabase, primaryHost, {
         summary: `${mt.title} — ${input.attendeeName}`,
         description: [
           `Booked via JKKN (${input.source ?? 'direct'}). Reference: ${uid}`,

@@ -7,7 +7,7 @@
 // email → cancel journey feels like one product.
 
 import { useState, useTransition } from 'react';
-import { CalendarDays, CheckCircle2, Loader2, XCircle } from 'lucide-react';
+import { CalendarDays, CheckCircle2, Info, Loader2, XCircle } from 'lucide-react';
 import { cancelAsAttendee } from '../actions';
 
 const IST = 'Asia/Kolkata';
@@ -31,6 +31,8 @@ interface CancelWidgetProps {
   meetingTitle: string;
   hostName: string;
   startTime: string; // ISO; empty when state is 'invalid'
+  /** Wave-3 lifecycle: free-text policy from the meeting type, or null. */
+  cancellationPolicy?: string | null;
 }
 
 export function CancelWidget({
@@ -40,6 +42,7 @@ export function CancelWidget({
   meetingTitle,
   hostName,
   startTime,
+  cancellationPolicy,
 }: CancelWidgetProps) {
   const [state, setState] = useState<CancelPageState | 'cancelled'>(initialState);
   const [reason, setReason] = useState('');
@@ -129,6 +132,18 @@ export function CancelWidget({
               </p>
               <p className="mt-3 text-xs text-[#1C2B24]/50">Reference: {uid}</p>
             </div>
+
+            {cancellationPolicy && (
+              <div className="rounded-lg border border-[#0E4D34]/20 bg-[#0E4D34]/[0.04] px-4 py-3 text-sm">
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#0E4D34]/70">
+                  <Info className="h-3.5 w-3.5" aria-hidden />
+                  Cancellation policy
+                </p>
+                <p className="mt-1.5 whitespace-pre-wrap text-[#1C2B24]/80">
+                  {cancellationPolicy}
+                </p>
+              </div>
+            )}
 
             <label className="text-sm">
               <span className="mb-1 block font-medium">Reason (optional)</span>

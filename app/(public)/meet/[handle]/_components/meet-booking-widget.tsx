@@ -49,6 +49,9 @@ interface MeetBookingWidgetProps {
 interface SlotsResponse {
   days?: Record<string, Array<{ start: string }>>;
   durationMin?: number;
+  // Wave-3: variant kind + (group only) remaining seats keyed by ISO start.
+  kind?: 'solo' | 'group' | 'collective' | 'round_robin';
+  seatsByStart?: Record<string, number> | null;
   error?: string;
 }
 
@@ -178,6 +181,15 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
       }
       setConfirmation({ uid: json.uid, start: selectedStart });
       setStep('done');
+      // Wave-3 lifecycle: if the meeting type defines a post-booking redirect,
+      // send the booker there (the API only returns safe http(s)/relative URLs).
+      // Show the confirmation stub briefly first so the redirect isn't jarring.
+      if (typeof json.redirectUrl === 'string' && json.redirectUrl) {
+        const target = json.redirectUrl as string;
+        window.setTimeout(() => {
+          window.location.href = target;
+        }, 1200);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not complete the booking.');
     } finally {
@@ -299,20 +311,33 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
                     <CalendarDays className="h-3.5 w-3.5" aria-hidden /> {istDayLabel(day.starts[0])}
                   </p>
                   <div className="grid grid-cols-3 gap-2">
-                    {day.starts.map((start) => (
-                      <button
-                        key={start}
-                        type="button"
-                        onClick={() => { setSelectedStart(start); setStep('details'); }}
-                        className={`rounded-md border px-2 py-2 text-sm transition-colors ${
-                          selectedStart === start
-                            ? 'border-[#0E4D34] bg-[#0E4D34] text-white'
-                            : 'border-[#0E4D34]/25 bg-white hover:border-[#0E4D34]/60'
-                        }`}
-                      >
-                        {istTime(start)}
-                      </button>
-                    ))}
+                    {day.starts.map((start) => {
+                      const seats =
+                        slots?.kind === 'group' ? slots.seatsByStart?.[start] : undefined;
+                      return (
+                        <button
+                          key={start}
+                          type="button"
+                          onClick={() => { setSelectedStart(start); setStep('details'); }}
+                          className={`flex flex-col items-center rounded-md border px-2 py-2 text-sm leading-tight transition-colors ${
+                            selectedStart === start
+                              ? 'border-[#0E4D34] bg-[#0E4D34] text-white'
+                              : 'border-[#0E4D34]/25 bg-white hover:border-[#0E4D34]/60'
+                          }`}
+                        >
+                          <span>{istTime(start)}</span>
+                          {typeof seats === 'number' && (
+                            <span
+                              className={`text-[10px] ${
+                                selectedStart === start ? 'text-white/80' : 'text-[#1C2B24]/55'
+                              }`}
+                            >
+                              {seats} {seats === 1 ? 'seat' : 'seats'} left
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               ))

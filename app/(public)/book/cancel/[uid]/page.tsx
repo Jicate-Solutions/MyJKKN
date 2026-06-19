@@ -34,6 +34,8 @@ interface BookingView {
   hostName: string;
   startTime: string;
   status: string;
+  /** Wave-3 lifecycle: free-text policy shown to the attendee on this page. */
+  cancellationPolicy: string | null;
 }
 
 async function loadBooking(uid: string, token: string): Promise<BookingView | null> {
@@ -53,7 +55,9 @@ async function loadBooking(uid: string, token: string): Promise<BookingView | nu
   const [{ data: mt }, { data: host }] = await Promise.all([
     supabase
       .from('meeting_types')
-      .select('title')
+      // cancellation_policy isn't in generated types yet — select by name; the
+      // service-role read returns it whether or not the column exists in types.
+      .select('title, cancellation_policy')
       .eq('id', booking.meeting_type_id)
       .maybeSingle(),
     supabase
@@ -69,6 +73,8 @@ async function loadBooking(uid: string, token: string): Promise<BookingView | nu
       (host?.full_name as string | undefined) ?? (host?.email as string | undefined) ?? 'Host',
     startTime: booking.start_time as string,
     status: booking.status as string,
+    cancellationPolicy:
+      ((mt as { cancellation_policy?: string | null } | null)?.cancellation_policy ?? null) || null,
   };
 }
 
@@ -95,6 +101,7 @@ export default async function CancelBookingPage({ params, searchParams }: Cancel
       meetingTitle={booking?.meetingTitle ?? ''}
       hostName={booking?.hostName ?? ''}
       startTime={booking?.startTime ?? ''}
+      cancellationPolicy={booking?.cancellationPolicy ?? null}
     />
   );
 }
