@@ -41,7 +41,9 @@ import {
 import {
   useMeetingAnalyticsSummary,
   useMeetingRoutingDistribution,
+  useMeetingAnalyticsTier,
 } from '@/hooks/meetings/use-meeting-analytics';
+import { Building2 } from 'lucide-react';
 
 // --- Date-range presets (resolved to ISO [from, to) at render) ---
 type RangeKey = '7d' | '30d' | '90d';
@@ -66,16 +68,52 @@ const TOOLTIP_STYLE = {
   color: 'hsl(var(--popover-foreground))',
 } as const;
 
+// Sentinel for the institution picker meaning "all my accessible institutions".
+const ALL_INSTITUTIONS = '__all__';
+
 function MeetingsAnalyticsInner() {
   const [rangeKey, setRangeKey] = useState<RangeKey>('30d');
   // Recompute ISO bounds when the preset changes (stable across re-renders of
   // the same preset so React Query keys stay constant within a selection).
   const { from, to } = useMemo(() => rangeToIso(rangeKey), [rangeKey]);
 
+  // Resolve the read tier from the canonical permission layer.
+  const { tier } = useMeetingAnalyticsTier();
+
+  // Institution-manager picker state (only meaningful in the 'institution' tier).
+  const [selectedInstitution, setSelectedInstitution] =
+    useState<string>(ALL_INSTITUTIONS);
+  const institutionIds = useMemo<string[] | null>(
+    () =>
+      tier === 'institution' && selectedInstitution !== ALL_INSTITUTIONS
+        ? [selectedInstitution]
+        : null,
+    [tier, selectedInstitution]
+  );
+
   const { data: summary, isLoading: summaryLoading } =
-    useMeetingAnalyticsSummary(from, to);
+    useMeetingAnalyticsSummary(from, to, { tier, institutionIds });
   const { data: routing, isLoading: routingLoading } =
-    useMeetingRoutingDistribution(from, to);
+    useMeetingRoutingDistribution(from, to, { tier, institutionIds });
+
+  // Institution options come from the summary RPC (institution tier only).
+  const institutionOptions = summary?.available_institutions ?? [];
+  const showInstitutionPicker =
+    tier === 'institution' && institutionOptions.length > 0;
+
+  // Scope-aware subtitle copy.
+  const scopeLabel =
+    summary?.scope === 'own'
+      ? ' for your meetings'
+      : summary?.scope === 'institution'
+        ? selectedInstitution === ALL_INSTITUTIONS
+          ? ' across all hosts in your institution(s)'
+          : ` across all hosts in ${
+              institutionOptions.find(
+                (i) => i.institution_id === selectedInstitution
+              )?.name ?? 'the selected institution'
+            }`
+        : ' across all hosts';
 
   const isLoading = summaryLoading || routingLoading;
 
@@ -182,24 +220,50 @@ function MeetingsAnalyticsInner() {
             <h1 className="text-2xl font-bold">Meetings Analytics</h1>
             <p className="text-muted-foreground">
               Booking activity, cancellations, and routing insights
-              {summary?.scope === 'own' ? ' for your meetings' : ' across all hosts'}.
+              {scopeLabel}.
             </p>
           </div>
-          <Select
-            value={rangeKey}
-            onValueChange={(v) => setRangeKey(v as RangeKey)}
-          >
-            <SelectTrigger className="w-[180px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(Object.keys(RANGE_LABELS) as RangeKey[]).map((k) => (
-                <SelectItem key={k} value={k}>
-                  {RANGE_LABELS[k]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            {showInstitutionPicker && (
+              <Select
+                value={selectedInstitution}
+                onValueChange={setSelectedInstitution}
+              >
+                <SelectTrigger className="w-[220px]">
+                  <Building2 className="h-4 w-4 mr-2 text-muted-foreground" />
+                  <SelectValue placeholder="Institution" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_INSTITUTIONS}>
+                    All my institutions
+                  </SelectItem>
+                  {institutionOptions.map((inst) => (
+                    <SelectItem
+                      key={inst.institution_id}
+                      value={inst.institution_id}
+                    >
+                      {inst.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Select
+              value={rangeKey}
+              onValueChange={(v) => setRangeKey(v as RangeKey)}
+            >
+              <SelectTrigger className="w-[180px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(RANGE_LABELS) as RangeKey[]).map((k) => (
+                  <SelectItem key={k} value={k}>
+                    {RANGE_LABELS[k]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {/* Key Metrics */}
