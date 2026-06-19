@@ -88,6 +88,9 @@ export function SyllabusForm({
     academic_year: string;
     institutions_id: string;
     board?: { board_name: string; board_code: string; board_type?: string | null } | null;
+    // Multi-board: a composition may govern several boards; the syllabus picks one.
+    boards?: { id: string; board_name: string; board_code: string }[];
+    board_ids?: string[];
   }[]>([]);
   const [selectedCompositionId, setSelectedCompositionId] = useState('');
   const [meetings, setMeetings] = useState<{
@@ -162,6 +165,9 @@ export function SyllabusForm({
           institution_id: formData.institutions_id,
           regulation_code,
           composition_id: formData.composition_id,
+          // Multi-board: scope to the specifically chosen board (defaults to the
+          // composition's primary when single-board).
+          board_id: formData.board_id || undefined,
           limit: 200,
           is_active: 'true',
         }
@@ -893,16 +899,41 @@ export function SyllabusForm({
 
                 <div>
                   <label className="block text-sm font-medium mb-1">Board</label>
-                  <Input
-                    value={
-                      boards.find(b => b.id === formData.board_id)?.board_name ||
-                      compositions.find(c => c.id === formData.composition_id)?.board?.board_name ||
-                      ''
+                  {(() => {
+                    const comp = compositions.find(c => c.id === formData.composition_id);
+                    const compBoards = comp?.boards ?? [];
+                    // Multi-board composition → let the user pick which board this
+                    // syllabus belongs to (a syllabus has one board_id). Single-board
+                    // → keep the read-only auto-fill.
+                    if (compBoards.length > 1) {
+                      return (
+                        <SearchableSelect
+                          value={formData.board_id || ''}
+                          onValueChange={(val) => updateField('board_id', val)}
+                          options={compBoards.map((b) => ({
+                            value: b.id,
+                            label: `${b.board_name} (${b.board_code})`,
+                          }))}
+                          placeholder='Select board'
+                          searchPlaceholder='Search board…'
+                          className='w-full'
+                        />
+                      );
                     }
-                    disabled
-                    placeholder="Auto-filled from composition"
-                    className="bg-muted/50"
-                  />
+                    return (
+                      <Input
+                        value={
+                          boards.find(b => b.id === formData.board_id)?.board_name ||
+                          comp?.board?.board_name ||
+                          compBoards[0]?.board_name ||
+                          ''
+                        }
+                        disabled
+                        placeholder="Auto-filled from composition"
+                        className="bg-muted/50"
+                      />
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -914,6 +945,9 @@ export function SyllabusForm({
                     onValueChange={(val) => {
                       const course = courseOptions.find((c) => c.course_code === val);
                       if (!course) return;
+                      // Anchor on the stable COE course id; course_code/name are
+                      // snapshots COE may later rename.
+                      updateField('course_id', course.id || '');
                       updateField('course_code', course.course_code);
                       updateField('course_name', course.course_name || course.course_title || '');
                       // COE returns `credits` (plural) in list responses and `credit` (singular)
@@ -1212,6 +1246,13 @@ export function SyllabusForm({
                 regulationId={formData.regulation_id || ''}
                 institutionsIds={formData.institutions_id || ''}
                 boardId={formData.board_id || ''}
+                // The selected board's code = its programme code in this system;
+                // scopes the PO/PSO Programme list to just this board.
+                boardProgrammeCode={
+                  compositions
+                    .find(c => c.id === formData.composition_id)
+                    ?.boards?.find(b => b.id === formData.board_id)?.board_code
+                }
                 courseOutcomes={((formData.course_learning_outcomes as any)?.clos ?? []) as BosCourseLearnOutcome[]}
                 onChange={(val) => updateField('po_mappings', val)}
               />
@@ -2417,11 +2458,17 @@ interface PoMappingsEditorProps {
   regulationId: string;
   institutionsIds: string;
   boardId: string;
+  /**
+   * The selected board's programme code (= its board_code in this system). When
+   * provided, the editor lists ONLY this programme instead of every programme
+   * that has POs — scopes PO/PSO to the chosen board.
+   */
+  boardProgrammeCode?: string;
   courseOutcomes: BosCourseLearnOutcome[];
   onChange: (val: BosPOMappingsData) => void;
 }
 
-function PoMappingsEditor({ mappings, regulationId, institutionsIds, boardId, courseOutcomes, onChange }: PoMappingsEditorProps) {
+function PoMappingsEditor({ mappings, regulationId, institutionsIds, boardId, boardProgrammeCode, courseOutcomes, onChange }: PoMappingsEditorProps) {
   const [programmes, setProgrammes] = useState<BosBoardProgramme[]>([]);
   const [selectedProgramme, setSelectedProgramme] = useState('');
   const [pos, setPos] = useState<BosProgrammeOutcome[]>([]);
@@ -2451,6 +2498,18 @@ function PoMappingsEditor({ mappings, regulationId, institutionsIds, boardId, co
   // configured — avoids a dead end when board-programme assignment is missing.
   useEffect(() => {
     if (!boardId) { setProgrammes([]); setSelectedProgramme(''); return; }
+    // Board-scoped: when the caller knows the board's programme code (its
+    // board_code), list ONLY that programme — not every programme with POs.
+    if (boardProgrammeCode) {
+      const code = boardProgrammeCode.toUpperCase();
+      setProgrammes([{
+        id: code, board_id: boardId, institutions_id: '',
+        programme_code: code, programme_name: code,
+        is_active: true, created_at: '', updated_at: '',
+      }]);
+      setSelectedProgramme(code);
+      return;
+    }
     fetch(`/api/bos/boards/${boardId}/programmes`)
       .then(r => r.json())
       .then(({ data }) => {
@@ -2482,7 +2541,7 @@ function PoMappingsEditor({ mappings, regulationId, institutionsIds, boardId, co
           });
       })
       .catch(() => { setProgrammes([]); setSelectedProgramme(''); });
-  }, [boardId, regulationId]);
+  }, [boardId, regulationId, boardProgrammeCode]);
 
   // Fetch POs + PSOs for the selected programme
   useEffect(() => {

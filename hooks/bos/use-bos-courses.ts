@@ -21,6 +21,8 @@ export interface CourseFilters {
    * sees that board's courses regardless of which boards they personally sit on.
    */
   composition_id?: string;
+  /** Multi-board: scope to a specific board of the composition (defaults to primary). */
+  board_id?: string;
   search?: string;
   is_active?: 'true' | 'false';
   limit?: number;

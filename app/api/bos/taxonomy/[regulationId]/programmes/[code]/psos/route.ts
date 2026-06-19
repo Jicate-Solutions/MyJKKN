@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { resolveBosAccess } from '@/lib/utils/bos/bos-access';
+import { resolveCasRegulationIds } from '@/lib/utils/bos/institution-scope';
 import { isMemberForProgramme } from '@/lib/utils/bos/bos-chairman-access';
 import { BosProgrammeSpecificOutcome } from '@/types/bos';
 
@@ -73,10 +74,16 @@ export async function GET(request: NextRequest, { params }: Params) {
       filterIds = [institutionsId];
     }
 
-    let query = supabase
+    // Service-role for the SELECT (route does CAS-aware authz via filterIds) —
+    // PSOs may live under the CAS Aided sibling that RLS hides from the Self
+    // context. Same precedent as the POS route + /api/bos/compositions.
+    const db = createServiceRoleClient();
+    // CAS-aware: PSOs may live under either sibling regulation of the same code.
+    const regIds = await resolveCasRegulationIds(db, regulationId);
+    let query = db
       .from('bos_programme_specific_outcomes')
       .select('*')
-      .eq('regulation_id', regulationId)
+      .in('regulation_id', regIds)
       .eq('programme_code', programmeCode.toUpperCase());
 
     if (filterIds.length === 1) {

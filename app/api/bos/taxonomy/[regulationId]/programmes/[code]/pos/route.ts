@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { resolveBosAccess } from '@/lib/utils/bos/bos-access';
+import { resolveCasRegulationIds } from '@/lib/utils/bos/institution-scope';
 import { isMemberForProgramme } from '@/lib/utils/bos/bos-chairman-access';
 import { BosProgrammeOutcome } from '@/types/bos';
 
@@ -73,10 +74,20 @@ export async function GET(request: NextRequest, { params }: Params) {
       filterIds = [institutionsId];
     }
 
-    let query = supabase
+    // Service-role for the SELECT: bos_programme_outcomes RLS gates on
+    // role_has_institution_access(institutions_id), and the POs may live under
+    // the CAS Aided sibling while the caller's context is the Self sibling — RLS
+    // hides the cross-sibling rows. filterIds above is the CAS-aware authz (a
+    // non-admin's client ids are validated against their scope), so service-role
+    // is safe. Same precedent as /api/bos/compositions, /meetings, /lookup/*.
+    const db = createServiceRoleClient();
+    // CAS-aware: POs may be entered under either sibling regulation of the same
+    // code (Aided/SF), so query across both.
+    const regIds = await resolveCasRegulationIds(db, regulationId);
+    let query = db
       .from('bos_programme_outcomes')
       .select('*')
-      .eq('regulation_id', regulationId)
+      .in('regulation_id', regIds)
       .eq('programme_code', programmeCode.toUpperCase());
 
     if (filterIds.length === 1) {

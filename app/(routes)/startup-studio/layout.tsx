@@ -4,5 +4,5 @@
 import type { ReactNode } from 'react';
 import { RoutePermissionGuard } from '@/components/auth/route-permission-guard';
 export default function StartupStudioLayout({ children }: { children: ReactNode }) {
-  return <RoutePermissionGuard exemptPrefixes={{['/startup-studio/solve-for-100/leaderboard']}}>{children}</RoutePermissionGuard>;
+  return <RoutePermissionGuard exemptPrefixes={['/startup-studio/solve-for-100/leaderboard']}>{children}</RoutePermissionGuard>;
 }
