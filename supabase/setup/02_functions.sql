@@ -7884,6 +7884,8 @@ DECLARE
   v_current learners_profiles%ROWTYPE;
   v_new_app_id text;
   v_caller uuid := auth.uid();
+  v_cohort_year int;
+  v_target_admission_year_id uuid;
 BEGIN
   IF NOT (
     is_super_admin()
@@ -7926,6 +7928,24 @@ BEGIN
     RAISE EXCEPTION 'Program % does not belong to department %', p_new_program_id, p_new_department_id;
   END IF;
 
+  -- Re-map admission_year_id to the TARGET institution's cohort (admission_years
+  -- is institution-scoped). Keep the same calendar year as the learner's current
+  -- cohort; NULL when the target has no cohort for that year.
+  IF v_current.admission_year_id IS NOT NULL THEN
+    SELECT ay.year INTO v_cohort_year
+      FROM public.admission_years ay
+     WHERE ay.id = v_current.admission_year_id;
+
+    IF v_cohort_year IS NOT NULL THEN
+      SELECT ay.id INTO v_target_admission_year_id
+        FROM public.admission_years ay
+       WHERE ay.institution_id = p_new_institution_id
+         AND ay.year = v_cohort_year
+       ORDER BY ay.is_active DESC, ay.created_at ASC
+       LIMIT 1;
+    END IF;
+  END IF;
+
   v_new_app_id := generate_learner_application_id(p_new_institution_id);
 
   UPDATE learners_profiles SET
@@ -7936,6 +7956,7 @@ BEGIN
     semester_id       = p_new_semester_id,
     section_id        = p_new_section_id,
     academic_year_id  = p_new_academic_year_id,
+    admission_year_id = v_target_admission_year_id,
     regulation_id     = p_new_regulation_id,
     batch_id          = p_new_batch_id,
     roll_number       = NULL,
@@ -7958,6 +7979,7 @@ BEGIN
         'semester_id',    v_current.semester_id,
         'section_id',     v_current.section_id,
         'academic_year_id', v_current.academic_year_id,
+        'admission_year_id', v_current.admission_year_id,
         'regulation_id',  v_current.regulation_id,
         'batch_id',       v_current.batch_id,
         'roll_number',    v_current.roll_number
@@ -7971,6 +7993,7 @@ BEGIN
         'semester_id',    p_new_semester_id,
         'section_id',     p_new_section_id,
         'academic_year_id', p_new_academic_year_id,
+        'admission_year_id', v_target_admission_year_id,
         'regulation_id',  p_new_regulation_id,
         'batch_id',       p_new_batch_id,
         'roll_number',    NULL
