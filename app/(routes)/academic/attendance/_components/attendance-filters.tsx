@@ -234,6 +234,30 @@ export function AttendanceFilters({
     }
   }, [profile?.role, profile?.department_id, searchContext.department_id, departments, onContextChange, isSuperAdmin]);
 
+  // Updated: 2026-06-19 (FIX 7) - When an institution has exactly ONE degree, auto-select it.
+  // Schools (where "Department" is shown as "Wing") typically have a single degree, and the
+  // Wing/Department dropdown is disabled until a degree is picked — so a single trivial choice
+  // left the Wing dropdown stuck/disabled. Auto-selecting the sole option un-sticks it.
+  // Guard with the institution_id match to avoid the placeholderData stale-list race in
+  // useDegrees (the previous institution's degrees can linger for one render after a switch).
+  // [BUG-004231, BUG-004188, BUG-004187]
+  useEffect(() => {
+    if (
+      !isSuperAdmin &&
+      searchContext.institution_id &&
+      !searchContext.degree_id &&
+      degrees.length === 1
+    ) {
+      const onlyDegree = degrees[0] as { id: string; institution_id?: string };
+      if (
+        !onlyDegree.institution_id ||
+        onlyDegree.institution_id === searchContext.institution_id
+      ) {
+        onContextChange({ degree_id: onlyDegree.id });
+      }
+    }
+  }, [isSuperAdmin, searchContext.institution_id, searchContext.degree_id, degrees, onContextChange]);
+
   // Check if HOD's department belongs to the currently selected degree
   const isHodDepartmentInCurrentDegree =
     profile?.role === 'hod' &&
