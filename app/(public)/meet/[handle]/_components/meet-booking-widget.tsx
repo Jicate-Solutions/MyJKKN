@@ -18,12 +18,17 @@ import {
   CheckCircle2,
   ChevronLeft,
   Clock,
+  CreditCard,
   Loader2,
   MapPin,
   Phone,
   UserRound,
   Video,
 } from 'lucide-react';
+import {
+  BookingTrackingScripts,
+  getBookingPixelConfig,
+} from '@/lib/services/analytics/booking-pixel-service';
 
 interface MeetingTypeOption {
   id: string;
@@ -52,7 +57,94 @@ interface SlotsResponse {
   // Wave-3: variant kind + (group only) remaining seats keyed by ISO start.
   kind?: 'solo' | 'group' | 'collective' | 'round_robin';
   seatsByStart?: Record<string, number> | null;
+  // Wave-3 (B): paid bookings — deposit requirement + public Razorpay key.
+  requiresDeposit?: boolean;
+  depositAmountPaise?: number | null;
+  razorpayKeyId?: string | null;
   error?: string;
+}
+
+// Razorpay Checkout injects a global constructor when its script loads.
+interface RazorpayCheckoutOptions {
+  key: string;
+  amount: number;
+  currency: string;
+  name: string;
+  description?: string;
+  order_id: string;
+  prefill?: { name?: string; email?: string; contact?: string };
+  theme?: { color?: string };
+  handler: (resp: {
+    razorpay_payment_id: string;
+    razorpay_order_id: string;
+    razorpay_signature: string;
+  }) => void;
+  modal?: { ondismiss?: () => void };
+}
+interface RazorpayInstance {
+  open: () => void;
+}
+declare global {
+  interface Window {
+    Razorpay?: new (options: RazorpayCheckoutOptions) => RazorpayInstance;
+  }
+}
+
+const RAZORPAY_CHECKOUT_SRC = 'https://checkout.razorpay.com/v1/checkout.js';
+
+/** Load the Razorpay Checkout script once; resolves false if it can't load. */
+function loadRazorpayCheckout(): Promise<boolean> {
+  if (typeof window === 'undefined') return Promise.resolve(false);
+  if (window.Razorpay) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const existing = document.querySelector<HTMLScriptElement>(
+      `script[src="${RAZORPAY_CHECKOUT_SRC}"]`,
+    );
+    if (existing) {
+      existing.addEventListener('load', () => resolve(!!window.Razorpay), { once: true });
+      existing.addEventListener('error', () => resolve(false), { once: true });
+      // Already loaded in a prior attempt.
+      if (window.Razorpay) resolve(true);
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = RAZORPAY_CHECKOUT_SRC;
+    s.async = true;
+    s.onload = () => resolve(!!window.Razorpay);
+    s.onerror = () => resolve(false);
+    document.body.appendChild(s);
+  });
+}
+
+/** Plain ₹ from paise for the deposit label. */
+function rupeesFromPaise(paise: number): string {
+  return `₹${(paise / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Fire the booking-conversion event into whichever pixels are configured. Uses
+ * the shared getBookingPixelConfig() to decide which globals exist; the
+ * <BookingTrackingScripts /> loader (mounted by the public layout) injects
+ * window.gtag / window.fbq. Safe no-op when nothing is configured — analytics
+ * must never break a booking, so every call is wrapped/guarded.
+ */
+function fireBookingConversion(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const { ga4MeasurementId, metaPixelId } = getBookingPixelConfig();
+    const w = window as unknown as {
+      gtag?: (...args: unknown[]) => void;
+      fbq?: (...args: unknown[]) => void;
+    };
+    if (ga4MeasurementId && typeof w.gtag === 'function') {
+      w.gtag('event', 'generate_lead', { event_category: 'booking', value: 1 });
+    }
+    if (metaPixelId && typeof w.fbq === 'function') {
+      w.fbq('track', 'Schedule');
+    }
+  } catch {
+    /* never let a pixel error surface to the booker */
+  }
 }
 
 type Step = 'type' | 'time' | 'details' | 'done';
@@ -110,7 +202,9 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
   const [form, setForm] = useState({ name: '', email: '', phone: '', note: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmation, setConfirmation] = useState<{ uid: string; start: string } | null>(null);
+  const [confirmation, setConfirmation] = useState<
+    { uid: string; start: string; videoUrl: string | null } | null
+  >(null);
 
   // Regroup the API's day buckets BY IST DATE (see header comment).
   const istDays = useMemo(() => {
@@ -149,6 +243,60 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
     }
   }
 
+  const bookUrl = `/api/public/meet/${props.handle}/${selectedType?.slug ?? ''}/book`;
+
+  /**
+   * POST the confirm step. `payment` carries verified Razorpay fields for a
+   * deposit type. Handles the slot-taken race, success (pixel + confirmation +
+   * redirect), and surfaces errors.
+   */
+  async function finalizeBooking(payment?: {
+    razorpayOrderId: string;
+    razorpayPaymentId: string;
+    razorpaySignature: string;
+  }): Promise<void> {
+    if (!selectedType || !selectedStart) return;
+    const res = await fetch(bookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        start: selectedStart,
+        name: form.name,
+        email: form.email,
+        phone: form.phone,
+        note: form.note,
+        honeypot: '',
+        ...(payment ?? {}),
+      }),
+    });
+    const json = await res.json();
+    if (res.status === 409) {
+      setError('That time was just taken — please pick another slot.');
+      await pickType(selectedType); // refresh slots, stay on time step
+      return;
+    }
+    if (!res.ok || !json.success) {
+      throw new Error(json.error || 'Could not complete the booking.');
+    }
+    // GA4 generate_lead / Meta Schedule (no-op when no pixel is configured).
+    fireBookingConversion();
+    setConfirmation({
+      uid: json.uid,
+      start: selectedStart,
+      videoUrl: typeof json.videoUrl === 'string' ? json.videoUrl : null,
+    });
+    setStep('done');
+    // Wave-3 lifecycle: if the meeting type defines a post-booking redirect,
+    // send the booker there (the API only returns safe http(s)/relative URLs).
+    // Show the confirmation stub briefly first so the redirect isn't jarring.
+    if (typeof json.redirectUrl === 'string' && json.redirectUrl) {
+      const target = json.redirectUrl as string;
+      window.setTimeout(() => {
+        window.location.href = target;
+      }, 1200);
+    }
+  }
+
   async function submitBooking() {
     if (!selectedType || !selectedStart) return;
     if (!form.name.trim() || !form.email.trim()) {
@@ -158,10 +306,18 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
     setError(null);
     setBusy(true);
     try {
-      const res = await fetch(`/api/public/meet/${props.handle}/${selectedType.slug}/book`, {
+      // Free type → confirm directly. Deposit type → create an order, open
+      // Razorpay Checkout, then confirm with the verified payment.
+      if (!slots?.requiresDeposit) {
+        await finalizeBooking();
+        return;
+      }
+
+      const orderRes = await fetch(bookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          mode: 'order',
           start: selectedStart,
           name: form.name,
           email: form.email,
@@ -170,26 +326,52 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
           honeypot: '',
         }),
       });
-      const json = await res.json();
-      if (res.status === 409) {
-        setError('That time was just taken — please pick another slot.');
-        await pickType(selectedType); // refresh slots, stay on time step
+      const orderJson = await orderRes.json();
+      if (!orderRes.ok || !orderJson.success) {
+        throw new Error(orderJson.error || 'Could not start payment.');
+      }
+      // Server decided no payment is needed (e.g. Razorpay unconfigured) →
+      // fall back to a free confirm so the booker is never dead-ended.
+      if (!orderJson.requiresPayment) {
+        await finalizeBooking();
         return;
       }
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || 'Could not complete the booking.');
+
+      const ready = await loadRazorpayCheckout();
+      if (!ready || !window.Razorpay) {
+        throw new Error('Could not load the payment window. Please try again.');
       }
-      setConfirmation({ uid: json.uid, start: selectedStart });
-      setStep('done');
-      // Wave-3 lifecycle: if the meeting type defines a post-booking redirect,
-      // send the booker there (the API only returns safe http(s)/relative URLs).
-      // Show the confirmation stub briefly first so the redirect isn't jarring.
-      if (typeof json.redirectUrl === 'string' && json.redirectUrl) {
-        const target = json.redirectUrl as string;
-        window.setTimeout(() => {
-          window.location.href = target;
-        }, 1200);
-      }
+
+      // Open Checkout; resolve once the booking is confirmed or the modal closes.
+      await new Promise<void>((resolve, reject) => {
+        const rzp = new window.Razorpay!({
+          key: orderJson.keyId as string,
+          amount: orderJson.amountPaise as number,
+          currency: 'INR',
+          name: props.institutionName ?? 'JKKN Institutions',
+          description: `${selectedType.title} — deposit`,
+          order_id: orderJson.orderId as string,
+          prefill: { name: form.name, email: form.email, contact: form.phone || undefined },
+          theme: { color: '#0E4D34' },
+          handler: (resp) => {
+            // Verify + confirm server-side. Surface any failure to the booker.
+            finalizeBooking({
+              razorpayOrderId: resp.razorpay_order_id,
+              razorpayPaymentId: resp.razorpay_payment_id,
+              razorpaySignature: resp.razorpay_signature,
+            })
+              .then(resolve)
+              .catch(reject);
+          },
+          modal: {
+            ondismiss: () => {
+              // Booker closed Checkout without paying — not an error, just stop.
+              reject(new Error('Payment was not completed. Your slot is still open.'));
+            },
+          },
+        });
+        rzp.open();
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not complete the booking.');
     } finally {
@@ -204,6 +386,10 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
       className="min-h-screen bg-[#FAF7F0] text-[#1C2B24]"
       style={{ fontFamily: 'var(--font-ibm-plex-sans), sans-serif' }}
     >
+      {/* GA4 + Meta Pixel base code for the public booking funnel. Self-disables
+          when neither NEXT_PUBLIC id is set; the confirmation fires the
+          conversion event via fireBookingConversion(). */}
+      <BookingTrackingScripts />
       <div className="h-2 w-full bg-[#0E4D34]" />
       <div className="mx-auto flex min-h-[calc(100vh-0.5rem)] w-full max-w-md flex-col px-5 pb-10 pt-8">
         {/* Host header */}
@@ -402,6 +588,17 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
               />
             </label>
 
+            {slots?.requiresDeposit && typeof slots.depositAmountPaise === 'number' && (
+              <div className="flex items-center gap-2 rounded-md border border-[#0E4D34]/20 bg-[#0E4D34]/5 px-3 py-2.5 text-xs text-[#1C2B24]/80">
+                <CreditCard className="h-4 w-4 shrink-0 text-[#0E4D34]" aria-hidden />
+                <span>
+                  A deposit of{' '}
+                  <strong>{rupeesFromPaise(slots.depositAmountPaise)}</strong> is
+                  required to confirm. You&rsquo;ll pay securely on the next screen.
+                </span>
+              </div>
+            )}
+
             <button
               type="button"
               onClick={submitBooking}
@@ -410,10 +607,16 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
             >
               {busy ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : slots?.requiresDeposit ? (
+                <CreditCard className="h-4 w-4" aria-hidden />
               ) : (
                 <UserRound className="h-4 w-4" aria-hidden />
               )}
-              {busy ? 'Booking…' : 'Confirm booking'}
+              {busy
+                ? 'Booking…'
+                : slots?.requiresDeposit && typeof slots.depositAmountPaise === 'number'
+                  ? `Pay ${rupeesFromPaise(slots.depositAmountPaise)} & confirm`
+                  : 'Confirm booking'}
             </button>
           </div>
         )}
@@ -431,9 +634,20 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
             <p className="mt-1 text-sm text-[#1C2B24]/70">
               <LocationLine mt={selectedType} />
             </p>
+            {confirmation.videoUrl && (
+              <a
+                href={confirmation.videoUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-[#0E4D34] px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#0a3b28]"
+              >
+                <Video className="h-4 w-4" aria-hidden /> Join the meeting
+              </a>
+            )}
             <p className="mt-3 text-xs text-[#1C2B24]/55">
-              A confirmation email with the details — and a cancel link if your
-              plans change — is on its way to {form.email}.
+              A confirmation email with the details
+              {confirmation.videoUrl ? ' and the join link' : ''} — and a cancel
+              link if your plans change — is on its way to {form.email}.
             </p>
             <p className="mt-2 text-xs text-[#1C2B24]/50">Reference: {confirmation.uid}</p>
           </div>
