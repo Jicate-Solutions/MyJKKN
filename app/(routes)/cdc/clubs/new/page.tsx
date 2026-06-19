@@ -17,6 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select';
 import { useCreateClub } from '@/hooks/cdc/use-cdc-clubs';
+import type { CdcClubStatus } from '@/types/cdc/clubs';
 
 const CLUB_TYPES = [
   { value: 'technical', label: 'Technical' },
@@ -28,6 +29,12 @@ const CLUB_TYPES = [
   { value: 'other', label: 'Other' },
 ];
 
+const CLUB_STATUSES: { value: CdcClubStatus; label: string; hint: string }[] = [
+  { value: 'active', label: 'Active', hint: 'Running now — visible to students' },
+  { value: 'inactive', label: 'Inactive', hint: 'Wound down / paused — hidden from students' },
+  { value: 'upcoming', label: 'Upcoming', hint: 'Planned but not yet started' },
+];
+
 export default function NewClubPage() {
   const router = useRouter();
   const createClub = useCreateClub();
@@ -37,6 +44,7 @@ export default function NewClubPage() {
   const [clubType, setClubType] = useState('');
   const [clubTypeOther, setClubTypeOther] = useState('');
   const [formedOn, setFormedOn] = useState('');
+  const [status, setStatus] = useState<CdcClubStatus>('active');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,6 +59,7 @@ export default function NewClubPage() {
       description: description || undefined,
       club_type: resolvedClubType,
       formed_on: formedOn || undefined,
+      status,
     });
 
     router.push('/cdc/clubs');
@@ -108,6 +117,23 @@ export default function NewClubPage() {
                     placeholder="Enter custom type"
                   />
                 )}
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="status">Status</Label>
+                <Select value={status} onValueChange={v => setStatus(v as CdcClubStatus)}>
+                  <SelectTrigger id="status">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CLUB_STATUSES.map(s => (
+                      <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-gray-400">
+                  {CLUB_STATUSES.find(s => s.value === status)?.hint}
+                </p>
               </div>
 
               <div className="space-y-1">
