@@ -6,7 +6,23 @@ import type {
   UpdateHostelAllocationDTO,
   AllocationFilters,
   VacateReason,
+  RoomBedOccupancy,
+  AllocatableRoom,
 } from '@/types/campus-living';
+
+// Row shape returned by fn_cl_transfer_room_options (transfer-modal availability).
+export interface TransferRoomOption {
+  room_id: string;
+  room_number: string;
+  room_type: string | null;
+  floor: number | null;
+  category_id: string | null;
+  category_name: string | null;
+  category_type: string | null;
+  total_beds: number;
+  free_beds: number;
+  occupied_beds: number;
+}
 
 export class HostelAllocationService {
   // ── List allocations with filters ─────────────────────────────────
@@ -214,6 +230,64 @@ export class HostelAllocationService {
     }
   }
 
+  // ── Room bed occupancy (fn_cl_room_bed_occupancy) ────────────────
+  // Returns one row per bed in the room: is_occupied + occupant details.
+  // Used by the manual-allocation dialog to show which beds are free.
+  static async getRoomBedOccupancy(roomId: string): Promise<RoomBedOccupancy[]> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc('fn_cl_room_bed_occupancy', { p_room_id: roomId });
+    if (error) {
+      logger.error('campus-living/allocations', 'Failed to load room occupancy', error);
+      throw error;
+    }
+    return (data ?? []) as RoomBedOccupancy[];
+  }
+
+  // ── Allocatable rooms (fn_cl_admin_allocatable_rooms) ─────────────
+  // Rooms in a block the learner can actually be allocated to — physical
+  // (student room, gender, institution-serving, cohort eligibility, free beds)
+  // + category conditions applied server-side. Drives the dialog's room picker.
+  static async getAllocatableRooms(
+    learnerProfileId: string,
+    blockId: string,
+  ): Promise<AllocatableRoom[]> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc('fn_cl_admin_allocatable_rooms', {
+      p_learner_profile_id: learnerProfileId,
+      p_block_id: blockId,
+    });
+    if (error) {
+      logger.error('campus-living/allocations', 'Failed to load allocatable rooms', error);
+      throw error;
+    }
+    return (data ?? []) as AllocatableRoom[];
+  }
+
+  // ── Admin allocate bed (fn_cl_admin_allocate_bed) ─────────────────
+  // SECURITY DEFINER RPC that creates a new active allocation atomically,
+  // updating bed status. Gated on campus_living.upgrades.manage (super-admin +
+  // the 5 hostel-admin roles) — NOT .allocations.* / .residents.edit, which are
+  // mass-granted to every role and useless as a privilege gate.
+  static async adminAllocateBed(args: {
+    learnerProfileId: string;
+    roomId: string;
+    bedId: string;
+    messCategoryId?: string | null;
+  }): Promise<{ success: boolean; allocation_id: string }> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc('fn_cl_admin_allocate_bed', {
+      p_learner_profile_id: args.learnerProfileId,
+      p_room_id: args.roomId,
+      p_bed_id: args.bedId,
+      p_mess_category_id: args.messCategoryId ?? null,
+    });
+    if (error) {
+      logger.error('campus-living/allocations', 'Failed to allocate bed', error);
+      throw error;
+    }
+    return data as { success: boolean; allocation_id: string };
+  }
+
   // ── Bulk allocate ─────────────────────────────────────────────────
   static async bulkAllocate(allocations: CreateHostelAllocationDTO[]) {
     try {
@@ -257,6 +331,13 @@ export class HostelAllocationService {
   }
 
   // ── Transfer to different room/bed ────────────────────────────────
+  // Routes through fn_cl_admin_transfer_allocation (SECURITY DEFINER) instead of
+  // a bare hostel_allocations UPDATE so the move is atomic AND keeps the bed
+  // inventory invariant: the old bed is freed (status='available',
+  // current_occupant_id NULL) and the new bed is occupied (status='occupied',
+  // current_occupant_id = learner). A plain row update left the old bed stuck
+  // 'occupied' and the new bed bookable by someone else. Gated on
+  // campus_living.upgrades.manage (super-admin + the 5 hostel-admin roles).
   static async transfer(
     allocationId: string,
     newRoomId: string,
@@ -265,27 +346,40 @@ export class HostelAllocationService {
   ) {
     try {
       const supabase = createClientSupabaseClient();
-      const updatePayload: Record<string, unknown> = {
-        room_id: newRoomId,
-        bed_id: newBedId,
-        allocation_type: 'transfer',
-      };
-      if (newBlockId) updatePayload.block_id = newBlockId;
-
-      const { data, error } = await supabase
-        .from('hostel_allocations')
-        .update(updatePayload)
-        .eq('id', allocationId)
-        .select()
-        .single();
+      const { data, error } = await supabase.rpc('fn_cl_admin_transfer_allocation', {
+        p_allocation_id: allocationId,
+        p_room_id: newRoomId,
+        p_bed_id: newBedId,
+        p_block_id: newBlockId ?? null,
+      });
 
       if (error) {
         logger.error('campus-living/allocations', 'Failed to transfer allocation', error);
         throw error;
       }
-      return data as HostelAllocation;
+      return data as { success: boolean; allocation_id: string; room_id: string; bed_id: string; block_id: string; freed_bed_id: string | null };
     } catch (error) {
       logger.error('campus-living/allocations', 'Unexpected error in transfer', error);
+      throw error;
+    }
+  }
+
+  // Category-wise room/bed availability for the transfer modal: every room in
+  // the block with its category + free/total bed counts (aggregated server-side
+  // via fn_cl_transfer_room_options). Gated on campus_living.upgrades.manage.
+  static async getTransferRoomOptions(blockId: string) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase.rpc('fn_cl_transfer_room_options', {
+        p_block_id: blockId,
+      });
+      if (error) {
+        logger.error('campus-living/allocations', 'Failed to fetch transfer room options', error);
+        throw error;
+      }
+      return (data ?? []) as TransferRoomOption[];
+    } catch (error) {
+      logger.error('campus-living/allocations', 'Unexpected error in getTransferRoomOptions', error);
       throw error;
     }
   }

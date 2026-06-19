@@ -6,6 +6,32 @@ body {
   font-family: var(--font-poppins), var(--font-noto-tamil), Arial, Helvetica, sans-serif;
 }
 
+/* Pin the last (row-action) column of a DataTable to the right edge so the
+   action stays reachable when the table overflows horizontally — e.g. the
+   Hostel Allocations table when the sidebar is expanded. Opt-in: only tables
+   wrapped in .pinned-actions-col are affected, every other DataTable is
+   untouched. Unlayered so it reliably wins over Tailwind's utility layer. */
+.pinned-actions-col .table-container table thead th:last-child,
+.pinned-actions-col .table-container table tbody td:last-child {
+  position: sticky;
+  right: 0;
+  background: hsl(var(--background));
+  box-shadow: -6px 0 8px -8px rgb(0 0 0 / 0.25);
+}
+.pinned-actions-col .table-container table thead th:last-child {
+  z-index: 3;
+}
+.pinned-actions-col .table-container table tbody td:last-child {
+  z-index: 2;
+}
+/* Match the row's hover surface (bg-muted/50 over the base background) so the
+   pinned cell doesn't read as a different colour while staying fully opaque. */
+.pinned-actions-col .table-container table tbody tr:hover td:last-child {
+  background:
+    linear-gradient(hsl(var(--muted) / 0.5), hsl(var(--muted) / 0.5)),
+    hsl(var(--background));
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;

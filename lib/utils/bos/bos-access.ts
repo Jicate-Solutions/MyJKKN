@@ -129,6 +129,35 @@ export function readableInstitutionIds(scope: BosAccessScope): string[] | null {
   return scope.institutionsId ? [scope.institutionsId] : [];
 }
 
+/**
+ * Counselling-code counterpart of `readableInstitutionIds`, for reads that
+ * filter on the denormalized `bos_*.counselling_code` column (added 2026-06-18).
+ *
+ * Because both CAS siblings share one counselling_code, we only need the user's
+ * OWN institution's code — no sibling-pair reconstruction. Apply as:
+ *   const codes = await readableCounsellingCodes(scope);
+ *   if (codes === null) { /* super-admin → no filter *\/ }
+ *   else if (codes.length === 0) { /* deny → empty *\/ }
+ *   else query = query.in('counselling_code', codes);
+ *
+ * Returns:
+ *  - null for super-admin (no filter).
+ *  - [] when the user has no institution (deny).
+ *  - [code] for a normal user (covers the CAS pair via the shared code).
+ */
+export async function readableCounsellingCodes(scope: BosAccessScope): Promise<string[] | null> {
+  if (scope.isSuperAdmin) return null;
+  if (!scope.institutionsId) return [];
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('institutions')
+    .select('counselling_code')
+    .eq('id', scope.institutionsId)
+    .maybeSingle();
+  const code = (data?.counselling_code as string | undefined) ?? null;
+  return code ? [code] : [];
+}
+
 export function applyInstitutionScope(
   scope: BosAccessScope,
   clientInstitutionsId: string | null | undefined

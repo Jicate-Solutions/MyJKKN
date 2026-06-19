@@ -10,7 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Pencil, Trash2, Eye, MoreHorizontal } from 'lucide-react';
+import { Pencil, Trash2, Eye, MoreHorizontal, ArrowRightLeft, BedDouble } from 'lucide-react';
 import type { LearnerHostelite } from '@/types/campus-living';
 import { formatCurrency } from '@/lib/utils';
 
@@ -21,11 +21,14 @@ function fullName(l: LearnerHostelite): string {
 
 export interface LearnerColumnHandlers {
   canEdit: boolean;
+  canAllocate: boolean;
   isSuperAdmin: boolean;
   instName: (id: string) => string;
   onView: (learner: LearnerHostelite) => void;
   onEdit: (learner: LearnerHostelite) => void;
   onRemove: (learner: LearnerHostelite) => void;
+  onAllocate: (learner: LearnerHostelite) => void;
+  onChangeRoom: (learner: LearnerHostelite) => void;
 }
 
 // Column order: Roll, Name, Institution (super-admin only), Program,
@@ -112,6 +115,31 @@ export function getLearnerColumns(
       return <span className='text-sm'>{name}{code ? ` (${code})` : ''}</span>;
     },
     size: 160,
+  };
+
+  const currentRoomCol: ColumnDef<LearnerHostelite> = {
+    id: 'current_room',
+    header: 'Current Room',
+    cell: ({ row }) => {
+      const r = row.original.current_room_number;
+      if (!r) return <span className="text-sm text-muted-foreground">—</span>;
+      const bed = row.original.current_bed_number;
+      return <span className="text-sm">{r}{bed ? ` · Bed ${bed}` : ''}</span>;
+    },
+    enableSorting: false,
+    size: 130,
+  };
+
+  const messCategoryCol: ColumnDef<LearnerHostelite> = {
+    id: 'mess_category',
+    accessorFn: (r) => r.mess_category_name,
+    header: 'Mess Category',
+    cell: ({ row }) =>
+      row.original.mess_category_name
+        ? <span className="text-sm">{row.original.mess_category_name}</span>
+        : <span className="text-sm text-muted-foreground">—</span>,
+    enableSorting: false,
+    size: 140,
   };
 
   // Current room category (learners_profiles.hostel_category_id → name via
@@ -202,6 +230,17 @@ export function getLearnerColumns(
             <DropdownMenuItem onClick={() => h.onView(row.original)}>
               <Eye className='mr-2 h-4 w-4' /> View details
             </DropdownMenuItem>
+            {h.canAllocate && (
+              row.original.current_allocation_id ? (
+                <DropdownMenuItem onClick={() => h.onChangeRoom(row.original)}>
+                  <ArrowRightLeft className='mr-2 h-4 w-4' /> Change room / bed
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem onClick={() => h.onAllocate(row.original)}>
+                  <BedDouble className='mr-2 h-4 w-4' /> Allocate room
+                </DropdownMenuItem>
+              )
+            )}
             {h.canEdit && (
               <DropdownMenuItem onClick={() => h.onEdit(row.original)}>
                 <Pencil className='mr-2 h-4 w-4' /> Edit hostel details
@@ -230,6 +269,8 @@ export function getLearnerColumns(
     semesterCol,
     academicYearCol,
     blockCol,
+    currentRoomCol,
+    messCategoryCol,
     roomCategoryCol,
     statusCol,
     billsCol,

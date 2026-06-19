@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
+import { counsellingCodeFor } from '@/lib/utils/bos/institution-scope';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -20,8 +21,10 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Fetch all latest syllabi for institution
-    const { data: syllabi, error: syllError } = await supabase
+    // CAS-aware via the denormalized counselling_code (shared by Aided + SF).
+    const code = await counsellingCodeFor(supabase, institutionsId);
+
+    let healthQuery = supabase
       .from('bos_course_syllabi')
       .select(`
         id,
@@ -36,9 +39,14 @@ export async function GET(request: Request) {
         web_resources,
         pedagogy
       `)
-      .eq('institutions_id', institutionsId)
       .eq('is_latest', true)
       .eq('is_archived', false);
+    healthQuery = code
+      ? healthQuery.eq('counselling_code', code)
+      : healthQuery.eq('institutions_id', institutionsId);
+
+    // Fetch all latest syllabi for institution
+    const { data: syllabi, error: syllError } = await healthQuery;
 
     if (syllError) throw syllError;
 

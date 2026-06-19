@@ -307,6 +307,20 @@ export const POLICY_KEYS = {
   BED_ECON_COLLECTION_TARGET_PCT: 'bed_econ.collection_target_pct',
   BED_ECON_STALE_VACANCY_DAYS: 'bed_econ.stale_vacancy_days',
   BED_ECON_HOUSEKEEPING_COST_PER_ROOM_MONTH: 'bed_econ.housekeeping_cost_per_room_month',
+
+  // Social Governance (Director's-View consequences surface, 2026-06-18) -------
+  // The thresholds and flags behind /admission/social/governance. Each value is
+  // read via fn_get_policy and turned into a plain-English consequence computed
+  // against the live metrics tables. The platform_policies rows for these keys
+  // are seeded by a sibling agent's migration; until then the policy readers
+  // fail-soft to documented code defaults (see app/api/social/governance/route.ts).
+  // Constant strings here MUST match the policy_key values that migration seeds.
+  // Edited via /admission/social/admin/policies (super-admin).
+  SOCIAL_DORMANCY_THRESHOLD_DAYS: 'social.dormancy_threshold_days',
+  SOCIAL_COMPLIANCE_MIN_FOLLOWERS: 'social.compliance.min_followers',
+  SOCIAL_COMPLIANCE_MIN_POSTS: 'social.compliance.min_posts',
+  SOCIAL_FOLLOWBACK_RATIO_THRESHOLD: 'social.followback_ratio_threshold',
+  SOCIAL_REALTIME_ENABLED: 'social.realtime_enabled',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];

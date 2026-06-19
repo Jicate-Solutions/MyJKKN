@@ -1930,7 +1930,25 @@ export const PERMISSION_CATEGORIES = [
     name: 'Meetings',
     key: 'meetings',
     permissions: [
-      { key: 'meetings.view', label: 'View Meetings Module' }
+      { key: 'meetings.view', label: 'View Meetings Module' },
+      // Universal Booking module reconcile (2026-06-19): catalog keys for the
+      // 8 Calendly-parity surfaces merged in PRs #1466–#1474. RLS on the
+      // routing/workflows/polls/contacts/webhooks tables references these via
+      // user_has_permission(); registering them here makes them grantable in
+      // Role Management. Super-admin bypass still applies.
+      { key: 'meetings.routing.view', label: 'View Routing Forms' },
+      { key: 'meetings.routing.manage', label: 'Manage Routing Forms' },
+      { key: 'meetings.workflows.view', label: 'View Workflows' },
+      { key: 'meetings.workflows.create', label: 'Create Workflows' },
+      { key: 'meetings.workflows.edit', label: 'Edit Workflows' },
+      { key: 'meetings.workflows.delete', label: 'Delete Workflows' },
+      { key: 'meetings.polls.view', label: 'View Meeting Polls' },
+      { key: 'meetings.polls.manage', label: 'Manage Meeting Polls' },
+      { key: 'meetings.contacts.view', label: 'View Contacts' },
+      { key: 'meetings.embed.manage', label: 'Manage Embed & Theming' },
+      { key: 'meetings.analytics.view', label: 'View Meeting Analytics' },
+      { key: 'meetings.webhooks.view', label: 'View Webhooks' },
+      { key: 'meetings.webhooks.manage', label: 'Manage Webhooks' }
     ]
   },
   // ======================================================================
@@ -2109,7 +2127,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'social.meta_audiences.view', label: 'View Meta Audiences' },
       { key: 'social.meta_audiences.manage', label: 'Manage Meta Audiences' },
       { key: 'social.messenger.view', label: 'View Messenger / Instagram Inbox' },
-      { key: 'social.messenger.send', label: 'Send Messenger / Instagram Replies' }
+      { key: 'social.messenger.send', label: 'Send Messenger / Instagram Replies' },
+      // Added 2026-06-18 — Director's-View governance consequences surface.
+      // Read-only page at /admission/social/governance that turns each live
+      // social policy value into a plain-English consequence ("threshold = N
+      // days → M handles flagged dormant"). Gated alongside social.view today;
+      // its own key keeps future fine-grained control available.
+      { key: 'social.governance.view', label: "View Social Governance (Director's View)" }
     ]
   },
   // Added 2026-06-15 — catalog-coverage fix. MENU_PERMISSIONS enforces

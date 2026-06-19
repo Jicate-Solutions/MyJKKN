@@ -4,16 +4,8 @@ import {
   AlertCircle,
   Building2,
   RefreshCw,
-  Users,
-  HelpCircle,
-  Send,
   Landmark,
-  BookmarkCheck,
-  GraduationCap,
-  XCircle,
-  LayoutGrid,
-  Gauge,
-  type LucideIcon,
+  School,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -24,8 +16,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useQueryClient } from '@tanstack/react-query';
 import { useGroupDashboard, useSeatAnalytics, groupDashboardKeys } from '@/hooks/admission/use-group-dashboard';
 import { admissionAccreditationKeys } from '@/hooks/admission/use-admission-accreditation-report';
-import { InstitutionComparisonTable } from './_components/institution-comparison-table';
-import { GroupFunnelChart, InstitutionPerformanceChart } from './_components/overview-charts';
+import { EntityOverviewSection } from './_components/entity-overview-section';
+import { TONES, LIFECYCLE_KPI_CARDS } from './_components/kpi-config';
 import { SeatAnalyticsDashboard } from './_components/seat-analytics-dashboard';
 import { SourceAnalyticsTab } from './_components/source-analytics-tab';
 import { GeographyAnalyticsTab } from './_components/geography-analytics-tab';
@@ -95,52 +87,10 @@ function resolveDrilldownRole(
  * 'active' previously passed through 'admitted' (sequential gates in the
  * payment-driven RPC), so we sum both for the headline KPI.
  */
-// 2026-05-21: each card now carries an icon + tone for visual identity.
-// Tones mirror the lifecycle palette used by enquiry status badges +
-// billing schedule badges (amber=account, purple=reserved, etc) so the
-// dashboard echoes the colour vocabulary users already learned. The three
-// non-lifecycle metrics (Total Leads / Total Seats / Fill Rate) get
-// distinct hues (indigo / blue / cyan).
-type CardTone = {
-  /** Tailwind classes for the icon disc background + foreground colour. */
-  disc: string;
-  /** Tailwind classes for the card's coloured left-border accent. */
-  accent: string;
-  /** Tailwind classes for the subtle gradient background overlay. */
-  bg: string;
-  /** Tailwind class for the value text colour. */
-  value: string;
-};
-
-const TONES: Record<string, CardTone> = {
-  indigo:  { disc: 'bg-indigo-100  text-indigo-700',  accent: 'border-l-indigo-400',  bg: 'from-indigo-50/60 to-transparent',  value: 'text-indigo-900' },
-  slate:   { disc: 'bg-slate-100   text-slate-700',   accent: 'border-l-slate-400',   bg: 'from-slate-50/60 to-transparent',   value: 'text-slate-900' },
-  sky:     { disc: 'bg-sky-100     text-sky-700',     accent: 'border-l-sky-400',     bg: 'from-sky-50/60 to-transparent',     value: 'text-sky-900' },
-  amber:   { disc: 'bg-amber-100   text-amber-800',   accent: 'border-l-amber-400',   bg: 'from-amber-50/60 to-transparent',   value: 'text-amber-900' },
-  purple:  { disc: 'bg-purple-100  text-purple-700',  accent: 'border-l-purple-400',  bg: 'from-purple-50/60 to-transparent',  value: 'text-purple-900' },
-  emerald: { disc: 'bg-emerald-100 text-emerald-700', accent: 'border-l-emerald-500', bg: 'from-emerald-50/60 to-transparent', value: 'text-emerald-900' },
-  rose:    { disc: 'bg-rose-100    text-rose-700',    accent: 'border-l-rose-400',    bg: 'from-rose-50/60 to-transparent',    value: 'text-rose-900' },
-  blue:    { disc: 'bg-blue-100    text-blue-700',    accent: 'border-l-blue-400',    bg: 'from-blue-50/60 to-transparent',    value: 'text-blue-900' },
-  cyan:    { disc: 'bg-cyan-100    text-cyan-700',    accent: 'border-l-cyan-400',    bg: 'from-cyan-50/60 to-transparent',    value: 'text-cyan-900' },
-};
-
-const TOP_CARDS: ReadonlyArray<{
-  label: string;
-  metric: DrilldownMetric;
-  icon: LucideIcon;
-  tone: keyof typeof TONES;
-  tooltip?: string;
-}> = [
-  { label: 'Total Leads',       metric: 'total_leads',         icon: Users,          tone: 'indigo'  },
-  { label: 'Enquiry',           metric: 'enquiry',             icon: HelpCircle,     tone: 'slate'   },
-  { label: 'Enquiry Submitted', metric: 'enquiry_submitted',   icon: Send,           tone: 'sky'     },
-  { label: 'Fees Pending',      metric: 'account',             icon: Landmark,       tone: 'amber'   },
-  { label: 'Reserved',          metric: 'reserved',            icon: BookmarkCheck,  tone: 'purple'  },
-  { label: 'Admitted',          metric: 'admitted_active',     icon: GraduationCap,  tone: 'emerald', tooltip: 'Includes Active learners (admitted → active is sequential)' },
-  { label: 'Rejected',          metric: 'rejected_lifecycle',  icon: XCircle,        tone: 'rose'    },
-  { label: 'Total Seats',       metric: 'total_seats',         icon: LayoutGrid,     tone: 'blue'    },
-  { label: 'Fill Rate',         metric: 'fill_rate',           icon: Gauge,          tone: 'cyan'    },
-];
+// Card tones + the lifecycle KPI card list live in ./_components/kpi-config so
+// the page header strip and the per-entity Overview sections share one
+// definition. (2026-06-17, when the Overview tab was split into Institution /
+// School sections.)
 
 // ──────────────────────────────────────────────────────────────────────────
 // DateRangeFilter — segmented "All time / Today / Custom range" toggle.
@@ -416,7 +366,7 @@ export default function GroupDashboardPage() {
     let cancelled = false;
     (async () => {
       const results = await Promise.all(
-        TOP_CARDS.map(async (c) => {
+        LIFECYCLE_KPI_CARDS.map(async (c) => {
           const url = await getDashboardDrilldownDestination(c.metric);
           return [c.metric, url] as const;
         })
@@ -496,7 +446,9 @@ export default function GroupDashboardPage() {
             * Click → drill-down list with year + institution scope appended.
             * Cards with value 0 or '—' remain clickable; the destination shows
             * an empty list with the metric-specific empty-state copy. */}
-          {!isLoading && data?.totals && (
+          {/* Combined KPI strip — shown on every tab EXCEPT Overview, where the
+              per-entity Institution / School sections carry their own cards. */}
+          {activeTab !== 'overview' && !isLoading && data?.totals && (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9 gap-3">
               {(() => {
                 // On the Seats tab, Total Seats and Fill Rate switch to
@@ -535,7 +487,7 @@ export default function GroupDashboardPage() {
                   comparison_row: '',
                 };
                 const nodes: ReactNode[] = [];
-                TOP_CARDS.forEach((card) => {
+                LIFECYCLE_KPI_CARDS.forEach((card) => {
                   const resolved = destinations[card.metric];
                   // Pre-resolution: render the card non-clickable (resolves in
                   // <100ms typically; cached on subsequent loads). Avoids
@@ -627,7 +579,7 @@ export default function GroupDashboardPage() {
                 live on the Seat Analytics tab instead.
               */}
               <p className="text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">Lead funnel</span> — this admission cycle's prospects walking through the CRM. Counts come from the leads pipeline only.
+                <span className="font-medium text-foreground">Admissions by organisation</span> — split into Institutions and Schools below. Companies and admin offices are excluded. (Schools enrol learners directly, so their lead count is 0.)
               </p>
 
               {/* 2026-05-21: date-range segmented filter. Drives every KPI on
@@ -638,13 +590,31 @@ export default function GroupDashboardPage() {
                 toDate={toDate}
                 onChange={handleDateRangeChange}
               />
+              {/* 2026-06-17: Overview split into two independent sections by
+                  organisation entity_type — Institutions first, then Schools.
+                  company / admin_office are filtered out in the service. */}
               {data && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <GroupFunnelChart data={data} />
-                  <InstitutionPerformanceChart data={data} />
+                <div className="space-y-8">
+                  <EntityOverviewSection
+                    title="Institutions"
+                    unitLabel="institution"
+                    icon={Landmark}
+                    rows={data.institutions.filter((i) => i.entity_type === 'institution')}
+                    destinations={destinations}
+                    drilldownRole={drilldownRole}
+                    selectedYear={selectedYear}
+                  />
+                  <EntityOverviewSection
+                    title="Schools"
+                    unitLabel="school"
+                    icon={School}
+                    rows={data.institutions.filter((i) => i.entity_type === 'school')}
+                    destinations={destinations}
+                    drilldownRole={drilldownRole}
+                    selectedYear={selectedYear}
+                  />
                 </div>
               )}
-              <InstitutionComparisonTable institutions={data?.institutions || []} />
               <NAACReportGenerator />
             </TabsContent>
 

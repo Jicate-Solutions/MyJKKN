@@ -177,11 +177,15 @@ export const DRILLDOWN_DEFAULTS: Record<DrilldownPolicyKey, string | number | bo
 
   // ─────────────────────────────────────────────────────────────────────────
   // Lifecycle-status workflow KPIs (added 2026-05-20). Drill-downs point to
-  // /learners/enquiries with the matching lifecycle_status tab pre-selected.
+  // /learners/enquiries with the matching lifecycle stage tab pre-selected.
+  // 2026-06-17: the enquiries page selects the stage via the `?tab=` param
+  // (page.tsx reads `params.tab`, defaulting to 'enquiry'). The earlier
+  // `?lifecycle_status=` form was silently ignored, so every card except
+  // Enquiry landed on the default Enquiry tab. Use `?tab=` here.
   // ─────────────────────────────────────────────────────────────────────────
 
   // ---- enquiry ----
-  'dashboard.drilldown.enquiry.destination': '/learners/enquiries?lifecycle_status=enquiry',
+  'dashboard.drilldown.enquiry.destination': '/learners/enquiries?tab=enquiry',
   'dashboard.drilldown.enquiry.columns': ['name', 'date', 'institution', 'program'],
   'dashboard.drilldown.enquiry.action_buttons.director': [],
   'dashboard.drilldown.enquiry.action_buttons.counselor': ['call', 'whatsapp'],
@@ -190,7 +194,7 @@ export const DRILLDOWN_DEFAULTS: Record<DrilldownPolicyKey, string | number | bo
   'dashboard.drilldown.enquiry.enabled': true,
 
   // ---- enquiry_submitted ----
-  'dashboard.drilldown.enquiry_submitted.destination': '/learners/enquiries?lifecycle_status=enquiry_submitted',
+  'dashboard.drilldown.enquiry_submitted.destination': '/learners/enquiries?tab=enquiry_submitted',
   'dashboard.drilldown.enquiry_submitted.columns': ['name', 'date', 'institution', 'program'],
   'dashboard.drilldown.enquiry_submitted.action_buttons.director': [],
   'dashboard.drilldown.enquiry_submitted.action_buttons.counselor': ['call', 'whatsapp', 'update_status'],
@@ -199,7 +203,7 @@ export const DRILLDOWN_DEFAULTS: Record<DrilldownPolicyKey, string | number | bo
   'dashboard.drilldown.enquiry_submitted.enabled': true,
 
   // ---- account ----
-  'dashboard.drilldown.account.destination': '/learners/enquiries?lifecycle_status=account',
+  'dashboard.drilldown.account.destination': '/learners/enquiries?tab=account',
   'dashboard.drilldown.account.columns': ['name', 'date', 'institution', 'program'],
   'dashboard.drilldown.account.action_buttons.director': [],
   'dashboard.drilldown.account.action_buttons.counselor': [],
@@ -208,7 +212,7 @@ export const DRILLDOWN_DEFAULTS: Record<DrilldownPolicyKey, string | number | bo
   'dashboard.drilldown.account.enabled': true,
 
   // ---- reserved ----
-  'dashboard.drilldown.reserved.destination': '/learners/enquiries?lifecycle_status=reserved',
+  'dashboard.drilldown.reserved.destination': '/learners/enquiries?tab=reserved',
   'dashboard.drilldown.reserved.columns': ['name', 'date', 'institution', 'program'],
   'dashboard.drilldown.reserved.action_buttons.director': [],
   'dashboard.drilldown.reserved.action_buttons.counselor': [],
@@ -217,7 +221,7 @@ export const DRILLDOWN_DEFAULTS: Record<DrilldownPolicyKey, string | number | bo
   'dashboard.drilldown.reserved.enabled': true,
 
   // ---- admitted_active (Admitted KPI = admitted + active per workflow spec) ----
-  'dashboard.drilldown.admitted_active.destination': '/learners/enquiries?lifecycle_status=admitted',
+  'dashboard.drilldown.admitted_active.destination': '/learners/enquiries?tab=admitted',
   'dashboard.drilldown.admitted_active.columns': ['name', 'date', 'institution', 'program'],
   'dashboard.drilldown.admitted_active.action_buttons.director': [],
   'dashboard.drilldown.admitted_active.action_buttons.counselor': [],
@@ -226,7 +230,7 @@ export const DRILLDOWN_DEFAULTS: Record<DrilldownPolicyKey, string | number | bo
   'dashboard.drilldown.admitted_active.enabled': true,
 
   // ---- rejected_lifecycle ----
-  'dashboard.drilldown.rejected_lifecycle.destination': '/learners/enquiries?lifecycle_status=rejected',
+  'dashboard.drilldown.rejected_lifecycle.destination': '/learners/enquiries?tab=rejected',
   'dashboard.drilldown.rejected_lifecycle.columns': ['name', 'date', 'institution', 'program'],
   'dashboard.drilldown.rejected_lifecycle.action_buttons.director': [],
   'dashboard.drilldown.rejected_lifecycle.action_buttons.counselor': [],

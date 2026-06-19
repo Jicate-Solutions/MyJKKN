@@ -408,6 +408,32 @@ export class ImsSalesService {
         console.error('[ImsSalesService] Financial transaction insert failed:', finError);
       }
 
+      // Back-link the UPI QR payment row to this sale (completes skill step 6).
+      // At QR-generation time the payment row was created with sale_id = NULL,
+      // because the sale did not exist yet. Now that we have `sale.id`, stamp it
+      // onto ims_upi_qr_payments so the audit trail is two-way:
+      //   sale.upi_qr_transaction_ref  ->  ims_upi_qr_payments.transaction_ref (forward, already works)
+      //   ims_upi_qr_payments.sale_id  ->  ims_sales.id                        (reverse, this block)
+      //
+      // Design constraints (already verified):
+      //  - Guard on `data.upi_qr_transaction_ref` (truthy), NOT payment_method ===
+      //    'upi_qr', so a 'mixed' cash+UPI sale still links its UPI row.
+      //  - Match the payment row by `transaction_ref === data.upi_qr_transaction_ref`.
+      //  - RLS allows this client-side UPDATE (policy is TO authenticated USING (true)).
+      //  - NON-FATAL: a completed sale + stock deduction must never be lost over a
+      //    missing audit pointer. Mirror the financial-transaction pattern above —
+      //    log the error and continue; do NOT throw. Also set updated_at.
+      //
+      if (data.upi_qr_transaction_ref) {
+        const { error: linkError } = await this.supabase
+          .from('ims_upi_qr_payments')
+          .update({ sale_id: sale.id, updated_at: new Date().toISOString() })
+          .eq('transaction_ref', data.upi_qr_transaction_ref);
+        if (linkError) {
+          console.error('[ImsSalesService] UPI QR sale_id back-link failed:', linkError);
+        }
+      }
+
       // Phase F: log to activity trail (POS audit)
       await ImsActivityLogService.log({
         entityType: 'sale',

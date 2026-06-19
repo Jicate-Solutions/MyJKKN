@@ -29,7 +29,9 @@ import {
   TooltipProvider,
   TooltipTrigger
 } from '@/components/ui/tooltip';
+import { toast } from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
+import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-receipt-service';
 import type { BillingReceipt } from '@/types/billing-schedule';
 
 interface StudentReceiptsTableProps {
@@ -122,10 +124,13 @@ export function StudentReceiptsTable({
   const handleDownloadReceipt = async (receiptId: string) => {
     try {
       setDownloadingReceiptId(receiptId);
-      // TODO: Implement receipt download functionality
-      console.log('Downloading receipt:', receiptId);
+      await BillingReceiptService.downloadReceiptPDF(receiptId);
+      toast.success('Receipt PDF downloaded');
     } catch (error) {
       console.error('Error downloading receipt:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to download receipt PDF'
+      );
     } finally {
       setDownloadingReceiptId(null);
     }

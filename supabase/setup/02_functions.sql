@@ -13201,6 +13201,92 @@ GRANT EXECUTE ON FUNCTION public.get_billing_user_activity(uuid[], date, date) T
 
 
 -- ============================================================================
+-- get_billing_daily_activity — daily × institution accounts activity (migration 20260618150000)
+-- Bills created / amount billed / distinct students billed / receipts generated
+-- / amount collected, per (day × institution). FULL JOIN keeps collection-only
+-- and billing-only days.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.get_billing_daily_activity(
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_date_from date DEFAULT NULL::date,
+  p_date_to date DEFAULT NULL::date
+)
+RETURNS TABLE(
+  activity_date date,
+  institution_id uuid,
+  institution_name text,
+  bills_created integer,
+  amount_billed numeric,
+  students_billed integer,
+  receipts_created integer,
+  amount_collected numeric
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE v_inst uuid[];
+BEGIN
+  IF NOT public.user_has_permission('billing.analytics.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.analytics.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(gua.institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid()) gua
+  WHERE (p_institution_ids IS NULL OR gua.institution_id = ANY(p_institution_ids));
+  IF v_inst IS NULL THEN RETURN; END IF;
+
+  RETURN QUERY
+  WITH bills AS (
+    SELECT (b.created_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
+           b.institution_id AS inst,
+           COUNT(*)::int AS cnt,
+           COALESCE(SUM(b.final_amount), 0) AS amt,
+           COUNT(DISTINCT b.student_id)::int AS students
+    FROM billing_student_bills b
+    WHERE b.institution_id = ANY(v_inst)
+      AND (p_date_from IS NULL OR (b.created_at AT TIME ZONE 'Asia/Kolkata')::date >= p_date_from)
+      AND (p_date_to   IS NULL OR (b.created_at AT TIME ZONE 'Asia/Kolkata')::date <= p_date_to)
+    GROUP BY 1, 2
+  ),
+  rec AS (
+    SELECT r.payment_paid_date AS d,
+           r.institution_id AS inst,
+           COUNT(*)::int AS cnt,
+           COALESCE(SUM(r.payment_amount), 0) AS amt
+    FROM billing_receipts r
+    WHERE r.institution_id = ANY(v_inst)
+      AND (p_date_from IS NULL OR r.payment_paid_date >= p_date_from)
+      AND (p_date_to   IS NULL OR r.payment_paid_date <= p_date_to)
+    GROUP BY 1, 2
+  ),
+  merged AS (
+    SELECT
+      COALESCE(b.d, rec.d)              AS d,
+      COALESCE(b.inst, rec.inst)        AS inst,
+      COALESCE(b.cnt, 0)                AS bills_created,
+      COALESCE(b.amt, 0)                AS amount_billed,
+      COALESCE(b.students, 0)           AS students_billed,
+      COALESCE(rec.cnt, 0)              AS receipts_created,
+      COALESCE(rec.amt, 0)              AS amount_collected
+    FROM bills b
+    FULL JOIN rec ON rec.d = b.d AND rec.inst = b.inst
+  )
+  SELECT m.d, m.inst, COALESCE(i.name, 'Unknown')::text,
+         m.bills_created, m.amount_billed, m.students_billed,
+         m.receipts_created, m.amount_collected
+  FROM merged m
+  LEFT JOIN institutions i ON i.id = m.inst
+  WHERE m.d IS NOT NULL
+  ORDER BY m.d DESC, COALESCE(i.name, '') ASC;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.get_billing_daily_activity(uuid[], date, date) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_billing_daily_activity(uuid[], date, date) TO authenticated, service_role;
+
+
+-- ============================================================================
 -- get_billing_analytics_by_institution v2 — +students_with_dues (migration 20260602100000)
 -- ============================================================================
 
@@ -17930,3 +18016,373 @@ $function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_preview_hostel_fee_categories(uuid) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_preview_hostel_fee_categories(uuid) TO authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- fn_cl_admin_transfer_allocation — admin manual room/bed transfer.
+-- Mirrored from migration 20260617200000_admin_transfer_allocation_rpc.sql.
+-- Moves an active allocation to a new room/bed/block AND maintains the bed
+-- inventory invariant (old bed freed, new bed occupied). Gated on
+-- campus_living.upgrades.manage (super-admin + the 5 hostel-admin roles); the
+-- catalog .transfer/.edit keys are mass-granted to every role so are not used.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_cl_admin_transfer_allocation(
+  p_allocation_id uuid,
+  p_room_id uuid,
+  p_bed_id uuid,
+  p_block_id uuid DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $function$
+DECLARE
+  v_alloc      hostel_allocations%ROWTYPE;
+  v_bed        hostel_beds%ROWTYPE;
+  v_room       hostel_rooms%ROWTYPE;
+  v_old_bed    uuid;
+  v_learner    uuid;
+  v_block_id   uuid;
+  v_mapped     boolean;
+  v_accessible boolean;
+BEGIN
+  IF NOT user_has_permission('campus_living.upgrades.manage') THEN
+    RAISE EXCEPTION 'Not authorized to transfer hostel allocations'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT * INTO v_alloc FROM hostel_allocations WHERE id = p_allocation_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Allocation % not found', p_allocation_id USING ERRCODE = 'P0002';
+  END IF;
+  IF v_alloc.status <> 'active' OR v_alloc.check_out_date IS NOT NULL THEN
+    RAISE EXCEPTION 'Only an active allocation can be transferred (current status: %)', v_alloc.status
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  v_old_bed := v_alloc.bed_id;
+  v_learner := v_alloc.learner_id;
+
+  SELECT * INTO v_room FROM hostel_rooms WHERE id = p_room_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Room % not found', p_room_id USING ERRCODE = 'P0002';
+  END IF;
+
+  SELECT * INTO v_bed FROM hostel_beds WHERE id = p_bed_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Bed % not found', p_bed_id USING ERRCODE = 'P0002';
+  END IF;
+  IF v_bed.room_id <> p_room_id THEN
+    RAISE EXCEPTION 'Bed does not belong to the selected room' USING ERRCODE = 'P0001';
+  END IF;
+
+  v_block_id := COALESCE(p_block_id, v_room.block_id);
+
+  SELECT EXISTS (SELECT 1 FROM hostel_block_institutions WHERE block_id = v_block_id)
+    INTO v_mapped;
+  IF v_mapped THEN
+    SELECT EXISTS (
+      SELECT 1 FROM hostel_block_institutions hbi
+      WHERE hbi.block_id = v_block_id
+        AND hbi.institution_id IN (
+          SELECT institution_id FROM get_user_accessible_institutions(auth.uid())
+        )
+    ) INTO v_accessible;
+    IF NOT v_accessible THEN
+      RAISE EXCEPTION 'No access to the target block''s institution'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  IF p_bed_id <> COALESCE(v_old_bed, '00000000-0000-0000-0000-000000000000'::uuid)
+     AND EXISTS (
+       SELECT 1 FROM hostel_allocations a
+       WHERE a.bed_id = p_bed_id
+         AND a.status = 'active'
+         AND a.check_out_date IS NULL
+     ) THEN
+    RAISE EXCEPTION 'The selected bed is already occupied' USING ERRCODE = '23505';
+  END IF;
+
+  UPDATE hostel_allocations
+     SET room_id         = p_room_id,
+         bed_id          = p_bed_id,
+         block_id        = v_block_id,
+         allocation_type = 'transfer',
+         updated_at      = now()
+   WHERE id = p_allocation_id;
+
+  IF v_old_bed IS NOT NULL AND v_old_bed <> p_bed_id THEN
+    UPDATE hostel_beds
+       SET status = 'available', current_occupant_id = NULL, updated_at = now()
+     WHERE id = v_old_bed;
+  END IF;
+  UPDATE hostel_beds
+     SET status = 'occupied', current_occupant_id = v_learner, updated_at = now()
+   WHERE id = p_bed_id;
+
+  RETURN jsonb_build_object(
+    'success',       true,
+    'allocation_id', p_allocation_id,
+    'room_id',       p_room_id,
+    'bed_id',        p_bed_id,
+    'block_id',      v_block_id,
+    'freed_bed_id',  CASE WHEN v_old_bed IS DISTINCT FROM p_bed_id THEN v_old_bed END
+  );
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_cl_admin_transfer_allocation(uuid, uuid, uuid, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_cl_admin_transfer_allocation(uuid, uuid, uuid, uuid) TO authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- fn_cl_transfer_room_options — category-wise room/bed availability for the
+-- admin transfer modal. Mirrored from migration
+-- 20260617210000_transfer_room_options_rpc.sql.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_cl_transfer_room_options(p_block_id uuid)
+RETURNS TABLE (
+  room_id       uuid,
+  room_number   text,
+  room_type     text,
+  floor         integer,
+  category_id   uuid,
+  category_name text,
+  category_type text,
+  total_beds    bigint,
+  free_beds     bigint,
+  occupied_beds bigint
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $function$
+  SELECT
+    r.id,
+    r.room_number,
+    r.room_type::text,
+    r.floor,
+    r.category_id,
+    c.name,
+    c.type,
+    count(b.id)                                          AS total_beds,
+    count(b.id) FILTER (WHERE b.status = 'available')    AS free_beds,
+    count(b.id) FILTER (WHERE b.status = 'occupied')     AS occupied_beds
+  FROM hostel_rooms r
+  LEFT JOIN hostel_categories c ON c.id = r.category_id
+  LEFT JOIN hostel_beds b ON b.room_id = r.id
+  WHERE r.block_id = p_block_id
+    AND user_has_permission('campus_living.upgrades.manage')
+  GROUP BY r.id, r.room_number, r.room_type, r.floor, r.category_id, c.name, c.type
+  ORDER BY c.name NULLS LAST, r.room_number;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_cl_transfer_room_options(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_cl_transfer_room_options(uuid) TO authenticated;
+
+-- fn_cl_room_bed_occupancy: per-bed occupancy with occupant name/roll
+-- Derives occupancy from active + pending_approval allocations (not cached hostel_beds.status)
+-- Gated: super_admin OR campus_living.upgrades.manage
+CREATE OR REPLACE FUNCTION public.fn_cl_room_bed_occupancy(p_room_id uuid)
+RETURNS TABLE(bed_id uuid, bed_number text, is_occupied boolean,
+              occupant_profile_id uuid, occupant_name text, occupant_roll text)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public', 'pg_temp'
+AS $function$
+BEGIN
+  IF NOT (is_super_admin() OR user_has_permission('campus_living.upgrades.manage')) THEN
+    RAISE EXCEPTION 'Not authorized to view room occupancy' USING ERRCODE = '42501';
+  END IF;
+  RETURN QUERY
+  SELECT b.id,
+         b.bed_number::text,
+         (a.id IS NOT NULL) AS is_occupied,
+         a.learner_id AS occupant_profile_id,
+         NULLIF(btrim(coalesce(lp.first_name,'') || ' ' || coalesce(lp.last_name,'')), '') AS occupant_name,
+         lp.roll_number AS occupant_roll
+  FROM hostel_beds b
+  LEFT JOIN hostel_allocations a
+         ON a.bed_id = b.id AND a.status IN ('active','pending_approval') AND a.check_out_date IS NULL
+  LEFT JOIN profiles p ON p.id = a.learner_id
+  LEFT JOIN learners_profiles lp ON lp.id = p.learner_id
+  WHERE b.room_id = p_room_id
+  ORDER BY b.bed_number;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_cl_room_bed_occupancy(uuid) FROM anon, public;
+GRANT  EXECUTE ON FUNCTION public.fn_cl_room_bed_occupancy(uuid) TO authenticated;
+
+-- fn_cl_admin_allocate_bed: atomic fresh allocation + bed occupy (mig 20260618100200)
+-- Gated: super_admin OR campus_living.upgrades.manage
+-- Returns: { success, allocation_id, room_id, bed_id, block_id }
+CREATE OR REPLACE FUNCTION public.fn_cl_admin_allocate_bed(
+  p_learner_profile_id uuid,
+  p_room_id uuid,
+  p_bed_id uuid,
+  p_mess_category_id uuid DEFAULT NULL
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_room       hostel_rooms%ROWTYPE;
+  v_bed        hostel_beds%ROWTYPE;
+  v_profile    uuid;
+  v_inst       uuid;
+  v_sem        uuid;
+  v_ay         uuid;
+  v_tier       uuid;
+  v_block      uuid;
+  v_mapped     boolean;
+  v_accessible boolean;
+  v_alloc_id   uuid;
+BEGIN
+  IF NOT (is_super_admin() OR user_has_permission('campus_living.upgrades.manage')) THEN
+    RAISE EXCEPTION 'Not authorized to allocate hostel rooms' USING ERRCODE = '42501';
+  END IF;
+
+  -- learners_profiles → institution / semester / academic year (mirror auto-allocate fallback)
+  SELECT lp.institution_id, lp.semester_id,
+         COALESCE(lp.academic_year_id,
+           (SELECT id FROM academic_years
+             WHERE institution_id = lp.institution_id AND is_active
+             ORDER BY start_date DESC LIMIT 1))
+    INTO v_inst, v_sem, v_ay
+  FROM learners_profiles lp WHERE lp.id = p_learner_profile_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'Learner % not found', p_learner_profile_id USING ERRCODE = 'P0002'; END IF;
+  IF v_ay IS NULL THEN RAISE EXCEPTION 'No academic year resolved for this learner' USING ERRCODE = 'P0001'; END IF;
+
+  -- bridge to the profiles.id key hostel_allocations uses
+  SELECT id INTO v_profile FROM profiles WHERE learner_id = p_learner_profile_id LIMIT 1;
+  IF v_profile IS NULL THEN RAISE EXCEPTION 'No profile bridges learner %', p_learner_profile_id USING ERRCODE = 'P0002'; END IF;
+
+  -- fresh-only
+  IF EXISTS (SELECT 1 FROM hostel_allocations a
+             WHERE a.learner_id = v_profile AND a.status IN ('active','pending_approval') AND a.check_out_date IS NULL) THEN
+    RAISE EXCEPTION 'Learner already has an active allocation — use Change room/bed instead' USING ERRCODE = 'P0001';
+  END IF;
+
+  SELECT * INTO v_room FROM hostel_rooms WHERE id = p_room_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Room % not found', p_room_id USING ERRCODE = 'P0002'; END IF;
+  SELECT * INTO v_bed FROM hostel_beds WHERE id = p_bed_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Bed % not found', p_bed_id USING ERRCODE = 'P0002'; END IF;
+  IF v_bed.room_id <> p_room_id THEN RAISE EXCEPTION 'Bed does not belong to the selected room' USING ERRCODE = 'P0001'; END IF;
+  v_block := v_room.block_id;
+
+  -- institution access (mirror fn_cl_admin_transfer_allocation)
+  SELECT EXISTS (SELECT 1 FROM hostel_block_institutions WHERE block_id = v_block) INTO v_mapped;
+  IF v_mapped THEN
+    SELECT EXISTS (
+      SELECT 1 FROM hostel_block_institutions hbi
+      WHERE hbi.block_id = v_block
+        AND hbi.institution_id IN (SELECT institution_id FROM get_user_accessible_institutions(auth.uid()))
+    ) INTO v_accessible;
+    IF NOT v_accessible THEN RAISE EXCEPTION 'No access to the target block''s institution' USING ERRCODE = '42501'; END IF;
+  END IF;
+
+  -- bed must be free (dedup on allocation existence, matching auto-allocate)
+  IF EXISTS (SELECT 1 FROM hostel_allocations a
+             WHERE a.bed_id = p_bed_id AND a.status IN ('active','pending_approval') AND a.check_out_date IS NULL) THEN
+    RAISE EXCEPTION 'The selected bed is already occupied' USING ERRCODE = '23505';
+  END IF;
+
+  -- standard tier policy (mirror auto-allocate)
+  SELECT id INTO v_tier FROM hostel_tier_policy WHERE tier_key='standard' AND institution_id IS NULL AND is_active LIMIT 1;
+  IF v_tier IS NULL THEN SELECT id INTO v_tier FROM hostel_tier_policy WHERE tier_key='standard' AND is_active LIMIT 1; END IF;
+  IF v_tier IS NULL THEN RAISE EXCEPTION 'No standard tier policy found' USING ERRCODE = 'P0001'; END IF;
+
+  INSERT INTO hostel_allocations (
+    institution_id, learner_id, block_id, room_id, bed_id, academic_year_id, semester_id,
+    allocation_type, allocation_date, status,
+    emergency_contact_name, emergency_contact_phone, emergency_contact_relation,
+    tier_id, allocated_by
+  ) VALUES (
+    v_inst, v_profile, v_block, p_room_id, p_bed_id, v_ay, v_sem,
+    'fresh', CURRENT_DATE, 'active', '', '', '',
+    v_tier, auth.uid()
+  ) RETURNING id INTO v_alloc_id;
+
+  -- occupy the bed (immediate-active per design decision)
+  UPDATE hostel_beds SET status='occupied', current_occupant_id=v_profile, updated_at=now() WHERE id = p_bed_id;
+
+  -- room category is synced by trg_allocation_sync_learner_categories; honor an explicit mess pick
+  IF p_mess_category_id IS NOT NULL THEN
+    UPDATE learners_profiles SET mess_category_id = p_mess_category_id, updated_at = now() WHERE id = p_learner_profile_id;
+  END IF;
+
+  RETURN jsonb_build_object('success', true, 'allocation_id', v_alloc_id,
+                            'room_id', p_room_id, 'bed_id', p_bed_id, 'block_id', v_block);
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_cl_admin_allocate_bed(uuid,uuid,uuid,uuid) FROM anon, public;
+GRANT  EXECUTE ON FUNCTION public.fn_cl_admin_allocate_bed(uuid,uuid,uuid,uuid) TO authenticated;
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- fn_cl_admin_allocatable_rooms — learner+block scoped allocatable rooms for the
+-- manual AllocateRoomDialog. Physical (student room, gender, institution-serving,
+-- cohort eligibility, free beds) + category (eligible categories, fail-open).
+-- mig 20260618130000.
+-- ───────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_cl_admin_allocatable_rooms(
+  p_learner_profile_id uuid,
+  p_block_id uuid
+)
+RETURNS TABLE(
+  room_id uuid, room_number text, floor integer,
+  category_id uuid, category_name text,
+  capacity integer, available_beds integer
+)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_inst   uuid;
+  v_gender text;
+  v_has_elig boolean;
+BEGIN
+  IF NOT (is_super_admin() OR user_has_permission('campus_living.upgrades.manage')) THEN
+    RAISE EXCEPTION 'Not authorized to view allocatable rooms' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT institution_id INTO v_inst FROM learners_profiles WHERE id = p_learner_profile_id;
+  IF v_inst IS NULL THEN RETURN; END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM get_user_accessible_institutions(auth.uid()) g WHERE g.institution_id = v_inst) THEN
+    RAISE EXCEPTION 'You do not have access to this learner''s institution' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT lower(trim(COALESCE(pr.gender, lp.gender))) INTO v_gender
+    FROM learners_profiles lp LEFT JOIN profiles pr ON pr.learner_id = lp.id
+   WHERE lp.id = p_learner_profile_id;
+
+  SELECT EXISTS (SELECT 1 FROM fn_hostel_learner_room_categories(p_learner_profile_id))
+    INTO v_has_elig;
+
+  RETURN QUERY
+  SELECT r.id, r.room_number, r.floor, r.category_id, hc.name,
+         COALESCE(r.actual_capacity, r.capacity)::int,
+         av.free
+  FROM hostel_rooms r
+  JOIN hostel_blocks bl ON bl.id = r.block_id
+  LEFT JOIN hostel_categories hc ON hc.id = r.category_id
+  CROSS JOIN LATERAL (
+    SELECT count(*)::int AS free FROM hostel_beds b
+    WHERE b.room_id = r.id AND b.status = 'available'
+      AND NOT EXISTS (SELECT 1 FROM hostel_allocations a
+                       WHERE a.bed_id = b.id AND a.status IN ('active','pending_approval'))
+  ) av
+  WHERE r.block_id = p_block_id
+    AND r.room_purpose = 'student'
+    AND (NOT v_has_elig
+         OR r.category_id IN (SELECT category_id FROM fn_hostel_learner_room_categories(p_learner_profile_id)))
+    AND (bl.hostel_type::text = 'mixed'
+         OR (v_gender IN ('male','m')   AND bl.hostel_type::text = 'boys')
+         OR (v_gender IN ('female','f') AND bl.hostel_type::text = 'girls'))
+    AND fn_room_serves_institution(r.id, v_inst)
+    AND fn_learner_eligible_for_room(p_learner_profile_id, r.id)
+    AND av.free > 0
+  ORDER BY r.floor, r.room_number;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_cl_admin_allocatable_rooms(uuid, uuid) FROM anon, public;
+GRANT  EXECUTE ON FUNCTION public.fn_cl_admin_allocatable_rooms(uuid, uuid) TO authenticated;

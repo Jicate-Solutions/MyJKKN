@@ -14,6 +14,13 @@ export interface CourseFilters {
   institution_id?: string;  // omit to fetch all institutions (super-admin only)
   regulation_code?: string;
   program_code?: string;
+  /**
+   * When set, the server returns courses for THIS composition's board only,
+   * authorised by institution scope (not the caller's own board memberships).
+   * Used by the syllabus form so a user building a syllabus for a composition
+   * sees that board's courses regardless of which boards they personally sit on.
+   */
+  composition_id?: string;
   search?: string;
   is_active?: 'true' | 'false';
   limit?: number;

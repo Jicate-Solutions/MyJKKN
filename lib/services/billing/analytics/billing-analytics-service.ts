@@ -8,6 +8,7 @@ import type {
   BillingAgingBucketRow,
   BillingCategoryAnalytics,
   BillingUserActivityRow,
+  BillingDailyActivityRow,
   TrendGranularity,
 } from '@/types/billing-analytics';
 
@@ -91,6 +92,13 @@ export class BillingAnalyticsService extends BaseService {
   static getUserActivity(filters: BillingAnalyticsFilters = {}) {
     return this.executeDashboardRPC<BillingUserActivityRow[]>(
       'get_billing_user_activity',
+      this.scopeParams(filters)
+    );
+  }
+
+  static getDailyActivity(filters: BillingAnalyticsFilters = {}) {
+    return this.executeDashboardRPC<BillingDailyActivityRow[]>(
+      'get_billing_daily_activity',
       this.scopeParams(filters)
     );
   }

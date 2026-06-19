@@ -40,6 +40,7 @@ import {
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 
 type ActionCardProps = {
   href: string;
@@ -81,6 +82,19 @@ const CARDS: ActionCardProps[] = [
 
 export default function AdminHRModernWorkplacePoliciesHubPage() {
   return (
+    // Matches the hr.policies.view gate on every policies/new/* leaf. Added
+    // 2026-06-19; this index page was unguarded.
+    <PermissionGuard
+      module="hr.policies"
+      action="view"
+      fallback={
+        <ContentLayout title="Modern Workplace Policies">
+          <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+            Workplace policy configuration is restricted to HR policy administrators.
+          </div>
+        </ContentLayout>
+      }
+    >
     <ContentLayout title="Modern Workplace Policies">
       <div className="space-y-8">
         <header>
@@ -104,6 +118,7 @@ export default function AdminHRModernWorkplacePoliciesHubPage() {
         </div>
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }
 

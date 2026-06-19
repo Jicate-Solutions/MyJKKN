@@ -104,6 +104,18 @@ export interface BillingCategoryAnalytics {
   bill_count: number;
 }
 
+/** One (day × institution) row of the daily accounts-activity breakdown. */
+export interface BillingDailyActivityRow {
+  activity_date: string; // 'YYYY-MM-DD' (IST)
+  institution_id: string;
+  institution_name: string;
+  bills_created: number; // billing_student_bills created that day
+  amount_billed: number; // sum(final_amount) of those bills
+  students_billed: number; // distinct students billed that day
+  receipts_created: number; // billing_receipts with payment_paid_date that day
+  amount_collected: number; // sum(payment_amount)
+}
+
 /** One account-user row of the activity leaderboard (actions + ₹ collected). */
 export interface BillingUserActivityRow {
   user_id: string;

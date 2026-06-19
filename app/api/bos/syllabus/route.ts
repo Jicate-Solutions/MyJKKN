@@ -7,7 +7,9 @@ import {
   applyInstitutionScope,
   guardInstitutionWrite,
   resolveCoeInstitutionId,
+  readableCounsellingCodes,
 } from '@/lib/utils/bos/bos-access';
+import { counsellingCodeFor } from '@/lib/utils/bos/institution-scope';
 import { CoeRestClient } from '@/lib/services/coe/coe-rest-client';
 import { BosCourseSyllabus, BosSyllabusListResponse, CreateBosSyllabusDto } from '@/types/bos';
 
@@ -102,22 +104,31 @@ export async function GET(request: NextRequest) {
     // Step 5: Build query — CAS-aware: use allInstitutionIds (Aided + Self) when available.
     // Super-admin has allInstitutionIds=[] and may omit institutionsId → no institution filter
     // (fan-out across every institution). Single scopedInstitutionsId is used otherwise.
-    const filterIds: string[] = scope.allInstitutionIds.length > 0
-      ? scope.allInstitutionIds
-      : scopedInstitutionsId
-        ? [scopedInstitutionsId]
-        : [];
+    // CAS-aware institution filter via the denormalized counselling_code (one
+    // value spans the Aided + SF pair):
+    //  - non-admin: their own institution's code (readableCounsellingCodes).
+    //  - super-admin scoped to a specific institution: that institution's code.
+    //  - super-admin with no institution: no filter (all institutions).
+    let filterCode: string | null = null;
+    if (!scope.isSuperAdmin) {
+      const codes = await readableCounsellingCodes(scope);
+      filterCode = codes && codes.length > 0 ? codes[0] : null;
+    } else if (scopedInstitutionsId) {
+      filterCode = await counsellingCodeFor(supabase, scopedInstitutionsId);
+    }
 
     let query = supabase
       .from('bos_course_syllabi')
       .select('*', { count: 'exact' });
 
-    if (filterIds.length > 1) {
-      query = query.in('institutions_id', filterIds);
-    } else if (filterIds.length === 1) {
-      query = query.eq('institutions_id', filterIds[0]);
+    if (filterCode) {
+      query = query.eq('counselling_code', filterCode);
+    } else if (!scope.isSuperAdmin) {
+      // Non-admin whose code didn't resolve — never run unfiltered; fall back to
+      // the single institution UUID so we still scope (and don't leak).
+      query = query.eq('institutions_id', scopedInstitutionsId!);
     }
-    // filterIds.length === 0 → super-admin "All institutions" — no institution filter
+    // super-admin with no filterCode → "All institutions" (no institution filter)
 
     // Board-membership scope (after the institution filter).
     //  - 'all'           : super-admin — no extra filter
@@ -203,7 +214,14 @@ export async function GET(request: NextRequest) {
                 regulation_code: regulationCode,
                 is_active: 'true',
                 details: 'false',
-                limit: '500',
+                // This enrichment fetch is institution+regulation scoped (no
+                // program_code), so it spans every program — for a CAS college
+                // that exceeds 500 and the dropped tail (UG, since COE sorts PG
+                // first) loses its course_order, breaking syllabus list/PDF
+                // ordering. COE's course-mapping endpoint ignores offset (it does
+                // range(0, limit-1)), so we can't paginate — request its single-
+                // call max (10000) instead.
+                limit: '10000',
               },
             );
             const mappings = mappingRes?.data ?? [];

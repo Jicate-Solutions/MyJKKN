@@ -200,6 +200,8 @@ export interface LearnerHostelite {
   current_room_id?: string | null;
   current_bed_id?: string | null;
   current_allocation_id?: string | null;
+  current_room_number?: string | null;
+  current_bed_number?: string | null;
   /** Learner lifecycle status (surfaced from v_learner_hostelites, which is filtered to active/reserved/admitted). */
   lifecycle_status?: string | null;
   /** Which date source produced year_of_study. NULL when no source available. PR #823. */
@@ -488,6 +490,31 @@ export interface UpdateHostelWardenDTO {
   is_active?: boolean | null;
   is_residential?: boolean | null;
   relieved_at?: string | null;
+}
+
+// ─── Room bed occupancy (fn_cl_room_bed_occupancy RPC) ────────────────────────
+// One row per bed in the room: whether it's occupied and, if so, who is in it.
+// Consumed by the manual-allocation dialog (Task 5).
+export interface RoomBedOccupancy {
+  bed_id: string;
+  bed_number: string | null;
+  is_occupied: boolean;
+  occupant_profile_id: string | null;
+  occupant_name: string | null;
+  occupant_roll: string | null;
+}
+
+// A room in a block the learner can actually be allocated to — physical (student
+// room, gender, institution-serving, cohort eligibility, free beds) + category
+// conditions applied server-side by fn_cl_admin_allocatable_rooms.
+export interface AllocatableRoom {
+  room_id: string;
+  room_number: string | null;
+  floor: number | null;
+  category_id: string | null;
+  category_name: string | null;
+  capacity: number | null;
+  available_beds: number | null;
 }
 
 export interface WardenFilters {

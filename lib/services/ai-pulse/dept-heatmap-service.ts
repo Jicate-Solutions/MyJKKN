@@ -21,6 +21,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import {
+  STAY_TOLERANCE_MINUTES,
+  hhmmMinusMinutes,
+  isPresentAtEnd,
+  isEngagedFromGates,
+} from '@/lib/services/ai-pulse/live-session-service';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -87,11 +93,11 @@ const DEFAULT_THRESHOLDS: ConsequenceTierThresholds = {
 const RECENT_CYCLE_COUNT = 8;
 
 // ---------------------------------------------------------------------------
-// 4-AND gate — re-derived from engagement_signals fields.
-// Semantics copied from evaluateGates in live-session-service (joined within
-// 5 min AND >= 3 polls AND stayed until session end AND quiz passed). We do
-// NOT import that module's private time helpers; the end-time comparison is
-// re-derived here from the cycle's demo_date + config.ai_pulse.session_end_time.
+// Engagement gate — uses the SHARED helpers from live-session-service so this
+// grid, the learner's own card, the weekly digest and the PDE bridge never
+// disagree. This consumer works in HH:MM space (it has the cycle's
+// config.ai_pulse.session_end_time, never an ISO end), so it applies the
+// shared tolerance + present-at-end derivation directly on the HH:MM string.
 // ---------------------------------------------------------------------------
 
 interface RawSignals {
@@ -99,29 +105,15 @@ interface RawSignals {
   polls_responded?: number;
   stayed_until?: string; // "HH:MM" IST
   quiz_passed?: boolean;
-}
-
-/**
- * Heartbeats land up to 60s before the session end and HH:MM truncation can
- * cost another minute — mirror live-session-service's STAY_TOLERANCE_MINUTES
- * so this grid and the learner's own gate card never disagree.
- */
-const STAY_TOLERANCE_MINUTES = 5;
-
-function hhmmMinusMinutes(hhmm: string, minutes: number): string {
-  const [h, m] = hhmm.split(':').map(Number);
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return hhmm;
-  const total = Math.max(0, h * 60 + m - minutes);
-  const hh = String(Math.floor(total / 60)).padStart(2, '0');
-  const mm = String(total % 60).padStart(2, '0');
-  return `${hh}:${mm}`;
+  quiz_score?: number;
+  quiz_async_makeup?: boolean;
 }
 
 /**
  * `pollsIssued` = polls created for the cycle; the requirement is
  * min(3, pollsIssued) so cycles without polls (no authoring surface shipped
- * yet) don't make engagement unattainable. Mirrors evaluateGates in
- * live-session-service.
+ * yet) don't make engagement unattainable. Delegates the stayed-until-end
+ * derivation and the 3-of-4 verdict to live-session-service's shared helpers.
  */
 function isEngaged(
   signals: RawSignals,
@@ -133,9 +125,9 @@ function isEngaged(
   const polls =
     pollsRequired === 0 || (signals.polls_responded ?? 0) >= pollsRequired;
   const stayThreshold = hhmmMinusMinutes(sessionEndHHMM, STAY_TOLERANCE_MINUTES);
-  const stayed = !!signals.stayed_until && signals.stayed_until >= stayThreshold;
+  const stayed = isPresentAtEnd(signals, stayThreshold);
   const quiz = !!signals.quiz_passed;
-  return joined && polls && stayed && quiz;
+  return isEngagedFromGates({ joined, polls, stayed, quiz });
 }
 
 /** Session end "HH:MM" for a cycle row (config.ai_pulse.session_end_time). */
@@ -228,6 +220,12 @@ export class DeptHeatmapService {
       .from('departments')
       .select('id, department_name, display_name, institution_id')
       .eq('is_active', true)
+      // Exclude the virtual "Academic" placeholder SchoolDefaultsService creates
+      // for K-12 schools (department_code 'ACAD') — an enrollment FK anchor, not a
+      // real department, so it must not surface on the governance heatmap.
+      // NULL-safe: real departments with no department_code are retained
+      // (a plain .neq would drop them, since NULL <> 'ACAD' is unknown).
+      .or('department_code.is.null,department_code.neq.ACAD')
       .order('department_name', { ascending: true });
 
     if (deptsErr) {
