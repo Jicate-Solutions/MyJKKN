@@ -261,14 +261,48 @@ export class PaymentGatewayService {
         const customerName = [student.first_name, student.last_name].filter(Boolean).join(' ').trim() || 'Student';
         const customerPhone = student.student_mobile || '';
 
+        // Human-readable order notes for the Razorpay dashboard — names + bill
+        // detail instead of opaque UUIDs. Safe to drop the raw ids: the webhook
+        // routes only on notes.module, and reconciliation keys off transaction_ref
+        // / razorpay_order_id (payment_transactions holds the canonical
+        // student_id / institution_id).
+        const { data: inst } = await supabase
+          .from('institutions')
+          .select('name')
+          .eq('id', institutionId)
+          .single();
+        const institutionName = inst?.name ?? institutionId;
+
+        const noteCategoryIds = [
+          ...new Set(bills.map((b) => b.item_category_id).filter(Boolean)),
+        ] as string[];
+        let categoryNames: string[] = [];
+        if (noteCategoryIds.length > 0) {
+          const { data: noteCats } = await supabase
+            .from('billing_categories')
+            .select('id, category_name')
+            .in('id', noteCategoryIds);
+          categoryNames = [
+            ...new Set((noteCats ?? []).map((c) => c.category_name).filter(Boolean)),
+          ] as string[];
+        }
+        const billDescriptions = [
+          ...new Set(bills.map((b) => b.bill_description).filter(Boolean)),
+        ] as string[];
+
+        // Razorpay caps each note value at 256 chars.
+        const clampNote = (s: string) => (s.length > 240 ? `${s.slice(0, 239)}…` : s);
+
         const order = await provider.createOrder({
           transactionRef,
           amountPaise,
           currency: 'INR',
           module: 'billing',
           notes: {
-            student_id: sessionData.student_id,
-            institution_id: institutionId,
+            student_name: customerName,
+            institution_name: institutionName,
+            bill_category: clampNote(categoryNames.join(', ')) || '—',
+            bill_description: clampNote(billDescriptions.join('; ')) || '—',
             transaction_ref: transactionRef,
           },
           description: `Payment for ${bills.length} bill(s)`,
