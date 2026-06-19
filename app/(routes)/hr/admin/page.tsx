@@ -58,6 +58,7 @@ import {
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 
 type ActionCardProps = {
   href: string;
@@ -243,6 +244,23 @@ const SECTIONS: Section[] = [
 
 export default function AdminHRHubPage() {
   return (
+    // Audience: HR-admin hub is restricted to core HR (hr.dashboard.view holders:
+    // HR Admin/Head/Manager, CEO/COO, Board) + super admins. Added 2026-06-19
+    // after the hub rendered for ANY authenticated user — including learners —
+    // because it was intentionally left unguarded on the (false) assumption that
+    // every destination self-gates. Director decision: strict / core-HR only.
+    <PermissionGuard
+      module="hr.dashboard"
+      action="view"
+      fallback={
+        <ContentLayout title="HR Admin">
+          <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+            The HR administration area is restricted to the HR team. If you need
+            access, contact your HR administrator.
+          </div>
+        </ContentLayout>
+      }
+    >
     <ContentLayout title="HR Admin">
       <div className="space-y-8">
         <header>
@@ -274,6 +292,7 @@ export default function AdminHRHubPage() {
         ))}
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }
 

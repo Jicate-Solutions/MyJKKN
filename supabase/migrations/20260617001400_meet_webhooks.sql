@@ -65,7 +65,11 @@ CREATE TABLE IF NOT EXISTS public.meeting_webhooks (
   -- Shared secret used to HMAC-SHA256 sign each delivery body. DB-generated so a
   -- host never has to invent one; surfaced once in the UI so they can configure
   -- their receiver's verification.
-  signing_secret    text NOT NULL DEFAULT encode(gen_random_bytes(24), 'hex'),
+  -- pgcrypto lives in the `extensions` schema on Supabase prod (not in the
+  -- default search_path), so a bare gen_random_bytes() fails with 42883 at
+  -- apply time even though CI (where pgcrypto is on the path) passed. Schema-
+  -- qualify it. Fixed 2026-06-19 during the migration apply (was bare on merge).
+  signing_secret    text NOT NULL DEFAULT encode(extensions.gen_random_bytes(24), 'hex'),
   events            text[] NOT NULL
                       DEFAULT '{booking.created,booking.cancelled,booking.rescheduled}',
   is_active         boolean NOT NULL DEFAULT true,
