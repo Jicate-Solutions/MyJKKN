@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { Receipt, ExternalLink } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { OnlinePaymentButton } from '@/components/billing/online-payment-button';
+import { TransportPayOnlineButton } from './transport-pay-online-button';
 import type { PermissionColumnDef } from '@/components/ui/data-table';
 import type { TransportCollectable } from '@/hooks/billing/use-transport-collectables';
 
@@ -120,10 +120,9 @@ export function getTransportColumns({ instName, canCollect, canReceipt }: Column
             {payable && (
               <>
                 {canCollect && (
-                  <OnlinePaymentButton
+                  <TransportPayOnlineButton
                     studentId={r.student_id}
                     billIds={r.payable_bill_ids}
-                    totalAmount={outstanding}
                     size='sm'
                   />
                 )}
