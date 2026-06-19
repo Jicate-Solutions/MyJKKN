@@ -374,6 +374,12 @@ export interface BosCourseSyllabus {
   board_id: string;
   regulation_id?: string;
   composition_id?: string;
+  /**
+   * Stable COE course id (BosCourseMaster.id) — the canonical link to the COE
+   * course. course_code/course_name below are fallback display snapshots that
+   * COE may rename; prefer resolving the live values from COE by course_id.
+   */
+  course_id?: string;
   course_code: string;
   course_name: string;
   course_credits?: number;
@@ -603,7 +609,12 @@ export interface BosExpertFilters {
 export interface BosComposition {
   id: string;
   institutions_id: string;
+  /** Primary board (= board_ids[0]). Kept for back-compat; meetings/PDF use it. */
   board_id: string;
+  /** All boards governed by this composition (multi-board). board_id is the primary. */
+  board_ids?: string[];
+  /** Enriched board list on GET responses — names per board in board_ids. */
+  boards?: { id: string; board_code: string; board_name: string; board_type?: string | null }[];
   /**
    * Academic level of the board (e.g. 'PG', 'UG'), denormalized from COE
    * /api/public/boards.board_type at composition-create time. Used to render
@@ -633,7 +644,7 @@ export interface BosComposition {
 
 export type CreateBosCompositionDto = Omit<
   BosComposition,
-  'id' | 'created_at' | 'updated_at' | 'created_by' | 'board' | 'members' | 'member_count'
+  'id' | 'created_at' | 'updated_at' | 'created_by' | 'board' | 'boards' | 'members' | 'member_count'
 >;
 export type UpdateBosCompositionDto = Partial<CreateBosCompositionDto>;
 

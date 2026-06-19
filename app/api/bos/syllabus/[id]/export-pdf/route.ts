@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { resolveBosAccess, applyInstitutionScope, readableInstitutionIds } from '@/lib/utils/bos/bos-access';
+import { courseDisplayFor } from '@/lib/utils/bos/coe-course-display';
 import { BosCourseSyllabus } from '@/types/bos';
 
 /**
@@ -73,9 +74,19 @@ export async function GET(
       );
     }
 
+    // Prefer the live COE course_code/course_name (resolved by the stable
+    // course_id) over the stored snapshot, so a COE rename is reflected in the
+    // report. Falls back to the snapshot when course_id is null or COE is down.
+    const display = await courseDisplayFor(syllabus as BosCourseSyllabus);
+    const syllabusForPdf: BosCourseSyllabus = {
+      ...(syllabus as BosCourseSyllabus),
+      course_code: display.course_code,
+      course_name: display.course_name,
+    };
+
     // Step 5: Generate HTML based on format
     const html = generatePdfHtml(
-      syllabus as BosCourseSyllabus,
+      syllabusForPdf,
       format,
       {
         includeMappings,
@@ -89,7 +100,7 @@ export async function GET(
     return new NextResponse(html, {
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
-        'Content-Disposition': `attachment; filename="syllabus-${syllabus.course_code}-${format}.html"`,
+        'Content-Disposition': `attachment; filename="syllabus-${syllabusForPdf.course_code}-${format}.html"`,
       },
     });
   } catch (error) {

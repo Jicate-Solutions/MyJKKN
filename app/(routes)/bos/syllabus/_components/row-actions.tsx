@@ -26,6 +26,58 @@ import { generateCourseSyllabusPDF, extractPOKeys } from '@/lib/utils/bos/course
 import { generateCourseSyllabusDOCX } from '@/lib/utils/bos/course-syllabus-docx';
 import { exportSyllabusToXlsx } from './syllabus-actions';
 
+// Resolve the course's CURRENT code / name / part for the report, anchored on
+// the stable COE course_id when present. A course_code search would miss a
+// course COE has since renamed — the exact breakage course_id solves — so we
+// fetch by id first and fall back to a course_code search for rows not yet
+// backfilled with a course_id. Returns the stored snapshot if COE is unreachable.
+async function resolveCourseForReport(syllabus: BosCourseSyllabus): Promise<{
+  course_code: string;
+  course_name: string;
+  coursePartLabel?: string;
+}> {
+  let course_code = syllabus.course_code;
+  let course_name = syllabus.course_name;
+  let coursePartLabel: string | undefined;
+  try {
+    let match: Record<string, unknown> | null = null;
+    if (syllabus.course_id) {
+      const r = await fetch(`/api/bos/courses-master/${syllabus.course_id}`);
+      if (r.ok) {
+        const j = await r.json();
+        match = (j?.data ?? j) as Record<string, unknown>;
+      }
+    }
+    if (!match) {
+      const params = new URLSearchParams({
+        institution_id: syllabus.institutions_id,
+        search: syllabus.course_code,
+        is_active: 'true',
+        limit: '50',
+      });
+      const r = await fetch(`/api/bos/courses-master?${params}`);
+      if (r.ok) {
+        const j = await r.json();
+        const rows = (Array.isArray(j) ? j : (j?.data ?? [])) as Array<Record<string, unknown>>;
+        match = rows.find((c) => c.course_code === syllabus.course_code) ?? null;
+      }
+    }
+    if (match) {
+      if (typeof match.course_code === 'string' && match.course_code) course_code = match.course_code;
+      const liveName = (match.course_name ?? match.course_title) as string | undefined;
+      if (liveName) course_name = liveName;
+      const partOrType = (match.course_type ?? match.course_part_master ?? null) as string | null;
+      const level = (match.course_level ?? null) as string | null;
+      const composed = (match.course_type_code as string | undefined)
+        ?? (partOrType && level ? `${partOrType}-${level}` : (partOrType ?? undefined));
+      if (composed) coursePartLabel = composed;
+    }
+  } catch {
+    // non-fatal — fall back to the stored snapshot
+  }
+  return { course_code, course_name, coursePartLabel };
+}
+
 // ── PDF Download Button ───────────────────────────────────────────────────────
 
 export function SyllabusPdfDownloadButton({
@@ -66,40 +118,16 @@ export function SyllabusPdfDownloadButton({
       const objectivesContent = syllabus.course_objectives as BosCourseObjectivesContent | undefined;
       const outcomesContent = syllabus.course_learning_outcomes as BosCourseLearnOutcomesContent | undefined;
 
-      // Look up course_type and course_level from the courses-master so the
-      // top-left cell can show "Core-I" / "Allied-II" instead of "Course".
-      let coursePartLabel: string | undefined;
-      try {
-        const params = new URLSearchParams({
-          institution_id: syllabus.institutions_id,
-          search: syllabus.course_code,
-          is_active: 'true',
-          limit: '50',
-        });
-        const cmRes = await fetch(`/api/bos/courses-master?${params}`);
-        if (cmRes.ok) {
-          const json = await cmRes.json();
-          const rows = Array.isArray(json) ? json : (json?.data ?? []);
-          const match = rows.find(
-            (c: { course_code?: string }) => c.course_code === syllabus.course_code,
-          );
-          if (match) {
-            const partOrType: string | null = match.course_type ?? match.course_part_master ?? null;
-            const level: string | null = match.course_level ?? null;
-            const composed = match.course_type_code
-              ?? (partOrType && level ? `${partOrType}-${level}` : (partOrType ?? null));
-            if (composed) coursePartLabel = composed;
-          }
-        }
-      } catch {
-        // courses-master lookup failure is non-fatal; cell falls back to "Course".
-      }
+      // Resolve live course code/name + part (Core-I / Allied-II) from COE,
+      // anchored on the stable course_id so a COE rename is reflected.
+      const { course_code: liveCode, course_name: liveName, coursePartLabel } =
+        await resolveCourseForReport(syllabus);
 
       // Prefix course_name with course_type_code so the PDF reads as
       // "Major-I-Programming in Python" (matches the course_mapping format).
       const displayCourseName = coursePartLabel
-        ? `${coursePartLabel}-${syllabus.course_name}`
-        : syllabus.course_name;
+        ? `${coursePartLabel}-${liveName}`
+        : liveName;
 
       generateCourseSyllabusPDF({
         institution_name: header.institution_name,
@@ -107,7 +135,7 @@ export function SyllabusPdfDownloadButton({
         institution_accreditation: header.institution_accreditation,
         logoImage: '/logo.png',
         rightLogoImage: header.rightLogoImage,
-        course_code: syllabus.course_code,
+        course_code: liveCode,
         course_name: displayCourseName,
         course_part: coursePartLabel,
         total_hours: syllabus.total_hours ?? undefined,
@@ -201,37 +229,13 @@ export function SyllabusDocxDownloadButton({
       const objectivesContent = syllabus.course_objectives as BosCourseObjectivesContent | undefined;
       const outcomesContent = syllabus.course_learning_outcomes as BosCourseLearnOutcomesContent | undefined;
 
-      let coursePartLabel: string | undefined;
-      try {
-        const params = new URLSearchParams({
-          institution_id: syllabus.institutions_id,
-          search: syllabus.course_code,
-          is_active: 'true',
-          limit: '50',
-        });
-        const cmRes = await fetch(`/api/bos/courses-master?${params}`);
-        if (cmRes.ok) {
-          const json = await cmRes.json();
-          const rows = Array.isArray(json) ? json : (json?.data ?? []);
-          const match = rows.find(
-            (c: { course_code?: string }) => c.course_code === syllabus.course_code,
-          );
-          if (match) {
-            const partOrType: string | null = match.course_type ?? match.course_part_master ?? null;
-            const level: string | null = match.course_level ?? null;
-            const composed = match.course_type_code
-              ?? (partOrType && level ? `${partOrType}-${level}` : (partOrType ?? null));
-            if (composed) coursePartLabel = composed;
-          }
-        }
-      } catch {
-        // courses-master lookup failure is non-fatal
-      }
+      const { course_code: liveCode, course_name: liveName, coursePartLabel } =
+        await resolveCourseForReport(syllabus);
 
       // Mirror the PDF: prefix course_name with course_type_code.
       const displayCourseName = coursePartLabel
-        ? `${coursePartLabel}-${syllabus.course_name}`
-        : syllabus.course_name;
+        ? `${coursePartLabel}-${liveName}`
+        : liveName;
 
       await generateCourseSyllabusDOCX({
         institution_name: header.institution_name,
@@ -239,7 +243,7 @@ export function SyllabusDocxDownloadButton({
         institution_accreditation: header.institution_accreditation,
         logoImage: '/logo.png',
         rightLogoImage: header.rightLogoImage,
-        course_code: syllabus.course_code,
+        course_code: liveCode,
         course_name: displayCourseName,
         course_part: coursePartLabel,
         total_hours: syllabus.total_hours ?? undefined,

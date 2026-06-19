@@ -375,6 +375,24 @@ export async function resolveBosBoardScope(userId: string): Promise<BosBoardScop
     }
   }
 
+  // Multi-board: a composition may govern MULTIPLE boards via the
+  // bos_composition_boards junction (the embedded board_id above is only the
+  // PRIMARY board). Expand boardsOf/chairmanForBoards to every board of the
+  // user's compositions so a member of a multi-board composition reaches all
+  // those boards' courses/syllabi/programmes across /bos/* (those read paths
+  // gate on boardsOf). Additive — the primary board is already in the sets.
+  if (memberOf.size > 0) {
+    const { data: compBoards } = await supabase
+      .from('bos_composition_boards')
+      .select('composition_id, board_id')
+      .in('composition_id', Array.from(memberOf));
+    for (const row of (compBoards ?? []) as { composition_id: string; board_id: string }[]) {
+      if (!row.board_id) continue;
+      boardsOf.add(row.board_id);
+      if (isChairmanIn.has(row.composition_id)) chairmanForBoards.add(row.board_id);
+    }
+  }
+
   return {
     ...baseScope,
     isPrincipal,

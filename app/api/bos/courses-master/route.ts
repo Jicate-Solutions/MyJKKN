@@ -91,6 +91,23 @@ export async function GET(request: NextRequest) {
         }
       }
 
+      // Multi-board: the syllabus form may request a SPECIFIC board of this
+      // composition. Honour it only if it actually belongs to the composition
+      // (junction or primary); otherwise fall back to the primary board.
+      const requestedBoardId = searchParams.get('board_id');
+      let targetBoardId = comp.board_id;
+      if (requestedBoardId && requestedBoardId !== comp.board_id) {
+        const { data: jb } = await supabase
+          .from('bos_composition_boards')
+          .select('board_id')
+          .eq('composition_id', comp.id);
+        const compBoardSet = new Set<string>([
+          comp.board_id,
+          ...((jb ?? []) as { board_id: string }[]).map((r) => r.board_id),
+        ]);
+        if (compBoardSet.has(requestedBoardId)) targetBoardId = requestedBoardId;
+      }
+
       // COE course rows refer to the MyJKKN institutions_id, and a CAS college's
       // counselling_code / institution_code maps to MULTIPLE MyJKKN ids (Aided +
       // SF). So resolve the composition institution to its full MyJKKN sibling
@@ -114,7 +131,7 @@ export async function GET(request: NextRequest) {
           const coeBoards: CoeBoard[] = Array.isArray(coeBoardsRaw)
             ? (coeBoardsRaw as CoeBoard[])
             : ((coeBoardsRaw as { data?: CoeBoard[] })?.data ?? []);
-          const found = coeBoards.find((b) => b.id === comp.board_id)?.board_code ?? null;
+          const found = coeBoards.find((b) => b.id === targetBoardId)?.board_code ?? null;
           if (found) { boardCodeRaw = found; break; }
         } catch { /* try next candidate */ }
       }

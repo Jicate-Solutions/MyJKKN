@@ -128,18 +128,33 @@ export async function GET(
     //
     // The "Board of Studies - " prefix is stripped from whatever name source
     // wins, so the rendered subject doesn't duplicate the phrase.
+    // Multi-board: a composition may govern several boards. The call letter
+    // mentions the PRIMARY board — resolve it from the junction (is_primary),
+    // falling back to the meeting's denormalized board_id.
+    let primaryBoardId = (meeting.board_id as string | null) ?? null;
+    if (meeting.composition_id) {
+      const { data: pb } = await supabase
+        .from('bos_composition_boards')
+        .select('board_id')
+        .eq('composition_id', meeting.composition_id)
+        .eq('is_primary', true)
+        .maybeSingle();
+      const pbId = (pb as { board_id?: string } | null)?.board_id;
+      if (pbId) primaryBoardId = pbId;
+    }
+
     const { fetchCoeBoardMap } = await import('@/lib/utils/bos/coe-boards');
     const coeBoardMap = meeting.institutions_id
       ? await fetchCoeBoardMap(meeting.institutions_id)
       : new Map<string, { board_name: string; board_type?: string | null }>();
-    const coeBoard = meeting.board_id ? coeBoardMap.get(meeting.board_id) : undefined;
+    const coeBoard = primaryBoardId ? coeBoardMap.get(primaryBoardId) : undefined;
 
     let rawBoardName = coeBoard?.board_name ?? '';
-    if (!rawBoardName && meeting.board_id) {
+    if (!rawBoardName && primaryBoardId) {
       const { data: boardRow } = await supabase
         .from('bos_boards')
         .select('board_name')
-        .eq('id', meeting.board_id)
+        .eq('id', primaryBoardId)
         .maybeSingle();
       rawBoardName = (boardRow as { board_name?: string } | null)?.board_name ?? '';
     }
