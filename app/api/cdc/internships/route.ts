@@ -104,7 +104,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden — CDC staff only' }, { status: 403 });
     }
 
-    const body: CreateCorporateInternshipPayload & { institution_id?: string } = await request.json();
+    const body: CreateCorporateInternshipPayload & {
+      institution_id?: string;
+      is_paid?: boolean;
+      stipend_amount?: number | null;
+    } = await request.json();
 
     if (!body.learner_id || !body.site_id || !body.facilitator_id || !body.cycle_id) {
       return NextResponse.json({
@@ -121,6 +125,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'institution_id required' }, { status: 400 });
     }
 
+    // BUG-004040: Paid/Unpaid + stipend amount. Unpaid internships never carry a
+    // stipend, so force stipend_amount to null when is_paid is false.
+    const isPaid = body.is_paid ?? false;
+    const stipendAmount = isPaid ? (body.stipend_amount ?? null) : null;
+
     const { data, error } = await (supabase as any)
       .from('internship_assignments')
       .insert({
@@ -133,6 +142,8 @@ export async function POST(request: NextRequest) {
         rotation_end_date: body.rotation_end_date,
         required_attendance_pct: body.required_attendance_pct ?? 75,
         department_rotation: body.department_rotation ?? null,
+        is_paid: isPaid,
+        stipend_amount: stipendAmount,
         internship_type: 'corporate_internship',
         status: 'pending',
         created_by: user.id,

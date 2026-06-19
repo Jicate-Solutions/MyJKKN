@@ -37,7 +37,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
-import { useCdcInternshipCreate } from '@/hooks/cdc/use-cdc-internships';
+import { toast } from 'react-hot-toast';
 import { CdcInternshipService } from '@/lib/services/cdc/internship-service';
 import { useLearnersForPicker, useStaffForPicker } from '@/hooks/cdc/use-cdc-pickers';
 import { useAuth } from '@/hooks/use-auth';
@@ -53,7 +53,7 @@ const DEFAULT_REQUIRED_ATTENDANCE_PCT = 75;
 
 export default function NewCdcInternshipPage() {
   const router = useRouter();
-  const { createInternship, loading } = useCdcInternshipCreate();
+  const [loading, setLoading] = useState(false);
   const { data: learnerOptions = [], isLoading: learnersLoading } = useLearnersForPicker();
   const { data: staffOptions = [], isLoading: staffLoading } = useStaffForPicker();
   const { profile } = useAuth();
@@ -69,6 +69,9 @@ export default function NewCdcInternshipPage() {
     rotation_end_date: '',
     required_attendance_pct: DEFAULT_REQUIRED_ATTENDANCE_PCT,
     department_rotation: '',
+    // BUG-004040: paid/unpaid + stipend amount
+    is_paid: false,
+    stipend_amount: '' as string, // kept as string for the numeric input; parsed at submit
   });
   // Institution comes from the logged-in user's session profile (useAuth),
   // NOT a network fetch. This REPLACES a previous fetch('/api/users/profile')
@@ -123,21 +126,45 @@ export default function NewCdcInternshipPage() {
     ) {
       return;
     }
-    const created = await createInternship(
-      {
-        learner_id: formData.learner_id,
-        site_id: formData.site_id,
-        facilitator_id: formData.facilitator_id,
-        cycle_id: formData.cycle_id,
-        rotation_start_date: formData.rotation_start_date,
-        rotation_end_date: formData.rotation_end_date,
-        required_attendance_pct: formData.required_attendance_pct,
-        department_rotation: formData.department_rotation || undefined,
-      },
-      institutionId
-    );
-    if (created) {
-      router.push(`/cdc/internships/${created.id}`);
+    // BUG-004040: stipend is only meaningful for paid internships. Parse the
+    // numeric input; an empty/invalid value means "unspecified" (null).
+    const parsedStipend =
+      formData.is_paid && formData.stipend_amount.trim() !== ''
+        ? Number(formData.stipend_amount)
+        : null;
+
+    // Submit via the create API route so the new paid/stipend columns are
+    // persisted (BUG-004040). The route validates role + required fields and
+    // forces stipend_amount to null when is_paid is false.
+    setLoading(true);
+    try {
+      const res = await fetch('/api/cdc/internships', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          learner_id: formData.learner_id,
+          site_id: formData.site_id,
+          facilitator_id: formData.facilitator_id,
+          cycle_id: formData.cycle_id,
+          rotation_start_date: formData.rotation_start_date,
+          rotation_end_date: formData.rotation_end_date,
+          required_attendance_pct: formData.required_attendance_pct,
+          department_rotation: formData.department_rotation || undefined,
+          is_paid: formData.is_paid,
+          stipend_amount: parsedStipend,
+          institution_id: institutionId || undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || 'Failed to create internship');
+      }
+      toast.success('Corporate internship created');
+      router.push(`/cdc/internships/${json.data.id}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create internship');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -342,6 +369,47 @@ export default function NewCdcInternshipPage() {
                   }
                 />
               </div>
+
+              {/* Paid / Unpaid + stipend — BUG-004040 */}
+              <div className="grid gap-1">
+                <Label htmlFor="is_paid">Compensation</Label>
+                <Select
+                  value={formData.is_paid ? 'paid' : 'unpaid'}
+                  onValueChange={(v) =>
+                    setFormData(p => ({
+                      ...p,
+                      is_paid: v === 'paid',
+                      // Clear any entered stipend when switching to Unpaid.
+                      stipend_amount: v === 'paid' ? p.stipend_amount : '',
+                    }))
+                  }
+                >
+                  <SelectTrigger id="is_paid">
+                    <SelectValue placeholder="Select compensation" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unpaid">Unpaid</SelectItem>
+                    <SelectItem value="paid">Paid</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {formData.is_paid && (
+                <div className="grid gap-1">
+                  <Label htmlFor="stipend_amount">Stipend amount (₹) (optional)</Label>
+                  <Input
+                    id="stipend_amount"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="e.g. 15000"
+                    value={formData.stipend_amount}
+                    onChange={e =>
+                      setFormData(p => ({ ...p, stipend_amount: e.target.value }))
+                    }
+                  />
+                </div>
+              )}
 
               {/* Department / rotation */}
               <div className="grid gap-1">
