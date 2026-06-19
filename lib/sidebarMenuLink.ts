@@ -172,6 +172,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/users/roles': 'roles.assign',
   '/users/role-management': 'roles.create',
   '/users/permissions-audit': 'users.permissions_audit.view',
+  // Added 2026-06-19: dynamic user-detail routes were unguarded (no page guard,
+  // no MENU_PERMISSIONS entry) so they rendered to any authenticated user. Now
+  // declared canonically + enforced by RoutePermissionGuard (/users/layout.tsx).
+  '/users/[id]': 'users.view',
+  '/users/[id]/edit': 'users.edit',
 
   // Application Hub
   '/application-hub': 'application_hub.view',
