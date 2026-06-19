@@ -457,11 +457,52 @@ export function DataTable<TData extends ExportableData, TValue>({
     idField
   ]);
 
-  // Get all items on current page
-  const getAllItems = useCallback((): TData[] => {
-    // Return current page data
-    return dataItems;
-  }, [dataItems]);
+  // Fetch EVERY row matching the current filters (all pages) — used by the
+  // "Export All Pages" action. Prefers fetchAllItemsFn (a single capped query,
+  // same path as select-all); otherwise pages through fetchDataFn until the
+  // full set is collected. Query-hook tables can't be driven imperatively from
+  // here, so they fall back to the visible page (unchanged behaviour).
+  const getAllItems = useCallback(async (): Promise<TData[]> => {
+    const baseParams = {
+      search: preprocessSearch(search),
+      from_date: dateRange.from_date,
+      to_date: dateRange.to_date,
+      sort_by: sortBy,
+      sort_order: sortOrder
+    };
+
+    if (fetchAllItemsFn) {
+      return await fetchAllItemsFn({ page: 1, limit: 0, ...baseParams });
+    }
+
+    const isQueryHook =
+      (fetchDataFn as { isQueryHook?: boolean }).isQueryHook === true;
+    if (isQueryHook) {
+      return dataItems;
+    }
+
+    const fn = fetchDataFn as (
+      params: DataFetchParams
+    ) => Promise<DataFetchResult<TData>>;
+    const first = await fn({ page: 1, limit: pageSize, ...baseParams });
+    const all: TData[] = [...(first.data ?? [])];
+    const totalPages = first.pagination?.total_pages ?? 1;
+    for (let p = 2; p <= totalPages; p++) {
+      const next = await fn({ page: p, limit: pageSize, ...baseParams });
+      all.push(...(next.data ?? []));
+    }
+    return all;
+  }, [
+    fetchAllItemsFn,
+    fetchDataFn,
+    search,
+    dateRange.from_date,
+    dateRange.to_date,
+    sortBy,
+    sortOrder,
+    pageSize,
+    dataItems
+  ]);
 
   // Fetch data
   useEffect(() => {

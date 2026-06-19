@@ -111,27 +111,14 @@ export function DataTableExport<TData extends ExportableData>({
         }
         
         return sortedItems;
-      } else if (getAllItems && !selectedData?.length) {
-        // If we're exporting all data and have a method to get it with proper ordering
-        toast.loading("Preparing export...", {
-          description: `Fetching all ${entityName} with current sorting...`,
-          id: "export-data-toast",
-        });
-        
-        // Fetch all data with server-side sorting applied
-        const allItems = await getAllItems();
-        
-        if (allItems.length === 0) {
-          throw new Error(`No ${entityName} available to export`);
-        }
-        
-        return allItems;
       } else {
-        // Otherwise use the provided data (current page data)
+        // No selection → this is the "Export Current Page" action: use the
+        // visible page only. "Export All Pages" is handled separately by
+        // exportAllPages() via getAllItems(), which fetches the full set.
         if (!data || data.length === 0) {
           throw new Error("No data available for export");
         }
-        return selectedData && selectedData.length > 0 ? selectedData : data;
+        return data;
       }
     };
 
