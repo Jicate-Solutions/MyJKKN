@@ -15,7 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCreateCdcOpportunity } from '@/hooks/cdc/use-cdc-bulletin';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import Link from 'next/link';
-import { BULLETIN_CATEGORIES } from '@/types/cdc/bulletin';
+import { BULLETIN_CATEGORIES, BULLETIN_MODES } from '@/types/cdc/bulletin';
 import type { CreateOpportunityDto } from '@/types/cdc/bulletin';
 
 export default function NewBulletinOpportunityPage() {
@@ -26,6 +26,7 @@ export default function NewBulletinOpportunityPage() {
     title: '',
     source_organisation: null,
     category: null,
+    mode: 'offline',
     deadline_date: null,
     eligibility_text: null,
     apply_url: null,
@@ -127,6 +128,24 @@ export default function NewBulletinOpportunityPage() {
                     placeholder="Enter custom category"
                   />
                 )}
+              </div>
+
+              {/* Mode of participation (BUG-004067) */}
+              <div className="space-y-1.5">
+                <Label>Mode of Participation</Label>
+                <Select
+                  value={form.mode ?? 'offline'}
+                  onValueChange={(v) => set('mode', v as CreateOpportunityDto['mode'])}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select mode" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {BULLETIN_MODES.map((m) => (
+                      <SelectItem key={m} value={m} className="capitalize">{m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Deadline */}
