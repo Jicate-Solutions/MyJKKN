@@ -68,6 +68,27 @@ export function getTransportColumns({ instName, canCollect, canReceipt }: Column
       },
     },
     {
+      id: 'bills',
+      header: 'Bill Details',
+      enableSorting: false,
+      accessorFn: (r) => (r.bill_descriptions ?? []).join(' '),
+      cell: ({ row }) => {
+        const descs = row.original.bill_descriptions ?? [];
+        if (descs.length === 0) {
+          return <span className='text-muted-foreground text-xs'>—</span>;
+        }
+        return (
+          <div className='flex max-w-[260px] flex-col gap-0.5'>
+            {descs.map((d, i) => (
+              <span key={i} className='text-muted-foreground truncate text-xs' title={d}>
+                {d}
+              </span>
+            ))}
+          </div>
+        );
+      },
+    },
+    {
       id: 'billed',
       header: 'Billed',
       accessorKey: 'total_billed',

@@ -13726,7 +13726,7 @@ GRANT EXECUTE ON FUNCTION public.fn_get_razorpay_account_global(text, text) TO s
 -- Transport (bus) fee collection list for /billing/transport: bus-requiring dayscholars with transport
 -- bills. Gated by billing.transport.view; self-scopes to the caller's accessible institutions.
 CREATE OR REPLACE FUNCTION public.fn_list_transport_collectables(p_institution_ids uuid[] DEFAULT NULL, p_academic_year_id uuid DEFAULT NULL)
-RETURNS TABLE(student_id uuid, first_name text, last_name text, roll_number text, institution_id uuid, route_number text, route_name text, stop_name text, total_billed numeric, outstanding_amount numeric, payable_bill_ids uuid[], bill_count integer)
+RETURNS TABLE(student_id uuid, first_name text, last_name text, roll_number text, institution_id uuid, route_number text, route_name text, stop_name text, total_billed numeric, outstanding_amount numeric, payable_bill_ids uuid[], bill_count integer, bill_descriptions text[])
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE v_accessible uuid[];
 BEGIN
@@ -13739,7 +13739,8 @@ BEGIN
     COALESCE(SUM(bsb.final_amount) FILTER (WHERE bsb.status NOT IN ('cancelled','superseded')), 0),
     COALESCE(SUM(CASE WHEN bsb.status IN ('unpaid','partially_paid') THEN COALESCE(bsb.balance_amount, bsb.final_amount, bsb.total_amount, 0) ELSE 0 END), 0),
     COALESCE(array_agg(bsb.id) FILTER (WHERE bsb.status IN ('unpaid','partially_paid')), ARRAY[]::uuid[]),
-    COUNT(bsb.id)::int
+    COUNT(bsb.id)::int,
+    COALESCE(array_agg(bsb.bill_description ORDER BY bsb.due_date) FILTER (WHERE bsb.status NOT IN ('cancelled','superseded') AND bsb.bill_description IS NOT NULL), ARRAY[]::text[])
   FROM public.learners_profiles lp
   JOIN public.billing_student_bills bsb ON bsb.student_id = lp.id
   JOIN public.billing_categories bc ON bc.id = bsb.item_category_id AND bc.kind = 'transport'
