@@ -101,7 +101,14 @@ jobs:
           # verification code with zero rendering surface. They imported
           # `lib/services/*` files that are already non-UI, but the test
           # file path itself fell outside the regex and forced manual skip.
-          NON_UI_REGEX='^(supabase/|scripts/|docs/|specs/|\.claude/|\.github/|lib/services/|lib/utils/|lib/db/|lib/auth/|lib/api/|lib/types/|types/|app/api/|__tests__/|next\.config\.ts|serwist\.config\.mjs|package\.json|README\.md|CHANGELOG\.md|LICENSE|\.gitignore|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig\.json|tsconfig\..*\.json)'
+          # `e2e/` + `playwright.config.ts` added 2026-06-19 (PR #1478 — guide-
+          # driven E2E auth harness): Playwright specs/setup under `e2e/**` and
+          # the root `playwright.config.ts` are pure test infrastructure — they
+          # drive a browser in CI, they do not render UI in the app. Same class
+          # as `__tests__/`; the paths just fell outside the regex and forced a
+          # manual skip. Deliberately NOT broadened to all `*.config.ts`
+          # (`tailwind.config.ts` IS visual — see the next.config note above).
+          NON_UI_REGEX='^(supabase/|scripts/|docs/|specs/|\.claude/|\.github/|lib/services/|lib/utils/|lib/db/|lib/auth/|lib/api/|lib/types/|types/|app/api/|__tests__/|e2e/|next\.config\.ts|playwright\.config\.ts|serwist\.config\.mjs|package\.json|README\.md|CHANGELOG\.md|LICENSE|\.gitignore|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig\.json|tsconfig\..*\.json)'
 
           # Anything outside the non-UI set means the gate applies.
           UI_TOUCHING=$(echo "$CHANGED" | grep -vE "$NON_UI_REGEX" || true)
