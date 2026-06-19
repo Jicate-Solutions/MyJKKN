@@ -42,6 +42,12 @@ const GATED = [
   '/audit/cycles', '/audit/findings', '/audit/care/new',
   // /billing
   '/billing/categories/new', '/billing/refunds', '/billing/categories/b1/edit',
+  // rollout clusters (2nd wave)
+  '/admin/lti/analytics', '/ai-pulse/admin/cycles', '/okr/admin/compliance',
+  '/startup-studio/finance', '/startup-studio/solve-for-100/admin', '/service-requests/approvals',
+  '/staff/category', '/campus-living/reports', '/campus-living/mess/billing/b1',
+  '/solutions/settings/types', '/solutions/pipeline/analytics',
+  '/organizations/school-defaults/audit', '/admission/settings/years/new',
 ];
 
 describe('canonical route-permission enforcement', () => {
@@ -101,6 +107,13 @@ describe('canonical route-permission enforcement', () => {
       expect(isExemptPath('/audit/care/score/tok-abc', ex)).toBe(true);   // token participant
       expect(isExemptPath('/audit/care/score', ex)).toBe(false);          // admin setup -> gated
       expect(isExemptPath('/audit/cycles', ex)).toBe(false);
+    });
+
+    it('startup-studio leaderboard is exempt (own committee-membership layout)', () => {
+      const ex = ['/startup-studio/solve-for-100/leaderboard'];
+      expect(isExemptPath('/startup-studio/solve-for-100/leaderboard', ex)).toBe(true);
+      expect(isExemptPath('/startup-studio/finance', ex)).toBe(false);          // admin -> gated
+      expect(isExemptPath('/startup-studio/solve-for-100/admin', ex)).toBe(false);
     });
   });
 });
