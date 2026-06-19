@@ -383,10 +383,11 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
       className="min-h-screen bg-[#FAF7F0] text-[#1C2B24]"
       style={{ fontFamily: 'var(--font-ibm-plex-sans), sans-serif' }}
     >
-      {/* GA4 + Meta Pixel base code for the public booking funnel. Self-disables
-          when neither NEXT_PUBLIC id is set; the confirmation fires the
-          conversion event via fireBookingConversion(). */}
-      <BookingTrackingScripts />
+      {/* GA4 + Meta Pixel base scripts are mounted once at the page level
+          (app/(public)/meet/[handle]/page.tsx). This widget only FIRES the
+          conversion event on booking success — see getBookingPixelConfig() use
+          below — so it must NOT re-mount <BookingTrackingScripts /> (that would
+          double-load the loader and double-count events). */}
       <div className="h-2 w-full bg-[#0E4D34]" />
       <div className="mx-auto flex min-h-[calc(100vh-0.5rem)] w-full max-w-md flex-col px-5 pb-10 pt-8">
         {/* Host header */}
