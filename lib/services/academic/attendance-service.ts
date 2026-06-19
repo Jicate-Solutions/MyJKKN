@@ -975,6 +975,33 @@ export class AttendanceService {
       // Collect all slots from all relevant timetables
       const allSlots: any[] = [];
 
+      // Updated: 2026-06-19 (FIX 2) - Resolve the staff id + HOD status ONCE here instead
+      // of per-timetable inside the loop. Both are timetable-independent, and the batch
+      // de-duplication below needs the staff id BEFORE it picks one slot variant per period
+      // (so it can prefer the variant this staff actually teaches — see periodSlotMap).
+      let staffIdForFiltering: string | null = null;
+      let isHODUser = false;
+      if (options.filterByStaffAssignment && !options.isSuperAdmin) {
+        staffIdForFiltering = await this.getCurrentUserStaffId();
+        if (!staffIdForFiltering) {
+          // HOD users have no staff record but should see their own department's periods.
+          const { data: userData } = await (this.supabase as any).auth.getUser();
+          if (userData?.user) {
+            const { data: profile } = await this.supabase
+              .from('profiles')
+              .select('role, department_id')
+              .eq('id', userData.user.id)
+              .single();
+            if (
+              (profile as any)?.role === 'hod' &&
+              (profile as any).department_id === filters.department_id
+            ) {
+              isHODUser = true;
+            }
+          }
+        }
+      }
+
       for (const timetable of timetables) {
         // Check date range for ALL timetable formats (both regular and batch)
         if ((timetable as any).start_date && (timetable as any).end_date) {
@@ -1069,7 +1096,7 @@ export class AttendanceService {
                 // Use a Map to track which periods we've already found slots for
                 // FIX: 2025-12-06 - Store the actual slot data (not just boolean) to compare staff counts
                 // Updated: 2025-12-11 - Added isFromRange to prefer RANGE slots over individual slots
-                const periodSlotMap = new Map<string, { slotData: any; day: string; staffCount: number; isFromRange?: boolean }>();
+                const periodSlotMap = new Map<string, { slotData: any; day: string; staffCount: number; isFromRange?: boolean; hasStaff?: boolean }>();
 
                 Object.keys(timetableData).forEach((day) => {
                   const daySlots = timetableData[day];
@@ -1128,30 +1155,42 @@ export class AttendanceService {
                           const isFromRange = slotData.slot_date?.startsWith('RANGE:');
                           const existingIsFromRange = existingSlot?.isFromRange;
 
+                          // Updated: 2026-06-19 (FIX 2) - Does THIS variant include the current staff?
+                          // The RANGE / staff-count tiebreaks below are staff-agnostic and could drop the
+                          // only variant a faculty actually teaches (combined/divided classes), leaving
+                          // them with 0 periods + the misleading "duplicate staff record" warning. When a
+                          // staff filter is active, prefer the variant that contains the current staff.
+                          // When no staff filter is active (super admin), currentHasStaff is always false,
+                          // so these two branches are inert and the original logic is preserved.
+                          const currentHasStaff =
+                            !!staffIdForFiltering &&
+                            Array.isArray(slotData.staff_ids) &&
+                            slotData.staff_ids.includes(staffIdForFiltering);
+                          const existingHasStaff = existingSlot?.hasStaff ?? false;
+
+                          const storeSlot = () =>
+                            periodSlotMap.set(periodId, {
+                              slotData,
+                              day,
+                              staffCount: currentStaffCount,
+                              isFromRange,
+                              hasStaff: currentHasStaff
+                            });
+
                           if (!existingSlot) {
                             // First slot for this period - store it with range flag
-                            periodSlotMap.set(periodId, {
-                              slotData,
-                              day,
-                              staffCount: currentStaffCount,
-                              isFromRange
-                            });
+                            storeSlot();
+                          } else if (currentHasStaff && !existingHasStaff) {
+                            // Staff-aware: current variant includes this faculty, existing doesn't → prefer current
+                            storeSlot();
+                          } else if (!currentHasStaff && existingHasStaff) {
+                            // Existing variant includes this faculty, current doesn't → keep existing
                           } else if (isFromRange && !existingIsFromRange) {
                             // Current is RANGE, existing is individual → prefer RANGE for consistency
-                            periodSlotMap.set(periodId, {
-                              slotData,
-                              day,
-                              staffCount: currentStaffCount,
-                              isFromRange
-                            });
+                            storeSlot();
                           } else if (currentStaffCount > existingSlot.staffCount && !(!isFromRange && existingIsFromRange)) {
                             // Both same type and current has more staff - use as tiebreaker
-                            periodSlotMap.set(periodId, {
-                              slotData,
-                              day,
-                              staffCount: currentStaffCount,
-                              isFromRange
-                            });
+                            storeSlot();
                           }
                           // If current has fewer or equal staff and same type, keep existing
                           // If current is individual and existing is RANGE → keep RANGE
@@ -1371,35 +1410,15 @@ export class AttendanceService {
           continue;
         }
 
-        // Store staffId for later filtering if needed
-        let staffIdForFiltering: string | null = null;
-        let isHODUser = false;
-
-        if (options.filterByStaffAssignment && !options.isSuperAdmin) {
-          staffIdForFiltering = await this.getCurrentUserStaffId();
-
-          if (!staffIdForFiltering) {
-            // Check if user is HOD - HOD users don't have staff records but should see their department's periods
-            const { data: userData } = await (this.supabase as any).auth.getUser();
-            if (userData.user) {
-              const { data: profile } = await this.supabase
-                .from('profiles')
-                .select('role, department_id')
-                .eq('id', userData.user.id)
-                .single();
-
-              if (
-                (profile as any)?.role === 'hod' &&
-                (profile as any).department_id === filters.department_id
-              ) {
-                isHODUser = true;
-              } else {
-                continue; // Skip this timetable if user has no staff access and is not HOD
-              }
-            } else {
-              continue;
-            }
-          }
+        // Updated: 2026-06-19 (FIX 2) - staffIdForFiltering / isHODUser are now resolved
+        // once before the loop. Here we only skip timetables this user cannot access.
+        if (
+          options.filterByStaffAssignment &&
+          !options.isSuperAdmin &&
+          !staffIdForFiltering &&
+          !isHODUser
+        ) {
+          continue; // No staff record and not an HOD for this department → skip
         }
 
         if (slots && slots.length > 0) {
@@ -1448,9 +1467,14 @@ export class AttendanceService {
               return false;
             });
 
-            // Warning: If all slots were filtered out, this may indicate a duplicate staff record issue
+            // Updated: 2026-06-19 (FIX 2) - Neutral diagnostic. All slots being filtered out
+            // for this staff usually just means they teach none of this timetable's periods on
+            // this date (a date outside their teaching range, or a combined class taught by a
+            // colleague) — NOT a duplicate staff record. The old "possible duplicate staff record"
+            // wording sent triage down the wrong path. Logged at debug since it is an expected,
+            // non-error condition; the UI surfaces an explicit "no classes on this date" empty state.
             if (slots.length > 0 && filteredSlots.length === 0) {
-              logger.warn('academic/attendance', 'All slots filtered out for staff - possible duplicate staff record', {
+              logger.debug('academic/attendance', 'No assigned slots for this staff on this timetable/date', {
                 userStaffId: staffIdForFiltering,
                 sampleSlotStaffIds: slots[0]?.staff_ids || [],
                 timetableId: (timetable as any).id
@@ -1528,6 +1552,10 @@ export class AttendanceService {
           return {
             timetable_slot_id: slot.slot_id || slot.id,
             timetable_id: slot.timetable_id,
+            // Updated: 2026-06-19 (FIX 4) - Stamp institution_id (available in the fetch
+            // context) onto every period so the leave-check effect in available-periods-cards
+            // can run instead of logging "Skipping leave check - missing institution_id".
+            institution_id: filters.institution_id,
             id: slot.period_id,
             period_name: periodData?.period_name || 'Unknown Period',
             start_time: periodData?.start_time || '',
