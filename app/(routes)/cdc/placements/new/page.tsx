@@ -19,7 +19,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { SearchableSelect } from '@/components/ui/searchable-select';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Paperclip, X } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useCreateCdcPlacement } from '@/hooks/cdc/use-cdc-placements';
 import { useCdcLookups, useCdcDrives } from '@/hooks/cdc/use-cdc-drives';
 import type { CdcPlacementInsert } from '@/types/cdc/placements';
@@ -85,6 +87,7 @@ export default function NewCdcPlacementPage() {
     has_service_agreement: false,
   });
   const [error, setError] = useState<string | null>(null);
+  const [uploadingOfferLetter, setUploadingOfferLetter] = useState(false);
 
   const set = <K extends keyof CdcPlacementFormState>(key: K, value: CdcPlacementFormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -96,6 +99,38 @@ export default function NewCdcPlacementPage() {
       // Clear any captured bond details when the agreement is turned off
       service_agreement_details: checked ? f.service_agreement_details : null,
     }));
+  };
+
+  /**
+   * BUG-004041: upload the signed offer letter to the cdc-docs bucket and stash
+   * the returned URL in `offer_letter_url` (a column that already exists on
+   * cdc_placements — no migration). Self-contained upload via the browser
+   * client so we don't touch the shared StorageService; mirrors the
+   * cdc-docs path convention used by lib/services/cdc/export-service.ts.
+   */
+  const handleOfferLetterUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setUploadingOfferLetter(true);
+      const supabase = createClientSupabaseClient();
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `offer-letters/${Date.now()}-${safeName}`;
+      const { error: uploadError } = await supabase.storage
+        .from('cdc-docs')
+        .upload(path, file, { upsert: false });
+      if (uploadError) throw uploadError;
+      const { data } = supabase.storage.from('cdc-docs').getPublicUrl(path);
+      set('offer_letter_url', data.publicUrl);
+      toast.success('Offer letter uploaded');
+    } catch (err: unknown) {
+      console.error('[placement-new] Offer letter upload failed:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to upload offer letter');
+    } finally {
+      setUploadingOfferLetter(false);
+      // Reset the input so re-selecting the same file fires onChange again
+      e.target.value = '';
+    }
   };
 
   const learnerOptions = useMemo(
@@ -320,6 +355,46 @@ export default function NewCdcPlacementPage() {
                     </p>
                   </div>
                 )}
+              </div>
+
+              {/* Offer Letter upload (BUG-004041) */}
+              <div className="space-y-1 pt-1">
+                <Label htmlFor="offer_letter">Offer Letter (optional)</Label>
+                {form.offer_letter_url ? (
+                  <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                    <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <a
+                      href={form.offer_letter_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 truncate underline underline-offset-2"
+                    >
+                      View uploaded offer letter
+                    </a>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0"
+                      onClick={() => set('offer_letter_url', null)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <Input
+                    id="offer_letter"
+                    type="file"
+                    accept="application/pdf,image/*"
+                    onChange={handleOfferLetterUpload}
+                    disabled={uploadingOfferLetter}
+                  />
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {uploadingOfferLetter
+                    ? 'Uploading…'
+                    : 'Attach the signed offer letter (PDF or image). Visible to CDC staff on the placement record.'}
+                </p>
               </div>
             </CardContent>
           </Card>
