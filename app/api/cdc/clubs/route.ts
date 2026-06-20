@@ -12,11 +12,16 @@ export async function GET(request: NextRequest) {
     }
 
     const sp = request.nextUrl.searchParams;
+    const statusParam = sp.get('status');
     const filters: ClubFilters = {
       page: sp.get('page') ? Number(sp.get('page')) : 1,
       limit: sp.get('limit') ? Number(sp.get('limit')) : 20,
       institution_id: sp.get('institution_id') ?? undefined,
       is_active: sp.has('is_active') ? sp.get('is_active') === 'true' : undefined,
+      status:
+        statusParam === 'active' || statusParam === 'inactive' || statusParam === 'upcoming'
+          ? statusParam
+          : undefined,
       club_type: sp.get('club_type') ?? undefined,
     };
 
