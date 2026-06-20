@@ -30,6 +30,12 @@ const config: ModuleNavConfig = {
       matchPaths: ['/academic/years'],
     },
     {
+      label: 'Parent Portal',
+      icon: 'Megaphone',
+      href: '/academic/parent-portal',
+      matchPaths: ['/academic/parent-portal'],
+    },
+    {
       label: 'Regulations',
       icon: 'Bookmark',
       href: '/academic/regulations',

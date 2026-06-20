@@ -293,8 +293,15 @@ function walk(absDir: string, urlSoFar: string): RouteNode[] {
     });
   }
 
-  // Stable sort: alphabetical by path
-  out.sort((a, b) => a.path.localeCompare(b.path));
+  // Stable sort: alphabetical by path, with explicit position overrides.
+  // SORT_KEY pins specific routes to a chosen spot (e.g. Parent Portal Content
+  // should sit right after Timetables in the Academic tab/sidebar, not in its
+  // alphabetical slot between "Obe" and "Periods").
+  const SORT_KEY: Record<string, string> = {
+    '/academic/parent-portal': '/academic/timetables/zzz',
+  };
+  const sortKey = (p: string) => SORT_KEY[p] ?? p;
+  out.sort((a, b) => sortKey(a.path).localeCompare(sortKey(b.path)));
 
   // Dedup by path — guards against the rare case where a route group
   // passthrough (seg === '') merges children that already exist at this

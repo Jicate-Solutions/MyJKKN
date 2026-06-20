@@ -6,6 +6,48 @@ import { profileCache } from './lib/auth/profile-cache';
 import { routeMatcher } from './lib/auth/route-matcher';
 import { FEATURE_FLAGS } from './lib/config/feature-flags';
 import { StudentValidationService } from './lib/services/auth/student-validation-service';
+import { PARENT_SESSION_COOKIE, verifyParentSession } from './lib/auth/parent-jwt';
+
+// Parent Portal pages that are reachable WITHOUT a parent_session (the auth
+// funnel). Everything else under /parent/* requires a valid parent_session JWT.
+// NOTE: /api/parent/* is intentionally NOT handled here — those routes start
+// with "/api" (not "/parent"), bypass the proxy, and enforce auth in-route via
+// resolveParentScope(). This block governs page navigation only.
+const PARENT_PUBLIC_PATHS = new Set([
+  '/parent',
+  '/parent/onboarding',
+  '/parent/login',
+  '/parent/register',
+  '/parent/forgot',
+]);
+
+// Once authenticated, these auth-funnel pages redirect straight to the dashboard.
+const PARENT_REDIRECT_WHEN_AUTHED = new Set([
+  '/parent',
+  '/parent/login',
+  '/parent/register',
+]);
+
+async function handleParentPortal(request: NextRequest, currentPath: string) {
+  const token = request.cookies.get(PARENT_SESSION_COOKIE)?.value;
+  const claims = await verifyParentSession(token);
+
+  if (claims && PARENT_REDIRECT_WHEN_AUTHED.has(currentPath)) {
+    return NextResponse.redirect(new URL('/parent/dashboard', request.url));
+  }
+
+  if (!claims && !PARENT_PUBLIC_PATHS.has(currentPath)) {
+    const url = new URL('/parent/login', request.url);
+    url.searchParams.set('redirectedFrom', currentPath);
+    return NextResponse.redirect(url);
+  }
+
+  const res = NextResponse.next();
+  res.headers.set('Cache-Control', 'no-store, must-revalidate');
+  res.headers.set('X-Content-Type-Options', 'nosniff');
+  res.headers.set('X-Frame-Options', 'SAMEORIGIN');
+  return res;
+}
 
 // Define public paths - optimized with Set for O(1) lookup
 const PUBLIC_PATHS_SET = new Set([
@@ -93,6 +135,14 @@ export async function proxy(request: NextRequest) {
       const url = request.nextUrl.clone();
       url.pathname = legacyTarget;
       return NextResponse.redirect(url, 301);
+    }
+
+    // Parent Portal — fully isolated dual-auth domain. Gate /parent/* with the
+    // parent_session JWT and return early, BEFORE the staff Supabase flow runs
+    // (a parent has no Supabase session and would otherwise be bounced to the
+    // staff /auth/login).
+    if (currentPath === '/parent' || currentPath.startsWith('/parent/')) {
+      return handleParentPortal(request, currentPath);
     }
 
     // Helper: inject preconnect hints to speed up Supabase and Google connections
@@ -464,6 +514,7 @@ export const config = {
     '/students/:path*',
     '/guest/:path*',
     '/driver/:path*',
+    '/parent/:path*',
     // Match all paths except public ones
     '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|auth/test-login|auth/lti-login|auth/audit-login|auth/dev-login|icons|pwa-test.html).*)'
   ]

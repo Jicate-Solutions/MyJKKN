@@ -1,0 +1,15 @@
+{
+  "name": "MyJKKN Parent Portal",
+  "short_name": "MyJKKN Parent",
+  "description": "MyJKKN Parent Portal — attendance, fees, homework and more.",
+  "start_url": "/parent/dashboard",
+  "scope": "/parent",
+  "display": "standalone",
+  "background_color": "#fbfbee",
+  "theme_color": "#0b6d41",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512x512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

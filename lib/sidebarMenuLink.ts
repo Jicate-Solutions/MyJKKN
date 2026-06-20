@@ -279,6 +279,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // have sub-permissions continue seeing the Academic sidebar row even
   // though the row now points at /academic instead of /academic/years.
   '/academic': 'academic.years.view',
+  '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
   '/academic/leave-calendar': 'academic.leaves.view',
   '/academic/leaves': 'academic.leaves.view',
@@ -1242,6 +1243,9 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Academic',
           active: pathname === '/academic' || pathname.startsWith('/academic/'),
           icon: GraduationCap,
+          // Flat link — the Academic sub-pages (incl. Parent Portal Content)
+          // are surfaced by the in-module tab bar (academic/nav-config.ts),
+          // NOT as sidebar submenus. Adding submenus here would hide the rest.
           submenus: []
         },
         // NOTE: the learner lanes (Class Feedback /learn, My Attendance Feedback

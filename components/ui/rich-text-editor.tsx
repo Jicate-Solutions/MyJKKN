@@ -188,6 +188,9 @@ export function RichTextEditor({
   className
 }: RichTextEditorProps) {
   const editor = useEditor({
+    // Tiptap renders on the server otherwise, causing hydration mismatches in
+    // the Next.js App Router. Defer the first render to the client.
+    immediatelyRender: false,
     extensions: [
       StarterKit.configure({
         heading: false,

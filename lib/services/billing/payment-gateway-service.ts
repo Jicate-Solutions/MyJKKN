@@ -4,6 +4,7 @@
 // Purpose: Handle online payment processing via HDFC SmartGateway
 
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { BillingReceiptService } from './receipts/billing-receipt-service';
 import type {
   PaymentTransaction,
@@ -91,7 +92,11 @@ export class PaymentGatewayService {
    * @returns Payment session response with payment URL
    */
   static async createPaymentSession(
-    sessionData: CreatePaymentSessionDto
+    sessionData: CreatePaymentSessionDto,
+    // Optional injected client. Staff/student callers omit it (cookie session).
+    // The Parent Portal passes a service-role client because parents authenticate
+    // with a custom JWT and have no Supabase session for RLS to key off.
+    injectedClient?: SupabaseClient
   ): Promise<InitiatePaymentResult> {
     try {
       logger.info('billing/payment-gateway', 'Creating payment session', {
@@ -99,7 +104,7 @@ export class PaymentGatewayService {
         bill_count: sessionData.bill_ids.length,
       });
 
-      const supabase = await createClient();
+      const supabase = injectedClient ?? (await createClient());
 
       // Step 1: Validate bills and calculate total amount
       const { data: bills, error: billsError } = await supabase

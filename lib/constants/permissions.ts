@@ -370,6 +370,8 @@ export const PERMISSION_CATEGORIES = [
     name: 'Academic',
     key: 'academic',
     permissions: [
+      { key: 'academic.parent_portal.manage', label: 'Manage Parent Portal Content' },
+      { key: 'academic.parent_portal.user_data.manage', label: 'Manage Parent User Data & Passwords' },
       { key: 'academic.years.view', label: 'View Academic Years' },
       { key: 'academic.years.create', label: 'Create Academic Years' },
       { key: 'academic.years.edit', label: 'Edit Academic Years' },
