@@ -28,8 +28,15 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Download, FileSpreadsheet, AlertCircle, Loader2 } from 'lucide-react';
-import { useNaacExport, useAicteExport, useFlexExport } from '@/hooks/cdc/use-cdc-exports';
+import { Download, FileSpreadsheet, AlertCircle, Loader2, FileArchive } from 'lucide-react';
+import { useEffect } from 'react';
+import { toast } from 'sonner';
+import {
+  useNaacExport,
+  useAicteExport,
+  useFlexExport,
+  useProofsZip,
+} from '@/hooks/cdc/use-cdc-exports';
 import { FLEX_TABLE_COLUMNS, type FlexTable, type ExportFormat } from '@/types/cdc/exports';
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -38,6 +45,18 @@ function NaacSection() {
   const [cycle, setCycle] = useState(`${CURRENT_YEAR - 1}-${String(CURRENT_YEAR).slice(-2)}`);
   const [format, setFormat] = useState<ExportFormat>('csv');
   const { exportNaac, loading, error } = useNaacExport();
+  const {
+    downloadProofsZip,
+    loading: proofsLoading,
+    error: proofsError,
+    message: proofsMessage,
+  } = useProofsZip();
+
+  // Surface the proof-bundle result (e.g. "No offer-letter documents found")
+  // as a toast — the page renders other errors via Alert below.
+  useEffect(() => {
+    if (proofsMessage) toast.success(proofsMessage);
+  }, [proofsMessage]);
 
   return (
     <Card>
@@ -99,6 +118,42 @@ function NaacSection() {
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
+
+        <Separator />
+
+        <div className="space-y-2">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <Label className="text-sm">Supporting Proof Documents</Label>
+              <p className="text-xs text-muted-foreground">
+                Bundle the uploaded offer-letter documents for all accepted placements into
+                a single ZIP — the supporting evidence for NAAC 5.2.1 / AICTE submission.
+              </p>
+            </div>
+            <PermissionGuard module="cdc.exports" action="download">
+              <Button
+                variant="outline"
+                onClick={downloadProofsZip}
+                disabled={proofsLoading}
+                className="w-full sm:w-auto shrink-0"
+              >
+                {proofsLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <FileArchive className="h-4 w-4 mr-2" />
+                )}
+                {proofsLoading ? 'Bundling…' : 'Download Proofs (ZIP)'}
+              </Button>
+            </PermissionGuard>
+          </div>
+          {proofsError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{proofsError}</AlertDescription>
+            </Alert>
+          )}
+        </div>
+
         <p className="text-xs text-muted-foreground">
           A copy is saved to the CDC-docs storage bucket under exports/{CURRENT_YEAR}/ for audit trail.
         </p>
