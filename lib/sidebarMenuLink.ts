@@ -976,6 +976,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/meetings/polls': 'meetings.polls.view',
   '/meetings/contacts': 'meetings.contacts.view',
   '/meetings/analytics': 'meetings.analytics.view',
+  '/meetings/adoption': 'meetings.analytics.view',
   '/meetings/webhooks': 'meetings.webhooks.view',
   '/meetings/embed': 'meetings.embed.manage',
 
@@ -2002,6 +2003,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/meetings/polls', label: 'Polls', active: pathname.startsWith('/meetings/polls') },
             { href: '/meetings/contacts', label: 'Contacts', active: pathname.startsWith('/meetings/contacts') },
             { href: '/meetings/analytics', label: 'Analytics', active: pathname.startsWith('/meetings/analytics') },
+            { href: '/meetings/adoption', label: 'Adoption', active: pathname.startsWith('/meetings/adoption') },
             { href: '/meetings/webhooks', label: 'Webhooks', active: pathname.startsWith('/meetings/webhooks') },
             { href: '/meetings/embed', label: 'Embed & Theming', active: pathname.startsWith('/meetings/embed') },
           ]
