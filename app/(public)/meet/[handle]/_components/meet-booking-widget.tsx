@@ -350,6 +350,12 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
         }),
       });
       const orderJson = await orderRes.json();
+      // Identity gate also fires on the order step (server checks it before
+      // creating a Razorpay order) — show the login gate, don't throw.
+      if (orderRes.status === 403 && orderJson.error === 'login_required') {
+        setLoginGate(orderJson.reason === 'jkkn_email' ? 'jkkn_email' : 'account_exists');
+        return;
+      }
       if (!orderRes.ok || !orderJson.success) {
         throw new Error(orderJson.error || 'Could not start payment.');
       }
