@@ -425,6 +425,37 @@ export class GoogleCalendarService {
     return res.ok;
   }
 
+  /**
+   * Mark a cancelled booking's event as cancelled but KEEP it on the host's
+   * calendar — renamed ("Cancelled: …") and freed (transparent so it no longer
+   * blocks time), for record-keeping. Mirrors the old Calendly behaviour the
+   * Director relied on; status stays 'confirmed' so Google keeps it visible
+   * (status:'cancelled' would hide/remove it). Best effort; sendUpdates=all so
+   * the attendee is notified. Falls through to a no-op on 410 (already gone).
+   */
+  static async markEventCancelled(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+    eventId: string,
+    cancelledSummary: string,
+  ): Promise<boolean> {
+    const token = await this.accessTokenForHost(supabase, hostProfileId);
+    if (!token) return false;
+    const res = await fetch(
+      `${CAL_BASE}/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+      {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summary: cancelledSummary, transparency: 'transparent' }),
+      },
+    );
+    if (!res.ok && res.status !== 410) {
+      console.error(`${LOG_PREFIX} event cancel-mark failed:`, res.status);
+      return false;
+    }
+    return true;
+  }
+
   /** Delete the calendar event for a cancelled booking (best effort). */
   static async deleteEvent(
     supabase: SupabaseClient,
