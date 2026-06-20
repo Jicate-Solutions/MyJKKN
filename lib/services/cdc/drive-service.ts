@@ -151,6 +151,9 @@ export class CdcDriveService {
       institutions: payload.institutions,
       status: 'draft',
       rounds_count: payload.rounds_count ?? 1,
+      // Venue mode (BUG-004045) + off-campus live-location link (BUG-004096).
+      drive_mode: payload.drive_mode ?? 'on_campus',
+      location_url: payload.location_url ?? null,
       drive_date: payload.drive_date ?? null,
       drive_start_time: payload.drive_start_time ?? null,
       drive_end_time: payload.drive_end_time ?? null,
