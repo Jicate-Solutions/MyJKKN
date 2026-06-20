@@ -16,6 +16,7 @@ export interface CdcExternalOpportunity {
   apply_url: string | null;
   detail_url: string | null;
   stipend_text: string | null;
+  attachment_url: string | null;    // brochure / supporting doc URL in cdc-docs bucket (BUG-004063)
   is_active: boolean;
   posted_at: string;
   posted_by: string | null;
@@ -61,6 +62,7 @@ export interface CreateOpportunityDto {
   apply_url?: string | null;
   detail_url?: string | null;
   stipend_text?: string | null;
+  attachment_url?: string | null;   // brochure / supporting doc URL in cdc-docs bucket (BUG-004063)
   is_active?: boolean;
 }
 
