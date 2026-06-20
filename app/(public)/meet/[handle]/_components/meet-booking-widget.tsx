@@ -290,6 +290,13 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
       await pickType(selectedType); // refresh slots, stay on time step
       return;
     }
+    // Server identity gate (#1524): this email owns a JKKN account → must log in.
+    // Re-homed here from submitBooking when #1516 extracted finalizeBooking, so
+    // both free and paid (deposit) bookings honour the login gate.
+    if (res.status === 403 && json.error === 'login_required') {
+      setLoginGate(json.reason === 'jkkn_email' ? 'jkkn_email' : 'account_exists');
+      return;
+    }
     if (!res.ok || !json.success) {
       throw new Error(json.error || 'Could not complete the booking.');
     }
