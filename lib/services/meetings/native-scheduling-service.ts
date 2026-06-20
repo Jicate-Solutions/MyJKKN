@@ -825,12 +825,10 @@ export class NativeSchedulingService {
       rescheduleUrl,
     });
 
-    // Wave 3 (CRM bridge) — best effort: if this attendee is a known admission
-    // lead, log a `meeting` activity on their CRM timeline so the counseling
-    // booking becomes a tracked funnel event. Mirrors the pattern used by
-    // inbound-call-sync-service.ts for calls. Must not throw or affect the
-    // booking result.
-    BookingCrmBridge.recordBookingActivity(supabase, {
+    // Wave 3 (CRM bridge) — best effort, awaited so it actually completes in
+    // serverless (un-awaited promises are frozen when the response is sent).
+    // Service is non-throwing internally; .catch() is belt-and-suspenders.
+    await BookingCrmBridge.recordBookingActivity(supabase, {
       uid,
       attendeeEmail: input.attendeeEmail,
       attendeePhone: input.attendeePhone ?? null,
