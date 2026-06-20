@@ -208,8 +208,9 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-<<<<<<< HEAD
-  const [confirmation, setConfirmation] = useState<{ uid: string; start: string } | null>(null);
+  const [confirmation, setConfirmation] = useState<
+    { uid: string; start: string; videoUrl: string | null } | null
+  >(null);
   // Identity gate (Director 2026-06-20): a JKKN account must log in to book.
   // 'jkkn_email' is detected client-side (domain match, no probe); 'account_exists'
   // comes back from the server (403) for a non-JKKN email that owns an account.
@@ -219,11 +220,6 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
     !loggedIn && form.email.trim().toLowerCase().endsWith('@jkkn.ac.in');
   const gated = isJkknEmail || loginGate !== null;
   const loginHref = `/auth/login?redirectedFrom=${encodeURIComponent(`/meet/${props.handle}`)}`;
-=======
-  const [confirmation, setConfirmation] = useState<
-    { uid: string; start: string; videoUrl: string | null } | null
-  >(null);
->>>>>>> jicate/main
 
   // Regroup the API's day buckets BY IST DATE (see header comment).
   const istDays = useMemo(() => {
