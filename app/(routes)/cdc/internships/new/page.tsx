@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { format } from 'date-fns';
-import { ArrowLeft, Save, Calendar as CalendarIcon } from 'lucide-react';
+import { ArrowLeft, Save, Calendar as CalendarIcon, Upload, FileText, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
@@ -39,6 +39,7 @@ import {
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { toast } from 'react-hot-toast';
 import { CdcInternshipService } from '@/lib/services/cdc/internship-service';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useLearnersForPicker, useStaffForPicker } from '@/hooks/cdc/use-cdc-pickers';
 import { useAuth } from '@/hooks/use-auth';
 
@@ -72,7 +73,11 @@ export default function NewCdcInternshipPage() {
     // BUG-004040: paid/unpaid + stipend amount
     is_paid: false,
     stipend_amount: '' as string, // kept as string for the numeric input; parsed at submit
+    // BUG-004087: optional offer-letter document URL
+    offer_letter_url: '' as string,
   });
+  // BUG-004087: tracks the offer-letter upload-in-flight state for the field UI.
+  const [uploadingOffer, setUploadingOffer] = useState(false);
   // Institution comes from the logged-in user's session profile (useAuth),
   // NOT a network fetch. This REPLACES a previous fetch('/api/users/profile')
   // call to a route that does not exist: it 404'd, the failure was swallowed by
@@ -152,6 +157,7 @@ export default function NewCdcInternshipPage() {
           department_rotation: formData.department_rotation || undefined,
           is_paid: formData.is_paid,
           stipend_amount: parsedStipend,
+          offer_letter_url: formData.offer_letter_url || null,
           institution_id: institutionId || undefined,
         }),
       });
@@ -165,6 +171,33 @@ export default function NewCdcInternshipPage() {
       toast.error(err instanceof Error ? err.message : 'Failed to create internship');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // BUG-004087: upload the offer letter (PDF/image) to the cdc-docs bucket and
+  // store its public URL in form state. Self-contained — uses the same browser
+  // Supabase client the service uses, so the upload runs under the user's session.
+  const handleOfferLetterUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingOffer(true);
+    try {
+      const supabase = createClientSupabaseClient();
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `internship-offer-letters/${Date.now()}-${safeName}`;
+      const { error } = await supabase.storage
+        .from('cdc-docs')
+        .upload(path, file, { upsert: false });
+      if (error) throw error;
+      const { data } = supabase.storage.from('cdc-docs').getPublicUrl(path);
+      setFormData(p => ({ ...p, offer_letter_url: data.publicUrl }));
+      toast.success('Offer letter uploaded');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to upload offer letter');
+    } finally {
+      setUploadingOffer(false);
+      // Reset the input so re-selecting the same file re-triggers onChange.
+      e.target.value = '';
     }
   };
 
@@ -420,6 +453,54 @@ export default function NewCdcInternshipPage() {
                   value={formData.department_rotation}
                   onChange={e => set('department_rotation')(e.target.value)}
                 />
+              </div>
+
+              {/* Offer letter — optional upload (PDF/image) — BUG-004087 */}
+              <div className="grid gap-1">
+                <Label htmlFor="offer_letter">Offer letter (optional)</Label>
+                {formData.offer_letter_url ? (
+                  <div className="flex items-center gap-2 rounded-md border bg-gray-50 px-3 py-2 text-sm">
+                    <FileText className="h-4 w-4 text-gray-500 shrink-0" />
+                    <a
+                      href={formData.offer_letter_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="truncate text-blue-600 hover:underline"
+                    >
+                      Offer letter uploaded — view
+                    </a>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="ml-auto h-6 w-6"
+                      onClick={() => setFormData(p => ({ ...p, offer_letter_url: '' }))}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div>
+                    <Input
+                      id="offer_letter"
+                      type="file"
+                      accept="application/pdf,image/*"
+                      onChange={handleOfferLetterUpload}
+                      disabled={uploadingOffer}
+                      className="hidden"
+                    />
+                    <label
+                      htmlFor="offer_letter"
+                      className={cn(
+                        'flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground cursor-pointer hover:bg-gray-50',
+                        uploadingOffer && 'pointer-events-none opacity-60'
+                      )}
+                    >
+                      <Upload className="h-4 w-4" />
+                      {uploadingOffer ? 'Uploading…' : 'Upload offer letter (PDF or image)'}
+                    </label>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

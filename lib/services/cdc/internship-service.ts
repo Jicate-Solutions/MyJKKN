@@ -34,6 +34,7 @@ const ASSIGNMENT_SELECT = `
   days_present,
   attendance_percentage,
   overall_grade,
+  offer_letter_url,
   created_at,
   updated_at,
   created_by,
@@ -174,6 +175,8 @@ export class CdcInternshipService {
         rotation_end_date: payload.rotation_end_date,
         required_attendance_pct: requiredAttendancePct,
         department_rotation: payload.department_rotation ?? null,
+        // BUG-004087: optional offer-letter document URL
+        offer_letter_url: payload.offer_letter_url ?? null,
         internship_type: 'corporate_internship',
         status: 'pending',
       })

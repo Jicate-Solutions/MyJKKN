@@ -11,6 +11,7 @@ const ASSIGNMENT_SELECT = `
   rotation_start_date, rotation_end_date, assignment_join_date,
   required_attendance_pct, status, internship_type,
   total_days, days_present, attendance_percentage, overall_grade,
+  offer_letter_url,
   created_at, updated_at, created_by, updated_by,
   site:internship_external_sites (
     id, institution_id, site_name, internship_type,
@@ -108,6 +109,7 @@ export async function POST(request: NextRequest) {
       institution_id?: string;
       is_paid?: boolean;
       stipend_amount?: number | null;
+      offer_letter_url?: string | null;
     } = await request.json();
 
     if (!body.learner_id || !body.site_id || !body.facilitator_id || !body.cycle_id) {
@@ -144,6 +146,8 @@ export async function POST(request: NextRequest) {
         department_rotation: body.department_rotation ?? null,
         is_paid: isPaid,
         stipend_amount: stipendAmount,
+        // BUG-004087: optional offer-letter document URL
+        offer_letter_url: body.offer_letter_url ?? null,
         internship_type: 'corporate_internship',
         status: 'pending',
         created_by: user.id,
