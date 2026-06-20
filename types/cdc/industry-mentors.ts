@@ -9,6 +9,7 @@ export interface IndustryMentor {
   designation: string | null;
   company_name: string | null;
   profile_photo_url: string | null;
+  company_logo_url: string | null;
   bio: string | null;
   linkedin_url: string | null;
   email: string;
@@ -38,6 +39,8 @@ export interface CreateIndustryMentorInput {
   email: string;
   designation?: string;
   company_name?: string;
+  profile_photo_url?: string;
+  company_logo_url?: string;
   bio?: string;
   linkedin_url?: string;
   phone?: string;
