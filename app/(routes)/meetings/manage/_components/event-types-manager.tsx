@@ -21,6 +21,7 @@ import { toast } from 'sonner';
 import {
   Calendar,
   Clock,
+  CreditCard,
   EyeOff,
   Loader2,
   Pencil,
@@ -123,6 +124,14 @@ const formSchema = z.object({
     .optional()
     .or(z.literal('')),
   cancellationPolicy: z.string().trim().max(2000, 'Keep the policy under 2000 characters').optional().or(z.literal('')),
+  // ── Wave-3 (B): paid bookings ────────────────────────────────────────────────
+  requiresDeposit: z.boolean(),
+  // Deposit amount in RUPEES in the form (converted to paise on submit).
+  // Ignored unless requiresDeposit; validated server-side too.
+  depositAmountRupees: z.coerce
+    .number({ invalid_type_error: 'Enter an amount' })
+    .min(0, 'Cannot be negative')
+    .max(100000, 'Max ₹1,00,000'),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -280,6 +289,12 @@ export function EventTypesManager({
                           {et.kind === 'group' && et.capacity ? ` · ${et.capacity}` : ''}
                         </Badge>
                       )}
+                      {et.requiresDeposit && et.depositAmountPaise ? (
+                        <Badge variant="outline" className="shrink-0 gap-1">
+                          <CreditCard className="h-3 w-3" aria-hidden />
+                          {`₹${(et.depositAmountPaise / 100).toLocaleString('en-IN')}`}
+                        </Badge>
+                      ) : null}
                       {et.hidden && (
                         <Badge variant="secondary" className="shrink-0 gap-1">
                           <EyeOff className="h-3 w-3" aria-hidden />
@@ -427,6 +442,9 @@ function EventTypeDialog({
       hostEmails: (editing?.hostEmails ?? []).join('\n'),
       redirectUrl: editing?.redirectUrl ?? '',
       cancellationPolicy: editing?.cancellationPolicy ?? '',
+      // Wave-3 (B): paid bookings — paise in the DB ↔ rupees in the form.
+      requiresDeposit: editing?.requiresDeposit ?? false,
+      depositAmountRupees: editing?.depositAmountPaise ? editing.depositAmountPaise / 100 : 0,
     },
   });
 
@@ -438,6 +456,7 @@ function EventTypeDialog({
   const locationTextValue = watch('locationText');
   const slotIntervalValue = watch('slotIntervalMin');
   const kindValue = watch('kind');
+  const requiresDepositValue = watch('requiresDeposit');
 
   function onTitleChange(value: string) {
     setValue('title', value, { shouldValidate: true });
@@ -474,6 +493,11 @@ function EventTypeDialog({
       hostEmails: values.kind === 'collective' || values.kind === 'round_robin' ? hostEmails : [],
       redirectUrl: values.redirectUrl?.trim() || undefined,
       cancellationPolicy: values.cancellationPolicy?.trim() || undefined,
+      // Wave-3 (B): paid bookings — rupees → paise; cleared when not required.
+      requiresDeposit: values.requiresDeposit,
+      depositAmountPaise: values.requiresDeposit
+        ? Math.round((values.depositAmountRupees || 0) * 100)
+        : null,
     };
 
     startSave(async () => {
@@ -894,6 +918,52 @@ function EventTypeDialog({
                   Shown to the attendee on the cancel page.
                 </p>
               </div>
+            </div>
+
+            {/* ── Wave-3 (B) paid bookings — require a Razorpay deposit ───────── */}
+            <div className="space-y-3 rounded-md border p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <Label htmlFor="et-requires-deposit" className="text-sm">
+                    Require a deposit to book
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Collect a payment before the booking is confirmed.
+                  </p>
+                </div>
+                <Switch
+                  id="et-requires-deposit"
+                  checked={requiresDepositValue}
+                  onCheckedChange={(v) => setValue('requiresDeposit', v, { shouldValidate: true })}
+                />
+              </div>
+
+              {requiresDepositValue && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="et-deposit-amount" className="text-xs">
+                    Deposit amount (₹)
+                  </Label>
+                  <Input
+                    id="et-deposit-amount"
+                    type="number"
+                    min={1}
+                    max={100000}
+                    step="1"
+                    className="w-40"
+                    {...register('depositAmountRupees')}
+                    aria-invalid={!!errors.depositAmountRupees}
+                  />
+                  {errors.depositAmountRupees && (
+                    <p className="text-xs text-destructive">
+                      {errors.depositAmountRupees.message}
+                    </p>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">
+                    Charged via Razorpay on the booking page. If online payments
+                    aren&rsquo;t set up yet, the meeting can still be booked for free.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Hidden toggle (edit only — new types default visible) */}
