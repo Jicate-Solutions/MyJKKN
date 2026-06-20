@@ -14,6 +14,7 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { GuideAdoptionMount } from '@/components/guide/guide-adoption-mount';
+import { BookingPageNudge } from '@/components/dashboard/booking-page-nudge';
 import { DashboardErrorBoundary } from '@/components/dashboard/dashboard-error-boundary';
 import { getDashboardMetrics } from '@/lib/services/dashboard/dashboard-metrics-service';
 import { HeroStrip } from '@/components/dashboard/hero-strip';
@@ -317,6 +318,19 @@ export default async function DashboardV2Page({
         <Suspense fallback={null}>
           <GuideAdoptionMount />
         </Suspense>
+
+        {/* Booking-page adoption nudge (Universal Booking distribution, W1
+            2026-06-20). The module is built but adoption ≈ 1 page — this is the
+            supply-side front door that prompts staff to stand up their own
+            /meet/<handle>. The component self-gates on the meetings.view
+            permission (the host population) and self-hides once the viewer's
+            page is fully live, so it's rendered for every persona here.
+            Silent boundary — a non-essential nudge must never break the dash. */}
+        <DashboardErrorBoundary label='Booking page nudge' mode='silent'>
+          <Suspense fallback={null}>
+            <BookingPageNudge />
+          </Suspense>
+        </DashboardErrorBoundary>
 
         {/* Today's Focus (actionability upgrade #2, 2026-04-21) — director only.
             Derives the single most-important thing to act on from current OHS
