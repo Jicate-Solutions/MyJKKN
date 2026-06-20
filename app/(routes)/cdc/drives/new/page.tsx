@@ -22,6 +22,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useCreateCdcDrive, useCdcLookups } from '@/hooks/cdc/use-cdc-drives';
 import { useJkknInstitutions } from '@/hooks/use-jkkn-institutions';
+import type { CdcDriveMode } from '@/types/cdc';
 
 export default function NewCdcDrivePage() {
   const router = useRouter();
@@ -40,6 +41,8 @@ export default function NewCdcDrivePage() {
   const [driveTypeId, setDriveTypeId] = useState('');
   const [institutions, setInstitutions] = useState<string[]>([]);
   const [roundsCount, setRoundsCount] = useState(1);
+  const [driveMode, setDriveMode] = useState<CdcDriveMode>('on_campus');
+  const [locationUrl, setLocationUrl] = useState('');
   const [driveDate, setDriveDate] = useState('');
   const [driveStartTime, setDriveStartTime] = useState('');
   const [driveEndTime, setDriveEndTime] = useState('');
@@ -76,6 +79,10 @@ export default function NewCdcDrivePage() {
       setSubmitError('Select at least one institution');
       return;
     }
+    if (driveMode === 'off_campus' && !locationUrl.trim()) {
+      setSubmitError('Live location link is required for off-campus drives');
+      return;
+    }
 
     try {
       const created = await createDrive.mutateAsync({
@@ -85,6 +92,9 @@ export default function NewCdcDrivePage() {
         drive_type_id: driveTypeId,
         institutions,
         rounds_count: roundsCount,
+        drive_mode: driveMode,
+        // Only persist a location link for off-campus drives; clears if mode changed away.
+        location_url: driveMode === 'off_campus' ? locationUrl.trim() || null : null,
         drive_date: driveDate || null,
         drive_start_time: driveStartTime || null,
         drive_end_time: driveEndTime || null,
@@ -227,6 +237,40 @@ export default function NewCdcDrivePage() {
             <CardTitle className="text-base">Schedule + venue</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <Label htmlFor="drive-mode">Drive mode</Label>
+                <Select
+                  value={driveMode}
+                  onValueChange={(v) => setDriveMode(v as CdcDriveMode)}
+                >
+                  <SelectTrigger id="drive-mode">
+                    <SelectValue placeholder="Select mode" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="on_campus">On-Campus</SelectItem>
+                    <SelectItem value="off_campus">Off-Campus</SelectItem>
+                    <SelectItem value="walk_in">Walk-in</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {driveMode === 'off_campus' ? (
+                <div>
+                  <Label htmlFor="location-url">Live location link *</Label>
+                  <Input
+                    id="location-url"
+                    type="url"
+                    value={locationUrl}
+                    onChange={(e) => setLocationUrl(e.target.value)}
+                    placeholder="e.g. https://maps.app.goo.gl/…"
+                    required
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Shareable map / live-location link for the off-campus venue.
+                  </p>
+                </div>
+              ) : null}
+            </div>
             <div className="grid gap-4 md:grid-cols-3">
               <div>
                 <Label htmlFor="drive-date">Drive date</Label>
