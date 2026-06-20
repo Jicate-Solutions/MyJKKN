@@ -17,6 +17,7 @@ export interface CdcExternalOpportunity {
   detail_url: string | null;
   stipend_text: string | null;
   attachment_url: string | null;    // brochure / supporting doc URL in cdc-docs bucket (BUG-004063)
+  target_audience: TargetAudience | null; // structured eligibility — dept/program/section IDs (BUG-004080)
   is_active: boolean;
   posted_at: string;
   posted_by: string | null;
@@ -48,6 +49,16 @@ export type BulletinCategory = (typeof BULLETIN_CATEGORIES)[number];
 export const BULLETIN_MODES = ['online', 'offline', 'hybrid'] as const;
 export type BulletinMode = (typeof BULLETIN_MODES)[number];
 
+// Structured target audience (BUG-004080) — replaces reliance on free-text eligibility.
+// Stored as a single JSONB column on cdc_external_opportunities. Each key holds an
+// array of UUIDs; an absent or empty key means "no restriction on that dimension".
+// `sections` is reserved for a future dimension and is not wired in the form yet.
+export interface TargetAudience {
+  departments?: string[];
+  programs?: string[];
+  sections?: string[];
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // DTOs
 // ═══════════════════════════════════════════════════════════════════════════
@@ -63,6 +74,7 @@ export interface CreateOpportunityDto {
   detail_url?: string | null;
   stipend_text?: string | null;
   attachment_url?: string | null;   // brochure / supporting doc URL in cdc-docs bucket (BUG-004063)
+  target_audience?: TargetAudience | null; // structured eligibility (BUG-004080)
   is_active?: boolean;
 }
 
