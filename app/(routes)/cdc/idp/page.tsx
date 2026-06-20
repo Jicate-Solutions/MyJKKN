@@ -19,13 +19,21 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select';
-import { useIdpList } from '@/hooks/cdc/use-cdc-idp';
+import { useIdpList, useSendIdpReminders } from '@/hooks/cdc/use-cdc-idp';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { IdpFilters } from '@/types/cdc/idp';
 import {
-  Plus, Search, ClipboardList, ListChecks, Clock, CheckCircle2
+  Plus, Search, ClipboardList, ListChecks, Clock, CheckCircle2, BellRing, Loader2
 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
+
+// A response is "pending" when submitted but never opened/edited since
+// (updated_at <= submitted_at) — the same rule the stats cards use.
+function isIdpPending(r: { submitted_at?: string | null; updated_at?: string | null }): boolean {
+  const submitted = r.submitted_at ? new Date(r.submitted_at).getTime() : 0;
+  const updated = r.updated_at ? new Date(r.updated_at).getTime() : 0;
+  return !(updated > submitted);
+}
 
 const idpStatsClient = createClientSupabaseClient();
 
@@ -108,6 +116,23 @@ export default function IdpListPage() {
 
   const { data, isLoading, error } = useIdpList(filters);
   const { data: stats, isLoading: statsLoading, isError: statsError } = useIdpStats(filters);
+  const sendReminders = useSendIdpReminders();
+  // Which single row is mid-send (so only that row's button spins).
+  const [remindingId, setRemindingId] = useState<string | null>(null);
+
+  const remindOne = (id: string) => {
+    setRemindingId(id);
+    sendReminders.mutate(
+      { ids: [id], scope: 'selected' },
+      { onSettled: () => setRemindingId(null) }
+    );
+  };
+
+  const remindAllPending = () => {
+    // Honour the active server-side filters so the bulk send matches the
+    // PENDING count the operator currently sees.
+    sendReminders.mutate({ scope: 'all_pending', filters });
+  };
 
   const handleAcademicYearChange = (val: string) => {
     setFilters(f => ({ ...f, academic_year_label: val === 'all' ? undefined : val, page: 1 }));
@@ -144,14 +169,32 @@ export default function IdpListPage() {
             <ClipboardList className="w-6 h-6 text-blue-600" />
             Individual Development Plans
           </h1>
-          <PermissionGuard module="cdc.idp" action="create">
-            <Button asChild>
-              <Link href="/cdc/idp/new">
-                <Plus className="w-4 h-4 mr-1" />
-                New IDP Response
-              </Link>
-            </Button>
-          </PermissionGuard>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Bulk reminder — nudge every pending learner in the current view. */}
+            <PermissionGuard module="cdc.idp" action="edit">
+              <Button
+                variant="outline"
+                onClick={remindAllPending}
+                disabled={sendReminders.isPending || (stats?.pending ?? 0) === 0}
+                title={(stats?.pending ?? 0) === 0 ? 'No pending IDPs to remind' : 'Remind all pending learners'}
+              >
+                {sendReminders.isPending && !remindingId ? (
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                ) : (
+                  <BellRing className="w-4 h-4 mr-1" />
+                )}
+                Remind All Pending{(stats?.pending ?? 0) > 0 ? ` (${stats?.pending})` : ''}
+              </Button>
+            </PermissionGuard>
+            <PermissionGuard module="cdc.idp" action="create">
+              <Button asChild>
+                <Link href="/cdc/idp/new">
+                  <Plus className="w-4 h-4 mr-1" />
+                  New IDP Response
+                </Link>
+              </Button>
+            </PermissionGuard>
+          </div>
         </div>
 
         {/* Stats summary (BUG-004091) */}
@@ -248,13 +291,45 @@ export default function IdpListPage() {
                   <Link key={r.id} href={`/cdc/idp/${r.id}`}>
                     <Card className="hover:border-blue-300 transition-colors cursor-pointer">
                       <CardHeader className="pb-2">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between gap-2">
                           <CardTitle className="text-base font-medium">
                             {(r.learner as { name?: string } | null)?.name ?? 'Unknown learner'}
                           </CardTitle>
-                          <Badge variant="outline" className="text-xs">
-                            {r.source === 'google_form_migration' ? 'Imported' : 'Native'}
-                          </Badge>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {isIdpPending(r) && (
+                              <Badge className="text-xs bg-amber-100 text-amber-700 hover:bg-amber-100">
+                                Pending
+                              </Badge>
+                            )}
+                            <Badge variant="outline" className="text-xs">
+                              {r.source === 'google_form_migration' ? 'Imported' : 'Native'}
+                            </Badge>
+                            {isIdpPending(r) && (
+                              <PermissionGuard module="cdc.idp" action="edit">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs text-blue-600 hover:text-blue-700"
+                                  disabled={sendReminders.isPending}
+                                  // Inside a <Link> — prevent navigation when the
+                                  // reminder button is clicked.
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    remindOne(r.id);
+                                  }}
+                                  title="Send a completion reminder to this learner"
+                                >
+                                  {remindingId === r.id ? (
+                                    <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                                  ) : (
+                                    <BellRing className="w-3.5 h-3.5 mr-1" />
+                                  )}
+                                  Remind
+                                </Button>
+                              </PermissionGuard>
+                            )}
+                          </div>
                         </div>
                       </CardHeader>
                       <CardContent className="text-sm text-gray-600 space-y-1">
