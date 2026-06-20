@@ -38,6 +38,7 @@ export default function NewIdpPage() {
   const [clubPicks, setClubPicks] = useState<string[]>([]);
   const [skillInput, setSkillInput] = useState('');
   const [skills, setSkills] = useState<string[]>([]);
+  const [academicStrengths, setAcademicStrengths] = useState('');
   const [shortTermGoal, setShortTermGoal] = useState('');
   const [longTermGoal, setLongTermGoal] = useState('');
   const [freeNotes, setFreeNotes] = useState('');
@@ -67,6 +68,7 @@ export default function NewIdpPage() {
       interests,
       club_picks: clubPicks,
       skills_self_attribution: skills,
+      academic_strengths: academicStrengths.trim() || undefined,
       three_year_plan: {
         short_term_goal: shortTermGoal,
         long_term_goal: longTermGoal,
@@ -231,6 +233,28 @@ export default function NewIdpPage() {
                   </Badge>
                 ))}
               </div>
+            </CardContent>
+          </Card>
+
+          {/* My Academic Strengths (BUG-004061) — free-text narrative,
+              distinct from the Self-Attributed Skills tag array above. */}
+          <Card>
+            <CardHeader><CardTitle className="text-base">My Academic Strengths</CardTitle></CardHeader>
+            <CardContent className="space-y-1">
+              <Label htmlFor="academic_strengths">
+                In your own words, what are your academic strengths?
+              </Label>
+              <Textarea
+                id="academic_strengths"
+                value={academicStrengths}
+                onChange={e => setAcademicStrengths(e.target.value)}
+                rows={4}
+                placeholder="e.g. I grasp theory quickly, write clear lab reports, and enjoy solving applied problems in mathematics…"
+              />
+              <p className="text-xs text-muted-foreground">
+                A short written answer about your academic strong points — separate
+                from the skill tags above.
+              </p>
             </CardContent>
           </Card>
 
