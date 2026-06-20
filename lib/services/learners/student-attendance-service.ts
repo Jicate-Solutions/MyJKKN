@@ -5,6 +5,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   StudentAttendanceRecord,
   AttendanceStatistics,
@@ -40,9 +41,13 @@ export class StudentAttendanceService {
    */
   static async getStudentAttendanceBySemester(
     learnerId: string,
-    semesterId: string
+    semesterId: string,
+    // Optional injected client. The student-facing page omits it (cookie session
+    // + RLS). The Parent Portal passes a service-role client because parents
+    // authenticate with a custom JWT and have no Supabase session for RLS.
+    injectedClient?: SupabaseClient
   ): Promise<StudentAttendanceRecord[]> {
-    const supabase = await createClient();
+    const supabase = injectedClient ?? (await createClient());
 
     // 1. Get student's section_id and basic info
     const { data: learner, error: learnerError } = await supabase
@@ -170,9 +175,10 @@ export class StudentAttendanceService {
    */
   static async getAttendanceStatistics(
     learnerId: string,
-    semesterId: string
+    semesterId: string,
+    injectedClient?: SupabaseClient
   ): Promise<AttendanceStatistics> {
-    const records = await this.getStudentAttendanceBySemester(learnerId, semesterId);
+    const records = await this.getStudentAttendanceBySemester(learnerId, semesterId, injectedClient);
 
     const totalClasses = records.length;
     const presentCount = records.filter(r => r.status === 'Present').length;

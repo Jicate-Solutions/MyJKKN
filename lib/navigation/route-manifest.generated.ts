@@ -328,6 +328,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/academic/parent-portal",
+        "label": "Parent Portal",
+        "iconName": "Megaphone",
+        "children": []
+      },
+      {
         "path": "/academic/years",
         "label": "Years",
         "iconName": "CalendarRange",

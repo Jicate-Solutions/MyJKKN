@@ -31,6 +31,7 @@ export default function NewTrainingProgrammePage() {
     end_date: null,
     status: 'planned',
     external_provider: null,
+    trainer_name: null,
   });
 
   // BUG-004049: End Date must not be earlier than Start Date.
@@ -175,6 +176,17 @@ export default function NewTrainingProgrammePage() {
                   value={form.external_provider ?? ''}
                   onChange={(e) => set('external_provider', e.target.value || null)}
                   placeholder="e.g. NSDC, TCS iON"
+                />
+              </div>
+
+              {/* Trainer Name — BUG-004076 */}
+              <div className="space-y-1.5">
+                <Label htmlFor="trainer_name">Trainer Name</Label>
+                <Input
+                  id="trainer_name"
+                  value={form.trainer_name ?? ''}
+                  onChange={(e) => set('trainer_name', e.target.value || null)}
+                  placeholder="e.g. Dr. R. Kannan"
                 />
               </div>
 

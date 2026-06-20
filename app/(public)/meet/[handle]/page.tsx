@@ -18,6 +18,7 @@ import {
   PublicHostService,
   type PublicHost,
 } from '@/lib/services/meetings/public-host-service';
+import { BookingTrackingScripts } from '@/lib/services/analytics/booking-pixel-service';
 import { MeetBookingWidget } from './_components/meet-booking-widget';
 
 export const dynamic = 'force-dynamic';
@@ -49,15 +50,19 @@ export default async function MeetPersonPage({ params }: MeetPageProps) {
   if (!host || host.meetingTypes.length === 0) notFound();
 
   return (
-    <MeetBookingWidget
-      handle={host.handle}
-      name={host.name}
-      designation={host.designation}
-      departmentName={host.departmentName}
-      institutionName={host.institutionName}
-      headline={host.headline}
-      avatarUrl={host.avatarUrl}
-      meetingTypes={host.meetingTypes}
-    />
+    <>
+      {/* GA4 + Meta Pixel base scripts — env-gated, self-disables when ids unset. */}
+      <BookingTrackingScripts />
+      <MeetBookingWidget
+        handle={host.handle}
+        name={host.name}
+        designation={host.designation}
+        departmentName={host.departmentName}
+        institutionName={host.institutionName}
+        headline={host.headline}
+        avatarUrl={host.avatarUrl}
+        meetingTypes={host.meetingTypes}
+      />
+    </>
   );
 }

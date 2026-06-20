@@ -7,10 +7,13 @@
 
 import { useMemo } from 'react';
 import {
-  distinctOptions,
-  FilterRow,
-  FiltersPopover,
-} from '@/components/campus-living/filter-panel';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { distinctOptions } from '@/components/campus-living/filter-panel';
 
 export interface AllocationAdvancedFilters {
   institution_id: string | null;
@@ -55,7 +58,15 @@ export function allocationMatchesFilters(
   return true;
 }
 
-export function AllocationFiltersPanel({
+// Academic (Institution/Program/Semester/Room+Mess category) filter selects,
+// rendered as full-size grid cells for the Allocations "Advanced Filters"
+// collapsible panel (profiles-style layout). Returns a Fragment — NOT a wrapper
+// div — so each select becomes a direct child of the parent grid, lining up
+// with the page-rendered Type/Block/Floor cascade. Options are derived from the
+// loaded rows, so a value can never match nothing; a select with no options
+// just doesn't render. Filtering is instant, so there's no per-control "Any"
+// sentinel beyond the "All …" item that maps back to null.
+export function AllocationAcademicFilterSelects({
   rows,
   value,
   onChange,
@@ -113,59 +124,97 @@ export function AllocationFiltersPanel({
     onChange({ ...value, ...patch });
 
   return (
-    <FiltersPopover
-      activeCount={countActiveAllocationFilters(value)}
-      onClear={() => onChange(EMPTY_ALLOCATION_FILTERS)}
-    >
+    <>
       {institutionOptions.length > 0 && (
-        <FilterRow
-          label='Institution'
-          value={value.institution_id}
-          options={institutionOptions}
-          onChange={(v) => set({ institution_id: v })}
-        />
+        <Select
+          value={value.institution_id ?? 'all'}
+          onValueChange={(v) => set({ institution_id: v === 'all' ? null : v })}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder='All Institutions' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='all'>All Institutions</SelectItem>
+            {institutionOptions.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       )}
       {programOptions.length > 0 && (
-        <FilterRow
-          label='Program'
-          value={value.program_id}
-          options={programOptions}
-          onChange={(v) => set({ program_id: v })}
-        />
+        <Select
+          value={value.program_id ?? 'all'}
+          onValueChange={(v) => set({ program_id: v === 'all' ? null : v })}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder='All Programs' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='all'>All Programs</SelectItem>
+            {programOptions.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       )}
       {semesterOptions.length > 0 && (
-        <FilterRow
-          label='Semester'
-          value={value.semester_id}
-          options={semesterOptions}
-          onChange={(v) => set({ semester_id: v })}
-        />
+        <Select
+          value={value.semester_id ?? 'all'}
+          onValueChange={(v) => set({ semester_id: v === 'all' ? null : v })}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder='All Semesters' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='all'>All Semesters</SelectItem>
+            {semesterOptions.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       )}
       {roomCategoryOptions.length > 0 && (
-        <FilterRow
-          label='Room Category'
-          value={value.room_category_id}
-          options={roomCategoryOptions}
-          onChange={(v) => set({ room_category_id: v })}
-        />
+        <Select
+          value={value.room_category_id ?? 'all'}
+          onValueChange={(v) => set({ room_category_id: v === 'all' ? null : v })}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder='All Room Categories' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='all'>All Room Categories</SelectItem>
+            {roomCategoryOptions.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       )}
       {messCategoryOptions.length > 0 && (
-        <FilterRow
-          label='Mess Category'
-          value={value.mess_category_id}
-          options={messCategoryOptions}
-          onChange={(v) => set({ mess_category_id: v })}
-        />
+        <Select
+          value={value.mess_category_id ?? 'all'}
+          onValueChange={(v) => set({ mess_category_id: v === 'all' ? null : v })}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder='All Mess Categories' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='all'>All Mess Categories</SelectItem>
+            {messCategoryOptions.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       )}
-      {institutionOptions.length === 0 &&
-        programOptions.length === 0 &&
-        semesterOptions.length === 0 &&
-        roomCategoryOptions.length === 0 &&
-        messCategoryOptions.length === 0 && (
-          <p className='text-xs text-muted-foreground'>
-            No academic data available on the loaded allocations.
-          </p>
-        )}
-    </FiltersPopover>
+    </>
   );
 }

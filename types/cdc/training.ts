@@ -37,6 +37,7 @@ export interface CdcTrainingProgramme {
   end_date: string | null;         // ISO date
   status: TrainingProgrammeStatus;
   external_provider: string | null;
+  trainer_name: string | null;     // BUG-004076 — trainer / facilitator name
   certificate_template_url: string | null;
   created_at: string;
   updated_at: string;
@@ -91,6 +92,7 @@ export interface CreateTrainingProgrammeDto {
   end_date?: string | null;
   status?: TrainingProgrammeStatus;
   external_provider?: string | null;
+  trainer_name?: string | null;    // BUG-004076 — trainer / facilitator name
   certificate_template_url?: string | null;
 }
 

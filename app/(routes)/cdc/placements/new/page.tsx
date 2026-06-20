@@ -19,10 +19,25 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { SearchableSelect } from '@/components/ui/searchable-select';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Paperclip, X } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useCreateCdcPlacement } from '@/hooks/cdc/use-cdc-placements';
 import { useCdcLookups, useCdcDrives } from '@/hooks/cdc/use-cdc-drives';
 import type { CdcPlacementInsert } from '@/types/cdc/placements';
+
+/**
+ * Local form-state shape. Extends the shared CdcPlacementInsert with the two
+ * service-agreement/bond columns added by migration
+ * 20260620T0030Z_cdc_placements_service_agreement.sql (BUG-004046).
+ * Kept local (not in types/cdc/placements.ts) to avoid touching the shared
+ * types file while other CDC forms are being edited concurrently — the extra
+ * keys pass straight through the POST body into the service-layer insert().
+ */
+type CdcPlacementFormState = Partial<CdcPlacementInsert> & {
+  has_service_agreement?: boolean;
+  service_agreement_details?: string | null;
+};
 
 /**
  * Active + graduated learners for the placement-recipient picker.
@@ -65,15 +80,58 @@ export default function NewCdcPlacementPage() {
     pageSize: 500,
   });
 
-  const [form, setForm] = useState<Partial<CdcPlacementInsert>>({
+  const [form, setForm] = useState<CdcPlacementFormState>({
     is_remote: false,
     is_walk_in: false,
     batch_no: 1,
+    has_service_agreement: false,
   });
   const [error, setError] = useState<string | null>(null);
+  const [uploadingOfferLetter, setUploadingOfferLetter] = useState(false);
 
-  const set = <K extends keyof CdcPlacementInsert>(key: K, value: CdcPlacementInsert[K]) =>
+  const set = <K extends keyof CdcPlacementFormState>(key: K, value: CdcPlacementFormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
+
+  const handleServiceAgreementToggle = (checked: boolean) => {
+    setForm((f) => ({
+      ...f,
+      has_service_agreement: checked,
+      // Clear any captured bond details when the agreement is turned off
+      service_agreement_details: checked ? f.service_agreement_details : null,
+    }));
+  };
+
+  /**
+   * BUG-004041: upload the signed offer letter to the cdc-docs bucket and stash
+   * the returned URL in `offer_letter_url` (a column that already exists on
+   * cdc_placements — no migration). Self-contained upload via the browser
+   * client so we don't touch the shared StorageService; mirrors the
+   * cdc-docs path convention used by lib/services/cdc/export-service.ts.
+   */
+  const handleOfferLetterUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setUploadingOfferLetter(true);
+      const supabase = createClientSupabaseClient();
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `offer-letters/${Date.now()}-${safeName}`;
+      const { error: uploadError } = await supabase.storage
+        .from('cdc-docs')
+        .upload(path, file, { upsert: false });
+      if (uploadError) throw uploadError;
+      const { data } = supabase.storage.from('cdc-docs').getPublicUrl(path);
+      set('offer_letter_url', data.publicUrl);
+      toast.success('Offer letter uploaded');
+    } catch (err: unknown) {
+      console.error('[placement-new] Offer letter upload failed:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to upload offer letter');
+    } finally {
+      setUploadingOfferLetter(false);
+      // Reset the input so re-selecting the same file fires onChange again
+      e.target.value = '';
+    }
+  };
 
   const learnerOptions = useMemo(
     () => (learners ?? []).map((l: { id: string; label: string }) => ({ value: l.id, label: l.label })),
@@ -123,7 +181,9 @@ export default function NewCdcPlacementPage() {
     }
 
     try {
-      const placement = await createPlacement.mutateAsync(form as CdcPlacementInsert);
+      const placement = await createPlacement.mutateAsync(
+        form as unknown as CdcPlacementInsert
+      );
       router.push(`/cdc/placements/${placement.id}`);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to create placement.');
@@ -262,6 +322,80 @@ export default function NewCdcPlacementPage() {
                 />
                 <Label htmlFor="is_remote" className="cursor-pointer">Remote position</Label>
               </div>
+
+              {/* Service Agreement / Bond (BUG-004046) */}
+              <div className="space-y-3 pt-1">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="has_service_agreement"
+                    checked={form.has_service_agreement ?? false}
+                    onChange={(e) => handleServiceAgreementToggle(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <Label htmlFor="has_service_agreement" className="cursor-pointer">
+                    Service Agreement / Bond required?
+                  </Label>
+                </div>
+                {form.has_service_agreement && (
+                  <div className="space-y-1">
+                    <Label htmlFor="service_agreement_details">Bond period / terms</Label>
+                    <textarea
+                      id="service_agreement_details"
+                      placeholder="e.g. 2-year bond, ₹1,50,000 penalty for early exit…"
+                      value={form.service_agreement_details ?? ''}
+                      onChange={(e) =>
+                        set('service_agreement_details', e.target.value || null)
+                      }
+                      rows={3}
+                      className="w-full border rounded-md px-3 py-2 text-sm bg-background resize-none"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Capture the bond duration, penalty amount, and any other service-agreement terms.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Offer Letter upload (BUG-004041) */}
+              <div className="space-y-1 pt-1">
+                <Label htmlFor="offer_letter">Offer Letter (optional)</Label>
+                {form.offer_letter_url ? (
+                  <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                    <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <a
+                      href={form.offer_letter_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 truncate underline underline-offset-2"
+                    >
+                      View uploaded offer letter
+                    </a>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0"
+                      onClick={() => set('offer_letter_url', null)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <Input
+                    id="offer_letter"
+                    type="file"
+                    accept="application/pdf,image/*"
+                    onChange={handleOfferLetterUpload}
+                    disabled={uploadingOfferLetter}
+                  />
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {uploadingOfferLetter
+                    ? 'Uploading…'
+                    : 'Attach the signed offer letter (PDF or image). Visible to CDC staff on the placement record.'}
+                </p>
+              </div>
             </CardContent>
           </Card>
 
@@ -307,7 +441,7 @@ export default function NewCdcPlacementPage() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <Label htmlFor="round_no">Round No.</Label>
+                  <Label htmlFor="round_no">Interview Round No.</Label>
                   <Input
                     id="round_no"
                     type="number"
@@ -316,9 +450,12 @@ export default function NewCdcPlacementPage() {
                     value={form.round_no ?? ''}
                     onChange={(e) => set('round_no', e.target.value ? Number(e.target.value) : null)}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Which interview round produced this offer (e.g. 1 = first round, 2 = second round).
+                  </p>
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="batch_no">Batch No.</Label>
+                  <Label htmlFor="batch_no">Recruitment Batch No.</Label>
                   <Input
                     id="batch_no"
                     type="number"
@@ -327,6 +464,9 @@ export default function NewCdcPlacementPage() {
                     value={form.batch_no ?? 1}
                     onChange={(e) => set('batch_no', Number(e.target.value) || 1)}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    The recruitment/placement batch for this drive — not the learner&apos;s academic year/batch.
+                  </p>
                 </div>
               </div>
               <div className="space-y-1">

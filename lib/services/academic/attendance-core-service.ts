@@ -497,9 +497,33 @@ export class AttendanceCoreService {
             updated_at
           `
           )
-          .single();
+          .maybeSingle();
 
         if (updateError) throw updateError;
+
+        // A null result here means the UPDATE matched the row for SELECT (we read it
+        // above) but affected 0 rows on write — the classic RLS write-vs-read
+        // asymmetry on student_attendance. The "Comprehensive attendance access by
+        // role" policy only grants writes to super_admin/admin/faculty, so an
+        // app-authorized HOD or assigned-staff marker with a different profiles.role
+        // is silently blocked. Surface it as an actionable permission error instead
+        // of the opaque PGRST116 ("0 rows") that PostgREST would otherwise throw.
+        if (!updateResult) {
+          const markerRole = data.editor_profile?.role || 'unknown';
+          logger.error('academic/attendance', 'Attendance update affected 0 rows (RLS write denied)', {
+            attendance_id: (existingRecord as any).id,
+            marked_by: data.marked_by,
+            marker_role: markerRole,
+            institution_id: data.institution_id,
+            is_edit_mode: !!data.is_edit_mode
+          });
+          throw new Error(
+            `You don't have permission to update this attendance record (role: ${markerRole}). ` +
+            `Attendance writes are restricted at the database level — only super admins, admins, and faculty ` +
+            `currently have write access. Ask an administrator to grant your role write access to attendance.`
+          );
+        }
+
         result = updateResult;
 
         // ─── Audit log: record per-student status changes ────────────────────────

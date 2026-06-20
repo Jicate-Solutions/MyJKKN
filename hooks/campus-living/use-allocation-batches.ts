@@ -56,6 +56,16 @@ export function useBlockFloors(blockId: string) {
   return { floors: query.data ?? [], loading: query.isLoading };
 }
 
+// Institutions the selected block serves — scopes the Institution cohort filter.
+export function useBlockInstitutions(blockId: string) {
+  const query = useQuery({
+    queryKey: [...KEY, 'block-institutions', blockId],
+    queryFn: () => AllocationBatchService.getBlockInstitutions(blockId),
+    enabled: !!blockId,
+  });
+  return { institutions: query.data ?? [], loading: query.isLoading };
+}
+
 export function useHostelYears() {
   const query = useQuery({
     queryKey: [...KEY, 'hostel-years'],
@@ -73,8 +83,18 @@ export function useAllocationBatchActions() {
   );
 
   const generate = useCallback(
-    async (blockId: string, hostelYearId: string, strict = false, floor: number | null = null) => {
-      const id = await AllocationBatchService.generate(blockId, hostelYearId, strict, floor);
+    async (
+      blockId: string,
+      hostelYearId: string,
+      strict = false,
+      floor: number | null = null,
+      institutionId: string | null = null,
+      programId: string | null = null,
+      semesterId: string | null = null,
+    ) => {
+      const id = await AllocationBatchService.generate(
+        blockId, hostelYearId, strict, floor, institutionId, programId, semesterId,
+      );
       await invalidate();
       return id;
     },

@@ -6,6 +6,50 @@ import { profileCache } from './lib/auth/profile-cache';
 import { routeMatcher } from './lib/auth/route-matcher';
 import { FEATURE_FLAGS } from './lib/config/feature-flags';
 import { StudentValidationService } from './lib/services/auth/student-validation-service';
+import { PARENT_SESSION_COOKIE, verifyParentSession } from './lib/auth/parent-jwt';
+
+// Parent Portal pages that are reachable WITHOUT a parent_session (the auth
+// funnel). Everything else under /parent/* requires a valid parent_session JWT.
+// NOTE: /api/parent/* auth is enforced in-route via resolveParentScope(). Those
+// routes (like all /api/*) pass through this proxy and are force-set to
+// no-store by the isPublicPath() branch in proxy() — a `public, s-maxage` cache
+// is keyed by URL, not by the session cookie, so it would serve one user's data
+// to another across browsers AND devices.
+const PARENT_PUBLIC_PATHS = new Set([
+  '/parent',
+  '/parent/onboarding',
+  '/parent/login',
+  '/parent/register',
+  '/parent/forgot',
+]);
+
+// Once authenticated, these auth-funnel pages redirect straight to the dashboard.
+const PARENT_REDIRECT_WHEN_AUTHED = new Set([
+  '/parent',
+  '/parent/login',
+  '/parent/register',
+]);
+
+async function handleParentPortal(request: NextRequest, currentPath: string) {
+  const token = request.cookies.get(PARENT_SESSION_COOKIE)?.value;
+  const claims = await verifyParentSession(token);
+
+  if (claims && PARENT_REDIRECT_WHEN_AUTHED.has(currentPath)) {
+    return NextResponse.redirect(new URL('/parent/dashboard', request.url));
+  }
+
+  if (!claims && !PARENT_PUBLIC_PATHS.has(currentPath)) {
+    const url = new URL('/parent/login', request.url);
+    url.searchParams.set('redirectedFrom', currentPath);
+    return NextResponse.redirect(url);
+  }
+
+  const res = NextResponse.next();
+  res.headers.set('Cache-Control', 'no-store, must-revalidate');
+  res.headers.set('X-Content-Type-Options', 'nosniff');
+  res.headers.set('X-Frame-Options', 'SAMEORIGIN');
+  return res;
+}
 
 // Define public paths - optimized with Set for O(1) lookup
 const PUBLIC_PATHS_SET = new Set([
@@ -95,6 +139,18 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(url, 301);
     }
 
+    // Parent Portal — fully isolated dual-auth domain. Gate /parent/* with the
+    // parent_session JWT and return early, BEFORE the staff Supabase flow runs
+    // (a parent has no Supabase session and would otherwise be bounced to the
+    // staff /auth/login).
+    if (currentPath === '/parent' || currentPath.startsWith('/parent/')) {
+      return handleParentPortal(request, currentPath);
+    }
+
+    // NOTE: /api/parent/* (and every other /api/*) is handled by the
+    // isPublicPath() branch below, which now forces no-store for all API routes
+    // — see the SECURITY comment there. No per-prefix special-casing needed.
+
     // Helper: inject preconnect hints to speed up Supabase and Google connections
     const addPreconnectHeaders = (response: NextResponse) => {
       response.headers.set(
@@ -127,8 +183,20 @@ export async function proxy(request: NextRequest) {
     // Skip proxy for public paths BEFORE creating Supabase client
     if (isPublicPath(currentPath)) {
       const res = NextResponse.next();
-      // Allow short CDN caching for public paths (was: no-store blocking CDN)
-      res.headers.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
+      // SECURITY (secure-by-default): isPublicPath() returns true for ALL /api/*
+      // routes — but "skip the staff auth flow" is NOT the same as "safe to cache
+      // publicly". A `public, s-maxage` header is keyed by URL, not by the auth
+      // cookie, so a shared browser/CDN serves one user's response to another
+      // (across devices). That caused the parent-portal cross-account leak.
+      // Therefore: API routes default to no-store; only non-API public paths
+      // (marketing pages, static assets) get the short CDN cache. A genuinely
+      // cacheable API endpoint opts in explicitly by setting its own
+      // Cache-Control header in-route (e.g. /api/parent/attachment).
+      if (currentPath.startsWith('/api')) {
+        res.headers.set('Cache-Control', 'private, no-store, max-age=0, must-revalidate');
+      } else {
+        res.headers.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
+      }
       const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || 'dev';
       res.headers.set('X-App-Version', appVersion);
       return addPreconnectHeaders(res);
@@ -464,6 +532,7 @@ export const config = {
     '/students/:path*',
     '/guest/:path*',
     '/driver/:path*',
+    '/parent/:path*',
     // Match all paths except public ones
     '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|auth/test-login|auth/lti-login|auth/audit-login|auth/dev-login|icons|pwa-test.html).*)'
   ]

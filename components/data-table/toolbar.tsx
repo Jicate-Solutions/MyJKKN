@@ -79,7 +79,7 @@ interface DataTableToolbarProps<TData extends ExportableData> {
   totalSelectedItems?: number;
   deleteSelection?: () => void;
   getSelectedItems?: () => Promise<TData[]>;
-  getAllItems?: () => TData[];
+  getAllItems?: () => Promise<TData[]>;
   config: TableConfig;
   resetColumnSizing?: () => void;
   resetColumnOrder?: () => void;
@@ -375,8 +375,10 @@ export function DataTableToolbar<TData extends ExportableData>({
       ? new Array(totalSelectedItems).fill({} as TData)
       : [];
 
-  // Get all available items data for export
-  const allItems = getAllItems ? getAllItems() : [];
+  // Current-page rows for the "Export Current Page" action. The full-set
+  // "Export All Pages" action is handled inside the export component via
+  // getAllItems() (which fetches every matching row across pages).
+  const pageItems = table.getRowModel().rows.map((row) => row.original);
 
   return (
     <div className='flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-between gap-2'>
@@ -426,9 +428,10 @@ export function DataTableToolbar<TData extends ExportableData>({
         {config.enableExport && (
           <DataTableExport
             table={table}
-            data={allItems}
+            data={pageItems}
             selectedData={selectedItems}
             getSelectedItems={getSelectedItems}
+            getAllItems={getAllItems}
             entityName={entityName}
             columnMapping={columnMapping}
             columnWidths={columnWidths}
