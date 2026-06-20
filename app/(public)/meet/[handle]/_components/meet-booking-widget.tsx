@@ -352,31 +352,10 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
         await finalizeBooking();
         return;
       }
-<<<<<<< HEAD
-      // Server identity gate: this email owns a JKKN account → must log in.
-      if (res.status === 403 && json.error === 'login_required') {
-        setLoginGate(json.reason === 'jkkn_email' ? 'jkkn_email' : 'account_exists');
-        return;
-      }
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || 'Could not complete the booking.');
-      }
-      setConfirmation({ uid: json.uid, start: selectedStart });
-      setStep('done');
-      // Wave-3 lifecycle: if the meeting type defines a post-booking redirect,
-      // send the booker there (the API only returns safe http(s)/relative URLs).
-      // Show the confirmation stub briefly first so the redirect isn't jarring.
-      if (typeof json.redirectUrl === 'string' && json.redirectUrl) {
-        const target = json.redirectUrl as string;
-        window.setTimeout(() => {
-          window.location.href = target;
-        }, 1200);
-=======
 
       const ready = await loadRazorpayCheckout();
       if (!ready || !window.Razorpay) {
         throw new Error('Could not load the payment window. Please try again.');
->>>>>>> jicate/main
       }
 
       // Open Checkout; resolve once the booking is confirmed or the modal closes.
