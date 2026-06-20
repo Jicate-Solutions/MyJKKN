@@ -13,8 +13,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCreateCdcOpportunity } from '@/hooks/cdc/use-cdc-bulletin';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Paperclip, X } from 'lucide-react';
 import Link from 'next/link';
+import { toast } from 'sonner';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { BULLETIN_CATEGORIES, BULLETIN_MODES } from '@/types/cdc/bulletin';
 import type { CreateOpportunityDto } from '@/types/cdc/bulletin';
 
@@ -32,14 +34,49 @@ export default function NewBulletinOpportunityPage() {
     apply_url: null,
     detail_url: null,
     stipend_text: null,
+    attachment_url: null,
     is_active: true,
   });
   // Tracks the Select choice separately so 'other' can reveal a custom text input.
   const [categoryChoice, setCategoryChoice] = useState<string>('none');
   const [categoryOther, setCategoryOther] = useState('');
+  // Brochure / attachment upload (BUG-004063)
+  const [uploading, setUploading] = useState(false);
+  const [attachmentName, setAttachmentName] = useState<string | null>(null);
 
   function set<K extends keyof CreateOpportunityDto>(key: K, value: CreateOpportunityDto[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  // Upload a brochure/attachment (PDF or image) to the cdc-docs bucket and store its
+  // public URL on the form. Self-contained — no shared storage service (BUG-004063).
+  async function handleAttachmentUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setUploading(true);
+      const supabase = createClientSupabaseClient();
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `bulletin-attachments/${Date.now()}-${safeName}`;
+      const { error } = await supabase.storage.from('cdc-docs').upload(path, file, { upsert: false });
+      if (error) throw error;
+      const { data } = supabase.storage.from('cdc-docs').getPublicUrl(path);
+      set('attachment_url', data.publicUrl);
+      setAttachmentName(file.name);
+      toast.success('Attachment uploaded');
+    } catch (err) {
+      console.error('[cdc/bulletin] attachment upload failed:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to upload attachment');
+    } finally {
+      setUploading(false);
+      // Reset the input so re-selecting the same file fires onChange again.
+      e.target.value = '';
+    }
+  }
+
+  function removeAttachment() {
+    set('attachment_url', null);
+    setAttachmentName(null);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -194,6 +231,48 @@ export default function NewBulletinOpportunityPage() {
                 />
               </div>
 
+              {/* Brochure / Attachment (BUG-004063) */}
+              <div className="space-y-1.5">
+                <Label htmlFor="attachment">Brochure / Attachment</Label>
+                {form.attachment_url ? (
+                  <div className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                    <Paperclip className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <a
+                      href={form.attachment_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="truncate text-primary hover:underline"
+                    >
+                      {attachmentName ?? 'View attachment'}
+                    </a>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="ml-auto h-7 w-7 shrink-0"
+                      onClick={removeAttachment}
+                      aria-label="Remove attachment"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <Input
+                    id="attachment"
+                    type="file"
+                    accept="application/pdf,image/*"
+                    onChange={handleAttachmentUpload}
+                    disabled={uploading}
+                  />
+                )}
+                {uploading && (
+                  <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Uploading…
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">Optional. PDF or image.</p>
+              </div>
+
               {/* Eligibility */}
               <div className="space-y-1.5">
                 <Label htmlFor="eligibility_text">Eligibility</Label>
@@ -217,7 +296,7 @@ export default function NewBulletinOpportunityPage() {
               </div>
 
               <div className="flex gap-3 pt-2">
-                <Button type="submit" disabled={createMutation.isPending || !form.title.trim()}>
+                <Button type="submit" disabled={createMutation.isPending || uploading || !form.title.trim()}>
                   {createMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                   Post to Bulletin
                 </Button>
