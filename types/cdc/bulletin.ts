@@ -10,6 +10,7 @@ export interface CdcExternalOpportunity {
   title: string;
   source_organisation: string | null;
   category: string | null;           // 'hackathon' | 'conference' | 'scholarship' | 'internship' | 'competition' | 'other'
+  mode: BulletinMode | null;         // 'online' | 'offline' | 'hybrid' — mode of participation (BUG-004067)
   deadline_date: string | null;      // ISO date
   eligibility_text: string | null;
   apply_url: string | null;
@@ -42,6 +43,10 @@ export const BULLETIN_CATEGORIES = [
 
 export type BulletinCategory = (typeof BULLETIN_CATEGORIES)[number];
 
+// Mode of participation (BUG-004067)
+export const BULLETIN_MODES = ['online', 'offline', 'hybrid'] as const;
+export type BulletinMode = (typeof BULLETIN_MODES)[number];
+
 // ═══════════════════════════════════════════════════════════════════════════
 // DTOs
 // ═══════════════════════════════════════════════════════════════════════════
@@ -50,6 +55,7 @@ export interface CreateOpportunityDto {
   title: string;
   source_organisation?: string | null;
   category?: string | null;
+  mode?: BulletinMode | null;
   deadline_date?: string | null;
   eligibility_text?: string | null;
   apply_url?: string | null;
