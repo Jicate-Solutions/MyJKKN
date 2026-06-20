@@ -39,6 +39,8 @@ export interface CdcTrainingProgramme {
   external_provider: string | null;
   trainer_name: string | null;     // BUG-004076 — trainer / facilitator name
   certificate_template_url: string | null;
+  target_department_id: string | null;  // BUG-004073 — cohort binding: target department
+  academic_year_label: string | null;   // BUG-004073 — cohort binding: batch / academic year
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -46,6 +48,7 @@ export interface CdcTrainingProgramme {
   // Joined
   training_type?: CdcTrainingType | null;
   institution?: { id: string; name: string } | null;
+  target_department?: { id: string; department_name: string } | null;  // BUG-004073
   enrollment_count?: number;
 }
 
@@ -94,6 +97,8 @@ export interface CreateTrainingProgrammeDto {
   external_provider?: string | null;
   trainer_name?: string | null;    // BUG-004076 — trainer / facilitator name
   certificate_template_url?: string | null;
+  target_department_id?: string | null;  // BUG-004073 — cohort binding: target department
+  academic_year_label?: string | null;   // BUG-004073 — cohort binding: batch / academic year
 }
 
 export interface UpdateTrainingProgrammeDto extends Partial<CreateTrainingProgrammeDto> {}
