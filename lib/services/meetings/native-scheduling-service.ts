@@ -631,6 +631,17 @@ export class NativeSchedulingService {
       .eq('id', primaryHost)
       .maybeSingle();
 
+    // Self-service cancel/reschedule links — the same ones the confirmation
+    // email carries — so they're reachable from the calendar event too (the
+    // Calendly behaviour the Director relied on). cancel_token came back from
+    // the insert above; it never reaches host-facing reads.
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+    const cancelToken = (inserted as { cancel_token?: string } | null)?.cancel_token;
+    const cancelUrl =
+      appUrl && cancelToken ? `${appUrl}/book/cancel/${uid}?token=${cancelToken}` : undefined;
+    const rescheduleUrl =
+      appUrl && cancelToken ? `${appUrl}/book/reschedule/${uid}?token=${cancelToken}` : undefined;
+
     // U2 (D12): Google Calendar event BEFORE the emails so the Meet link can
     // ride the confirmation. Best effort — a Google failure never fails the
     // committed booking; the event also makes Google invite the attendee.
@@ -643,6 +654,9 @@ export class NativeSchedulingService {
         description: [
           `Booked via JKKN (${input.source ?? 'direct'}). Reference: ${uid}`,
           input.attendeePhone ? `Attendee phone: ${input.attendeePhone}` : '',
+          cancelUrl || rescheduleUrl ? '\nNeed to make changes to this meeting?' : '',
+          cancelUrl ? `Cancel: ${cancelUrl}` : '',
+          rescheduleUrl ? `Reschedule: ${rescheduleUrl}` : '',
         ].filter(Boolean).join('\n'),
         startIso,
         endIso,
@@ -663,8 +677,7 @@ export class NativeSchedulingService {
     // Phase N3a: confirmation emails to attendee + host. The booking is
     // already committed — the email service is non-throwing and skips when
     // RESEND_API_KEY is unset, so notification failure never fails a booking.
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
-    const cancelToken = (inserted as { cancel_token?: string } | null)?.cancel_token;
+    // (cancelUrl/rescheduleUrl computed above — shared with the calendar event.)
     await MeetingBookingEmailService.sendBookingConfirmedEmails({
       uid,
       meetingTitle: mt.title,
@@ -680,14 +693,8 @@ export class NativeSchedulingService {
       locationMode: mt.location_mode,
       locationText: mt.location_text,
       videoUrl,
-      cancelUrl:
-        appUrl && cancelToken
-          ? `${appUrl}/book/cancel/${uid}?token=${cancelToken}`
-          : undefined,
-      rescheduleUrl:
-        appUrl && cancelToken
-          ? `${appUrl}/book/reschedule/${uid}?token=${cancelToken}`
-          : undefined,
+      cancelUrl,
+      rescheduleUrl,
     });
 
     return {
@@ -767,13 +774,18 @@ export class NativeSchedulingService {
         (new Date(booking.end_time).getTime() - new Date(booking.start_time).getTime()) / 60_000,
       ),
     );
-    // U2 (D12): remove the Google Calendar event (best effort — Google also
-    // notifies the attendee via sendUpdates=all on the delete).
+    // Keep the cancelled event on the host's calendar, renamed ("Cancelled: …")
+    // and freed, for record-keeping (Director request) — mirrors Calendly,
+    // instead of deleting it. sendUpdates=all still notifies the attendee; the
+    // cancellation email is sent below as well.
     if (booking.google_event_id) {
-      await GoogleCalendarService.deleteEvent(
+      const originalSummary =
+        `${(mtRow?.title as string | undefined) ?? 'Meeting'} — ${booking.attendee_name ?? ''}`.trim();
+      await GoogleCalendarService.markEventCancelled(
         supabase,
         booking.host_profile_id,
         booking.google_event_id as string,
+        `Cancelled: ${originalSummary}`,
       );
     }
 
