@@ -23,6 +23,7 @@ import { MeetingBookingEmailService } from '@/lib/services/email/meeting-booking
 import { GoogleCalendarService } from '@/lib/services/integrations/google-calendar-service';
 import { createZoomMeeting, isZoomConfigured } from '@/lib/services/integrations/zoom-service';
 import { createTeamsMeeting, isTeamsConfigured } from '@/lib/services/integrations/teams-service';
+import { BookingCrmBridge } from '@/lib/services/meetings/booking-crm-bridge-service';
 import {
   computeSlots,
   groupSlotsByDate,
@@ -823,6 +824,21 @@ export class NativeSchedulingService {
       cancelUrl,
       rescheduleUrl,
     });
+
+    // Wave 3 (CRM bridge) — best effort, awaited so it actually completes in
+    // serverless (un-awaited promises are frozen when the response is sent).
+    // Service is non-throwing internally; .catch() is belt-and-suspenders.
+    await BookingCrmBridge.recordBookingActivity(supabase, {
+      uid,
+      attendeeEmail: input.attendeeEmail,
+      attendeePhone: input.attendeePhone ?? null,
+      institutionId: mt.institution_id,
+      meetingTitle: mt.title,
+      startIso,
+      hostName: (host?.full_name as string | undefined) ?? (host?.email as string | undefined) ?? null,
+    }).catch((err) =>
+      console.error(`${LOG_PREFIX} CRM bridge failed for booking ${uid}:`, err instanceof Error ? err.message : String(err))
+    );
 
     return {
       success: true,
