@@ -23,6 +23,7 @@ import { MeetingBookingEmailService } from '@/lib/services/email/meeting-booking
 import { GoogleCalendarService } from '@/lib/services/integrations/google-calendar-service';
 import { createZoomMeeting, isZoomConfigured } from '@/lib/services/integrations/zoom-service';
 import { createTeamsMeeting, isTeamsConfigured } from '@/lib/services/integrations/teams-service';
+import { BookingCrmBridge } from '@/lib/services/meetings/booking-crm-bridge-service';
 import {
   computeSlots,
   groupSlotsByDate,
@@ -823,6 +824,23 @@ export class NativeSchedulingService {
       cancelUrl,
       rescheduleUrl,
     });
+
+    // Wave 3 (CRM bridge) — best effort: if this attendee is a known admission
+    // lead, log a `meeting` activity on their CRM timeline so the counseling
+    // booking becomes a tracked funnel event. Mirrors the pattern used by
+    // inbound-call-sync-service.ts for calls. Must not throw or affect the
+    // booking result.
+    BookingCrmBridge.recordBookingActivity(supabase, {
+      uid,
+      attendeeEmail: input.attendeeEmail,
+      attendeePhone: input.attendeePhone ?? null,
+      institutionId: mt.institution_id,
+      meetingTitle: mt.title,
+      startIso,
+      hostName: (host?.full_name as string | undefined) ?? (host?.email as string | undefined) ?? null,
+    }).catch((err) =>
+      console.error(`${LOG_PREFIX} CRM bridge failed for booking ${uid}:`, err instanceof Error ? err.message : String(err))
+    );
 
     return {
       success: true,
