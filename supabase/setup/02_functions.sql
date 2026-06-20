@@ -7884,6 +7884,8 @@ DECLARE
   v_current learners_profiles%ROWTYPE;
   v_new_app_id text;
   v_caller uuid := auth.uid();
+  v_cohort_year int;
+  v_target_admission_year_id uuid;
 BEGIN
   IF NOT (
     is_super_admin()
@@ -7926,6 +7928,24 @@ BEGIN
     RAISE EXCEPTION 'Program % does not belong to department %', p_new_program_id, p_new_department_id;
   END IF;
 
+  -- Re-map admission_year_id to the TARGET institution's cohort (admission_years
+  -- is institution-scoped). Keep the same calendar year as the learner's current
+  -- cohort; NULL when the target has no cohort for that year.
+  IF v_current.admission_year_id IS NOT NULL THEN
+    SELECT ay.year INTO v_cohort_year
+      FROM public.admission_years ay
+     WHERE ay.id = v_current.admission_year_id;
+
+    IF v_cohort_year IS NOT NULL THEN
+      SELECT ay.id INTO v_target_admission_year_id
+        FROM public.admission_years ay
+       WHERE ay.institution_id = p_new_institution_id
+         AND ay.year = v_cohort_year
+       ORDER BY ay.is_active DESC, ay.created_at ASC
+       LIMIT 1;
+    END IF;
+  END IF;
+
   v_new_app_id := generate_learner_application_id(p_new_institution_id);
 
   UPDATE learners_profiles SET
@@ -7936,6 +7956,7 @@ BEGIN
     semester_id       = p_new_semester_id,
     section_id        = p_new_section_id,
     academic_year_id  = p_new_academic_year_id,
+    admission_year_id = v_target_admission_year_id,
     regulation_id     = p_new_regulation_id,
     batch_id          = p_new_batch_id,
     roll_number       = NULL,
@@ -7958,6 +7979,7 @@ BEGIN
         'semester_id',    v_current.semester_id,
         'section_id',     v_current.section_id,
         'academic_year_id', v_current.academic_year_id,
+        'admission_year_id', v_current.admission_year_id,
         'regulation_id',  v_current.regulation_id,
         'batch_id',       v_current.batch_id,
         'roll_number',    v_current.roll_number
@@ -7971,6 +7993,7 @@ BEGIN
         'semester_id',    p_new_semester_id,
         'section_id',     p_new_section_id,
         'academic_year_id', p_new_academic_year_id,
+        'admission_year_id', v_target_admission_year_id,
         'regulation_id',  p_new_regulation_id,
         'batch_id',       p_new_batch_id,
         'roll_number',    NULL
@@ -13726,7 +13749,7 @@ GRANT EXECUTE ON FUNCTION public.fn_get_razorpay_account_global(text, text) TO s
 -- Transport (bus) fee collection list for /billing/transport: bus-requiring dayscholars with transport
 -- bills. Gated by billing.transport.view; self-scopes to the caller's accessible institutions.
 CREATE OR REPLACE FUNCTION public.fn_list_transport_collectables(p_institution_ids uuid[] DEFAULT NULL, p_academic_year_id uuid DEFAULT NULL)
-RETURNS TABLE(student_id uuid, first_name text, last_name text, roll_number text, institution_id uuid, route_number text, route_name text, stop_name text, total_billed numeric, outstanding_amount numeric, payable_bill_ids uuid[], bill_count integer)
+RETURNS TABLE(student_id uuid, first_name text, last_name text, roll_number text, institution_id uuid, route_number text, route_name text, stop_name text, total_billed numeric, outstanding_amount numeric, payable_bill_ids uuid[], bill_count integer, bill_descriptions text[], degree_name text, department_name text, program_name text, semester_name text)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE v_accessible uuid[];
 BEGIN
@@ -13739,16 +13762,23 @@ BEGIN
     COALESCE(SUM(bsb.final_amount) FILTER (WHERE bsb.status NOT IN ('cancelled','superseded')), 0),
     COALESCE(SUM(CASE WHEN bsb.status IN ('unpaid','partially_paid') THEN COALESCE(bsb.balance_amount, bsb.final_amount, bsb.total_amount, 0) ELSE 0 END), 0),
     COALESCE(array_agg(bsb.id) FILTER (WHERE bsb.status IN ('unpaid','partially_paid')), ARRAY[]::uuid[]),
-    COUNT(bsb.id)::int
+    COUNT(bsb.id)::int,
+    COALESCE(array_agg(bsb.bill_description ORDER BY bsb.due_date) FILTER (WHERE bsb.status NOT IN ('cancelled','superseded') AND bsb.bill_description IS NOT NULL), ARRAY[]::text[]),
+    COALESCE(deg.display_name, deg.degree_name)::text, COALESCE(dept.display_name, dept.department_name)::text, COALESCE(prog.display_name, prog.program_name)::text, sem.semester_name::text
   FROM public.learners_profiles lp
   JOIN public.billing_student_bills bsb ON bsb.student_id = lp.id
   JOIN public.billing_categories bc ON bc.id = bsb.item_category_id AND bc.kind = 'transport'
   LEFT JOIN public.tms_route rt ON rt.id = lp.transport_route_id
   LEFT JOIN public.tms_route_stop st ON st.id = lp.transport_stop_id
+  LEFT JOIN public.degrees deg ON deg.id = lp.degree_id
+  LEFT JOIN public.departments dept ON dept.id = lp.department_id
+  LEFT JOIN public.programs prog ON prog.id = lp.program_id
+  LEFT JOIN public.semesters sem ON sem.id = lp.semester_id
   WHERE lp.institution_id = ANY(v_accessible)
     AND (p_institution_ids IS NULL OR lp.institution_id = ANY(p_institution_ids))
     AND (p_academic_year_id IS NULL OR bsb.academic_year_id = p_academic_year_id)
-  GROUP BY lp.id, lp.first_name, lp.last_name, lp.roll_number, lp.institution_id, rt.route_number, rt.route_name, st.stop_name
+  GROUP BY lp.id, lp.first_name, lp.last_name, lp.roll_number, lp.institution_id, rt.route_number, rt.route_name, st.stop_name,
+    deg.display_name, deg.degree_name, dept.display_name, dept.department_name, prog.display_name, prog.program_name, sem.semester_name
   ORDER BY lp.first_name, lp.last_name;
 END; $$;
 REVOKE ALL ON FUNCTION public.fn_list_transport_collectables(uuid[], uuid) FROM PUBLIC, anon;

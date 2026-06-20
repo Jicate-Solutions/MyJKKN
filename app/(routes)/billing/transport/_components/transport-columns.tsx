@@ -1,10 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { Receipt, ExternalLink } from 'lucide-react';
+import { Receipt } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { OnlinePaymentButton } from '@/components/billing/online-payment-button';
+import { TransportPayOnlineButton } from './transport-pay-online-button';
 import type { PermissionColumnDef } from '@/components/ui/data-table';
 import type { TransportCollectable } from '@/hooks/billing/use-transport-collectables';
 
@@ -113,17 +113,15 @@ export function getTransportColumns({ instName, canCollect, canReceipt }: Column
         const r = row.original;
         const outstanding = Number(r.outstanding_amount) || 0;
         const payable = (r.payable_bill_ids?.length ?? 0) > 0 && outstanding > 0;
-        const studentHref = `/billing/schedule/students/${r.student_id}?returnTo=${encodeURIComponent(RETURN_TO)}`;
         const receiptHref = `/billing/receipts/new?bill_ids=${(r.payable_bill_ids ?? []).join(',')}&student_id=${r.student_id}&returnTo=${encodeURIComponent(RETURN_TO)}`;
         return (
           <div className='flex items-center justify-end gap-1'>
             {payable && (
               <>
                 {canCollect && (
-                  <OnlinePaymentButton
+                  <TransportPayOnlineButton
                     studentId={r.student_id}
                     billIds={r.payable_bill_ids}
-                    totalAmount={outstanding}
                     size='sm'
                   />
                 )}
@@ -134,9 +132,6 @@ export function getTransportColumns({ instName, canCollect, canReceipt }: Column
                 )}
               </>
             )}
-            <Button asChild variant='ghost' size='sm' className='h-8 gap-1 px-2 text-xs'>
-              <Link href={studentHref}><ExternalLink className='h-3.5 w-3.5' /> Open</Link>
-            </Button>
           </div>
         );
       },

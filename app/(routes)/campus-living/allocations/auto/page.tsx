@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -27,10 +27,13 @@ import type { AllocationCandidate } from '@/types/allocation-batch';
 import {
   useAutoBlocks,
   useBlockFloors,
+  useBlockInstitutions,
   useHostelYears,
   useAllocationBatchActions,
 } from '@/hooks/campus-living/use-allocation-batches';
 import { AllocationBatchService } from '@/lib/services/campus-living/allocation-batch-service';
+import { ProgramService } from '@/lib/services/organization/program-service';
+import { SemesterService } from '@/lib/services/organization/semester-service';
 
 export const navMeta = { invokedFrom: '/campus-living/allocations' } as const;
 
@@ -52,6 +55,36 @@ export default function AutoAllocatePage() {
   const { floors } = useBlockFloors(blockId && blockId !== ALL_BLOCKS ? blockId : '');
   const floorParam = floor === ALL_FLOORS ? null : Number(floor);
 
+  // ── Cohort filters (which learners get placed). Single-block only, like the
+  // floor scope — the institution/program lists are per-block-ambiguous across
+  // "All blocks". Cascade: institution → program → semester. Blank = no filter.
+  const isSpecificBlock = !!blockId && blockId !== ALL_BLOCKS;
+  const [institutionId, setInstitutionId] = useState('');
+  const [programId, setProgramId] = useState('');
+  const [semesterId, setSemesterId] = useState('');
+  const { institutions: blockInstitutions } = useBlockInstitutions(isSpecificBlock ? blockId : '');
+  const [programs, setPrograms] = useState<{ id: string; program_name: string }[]>([]);
+  const [semesters, setSemesters] = useState<{ id: string; semester_name: string }[]>([]);
+
+  useEffect(() => {
+    if (!institutionId) { setPrograms([]); return; }
+    ProgramService.getPrograms({ institution_id: institutionId, page: 1, limit: 1000, isActive: true })
+      .then((r) => setPrograms((r.data || []) as { id: string; program_name: string }[]))
+      .catch(() => setPrograms([]));
+  }, [institutionId]);
+
+  useEffect(() => {
+    if (!programId) { setSemesters([]); return; }
+    SemesterService.getSemestersByProgram(programId)
+      .then((r) => setSemesters((r || []) as { id: string; semester_name: string }[]))
+      .catch(() => setSemesters([]));
+  }, [programId]);
+
+  // Only applied for a specific block; null = no filter.
+  const instParam = isSpecificBlock && institutionId ? institutionId : null;
+  const progParam = isSpecificBlock && programId ? programId : null;
+  const semParam = isSpecificBlock && semesterId ? semesterId : null;
+
   // Block list is per-gender — pick a type first to narrow it.
   const typedBlocks = genderType ? blocks.filter((b) => b.type === genderType) : [];
 
@@ -70,7 +103,7 @@ export default function AutoAllocatePage() {
     setCandidates(null);
     try {
       const [cands, agg] = await Promise.all([
-        AllocationBatchService.previewCandidates(blockId, strict, floorParam),
+        AllocationBatchService.previewCandidates(blockId, strict, floorParam, instParam, progParam, semParam),
         AllocationBatchService.preview(blockId, floorParam),
       ]);
       setCandidates(cands);
@@ -97,7 +130,7 @@ export default function AutoAllocatePage() {
         toast.success(`Generated a proposed batch for ${made} block${made === 1 ? '' : 's'} — awaiting warden approval`);
         router.push('/campus-living/allocations/batches');
       } else {
-        const batchId = await generate(blockId, yearId, strict, floorParam);
+        const batchId = await generate(blockId, yearId, strict, floorParam, instParam, progParam, semParam);
         toast.success('Proposed allocation generated — awaiting warden approval');
         router.push(`/campus-living/allocations/batches/${batchId}`);
       }
@@ -135,12 +168,15 @@ export default function AutoAllocatePage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Selection</CardTitle>
-            <CardDescription>Type, block, floor, and hostel year</CardDescription>
+            <CardDescription>
+              Type, block, floor, and hostel year. Optionally narrow to a specific
+              institution / program / semester (a selected block only) to auto-allocate just those learners.
+            </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-2">
               <Label>Type</Label>
-              <Select value={genderType} onValueChange={(v) => { setGenderType(v); setBlockId(''); setFloor(ALL_FLOORS); setCandidates(null); }}>
+              <Select value={genderType} onValueChange={(v) => { setGenderType(v); setBlockId(''); setFloor(ALL_FLOORS); setInstitutionId(''); setProgramId(''); setSemesterId(''); setCandidates(null); }}>
                 <SelectTrigger><SelectValue placeholder="Boys / Girls" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="boys">Boys</SelectItem>
@@ -150,7 +186,7 @@ export default function AutoAllocatePage() {
             </div>
             <div className="space-y-2">
               <Label>Block</Label>
-              <Select value={blockId} onValueChange={(v) => { setBlockId(v); setFloor(ALL_FLOORS); setCandidates(null); }} disabled={!genderType}>
+              <Select value={blockId} onValueChange={(v) => { setBlockId(v); setFloor(ALL_FLOORS); setInstitutionId(''); setProgramId(''); setSemesterId(''); setCandidates(null); }} disabled={!genderType}>
                 <SelectTrigger><SelectValue placeholder={genderType ? 'Select block' : 'Pick a type first'} /></SelectTrigger>
                 <SelectContent>
                   {typedBlocks.length > 1 && (
@@ -177,6 +213,48 @@ export default function AutoAllocatePage() {
                   {floors.map((f) => (
                     <SelectItem key={f} value={String(f)}>{floorLabel(f)}</SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Institution</Label>
+              <Select
+                value={institutionId || 'all'}
+                onValueChange={(v) => { setInstitutionId(v === 'all' ? '' : v); setProgramId(''); setSemesterId(''); setCandidates(null); }}
+                disabled={!isSpecificBlock}
+              >
+                <SelectTrigger><SelectValue placeholder="All institutions" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All institutions</SelectItem>
+                  {blockInstitutions.map((i) => <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Program</Label>
+              <Select
+                value={programId || 'all'}
+                onValueChange={(v) => { setProgramId(v === 'all' ? '' : v); setSemesterId(''); setCandidates(null); }}
+                disabled={!isSpecificBlock || !institutionId}
+              >
+                <SelectTrigger><SelectValue placeholder={institutionId ? 'All programs' : 'Pick an institution first'} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All programs</SelectItem>
+                  {programs.map((p) => <SelectItem key={p.id} value={p.id}>{p.program_name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Semester</Label>
+              <Select
+                value={semesterId || 'all'}
+                onValueChange={(v) => { setSemesterId(v === 'all' ? '' : v); setCandidates(null); }}
+                disabled={!isSpecificBlock || !programId}
+              >
+                <SelectTrigger><SelectValue placeholder={programId ? 'All semesters' : 'Pick a program first'} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All semesters</SelectItem>
+                  {semesters.map((s) => <SelectItem key={s.id} value={s.id}>{s.semester_name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

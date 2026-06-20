@@ -40,14 +40,37 @@ export class AllocationBatchService {
 
   // strict=true → only learners whose cohort matches a physical-room rule are eligible
   // (open/rule-free rooms are NOT used as a catch-all). Physical rule first, then category.
-  static async previewCandidates(blockId: string, strict = false, floor: number | null = null): Promise<AllocationCandidate[]> {
-    const { data, error } = await this.rpcCall('fn_auto_allocate_candidates', { p_block_id: blockId, p_strict: strict, p_floor: floor });
+  // institutionId / programId / semesterId narrow WHICH learners are considered
+  // (null = no filter); the block's rooms remain the destination either way.
+  static async previewCandidates(
+    blockId: string,
+    strict = false,
+    floor: number | null = null,
+    institutionId: string | null = null,
+    programId: string | null = null,
+    semesterId: string | null = null,
+  ): Promise<AllocationCandidate[]> {
+    const { data, error } = await this.rpcCall('fn_auto_allocate_candidates', {
+      p_block_id: blockId, p_strict: strict, p_floor: floor,
+      p_institution_id: institutionId, p_program_id: programId, p_semester_id: semesterId,
+    });
     if (error) { logger.error(LOG, 'previewCandidates failed', error); throw new Error(error.message || 'Failed to preview candidates'); }
     return (Array.isArray(data) ? data : []) as AllocationCandidate[];
   }
 
-  static async generate(blockId: string, hostelYearId: string, strict = false, floor: number | null = null): Promise<string> {
-    const { data, error } = await this.rpcCall('fn_auto_allocate_classic', { p_block_id: blockId, p_hostel_year_id: hostelYearId, p_strict: strict, p_floor: floor });
+  static async generate(
+    blockId: string,
+    hostelYearId: string,
+    strict = false,
+    floor: number | null = null,
+    institutionId: string | null = null,
+    programId: string | null = null,
+    semesterId: string | null = null,
+  ): Promise<string> {
+    const { data, error } = await this.rpcCall('fn_auto_allocate_classic', {
+      p_block_id: blockId, p_hostel_year_id: hostelYearId, p_strict: strict, p_floor: floor,
+      p_institution_id: institutionId, p_program_id: programId, p_semester_id: semesterId,
+    });
     if (error) { logger.error(LOG, 'generate failed', error); throw new Error(error.message || 'Failed to generate allocation batch'); }
     return data as string;
   }
@@ -65,6 +88,24 @@ export class AllocationBatchService {
       .map((r: Record<string, unknown>) => r.floor as number)
       .filter((f) => f != null))];
     return floors.sort((a, b) => a - b);
+  }
+
+  // Institutions the chosen block serves — scopes the auto-allocate Institution
+  // filter so an operator only picks institutions the block actually houses
+  // (matches the engine's cohort scope: hostel_block_institutions).
+  static async getBlockInstitutions(blockId: string): Promise<{ id: string; name: string }[]> {
+    if (!blockId) return [];
+    const { data, error } = await this.supabase
+      .from('hostel_block_institutions')
+      .select('institution_id, institutions(name)')
+      .eq('block_id', blockId);
+    if (error) { logger.error(LOG, 'getBlockInstitutions failed', error); throw new Error(error.message || 'Failed to load block institutions'); }
+    return (data ?? [])
+      .map((r: Record<string, unknown>) => ({
+        id: r.institution_id as string,
+        name: (r.institutions as { name?: string } | null)?.name ?? '—',
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   static async approve(batchId: string): Promise<void> {

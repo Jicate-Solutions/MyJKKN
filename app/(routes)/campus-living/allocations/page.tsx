@@ -13,6 +13,9 @@ import {
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Collapsible, CollapsibleContent, CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { DataTable } from '@/components/data-table/data-table';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import type { ColumnDef } from '@tanstack/react-table';
@@ -20,14 +23,14 @@ import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAllAllocations } from '@/hooks/campus-living/use-hostel-allocations';
 import {
-  AllocationFiltersPanel,
+  AllocationAcademicFilterSelects,
   EMPTY_ALLOCATION_FILTERS,
   allocationMatchesFilters,
 } from './_components/allocation-filters';
 import { TransferDialog } from './_components/transfer-dialog';
 import {
   Plus, BedDouble, Loader2, Users, ArrowRightLeft, LogOut, UserCheck,
-  MoreHorizontal, Eye,
+  MoreHorizontal, Eye, ChevronDown, ChevronUp, RotateCcw,
 } from 'lucide-react';
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
@@ -49,6 +52,7 @@ const feeStatusConfig: Record<string, { label: string; variant: 'default' | 'sec
 type Alloc = any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const getJoined = (row: any, relation: string, field: string): string => row?.[relation]?.[field] ?? '';
+const floorLabel = (f: number) => (f === 0 ? 'Ground floor' : `Floor ${f}`);
 
 export default function AllocationsPage() {
   const { profile } = useAuth();
@@ -64,14 +68,47 @@ export default function AllocationsPage() {
   const canTransfer = isSuperAdmin || !!permissions?.['campus_living.upgrades.manage'];
 
   const [statusFilter, setStatusFilter] = useState<string>('active');
+  const [hostelTypeFilter, setHostelTypeFilter] = useState<string>('all');
   const [blockFilter, setBlockFilter] = useState<string>('all');
+  const [floorFilter, setFloorFilter] = useState<string>('all');
   const [advancedFilters, setAdvancedFilters] = useState(EMPTY_ALLOCATION_FILTERS);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [transferTarget, setTransferTarget] = useState<Alloc | null>(null);
 
-  const blockNames = useMemo(
-    () => [...new Set(allocations.map((a: Alloc) => getJoined(a, 'hostel_blocks', 'name')).filter(Boolean))] as string[],
-    [allocations],
+  // Type → Block → Floor cascade, all derived from the loaded rows so a value
+  // can never match nothing. Block name maps to its hostel_type; floors are the
+  // distinct floors present in the chosen block.
+  const blockMeta = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of allocations as Alloc[]) {
+      const name = getJoined(a, 'hostel_blocks', 'name');
+      if (name && !m.has(name)) m.set(name, getJoined(a, 'hostel_blocks', 'hostel_type'));
+    }
+    return m;
+  }, [allocations]);
+
+  const hostelTypes = useMemo(
+    () => [...new Set([...blockMeta.values()].filter(Boolean))].sort(),
+    [blockMeta],
   );
+
+  const blockNames = useMemo(
+    () => [...blockMeta.keys()]
+      .filter((n) => hostelTypeFilter === 'all' || blockMeta.get(n) === hostelTypeFilter)
+      .sort((a, b) => a.localeCompare(b)),
+    [blockMeta, hostelTypeFilter],
+  );
+
+  const floorOptions = useMemo(() => {
+    if (blockFilter === 'all') return [] as number[];
+    const set = new Set<number>();
+    for (const a of allocations as Alloc[]) {
+      if (getJoined(a, 'hostel_blocks', 'name') !== blockFilter) continue;
+      const f = (a as Alloc)?.hostel_rooms?.floor;
+      if (f != null) set.add(f as number);
+    }
+    return [...set].sort((x, y) => x - y);
+  }, [allocations, blockFilter]);
 
   // True totals over the full set (the old page counted only the first 50 rows).
   const counts = useMemo(() => ({
@@ -88,7 +125,9 @@ export default function AllocationsPage() {
       const q = (params.search ?? '').trim().toLowerCase();
       let rows = allocations.filter((a: Alloc) => {
         if (statusFilter !== 'all' && a.status !== statusFilter) return false;
+        if (hostelTypeFilter !== 'all' && getJoined(a, 'hostel_blocks', 'hostel_type') !== hostelTypeFilter) return false;
         if (blockFilter !== 'all' && getJoined(a, 'hostel_blocks', 'name') !== blockFilter) return false;
+        if (floorFilter !== 'all' && String((a as Alloc)?.hostel_rooms?.floor ?? '') !== floorFilter) return false;
         if (!allocationMatchesFilters(a, advancedFilters)) return false;
         if (q) {
           const hay = [
@@ -129,7 +168,7 @@ export default function AllocationsPage() {
         pagination: { page: params.page, limit, total_pages: Math.max(1, Math.ceil(total / limit)), total_items: total },
       };
     },
-    [allocations, statusFilter, blockFilter, advancedFilters],
+    [allocations, statusFilter, hostelTypeFilter, blockFilter, floorFilter, advancedFilters],
   );
 
   const columns = useMemo<ColumnDef<Alloc>[]>(() => [
@@ -244,28 +283,80 @@ export default function AllocationsPage() {
           <SummaryCard icon={<BedDouble className="h-8 w-8 text-purple-600" />} value={counts.feePending} label="Fee Pending" />
         </div>
 
-        {/* Filters (status + block + advanced); search lives in the table toolbar */}
-        <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
-          <div className="flex gap-2 flex-wrap">
-            {['all', 'active', 'vacated', 'transferred', 'suspended'].map((s) => (
-              <Button key={s} variant={statusFilter === s ? 'default' : 'outline'} size="sm" onClick={() => setStatusFilter(s)}>
-                {s === 'all' ? 'All' : statusConfig[s]?.label ?? s}
-              </Button>
-            ))}
-          </div>
-          <Select value={blockFilter} onValueChange={setBlockFilter}>
-            <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Blocks" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Blocks</SelectItem>
-              {blockNames.map((bn) => <SelectItem key={bn} value={bn}>{bn}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <AllocationFiltersPanel rows={allocations} value={advancedFilters} onChange={setAdvancedFilters} />
+        {/* Status quick-filters stay above the table. */}
+        <div className="flex gap-2 flex-wrap">
+          {['all', 'active', 'vacated', 'transferred', 'suspended'].map((s) => (
+            <Button key={s} variant={statusFilter === s ? 'default' : 'outline'} size="sm" onClick={() => setStatusFilter(s)}>
+              {s === 'all' ? 'All' : statusConfig[s]?.label ?? s}
+            </Button>
+          ))}
         </div>
 
+        {/* Advanced Filters — profiles-style collapsible grid (same idiom as
+            learners/profiles ProfilesFilters). Every dropdown lives here: the
+            Type → Block → Floor cascade plus the academic filters. Filtering is
+            in-memory and instant — each select re-runs fetchData immediately —
+            so there's a Clear-all button but no Search button. */}
+        <Collapsible open={showAdvancedFilters} onOpenChange={setShowAdvancedFilters}>
+          <CollapsibleTrigger asChild>
+            <Button variant="outline" className="w-full justify-between">
+              Advanced Filters
+              {showAdvancedFilters ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="space-y-4 pt-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {hostelTypes.length > 1 && (
+                <Select
+                  value={hostelTypeFilter}
+                  onValueChange={(v) => { setHostelTypeFilter(v); setBlockFilter('all'); setFloorFilter('all'); }}
+                >
+                  <SelectTrigger><SelectValue placeholder="All Types" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    {hostelTypes.map((t) => (
+                      <SelectItem key={t} value={t} className="capitalize">{t}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <Select value={blockFilter} onValueChange={(v) => { setBlockFilter(v); setFloorFilter('all'); }}>
+                <SelectTrigger><SelectValue placeholder="All Blocks" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Blocks</SelectItem>
+                  {blockNames.map((bn) => <SelectItem key={bn} value={bn}>{bn}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              {blockFilter !== 'all' && floorOptions.length > 0 && (
+                <Select value={floorFilter} onValueChange={setFloorFilter}>
+                  <SelectTrigger><SelectValue placeholder="All Floors" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Floors</SelectItem>
+                    {floorOptions.map((f) => <SelectItem key={f} value={String(f)}>{floorLabel(f)}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              )}
+              <AllocationAcademicFilterSelects rows={allocations} value={advancedFilters} onChange={setAdvancedFilters} />
+            </div>
+            <div className="flex justify-end pt-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setHostelTypeFilter('all');
+                  setBlockFilter('all');
+                  setFloorFilter('all');
+                  setAdvancedFilters(EMPTY_ALLOCATION_FILTERS);
+                }}
+              >
+                <RotateCcw className="mr-2 h-4 w-4" /> Clear All Filters
+              </Button>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+
         {/* Advanced data table — paginated, sortable, exportable.
-            Wrapped in .pinned-actions-col so the row-action column stays pinned
-            to the right edge when the table overflows horizontally. */}
+            .pinned-actions-col keeps the row-action column pinned to the right
+            edge when the table overflows horizontally. */}
         <div className="pinned-actions-col">
           <DataTable
             fetchDataFn={fetchData}
