@@ -14,6 +14,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
+import { createClient as createServerClient } from '@/lib/supabase/server';
 import {
   PublicHostService,
   type PublicHost,
@@ -25,6 +26,29 @@ export const dynamic = 'force-dynamic';
 
 interface MeetPageProps {
   params: Promise<{ handle: string }>;
+}
+
+/** Signed-in viewer (if any) so the widget can skip the email step and book
+ *  them as themselves. null = anonymous visitor off the public internet. */
+async function loadViewer(): Promise<{ name: string; email: string } | null> {
+  try {
+    const ssr = await createServerClient();
+    const {
+      data: { user },
+    } = await ssr.auth.getUser();
+    if (!user?.id) return null;
+    const { data: profile } = await ssr
+      .from('profiles')
+      .select('full_name, email')
+      .eq('id', user.id)
+      .maybeSingle();
+    return {
+      name: (profile?.full_name as string | undefined) ?? user.email ?? 'JKKN User',
+      email: (profile?.email as string | undefined) ?? user.email ?? '',
+    };
+  } catch {
+    return null; // a bad/absent cookie is normal here — treat as anonymous
+  }
 }
 
 async function loadHost(handle: string): Promise<PublicHost | null> {
@@ -46,7 +70,7 @@ export async function generateMetadata({ params }: MeetPageProps): Promise<Metad
 
 export default async function MeetPersonPage({ params }: MeetPageProps) {
   const { handle } = await params;
-  const host = await loadHost(handle);
+  const [host, viewer] = await Promise.all([loadHost(handle), loadViewer()]);
   if (!host || host.meetingTypes.length === 0) notFound();
 
   return (
@@ -62,6 +86,7 @@ export default async function MeetPersonPage({ params }: MeetPageProps) {
         headline={host.headline}
         avatarUrl={host.avatarUrl}
         meetingTypes={host.meetingTypes}
+        viewer={viewer}
       />
     </>
   );

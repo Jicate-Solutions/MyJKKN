@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { PublicHostService } from '@/lib/services/meetings/public-host-service';
 import { NativeSchedulingService } from '@/lib/services/meetings/native-scheduling-service';
+import { BookingIdentityService } from '@/lib/services/meetings/booking-identity-service';
 import {
   createBookingOrder,
   isRazorpayBookingConfigured,
@@ -99,6 +100,27 @@ export async function POST(
       return NextResponse.json({ error: 'Meeting type not found' }, { status: 404 });
     }
 
+    // Identity gate (Director 2026-06-20): a signed-in user books as themselves
+    // (binds attendee_profile_id); a JKKN-account email must log in first;
+    // everyone else books as a guest. Enforced server-side — never trusted from
+    // the client. The 403 carries a loginUrl that returns here after sign-in.
+    // Runs BEFORE the deposit/order step so a user who must log in is never
+    // sent to a Razorpay order.
+    const identity = await BookingIdentityService.resolve(supabase, email);
+    if (identity.kind === 'login_required') {
+      return NextResponse.json(
+        {
+          error: 'login_required',
+          reason: identity.reason,
+          loginUrl: `/auth/login?redirectedFrom=${encodeURIComponent(`/meet/${handle}`)}`,
+        },
+        { status: 403 },
+      );
+    }
+    const attendeeName = identity.kind === 'authenticated' ? identity.name : name;
+    const attendeeEmail = identity.kind === 'authenticated' ? identity.email : email;
+    const attendeeProfileId = identity.kind === 'authenticated' ? identity.profileId : null;
+
     // Re-resolve the deposit requirement server-side (never trust the client).
     const fullType = await NativeSchedulingService.getMeetingType(supabase, mt.id);
     if (!fullType) {
@@ -156,9 +178,10 @@ export async function POST(
     const booking = await NativeSchedulingService.createBooking(supabase, {
       meetingTypeId: mt.id,
       start,
-      attendeeName: name,
-      attendeeEmail: email,
+      attendeeName,
+      attendeeEmail,
       attendeePhone: phone || null,
+      attendeeProfileId,
       answers: note ? { note } : {},
       source: 'meet-page',
       payment: verifiedPayment,
