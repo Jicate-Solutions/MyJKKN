@@ -4,6 +4,8 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
+import Cookies from 'js-cookie';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,8 +16,12 @@ import {
 } from '@/lib/services/parent/parent-auth-service';
 import type { SiblingCandidate } from '@/types/parent-portal';
 
+// Must match ACTIVE_LEARNER_COOKIE in parent-session-provider.tsx.
+const ACTIVE_LEARNER_COOKIE = 'pp_active_learner';
+
 export default function ParentRegisterPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [step, setStep] = useState<1 | 2>(1);
   const [loading, setLoading] = useState(false);
 
@@ -80,6 +86,10 @@ export default function ParentRegisterPage() {
         linkSiblingIds: [...selected],
       });
       toast.success('Account created!');
+      // Fresh session on a tab-lifetime query cache — drop any cached data and
+      // stale child selection from a previous parent before entering the portal.
+      queryClient.clear();
+      Cookies.remove(ACTIVE_LEARNER_COOKIE);
       router.replace('/parent/dashboard');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Registration failed');

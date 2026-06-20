@@ -4,12 +4,17 @@
 import { useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
+import Cookies from 'js-cookie';
 import { toast } from 'sonner';
 import { IdCard, Smartphone, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { ParentAuthService } from '@/lib/services/parent/parent-auth-service';
+
+// Must match ACTIVE_LEARNER_COOKIE in parent-session-provider.tsx.
+const ACTIVE_LEARNER_COOKIE = 'pp_active_learner';
 
 type Mode = 'admission' | 'mobile';
 
@@ -24,6 +29,7 @@ export default function ParentLoginPage() {
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const [mode, setMode] = useState<Mode>('admission');
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -39,6 +45,13 @@ function LoginForm() {
     setLoading(true);
     try {
       await ParentAuthService.login({ identifier: identifier.trim(), password });
+      // The React Query cache is a tab-lifetime singleton; without this a parent
+      // logging in after another (shared device, or a prior session that ended
+      // without logout) would briefly see the previous parent's cached children
+      // and child-scoped data until refetch. Clear cache + stale child selection
+      // so every query runs fresh against the new session cookie.
+      queryClient.clear();
+      Cookies.remove(ACTIVE_LEARNER_COOKIE);
       const dest = searchParams.get('redirectedFrom') || '/parent/dashboard';
       router.replace(dest.startsWith('/parent') ? dest : '/parent/dashboard');
     } catch (err) {
