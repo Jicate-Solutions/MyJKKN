@@ -13,7 +13,7 @@ import type {
 
 export class ClubService {
   static async list(supabase: SupabaseClient, filters: ClubFilters = {}): Promise<ClubListResponse> {
-    const { page = 1, limit = 20, institution_id, is_active, club_type } = filters;
+    const { page = 1, limit = 20, institution_id, is_active, status, club_type } = filters;
     const offset = (page - 1) * limit;
 
     let query = supabase
@@ -23,7 +23,10 @@ export class ClubService {
       .range(offset, offset + limit - 1);
 
     if (institution_id) query = query.eq('institution_id', institution_id);
-    if (is_active !== undefined) query = query.eq('is_active', is_active);
+    // `status` is the canonical 3-state filter; when present it takes precedence
+    // over the legacy is_active boolean filter.
+    if (status) query = query.eq('status', status);
+    else if (is_active !== undefined) query = query.eq('is_active', is_active);
     if (club_type) query = query.eq('club_type', club_type);
 
     const { data, error, count } = await query;
@@ -78,6 +81,10 @@ export class ClubService {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '');
 
+    // Default to 'active' when no status supplied. Keep legacy is_active in sync
+    // so the existing "Active only" toggle + "Inactive" badge keep working.
+    const status = dto.status ?? 'active';
+
     const { data, error } = await supabase
       .from('cdc_clubs')
       .insert({
@@ -86,9 +93,11 @@ export class ClubService {
         description: dto.description ?? null,
         club_type: dto.club_type ?? null,
         coordinator_staff_id: dto.coordinator_staff_id ?? null,
+        student_president_id: dto.student_president_id ?? null,
         institution_id: dto.institution_id ?? null,
         formed_on: dto.formed_on ?? null,
-        is_active: true,
+        status,
+        is_active: status === 'active',
       })
       .select()
       .single();
@@ -103,10 +112,17 @@ export class ClubService {
     if (dto.description !== undefined) payload.description = dto.description;
     if (dto.club_type !== undefined) payload.club_type = dto.club_type;
     if (dto.coordinator_staff_id !== undefined) payload.coordinator_staff_id = dto.coordinator_staff_id;
+    if (dto.student_president_id !== undefined) payload.student_president_id = dto.student_president_id;
     if (dto.institution_id !== undefined) payload.institution_id = dto.institution_id;
-    if (dto.is_active !== undefined) payload.is_active = dto.is_active;
     if (dto.formed_on !== undefined) payload.formed_on = dto.formed_on;
     if (dto.updated_by !== undefined) payload.updated_by = dto.updated_by;
+    // When status changes, keep the legacy is_active boolean in sync.
+    if (dto.status !== undefined) {
+      payload.status = dto.status;
+      payload.is_active = dto.status === 'active';
+    } else if (dto.is_active !== undefined) {
+      payload.is_active = dto.is_active;
+    }
 
     const { data, error } = await supabase
       .from('cdc_clubs')

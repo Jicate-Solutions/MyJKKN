@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { ParentSWRegister } from '@/components/parent/parent-sw-register';
 
 // Isolated route group for the Parent Portal. It still sits under the root
 // app/layout.tsx (which supplies React Query + Theme providers), but renders
@@ -25,6 +26,7 @@ export default function ParentPortalLayout({
   // screens (web) so the centered column reads as intentional, not blank.
   return (
     <div className="min-h-dvh bg-white dark:bg-neutral-950 md:bg-gradient-to-br md:from-[#0b6d41]/10 md:via-white md:to-[#0b6d41]/5">
+      <ParentSWRegister />
       {children}
     </div>
   );

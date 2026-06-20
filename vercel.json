@@ -20,6 +20,10 @@
   },
   "crons": [
     {
+      "path": "/api/cron/meeting-calendar-watch-renew?secret=${CRON_SECRET}",
+      "schedule": "41 */6 * * *"
+    },
+    {
       "path": "/api/cron/notification-processor?secret=${CRON_SECRET}",
       "schedule": "0 * * * *"
     },

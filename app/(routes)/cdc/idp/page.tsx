@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
@@ -11,20 +12,102 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card, CardContent, CardDescription, CardHeader, CardTitle
+} from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select';
 import { useIdpList } from '@/hooks/cdc/use-cdc-idp';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { IdpFilters } from '@/types/cdc/idp';
-import { Plus, Search, ClipboardList } from 'lucide-react';
+import {
+  Plus, Search, ClipboardList, ListChecks, Clock, CheckCircle2
+} from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
+
+const idpStatsClient = createClientSupabaseClient();
+
+interface IdpStats {
+  total: number;
+  reviewed: number;
+  pending: number;
+}
+
+// Stats summary (BUG-004091).
+// NOTE: cdc_idp_responses has no dedicated review/status column, so "reviewed"
+// is derived from whether a response has been edited since submission
+// (updated_at > submitted_at — i.e. opened and saved via the detail/edit flow).
+// Counts honour the server-side filters (academic year, source) so they match
+// the list's `total`, and are computed globally (not page-local) by fetching
+// only the two timestamp columns for all matching rows.
+function useIdpStats(filters: IdpFilters) {
+  const { academic_year_label, source } = filters;
+  return useQuery<IdpStats>({
+    queryKey: ['cdc-idp', 'stats', { academic_year_label, source }],
+    queryFn: async () => {
+      let query = idpStatsClient
+        .from('cdc_idp_responses')
+        .select('submitted_at, updated_at');
+      if (academic_year_label) query = query.eq('academic_year_label', academic_year_label);
+      if (source) query = query.eq('source', source);
+
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+
+      const rows = (data ?? []) as Array<{ submitted_at: string; updated_at: string }>;
+      const total = rows.length;
+      const reviewed = rows.filter(
+        r => r.updated_at && r.submitted_at && new Date(r.updated_at).getTime() > new Date(r.submitted_at).getTime()
+      ).length;
+      return { total, reviewed, pending: total - reviewed };
+    },
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+interface StatCardProps {
+  label: string;
+  value: number | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  icon: React.ElementType;
+  color: string;
+  hint?: string;
+}
+
+function StatCard({ label, value, isLoading, isError, icon: Icon, color, hint }: StatCardProps) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardDescription className="text-xs font-medium">{label}</CardDescription>
+          <div className={`rounded-md p-1.5 ${color}`}>
+            <Icon className="h-4 w-4" />
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-8 w-16" />
+        ) : isError ? (
+          <span className="text-sm text-destructive">Error</span>
+        ) : (
+          <div className="text-3xl font-bold tabular-nums">{value ?? 0}</div>
+        )}
+        {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function IdpListPage() {
   const [filters, setFilters] = useState<IdpFilters>({ page: 1, limit: 20 });
   const [search, setSearch] = useState('');
 
   const { data, isLoading, error } = useIdpList(filters);
+  const { data: stats, isLoading: statsLoading, isError: statsError } = useIdpStats(filters);
 
   const handleAcademicYearChange = (val: string) => {
     setFilters(f => ({ ...f, academic_year_label: val === 'all' ? undefined : val, page: 1 }));
@@ -69,6 +152,36 @@ export default function IdpListPage() {
               </Link>
             </Button>
           </PermissionGuard>
+        </div>
+
+        {/* Stats summary (BUG-004091) */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <StatCard
+            label="TOTAL RESPONSES"
+            value={stats?.total}
+            isLoading={statsLoading}
+            isError={statsError}
+            icon={ListChecks}
+            color="bg-blue-100 text-blue-700"
+          />
+          <StatCard
+            label="PENDING REVIEW"
+            value={stats?.pending}
+            isLoading={statsLoading}
+            isError={statsError}
+            icon={Clock}
+            color="bg-amber-100 text-amber-700"
+            hint="Submitted, not yet opened/edited"
+          />
+          <StatCard
+            label="COMPLETED / REVIEWED"
+            value={stats?.reviewed}
+            isLoading={statsLoading}
+            isError={statsError}
+            icon={CheckCircle2}
+            color="bg-green-100 text-green-700"
+            hint="Edited since submission"
+          />
         </div>
 
         {/* Filters */}

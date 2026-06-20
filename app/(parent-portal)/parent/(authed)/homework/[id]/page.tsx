@@ -6,9 +6,8 @@ import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ExternalLink } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
-import { RichTextDisplay } from '@/components/ui/rich-text-editor';
+import { ParentRichContent, ParentAttachments } from '@/components/parent/parent-media';
 import { useParentHomeworkDetail } from '@/hooks/parent/use-parent-features';
 import { useParentSession } from '@/hooks/parent/use-parent-session';
 import { ParentFeatures } from '@/lib/services/parent/parent-features-service';
@@ -53,18 +52,8 @@ export default function HomeworkDetailPage({ params }: { params: Promise<{ id: s
           {hw.dueDate && <span>Due {formatDate(hw.dueDate)}</span>}
           {hw.maxMarks != null && <span>Max marks {hw.maxMarks}</span>}
         </div>
-        {hw.instructions && <RichTextDisplay content={hw.instructions} className="text-sm" />}
-        {hw.attachmentUrls.map((a, i) => (
-          <a
-            key={i}
-            href={a.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 text-sm font-medium text-[#0b6d41]"
-          >
-            {a.name} <ExternalLink className="h-3 w-3" />
-          </a>
-        ))}
+        {hw.instructions && <ParentRichContent content={hw.instructions} className="text-sm" />}
+        <ParentAttachments files={hw.attachmentUrls} />
       </Card>
 
       {isMarked ? (

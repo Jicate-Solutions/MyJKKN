@@ -3,11 +3,14 @@
 /**
  * Parent Portal — Web Push subscription (client).
  *
- * Reuses the app-wide service worker (serwist /sw.js, already registered) and
- * subscribes with the public VAPID key, then registers the subscription with
- * /api/parent/devices. No changes to the shared SW — only the /parent flow.
+ * Subscribes against the DEDICATED parent service worker (/parent-sw.js at scope
+ * "/parent", registered by <ParentSWRegister/>), NOT the faculty /sw.js at scope
+ * "/". Each registration owns its own push subscription, so the faculty push
+ * provider can no longer clobber the parent endpoint. The subscription is then
+ * registered with /api/parent/devices.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { PARENT_SW_SCOPE, PARENT_SW_URL } from '@/components/parent/parent-sw-register';
 
 const VAPID = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
@@ -18,6 +21,31 @@ function urlBase64ToUint8Array(base64: string): Uint8Array {
   const out = new Uint8Array(raw.length);
   for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
   return out;
+}
+
+/**
+ * Resolve the parent-scoped registration, registering /parent-sw.js if it isn't
+ * up yet, and wait for it to be active before any pushManager call.
+ */
+async function getParentRegistration(): Promise<ServiceWorkerRegistration> {
+  const existing = await navigator.serviceWorker.getRegistration(PARENT_SW_SCOPE);
+  const reg =
+    existing && existing.scope.endsWith(PARENT_SW_SCOPE)
+      ? existing
+      : await navigator.serviceWorker.register(PARENT_SW_URL, {
+          scope: PARENT_SW_SCOPE,
+          updateViaCache: 'none',
+        });
+
+  if (reg.active) return reg;
+  await new Promise<void>((resolve) => {
+    const sw = reg.installing || reg.waiting;
+    if (!sw) return resolve();
+    sw.addEventListener('statechange', () => {
+      if (sw.state === 'activated') resolve();
+    });
+  });
+  return reg;
 }
 
 export function useParentPush() {
@@ -33,7 +61,7 @@ export function useParentPush() {
   // Reflect current subscription state on mount.
   useEffect(() => {
     if (!supported) return;
-    navigator.serviceWorker.ready
+    getParentRegistration()
       .then((reg) => reg.pushManager.getSubscription())
       .then((sub) => setEnabled(!!sub))
       .catch(() => {});
@@ -46,7 +74,7 @@ export function useParentPush() {
       const permission = await Notification.requestPermission();
       if (permission !== 'granted') return false;
 
-      const reg = await navigator.serviceWorker.ready;
+      const reg = await getParentRegistration();
       const sub =
         (await reg.pushManager.getSubscription()) ??
         (await reg.pushManager.subscribe({
@@ -78,7 +106,7 @@ export function useParentPush() {
     if (!supported) return false;
     setLoading(true);
     try {
-      const reg = await navigator.serviceWorker.ready;
+      const reg = await getParentRegistration();
       const sub = await reg.pushManager.getSubscription();
       if (sub) await sub.unsubscribe();
       // Server rows are pruned automatically on the next failed send (404/410).

@@ -10,9 +10,11 @@ import { PARENT_SESSION_COOKIE, verifyParentSession } from './lib/auth/parent-jw
 
 // Parent Portal pages that are reachable WITHOUT a parent_session (the auth
 // funnel). Everything else under /parent/* requires a valid parent_session JWT.
-// NOTE: /api/parent/* is intentionally NOT handled here — those routes start
-// with "/api" (not "/parent"), bypass the proxy, and enforce auth in-route via
-// resolveParentScope(). This block governs page navigation only.
+// NOTE: /api/parent/* auth is enforced in-route via resolveParentScope(). Those
+// routes (like all /api/*) pass through this proxy and are force-set to
+// no-store by the isPublicPath() branch in proxy() — a `public, s-maxage` cache
+// is keyed by URL, not by the session cookie, so it would serve one user's data
+// to another across browsers AND devices.
 const PARENT_PUBLIC_PATHS = new Set([
   '/parent',
   '/parent/onboarding',
@@ -145,6 +147,10 @@ export async function proxy(request: NextRequest) {
       return handleParentPortal(request, currentPath);
     }
 
+    // NOTE: /api/parent/* (and every other /api/*) is handled by the
+    // isPublicPath() branch below, which now forces no-store for all API routes
+    // — see the SECURITY comment there. No per-prefix special-casing needed.
+
     // Helper: inject preconnect hints to speed up Supabase and Google connections
     const addPreconnectHeaders = (response: NextResponse) => {
       response.headers.set(
@@ -177,8 +183,20 @@ export async function proxy(request: NextRequest) {
     // Skip proxy for public paths BEFORE creating Supabase client
     if (isPublicPath(currentPath)) {
       const res = NextResponse.next();
-      // Allow short CDN caching for public paths (was: no-store blocking CDN)
-      res.headers.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
+      // SECURITY (secure-by-default): isPublicPath() returns true for ALL /api/*
+      // routes — but "skip the staff auth flow" is NOT the same as "safe to cache
+      // publicly". A `public, s-maxage` header is keyed by URL, not by the auth
+      // cookie, so a shared browser/CDN serves one user's response to another
+      // (across devices). That caused the parent-portal cross-account leak.
+      // Therefore: API routes default to no-store; only non-API public paths
+      // (marketing pages, static assets) get the short CDN cache. A genuinely
+      // cacheable API endpoint opts in explicitly by setting its own
+      // Cache-Control header in-route (e.g. /api/parent/attachment).
+      if (currentPath.startsWith('/api')) {
+        res.headers.set('Cache-Control', 'private, no-store, max-age=0, must-revalidate');
+      } else {
+        res.headers.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
+      }
       const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || 'dev';
       res.headers.set('X-App-Version', appVersion);
       return addPreconnectHeaders(res);

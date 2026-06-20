@@ -2,9 +2,9 @@
 
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Trophy, ExternalLink, Paperclip } from 'lucide-react';
+import { Trophy } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
-import { RichTextDisplay } from '@/components/ui/rich-text-editor';
+import { ParentRichContent, ParentAttachments } from '@/components/parent/parent-media';
 import { useParentAchievements } from '@/hooks/parent/use-parent-features';
 
 export default function AchievementsPage() {
@@ -34,7 +34,7 @@ export default function AchievementsPage() {
               )}
               <h2 className="font-bold leading-snug">{a.title}</h2>
               {a.description && (
-                <RichTextDisplay content={a.description} className="text-sm text-muted-foreground" />
+                <ParentRichContent content={a.description} className="text-sm text-muted-foreground" />
               )}
               {a.achievedOn && (
                 <span className="mt-1 block text-xs text-muted-foreground">{formatDate(a.achievedOn)}</span>
@@ -47,23 +47,7 @@ export default function AchievementsPage() {
                   ? [{ name: 'Certificate', url: a.certificateUrl }]
                   : [];
                 if (!files.length) return null;
-                return (
-                  <div className="mt-2 space-y-1.5">
-                    {files.map((att, i) => (
-                      <a
-                        key={('driveFileId' in att && att.driveFileId) || i}
-                        href={att.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 rounded-lg border bg-neutral-50 px-3 py-2 text-sm font-medium text-[#0b6d41] dark:bg-neutral-800"
-                      >
-                        <Paperclip className="h-4 w-4 shrink-0" />
-                        <span className="min-w-0 flex-1 truncate">{att.name}</span>
-                        <ExternalLink className="h-3 w-3 shrink-0" />
-                      </a>
-                    ))}
-                  </div>
-                );
+                return <ParentAttachments files={files} className="mt-2" />;
               })()}
             </div>
           </Card>

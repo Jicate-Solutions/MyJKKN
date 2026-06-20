@@ -21,6 +21,8 @@ import crypto from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { MeetingBookingEmailService } from '@/lib/services/email/meeting-booking-email-service';
 import { GoogleCalendarService } from '@/lib/services/integrations/google-calendar-service';
+import { createZoomMeeting, isZoomConfigured } from '@/lib/services/integrations/zoom-service';
+import { createTeamsMeeting, isTeamsConfigured } from '@/lib/services/integrations/teams-service';
 import {
   computeSlots,
   groupSlotsByDate,
@@ -73,6 +75,11 @@ export interface NativeMeetingType {
   redirect_url: string | null;
   /** lifecycle: free-text message shown on the cancel page. */
   cancellation_policy: string | null;
+  // ── Wave-3 (B): paid bookings (migration 20260619100000). ───────────────────
+  /** when true, an attendee must pay a Razorpay deposit before confirming. */
+  requires_deposit: boolean;
+  /** deposit to collect, in paise (e.g. ₹500 → 50000). NULL when no deposit. */
+  deposit_amount_paise: number | null;
 }
 
 export interface NativeBookingInput {
@@ -91,6 +98,13 @@ export interface NativeBookingInput {
   attendeeProfileId?: string | null;
   answers?: Record<string, string>;
   source?: string;
+  /**
+   * Wave-3 (B): a VERIFIED Razorpay deposit. The caller (book route) creates
+   * the order, opens Checkout, and verifies the signature server-side BEFORE
+   * passing this in — the service trusts it and stamps payment_status='paid'.
+   * Absent → free booking (payment_status='none').
+   */
+  payment?: { orderId: string; paymentId: string };
 }
 
 export type NativeBookingResult =
@@ -128,7 +142,74 @@ export class NativeSchedulingService {
       host_pool: (row.host_pool as string[] | null | undefined) ?? null,
       redirect_url: (row.redirect_url as string | null | undefined) ?? null,
       cancellation_policy: (row.cancellation_policy as string | null | undefined) ?? null,
+      // Wave-3 (B): degrade to "no deposit" if the migration is not yet applied.
+      requires_deposit: (row.requires_deposit as boolean | undefined) ?? false,
+      deposit_amount_paise: (row.deposit_amount_paise as number | null | undefined) ?? null,
     };
+  }
+
+  /**
+   * Wave-3 (A): which video provider mints the join link for an online meeting
+   * type, per the host's meeting_host_integration_prefs row. Defaults to
+   * 'google' when the host has no row (back-compat with the U1 substrate).
+   * The pref table is not in generated types → cast untyped.
+   */
+  private static async resolveVideoProvider(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+  ): Promise<'google' | 'zoom' | 'teams'> {
+    const { data } = await (supabase as any)
+      .from('meeting_host_integration_prefs')
+      .select('video_provider')
+      .eq('host_profile_id', hostProfileId)
+      .maybeSingle();
+    const p = (data?.video_provider as string | undefined) ?? 'google';
+    return p === 'zoom' || p === 'teams' ? p : 'google';
+  }
+
+  /**
+   * Wave-3 (A): mint a join URL from a platform-level provider (Zoom / Teams).
+   * Reads the host's provider identity from meeting_host_integration_prefs
+   * (zoom → host email; teams → informational only). Each service is env-gated
+   * and returns null when unconfigured/failed — this returns null too, and the
+   * caller treats that as "no link this time" (NEVER blocks the booking).
+   */
+  private static async mintProviderVideoUrl(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+    provider: 'zoom' | 'teams',
+    meeting: { topic: string; startIso: string; durationMin: number; timezone: string },
+  ): Promise<string | null> {
+    // The host's provider identity (zoom user email / teams organizer hint).
+    const { data: pref } = await (supabase as any)
+      .from('meeting_host_integration_prefs')
+      .select('provider_host_identity')
+      .eq('host_profile_id', hostProfileId)
+      .maybeSingle();
+    const identity = (pref?.provider_host_identity as string | null | undefined) ?? null;
+
+    if (provider === 'zoom') {
+      if (!isZoomConfigured()) return null;
+      // Zoom needs a host user; with no per-host identity fall back to the
+      // token's own user ('me').
+      const created = await createZoomMeeting({
+        topic: meeting.topic,
+        startIso: meeting.startIso,
+        durationMin: meeting.durationMin,
+        hostEmail: identity ?? 'me',
+        timezone: meeting.timezone,
+      });
+      return created?.joinUrl ?? null;
+    }
+    // teams
+    if (!isTeamsConfigured()) return null;
+    const created = await createTeamsMeeting({
+      topic: meeting.topic,
+      startIso: meeting.startIso,
+      durationMin: meeting.durationMin,
+      hostEmail: identity ?? undefined,
+    });
+    return created?.joinUrl ?? null;
   }
 
   /**
@@ -507,8 +588,11 @@ export class NativeSchedulingService {
     //   primaryHost  = the row's host_profile_id (the one we book against).
     //   blockHosts   = every host that must get a confirmed booking row
     //                  (collective books ALL required hosts; others book one).
+    //   seatIndex    = which group seat this booking claims (0 for non-group;
+    //                  current confirmed seat count for group — see mb_no_double_booking).
     let primaryHost = mt.host_profile_id;
     let blockHosts: string[] = [mt.host_profile_id];
+    let seatIndex = 0;
 
     if (mt.kind === 'collective') {
       const hosts = await this.loadCollectiveHosts(supabase, mt);
@@ -543,6 +627,10 @@ export class NativeSchedulingService {
       const used = usage.find((u) => new Date(u.start).toISOString() === startIso)?.count ?? 0;
       const cap = mt.capacity && mt.capacity > 0 ? mt.capacity : 1;
       if (used >= cap) return { success: false, error: 'SLOT_TAKEN' };
+      // Claim the next seat. Two concurrent requests that read the same `used`
+      // pick the same seat_index and collide at mb_no_double_booking (23P01 →
+      // SLOT_TAKEN) — the DB arbitrates, no over-selling.
+      seatIndex = used;
       primaryHost = mt.host_profile_id;
       blockHosts = [mt.host_profile_id];
     } else {
@@ -557,8 +645,9 @@ export class NativeSchedulingService {
 
     // .select() reads back the DB-generated cancel_token for the attendee's
     // self-service cancel link (Phase N3a) — service-role only; the token
-    // never reaches host-facing reads.
-    const { data: inserted, error } = await supabase
+    // never reaches host-facing reads. Cast untyped: seat_index + payment_*
+    // columns aren't in generated types yet.
+    const { data: inserted, error } = await (supabase as any)
       .from('meeting_bookings')
       .insert({
         uid,
@@ -574,6 +663,12 @@ export class NativeSchedulingService {
         end_time: endIso,
         status: 'confirmed',
         source: input.source ?? 'direct',
+        seat_index: seatIndex,
+        // Deposit bookings carry their verified payment handles (the route
+        // verifies the Razorpay signature BEFORE calling createBooking).
+        payment_order_id: input.payment?.orderId ?? null,
+        payment_id: input.payment?.paymentId ?? null,
+        payment_status: input.payment ? 'paid' : 'none',
       })
       .select('cancel_token')
       .single();
@@ -640,11 +735,30 @@ export class NativeSchedulingService {
       .eq('id', primaryHost)
       .maybeSingle();
 
-    // U2 (D12): Google Calendar event BEFORE the emails so the Meet link can
-    // ride the confirmation. Best effort — a Google failure never fails the
-    // committed booking; the event also makes Google invite the attendee.
+    // Self-service cancel/reschedule links — the same ones the confirmation
+    // email carries — so they're reachable from the calendar event too (the
+    // Calendly behaviour the Director relied on). cancel_token came back from
+    // the insert above; it never reaches host-facing reads.
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+    const cancelToken = (inserted as { cancel_token?: string } | null)?.cancel_token;
+    const cancelUrl =
+      appUrl && cancelToken ? `${appUrl}/book/cancel/${uid}?token=${cancelToken}` : undefined;
+    const rescheduleUrl =
+      appUrl && cancelToken ? `${appUrl}/book/reschedule/${uid}?token=${cancelToken}` : undefined;
+
+    // U2 (D12) + Wave-3 (A): video link by the host's chosen provider, plus a
+    // Google Calendar event for busy-sync where a Google connection exists.
+    // Best effort throughout — a provider failure never fails the committed
+    // booking; an online type that yields no link simply has no link this time.
     let videoUrl: string | null = null;
     let googleEventId: string | null = null;
+    const wantsVideo = mt.location_mode === 'online';
+    const provider = wantsVideo ? await this.resolveVideoProvider(supabase, primaryHost) : 'google';
+
+    // A Google Calendar event always blocks the host's calendar + invites the
+    // attendee when a connection exists. We only ask Google for a Meet link when
+    // the host's provider is 'google'; for zoom/teams the event still rides (no
+    // Meet link) and the video link comes from the chosen provider below.
     const conn = await GoogleCalendarService.getConnection(supabase, primaryHost);
     if (conn?.status === 'active') {
       const event = await GoogleCalendarService.createEvent(supabase, primaryHost, {
@@ -652,28 +766,45 @@ export class NativeSchedulingService {
         description: [
           `Booked via JKKN (${input.source ?? 'direct'}). Reference: ${uid}`,
           input.attendeePhone ? `Attendee phone: ${input.attendeePhone}` : '',
+          cancelUrl || rescheduleUrl ? '\nNeed to make changes to this meeting?' : '',
+          cancelUrl ? `Cancel: ${cancelUrl}` : '',
+          rescheduleUrl ? `Reschedule: ${rescheduleUrl}` : '',
         ].filter(Boolean).join('\n'),
         startIso,
         endIso,
         timezone: sched.timezone,
         attendees: [{ email: input.attendeeEmail, displayName: input.attendeeName }],
-        withMeet: mt.location_mode === 'online',
+        withMeet: wantsVideo && provider === 'google',
       });
       if (event) {
-        videoUrl = event.meetUrl;
         googleEventId = event.eventId;
-        await supabase
-          .from('meeting_bookings')
-          .update({ video_url: videoUrl, google_event_id: googleEventId })
-          .eq('uid', uid);
+        if (provider === 'google') videoUrl = event.meetUrl;
       }
+    }
+
+    // Zoom / Teams: mint the join URL from the platform-level service. Each is
+    // env-gated and returns null when unconfigured/failed — fall through to "no
+    // link this time" rather than blocking the booking.
+    if (wantsVideo && !videoUrl && (provider === 'zoom' || provider === 'teams')) {
+      videoUrl = await this.mintProviderVideoUrl(supabase, primaryHost, provider, {
+        topic: `${mt.title} — ${input.attendeeName}`,
+        startIso,
+        durationMin: mt.duration_min,
+        timezone: sched.timezone,
+      });
+    }
+
+    if (videoUrl || googleEventId) {
+      await (supabase as any)
+        .from('meeting_bookings')
+        .update({ video_url: videoUrl, google_event_id: googleEventId })
+        .eq('uid', uid);
     }
 
     // Phase N3a: confirmation emails to attendee + host. The booking is
     // already committed — the email service is non-throwing and skips when
     // RESEND_API_KEY is unset, so notification failure never fails a booking.
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
-    const cancelToken = (inserted as { cancel_token?: string } | null)?.cancel_token;
+    // (cancelUrl/rescheduleUrl computed above — shared with the calendar event.)
     await MeetingBookingEmailService.sendBookingConfirmedEmails({
       uid,
       meetingTitle: mt.title,
@@ -689,14 +820,8 @@ export class NativeSchedulingService {
       locationMode: mt.location_mode,
       locationText: mt.location_text,
       videoUrl,
-      cancelUrl:
-        appUrl && cancelToken
-          ? `${appUrl}/book/cancel/${uid}?token=${cancelToken}`
-          : undefined,
-      rescheduleUrl:
-        appUrl && cancelToken
-          ? `${appUrl}/book/reschedule/${uid}?token=${cancelToken}`
-          : undefined,
+      cancelUrl,
+      rescheduleUrl,
     });
 
     return {
@@ -776,13 +901,18 @@ export class NativeSchedulingService {
         (new Date(booking.end_time).getTime() - new Date(booking.start_time).getTime()) / 60_000,
       ),
     );
-    // U2 (D12): remove the Google Calendar event (best effort — Google also
-    // notifies the attendee via sendUpdates=all on the delete).
+    // Keep the cancelled event on the host's calendar, renamed ("Cancelled: …")
+    // and freed, for record-keeping (Director request) — mirrors Calendly,
+    // instead of deleting it. sendUpdates=all still notifies the attendee; the
+    // cancellation email is sent below as well.
     if (booking.google_event_id) {
-      await GoogleCalendarService.deleteEvent(
+      const originalSummary =
+        `${(mtRow?.title as string | undefined) ?? 'Meeting'} — ${booking.attendee_name ?? ''}`.trim();
+      await GoogleCalendarService.markEventCancelled(
         supabase,
         booking.host_profile_id,
         booking.google_event_id as string,
+        `Cancelled: ${originalSummary}`,
       );
     }
 

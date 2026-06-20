@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { PublicHostService } from '@/lib/services/meetings/public-host-service';
 import { NativeSchedulingService } from '@/lib/services/meetings/native-scheduling-service';
+import { isRazorpayBookingConfigured } from '@/lib/services/integrations/razorpay-booking-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,6 +67,18 @@ export async function POST(
       return NextResponse.json({ error: 'Meeting type not found' }, { status: 404 });
     }
 
+    // Wave-3 (B): a deposit is only collectable when the type requires it AND
+    // Razorpay is configured (env-gated). When required-but-unconfigured we
+    // surface requiresDeposit:false so the widget falls back to a free booking
+    // rather than dead-ending the booker (graceful degradation). The KEY_ID is
+    // the public checkout key (safe in the browser), not the secret.
+    const full = await NativeSchedulingService.getMeetingType(supabase, mt.id);
+    const razorpayReady = isRazorpayBookingConfigured();
+    const depositActive =
+      !!full?.requires_deposit &&
+      (full?.deposit_amount_paise ?? 0) > 0 &&
+      razorpayReady;
+
     return NextResponse.json({
       hostName: host.name,
       meetingTypeId: mt.id,
@@ -74,6 +87,10 @@ export async function POST(
       // Wave-3: variant kind + (group only) remaining seats per slot start.
       kind: slots.kind,
       seatsByStart: slots.seatsByStart ?? null,
+      // Wave-3 (B): deposit requirement + public Razorpay key for Checkout.
+      requiresDeposit: depositActive,
+      depositAmountPaise: depositActive ? full!.deposit_amount_paise : null,
+      razorpayKeyId: depositActive ? (process.env.RAZORPAY_KEY_ID ?? null) : null,
       days: slots.days,
     });
   } catch (err) {

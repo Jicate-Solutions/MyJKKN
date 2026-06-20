@@ -11,9 +11,9 @@ import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft, ChevronLeft, ChevronRight, ExternalLink, Paperclip } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
-import { RichTextDisplay } from '@/components/ui/rich-text-editor';
+import { ParentRichContent, ParentAttachments, MediaEmbed } from '@/components/parent/parent-media';
 import { useParentAnnouncements } from '@/hooks/parent/use-parent-announcements';
 
 export default function AnnouncementDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -65,35 +65,18 @@ export default function AnnouncementDetailPage({ params }: { params: Promise<{ i
           )}
           <h1 className="text-lg font-bold leading-snug">{a.title}</h1>
           <span className="block text-xs text-muted-foreground">{formatDate(a.publishedAt)}</span>
-          {a.body && <RichTextDisplay content={a.body} className="pt-1 text-sm text-foreground/90" />}
+          {a.body && <ParentRichContent content={a.body} className="pt-1 text-sm text-foreground/90" />}
 
           {!!a.attachmentUrls?.length && (
-            <div className="space-y-1.5 pt-2">
-              {a.attachmentUrls.map((att, i) => (
-                <a
-                  key={att.driveFileId ?? i}
-                  href={att.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 rounded-lg border bg-neutral-50 px-3 py-2 text-sm font-medium text-[#0b6d41] dark:bg-neutral-800"
-                >
-                  <Paperclip className="h-4 w-4 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">{att.name}</span>
-                  <ExternalLink className="h-3 w-3 shrink-0" />
-                </a>
-              ))}
+            <div className="pt-2">
+              <ParentAttachments files={a.attachmentUrls} />
             </div>
           )}
 
           {a.linkUrl && (
-            <a
-              href={a.linkUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 pt-1 text-sm font-medium text-[#0b6d41]"
-            >
-              Open link <ExternalLink className="h-3.5 w-3.5" />
-            </a>
+            <div className="pt-1">
+              <MediaEmbed url={a.linkUrl} />
+            </div>
           )}
         </div>
       </Card>

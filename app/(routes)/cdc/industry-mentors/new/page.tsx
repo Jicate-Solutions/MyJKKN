@@ -20,9 +20,12 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
-import { AlertCircle, Loader2, ArrowLeft } from 'lucide-react';
+import { AlertCircle, Loader2, ArrowLeft, ImagePlus, X } from 'lucide-react';
+import Image from 'next/image';
+import toast from 'react-hot-toast';
 import { useCreateIndustryMentor } from '@/hooks/cdc/use-cdc-industry-mentors';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 export default function NewIndustryMentorPage() {
   const router = useRouter();
@@ -41,10 +44,62 @@ export default function NewIndustryMentorPage() {
     expertise_areas_text: '',
   });
 
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [logoUrl, setLogoUrl] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
   function set(key: keyof typeof form) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       setForm((f) => ({ ...f, [key]: e.target.value }));
     };
+  }
+
+  async function uploadImage(
+    file: File,
+    prefix: 'mentor-photos' | 'company-logos'
+  ): Promise<string> {
+    const supabase = createClientSupabaseClient();
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `${prefix}/${Date.now()}-${safeName}`;
+    const { error: upErr } = await supabase.storage
+      .from('cdc-docs')
+      .upload(path, file, { upsert: false });
+    if (upErr) throw upErr;
+    const { data } = supabase.storage.from('cdc-docs').getPublicUrl(path);
+    return data.publicUrl;
+  }
+
+  async function handlePhotoSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setUploadingPhoto(true);
+      const url = await uploadImage(file, 'mentor-photos');
+      setPhotoUrl(url);
+      toast.success('Photo uploaded');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to upload photo');
+    } finally {
+      setUploadingPhoto(false);
+      e.target.value = '';
+    }
+  }
+
+  async function handleLogoSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setUploadingLogo(true);
+      const url = await uploadImage(file, 'company-logos');
+      setLogoUrl(url);
+      toast.success('Logo uploaded');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to upload logo');
+    } finally {
+      setUploadingLogo(false);
+      e.target.value = '';
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -69,6 +124,8 @@ export default function NewIndustryMentorPage() {
         ? parseInt(form.industry_experience_years)
         : undefined,
       expertise_areas: expertise_areas.length > 0 ? expertise_areas : undefined,
+      profile_photo_url: photoUrl || undefined,
+      company_logo_url: logoUrl || undefined,
     });
 
     router.push(`/cdc/industry-mentors/${mentor.id}`);
@@ -207,6 +264,117 @@ export default function NewIndustryMentorPage() {
             </CardContent>
           </Card>
 
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Images</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label>Mentor Photo</Label>
+                  <div className="flex items-center gap-4">
+                    {photoUrl ? (
+                      <div className="relative w-24 h-24">
+                        <Image
+                          src={photoUrl}
+                          alt="Mentor photo"
+                          fill
+                          className="object-cover rounded-lg"
+                        />
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="icon"
+                          className="absolute -top-2 -right-2 h-6 w-6"
+                          onClick={() => setPhotoUrl('')}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center">
+                        <Input
+                          type="file"
+                          accept="image/*"
+                          onChange={handlePhotoSelect}
+                          disabled={uploadingPhoto}
+                          className="hidden"
+                          id="mentor-photo-upload"
+                        />
+                        <label
+                          htmlFor="mentor-photo-upload"
+                          className="flex flex-col items-center gap-2 cursor-pointer"
+                        >
+                          <div className="w-24 h-24 border-2 border-dashed rounded-lg flex items-center justify-center">
+                            {uploadingPhoto ? (
+                              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                            ) : (
+                              <ImagePlus className="h-8 w-8 text-muted-foreground" />
+                            )}
+                          </div>
+                          <span className="text-sm text-muted-foreground">
+                            {uploadingPhoto ? 'Uploading…' : 'Upload Photo'}
+                          </span>
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Company Logo</Label>
+                  <div className="flex items-center gap-4">
+                    {logoUrl ? (
+                      <div className="relative w-24 h-24">
+                        <Image
+                          src={logoUrl}
+                          alt="Company logo"
+                          fill
+                          className="object-contain rounded-lg"
+                        />
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="icon"
+                          className="absolute -top-2 -right-2 h-6 w-6"
+                          onClick={() => setLogoUrl('')}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center">
+                        <Input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleLogoSelect}
+                          disabled={uploadingLogo}
+                          className="hidden"
+                          id="company-logo-upload"
+                        />
+                        <label
+                          htmlFor="company-logo-upload"
+                          className="flex flex-col items-center gap-2 cursor-pointer"
+                        >
+                          <div className="w-24 h-24 border-2 border-dashed rounded-lg flex items-center justify-center">
+                            {uploadingLogo ? (
+                              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                            ) : (
+                              <ImagePlus className="h-8 w-8 text-muted-foreground" />
+                            )}
+                          </div>
+                          <span className="text-sm text-muted-foreground">
+                            {uploadingLogo ? 'Uploading…' : 'Upload Logo'}
+                          </span>
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           {error && (
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
@@ -215,7 +383,7 @@ export default function NewIndustryMentorPage() {
           )}
 
           <div className="flex gap-3">
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={loading || uploadingPhoto || uploadingLogo}>
               {loading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               {loading ? 'Saving…' : 'Add Mentor'}
             </Button>

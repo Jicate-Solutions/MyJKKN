@@ -36,6 +36,8 @@ import { getMySchedule, getBookingPageState } from './actions';
 import { AvailabilityEditor } from './_components/availability-editor';
 import { HolidaysEditor } from './_components/holidays-editor';
 import { BookingPageCard } from './_components/booking-page-card';
+import { IntegrationPrefsCard } from './_components/integration-prefs-card';
+import { getIntegrationPrefs } from './_components/integration-prefs-actions';
 
 // Cal.com reads/writes are user-specific and mutable — never statically cache.
 export const dynamic = 'force-dynamic';
@@ -145,12 +147,20 @@ export default async function MeetingsAvailabilityPage({
   // editor must never be blocked by the newer feature.
   const pageState = await getBookingPageState();
 
+  // Wave-3: the host's video provider preference for online meeting types. A
+  // load failure degrades to simply not rendering the card — it must never
+  // block the availability editor.
+  const prefsState = await getIntegrationPrefs();
+
   return (
     <Shell>
       <AvailabilityEditor schedule={result.data} />
       <HolidaysEditor scheduleId={result.data.scheduleId} />
       {pageState.success && pageState.data && (
         <BookingPageCard initial={pageState.data} googleFlag={googleFlag} />
+      )}
+      {prefsState.success && prefsState.data && (
+        <IntegrationPrefsCard initial={prefsState.data} />
       )}
     </Shell>
   );

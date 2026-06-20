@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { format } from 'date-fns';
-import { ArrowLeft, Save, Calendar as CalendarIcon } from 'lucide-react';
+import { ArrowLeft, Save, Calendar as CalendarIcon, Upload, FileText, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
@@ -37,8 +37,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
-import { useCdcInternshipCreate } from '@/hooks/cdc/use-cdc-internships';
+import { toast } from 'react-hot-toast';
 import { CdcInternshipService } from '@/lib/services/cdc/internship-service';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useLearnersForPicker, useStaffForPicker } from '@/hooks/cdc/use-cdc-pickers';
 import { useAuth } from '@/hooks/use-auth';
 
@@ -53,7 +54,7 @@ const DEFAULT_REQUIRED_ATTENDANCE_PCT = 75;
 
 export default function NewCdcInternshipPage() {
   const router = useRouter();
-  const { createInternship, loading } = useCdcInternshipCreate();
+  const [loading, setLoading] = useState(false);
   const { data: learnerOptions = [], isLoading: learnersLoading } = useLearnersForPicker();
   const { data: staffOptions = [], isLoading: staffLoading } = useStaffForPicker();
   const { profile } = useAuth();
@@ -69,7 +70,14 @@ export default function NewCdcInternshipPage() {
     rotation_end_date: '',
     required_attendance_pct: DEFAULT_REQUIRED_ATTENDANCE_PCT,
     department_rotation: '',
+    // BUG-004040: paid/unpaid + stipend amount
+    is_paid: false,
+    stipend_amount: '' as string, // kept as string for the numeric input; parsed at submit
+    // BUG-004087: optional offer-letter document URL
+    offer_letter_url: '' as string,
   });
+  // BUG-004087: tracks the offer-letter upload-in-flight state for the field UI.
+  const [uploadingOffer, setUploadingOffer] = useState(false);
   // Institution comes from the logged-in user's session profile (useAuth),
   // NOT a network fetch. This REPLACES a previous fetch('/api/users/profile')
   // call to a route that does not exist: it 404'd, the failure was swallowed by
@@ -123,21 +131,73 @@ export default function NewCdcInternshipPage() {
     ) {
       return;
     }
-    const created = await createInternship(
-      {
-        learner_id: formData.learner_id,
-        site_id: formData.site_id,
-        facilitator_id: formData.facilitator_id,
-        cycle_id: formData.cycle_id,
-        rotation_start_date: formData.rotation_start_date,
-        rotation_end_date: formData.rotation_end_date,
-        required_attendance_pct: formData.required_attendance_pct,
-        department_rotation: formData.department_rotation || undefined,
-      },
-      institutionId
-    );
-    if (created) {
-      router.push(`/cdc/internships/${created.id}`);
+    // BUG-004040: stipend is only meaningful for paid internships. Parse the
+    // numeric input; an empty/invalid value means "unspecified" (null).
+    const parsedStipend =
+      formData.is_paid && formData.stipend_amount.trim() !== ''
+        ? Number(formData.stipend_amount)
+        : null;
+
+    // Submit via the create API route so the new paid/stipend columns are
+    // persisted (BUG-004040). The route validates role + required fields and
+    // forces stipend_amount to null when is_paid is false.
+    setLoading(true);
+    try {
+      const res = await fetch('/api/cdc/internships', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          learner_id: formData.learner_id,
+          site_id: formData.site_id,
+          facilitator_id: formData.facilitator_id,
+          cycle_id: formData.cycle_id,
+          rotation_start_date: formData.rotation_start_date,
+          rotation_end_date: formData.rotation_end_date,
+          required_attendance_pct: formData.required_attendance_pct,
+          department_rotation: formData.department_rotation || undefined,
+          is_paid: formData.is_paid,
+          stipend_amount: parsedStipend,
+          offer_letter_url: formData.offer_letter_url || null,
+          institution_id: institutionId || undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || 'Failed to create internship');
+      }
+      toast.success('Corporate internship created');
+      router.push(`/cdc/internships/${json.data.id}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create internship');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // BUG-004087: upload the offer letter (PDF/image) to the cdc-docs bucket and
+  // store its public URL in form state. Self-contained — uses the same browser
+  // Supabase client the service uses, so the upload runs under the user's session.
+  const handleOfferLetterUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingOffer(true);
+    try {
+      const supabase = createClientSupabaseClient();
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `internship-offer-letters/${Date.now()}-${safeName}`;
+      const { error } = await supabase.storage
+        .from('cdc-docs')
+        .upload(path, file, { upsert: false });
+      if (error) throw error;
+      const { data } = supabase.storage.from('cdc-docs').getPublicUrl(path);
+      setFormData(p => ({ ...p, offer_letter_url: data.publicUrl }));
+      toast.success('Offer letter uploaded');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to upload offer letter');
+    } finally {
+      setUploadingOffer(false);
+      // Reset the input so re-selecting the same file re-triggers onChange.
+      e.target.value = '';
     }
   };
 
@@ -343,6 +403,47 @@ export default function NewCdcInternshipPage() {
                 />
               </div>
 
+              {/* Paid / Unpaid + stipend — BUG-004040 */}
+              <div className="grid gap-1">
+                <Label htmlFor="is_paid">Compensation</Label>
+                <Select
+                  value={formData.is_paid ? 'paid' : 'unpaid'}
+                  onValueChange={(v) =>
+                    setFormData(p => ({
+                      ...p,
+                      is_paid: v === 'paid',
+                      // Clear any entered stipend when switching to Unpaid.
+                      stipend_amount: v === 'paid' ? p.stipend_amount : '',
+                    }))
+                  }
+                >
+                  <SelectTrigger id="is_paid">
+                    <SelectValue placeholder="Select compensation" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unpaid">Unpaid</SelectItem>
+                    <SelectItem value="paid">Paid</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {formData.is_paid && (
+                <div className="grid gap-1">
+                  <Label htmlFor="stipend_amount">Stipend amount (₹) (optional)</Label>
+                  <Input
+                    id="stipend_amount"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="e.g. 15000"
+                    value={formData.stipend_amount}
+                    onChange={e =>
+                      setFormData(p => ({ ...p, stipend_amount: e.target.value }))
+                    }
+                  />
+                </div>
+              )}
+
               {/* Department / rotation */}
               <div className="grid gap-1">
                 <Label htmlFor="dept">Department / rotation (optional)</Label>
@@ -352,6 +453,54 @@ export default function NewCdcInternshipPage() {
                   value={formData.department_rotation}
                   onChange={e => set('department_rotation')(e.target.value)}
                 />
+              </div>
+
+              {/* Offer letter — optional upload (PDF/image) — BUG-004087 */}
+              <div className="grid gap-1">
+                <Label htmlFor="offer_letter">Offer letter (optional)</Label>
+                {formData.offer_letter_url ? (
+                  <div className="flex items-center gap-2 rounded-md border bg-gray-50 px-3 py-2 text-sm">
+                    <FileText className="h-4 w-4 text-gray-500 shrink-0" />
+                    <a
+                      href={formData.offer_letter_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="truncate text-blue-600 hover:underline"
+                    >
+                      Offer letter uploaded — view
+                    </a>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="ml-auto h-6 w-6"
+                      onClick={() => setFormData(p => ({ ...p, offer_letter_url: '' }))}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div>
+                    <Input
+                      id="offer_letter"
+                      type="file"
+                      accept="application/pdf,image/*"
+                      onChange={handleOfferLetterUpload}
+                      disabled={uploadingOffer}
+                      className="hidden"
+                    />
+                    <label
+                      htmlFor="offer_letter"
+                      className={cn(
+                        'flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground cursor-pointer hover:bg-gray-50',
+                        uploadingOffer && 'pointer-events-none opacity-60'
+                      )}
+                    >
+                      <Upload className="h-4 w-4" />
+                      {uploadingOffer ? 'Uploading…' : 'Upload offer letter (PDF or image)'}
+                    </label>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

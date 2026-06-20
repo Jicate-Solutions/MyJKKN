@@ -16,7 +16,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useCreateClub } from '@/hooks/cdc/use-cdc-clubs';
+import { useStaffForPicker, useLearnersForPicker } from '@/hooks/cdc/use-cdc-pickers';
+import type { CdcClubStatus } from '@/types/cdc/clubs';
 
 const CLUB_TYPES = [
   { value: 'technical', label: 'Technical' },
@@ -28,6 +31,12 @@ const CLUB_TYPES = [
   { value: 'other', label: 'Other' },
 ];
 
+const CLUB_STATUSES: { value: CdcClubStatus; label: string; hint: string }[] = [
+  { value: 'active', label: 'Active', hint: 'Running now — visible to students' },
+  { value: 'inactive', label: 'Inactive', hint: 'Wound down / paused — hidden from students' },
+  { value: 'upcoming', label: 'Upcoming', hint: 'Planned but not yet started' },
+];
+
 export default function NewClubPage() {
   const router = useRouter();
   const createClub = useCreateClub();
@@ -37,6 +46,15 @@ export default function NewClubPage() {
   const [clubType, setClubType] = useState('');
   const [clubTypeOther, setClubTypeOther] = useState('');
   const [formedOn, setFormedOn] = useState('');
+  const [status, setStatus] = useState<CdcClubStatus>('active');
+  const [staffCoordinatorId, setStaffCoordinatorId] = useState('');
+  const [studentPresidentId, setStudentPresidentId] = useState('');
+
+  // Optional people pickers — staff coordinator + student president.
+  // Reuse the shared CDC picker hooks (service-role routes that bypass RLS
+  // so a club coordinator without staff.*/learners.* still sees the lists).
+  const { data: staffOptions = [], isLoading: staffLoading } = useStaffForPicker();
+  const { data: learnerOptions = [], isLoading: learnersLoading } = useLearnersForPicker();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,6 +69,9 @@ export default function NewClubPage() {
       description: description || undefined,
       club_type: resolvedClubType,
       formed_on: formedOn || undefined,
+      status,
+      coordinator_staff_id: staffCoordinatorId || undefined,
+      student_president_id: studentPresidentId || undefined,
     });
 
     router.push('/cdc/clubs');
@@ -111,6 +132,23 @@ export default function NewClubPage() {
               </div>
 
               <div className="space-y-1">
+                <Label htmlFor="status">Status</Label>
+                <Select value={status} onValueChange={v => setStatus(v as CdcClubStatus)}>
+                  <SelectTrigger id="status">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CLUB_STATUSES.map(s => (
+                      <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-gray-400">
+                  {CLUB_STATUSES.find(s => s.value === status)?.hint}
+                </p>
+              </div>
+
+              <div className="space-y-1">
                 <Label htmlFor="description">Description</Label>
                 <Textarea
                   id="description"
@@ -128,6 +166,34 @@ export default function NewClubPage() {
                   type="date"
                   value={formedOn}
                   onChange={e => setFormedOn(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="staff_coordinator">Staff Coordinator</Label>
+                <SearchableSelect
+                  value={staffCoordinatorId}
+                  onValueChange={setStaffCoordinatorId}
+                  options={staffOptions}
+                  placeholder="Select staff coordinator…"
+                  searchPlaceholder="Search by name or staff ID…"
+                  emptyMessage="No matching staff"
+                  loading={staffLoading}
+                  className="w-full"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="student_president">Student President</Label>
+                <SearchableSelect
+                  value={studentPresidentId}
+                  onValueChange={setStudentPresidentId}
+                  options={learnerOptions}
+                  placeholder="Select student president…"
+                  searchPlaceholder="Search by name or register number…"
+                  emptyMessage="No matching learners"
+                  loading={learnersLoading}
+                  className="w-full"
                 />
               </div>
             </CardContent>
