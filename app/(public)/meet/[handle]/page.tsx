@@ -74,19 +74,6 @@ export default async function MeetPersonPage({ params }: MeetPageProps) {
   if (!host || host.meetingTypes.length === 0) notFound();
 
   return (
-<<<<<<< HEAD
-    <MeetBookingWidget
-      handle={host.handle}
-      name={host.name}
-      designation={host.designation}
-      departmentName={host.departmentName}
-      institutionName={host.institutionName}
-      headline={host.headline}
-      avatarUrl={host.avatarUrl}
-      meetingTypes={host.meetingTypes}
-      viewer={viewer}
-    />
-=======
     <>
       {/* GA4 + Meta Pixel base scripts — env-gated, self-disables when ids unset. */}
       <BookingTrackingScripts />
@@ -99,8 +86,8 @@ export default async function MeetPersonPage({ params }: MeetPageProps) {
         headline={host.headline}
         avatarUrl={host.avatarUrl}
         meetingTypes={host.meetingTypes}
+        viewer={viewer}
       />
     </>
->>>>>>> jicate/main
   );
 }
