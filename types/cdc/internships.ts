@@ -50,6 +50,8 @@ export interface InternshipAssignment {
   days_present: number | null;
   attendance_percentage: number | null;
   overall_grade: string | null;
+  // BUG-004087: optional offer-letter document URL (cdc-docs bucket)
+  offer_letter_url: string | null;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -103,6 +105,8 @@ export interface CreateCorporateInternshipPayload {
   rotation_end_date: string;   // ISO date
   required_attendance_pct?: number;
   department_rotation?: string;
+  // BUG-004087: optional offer-letter document URL (cdc-docs bucket)
+  offer_letter_url?: string | null;
 }
 
 // Payload for issuing a certificate (POST to /api/cdc/internships/:id/certificate)
