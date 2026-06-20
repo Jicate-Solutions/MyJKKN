@@ -10,6 +10,7 @@ export interface CdcClub {
   description: string | null;
   club_type: string | null;
   coordinator_staff_id: string | null;
+  student_president_id: string | null;
   institution_id: string | null;
   is_active: boolean;
   status: CdcClubStatus;
@@ -55,6 +56,7 @@ export interface CreateClubDto {
   description?: string;
   club_type?: string;
   coordinator_staff_id?: string;
+  student_president_id?: string;
   institution_id?: string;
   formed_on?: string;
   status?: CdcClubStatus;

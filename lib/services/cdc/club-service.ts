@@ -93,6 +93,7 @@ export class ClubService {
         description: dto.description ?? null,
         club_type: dto.club_type ?? null,
         coordinator_staff_id: dto.coordinator_staff_id ?? null,
+        student_president_id: dto.student_president_id ?? null,
         institution_id: dto.institution_id ?? null,
         formed_on: dto.formed_on ?? null,
         status,
@@ -111,6 +112,7 @@ export class ClubService {
     if (dto.description !== undefined) payload.description = dto.description;
     if (dto.club_type !== undefined) payload.club_type = dto.club_type;
     if (dto.coordinator_staff_id !== undefined) payload.coordinator_staff_id = dto.coordinator_staff_id;
+    if (dto.student_president_id !== undefined) payload.student_president_id = dto.student_president_id;
     if (dto.institution_id !== undefined) payload.institution_id = dto.institution_id;
     if (dto.formed_on !== undefined) payload.formed_on = dto.formed_on;
     if (dto.updated_by !== undefined) payload.updated_by = dto.updated_by;
