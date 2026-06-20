@@ -67,27 +67,7 @@ export function getTransportColumns({ instName, canCollect, canReceipt }: Column
         return <span className='text-sm'>{r.stop_name ? `${route} · ${r.stop_name}` : route}</span>;
       },
     },
-    {
-      id: 'bills',
-      header: 'Bill Details',
-      enableSorting: false,
-      accessorFn: (r) => (r.bill_descriptions ?? []).join(' '),
-      cell: ({ row }) => {
-        const descs = row.original.bill_descriptions ?? [];
-        if (descs.length === 0) {
-          return <span className='text-muted-foreground text-xs'>—</span>;
-        }
-        return (
-          <div className='flex max-w-[260px] flex-col gap-0.5'>
-            {descs.map((d, i) => (
-              <span key={i} className='text-muted-foreground truncate text-xs' title={d}>
-                {d}
-              </span>
-            ))}
-          </div>
-        );
-      },
-    },
+    
     {
       id: 'billed',
       header: 'Billed',
@@ -154,9 +134,7 @@ export function getTransportColumns({ instName, canCollect, canReceipt }: Column
                 )}
               </>
             )}
-            <Button asChild variant='ghost' size='sm' className='h-8 gap-1 px-2 text-xs'>
-              <Link href={studentHref}><ExternalLink className='h-3.5 w-3.5' /> Open</Link>
-            </Button>
+            
           </div>
         );
       },
