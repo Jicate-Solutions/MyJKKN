@@ -13764,7 +13764,7 @@ BEGIN
     COALESCE(array_agg(bsb.id) FILTER (WHERE bsb.status IN ('unpaid','partially_paid')), ARRAY[]::uuid[]),
     COUNT(bsb.id)::int,
     COALESCE(array_agg(bsb.bill_description ORDER BY bsb.due_date) FILTER (WHERE bsb.status NOT IN ('cancelled','superseded') AND bsb.bill_description IS NOT NULL), ARRAY[]::text[]),
-    COALESCE(deg.display_name, deg.degree_name), COALESCE(dept.display_name, dept.department_name), COALESCE(prog.display_name, prog.program_name), sem.semester_name
+    COALESCE(deg.display_name, deg.degree_name)::text, COALESCE(dept.display_name, dept.department_name)::text, COALESCE(prog.display_name, prog.program_name)::text, sem.semester_name::text
   FROM public.learners_profiles lp
   JOIN public.billing_student_bills bsb ON bsb.student_id = lp.id
   JOIN public.billing_categories bc ON bc.id = bsb.item_category_id AND bc.kind = 'transport'
