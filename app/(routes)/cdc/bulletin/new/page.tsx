@@ -18,7 +18,10 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { BULLETIN_CATEGORIES, BULLETIN_MODES } from '@/types/cdc/bulletin';
-import type { CreateOpportunityDto } from '@/types/cdc/bulletin';
+import type { CreateOpportunityDto, TargetAudience } from '@/types/cdc/bulletin';
+import { useDepartments } from '@/hooks/organization/use-departments';
+import { usePrograms } from '@/hooks/organization/use-programs';
+import { AudienceMultiSelect } from './_components/audience-multi-select';
 
 export default function NewBulletinOpportunityPage() {
   const router = useRouter();
@@ -35,6 +38,7 @@ export default function NewBulletinOpportunityPage() {
     detail_url: null,
     stipend_text: null,
     attachment_url: null,
+    target_audience: null,
     is_active: true,
   });
   // Tracks the Select choice separately so 'other' can reveal a custom text input.
@@ -46,6 +50,27 @@ export default function NewBulletinOpportunityPage() {
 
   function set<K extends keyof CreateOpportunityDto>(key: K, value: CreateOpportunityDto[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  // Target audience (BUG-004080) — load active departments & programs org-wide
+  // (STABLE_DATA cached). Both are optional filters; an empty dimension means no
+  // restriction. Service does .insert(dto) so widening the DTO carries this through.
+  const { data: departmentsData, isLoading: deptsLoading } = useDepartments({ isActive: true, limit: 500 });
+  const { data: programsData, isLoading: programsLoading } = usePrograms({ isActive: true, limit: 1000 });
+
+  const departmentOptions = (departmentsData?.data ?? []).map((d) => ({ id: d.id, label: d.department_name }));
+  const programOptions = (programsData?.data ?? []).map((p) => ({ id: p.id, label: p.program_name }));
+
+  // Update one dimension of target_audience, collapsing to null when fully empty
+  // so we never persist an all-empty object (keeps "no restriction" === null).
+  function setAudience(dim: keyof TargetAudience, ids: string[]) {
+    setForm((prev) => {
+      const next: TargetAudience = { ...(prev.target_audience ?? {}) };
+      if (ids.length) next[dim] = ids;
+      else delete next[dim];
+      const isEmpty = Object.values(next).every((arr) => !arr || arr.length === 0);
+      return { ...prev, target_audience: isEmpty ? null : next };
+    });
   }
 
   // Upload a brochure/attachment (PDF or image) to the cdc-docs bucket and store its
@@ -273,14 +298,50 @@ export default function NewBulletinOpportunityPage() {
                 <p className="text-xs text-muted-foreground">Optional. PDF or image.</p>
               </div>
 
-              {/* Eligibility */}
+              {/* Target Audience (BUG-004080) — structured eligibility */}
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="space-y-0.5">
+                  <Label>Target Audience</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Optional. Restrict who this opportunity is meant for. Leave blank to target everyone.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-normal text-muted-foreground">Departments</Label>
+                  <AudienceMultiSelect
+                    options={departmentOptions}
+                    selectedIds={form.target_audience?.departments ?? []}
+                    onSelectionChange={(ids) => setAudience('departments', ids)}
+                    placeholder="All departments"
+                    searchPlaceholder="Search departments…"
+                    emptyText="No departments found."
+                    loading={deptsLoading}
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-normal text-muted-foreground">Programs</Label>
+                  <AudienceMultiSelect
+                    options={programOptions}
+                    selectedIds={form.target_audience?.programs ?? []}
+                    onSelectionChange={(ids) => setAudience('programs', ids)}
+                    placeholder="All programs"
+                    searchPlaceholder="Search programs…"
+                    emptyText="No programs found."
+                    loading={programsLoading}
+                  />
+                </div>
+              </div>
+
+              {/* Eligibility (free-text notes — complements the structured audience above) */}
               <div className="space-y-1.5">
-                <Label htmlFor="eligibility_text">Eligibility</Label>
+                <Label htmlFor="eligibility_text">Eligibility Notes</Label>
                 <Textarea
                   id="eligibility_text"
                   value={form.eligibility_text ?? ''}
                   onChange={(e) => set('eligibility_text', e.target.value || null)}
-                  placeholder="Open to BE/BTech students, 2nd year and above..."
+                  placeholder="Any extra criteria, e.g. 2nd year and above, minimum CGPA 7..."
                   rows={3}
                 />
               </div>
