@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
-import { useCdcProgramme, useCdcEnrollments, useAddCdcEnrollment, useUpdateCdcEnrollment } from '@/hooks/cdc/use-cdc-training';
+import { useCdcProgramme, useCdcEnrollments, useUpdateCdcEnrollment } from '@/hooks/cdc/use-cdc-training';
 import { useAuth } from '@/hooks/use-auth';
 import { ArrowLeft, Calendar, BookOpen, Users, Building2, Plus, CheckCircle2, XCircle, Upload } from 'lucide-react';
 import Link from 'next/link';
