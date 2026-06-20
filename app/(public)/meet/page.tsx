@@ -17,6 +17,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { createClient } from '@supabase/supabase-js';
 import { PublicHostService } from '@/lib/services/meetings/public-host-service';
+import { BookingTrackingScripts } from '@/lib/services/analytics/booking-pixel-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,6 +48,8 @@ export default async function MeetDirectoryPage() {
       className="min-h-screen bg-[#FAF7F0] text-[#1C2B24]"
       style={{ fontFamily: 'var(--font-ibm-plex-sans), sans-serif' }}
     >
+      {/* GA4 + Meta Pixel base scripts — env-gated, self-disables when ids unset. */}
+      <BookingTrackingScripts />
       <div className="h-2 w-full bg-[#0E4D34]" />
       <div className="mx-auto w-full max-w-3xl px-5 pb-16 pt-10">
         <header className="mb-8">
