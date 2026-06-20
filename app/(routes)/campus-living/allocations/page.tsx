@@ -49,6 +49,7 @@ const feeStatusConfig: Record<string, { label: string; variant: 'default' | 'sec
 type Alloc = any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const getJoined = (row: any, relation: string, field: string): string => row?.[relation]?.[field] ?? '';
+const floorLabel = (f: number) => (f === 0 ? 'Ground floor' : `Floor ${f}`);
 
 export default function AllocationsPage() {
   const { profile } = useAuth();
@@ -64,14 +65,46 @@ export default function AllocationsPage() {
   const canTransfer = isSuperAdmin || !!permissions?.['campus_living.upgrades.manage'];
 
   const [statusFilter, setStatusFilter] = useState<string>('active');
+  const [hostelTypeFilter, setHostelTypeFilter] = useState<string>('all');
   const [blockFilter, setBlockFilter] = useState<string>('all');
+  const [floorFilter, setFloorFilter] = useState<string>('all');
   const [advancedFilters, setAdvancedFilters] = useState(EMPTY_ALLOCATION_FILTERS);
   const [transferTarget, setTransferTarget] = useState<Alloc | null>(null);
 
-  const blockNames = useMemo(
-    () => [...new Set(allocations.map((a: Alloc) => getJoined(a, 'hostel_blocks', 'name')).filter(Boolean))] as string[],
-    [allocations],
+  // Type → Block → Floor cascade, all derived from the loaded rows so a value
+  // can never match nothing. Block name maps to its hostel_type; floors are the
+  // distinct floors present in the chosen block.
+  const blockMeta = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of allocations as Alloc[]) {
+      const name = getJoined(a, 'hostel_blocks', 'name');
+      if (name && !m.has(name)) m.set(name, getJoined(a, 'hostel_blocks', 'hostel_type'));
+    }
+    return m;
+  }, [allocations]);
+
+  const hostelTypes = useMemo(
+    () => [...new Set([...blockMeta.values()].filter(Boolean))].sort(),
+    [blockMeta],
   );
+
+  const blockNames = useMemo(
+    () => [...blockMeta.keys()]
+      .filter((n) => hostelTypeFilter === 'all' || blockMeta.get(n) === hostelTypeFilter)
+      .sort((a, b) => a.localeCompare(b)),
+    [blockMeta, hostelTypeFilter],
+  );
+
+  const floorOptions = useMemo(() => {
+    if (blockFilter === 'all') return [] as number[];
+    const set = new Set<number>();
+    for (const a of allocations as Alloc[]) {
+      if (getJoined(a, 'hostel_blocks', 'name') !== blockFilter) continue;
+      const f = (a as Alloc)?.hostel_rooms?.floor;
+      if (f != null) set.add(f as number);
+    }
+    return [...set].sort((x, y) => x - y);
+  }, [allocations, blockFilter]);
 
   // True totals over the full set (the old page counted only the first 50 rows).
   const counts = useMemo(() => ({
@@ -88,7 +121,9 @@ export default function AllocationsPage() {
       const q = (params.search ?? '').trim().toLowerCase();
       let rows = allocations.filter((a: Alloc) => {
         if (statusFilter !== 'all' && a.status !== statusFilter) return false;
+        if (hostelTypeFilter !== 'all' && getJoined(a, 'hostel_blocks', 'hostel_type') !== hostelTypeFilter) return false;
         if (blockFilter !== 'all' && getJoined(a, 'hostel_blocks', 'name') !== blockFilter) return false;
+        if (floorFilter !== 'all' && String((a as Alloc)?.hostel_rooms?.floor ?? '') !== floorFilter) return false;
         if (!allocationMatchesFilters(a, advancedFilters)) return false;
         if (q) {
           const hay = [
@@ -129,7 +164,7 @@ export default function AllocationsPage() {
         pagination: { page: params.page, limit, total_pages: Math.max(1, Math.ceil(total / limit)), total_items: total },
       };
     },
-    [allocations, statusFilter, blockFilter, advancedFilters],
+    [allocations, statusFilter, hostelTypeFilter, blockFilter, floorFilter, advancedFilters],
   );
 
   const columns = useMemo<ColumnDef<Alloc>[]>(() => [
@@ -244,8 +279,10 @@ export default function AllocationsPage() {
           <SummaryCard icon={<BedDouble className="h-8 w-8 text-purple-600" />} value={counts.feePending} label="Fee Pending" />
         </div>
 
-        {/* Filters (status + block + advanced); search lives in the table toolbar */}
-        <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+        {/* Filters — status quick-filters, then the Type → Block → Floor cascade
+            plus the advanced (academic) popover. Search lives in the table toolbar.
+            Stacks full-width on mobile, wraps inline from sm up. */}
+        <div className="flex flex-col gap-3">
           <div className="flex gap-2 flex-wrap">
             {['all', 'active', 'vacated', 'transferred', 'suspended'].map((s) => (
               <Button key={s} variant={statusFilter === s ? 'default' : 'outline'} size="sm" onClick={() => setStatusFilter(s)}>
@@ -253,14 +290,41 @@ export default function AllocationsPage() {
               </Button>
             ))}
           </div>
-          <Select value={blockFilter} onValueChange={setBlockFilter}>
-            <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Blocks" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Blocks</SelectItem>
-              {blockNames.map((bn) => <SelectItem key={bn} value={bn}>{bn}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <AllocationFiltersPanel rows={allocations} value={advancedFilters} onChange={setAdvancedFilters} />
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            {hostelTypes.length > 1 && (
+              <Select
+                value={hostelTypeFilter}
+                onValueChange={(v) => { setHostelTypeFilter(v); setBlockFilter('all'); setFloorFilter('all'); }}
+              >
+                <SelectTrigger className="w-full sm:w-[150px]"><SelectValue placeholder="All Types" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  {hostelTypes.map((t) => (
+                    <SelectItem key={t} value={t} className="capitalize">{t}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Select value={blockFilter} onValueChange={(v) => { setBlockFilter(v); setFloorFilter('all'); }}>
+              <SelectTrigger className="w-full sm:w-[180px]"><SelectValue placeholder="All Blocks" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Blocks</SelectItem>
+                {blockNames.map((bn) => <SelectItem key={bn} value={bn}>{bn}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {blockFilter !== 'all' && floorOptions.length > 0 && (
+              <Select value={floorFilter} onValueChange={setFloorFilter}>
+                <SelectTrigger className="w-full sm:w-[150px]"><SelectValue placeholder="All Floors" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Floors</SelectItem>
+                  {floorOptions.map((f) => <SelectItem key={f} value={String(f)}>{floorLabel(f)}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
+            <div className="sm:ml-auto">
+              <AllocationFiltersPanel rows={allocations} value={advancedFilters} onChange={setAdvancedFilters} />
+            </div>
+          </div>
         </div>
 
         {/* Advanced data table — paginated, sortable, exportable.
