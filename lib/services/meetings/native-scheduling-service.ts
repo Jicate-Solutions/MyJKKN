@@ -82,6 +82,13 @@ export interface NativeBookingInput {
   attendeeName: string;
   attendeeEmail: string;
   attendeePhone?: string | null;
+  /**
+   * When the booker is a signed-in MyJKKN user, their profile id. Binds the
+   * booking to a real identity (vs an anonymous guest) — the key that lets
+   * downstream features (e.g. an auto-built meeting brief) pull the attendee's
+   * own MyJKKN data. null = genuine external guest.
+   */
+  attendeeProfileId?: string | null;
   answers?: Record<string, string>;
   source?: string;
 }
@@ -561,6 +568,7 @@ export class NativeSchedulingService {
         attendee_name: input.attendeeName,
         attendee_email: input.attendeeEmail,
         attendee_phone: input.attendeePhone ?? null,
+        attendee_profile_id: input.attendeeProfileId ?? null,
         answers: input.answers ?? {},
         start_time: startIso,
         end_time: endIso,
@@ -601,6 +609,7 @@ export class NativeSchedulingService {
           attendee_name: input.attendeeName,
           attendee_email: input.attendeeEmail,
           attendee_phone: input.attendeePhone ?? null,
+          attendee_profile_id: input.attendeeProfileId ?? null,
           answers: { ...(input.answers ?? {}), collective_primary_uid: uid },
           start_time: startIso,
           end_time: endIso,

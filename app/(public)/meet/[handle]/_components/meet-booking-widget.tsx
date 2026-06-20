@@ -44,6 +44,9 @@ interface MeetBookingWidgetProps {
   headline: string | null;
   avatarUrl: string | null;
   meetingTypes: MeetingTypeOption[];
+  /** Signed-in MyJKKN viewer (Director identity flow 2026-06-20). When present
+   *  the email step is skipped and the booking is bound to their account. */
+  viewer: { name: string; email: string } | null;
 }
 
 interface SlotsResponse {
@@ -103,14 +106,29 @@ function LocationLine({ mt }: { mt: MeetingTypeOption }) {
 }
 
 export function MeetBookingWidget(props: MeetBookingWidgetProps) {
+  const loggedIn = !!props.viewer;
   const [step, setStep] = useState<Step>('type');
   const [selectedType, setSelectedType] = useState<MeetingTypeOption | null>(null);
   const [slots, setSlots] = useState<SlotsResponse | null>(null);
   const [selectedStart, setSelectedStart] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: '', email: '', phone: '', note: '' });
+  const [form, setForm] = useState({
+    name: props.viewer?.name ?? '',
+    email: props.viewer?.email ?? '',
+    phone: '',
+    note: '',
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<{ uid: string; start: string } | null>(null);
+  // Identity gate (Director 2026-06-20): a JKKN account must log in to book.
+  // 'jkkn_email' is detected client-side (domain match, no probe); 'account_exists'
+  // comes back from the server (403) for a non-JKKN email that owns an account.
+  const [loginGate, setLoginGate] = useState<null | 'jkkn_email' | 'account_exists'>(null);
+
+  const isJkknEmail =
+    !loggedIn && form.email.trim().toLowerCase().endsWith('@jkkn.ac.in');
+  const gated = isJkknEmail || loginGate !== null;
+  const loginHref = `/auth/login?redirectedFrom=${encodeURIComponent(`/meet/${props.handle}`)}`;
 
   // Regroup the API's day buckets BY IST DATE (see header comment).
   const istDays = useMemo(() => {
@@ -155,6 +173,7 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
       setError('Please fill in your name and email.');
       return;
     }
+    if (gated) return; // a JKKN account must log in — submit is disabled anyway
     setError(null);
     setBusy(true);
     try {
@@ -174,6 +193,11 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
       if (res.status === 409) {
         setError('That time was just taken — please pick another slot.');
         await pickType(selectedType); // refresh slots, stay on time step
+        return;
+      }
+      // Server identity gate: this email owns a JKKN account → must log in.
+      if (res.status === 403 && json.error === 'login_required') {
+        setLoginGate(json.reason === 'jkkn_email' ? 'jkkn_email' : 'account_exists');
         return;
       }
       if (!res.ok || !json.success) {
@@ -357,27 +381,57 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
               <ChevronLeft className="h-3.5 w-3.5" aria-hidden /> {istFull(selectedStart)} (IST)
             </button>
 
-            <label className="text-sm">
-              <span className="mb-1 block font-medium">Your name</span>
-              <input
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                maxLength={200}
-                className="w-full rounded-md border border-[#0E4D34]/25 bg-white px-3 py-2 text-sm outline-none focus:border-[#0E4D34] focus:ring-1 focus:ring-[#0E4D34]"
-                autoComplete="name"
-              />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block font-medium">Email</span>
-              <input
-                type="email"
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-                maxLength={254}
-                className="w-full rounded-md border border-[#0E4D34]/25 bg-white px-3 py-2 text-sm outline-none focus:border-[#0E4D34] focus:ring-1 focus:ring-[#0E4D34]"
-                autoComplete="email"
-              />
-            </label>
+            {loggedIn ? (
+              <div className="rounded-md border border-[#0E4D34]/25 bg-[#0E4D34]/5 px-3 py-2.5 text-sm">
+                <span className="block text-[11px] font-semibold uppercase tracking-wide text-[#0E4D34]/70">
+                  Booking as
+                </span>
+                <span className="mt-0.5 block font-medium">{form.name}</span>
+                <span className="block text-xs text-[#1C2B24]/65">{form.email}</span>
+              </div>
+            ) : (
+              <>
+                <label className="text-sm">
+                  <span className="mb-1 block font-medium">Your name</span>
+                  <input
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    maxLength={200}
+                    className="w-full rounded-md border border-[#0E4D34]/25 bg-white px-3 py-2 text-sm outline-none focus:border-[#0E4D34] focus:ring-1 focus:ring-[#0E4D34]"
+                    autoComplete="name"
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block font-medium">Email</span>
+                  <input
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => {
+                      setForm({ ...form, email: e.target.value });
+                      if (loginGate) setLoginGate(null);
+                    }}
+                    maxLength={254}
+                    className="w-full rounded-md border border-[#0E4D34]/25 bg-white px-3 py-2 text-sm outline-none focus:border-[#0E4D34] focus:ring-1 focus:ring-[#0E4D34]"
+                    autoComplete="email"
+                  />
+                </label>
+                {gated && (
+                  <div className="rounded-md border border-amber-300 bg-amber-50 px-3.5 py-3 text-sm text-amber-900" role="status">
+                    <p className="font-medium">You have a JKKN account.</p>
+                    <p className="mt-0.5 text-xs text-amber-800">
+                      Please log in with your JKKN account to book — it keeps the
+                      meeting on your record.
+                    </p>
+                    <a
+                      href={loginHref}
+                      className="mt-2.5 inline-flex items-center gap-1.5 rounded-md bg-[#0E4D34] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#0a3b28]"
+                    >
+                      Log in &amp; book
+                    </a>
+                  </div>
+                )}
+              </>
+            )}
             <label className="text-sm">
               <span className="mb-1 block font-medium">
                 Phone {selectedType.locationMode === 'phone' ? '(we call this number)' : '(optional)'}
@@ -405,7 +459,7 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
             <button
               type="button"
               onClick={submitBooking}
-              disabled={busy}
+              disabled={busy || gated}
               className="flex w-full items-center justify-center gap-2 rounded-md bg-[#0E4D34] px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#0a3b28] disabled:opacity-60"
             >
               {busy ? (
