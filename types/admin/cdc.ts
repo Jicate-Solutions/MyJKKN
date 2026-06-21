@@ -59,7 +59,11 @@ export type CdcMasterTable =
   | 'cdc_training_types'
   | 'cdc_workshop_types'
   | 'cdc_industry_sectors'
-  | 'cdc_recruiters';
+  | 'cdc_recruiters'
+  | 'cdc_mentor_categories'
+  | 'cdc_mentorship_categories'
+  | 'cdc_internship_types'
+  | 'cdc_expertise_areas';
 
 /** Minimal row shape used for listing; full shapes live in types/cdc.ts. */
 export interface CdcMasterRow {
