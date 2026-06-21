@@ -94,6 +94,9 @@ export class IdpService {
         club_picks: dto.club_picks ?? [],
         three_year_plan: dto.three_year_plan ?? {},
         skills_self_attribution: dto.skills_self_attribution ?? [],
+        // BUG-004061: free-text "My Academic Strengths" narrative (distinct
+        // from skills_self_attribution tag array).
+        academic_strengths: dto.academic_strengths ?? null,
         free_text_notes: dto.free_text_notes ?? null,
         source: 'native_form',
       })
@@ -111,6 +114,7 @@ export class IdpService {
     if (dto.club_picks !== undefined) payload.club_picks = dto.club_picks;
     if (dto.three_year_plan !== undefined) payload.three_year_plan = dto.three_year_plan;
     if (dto.skills_self_attribution !== undefined) payload.skills_self_attribution = dto.skills_self_attribution;
+    if (dto.academic_strengths !== undefined) payload.academic_strengths = dto.academic_strengths;
     if (dto.free_text_notes !== undefined) payload.free_text_notes = dto.free_text_notes;
     if (dto.academic_year_label !== undefined) payload.academic_year_label = dto.academic_year_label;
     if (dto.updated_by !== undefined) payload.updated_by = dto.updated_by;
