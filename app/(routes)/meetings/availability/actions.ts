@@ -607,15 +607,19 @@ export async function savePublicPage(
 
     const { data: existing } = await supabase
       .from('meeting_host_pages')
-      .select('id, handle, auto_hidden')
+      .select('id, handle, auto_hidden, is_public')
       .eq('host_profile_id', user.id)
       .maybeSingle();
 
-    // D5: the handle locks at claim time — support changes go through admins.
-    if (existing && existing.handle !== handle) {
+    // D5 (relaxed 2026-06-21): the handle locks at PUBLISH time, not at first save.
+    // A leader can rename a reserved/draft page freely until they switch it on; once
+    // the page is public the link may already be shared, so further changes go
+    // through admins. (Pre-created leadership pages ship as drafts, so they stay
+    // renameable until each leader publishes.)
+    if (existing && existing.is_public && existing.handle !== handle) {
       return {
         success: false,
-        error: 'Your handle is already set and cannot be changed here. Contact an administrator.',
+        error: 'Your page is live, so its address is locked. Contact an administrator to change it.',
       };
     }
 
