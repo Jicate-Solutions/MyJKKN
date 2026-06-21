@@ -15,7 +15,9 @@ export interface IndustryMentor {
   email: string;
   phone: string | null;
   preferred_contact_method: string;
-  expertise_areas: string[];
+  mentor_category_id: string | null;   // FK → cdc_mentor_categories (BUG-004059)
+  expertise_areas: string[];           // legacy free-text tags (back-compat)
+  expertise_area_ids: string[] | null; // FK array → cdc_expertise_areas (BUG-004060)
   industry_experience_years: number | null;
   competencies_can_mentor: string[]; // uuid[]
   availability: Record<string, unknown>;
@@ -45,7 +47,9 @@ export interface CreateIndustryMentorInput {
   linkedin_url?: string;
   phone?: string;
   preferred_contact_method?: string;
-  expertise_areas?: string[];
+  mentor_category_id: string;          // REQUIRED on new records (BUG-004059)
+  expertise_areas?: string[];          // legacy free-text tags (back-compat)
+  expertise_area_ids?: string[];       // FK array → cdc_expertise_areas (BUG-004060)
   industry_experience_years?: number;
   availability?: Record<string, unknown>;
   max_mentees?: number;
