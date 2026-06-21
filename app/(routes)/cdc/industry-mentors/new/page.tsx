@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -18,6 +18,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { AlertCircle, Loader2, ArrowLeft, ImagePlus, X } from 'lucide-react';
@@ -26,6 +34,8 @@ import toast from 'react-hot-toast';
 import { useCreateIndustryMentor } from '@/hooks/cdc/use-cdc-industry-mentors';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+
+type ConfigMaster = { id: string; display_name: string };
 
 export default function NewIndustryMentorPage() {
   const router = useRouter();
@@ -43,6 +53,52 @@ export default function NewIndustryMentorPage() {
     industry_experience_years: '',
     expertise_areas_text: '',
   });
+
+  // Engagement category (required, BUG-004059) + structured expertise (optional, BUG-004060)
+  const [categoryId, setCategoryId] = useState('');
+  const [expertiseIds, setExpertiseIds] = useState<string[]>([]);
+
+  // Config masters read self-contained (no shared lookups hook) under RLS:
+  // both tables allow SELECT for any authenticated user.
+  const [categories, setCategories] = useState<ConfigMaster[]>([]);
+  const [expertiseAreas, setExpertiseAreas] = useState<ConfigMaster[]>([]);
+  const [mastersLoading, setMastersLoading] = useState(true);
+  const [categoryTouched, setCategoryTouched] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // Cast to untyped: the foundation just created these masters, so they
+      // are not yet in the generated Database type (types/supabase.ts). The
+      // industry-mentor service uses the same `(supabase as any)` pattern.
+      const supabase = createClientSupabaseClient() as any;
+      const [catRes, expRes] = await Promise.all([
+        supabase
+          .from('cdc_mentor_categories')
+          .select('id,display_name')
+          .eq('is_active', true)
+          .order('sort_order'),
+        supabase
+          .from('cdc_expertise_areas')
+          .select('id,display_name')
+          .eq('is_active', true)
+          .order('sort_order'),
+      ]);
+      if (cancelled) return;
+      setCategories((catRes.data ?? []) as ConfigMaster[]);
+      setExpertiseAreas((expRes.data ?? []) as ConfigMaster[]);
+      setMastersLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function toggleExpertise(id: string) {
+    setExpertiseIds((ids) =>
+      ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]
+    );
+  }
 
   const [photoUrl, setPhotoUrl] = useState('');
   const [logoUrl, setLogoUrl] = useState('');
@@ -106,6 +162,13 @@ export default function NewIndustryMentorPage() {
     e.preventDefault();
     if (!institutionId) return;
 
+    // Engagement category is required on new records (BUG-004059).
+    if (!categoryId) {
+      setCategoryTouched(true);
+      toast.error('Please select an engagement category');
+      return;
+    }
+
     const expertise_areas = form.expertise_areas_text
       .split(',')
       .map((s) => s.trim())
@@ -123,13 +186,17 @@ export default function NewIndustryMentorPage() {
       industry_experience_years: form.industry_experience_years
         ? parseInt(form.industry_experience_years)
         : undefined,
+      mentor_category_id: categoryId,
       expertise_areas: expertise_areas.length > 0 ? expertise_areas : undefined,
+      expertise_area_ids: expertiseIds.length > 0 ? expertiseIds : undefined,
       profile_photo_url: photoUrl || undefined,
       company_logo_url: logoUrl || undefined,
     });
 
     router.push(`/cdc/industry-mentors/${mentor.id}`);
   }
+
+  const categoryError = categoryTouched && !categoryId;
 
   return (
     <PermissionGuard module="cdc.industry_mentors" action="create">
@@ -240,15 +307,81 @@ export default function NewIndustryMentorPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="expertise_areas_text">Expertise Areas</Label>
-                  <Input
-                    id="expertise_areas_text"
-                    value={form.expertise_areas_text}
-                    onChange={set('expertise_areas_text')}
-                    placeholder="Machine Learning, Cloud, DevOps"
-                  />
-                  <p className="text-xs text-muted-foreground">Comma-separated</p>
+                  <Label htmlFor="mentor_category">Engagement Category *</Label>
+                  <Select
+                    value={categoryId}
+                    onValueChange={(v) => {
+                      setCategoryId(v);
+                      setCategoryTouched(true);
+                    }}
+                    disabled={mastersLoading}
+                  >
+                    <SelectTrigger
+                      id="mentor_category"
+                      aria-invalid={categoryError}
+                      className={categoryError ? 'border-destructive' : undefined}
+                    >
+                      <SelectValue
+                        placeholder={mastersLoading ? 'Loading…' : 'Select a category'}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.display_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {categoryError && (
+                    <p className="text-xs text-destructive">
+                      Engagement category is required
+                    </p>
+                  )}
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Expertise Areas</Label>
+                <p className="text-xs text-muted-foreground">
+                  Select all that apply (optional)
+                </p>
+                {mastersLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading expertise areas…
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {expertiseAreas.map((a) => (
+                      <label
+                        key={a.id}
+                        htmlFor={`expertise-${a.id}`}
+                        className="flex items-center gap-2 text-sm cursor-pointer rounded-md border px-3 py-2 hover:bg-muted/50"
+                      >
+                        <Checkbox
+                          id={`expertise-${a.id}`}
+                          checked={expertiseIds.includes(a.id)}
+                          onCheckedChange={() => toggleExpertise(a.id)}
+                        />
+                        <span>{a.display_name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="expertise_areas_text">Other Expertise Tags</Label>
+                <Input
+                  id="expertise_areas_text"
+                  value={form.expertise_areas_text}
+                  onChange={set('expertise_areas_text')}
+                  placeholder="Machine Learning, Cloud, DevOps"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Comma-separated free text — for anything not in the list above
+                </p>
               </div>
 
               <div className="space-y-1">
@@ -383,7 +516,10 @@ export default function NewIndustryMentorPage() {
           )}
 
           <div className="flex gap-3">
-            <Button type="submit" disabled={loading || uploadingPhoto || uploadingLogo}>
+            <Button
+              type="submit"
+              disabled={loading || uploadingPhoto || uploadingLogo || mastersLoading}
+            >
               {loading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               {loading ? 'Saving…' : 'Add Mentor'}
             </Button>
