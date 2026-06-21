@@ -12,6 +12,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCdcTrainingTypes, useCreateCdcProgramme } from '@/hooks/cdc/use-cdc-training';
+import { useDepartments } from '@/hooks/organization/use-departments';
+import { useAcademicYears } from '@/hooks/use-academic-years';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import type { CreateTrainingProgrammeDto, TrainingProgrammeStatus } from '@/types/cdc/training';
@@ -20,6 +22,12 @@ export default function NewTrainingProgrammePage() {
   const router = useRouter();
   const { data: trainingTypes } = useCdcTrainingTypes();
   const createMutation = useCreateCdcProgramme();
+
+  // BUG-004073 — cohort binding: load active departments & academic years org-wide
+  const { data: departmentsData, isLoading: deptsLoading } = useDepartments({ isActive: true, limit: 500 });
+  const departmentOptions = (departmentsData?.data ?? []).map((d) => ({ id: d.id, label: d.department_name }));
+  const { data: academicYearsData, isLoading: academicYearsLoading } = useAcademicYears();
+  const academicYearOptions = academicYearsData?.data ?? [];
 
   const [form, setForm] = useState<CreateTrainingProgrammeDto>({
     name: '',
@@ -32,6 +40,8 @@ export default function NewTrainingProgrammePage() {
     status: 'planned',
     external_provider: null,
     trainer_name: null,
+    target_department_id: null,   // BUG-004073
+    academic_year_label: null,    // BUG-004073
   });
 
   // BUG-004049: End Date must not be earlier than Start Date.
@@ -105,6 +115,46 @@ export default function NewTrainingProgrammePage() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* Cohort binding — Target Department + Batch (BUG-004073) */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Target Department</Label>
+                  <Select
+                    value={form.target_department_id ?? 'none'}
+                    onValueChange={(v) => set('target_department_id', v === 'none' ? null : v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={deptsLoading ? 'Loading…' : 'All departments (optional)'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">— All departments —</SelectItem>
+                      {departmentOptions.map((d) => (
+                        <SelectItem key={d.id} value={d.id}>{d.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Batch / Academic Year</Label>
+                  <Select
+                    value={form.academic_year_label ?? 'none'}
+                    onValueChange={(v) => set('academic_year_label', v === 'none' ? null : v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={academicYearsLoading ? 'Loading…' : 'Any year (optional)'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">— Any year —</SelectItem>
+                      {academicYearOptions.map((y) => (
+                        <SelectItem key={y.id} value={y.academic_year_name}>
+                          {y.academic_year_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
               {/* Status */}

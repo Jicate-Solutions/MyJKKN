@@ -41,7 +41,8 @@ export class TrainingService {
       .select(`
         *,
         training_type:cdc_training_types(id, config_key, display_name),
-        institution:institutions(id, name)
+        institution:institutions(id, name),
+        target_department:departments(id, department_name)
       `)
       .order('created_at', { ascending: false });
 
@@ -78,7 +79,8 @@ export class TrainingService {
       .select(`
         *,
         training_type:cdc_training_types(id, config_key, display_name, description),
-        institution:institutions(id, name)
+        institution:institutions(id, name),
+        target_department:departments(id, department_name)
       `)
       .eq('id', id)
       .maybeSingle();
@@ -96,7 +98,8 @@ export class TrainingService {
       .select(`
         *,
         training_type:cdc_training_types(id, config_key, display_name),
-        institution:institutions(id, name)
+        institution:institutions(id, name),
+        target_department:departments(id, department_name)
       `)
       .single();
     if (error) {
@@ -114,7 +117,8 @@ export class TrainingService {
       .select(`
         *,
         training_type:cdc_training_types(id, config_key, display_name),
-        institution:institutions(id, name)
+        institution:institutions(id, name),
+        target_department:departments(id, department_name)
       `)
       .single();
     if (error) {
