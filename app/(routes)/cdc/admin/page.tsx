@@ -22,6 +22,10 @@ import {
   ChevronRight,
   ShieldAlert,
   Activity,
+  UserCog,
+  Heart,
+  Briefcase,
+  Tags,
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -91,6 +95,34 @@ const ADMIN_CARDS: AdminCard[] = [
     description: 'Full CRUD for the company/recruiter master. Manage contact details, package bands, and blacklist status.',
     icon: Building2,
     color: 'text-purple-600 bg-purple-50',
+  },
+  {
+    href: '/cdc/admin/mentor-categories',
+    title: 'Mentor Categories',
+    description: 'How industry mentors engage (Guest Lecturer, Project Mentor, Placement Mentor, Advisory Board). Drives the required Engagement Category on the Add Industry Mentor form.',
+    icon: UserCog,
+    color: 'text-rose-600 bg-rose-50',
+  },
+  {
+    href: '/cdc/admin/mentorship-categories',
+    title: 'Mentorship Categories',
+    description: 'The focus area of a mentorship (Academic, Career, Technical, Entrepreneurship). Drives the required Mentorship Category on the new-mentorship form.',
+    icon: Heart,
+    color: 'text-pink-600 bg-pink-50',
+  },
+  {
+    href: '/cdc/admin/internship-types',
+    title: 'Internship Types',
+    description: 'The kinds of internship the CDC runs (Corporate, Clinical, Teaching Practice, Pharmacy Practice). Drives the required Type on the new-internship form.',
+    icon: Briefcase,
+    color: 'text-teal-600 bg-teal-50',
+  },
+  {
+    href: '/cdc/admin/expertise-areas',
+    title: 'Expertise Areas',
+    description: 'The expertise tags available for industry mentors (AI/ML, Cloud, Finance, …). Curate freely — drives the Expertise Areas multi-select on the Add Industry Mentor form.',
+    icon: Tags,
+    color: 'text-violet-600 bg-violet-50',
   },
   {
     href: '/cdc/admin/cron-status',
