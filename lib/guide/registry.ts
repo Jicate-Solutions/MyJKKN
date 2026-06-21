@@ -40,6 +40,7 @@ import { GUIDES as SOLUTIONS_GUIDES, REQUIRES as SOLUTIONS_REQUIRES } from "../s
 import { GUIDES as ORGANIZATIONS_GUIDES, REQUIRES as ORGANIZATIONS_REQUIRES } from "../organizations/guide/content";
 import { GUIDES as IMS_GUIDES, REQUIRES as IMS_REQUIRES } from "../ims/guide/content";
 import { GUIDES as BOS_GUIDES, REQUIRES as BOS_REQUIRES } from "../bos/guide/content";
+import { GUIDES as MEETINGS_GUIDES, REQUIRES as MEETINGS_REQUIRES } from "../meetings/guide/content";
 
 /* ────────────────────────────────────────────────────────────────────────
  * PERSONA ACCESS — which permission keys grant each canonical persona (OR'd
@@ -57,9 +58,9 @@ export const PERSONA_REQUIRES: Record<CanonicalPersona, string[]> = {
   learner: [],
   facilitator: [AI_PULSE_REQUIRES.faculty, PDE_REQUIRES.faculty, ACADEMIC_REQUIRES.faculty, STARTUP_REQUIRES.mentor, STARTUP_REQUIRES.evaluator, SOLUTIONS_REQUIRES.delivery_team, IMS_REQUIRES.cashier, BOS_REQUIRES.member],
   "unit-lead": [AI_PULSE_REQUIRES.champion, CAMPUS_REQUIRES.warden, CAMPUS_REQUIRES.mess, IMS_REQUIRES.storekeeper, BOS_REQUIRES.chairman],
-  coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor, BILLING_REQUIRES["finance-officer"], ACADEMIC_REQUIRES.coordinator, STARTUP_REQUIRES.coordinator, SOLUTIONS_REQUIRES.sales_lead, ORGANIZATIONS_REQUIRES.viewer, IMS_REQUIRES.requester],
+  coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor, BILLING_REQUIRES["finance-officer"], ACADEMIC_REQUIRES.coordinator, STARTUP_REQUIRES.coordinator, SOLUTIONS_REQUIRES.sales_lead, ORGANIZATIONS_REQUIRES.viewer, IMS_REQUIRES.requester, MEETINGS_REQUIRES.host],
   supervisor: [AI_PULSE_REQUIRES.hod, HR_REQUIRES.manager, ACADEMIC_REQUIRES.hod, ACADEMIC_REQUIRES.principal, SOLUTIONS_REQUIRES.finance_officer, IMS_REQUIRES.approver, BOS_REQUIRES.principal],
-  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin, BILLING_REQUIRES["finance-admin"], STARTUP_REQUIRES.admin, SOLUTIONS_REQUIRES.module_admin, ORGANIZATIONS_REQUIRES["registry-admin"], IMS_REQUIRES.admin, BOS_REQUIRES.coordinator],
+  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin, BILLING_REQUIRES["finance-admin"], STARTUP_REQUIRES.admin, SOLUTIONS_REQUIRES.module_admin, ORGANIZATIONS_REQUIRES["registry-admin"], IMS_REQUIRES.admin, BOS_REQUIRES.coordinator, MEETINGS_REQUIRES.admin],
   "platform-admin": [],
   parent: [],
   external: [],
@@ -698,7 +699,39 @@ export const bosGuide: ModuleGuide = {
   routes: [],
 };
 
-export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide, academicGuide, startupStudioGuide, solutionsGuide, organizationsGuide, imsGuide, bosGuide];
+/* ── Meetings (Universal Booking — Calendly-parity) ───────────────────────────
+ * host→coordinator (the everyday booking-page owner — every staff member who can
+ * open the module), admin→module-admin (the operator who runs routing forms,
+ * webhooks, and watches the adoption scoreboard). NO learner lane: people who
+ * BOOK do so from the public internet (/meet/<handle>), not a guide surface, so
+ * meetings content must never surface in a student's getting-started guide. Each
+ * lane section-gated by its own meetings.* key (fail-closed). The leadership
+ * framing (leverage memo Wedge 3) is the host lane's final section, not a
+ * separate lane — a principal's setup is identical to a counsellor's.
+ * ────────────────────────────────────────────────────────────────────────── */
+export const meetingsGuide: ModuleGuide = {
+  module: "meetings",
+  basePath: "/meetings",
+  // Module-specific lane labels (re-skin Meetings' scoped guide only); the
+  // cross-module overview keeps the canonical persona titles.
+  lanes: {
+    coordinator: {
+      sections: withRequires(MEETINGS_GUIDES.lanes.host.sections, MEETINGS_REQUIRES.host),
+      startHere: MEETINGS_GUIDES.lanes.host.startHere,
+      title: MEETINGS_GUIDES.lanes.host.title,
+      tagline: MEETINGS_GUIDES.lanes.host.tagline,
+    },
+    "module-admin": {
+      sections: withRequires(MEETINGS_GUIDES.lanes.admin.sections, MEETINGS_REQUIRES.admin),
+      startHere: MEETINGS_GUIDES.lanes.admin.startHere,
+      title: MEETINGS_GUIDES.lanes.admin.title,
+      tagline: MEETINGS_GUIDES.lanes.admin.tagline,
+    },
+  },
+  routes: [],
+};
+
+export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide, academicGuide, startupStudioGuide, solutionsGuide, organizationsGuide, imsGuide, bosGuide, meetingsGuide];
 
 /** Canonical personas at least one module contributes real sections to. A
  *  persona NOT in this set is sparse (composeLane returns the platform-overview
@@ -728,6 +761,7 @@ const MODULE_LABELS: Record<string, string> = {
   organizations: "Organizations",
   ims: "Inventory (IMS)",
   bos: "Board of Studies",
+  meetings: "Meetings",
 };
 
 /** Human label for a module namespace; falls back to the raw id if unknown. */
@@ -761,6 +795,7 @@ const MODULE_GLOSSARIES: Record<string, GlossaryTerm[]> = {
   organizations: ORGANIZATIONS_GUIDES.glossary ?? [],
   ims: IMS_GUIDES.glossary ?? [],
   bos: BOS_GUIDES.glossary ?? [],
+  meetings: MEETINGS_GUIDES.glossary ?? [],
 };
 
 /** "Words to know" terms for one module; empty array if module unknown. */
