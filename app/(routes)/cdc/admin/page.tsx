@@ -22,6 +22,10 @@ import {
   ChevronRight,
   ShieldAlert,
   Activity,
+  UserCog,
+  Heart,
+  Briefcase,
+  Tags,
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
