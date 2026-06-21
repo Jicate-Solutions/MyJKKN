@@ -61,11 +61,17 @@ export class MentorService {
       throw new Error('Mentor and mentee must be different learners.');
     }
 
+    // Guard: mentorship category is required on new records (BUG-004094).
+    if (!dto.mentorship_category_id) {
+      throw new Error('Mentorship category is required.');
+    }
+
     const { data, error } = await supabase
       .from('cdc_mentor_pairings')
       .insert({
         mentor_learner_id: dto.mentor_learner_id,
         mentee_learner_id: dto.mentee_learner_id,
+        mentorship_category_id: dto.mentorship_category_id,
         notes: dto.notes ?? null,
         status: 'active',
       })

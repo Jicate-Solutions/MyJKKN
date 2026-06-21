@@ -7,6 +7,7 @@ export interface CdcMentorPairing {
   id: string;
   mentor_learner_id: string;
   mentee_learner_id: string;
+  mentorship_category_id: string | null;
   status: MentoringStatus;
   paired_at: string;
   concluded_at: string | null;
@@ -33,6 +34,9 @@ export interface CdcMentorPairingWithLearners extends CdcMentorPairing {
 export interface CreateMentorPairingDto {
   mentor_learner_id: string;
   mentee_learner_id: string;
+  // Required on new records (BUG-004094): the mentorship domain, sourced
+  // from the cdc_mentorship_categories config-master.
+  mentorship_category_id: string;
   notes?: string;
 }
 
@@ -40,6 +44,7 @@ export interface UpdateMentorPairingDto {
   status?: MentoringStatus;
   notes?: string;
   concluded_at?: string;
+  mentorship_category_id?: string;
 }
 
 export interface MentorPairingFilters {
