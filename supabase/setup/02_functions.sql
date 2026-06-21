@@ -14196,8 +14196,6 @@ DECLARE
   v_result      jsonb := '[]'::jsonb;
   v_learner     uuid;
   lp            learners_profiles%ROWTYPE;
-  v_year        int;
-  v_academic    jsonb;
   v_hostel      jsonb;
   v_item        jsonb;
   v_proposed    jsonb;
@@ -14220,36 +14218,11 @@ BEGIN
     CONTINUE WHEN NOT EXISTS (
       SELECT 1 FROM accommodation_types a WHERE a.id = lp.accommodation_type_id AND a.code = 'hostel');
 
-    v_year     := COALESCE(public.fn_learner_year_of_study(v_learner), 1);
-    v_academic := public.admission_resolve_fee_items_readonly(v_learner, v_year);
     v_hostel   := public.campus_living_resolve_hostel_fee(v_learner, p_hostel_year_id);
     v_proposed := '[]'::jsonb; v_skipped := '[]'::jsonb; v_new := 0;
 
-    -- academic items (fee_source='academic', keyed by billing_category_id)
-    FOR v_item IN SELECT * FROM jsonb_array_elements(COALESCE(v_academic,'[]'::jsonb)) LOOP
-      v_cat := (v_item->>'billing_category_id')::uuid; v_src := 'academic';
-      SELECT EXISTS(SELECT 1 FROM billing_student_bills b
-        WHERE b.student_id = v_learner AND b.hostel_year_id = p_hostel_year_id
-          AND b.item_category_id = v_cat AND b.fee_source IN ('academic','hostel_category')
-          AND b.status NOT IN ('cancelled','superseded')) INTO v_exists;
-      IF v_exists THEN v_skipped := v_skipped || (v_item || jsonb_build_object('fee_source','academic'));
-      ELSE
-        v_proposed := v_proposed || (v_item || jsonb_build_object('fee_source',v_src));
-        IF NOT p_dry_run THEN
-          INSERT INTO billing_student_bills (student_id, institution_id, item_category_id,
-            hostel_year_id, fee_source, applies_year_of_study, academic_year_id, bill_description, due_date,
-            quantity, unit_amount, total_amount, final_amount, balance_amount, status)
-          VALUES (v_learner, lp.institution_id, v_cat, p_hostel_year_id, v_src, v_year, lp.academic_year_id,
-            v_item->>'category_name', now()+interval '30 day', 1,
-            (v_item->>'amount')::numeric, (v_item->>'amount')::numeric,
-            (v_item->>'amount')::numeric, (v_item->>'amount')::numeric, 'unpaid')
-          ON CONFLICT DO NOTHING;  -- partial unique index is the final guard
-        END IF;
-        v_new := v_new + 1;
-      END IF;
-    END LOOP;
-
-    -- hostel/mess items (fee_source from resolver: hostel_package | hostel_category)
+    -- Hostel/mess items ONLY. Academic fees are billed from the admission fee structure
+    -- (account-transition / admission_reconcile path), NOT here. (root-cause fix 2026-06-21)
     FOR v_item IN SELECT * FROM jsonb_array_elements(COALESCE(v_hostel,'[]'::jsonb)) LOOP
       v_src := v_item->>'fee_source'; v_cat := NULLIF(v_item->>'category_id','')::uuid;
       v_pkg := NULLIF(v_item->>'package_id','')::uuid;
@@ -14280,7 +14253,7 @@ BEGIN
     END LOOP;
 
     v_result := v_result || jsonb_build_object(
-      'learner_id', v_learner, 'year_of_study', v_year,
+      'learner_id', v_learner,
       'proposed', v_proposed, 'skipped', v_skipped, 'new_count', v_new);
   END LOOP;
 
@@ -18416,3 +18389,258 @@ $function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_cl_admin_allocatable_rooms(uuid, uuid) FROM anon, public;
 GRANT  EXECUTE ON FUNCTION public.fn_cl_admin_allocatable_rooms(uuid, uuid) TO authenticated;
+
+-- =====================================================================================
+-- Fee-structure sync engine + auto-reconciler (2026-06-21)
+-- admission_fix_fee_mismatch_2026: core-academic, payment-safe reconciler (supersede + re-bill
+--   + carry receipt allocation same-category, excludes transport/hostel/mess). LOAD-BEARING:
+--   used by admission_reconcile_pending_fee_events (hourly pg_cron job).
+-- =====================================================================================
+CREATE OR REPLACE FUNCTION public.admission_fix_fee_mismatch_2026(
+    p_learner_ids uuid[],
+    p_dry_run boolean default true,
+    p_refund_excess boolean default false
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $fn$
+declare
+    v_caller   uuid := auth.uid();
+    v_lid      uuid;
+    v_l        record;
+    v_yos      int;
+    v_struct   uuid;
+    v_line     record;
+    v_ri       record;
+    v_new_bill uuid;
+    v_remaining numeric;
+    v_alloc     numeric;
+    v_target    numeric;
+    v_excess    numeric;
+    v_c_learner int := 0;
+    v_c_change  int := 0;
+    v_c_add     int := 0;
+    v_c_remove  int := 0;
+    v_c_realloc int := 0;
+    v_c_credit  int := 0;
+    v_c_fee     int := 0;
+    v_plan      jsonb := '[]'::jsonb;
+begin
+    foreach v_lid in array p_learner_ids loop
+        select id, institution_id, gender, degree_id, department_id, program_id,
+               quota_id, community_category_id, accommodation_type_id, admission_year_id,
+               academic_year_id, legacy_fee_mode, lifecycle_status
+          into v_l from learners_profiles where id = v_lid for update;
+        if not found then continue; end if;
+
+        v_yos := coalesce(fn_learner_year_of_study(v_lid), 1);
+
+        select afs.id into v_struct
+          from admission_fee_structures afs
+         where afs.institution_id=v_l.institution_id and afs.degree_id=v_l.degree_id
+           and afs.department_id=v_l.department_id and afs.programme_id=v_l.program_id
+           and afs.quota_id=v_l.quota_id and afs.admission_year_id=v_l.admission_year_id and afs.status='active'
+           and exists (select 1 from admission_fee_structure_communities j
+                        where j.fee_structure_id=afs.id and j.community_category_id=v_l.community_category_id)
+           and (afs.gender=upper(v_l.gender) or afs.gender is null)
+           and (afs.accommodation_type_id=v_l.accommodation_type_id or afs.accommodation_type_id is null)
+         order by (afs.accommodation_type_id is not null) desc, (afs.gender is not null) desc, afs.updated_at desc
+         limit 1;
+
+        if v_struct is null then
+            v_plan := v_plan || jsonb_build_object('learner', v_lid, 'skipped', 'no_structure');
+            continue;
+        end if;
+        v_c_learner := v_c_learner + 1;
+
+        for v_line in
+            with exp as (
+                select fsi.billing_category_id cat, fsi.amount new_amt, fsi.applies_year_of_study ays
+                  from admission_fee_structure_items fsi
+                  join billing_categories bc on bc.id=fsi.billing_category_id
+                 where fsi.fee_structure_id=v_struct and bc.kind not in ('transport','hostel','mess')
+                   and (fsi.applies_to='every_year'
+                        or (fsi.applies_to='first_year_only' and v_yos=1)
+                        or (fsi.applies_to='specific_year' and fsi.applies_year_of_study=v_yos))
+            ),
+            bil as (
+                select distinct on (b.item_category_id)
+                       b.id bill_id, b.item_category_id cat, b.final_amount old_amt, b.status,
+                       b.due_date, b.academic_year_id, b.applies_year_of_study,
+                       b.final_amount - coalesce(b.balance_amount,0) paid
+                  from billing_student_bills b
+                  join billing_categories bc on bc.id=b.item_category_id
+                 where b.student_id=v_lid and b.fee_source='academic' and b.status<>'superseded'
+                   and bc.kind not in ('transport','hostel','mess')
+                 order by b.item_category_id, b.created_at desc
+            )
+            select coalesce(e.cat, bi.cat) cat, e.new_amt, e.ays,
+                   bi.bill_id, bi.old_amt, bi.status, bi.paid, bi.due_date, bi.academic_year_id, bi.applies_year_of_study,
+                   case when bi.cat is null then 'add'
+                        when e.cat  is null then 'remove'
+                        when coalesce(bi.old_amt,0) <> coalesce(e.new_amt,0) then 'change'
+                        else 'ok' end as action,
+                   (select category_name from billing_categories where id = coalesce(e.cat,bi.cat)) as cat_name
+              from exp e full outer join bil bi on bi.cat = e.cat
+        loop
+            if v_line.action = 'ok' then continue; end if;
+
+            if v_line.action = 'change' then
+                v_c_change := v_c_change + 1;
+                v_target := least(coalesce(v_line.paid,0), v_line.new_amt);
+                v_excess := greatest(0, coalesce(v_line.paid,0) - v_line.new_amt);
+                v_plan := v_plan || jsonb_build_object('learner',v_lid,'action','change','category',v_line.cat_name,
+                              'old',v_line.old_amt,'new',v_line.new_amt,'paid',v_line.paid,'carry',v_target,'excess',v_excess);
+                if not p_dry_run then
+                    update billing_student_bills set status='superseded', updated_at=now() where id = v_line.bill_id;
+
+                    insert into billing_student_bills(
+                        student_id, institution_id, item_category_id, bill_description, due_date,
+                        quantity, unit_amount, total_amount, tax_amount, final_amount, balance_amount,
+                        status, fee_source, academic_year_id, applies_year_of_study, remarks, created_by)
+                    values (v_lid, v_l.institution_id, v_line.cat, coalesce(v_line.cat_name,'Fee'),
+                        coalesce(v_line.due_date, (now()+interval '30 days')::date),
+                        1, v_line.new_amt, v_line.new_amt, 0, v_line.new_amt, v_line.new_amt,
+                        'unpaid','academic', v_line.academic_year_id, v_line.applies_year_of_study,
+                        'Fee-sync 2026: replaces bill '||v_line.bill_id::text||' (was '||v_line.old_amt::text||')', v_caller)
+                    returning id into v_new_bill;
+
+                    update billing_student_bills set superseded_by_bill_id=v_new_bill where id=v_line.bill_id;
+
+                    if v_target > 0 then
+                        v_remaining := v_line.new_amt;
+                        for v_ri in
+                            select id, receipt_id, amount_paid from billing_receipt_items
+                             where bill_id=v_line.bill_id and allocation_reason='original_payment'
+                             order by amount_paid desc
+                        loop
+                            exit when v_remaining <= 0;
+                            v_alloc := least(v_ri.amount_paid, v_remaining);
+                            if v_alloc > 0 then
+                                insert into billing_receipt_items(receipt_id, bill_id, amount_paid, allocation_reason)
+                                values (v_ri.receipt_id, v_new_bill, v_alloc, 'fee_structure_change_reallocation');
+                                v_remaining := v_remaining - v_alloc;
+                                v_c_realloc := v_c_realloc + 1;
+                            end if;
+                        end loop;
+                    end if;
+
+                    if v_excess > 0 then
+                        insert into student_credit_balances(student_id, amount, source, is_consumed, notes, created_by)
+                        values (v_lid, v_excess, 'fee_structure_change', false,
+                            case when p_refund_excess
+                                 then 'EXCESS refund pending - fee-sync 2026 ('||coalesce(v_line.cat_name,'')||')'
+                                 else 'Credit from fee-sync 2026 reallocation ('||coalesce(v_line.cat_name,'')||')' end,
+                            v_caller);
+                        v_c_credit := v_c_credit + 1;
+                    end if;
+                end if;
+
+            elsif v_line.action = 'add' then
+                v_c_add := v_c_add + 1;
+                v_plan := v_plan || jsonb_build_object('learner',v_lid,'action','add','category',v_line.cat_name,'new',v_line.new_amt);
+                if not p_dry_run then
+                    insert into billing_student_bills(
+                        student_id, institution_id, item_category_id, bill_description, due_date,
+                        quantity, unit_amount, total_amount, tax_amount, final_amount, balance_amount,
+                        status, fee_source, academic_year_id, applies_year_of_study, remarks, created_by)
+                    values (v_lid, v_l.institution_id, v_line.cat, coalesce(v_line.cat_name,'Fee'),
+                        (now()+interval '30 days')::date,
+                        1, v_line.new_amt, v_line.new_amt, 0, v_line.new_amt, v_line.new_amt,
+                        'unpaid','academic', v_l.academic_year_id, v_line.ays,
+                        'Fee-sync 2026: added missing structure line', v_caller);
+                end if;
+
+            elsif v_line.action = 'remove' then
+                v_c_remove := v_c_remove + 1;
+                v_plan := v_plan || jsonb_build_object('learner',v_lid,'action','remove','category',v_line.cat_name,
+                              'old',v_line.old_amt,'paid',v_line.paid);
+                if not p_dry_run then
+                    update billing_student_bills
+                       set status='superseded', updated_at=now(),
+                           remarks = coalesce(remarks,'')||' | Fee-sync 2026: removed (not in structure)'
+                     where id = v_line.bill_id;
+                    if coalesce(v_line.paid,0) > 0 then
+                        insert into student_credit_balances(student_id, amount, source, is_consumed, notes, created_by)
+                        values (v_lid, v_line.paid, 'fee_structure_change', false,
+                            'Credit from fee-sync 2026 removed fee ('||coalesce(v_line.cat_name,'')||')', v_caller);
+                        v_c_credit := v_c_credit + 1;
+                    end if;
+                end if;
+            end if;
+        end loop;
+
+        if not p_dry_run then
+            perform admission_resolve_fee_items_for_lead(v_lid);
+        end if;
+        v_c_fee := v_c_fee + 1;
+    end loop;
+
+    return jsonb_build_object(
+        'dry_run', p_dry_run, 'learners_processed', v_c_learner, 'amount_changes', v_c_change,
+        'added', v_c_add, 'removed', v_c_remove, 'reallocations', v_c_realloc, 'credits', v_c_credit,
+        'feeitems_resynced', v_c_fee, 'plan', case when p_dry_run then v_plan else '[]'::jsonb end);
+end
+$fn$;
+
+-- Auto-reconciler for pending admission_fee_change_events (hourly pg_cron 'admission-reconcile-fee-events').
+-- Per-learner isolation; only closes an event if the learner resolves to an active structure.
+CREATE OR REPLACE FUNCTION public.admission_reconcile_pending_fee_events(p_dry_run boolean DEFAULT false)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $rfn$
+DECLARE
+  v_ids uuid[]; v_lid uuid;
+  v_ok int:=0; v_failed int:=0; v_closed int:=0; v_nostruct int:=0;
+  v_dry jsonb; v_has_struct boolean;
+BEGIN
+  -- Guard: cron runs with auth.uid() IS NULL (allowed). A human caller must hold the
+  -- fee-change approval permission; everyone else is rejected even if EXECUTE is ever granted.
+  IF auth.uid() IS NOT NULL AND NOT public.user_has_permission('admission_fees.approve_change_event') THEN
+    RAISE EXCEPTION 'permission_denied: admission_fees.approve_change_event required' USING ERRCODE='42501';
+  END IF;
+
+  SELECT coalesce(array_agg(distinct learner_id),'{}'::uuid[]) INTO v_ids
+    FROM admission_fee_change_events WHERE status='pending_review';
+  IF coalesce(array_length(v_ids,1),0)=0 THEN
+    RETURN jsonb_build_object('pending_learners',0,'note','no pending events');
+  END IF;
+
+  IF p_dry_run THEN
+    v_dry := public.admission_fix_fee_mismatch_2026(v_ids, true, false);
+    RETURN jsonb_build_object('pending_learners',array_length(v_ids,1),'dry_run',v_dry);
+  END IF;
+
+  FOREACH v_lid IN ARRAY v_ids LOOP
+    BEGIN
+      SELECT EXISTS (
+        SELECT 1 FROM learners_profiles lp
+        JOIN admission_fee_structures afs
+          ON afs.institution_id=lp.institution_id AND afs.degree_id=lp.degree_id AND afs.department_id=lp.department_id
+         AND afs.programme_id=lp.program_id AND afs.quota_id=lp.quota_id AND afs.admission_year_id=lp.admission_year_id
+         AND afs.status='active'
+         AND (afs.gender=upper(lp.gender) OR afs.gender IS NULL)
+         AND (afs.accommodation_type_id=lp.accommodation_type_id OR afs.accommodation_type_id IS NULL)
+        WHERE lp.id=v_lid
+          AND EXISTS (SELECT 1 FROM admission_fee_structure_communities j WHERE j.fee_structure_id=afs.id AND j.community_category_id=lp.community_category_id)
+      ) INTO v_has_struct;
+
+      IF v_has_struct THEN
+        PERFORM public.admission_fix_fee_mismatch_2026(array[v_lid]::uuid[], false, false);
+        UPDATE admission_fee_change_events
+           SET status='approved', decided_at=now(),
+               reason_notes=coalesce(reason_notes,'')||' | Auto-reconciled by admission_reconcile_pending_fee_events'
+         WHERE status='pending_review' AND learner_id=v_lid;
+        v_ok:=v_ok+1; v_closed:=v_closed+1;
+      ELSE
+        v_nostruct:=v_nostruct+1;
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      v_failed:=v_failed+1;
+    END;
+  END LOOP;
+
+  RETURN jsonb_build_object('pending_learners',array_length(v_ids,1),'reconciled',v_ok,
+                            'no_structure_left_pending',v_nostruct,'failed',v_failed,'events_closed',v_closed);
+END $rfn$;
+
+-- Owner/cron only — SECURITY DEFINER financial mutations; NOT callable by anon/authenticated.
+REVOKE ALL ON FUNCTION public.admission_fix_fee_mismatch_2026(uuid[], boolean, boolean) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admission_reconcile_pending_fee_events(boolean) FROM PUBLIC, anon, authenticated;
