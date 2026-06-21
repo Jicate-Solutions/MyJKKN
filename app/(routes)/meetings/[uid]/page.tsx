@@ -19,6 +19,7 @@ import {
   Phone,
   User,
   AlertTriangle,
+  ListChecks,
 } from 'lucide-react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -28,7 +29,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { createClient } from '@/lib/supabase/server';
+import { MeetingAgendaService } from '@/lib/services/meetings/meeting-agenda-service';
 import { CancelBookingButton } from './_components/cancel-booking-button';
+import { AgendaSection } from './_components/agenda-section';
 
 const BREADCRUMB_ITEMS = [
   { label: 'Home', href: '/' },
@@ -111,6 +114,15 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
         .eq('id', booking.meeting_type_id)
         .maybeSingle()
     : { data: null };
+
+  // Agenda (Meeting Agenda Engine PR1). Read via the same session client — RLS
+  // keeps it host-scoped. canEdit is the booking host only (admins may view via
+  // RLS but edit stays host-only in v1, matching the cancel action's scope).
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { items: agendaItems } = await MeetingAgendaService.getAgenda(supabase, booking.id);
+  const canEditAgenda = !!user && user.id === booking.host_profile_id;
 
   const duration = durationMinutes(booking.start_time, booking.end_time);
   const isCancelled = booking.status === 'cancelled';
@@ -225,6 +237,28 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
                 <span>{host.email}</span>
               </div>
             ) : null}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <ListChecks className="h-4 w-4 text-muted-foreground" aria-hidden />
+              <CardTitle className="text-base">Agenda</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <AgendaSection
+              bookingId={booking.id}
+              uid={booking.uid}
+              canEdit={canEditAgenda}
+              items={agendaItems.map((i) => ({
+                id: i.id,
+                title: i.title,
+                body: i.body,
+                order_index: i.order_index,
+              }))}
+            />
           </CardContent>
         </Card>
 
