@@ -30,6 +30,7 @@ const ASSIGNMENT_SELECT = `
   required_attendance_pct,
   status,
   internship_type,
+  internship_type_id,
   total_days,
   days_present,
   attendance_percentage,

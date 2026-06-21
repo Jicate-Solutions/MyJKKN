@@ -45,6 +45,8 @@ import { useAuth } from '@/hooks/use-auth';
 
 interface Cycle { id: string; cycle_name: string; start_date: string; end_date: string; }
 interface Site  { id: string; site_name: string; city: string | null; state: string | null; }
+// BUG-004039: active rows from the cdc_internship_types config-master.
+interface InternshipType { id: string; display_name: string; config_key: string; }
 
 // Placeholder for the form's initial render only. The authoritative default is
 // the cdc.min_attendance_pct_for_internship_certificate policy: it is fetched on
@@ -61,11 +63,15 @@ export default function NewCdcInternshipPage() {
 
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
+  // BUG-004039: internship-type options sourced from the config-master.
+  const [internshipTypes, setInternshipTypes] = useState<InternshipType[]>([]);
   const [formData, setFormData] = useState({
     learner_id: '',
     site_id: '',
     facilitator_id: '',
     cycle_id: '',
+    // BUG-004039: required FK to cdc_internship_types (the CRUDable master).
+    internship_type_id: '',
     rotation_start_date: '',
     rotation_end_date: '',
     required_attendance_pct: DEFAULT_REQUIRED_ATTENDANCE_PCT,
@@ -92,6 +98,29 @@ export default function NewCdcInternshipPage() {
     CdcInternshipService.getDefaultRequiredAttendancePct()
       .then(pct => setFormData(p => ({ ...p, required_attendance_pct: pct })))
       .catch(() => { /* DEFAULT_REQUIRED_ATTENDANCE_PCT literal is already seeded */ });
+  }, []);
+
+  // BUG-004039: load active internship types from the config-master (org-wide,
+  // not institution-scoped). Self-contained query (no shared lookup hook) so the
+  // change stays isolated; runs under the user's session via the browser client.
+  useEffect(() => {
+    const supabase = createClientSupabaseClient();
+    (supabase as any)
+      .from('cdc_internship_types')
+      .select('id, display_name, config_key')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true })
+      .then(({ data }: { data: InternshipType[] | null }) => {
+        const rows = data ?? [];
+        setInternshipTypes(rows);
+        // Default to Corporate Internship when present — this form creates
+        // corporate internships, matching the previous display-only label.
+        setFormData(p => {
+          if (p.internship_type_id) return p;
+          const corporate = rows.find(r => r.config_key === 'corporate_internship');
+          return corporate ? { ...p, internship_type_id: corporate.id } : p;
+        });
+      });
   }, []);
 
   // Load cycles + sites once the session profile resolves an institution.
@@ -126,6 +155,7 @@ export default function NewCdcInternshipPage() {
       !formData.site_id ||
       !formData.facilitator_id ||
       !formData.cycle_id ||
+      !formData.internship_type_id ||
       !formData.rotation_start_date ||
       !formData.rotation_end_date
     ) {
@@ -151,6 +181,8 @@ export default function NewCdcInternshipPage() {
           site_id: formData.site_id,
           facilitator_id: formData.facilitator_id,
           cycle_id: formData.cycle_id,
+          // BUG-004039: chosen internship-type config-master FK (required).
+          internship_type_id: formData.internship_type_id,
           rotation_start_date: formData.rotation_start_date,
           rotation_end_date: formData.rotation_end_date,
           required_attendance_pct: formData.required_attendance_pct,
@@ -290,12 +322,28 @@ export default function NewCdcInternshipPage() {
           <Card>
             <CardHeader><CardTitle className="text-base">Assignment Details</CardTitle></CardHeader>
             <CardContent className="grid gap-5">
-              {/* Internship type — display only */}
+              {/* Internship type — required, from the cdc_internship_types config-master (BUG-004039) */}
               <div className="grid gap-1">
-                <Label>Internship type</Label>
-                <div className="px-3 py-2 rounded-md border bg-gray-50 text-sm text-gray-700">
-                  Corporate Internship
-                </div>
+                <Label htmlFor="internship_type_id">Internship type <span className="text-red-500">*</span></Label>
+                {internshipTypes.length > 0 ? (
+                  <Select value={formData.internship_type_id} onValueChange={set('internship_type_id')}>
+                    <SelectTrigger id="internship_type_id">
+                      <SelectValue placeholder="Select an internship type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {internshipTypes.map(t => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.display_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="px-3 py-2 rounded-md border bg-gray-50 text-sm text-gray-500">
+                    No internship types configured yet. Add one in the CDC config masters
+                    before assigning.
+                  </div>
+                )}
               </div>
 
               {/* Cycle */}
