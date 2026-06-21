@@ -15,6 +15,7 @@ import { ArrowLeft, Calendar, BookOpen, Users, Building2, Plus, CheckCircle2, XC
 import Link from 'next/link';
 import { AddEnrollmentDialog } from './_components/add-enrollment-dialog';
 import { BulkEnrollDialog } from './_components/bulk-enroll-dialog';
+import { SemesterScheduleCard } from './_components/semester-schedule-card';
 import type { TrainingProgrammeStatus, EnrollmentStatus } from '@/types/cdc/training';
 
 const STATUS_COLORS: Record<TrainingProgrammeStatus, string> = {
@@ -152,6 +153,9 @@ function TrainingProgrammeDetailContent({ params }: Props) {
             )}
           </CardContent>
         </Card>
+
+        {/* Semester Schedule (BUG-004200) */}
+        <SemesterScheduleCard programmeId={id} />
 
         <Separator />
 

@@ -11,6 +11,8 @@ import type {
   UpdateEnrollmentDto,
   TrainingProgrammeFilters,
   EnrollmentFilters,
+  CreateSemesterScheduleDto,
+  UpdateSemesterScheduleDto,
 } from '@/types/cdc/training';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -115,6 +117,64 @@ export function useUpdateCdcEnrollment() {
     onError: (err: Error) => {
       console.error('[cdc/training] update enrollment error:', err);
       toast.error('Failed to update enrollment');
+    },
+  });
+}
+
+// ─── Semester Schedules (BUG-004200) ─────────────────────────────────────
+
+export function useCdcSemesterSchedules(programmeId: string | undefined) {
+  const { isLoading: authLoading } = useAuth();
+  return useQuery({
+    queryKey: ['cdc-training-semester-schedules', programmeId],
+    queryFn: () => TrainingService.getSemesterSchedules(programmeId!),
+    enabled: !authLoading && isValidUUID(programmeId),
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useAddSemesterSchedule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (dto: CreateSemesterScheduleDto) => TrainingService.addSemesterSchedule(dto),
+    onSuccess: (row) => {
+      qc.invalidateQueries({ queryKey: ['cdc-training-semester-schedules', row.programme_id] });
+      toast.success('Semester schedule added');
+    },
+    onError: (err: Error) => {
+      console.error('[cdc/training] add semester schedule error:', err);
+      toast.error('Failed to add semester schedule');
+    },
+  });
+}
+
+export function useUpdateSemesterSchedule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, dto }: { id: string; dto: UpdateSemesterScheduleDto }) =>
+      TrainingService.updateSemesterSchedule(id, dto),
+    onSuccess: (row) => {
+      qc.invalidateQueries({ queryKey: ['cdc-training-semester-schedules', row.programme_id] });
+      toast.success('Semester schedule updated');
+    },
+    onError: (err: Error) => {
+      console.error('[cdc/training] update semester schedule error:', err);
+      toast.error('Failed to update semester schedule');
+    },
+  });
+}
+
+export function useDeleteSemesterSchedule(programmeId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => TrainingService.deleteSemesterSchedule(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cdc-training-semester-schedules', programmeId] });
+      toast.success('Semester schedule removed');
+    },
+    onError: (err: Error) => {
+      console.error('[cdc/training] delete semester schedule error:', err);
+      toast.error('Failed to remove semester schedule');
     },
   });
 }

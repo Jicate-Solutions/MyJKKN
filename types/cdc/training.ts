@@ -82,6 +82,27 @@ export interface CdcTrainingEnrollment {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// SEMESTER SCHEDULE — cdc_training_semester_schedules (BUG-004200)
+// Per-semester schedule/hours for a programme. One row per (programme, semester).
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface CdcTrainingSemesterSchedule {
+  id: string;
+  programme_id: string;
+  semester_label: string;          // free-form, e.g. 'Semester 1'
+  total_hours: number | null;
+  start_date: string | null;       // ISO date
+  end_date: string | null;         // ISO date
+  trainer_name: string | null;
+  notes: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // DTOs
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -116,6 +137,27 @@ export interface UpdateEnrollmentDto {
   certificate_url?: string | null;
   certificate_issued_at?: string | null;
   notes?: string | null;
+}
+
+export interface CreateSemesterScheduleDto {
+  programme_id: string;
+  semester_label: string;
+  total_hours?: number | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  trainer_name?: string | null;
+  notes?: string | null;
+  sort_order?: number;
+}
+
+export interface UpdateSemesterScheduleDto {
+  semester_label?: string;
+  total_hours?: number | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  trainer_name?: string | null;
+  notes?: string | null;
+  sort_order?: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
