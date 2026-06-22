@@ -60,6 +60,9 @@ export interface BillingCategoryFilters {
   isActive?: boolean;
   page?: number;
   limit?: number;
+  // Server-side sort (consumed by the advanced DataTable's sortable column headers).
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }
 
 export interface BillingCategoryListResponse {
