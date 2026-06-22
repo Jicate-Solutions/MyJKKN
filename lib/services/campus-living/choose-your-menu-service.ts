@@ -92,6 +92,41 @@ export interface LiveVoteCount {
   voters: number;
 }
 
+/** One library dish on the resident "Rate dishes" surface (Mode B). */
+export interface VotableDish {
+  item_id: string;
+  dish: string;
+  name_tamil: string | null;
+  category: string | null;
+  net_score: number;
+  voters: number;
+  /** The caller's own vote, or null if they haven't voted. */
+  my_vote: 1 | -1 | null;
+}
+
+/** Result of casting/clearing a vote. */
+export interface VoteResult {
+  ok: boolean;
+  error?:
+    | 'not_authenticated'
+    | 'invalid_vote'
+    | 'feature_disabled'
+    | 'no_learner_profile'
+    | 'plan_not_enabled'
+    | 'invalid_dish';
+  dish?: string;
+  vote?: 1 | -1;
+}
+
+/** Result of the admin "recognise upvoters" return-arc action (Mode B). */
+export interface RecognizeVotedDishResult {
+  ok: boolean;
+  error?: 'not_authenticated' | 'not_authorized' | 'invalid_dish' | 'dish_not_on_menu';
+  dish?: string;
+  /** How many residents were freshly recognised (idempotent — re-runs return 0). */
+  recognised?: number;
+}
+
 /** One pickable dish for a meal cell (Mode A). */
 export interface SwapOption {
   item_id: string;
@@ -408,5 +443,82 @@ export class ChooseYourMenuService {
     }
     const results = (data as { results?: unknown })?.results;
     return Array.isArray(results) ? (results as LiveVoteCount[]) : [];
+  }
+
+  // ── Mode B: menu voting / wishlist ───────────────────────────────────
+
+  /**
+   * Browse/search the library WITH the live tally + my own vote per dish.
+   * Server-side aggregate (fn_mess_choose_votable_dishes) so the per-resident
+   * rows of OTHER residents never reach the client — only the caller's own
+   * vote and the public net score do.
+   */
+  static async getVotableDishes(search = '', limit = 50): Promise<VotableDish[]> {
+    try {
+      const supabase = createClientSupabaseClient();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc('fn_mess_choose_votable_dishes', {
+        p_search: search || null,
+        p_limit: limit,
+      });
+      if (error) throw error;
+      const results = (data as { results?: unknown })?.results;
+      return Array.isArray(results) ? (results as VotableDish[]) : [];
+    } catch (e) {
+      logger.warn(MODULE, 'getVotableDishes failed — rendering empty', e);
+      return [];
+    }
+  }
+
+  /** Cast (or flip) my thumbs ±1 on a dish. RPC re-checks master + tier gate. */
+  static async castVote(itemId: string, vote: 1 | -1): Promise<VoteResult> {
+    const supabase = createClientSupabaseClient();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc('fn_mess_choose_cast_vote', {
+      p_item_id: itemId,
+      p_vote: vote,
+    });
+    if (error) {
+      logger.error(MODULE, 'castVote failed', error);
+      throw error;
+    }
+    return (data ?? { ok: false }) as VoteResult;
+  }
+
+  /** Withdraw my vote on a dish. */
+  static async clearVote(itemId: string): Promise<VoteResult> {
+    const supabase = createClientSupabaseClient();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc('fn_mess_choose_clear_vote', {
+      p_item_id: itemId,
+    });
+    if (error) {
+      logger.error(MODULE, 'clearVote failed', error);
+      throw error;
+    }
+    return (data ?? { ok: false }) as VoteResult;
+  }
+
+  /**
+   * ADMIN return-arc — confer 'vote_landed' recognition on every upvoter of a
+   * dish, but only when it is verifiably on a real menu cell that week (the RPC
+   * enforces both the menu.publish permission and the on-menu integrity check;
+   * idempotent per learner+item+week).
+   */
+  static async recognizeVotedDish(
+    itemId: string,
+    weekStart: string
+  ): Promise<RecognizeVotedDishResult> {
+    const supabase = createClientSupabaseClient();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc('fn_mess_choose_recognize_voted_dish', {
+      p_item_id: itemId,
+      p_week_start: weekStart,
+    });
+    if (error) {
+      logger.error(MODULE, 'recognizeVotedDish failed', error);
+      throw error;
+    }
+    return (data ?? { ok: false }) as RecognizeVotedDishResult;
   }
 }

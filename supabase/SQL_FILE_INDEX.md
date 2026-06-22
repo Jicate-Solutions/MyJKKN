@@ -6,6 +6,8 @@
 
 ## 📝 Recent Changes
 
+- **2026-06-22** — Choose Your Menu **Mode B (menu voting / wishlist)** RPCs. Migration `20260622234500_mess_choose_mode_b_vote_rpcs.sql` adds 4 SECURITY DEFINER functions on the existing P0 substrate (`mess_dish_votes` table + `campus_living_recognition` stream — no new tables): `fn_mess_choose_cast_vote(uuid,int)` + `fn_mess_choose_clear_vote(uuid)` (resident thumbs ±1, master+voting-tier re-checked at call time), `fn_mess_choose_votable_dishes(text,int)` (library + live tally + caller's own vote, searchable), and `fn_mess_choose_recognize_voted_dish(uuid,date)` (ADMIN/menu.publish return-arc — confers `vote_landed` recognition on every upvoter, but ONLY if the dish is verifiably on a `mess_menus` cell that week; idempotent per learner+item+week). All `REVOKE EXECUTE FROM anon, PUBLIC; GRANT TO authenticated`. Ships dark (`mess.choose.master_enabled=false`).
+
 - **2026-07-10** — Fixed pgcrypto search_path bug in 4 SECURITY DEFINER fns (5 instances incl. both `generate_api_key` overloads): `ALTER FUNCTION ... SET search_path = public, extensions` on `create_api_key`, `generate_api_key()`, `generate_api_key(integer)`, `create_staff_auth_profile`, `bulk_sync_applications_to_auth_server` — they call pgcrypto primitives in the `extensions` schema and were failing at runtime with 42883. Migration `20260710120000_fix_sibling_pgcrypto_search_path.sql` (idempotent; body unchanged).
 
 - **2026-05-02** — IMS permission-system audit: full RLS resolution (Part 2 — bugs #1, #2, #3, #5, #6, #7, #8, #9, #10)
