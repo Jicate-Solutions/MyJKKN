@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { CoeRestClient, CoeApiError } from '@/lib/services/coe/coe-rest-client';
-import { resolveBosAccess, resolveCoeInstitutionCode } from '@/lib/utils/bos/bos-access';
+import { resolveBosAccess, resolveCoeInstitutionCode, resolveCoeInstitutionById } from '@/lib/utils/bos/bos-access';
 
 interface CoeBoard {
   id: string;
@@ -27,32 +27,53 @@ export async function GET(request: NextRequest) {
 
     const scope = await resolveBosAccess(user.id);
     const { searchParams } = new URL(request.url);
-    const institutionsId = searchParams.get('institutionsId');
+    const requestedId = searchParams.get('institutionsId');
 
-    // Super-admin can query any institution; regular users can query their own
-    // institution or CAS siblings (via allInstitutionIds).
-    let targetMyJkknId: string | null = null;
-    if (scope.isSuperAdmin) {
-      targetMyJkknId = institutionsId ?? null;
-    } else if (institutionsId) {
-      // User requested a specific institution — allow if it's a CAS sibling.
-      targetMyJkknId = scope.allInstitutionIds.includes(institutionsId)
-        ? institutionsId
-        : null;
-    } else {
-      // No specific institution requested — use user's default scope.
-      targetMyJkknId = scope.institutionsId ?? null;
+    // The requested id may live in EITHER id space:
+    //   • a MyJKKN institution UUID — scope-based callers (sidebar, scope strip)
+    //   • a COE institution UUID    — the course edit page derives it from the
+    //     COE course record's `institutions_id`, which is a COE id, not a
+    //     MyJKKN one. Passing it raw used to fail the MyJKKN-only check below
+    //     and return an empty list ("No boards available for this institution").
+    // Resolve to a COE institution_code (the natural key /api/public/boards
+    // wants) plus the MyJKKN UUIDs it bridges to (for authorization).
+    async function resolveTarget(
+      id: string,
+    ): Promise<{ code: string; myJkknIds: string[] } | null> {
+      const codeFromMyJkkn = await resolveCoeInstitutionCode(id);
+      if (codeFromMyJkkn) return { code: codeFromMyJkkn, myJkknIds: [id] };
+      const coe = await resolveCoeInstitutionById(id);
+      if (coe) return { code: coe.institution_code, myJkknIds: coe.myjkkn_institution_ids };
+      return null;
     }
 
-    if (!targetMyJkknId) {
+    let target: { code: string; myJkknIds: string[] } | null = null;
+
+    if (requestedId) {
+      const resolved = await resolveTarget(requestedId);
+      // Super-admin may query any institution; others only if the resolved
+      // institution maps to one of their (CAS-expanded) MyJKKN institutions.
+      const authorized =
+        !!resolved &&
+        (scope.isSuperAdmin ||
+          resolved.myJkknIds.some((mid) => scope.allInstitutionIds.includes(mid)));
+      if (authorized) target = resolved;
+    }
+
+    // Fall back to the caller's own institution when no id was supplied, or the
+    // requested one couldn't be resolved/authorized. Keeps the edit page
+    // working for non-super-admins even if the COE id can't be mapped, and
+    // never leaks a foreign institution's boards.
+    if (!target && !scope.isSuperAdmin && scope.institutionsId) {
+      const code = await resolveCoeInstitutionCode(scope.institutionsId);
+      if (code) target = { code, myJkknIds: [scope.institutionsId] };
+    }
+
+    if (!target) {
       return NextResponse.json({ data: [], count: 0 });
     }
 
-    const institutionCode = await resolveCoeInstitutionCode(targetMyJkknId);
-    if (!institutionCode) {
-      console.warn('[GET /api/bos/boards] Could not resolve COE institution_code for MyJKKN id:', targetMyJkknId);
-      return NextResponse.json({ data: [], count: 0 });
-    }
+    const institutionCode = target.code;
 
     const coe = CoeRestClient.create();
     let raw: unknown;
@@ -62,7 +83,7 @@ export async function GET(request: NextRequest) {
       });
     } catch (coeErr) {
       if (coeErr instanceof CoeApiError && coeErr.status === 404) {
-        console.warn('[GET /api/bos/boards] COE /api/public/boards 404 for institution_code=%s (myJkknId=%s)', institutionCode, targetMyJkknId);
+        console.warn('[GET /api/bos/boards] COE /api/public/boards 404 for institution_code=%s (requestedId=%s)', institutionCode, requestedId);
         return NextResponse.json({ data: [], count: 0 });
       }
       throw coeErr;

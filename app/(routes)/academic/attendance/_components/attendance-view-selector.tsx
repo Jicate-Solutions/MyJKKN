@@ -85,9 +85,16 @@ export function AttendanceViewSelector({
   const canMarkAttendance = canAccess('academic.attendance', 'mark');
   const isFaculty = profile?.role === 'faculty' || canMarkAttendance;
   const isHOD = profile?.role === 'hod';
-  const isAdmin =
-    profile?.role === 'administrator' || profile?.role === 'principal';
-  const shouldCheckStaff = isFaculty && !isUserSuperAdmin;
+  // Updated: 2026-06-22 — principal is split out of isAdmin into its own flag so
+  // it can follow the teaching-aware HOD path (My Classes tab) instead of the
+  // admin search-only path. isAdmin now means a pure administrator.
+  const isPrincipal = profile?.role === 'principal';
+  const isAdmin = profile?.role === 'administrator';
+  // Updated: 2026-06-22 — HODs and principals are also teaching staff. Resolve
+  // their staff record too so they can reach the "My Classes" tab for the
+  // periods they personally teach, in addition to the dept/institution search.
+  const shouldCheckStaff =
+    (isFaculty || isHOD || isPrincipal) && !isUserSuperAdmin;
 
   const [loadingStaffId, setLoadingStaffId] = useState(shouldCheckStaff);
   // Tracks whether the staff-record lookup has finished. Permission-based faculty
@@ -102,7 +109,7 @@ export function AttendanceViewSelector({
   const [isClassIncharge, setIsClassIncharge] = useState(false);
   const [inchargeStaffId, setInchargeStaffId] = useState<string | null>(null);
   const [checkingIncharge, setCheckingIncharge] = useState(
-    !isUserSuperAdmin && !isAdmin && !isHOD
+    !isUserSuperAdmin && !isAdmin && !isHOD && !isPrincipal
   );
 
   // Combined loading state - wait for both auth and permissions to load
@@ -122,7 +129,7 @@ export function AttendanceViewSelector({
     // chosen (else a bare date-only search could match an unrelated school's
     // day-wise class).
     if (
-      !(isUserSuperAdmin || isAdmin || isHOD || !!staffId) ||
+      !(isUserSuperAdmin || isAdmin || isHOD || isPrincipal || !!staffId) ||
       !showResults ||
       !searchContext.institution_id
     ) {
@@ -157,6 +164,7 @@ export function AttendanceViewSelector({
     isUserSuperAdmin,
     isAdmin,
     isHOD,
+    isPrincipal,
     staffId,
     showResults,
     searchContext.institution_id,
@@ -176,8 +184,15 @@ export function AttendanceViewSelector({
   // Check if user is faculty (has a staff record) - Skip for non-faculty roles
   useEffect(() => {
     const checkIfFaculty = async () => {
-      // Skip faculty check for super admins, admin roles, and HOD roles
-      if (isUserSuperAdmin || isAdmin || isHOD || !isFaculty) {
+      // Skip the staff lookup for super admins and pure admin roles only.
+      // Updated: 2026-06-22 — HODs and principals are included so their teaching
+      // staff record resolves, unlocking the "My Classes" tab. A non-teaching
+      // HOD/principal simply gets a null staffId and falls back to the search.
+      if (
+        isUserSuperAdmin ||
+        isAdmin ||
+        (!isFaculty && !isHOD && !isPrincipal)
+      ) {
         setLoadingStaffId(false);
         setStaffChecked(true);
         return;
@@ -204,14 +219,14 @@ export function AttendanceViewSelector({
     };
 
     checkIfFaculty();
-  }, [profile?.email, profile?.role, isUserSuperAdmin, isAdmin, isFaculty, isHOD]);
+  }, [profile?.email, profile?.role, isUserSuperAdmin, isAdmin, isFaculty, isHOD, isPrincipal]);
 
   // Detect whether the current user is a class incharge (eligible to mark
   // day-wise attendance). Runs for non-super-admin/admin/hod users, who would
   // otherwise be blocked by the role-based fallback below.
   useEffect(() => {
     const checkIncharge = async () => {
-      if (isUserSuperAdmin || isAdmin || isHOD) {
+      if (isUserSuperAdmin || isAdmin || isHOD || isPrincipal) {
         setCheckingIncharge(false);
         return;
       }
@@ -240,7 +255,7 @@ export function AttendanceViewSelector({
     };
 
     checkIncharge();
-  }, [profile?.email, isUserSuperAdmin, isAdmin, isHOD]);
+  }, [profile?.email, isUserSuperAdmin, isAdmin, isHOD, isPrincipal]);
 
   // Faculty-incharges land on the "Day Attendance" tab by default — their
   // "My Classes" period list is empty for schools, so day-wise is what they want.
@@ -350,7 +365,10 @@ export function AttendanceViewSelector({
   // from the selected criteria: after Search we look up whether the chosen class
   // is Day-wise (session_wise, schools). If so we show the FN/AN day marker;
   // otherwise the period cards (colleges). No manual Period/Day tab needed.
-  if (isUserSuperAdmin || isAdmin || isHOD) {
+  // Updated: 2026-06-22 — An HOD or principal who teaches (has a staffId) falls
+  // through to the tabbed interface below so they get a "My Classes" tab; only
+  // non-teaching HODs/principals stay on this search-only view.
+  if (isUserSuperAdmin || isAdmin || ((isHOD || isPrincipal) && !staffId)) {
     return (
       <div className='space-y-6 flex flex-col gap-4'>
         <Alert className='flex items-center gap-2 border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800'>
@@ -360,6 +378,8 @@ export function AttendanceViewSelector({
               ? 'As a super admin, you have access to all attendance records. Use the search criteria below to find and mark attendance for any class.'
               : isHOD
               ? 'As an HOD, you can manage attendance records for classes in your department. Use the search criteria below to find and mark attendance.'
+              : isPrincipal
+              ? 'As the principal, you can manage attendance records for your institution. Use the search criteria below to find and mark attendance.'
               : 'As an administrator, you can manage attendance records for your institution. Use the search criteria below to find and mark attendance.'}
           </AlertDescription>
         </Alert>
@@ -425,11 +445,11 @@ export function AttendanceViewSelector({
     );
   }
 
-  // For faculty (staff record): tabbed interface.
+  // For faculty AND teaching HODs (staff record resolved): tabbed interface.
   //   My Classes  — period classes they teach (period_wise)
   //   Day Attendance — FN/AN marking for the class they're incharge of (only
   //                    shown when they are a class incharge)
-  //   Search Periods — find any class to mark
+  //   Search Periods — find any class to mark (department-wide for HODs)
   if (staffId) {
     const facultyIsIncharge = isClassIncharge && !!inchargeStaffId;
     return (
@@ -550,8 +570,11 @@ export function AttendanceViewSelector({
           <Alert>
             <Info className='h-4 w-4' />
             <AlertDescription>
-              Use this search to mark attendance for classes outside your
-              regular schedule or for substitute classes.
+              {isHOD
+                ? 'As an HOD, search for any class in your department to find and mark attendance.'
+                : isPrincipal
+                ? 'As the principal, search for any class in your institution to find and mark attendance.'
+                : 'Use this search to mark attendance for classes outside your regular schedule or for substitute classes.'}
             </AlertDescription>
           </Alert>
 
@@ -589,11 +612,15 @@ export function AttendanceViewSelector({
                     <AlertDescription className='flex items-center gap-2'>
                       <Info className='h-4 w-4' />
                       This class uses Day-wise attendance. Mark Forenoon (FN) &amp;
-                      Afternoon (AN) below — you must be the class incharge to save.
+                      Afternoon (AN) below
+                      {isHOD || isPrincipal
+                        ? ' — both present = full day, one = half day.'
+                        : ' — you must be the class incharge to save.'}
                     </AlertDescription>
                   </Alert>
                   <DaySessionAttendance
                     staffId={null}
+                    allowOverride={isHOD || isPrincipal}
                     fixedClass={dayClass}
                     initialDate={searchContext.attendance_date || undefined}
                   />
