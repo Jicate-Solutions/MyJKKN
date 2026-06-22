@@ -24,13 +24,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2, GitBranch, CalendarClock, RefreshCw, Swords, Trophy } from 'lucide-react';
+import { Loader2, GitBranch, CalendarClock, RefreshCw, Swords, Trophy, Medal } from 'lucide-react';
 import { format } from 'date-fns';
 import type { TournamentMatch, RecordResultDto } from '@/types/tournament';
 import {
   useGenerateFixtures,
   useScheduleMatch,
   useRecordResult,
+  useAwardAchievements,
 } from '@/hooks/events/use-tournament-fixtures';
 
 function MatchStatusBadge({ status }: { status: string }) {
@@ -221,8 +222,10 @@ export function DivisionFixtures({
   entryCount: number;
 }) {
   const generate = useGenerateFixtures(eventId);
+  const award = useAwardAchievements(eventId);
   const [scheduling, setScheduling] = useState<TournamentMatch | null>(null);
   const [recording, setRecording] = useState<TournamentMatch | null>(null);
+  const hasCompleted = matches.some((m) => m.status === 'completed');
 
   const byRound = useMemo(() => {
     const m = new Map<number, TournamentMatch[]>();
@@ -266,19 +269,42 @@ export function DivisionFixtures({
         <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <Swords className="h-3.5 w-3.5" /> Fixtures
         </span>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-7 text-xs"
-          disabled={generate.isPending}
-          onClick={() => {
-            if (confirm('Regenerate fixtures? This deletes existing matches for this division.')) {
-              generate.mutate({ divisionId, regenerate: true });
-            }
-          }}
-        >
-          <RefreshCw className="mr-1 h-3 w-3" /> Regenerate
-        </Button>
+        <div className="flex items-center gap-1">
+          {hasCompleted && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              disabled={award.isPending}
+              onClick={() => {
+                if (confirm('Finalize this division and write achievements to the winners’ athlete profiles?')) {
+                  award.mutate(divisionId);
+                }
+              }}
+              title="Award gold/silver/bronze to JKKN learners on the placed entries"
+            >
+              {award.isPending ? (
+                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+              ) : (
+                <Medal className="mr-1 h-3 w-3" />
+              )}
+              Finalize &amp; Award
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 text-xs"
+            disabled={generate.isPending}
+            onClick={() => {
+              if (confirm('Regenerate fixtures? This deletes existing matches for this division.')) {
+                generate.mutate({ divisionId, regenerate: true });
+              }
+            }}
+          >
+            <RefreshCw className="mr-1 h-3 w-3" /> Regenerate
+          </Button>
+        </div>
       </div>
 
       <div className="space-y-3">

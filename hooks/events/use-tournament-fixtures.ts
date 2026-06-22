@@ -60,3 +60,22 @@ export function useRecordResult(eventId: string) {
     onError: (e: Error) => toast.error(e.message || 'Failed to record result'),
   });
 }
+
+export function useAwardAchievements(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (divisionId: string) =>
+      TournamentFixturesService.awardAchievements(eventId, divisionId),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: KEYS.matches(eventId) });
+      if (res.achievements_written > 0) {
+        toast.success(
+          `${res.achievements_written} achievement${res.achievements_written === 1 ? '' : 's'} awarded to athlete profiles`
+        );
+      } else {
+        toast('Finalized — no JKKN learners linked to the placed entries.', { icon: 'ℹ️' });
+      }
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to award achievements'),
+  });
+}
