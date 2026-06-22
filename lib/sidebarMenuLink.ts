@@ -982,6 +982,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // CDC — module landing hub
   '/cdc': 'cdc.view',
+  '/cdc/career-guidance': 'cdc.view',
 
   // CDC — Campus Drives
   '/cdc/drives': 'cdc.drives.view',
@@ -2321,6 +2322,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Training Programmes',
           active: pathname.startsWith('/cdc/training'),
           icon: BookOpen,
+          submenus: []
+        },
+        {
+          href: '/cdc/career-guidance',
+          label: 'AI Career Guidance',
+          active: pathname.startsWith('/cdc/career-guidance'),
+          icon: Compass,
           submenus: []
         },
         {
