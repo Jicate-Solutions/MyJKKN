@@ -34,6 +34,19 @@ export function useGenerateFixtures(eventId: string) {
   });
 }
 
+export function useGenerateKnockoutFromPools(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ divisionId, regenerate }: { divisionId: string; regenerate?: boolean }) =>
+      TournamentFixturesService.generateKnockoutFromPools(eventId, divisionId, regenerate),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: KEYS.matches(eventId) });
+      toast.success(`Knockout generated — ${res.matches_created} match${res.matches_created === 1 ? '' : 'es'}`);
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to generate knockout'),
+  });
+}
+
 export function useScheduleMatch(eventId: string) {
   const qc = useQueryClient();
   return useMutation({

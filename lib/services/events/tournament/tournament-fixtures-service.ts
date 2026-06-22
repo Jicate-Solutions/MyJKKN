@@ -33,6 +33,20 @@ export class TournamentFixturesService {
     return asJson<GenerateFixturesResult>(res);
   }
 
+  /** Build the knockout stage from finished pool standings (pools_ko divisions). */
+  static async generateKnockoutFromPools(
+    eventId: string,
+    divisionId: string,
+    regenerate = false
+  ): Promise<GenerateFixturesResult> {
+    const res = await fetch(`/api/events/tournament/${eventId}/fixtures`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ division_id: divisionId, regenerate, mode: 'pool_knockout' }),
+    });
+    return asJson<GenerateFixturesResult>(res);
+  }
+
   /** List all matches for a tournament (joined with entry/winner names). */
   static async listMatches(eventId: string): Promise<TournamentMatch[]> {
     const res = await fetch(`/api/events/tournament/${eventId}/matches`, { cache: 'no-store' });

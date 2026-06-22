@@ -326,6 +326,7 @@ export default function TournamentManagePage() {
                     divisionId={d.id}
                     matches={matchesByDivision.get(d.id) ?? []}
                     entryCount={list.filter((e) => e.status !== 'withdrawn').length}
+                    divisionFormat={d.format}
                   />
                 </CardContent>
               </Card>
