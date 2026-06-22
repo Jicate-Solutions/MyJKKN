@@ -944,6 +944,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/events/marathon': 'events.marathon.view',
   '/events/marathon/new': 'events.marathon.create',
 
+  // Events — Sports Tournament submenu (Sports Tournament PR1, 2026-06-22)
+  '/events/tournament': 'sports.tournaments.view',
+  '/events/tournament/new': 'sports.tournaments.create',
+
   // Faculty — PDE faculty tree (Faculty / HOD / Mentor surface)
   '/pde/faculty': 'pde.faculty.view',
   '/pde/faculty/analytics': 'pde.faculty.analytics.view',
@@ -1071,6 +1075,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/indents/new': 'ims.indents.create',
   '/ims/indents/pending': 'ims.indents.approve',
   '/ims/indents/[id]': 'ims.indents.view',
+  '/ims/indents/[id]/edit': 'ims.indents.edit',
   // Inventory
   '/ims/inventory': 'ims.inventory.view',
   '/ims/inventory/items': 'ims.inventory.view',
@@ -1741,6 +1746,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          href: '/learners/my-bills',
+          label: 'My Bills',
+          active: pathname.startsWith('/learners/my-bills'),
+          icon: Wallet,
+          submenus: []
+        },
+        {
           href: '/learners/leave-onduty/my-applications',
           label: 'Leave/OnDuty',
           active: pathname.startsWith('/learners/leave-onduty'),
@@ -1766,6 +1778,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/learners/my-timetable', label: 'My Timetable', active: pathname === '/learners/my-timetable' },
             { href: '/learners/my-attendance', label: 'My Attendance', active: pathname.startsWith('/learners/my-attendance') },
             { href: '/learners/my-profile', label: 'My Profile', active: pathname === '/learners/my-profile' },
+            { href: '/learners/my-bills', label: 'My Bills', active: pathname.startsWith('/learners/my-bills') },
             { href: '/learners/leave-onduty', label: 'Leave/OnDuty · Landing', active: pathname === '/learners/leave-onduty' },
             { href: '/learners/leave-onduty/my-applications', label: 'Leave/OnDuty · My Applications', active: pathname === '/learners/leave-onduty/my-applications' },
             { href: '/learners/leave-onduty/apply', label: 'Leave/OnDuty · Apply', active: pathname === '/learners/leave-onduty/apply' },
@@ -2114,6 +2127,9 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/events/marathon', label: 'Marathon · All Events', active: pathname === '/events/marathon' },
             { href: '/events/marathon/new', label: 'Marathon · New Event', active: pathname === '/events/marathon/new' },
+            // Sports Tournament PR1 (2026-06-22): conduct sports tournaments on the events platform
+            { href: '/events/tournament', label: 'Tournament · All', active: pathname === '/events/tournament' },
+            { href: '/events/tournament/new', label: 'Tournament · New', active: pathname === '/events/tournament/new' },
             // Stream C (2026-04-26): event_proposals workflow — chat-bypass propose intake
             { href: '/events/propose', label: 'Propose an Event', active: pathname === '/events/propose' || pathname.startsWith('/events/propose/') },
           ]

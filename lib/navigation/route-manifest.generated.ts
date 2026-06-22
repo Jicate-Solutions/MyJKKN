@@ -2712,9 +2712,33 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/cdc/admin/expertise-areas",
+            "label": "Expertise Areas",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/cdc/admin/industry-sectors",
             "label": "Industry Sectors",
             "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/cdc/admin/internship-types",
+            "label": "Internship Types",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/cdc/admin/mentor-categories",
+            "label": "Mentor Categories",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/cdc/admin/mentorship-categories",
+            "label": "Mentorship Categories",
+            "iconName": "UserCheck",
             "children": []
           },
           {
@@ -2761,6 +2785,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/cdc/career-guidance",
+        "label": "Career Guidance",
+        "iconName": "FileText",
+        "children": []
       },
       {
         "path": "/cdc/clubs",
@@ -4294,6 +4324,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/learners/my-bills",
+        "label": "My Bills",
+        "iconName": "GraduationCap",
+        "children": []
+      },
+      {
         "path": "/learners/my-marks",
         "label": "My Marks",
         "iconName": "GraduationCap",
@@ -4520,6 +4556,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "label": "Meetings",
     "iconName": "FileText",
     "children": [
+      {
+        "path": "/meetings/adoption",
+        "label": "Adoption",
+        "iconName": "FileText",
+        "children": []
+      },
       {
         "path": "/meetings/analytics",
         "label": "Analytics",

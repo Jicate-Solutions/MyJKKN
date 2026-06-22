@@ -41,6 +41,8 @@ interface MeetingTypeOption {
   description: string | null;
   locationMode: 'in_person' | 'phone' | 'online';
   locationText: string | null;
+  /** PR1: full directions from the linked room (name + building/floor/room). */
+  locationDetails: string | null;
 }
 
 interface EmbedBookingWidgetProps {
@@ -117,7 +119,8 @@ function LocationLine({ mt }: { mt: MeetingTypeOption }) {
   }
   return (
     <span className="inline-flex items-center gap-1">
-      <MapPin className="h-3.5 w-3.5" aria-hidden /> {mt.locationText || 'In person'}
+      <MapPin className="h-3.5 w-3.5" aria-hidden />{' '}
+      {mt.locationDetails || mt.locationText || 'In person'}
     </span>
   );
 }
@@ -184,6 +187,11 @@ export function EmbedBookingWidget(props: EmbedBookingWidgetProps) {
     if (!selectedType || !selectedStart) return;
     if (!form.name.trim() || !form.email.trim()) {
       setError('Please fill in your name and email.');
+      return;
+    }
+    // PR1: a prep note is required so the host can prepare for the meeting.
+    if (!form.note.trim()) {
+      setError('Please add a short note on what you’d like to cover.');
       return;
     }
     setError(null);
@@ -413,12 +421,17 @@ export function EmbedBookingWidget(props: EmbedBookingWidgetProps) {
               />
             </label>
             <label className="text-sm">
-              <span className="mb-1 block font-medium">Anything to share beforehand? (optional)</span>
+              <span className="mb-1 block font-medium">
+                Anything to share beforehand? <span className="text-[var(--meet-accent)]">*</span>
+              </span>
               <textarea
                 value={form.note}
                 onChange={(e) => setForm({ ...form, note: e.target.value })}
                 rows={2}
                 maxLength={500}
+                required
+                aria-required="true"
+                placeholder="A line on what you'd like to cover helps the host prepare."
                 className="w-full rounded-md border border-[#1C2B24]/25 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--meet-accent)] focus:ring-1 focus:ring-[var(--meet-accent)]"
               />
             </label>

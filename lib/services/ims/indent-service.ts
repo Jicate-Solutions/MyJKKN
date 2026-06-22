@@ -237,6 +237,91 @@ export class ImsIndentService {
   }
 
   /**
+   * Update an editable indent (header + items). Only allowed while the indent is
+   * still a draft or awaiting approval — once it moves past approval, edits are
+   * blocked so an approved request can't be silently changed.
+   *
+   * Items are replaced wholesale (delete + re-insert): the edit form always
+   * submits the full item set, and none have been issued yet at this stage.
+   * Department/institution scoping is enforced by RLS on both tables, so a
+   * department-scoped user can only edit their own department's indents.
+   */
+  static async updateIndent(
+    id: string,
+    data: Omit<
+      CreateImsIndentDto,
+      | 'institution_id'
+      | 'store_id'
+      | 'request_scope'
+      | 'source_store_id'
+      | 'destination_institution_id'
+      | 'destination_store_id'
+    >,
+    userId: string
+  ): Promise<ImsIndentRequest> {
+    try {
+      // Guard: only draft / pending_approval indents are editable.
+      const { data: existing, error: fetchError } = await this.supabase
+        .from('ims_indent_requests')
+        .select('status')
+        .eq('id', id)
+        .single();
+      if (fetchError) throw fetchError;
+      if (!existing || !['draft', 'pending_approval'].includes(existing.status)) {
+        throw new Error('This indent can no longer be edited (already processed).');
+      }
+
+      // Update header
+      const { data: indent, error: headerError } = await this.supabase
+        .from('ims_indent_requests')
+        .update({
+          department_id: data.department_id || null,
+          required_date: data.required_date || null,
+          purpose: data.purpose,
+          urgency: data.urgency,
+          is_emergency: data.is_emergency || false,
+          emergency_reason: data.is_emergency ? data.emergency_reason || null : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id)
+        .select()
+        .single();
+      if (headerError) throw headerError;
+
+      // Replace items (none issued yet at draft/pending_approval)
+      const { error: delError } = await this.supabase
+        .from('ims_indent_request_items')
+        .delete()
+        .eq('indent_id', id);
+      if (delError) throw delError;
+
+      const newItems = data.items.map((item) => ({
+        indent_id: id,
+        item_id: item.item_id,
+        quantity: item.quantity,
+        unit_id: item.unit_id,
+        issued_quantity: 0,
+        notes: item.notes || null,
+      }));
+      const { error: itemsError } = await this.supabase
+        .from('ims_indent_request_items')
+        .insert(newItems);
+      if (itemsError) throw itemsError;
+
+      // NOTE: no activity-trail entry here — ImsActivityAction has no 'updated'
+      // action, and editing only happens pre-approval, so the 'raised' event
+      // already anchors the audit timeline.
+      void userId;
+
+      return indent as ImsIndentRequest;
+    } catch (error) {
+      const errDetail = (error as any)?.message ?? (error as any)?.details ?? JSON.stringify(error);
+      console.error('[ImsIndentService] Error in updateIndent:', errDetail, error);
+      throw error;
+    }
+  }
+
+  /**
    * Approve an indent.
    */
   static async approveIndent(

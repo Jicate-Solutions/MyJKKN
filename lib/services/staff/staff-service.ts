@@ -54,6 +54,8 @@ interface CreateStaffDto {
   // Nullable: teaching staff require it, non-teaching must leave null
   department_id?: string | null;
   role_key: string;
+  // Optional free-form labels (lowercased) for external-API filtering.
+  tags?: string[];
   is_active: boolean;
   // Default true. Set false to mark this staff as "view-only" — they cannot
   // log in and their linked profile is deactivated by the DB trigger.
@@ -946,6 +948,27 @@ export class StaffService {
     } catch (error) {
       console.error('[staff-service] Error fetching staff for selection:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Distinct tags currently in use across staff, powering the tags-input
+   * autocomplete. Optionally scoped to one institution. Backed by the
+   * staff_distinct_tags SECURITY DEFINER RPC (returns label strings only).
+   */
+  static async getDistinctTags(institutionId?: string): Promise<string[]> {
+    try {
+      const { data, error } = await (this.supabase as any).rpc(
+        'staff_distinct_tags',
+        { p_institution_id: institutionId ?? null }
+      );
+      if (error) throw error;
+      return (data as string[] | null) ?? [];
+    } catch (error) {
+      console.error('[staff-service] Error fetching distinct tags:', error);
+      // Non-fatal: suggestions are a convenience; an empty list just means the
+      // user types tags free-form without autocomplete.
+      return [];
     }
   }
 

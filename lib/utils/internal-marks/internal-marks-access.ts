@@ -131,6 +131,27 @@ export async function resolveCoeInstitutionCode(
 }
 
 /**
+ * Reverse of {@link resolveCoeInstitutionCode}: resolves a COE institution UUID
+ * (e.g. the `institutions_id` carried on a COE course record) → its natural key
+ * `institution_code` plus the MyJKKN UUIDs it bridges to.
+ *
+ * Use when the caller only holds a COE id and needs (a) the code for further
+ * COE calls and (b) the MyJKKN ids to authorize the request against the user's
+ * MyJKKN-space scope. Returns null when the COE id is unknown.
+ */
+export async function resolveCoeInstitutionById(
+  coeInstitutionId: string
+): Promise<{ institution_code: string; myjkkn_institution_ids: string[] } | null> {
+  const institutions = await getCoeInstitutions();
+  const match = institutions.find((inst) => inst.id === coeInstitutionId);
+  if (!match) return null;
+  return {
+    institution_code: match.institution_code,
+    myjkkn_institution_ids: match.myjkkn_institution_ids ?? [],
+  };
+}
+
+/**
  * Guards a write operation: returns an error string if the caller is NOT
  * allowed to write to the given target institution, or null if allowed.
  */

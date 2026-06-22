@@ -254,6 +254,10 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['my profile', 'student profile', 'personal details'],
     description: 'View and update your profile'
   },
+  '/learners/my-bills': {
+    keywords: ['my bills', 'fees', 'fee bills', 'dues', 'outstanding', 'balance', 'receipts', 'payment history', 'student fees'],
+    description: 'View your fee bills, balances, and payment history'
+  },
   '/learners/leave-onduty/my-applications': {
     keywords: ['apply leave', 'onduty request', 'leave application'],
     description: 'Apply for leave or on-duty and track status'

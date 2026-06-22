@@ -222,7 +222,7 @@ export async function canAccessBos(
 /**
  * Re-export — COE institution mapping is shared with Internal Marks.
  */
-export { resolveCoeInstitutionId, resolveCoeInstitutionCode } from '@/lib/utils/internal-marks/internal-marks-access';
+export { resolveCoeInstitutionId, resolveCoeInstitutionCode, resolveCoeInstitutionById } from '@/lib/utils/internal-marks/internal-marks-access';
 
 // ── Board-level scoping (Phase 1 of BOS access tightening) ──────────────────
 // Layers on top of resolveBosAccess / guardInstitutionWrite. Adds two new

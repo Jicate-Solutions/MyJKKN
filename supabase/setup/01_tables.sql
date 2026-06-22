@@ -658,8 +658,15 @@ CREATE TABLE IF NOT EXISTS public.staff (
     -- sync_staff_to_profiles trigger skips profile-link when it is NULL.
     institution_email TEXT,
     -- Updated: 2026-04-14 - role_key FK to custom_roles.role_key; drives dynamic role assignment on profile sync.
-    role_key VARCHAR(50) NOT NULL DEFAULT 'faculty' REFERENCES public.custom_roles(role_key) ON UPDATE CASCADE
+    role_key VARCHAR(50) NOT NULL DEFAULT 'faculty' REFERENCES public.custom_roles(role_key) ON UPDATE CASCADE,
+    -- Added: 2026-06-22 - Optional free-form labels for fetching staff subsets via
+    -- the external API (GET /api/api-management/staff?tags=a,b → overlap/any-of).
+    -- Native text[] (GIN-indexed below) so PostgREST array operators work cleanly.
+    tags TEXT[] NOT NULL DEFAULT '{}'
 );
+
+-- GIN index powers ?tags= overlap/contains filtering on the external staff API.
+CREATE INDEX IF NOT EXISTS idx_staff_tags ON public.staff USING GIN (tags);
 
 -- Employment Categories
 -- Updated: 2026-04-14 - Added is_teaching flag to discriminate teaching vs non-teaching staff

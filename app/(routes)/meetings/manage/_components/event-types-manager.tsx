@@ -62,6 +62,7 @@ import {
   type EventTypeFormInput,
   type ManageEventType,
 } from '../actions';
+import { VenueRoomPicker } from './venue-room-picker';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Form schema
@@ -84,6 +85,8 @@ const formSchema = z.object({
   hidden: z.boolean(),
   locationMode: z.enum(['in_person', 'phone', 'online']),
   locationText: z.string().trim().max(200, 'Keep the location short').optional().or(z.literal('')),
+  // Venue from Resource Management (PR1): a "Spaces & Venues" room id ('' = none).
+  locationResourceId: z.string().optional().or(z.literal('')),
   // ── M2 slot rules ──────────────────────────────────────────────────────────
   bufferBeforeMin: z.coerce
     .number({ invalid_type_error: 'Enter a number' })
@@ -132,6 +135,21 @@ const formSchema = z.object({
     .number({ invalid_type_error: 'Enter an amount' })
     .min(0, 'Cannot be negative')
     .max(100000, 'Max ₹1,00,000'),
+}).superRefine((val, ctx) => {
+  // Venue-from-resource PR1: an in-person meeting must name a place — either a
+  // room from the registry OR a custom text location. Mirrors the server rule
+  // in actions.ts validateForm so the host gets feedback before submitting.
+  if (val.locationMode === 'in_person') {
+    const hasRoom = Boolean(val.locationResourceId && val.locationResourceId.trim());
+    const hasText = Boolean(val.locationText && val.locationText.trim());
+    if (!hasRoom && !hasText) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['locationResourceId'],
+        message: 'Pick a venue, or type a custom place, for in-person meetings.',
+      });
+    }
+  }
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -166,7 +184,7 @@ function kindLabel(kind: ManageEventType['kind']): string {
 function locationLabel(et: ManageEventType): string {
   if (et.locationMode === 'phone') return 'Phone call';
   if (et.locationMode === 'online') return 'Google Meet';
-  return et.locationText || 'In person';
+  return et.locationResourceName || et.locationText || 'In person';
 }
 
 /** Lowercase-hyphenated slug derived from a title. */
@@ -431,6 +449,7 @@ function EventTypeDialog({
       hidden: editing?.hidden ?? false,
       locationMode: editing?.locationMode ?? 'in_person',
       locationText: editing?.locationText ?? '',
+      locationResourceId: editing?.locationResourceId ?? '',
       bufferBeforeMin: editing?.bufferBeforeMin ?? 0,
       bufferAfterMin: editing?.bufferAfterMin ?? 0,
       minNoticeMin: editing?.minNoticeMin ?? 0,
@@ -454,6 +473,7 @@ function EventTypeDialog({
   const hiddenValue = watch('hidden');
   const locationModeValue = watch('locationMode');
   const locationTextValue = watch('locationText');
+  const locationResourceIdValue = watch('locationResourceId');
   const slotIntervalValue = watch('slotIntervalMin');
   const kindValue = watch('kind');
   const requiresDepositValue = watch('requiresDeposit');
@@ -482,6 +502,7 @@ function EventTypeDialog({
       hidden: values.hidden,
       locationMode: values.locationMode,
       locationText: values.locationText?.trim() || undefined,
+      locationResourceId: values.locationResourceId?.trim() || undefined,
       bufferBeforeMin: values.bufferBeforeMin,
       bufferAfterMin: values.bufferAfterMin,
       minNoticeMin: values.minNoticeMin,
@@ -711,12 +732,36 @@ function EventTypeDialog({
                 ))}
               </div>
               {locationModeValue === 'in_person' && (
-                <Input
-                  placeholder="e.g. Pharmacy block, Room 204"
-                  value={locationTextValue ?? ''}
-                  onChange={(e) => setValue('locationText', e.target.value)}
-                  aria-label="Meeting location"
-                />
+                <div className="space-y-2">
+                  {/* PR1: pick a real room from Resource Management (all JKKN,
+                      searchable). Picking a room supersedes any custom text. */}
+                  <VenueRoomPicker
+                    value={locationResourceIdValue ?? ''}
+                    onChange={(id) => {
+                      setValue('locationResourceId', id, { shouldValidate: true });
+                      if (id) setValue('locationText', '', { shouldValidate: true });
+                    }}
+                    initialName={editing?.locationResourceName ?? null}
+                  />
+                  {/* Custom-place fallback — only when no registry room is chosen
+                      (e.g. an off-campus venue). Required-for-in-person is
+                      enforced by the schema refine + server validateForm. */}
+                  {!locationResourceIdValue && (
+                    <Input
+                      placeholder="…or type a custom place (e.g. Pharmacy block, Room 204)"
+                      value={locationTextValue ?? ''}
+                      onChange={(e) =>
+                        setValue('locationText', e.target.value, { shouldValidate: true })
+                      }
+                      aria-label="Custom meeting location"
+                    />
+                  )}
+                  {errors.locationResourceId && (
+                    <p className="text-xs text-destructive">
+                      {errors.locationResourceId.message}
+                    </p>
+                  )}
+                </div>
               )}
               {locationModeValue === 'online' && (
                 <p className="text-xs text-muted-foreground">

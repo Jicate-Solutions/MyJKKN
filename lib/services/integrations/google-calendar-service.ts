@@ -82,6 +82,8 @@ export interface CreateEventInput {
   attendees: Array<{ email: string; displayName?: string }>;
   /** true → request a Google Meet link (location_mode 'online', D4). */
   withMeet: boolean;
+  /** PR1: in-person venue directions shown as the event location. */
+  location?: string;
 }
 
 export interface CreatedEvent {
@@ -374,6 +376,7 @@ export class GoogleCalendarService {
       end: { dateTime: input.endIso, timeZone: input.timezone },
       attendees: input.attendees,
     };
+    if (input.location) body.location = input.location;
     if (input.withMeet) {
       body.conferenceData = {
         createRequest: {

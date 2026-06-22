@@ -74,6 +74,17 @@ export const LEARNER_ROUTES: Record<string, LearnerRoute> = {
     isNew: true,
   },
 
+  'learners-my-bills': {
+    path: '/learners/my-bills',
+    category: 'portal',
+    module: 'learners',
+    feature: 'My Bills',
+    permission: 'learners.my-bills.view',
+    description: 'Personal fee bills, balances, and payment history',
+    allowedStatuses: ['active', 'graduated'],
+    isNew: true,
+  },
+
   // ========================================
   // CATEGORY: DOMAIN (Domain-specific actions in their modules)
   // ========================================

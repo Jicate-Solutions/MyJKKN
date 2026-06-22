@@ -18644,3 +18644,28 @@ END $rfn$;
 -- Owner/cron only — SECURITY DEFINER financial mutations; NOT callable by anon/authenticated.
 REVOKE ALL ON FUNCTION public.admission_fix_fee_mismatch_2026(uuid[], boolean, boolean) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.admission_reconcile_pending_fee_events(boolean) FROM PUBLIC, anon, authenticated;
+
+-- =====================================================
+-- Staff Tags — distinct-tag autocomplete source
+-- Added: 2026-06-22
+-- Powers the staff form's tag suggestions (reuse existing tags to curb spelling
+-- drift). Returns only non-sensitive label strings, optionally scoped to one
+-- institution. SECURITY DEFINER so suggestions span the table under RLS; execute
+-- locked to authenticated (anon revoked per Supabase grant-to-anon default).
+-- =====================================================
+CREATE OR REPLACE FUNCTION public.staff_distinct_tags(p_institution_id uuid DEFAULT NULL)
+RETURNS SETOF text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT DISTINCT t
+  FROM public.staff, unnest(tags) AS t
+  WHERE (p_institution_id IS NULL OR institution_id = p_institution_id)
+    AND t <> ''
+  ORDER BY t;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.staff_distinct_tags(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.staff_distinct_tags(uuid) TO authenticated;
