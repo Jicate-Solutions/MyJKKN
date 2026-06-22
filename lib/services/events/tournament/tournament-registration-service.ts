@@ -67,11 +67,11 @@ export class TournamentRegistrationService {
   static async withdraw(
     eventId: string,
     entryId: string
-  ): Promise<{ refund: 'pending' | 'none' | 'not_applicable'; reason?: string }> {
+  ): Promise<{ refund: 'processed' | 'pending' | 'failed' | 'manual' | 'none' | 'not_applicable'; reason?: string }> {
     const res = await fetch(`/api/events/tournament/${eventId}/entries/${entryId}`, {
       method: 'DELETE',
     });
-    const data = await asJson<{ refund: 'pending' | 'none' | 'not_applicable'; reason?: string }>(res);
+    const data = await asJson<{ refund: 'processed' | 'pending' | 'failed' | 'manual' | 'none' | 'not_applicable'; reason?: string }>(res);
     return { refund: data.refund, reason: data.reason };
   }
 
