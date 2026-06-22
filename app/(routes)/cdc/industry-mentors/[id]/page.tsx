@@ -37,6 +37,7 @@ import {
   useUpdateIndustryMentor,
 } from '@/hooks/cdc/use-cdc-industry-mentors';
 import type { UpdateIndustryMentorInput } from '@/types/cdc/industry-mentors';
+import { IndustryMenteesCard } from '@/components/cdc/industry-mentees-card';
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -381,6 +382,9 @@ function IndustryMentorDetailContent({ params }: Props) {
             </CardContent>
           </Card>
         )}
+
+        {/* Assigned mentees + per-mentee sessions (BUG-004198) */}
+        <IndustryMenteesCard mentorId={id} />
       </div>
     </ContentLayout>
   );
