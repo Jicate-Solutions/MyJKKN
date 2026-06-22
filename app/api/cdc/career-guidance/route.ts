@@ -13,7 +13,11 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import {
+  createApiInstitutionFilter,
+  applyInstitutionFilterToQuery,
+} from '@/lib/auth/api-institution-filter';
 import Anthropic from '@anthropic-ai/sdk';
 import type {
   CareerGuidanceResult, CareerGuidanceSignal, CareerGuidance,
@@ -91,11 +95,40 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
+    // CDC-staff gate — the SAME predicate the page's <PermissionGuard module="cdc">
+    // uses (super-admin/admin bypass is built into user_has_permission). This is
+    // load-bearing: the reads below use the service-role client (RLS bypassed), so
+    // without this gate any authenticated user could pull an AI career report on
+    // any in-institution learner.
+    const { data: canView } = await supabase.rpc('user_has_permission', {
+      permission_name: 'cdc.view',
+    });
+    if (canView !== true) {
+      return NextResponse.json({ error: 'Forbidden — CDC staff only' }, { status: 403 });
+    }
+
+    // Caller's institution scope (all-access for super_admin / admission).
+    const filter = await createApiInstitutionFilter(req);
+    if (!filter.isAllowed) {
+      return NextResponse.json(
+        { error: filter.reason ?? 'Not authorized' },
+        { status: filter.reason === 'User not authenticated' ? 401 : 403 }
+      );
+    }
+
+    // Read learner data with the SERVICE-ROLE client. WHY (BUG-004044 class): a
+    // cdc_coordinator holds cdc.* but NOT learners.*, so the RLS-bound client
+    // returned 0 rows → 404 for the very role this tool serves. The picker
+    // (/api/cdc/pickers/learners) already reads via service-role, so an RLS read
+    // here also mismatched what the counsellor could pick. Institution scoping
+    // below preserves the no-cross-institution-leak guarantee.
+    const svc = createServiceRoleClient();
+
     // Profile — career-relevant, non-PII fields only.
-    const { data: profile, error: profErr } = await supabase
+    let profileQuery: any = svc
       .from('learners_profiles')
       .select(`
-        id, first_name, last_name, gender,
+        id, first_name, last_name, gender, institution_id,
         tenth_marks, twelfth_marks, neet_score, medical_cutoff_marks, engineering_cutoff_marks,
         career_aspirations, capabilities, industry_readiness_score, portfolio_url,
         board_of_study, medium_of_instruction, first_graduate, learner_type,
@@ -104,8 +137,11 @@ export async function POST(req: NextRequest) {
         academic_year:academic_years(academic_year_name),
         degree:degrees(degree_name)
       `)
-      .eq('id', learnerId)
-      .maybeSingle();
+      .eq('id', learnerId);
+    // Scope to the caller's accessible institutions (no-op for super_admin /
+    // admission). A learner outside scope yields null → 404 below.
+    profileQuery = applyInstitutionFilterToQuery(profileQuery, filter, 'institution_id');
+    const { data: profile, error: profErr } = await profileQuery.maybeSingle();
 
     if (profErr) {
       console.error('[cdc/career-guidance] profile load failed:', profErr);
@@ -127,10 +163,11 @@ export async function POST(req: NextRequest) {
     const degreeName: string | null = p.degree?.degree_name ?? null;
     const fullName = [p.first_name, p.last_name].filter(Boolean).join(' ').trim() || 'the student';
 
-    // Outcome-source counts (all keyed on learner_id).
+    // Outcome-source counts (all keyed on learner_id). Service-role so the
+    // counts reflect reality regardless of the counsellor's per-table RLS.
     const counts: Record<string, number> = {};
     for (const tbl of ['obe_learner_co_marks', 'cdc_placements', 'internship_assignments', 'cdc_training_enrollments']) {
-      const { count } = await supabase
+      const { count } = await svc
         .from(tbl)
         .select('*', { count: 'exact', head: true })
         .eq('learner_id', learnerId);
