@@ -43,6 +43,10 @@ export interface CreateBillingCategoryDto {
   category_name: string;
   amount?: number | null;
   frequency: BillingCategoryFrequency;
+  // Fee head — drives Razorpay account routing (payment-gateway-service matches
+  // billing_categories.kind against razorpay_accounts.fee_head). Required so a new
+  // category never silently defaults to 'other' and misroutes its payments.
+  kind: BillingCategoryKind;
   description?: string | null;
   is_active?: boolean;
 }

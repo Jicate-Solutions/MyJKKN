@@ -58,6 +58,7 @@ export class BillingCategoryService {
             category_name: data.category_name.trim(),
             amount: data.amount ?? null,
             frequency: data.frequency,
+            kind: data.kind,
             description: data.description?.trim() || null,
             is_active: data.is_active ?? true
           }
@@ -115,6 +116,7 @@ export class BillingCategoryService {
         updateData.category_name = data.category_name.trim();
       if (data.amount !== undefined) updateData.amount = data.amount;
       if (data.frequency) updateData.frequency = data.frequency;
+      if (data.kind) updateData.kind = data.kind;
       if (data.description !== undefined)
         updateData.description = data.description?.trim() || null;
       if (data.is_active !== undefined) updateData.is_active = data.is_active;

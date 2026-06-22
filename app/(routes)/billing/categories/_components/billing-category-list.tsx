@@ -15,6 +15,7 @@ import {
 import { toast } from 'react-hot-toast';
 import type { BillingCategory } from '@/types/billing';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
+import { billingKindLabel } from './billing-category-form';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -205,6 +206,7 @@ export function BillingCategoryList({
                 </TableHead>
               )}
               <TableHead>Category Name</TableHead>
+              <TableHead>Fee Head</TableHead>
               <TableHead>Frequency</TableHead>
               <TableHead>Default Amount</TableHead>
               <TableHead>Status</TableHead>
@@ -216,7 +218,7 @@ export function BillingCategoryList({
             {categories.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={canDeleteCategories ? 7 : 6}
+                  colSpan={canDeleteCategories ? 8 : 7}
                   className='text-center py-8'
                 >
                   <div className='flex flex-col items-center space-y-3'>
@@ -253,6 +255,11 @@ export function BillingCategoryList({
                         </span>
                       )}
                     </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant='secondary'>
+                      {billingKindLabel(category.kind)}
+                    </Badge>
                   </TableCell>
                   <TableCell>
                     <Badge variant='outline'>
