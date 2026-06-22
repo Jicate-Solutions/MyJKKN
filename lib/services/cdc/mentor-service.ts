@@ -9,6 +9,28 @@ import type {
   MentorPairingListResponse,
 } from '@/types/cdc/mentors';
 
+// learners_profiles has first_name/last_name/register_number — NOT name/roll_number.
+// The pairing queries previously embedded (id, name, roll_number, …), which threw
+// "column learners_profiles_1.name does not exist" the moment any pairing existed
+// (latent until pairings had data). Map the real columns to the {name, roll_number}
+// shape the type and pages expect, so the embed stays valid and nothing downstream
+// changes. (BUG-004198 follow-up — the host page must render for the Sessions card.)
+function mapLearner(l: any): { id: string; name: string; roll_number: string | null; institution_id: string | null } | null {
+  if (!l) return null;
+  return {
+    id: l.id,
+    name: [l.first_name, l.last_name].filter(Boolean).join(' ').trim() || 'Unknown learner',
+    roll_number: l.register_number ?? null,
+    institution_id: l.institution_id ?? null,
+  };
+}
+
+function mapPairing(p: any): CdcMentorPairingWithLearners {
+  return { ...p, mentor: mapLearner(p?.mentor), mentee: mapLearner(p?.mentee) };
+}
+
+const LEARNER_EMBED = 'id, first_name, last_name, register_number, institution_id';
+
 export class MentorService {
   static async list(supabase: SupabaseClient, filters: MentorPairingFilters = {}): Promise<MentorPairingListResponse> {
     const { page = 1, limit = 20, mentor_learner_id, mentee_learner_id, status } = filters;
@@ -18,8 +40,8 @@ export class MentorService {
       .from('cdc_mentor_pairings')
       .select(
         `*,
-         mentor:mentor_learner_id(id, name, roll_number, institution_id),
-         mentee:mentee_learner_id(id, name, roll_number, institution_id)`,
+         mentor:mentor_learner_id(${LEARNER_EMBED}),
+         mentee:mentee_learner_id(${LEARNER_EMBED})`,
         { count: 'exact' }
       )
       .order('paired_at', { ascending: false })
@@ -33,7 +55,7 @@ export class MentorService {
     if (error) throw new Error(error.message);
 
     return {
-      data: (data ?? []) as CdcMentorPairingWithLearners[],
+      data: (data ?? []).map(mapPairing),
       total: count ?? 0,
       page,
       limit,
@@ -45,14 +67,14 @@ export class MentorService {
       .from('cdc_mentor_pairings')
       .select(
         `*,
-         mentor:mentor_learner_id(id, name, roll_number, institution_id),
-         mentee:mentee_learner_id(id, name, roll_number, institution_id)`
+         mentor:mentor_learner_id(${LEARNER_EMBED}),
+         mentee:mentee_learner_id(${LEARNER_EMBED})`
       )
       .eq('id', id)
       .single();
 
     if (error) throw new Error(error.message);
-    return data as CdcMentorPairingWithLearners;
+    return mapPairing(data);
   }
 
   static async create(supabase: SupabaseClient, dto: CreateMentorPairingDto): Promise<CdcMentorPairing> {
