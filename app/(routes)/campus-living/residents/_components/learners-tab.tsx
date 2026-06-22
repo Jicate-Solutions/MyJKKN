@@ -29,6 +29,56 @@ import { LearnerDetailDrawer } from './learner-detail-drawer';
 import { AllocateRoomDialog } from './allocate-room-dialog';
 import { TransferDialog } from '../../allocations/_components/transfer-dialog';
 
+// Export schema for the Hostel Residents (Learners) table — the single source of
+// truth for the CSV/XLSX columns, their labels, and their widths (in column
+// order). Keys are deliberately DISTINCT from the table's column ids: the shared
+// DataTable drops any export header that collides with a HIDDEN table column, so
+// non-colliding keys guarantee the full detail set is always emitted regardless
+// of the user's column-visibility choices. The transformFunction below produces
+// exactly these keys.
+const RESIDENT_EXPORT_COLUMNS: ReadonlyArray<{
+  key: string;
+  label: string;
+  width: number;
+}> = [
+  { key: 'roll_no', label: 'Roll Number', width: 16 },
+  { key: 'full_name', label: 'Name', width: 24 },
+  { key: 'gender', label: 'Gender', width: 10 },
+  { key: 'student_email', label: 'Student Email', width: 28 },
+  { key: 'college_email', label: 'College Email', width: 28 },
+  { key: 'father_name', label: 'Father Name', width: 22 },
+  { key: 'mother_name', label: 'Mother Name', width: 22 },
+  { key: 'institution_name', label: 'Institution', width: 28 },
+  { key: 'program', label: 'Program', width: 26 },
+  { key: 'degree', label: 'Degree', width: 18 },
+  { key: 'semester', label: 'Semester', width: 14 },
+  { key: 'academic_year', label: 'Academic Year', width: 16 },
+  { key: 'year_of_study', label: 'Year of Study', width: 12 },
+  { key: 'block', label: 'Block', width: 20 },
+  { key: 'block_code', label: 'Block Code', width: 12 },
+  { key: 'room', label: 'Room', width: 12 },
+  { key: 'bed', label: 'Bed', width: 10 },
+  { key: 'room_category_name', label: 'Room Category', width: 18 },
+  { key: 'mess_category_name', label: 'Mess Category', width: 18 },
+  { key: 'status', label: 'Lifecycle Status', width: 16 },
+  { key: 'hostel_fee', label: 'Hostel Fee', width: 14 },
+  { key: 'bills_generated', label: 'Bills Generated', width: 14 },
+  { key: 'bill_count', label: 'Bill Count', width: 10 },
+  { key: 'total_billed', label: 'Total Billed', width: 14 },
+  { key: 'total_paid', label: 'Total Paid', width: 14 },
+  { key: 'total_outstanding', label: 'Outstanding', width: 14 },
+  { key: 'payment_status', label: 'Payment Status', width: 14 },
+  { key: 'bill_academic_year', label: 'Billing Academic Year', width: 18 },
+];
+
+const RESIDENT_EXPORT_HEADERS = RESIDENT_EXPORT_COLUMNS.map((c) => c.key);
+const RESIDENT_EXPORT_MAPPING: Record<string, string> = Object.fromEntries(
+  RESIDENT_EXPORT_COLUMNS.map((c) => [c.key, c.label]),
+);
+const RESIDENT_EXPORT_WIDTHS = RESIDENT_EXPORT_COLUMNS.map((c) => ({
+  wch: c.width,
+}));
+
 export function LearnersTab() {
   const { profile } = useAuth();
   const { isSuperAdmin, permissions } = usePermissions();
@@ -136,6 +186,61 @@ export function LearnersTab() {
     [canEdit, canAllocate, isSuperAdmin, instName],
   );
 
+  // Complete-detail export config. The transform flattens each view row (plus the
+  // merged per-page bill_status rollup) into the flat RESIDENT_EXPORT_COLUMNS
+  // schema. instName resolves institution_id → name; bill_status fields surface
+  // the current-academic-year billing rollup. "Export All Pages" walks every page
+  // via the table's getAllItems(), so the export is not limited to the visible
+  // page. Memoised on instName so the closure is stable across renders.
+  const exportConfig = useMemo(
+    () => ({
+      entityName: 'hostel-learner-residents',
+      headers: RESIDENT_EXPORT_HEADERS,
+      columnMapping: RESIDENT_EXPORT_MAPPING,
+      columnWidths: RESIDENT_EXPORT_WIDTHS,
+      transformFunction: (row: LearnerHostelite) => {
+        const b = row.bill_status;
+        const name =
+          [row.first_name, row.last_name]
+            .filter(Boolean)
+            .map((s) => s!.trim())
+            .join(' ') || null;
+        const inst = row.institution_id ? instName(row.institution_id) : null;
+        return {
+          roll_no: row.roll_number ?? null,
+          full_name: name,
+          gender: row.gender ?? null,
+          student_email: row.student_email ?? null,
+          college_email: row.college_email ?? null,
+          father_name: row.father_name ?? null,
+          mother_name: row.mother_name ?? null,
+          institution_name: inst && inst !== '—' ? inst : null,
+          program: row.program_name ?? null,
+          degree: row.degree_name ?? null,
+          semester: row.semester_name ?? null,
+          academic_year: row.academic_year_name ?? null,
+          year_of_study: row.year_of_study ?? null,
+          block: row.current_block_name ?? null,
+          block_code: row.current_block_code ?? null,
+          room: row.current_room_number ?? null,
+          bed: row.current_bed_number ?? null,
+          room_category_name: row.hostel_category_name ?? null,
+          mess_category_name: row.mess_category_name ?? null,
+          status: row.lifecycle_status ?? null,
+          hostel_fee: row.hostel_fee ?? null,
+          bills_generated: b ? (b.bill_count > 0 ? 'Yes' : 'No') : 'No',
+          bill_count: b?.bill_count ?? 0,
+          total_billed: b?.total_billed ?? null,
+          total_paid: b?.total_paid ?? null,
+          total_outstanding: b?.total_outstanding ?? null,
+          payment_status: b?.payment_status ?? null,
+          bill_academic_year: b?.academic_year_name ?? null,
+        };
+      },
+    }),
+    [instName],
+  );
+
   return (
     <div className='space-y-4'>
       <div className='flex justify-end'>
@@ -153,12 +258,7 @@ export function LearnersTab() {
           getColumns={() => columns}
           idField='id'
           refetchKey={refetchKey}
-          exportConfig={{
-            entityName: 'hostel-learner-residents',
-            columnMapping: {},
-            columnWidths: [],
-            headers: [],
-          }}
+          exportConfig={exportConfig}
           config={{
             enableUrlState: true,
             enableDateFilter: false,
