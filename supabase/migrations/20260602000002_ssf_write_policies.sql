@@ -104,6 +104,21 @@ CREATE POLICY ssf_responses_insert ON ss_foundations_responses
   );
 
 -- ----------------------------------------------------------------------------
+-- RESPONSES — reviewer SELECT. The PR-1 SELECT policy only lets a learner see their
+-- own rows and a cohort creator/lead-mentor see their cohort's — so a foundations.review
+-- holder who didn't create the cohort would get an EMPTY review queue and couldn't read
+-- the submission they must review. This ORs in read access for reviewers + admins.
+-- (v1: blanket across institutions — the .review roles are curated/trusted; institution
+--  scoping is a follow-up.)
+-- ----------------------------------------------------------------------------
+DROP POLICY IF EXISTS ssf_responses_review_select ON ss_foundations_responses;
+CREATE POLICY ssf_responses_review_select ON ss_foundations_responses
+  FOR SELECT TO authenticated
+  USING (
+    is_super_admin() OR is_admin() OR user_has_permission('startup_studio.foundations.review')
+  );
+
+-- ----------------------------------------------------------------------------
 -- RESPONSES — reviewer UPDATE (mentor feedback). ORs with the existing
 -- student/proxy update policy (ssf_responses_update). A reviewer is a user with
 -- foundations.review, or the cohort's creator/lead-mentor (mirrors the SELECT
