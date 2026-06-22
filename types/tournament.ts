@@ -247,3 +247,58 @@ export interface UpdateEntryDto {
   final_rank?: number | null;
   notes?: string | null;
 }
+
+// ============================================================================
+// PR3 — Fixtures / bracket engine + matches
+// ============================================================================
+
+/** Lifecycle of a single match. Matches the DB CHECK constraint. */
+export type MatchStatus =
+  | 'pending'        // created, not yet scheduled
+  | 'scheduled'      // has a time/venue
+  | 'completed'      // result entered (PR4)
+  | 'walkover'       // a side did not show (PR4)
+  | 'disqualified'   // a side DQ'd (PR4)
+  | 'bye';           // auto-advanced (no opponent)
+
+/** A single fixture in a division. */
+export interface TournamentMatch {
+  id: string;
+  event_id: string;
+  division_id: string;
+  round_no: number;
+  round_label: string | null;
+  match_no: number;
+  bracket_slot: number | null;
+  pool: string | null;
+  side_a_entry_id: string | null;
+  side_b_entry_id: string | null;
+  next_match_id: string | null;
+  next_slot: 'a' | 'b' | null;
+  scheduled_at: string | null;
+  session_id: string | null;
+  resource_reservation_id: string | null;
+  official_human_role_id: string | null;
+  status: MatchStatus;
+  winner_entry_id: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined for display (organizer/public view):
+  side_a_name?: string | null;
+  side_b_name?: string | null;
+  winner_name?: string | null;
+}
+
+/** Schedule a match: time + optional venue + optional official. */
+export interface ScheduleMatchDto {
+  scheduled_at: string;          // ISO datetime
+  duration_minutes?: number;     // defaults to 60
+  venue_text?: string | null;    // free-text venue label
+  resource_id?: string | null;   // optional court/ground resource → books a resource_reservation
+  official_name?: string | null; // optional umpire/referee (free text)
+}
+
+export interface GenerateFixturesResult {
+  matches_created: number;
+}
+
