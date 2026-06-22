@@ -67,4 +67,17 @@ export class TournamentFixturesService {
     });
     return asJson<{ match: TournamentMatch }>(res);
   }
+
+  /** Finalize a division: award achievements to JKKN learners on placed entries. */
+  static async awardAchievements(
+    eventId: string,
+    divisionId: string
+  ): Promise<{ achievements_written: number }> {
+    const res = await fetch(`/api/events/tournament/${eventId}/award`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ division_id: divisionId }),
+    });
+    return asJson<{ achievements_written: number }>(res);
+  }
 }
