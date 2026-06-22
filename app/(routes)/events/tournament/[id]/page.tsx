@@ -36,9 +36,11 @@ import {
   useWithdrawEntry,
   useGeneratePaymentLink,
 } from '@/hooks/events/use-tournament-registrations';
+import { useTournamentMatches } from '@/hooks/events/use-tournament-fixtures';
 import { TEAM_SPORTS } from '@/types/health-sports';
-import type { TournamentDivision, TournamentEntry } from '@/types/tournament';
+import type { TournamentDivision, TournamentEntry, TournamentMatch } from '@/types/tournament';
 import { AddEntryDialog } from './_components/add-entry-dialog';
+import { DivisionFixtures } from './_components/fixtures-section';
 
 function divisionLabel(d: TournamentDivision): string {
   return [d.sport, d.age_band, d.gender && d.gender !== 'open' ? d.gender : null]
@@ -73,6 +75,7 @@ export default function TournamentManagePage() {
 
   const { data: tournament, isLoading: loadingT } = useTournament(id);
   const { data: entries = [], isLoading: loadingE } = useTournamentEntries(id);
+  const { data: matches = [] } = useTournamentMatches(id);
   const markPaid = useMarkEntryPaid(id);
   const withdraw = useWithdrawEntry(id);
   const payLink = useGeneratePaymentLink(id);
@@ -102,6 +105,15 @@ export default function TournamentManagePage() {
     }
     return m;
   }, [entries]);
+  const matchesByDivision = useMemo(() => {
+    const m = new Map<string, TournamentMatch[]>();
+    for (const x of matches) {
+      const arr = m.get(x.division_id) ?? [];
+      arr.push(x);
+      m.set(x.division_id, arr);
+    }
+    return m;
+  }, [matches]);
 
   if (loadingT) {
     return (
@@ -267,6 +279,14 @@ export default function TournamentManagePage() {
                       ))}
                     </div>
                   )}
+
+                  {/* PR3: fixtures/bracket for this division */}
+                  <DivisionFixtures
+                    eventId={id}
+                    divisionId={d.id}
+                    matches={matchesByDivision.get(d.id) ?? []}
+                    entryCount={list.filter((e) => e.status !== 'withdrawn').length}
+                  />
                 </CardContent>
               </Card>
             );
