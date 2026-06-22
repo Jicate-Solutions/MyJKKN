@@ -61,6 +61,7 @@ import {
 } from '@/hooks/campus-living/use-mess-ratings';
 import type { PopularItem } from '@/types/campus-living';
 import { DishDemandCard } from './_components/dish-demand-card';
+import { SpecialDayCard } from './_components/special-day-card';
 
 export const navMeta = { label: 'Mess Rating Insights', icon: 'BarChart3' } as const;
 
@@ -214,6 +215,9 @@ export default function MessInsightsPage() {
 
         {/* Choose Your Menu — dish demand + return-arc (Mode B) */}
         <DishDemandCard />
+
+        {/* Choose Your Menu — special days propose + review (Mode C) */}
+        <SpecialDayCard />
 
         {/* Most loved */}
         <Card className="mb-6">
