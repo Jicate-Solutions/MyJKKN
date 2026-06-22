@@ -96,6 +96,10 @@ export interface Staff {
   designation: string;
   institution_email: string;
 
+  // Optional free-form labels (lowercased) used to fetch staff subsets via the
+  // external API (GET /api/api-management/staff?tags=a,b → any-of). Empty = untagged.
+  tags: string[];
+
   // Foreign keys
   category_id: string;
   institution_id: string;
@@ -181,6 +185,8 @@ export interface CreateStaffDto {
   institution_email?: string;
   department_id?: string | null;
   role_key: string;
+  // Optional free-form labels (lowercased) for external-API filtering.
+  tags?: string[];
   is_active?: boolean;
   // Default true. Set false to mark this staff as "view-only" — they cannot
   // log in and their linked profile is deactivated by the trigger.

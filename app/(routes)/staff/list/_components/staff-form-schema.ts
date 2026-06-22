@@ -51,7 +51,10 @@ export const basicStaffSchema = z.object({
   // The form auto-derives this from selected category's allows_login unless
   // the user has manually toggled it. The "email required when login-enabled"
   // refinement lives on fullStaffSchema below (can't .merge() a refined schema).
-  login_enabled: z.boolean().default(true)
+  login_enabled: z.boolean().default(true),
+  // Optional free-form labels for fetching staff subsets via the external API.
+  // Normalized (trim/lowercase/dedupe) by the TagsInput component before submit.
+  tags: z.array(z.string()).default([])
 });
 
 // ─── Repeater item schemas (used inside extendedStaffSchema) ──────────────────
