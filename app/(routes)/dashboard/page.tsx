@@ -32,6 +32,7 @@ import { getDashboardPersona, resolvePersona } from '@/lib/services/dashboard/da
 import { getWidgetsForRole } from '@/lib/services/dashboard/widget-config-service';
 import { LimitedHero } from '@/components/dashboard/limited-hero';
 import { StudentHeroStrip } from '@/components/dashboard/student-hero-strip';
+import { UdyogStudentCard } from '@/components/dashboard/udyog-student-card';
 import HodHeroStrip from '@/components/dashboard/hod-hero-strip';
 import { DashboardBreadcrumb } from '@/components/dashboard/dashboard-breadcrumb';
 import { DecisionQueue } from '@/components/dashboard/decision-queue';
@@ -391,6 +392,17 @@ export default async function DashboardV2Page({
               {isStudent && <LiveStudentHero />}
               {isLimited && <LimitedHero />}
             </Suspense>
+          </DashboardErrorBoundary>
+        )}
+
+        {/* UDYOG application requirement — student self-service (BUG-004075, 4a).
+            Client island; self-hides when the learner has no UDYOG obligation.
+            Silent boundary: a non-essential nudge must never break the dashboard. */}
+        {isStudent && (
+          <DashboardErrorBoundary label='UDYOG requirement' mode='silent'>
+            <div className='max-w-xl'>
+              <UdyogStudentCard />
+            </div>
           </DashboardErrorBoundary>
         )}
 

@@ -1031,6 +1031,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/cdc/training/new': 'cdc.training.create',
   '/cdc/training/[id]': 'cdc.training.view',
 
+  // CDC — UNNATI → UDYOG application tracker
+  '/cdc/udyog': 'cdc.udyog.view',
+
   // CDC — Opportunities Bulletin
   '/cdc/bulletin': 'cdc.bulletin.view',
   '/cdc/bulletin/new': 'cdc.bulletin.create',

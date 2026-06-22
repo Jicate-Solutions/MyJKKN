@@ -2034,6 +2034,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'cdc.training.edit', label: 'Edit Training Programmes' },
       { key: 'cdc.training.delete', label: 'Delete Training Programmes' },
 
+      // UNNATI → UDYOG application tracker (BUG-004075)
+      { key: 'cdc.udyog.view', label: 'View UDYOG Application Tracker' },
+      { key: 'cdc.udyog.manage', label: 'Manage UDYOG Application Requirements' },
+
       // Opportunities Bulletin
       { key: 'cdc.bulletin.view', label: 'View Opportunities Bulletin' },
       { key: 'cdc.bulletin.create', label: 'Create Opportunities Bulletin Entries' },
