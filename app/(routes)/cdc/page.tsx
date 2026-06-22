@@ -26,6 +26,7 @@ import {
   Megaphone,
   FileDown,
   Factory,
+  Compass,
   ChevronRight,
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -112,6 +113,14 @@ const CDC_MODULES: ModuleCard[] = [
     description: 'Unnati, MRB, Springboard, corporate training. Enrollment management + completion tracking.',
     icon: PresentationIcon,
     color: 'text-cyan-600 bg-cyan-50',
+  },
+  {
+    href: '/cdc/career-guidance',
+    title: 'AI Career Guidance',
+    permModule: 'cdc',
+    description: 'Pick a student — AI suggests career paths, skill gaps and next steps from their record, and flags what data to record to sharpen it.',
+    icon: Compass,
+    color: 'text-violet-600 bg-violet-50',
   },
   {
     href: '/cdc/bulletin',
