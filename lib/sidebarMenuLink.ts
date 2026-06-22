@@ -1734,6 +1734,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          href: '/learners/my-bills',
+          label: 'My Bills',
+          active: pathname.startsWith('/learners/my-bills'),
+          icon: Wallet,
+          submenus: []
+        },
+        {
           href: '/learners/leave-onduty/my-applications',
           label: 'Leave/OnDuty',
           active: pathname.startsWith('/learners/leave-onduty'),
@@ -1759,6 +1766,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/learners/my-timetable', label: 'My Timetable', active: pathname === '/learners/my-timetable' },
             { href: '/learners/my-attendance', label: 'My Attendance', active: pathname.startsWith('/learners/my-attendance') },
             { href: '/learners/my-profile', label: 'My Profile', active: pathname === '/learners/my-profile' },
+            { href: '/learners/my-bills', label: 'My Bills', active: pathname.startsWith('/learners/my-bills') },
             { href: '/learners/leave-onduty', label: 'Leave/OnDuty · Landing', active: pathname === '/learners/leave-onduty' },
             { href: '/learners/leave-onduty/my-applications', label: 'Leave/OnDuty · My Applications', active: pathname === '/learners/leave-onduty/my-applications' },
             { href: '/learners/leave-onduty/apply', label: 'Leave/OnDuty · Apply', active: pathname === '/learners/leave-onduty/apply' },
