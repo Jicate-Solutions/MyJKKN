@@ -117,3 +117,133 @@ export interface UpdateDivisionDto {
   sort_order?: number;
   is_active?: boolean;
 }
+
+// ============================================================================
+// PR2 — Registration (entries) + rosters
+// ============================================================================
+
+/** Whether a division entry is a single competitor or a team with a roster. */
+export type EntryType = 'individual' | 'team';
+
+/** Lifecycle status of a tournament entry. */
+export type EntryStatus = 'registered' | 'confirmed' | 'withdrawn' | 'disqualified';
+
+export const ENTRY_STATUSES: { value: EntryStatus; label: string }[] = [
+  { value: 'registered', label: 'Registered' },
+  { value: 'confirmed', label: 'Confirmed' },
+  { value: 'withdrawn', label: 'Withdrawn' },
+  { value: 'disqualified', label: 'Disqualified' },
+];
+
+/** Roster member role within a team. Matches the DB CHECK constraint. */
+export type TeamMemberRole = 'captain' | 'player' | 'substitute' | 'coach' | 'manager';
+
+export const TEAM_MEMBER_ROLES: { value: TeamMemberRole; label: string }[] = [
+  { value: 'captain', label: 'Captain' },
+  { value: 'player', label: 'Player' },
+  { value: 'substitute', label: 'Substitute' },
+  { value: 'coach', label: 'Coach' },
+  { value: 'manager', label: 'Manager' },
+];
+
+/**
+ * Eligibility rules a division can enforce at registration. Stored in
+ * `tournament_divisions.eligibility` (JSONB) and validated server-side in the
+ * register API route against the registrant's learners_profiles record.
+ */
+export interface EligibilityRules {
+  students_only?: boolean;   // entry/members must be JKKN learners (have a learner_id)
+  gender?: DivisionGender;   // 'male' | 'female' restrict; 'open' | 'mixed' = any
+  min_age?: number;          // inclusive, computed from date_of_birth as of today
+  max_age?: number;          // inclusive
+}
+
+/** A roster member of a team entry. */
+export interface TournamentTeamMember {
+  id: string;
+  entry_id: string;
+  learner_id: string | null;
+  member_name: string;
+  jersey_no: string | null;
+  role: TeamMemberRole;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A competitor (team OR individual) entered into a division. */
+export interface TournamentEntry {
+  id: string;
+  event_id: string;
+  division_id: string;
+  registration_id: string | null;
+  entry_type: EntryType;
+  entry_name: string;
+  institution_id: string | null;
+  institution_name: string | null;
+  is_external: boolean;
+  captain_learner_id: string | null;
+  seed: number | null;
+  status: EntryStatus;
+  final_rank: number | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined (organizer view, server-side only — NOT exposed to the public scoreboard):
+  payment_status?: string | null;
+  payment_amount?: number | null;
+  members?: TournamentTeamMember[];
+}
+
+/** One roster member supplied at registration time. */
+export interface CreateTeamMemberDto {
+  learner_id?: string | null;
+  member_name: string;
+  jersey_no?: string | null;
+  role?: TeamMemberRole;
+}
+
+/**
+ * Register an entry into a division. For an individual the participant fields
+ * describe the competitor; for a team, entry_name is the team name and `members`
+ * is the roster. External entries set is_external + institution_name (no
+ * institution_id, no learner_id).
+ */
+export interface CreateEntryDto {
+  division_id: string;
+  entry_type: EntryType;
+  entry_name: string;                 // individual name OR team name
+  institution_id?: string | null;
+  institution_name?: string | null;
+  is_external?: boolean;
+
+  // Individual competitor identity / contact (also used as the payer):
+  learner_id?: string | null;
+  participant_phone?: string | null;
+  participant_email?: string | null;
+  participant_gender?: string | null;
+  participant_age?: number | null;
+
+  // Team:
+  captain_learner_id?: string | null;
+  members?: CreateTeamMemberDto[];
+
+  // Payment intent: 'online' generates a gateway link; 'offline' marks unpaid
+  // (organizer collects cash and marks paid later); omitted for free divisions.
+  payment_mode?: 'online' | 'offline';
+  notes?: string | null;
+}
+
+/** Result of a register call: the created entry, plus a payment link when online. */
+export interface RegisterEntryResult {
+  entry: TournamentEntry;
+  payment_url?: string | null;
+  transaction_id?: string | null;
+}
+
+export interface UpdateEntryDto {
+  entry_name?: string;
+  seed?: number | null;
+  status?: EntryStatus;
+  final_rank?: number | null;
+  notes?: string | null;
+}

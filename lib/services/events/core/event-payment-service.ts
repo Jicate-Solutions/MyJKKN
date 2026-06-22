@@ -55,6 +55,13 @@ export class EventPaymentService {
     payerPhone: string;
     discountCode?: string;
     returnUrl: string;
+    /**
+     * Optional server callback URL the gateway redirects to after payment.
+     * When omitted, defaults to the marathon callback (backward compatible).
+     * Other event types (e.g. tournaments) pass their own callback route here;
+     * `transaction_ref` is appended automatically.
+     */
+    callbackUrl?: string;
   }): Promise<EventInitiatePaymentResult> {
     const supabase = createServiceRoleClient();
 
@@ -200,7 +207,9 @@ export class EventPaymentService {
 
     // Step 4: Call HDFC to create session
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    const callbackUrl = `${appUrl}/api/events/marathon/${params.eventId}/payment/callback?transaction_ref=${transactionRef}`;
+    const callbackUrl = params.callbackUrl
+      ? `${params.callbackUrl}${params.callbackUrl.includes('?') ? '&' : '?'}transaction_ref=${transactionRef}`
+      : `${appUrl}/api/events/marathon/${params.eventId}/payment/callback?transaction_ref=${transactionRef}`;
 
     let hdfcResult: { payment_url: string; session_id: string };
     try {

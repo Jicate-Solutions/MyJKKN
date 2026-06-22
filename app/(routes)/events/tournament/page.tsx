@@ -38,12 +38,23 @@ const STATUS_CONFIG: Record<EventStatus, { label: string; color: string; bg: str
   cancelled: { label: 'Cancelled', color: 'text-red-500', bg: 'bg-red-50' },
 };
 
-function TournamentCard({ event }: { event: Event }) {
+function TournamentCard({ event, onOpen }: { event: Event; onOpen: () => void }) {
   const status = STATUS_CONFIG[event.status] ?? STATUS_CONFIG.draft;
   const isAllJkkn = event.scope === 'all_jkkn';
 
   return (
-    <Card className="transition-shadow hover:shadow-md">
+    <Card
+      className="cursor-pointer transition-shadow hover:shadow-md"
+      onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+    >
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-1 items-start gap-3">
@@ -157,7 +168,11 @@ export default function TournamentsListPage() {
         ) : (
           <div className="grid grid-cols-1 gap-3">
             {filtered.map((event) => (
-              <TournamentCard key={event.id} event={event} />
+              <TournamentCard
+                key={event.id}
+                event={event}
+                onOpen={() => router.push(`/events/tournament/${event.id}`)}
+              />
             ))}
           </div>
         )}

@@ -2105,6 +2105,12 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/health/admin/programs', label: 'Manage Programs', active: pathname.startsWith('/health/admin/programs') },
             { href: '/health/counselor', label: 'Counselor Dashboard', active: pathname === '/health/counselor' },
             { href: '/health/programs', label: 'Wellness Programs', active: pathname === '/health/programs' || pathname.startsWith('/health/programs/') },
+            // Sports activities surfaced under Health & Wellness (Director ask, 2026-06-22).
+            // These are NAV LINKS to the events-platform modules — NOT route moves:
+            // /events/marathon & /events/tournament keep their canonical homes + permissions
+            // (each link's visibility is gated by its own MENU_PERMISSIONS entry).
+            { href: '/events/marathon', label: 'Sports Marathon', active: pathname === '/events/marathon' || pathname.startsWith('/events/marathon/') },
+            { href: '/events/tournament', label: 'Sports Tournaments', active: pathname === '/events/tournament' || pathname.startsWith('/events/tournament/') },
           ]
         }
       ]
