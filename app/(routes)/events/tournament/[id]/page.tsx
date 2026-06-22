@@ -26,6 +26,7 @@ import {
   CreditCard,
   XCircle,
   Globe,
+  ExternalLink,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -179,6 +180,14 @@ export default function TournamentManagePage() {
                 </Badge>
               </div>
             </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => window.open(`/p/tournament/${id}`, '_blank', 'noopener')}
+              title="Open the public no-login scoreboard"
+            >
+              <ExternalLink className="mr-1 h-3.5 w-3.5" /> Public scoreboard
+            </Button>
           </div>
         </CardContent>
       </Card>

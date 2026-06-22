@@ -7,7 +7,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { TournamentFixturesService } from '@/lib/services/events/tournament/tournament-fixtures-service';
-import type { ScheduleMatchDto } from '@/types/tournament';
+import type { ScheduleMatchDto, RecordResultDto } from '@/types/tournament';
 
 const KEYS = {
   matches: (eventId: string) => ['tournament-matches', eventId] as const,
@@ -45,5 +45,18 @@ export function useScheduleMatch(eventId: string) {
       else toast.success('Match scheduled');
     },
     onError: (e: Error) => toast.error(e.message || 'Failed to schedule match'),
+  });
+}
+
+export function useRecordResult(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ matchId, dto }: { matchId: string; dto: RecordResultDto }) =>
+      TournamentFixturesService.recordResult(eventId, matchId, dto),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEYS.matches(eventId) });
+      toast.success('Result recorded');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to record result'),
   });
 }
