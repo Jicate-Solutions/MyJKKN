@@ -1,7 +1,6 @@
 import { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { UserInstitutionAccessService } from '@/lib/services/users/user-institution-access-service';
 
 export interface ApiInstitutionFilterOptions {
   bypassForSuperAdmin?: boolean; // Default: true
@@ -110,11 +109,32 @@ export async function createApiInstitutionFilter(
       };
     }
 
-    // Get user's accessible institutions
-    const accessibleInstitutionIds =
-      await UserInstitutionAccessService.getUserAccessibleInstitutionIds(
-        user.id
+    // Get user's accessible institutions.
+    // FIX (BUG-004195): resolve via the session-bearing server `supabase` client
+    // built above — NOT UserInstitutionAccessService, which uses the browser
+    // singleton (createClientSupabaseClient). That browser client has NO auth
+    // session when invoked server-side in an API route, so the SECURITY INVOKER
+    // RPC get_user_accessible_institutions runs as a sessionless caller and
+    // returns 0 rows under RLS (auth.uid() is null) — making EVERY
+    // non-super_admin / non-admission role 403 ("User has no institution access")
+    // on every route using this filter (CDC pickers, career-guidance, admission
+    // gd-pi, etc.). Calling through `supabase` (which carries the user's
+    // sb-<ref>-auth-token cookie → auth.uid() = the user) lets RLS pass and
+    // returns the correct list. Institution scope is still re-imposed downstream
+    // by applyInstitutionFilterToQuery, so there is no cross-tenant exposure.
+    const { data: accessibleRows, error: accessibleError } = await supabase.rpc(
+      'get_user_accessible_institutions',
+      { target_user_id: user.id }
+    );
+    if (accessibleError) {
+      console.error(
+        '[createApiInstitutionFilter] get_user_accessible_institutions failed:',
+        accessibleError.message
       );
+    }
+    const accessibleInstitutionIds: string[] = (
+      (accessibleRows as { institution_id: string }[] | null) || []
+    ).map((row) => row.institution_id);
 
     // Check if user has access to at least one institution
     if (requireInstitutionAccess && accessibleInstitutionIds.length === 0) {
