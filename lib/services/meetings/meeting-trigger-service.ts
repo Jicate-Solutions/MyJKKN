@@ -23,9 +23,13 @@
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/utils/enhanced-logger';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { ActionConfig } from '@/types/notifications';
 
 const MODULE = 'meetings/triggers';
 const ATTENDANCE_METRIC = 'attendance_rate_daily';
+/** Decision #6: the Principal has 24h to explain before a meeting is scheduled. */
+const EXPLANATION_WINDOW_HOURS = 24;
+const MIN_EXPLANATION_LENGTH = 20;
 
 export interface TriggerEvalResult {
   date: string;
@@ -178,21 +182,39 @@ async function createBellNotification(
     url: string;
     category: string;
     metadata: Record<string, unknown>;
+    /**
+     * When set, the notification becomes a tracked ACTION (reusing the live
+     * acknowledgment framework): the recipient must respond within
+     * `deadlineHours`, and their response lands in `action_responses`.
+     */
+    action?: {
+      type: 'urgent' | 'tracked';
+      config: ActionConfig;
+      deadlineHours: number;
+    };
   }
 ): Promise<string | null> {
+  const row: Record<string, unknown> = {
+    title: opts.title,
+    body: opts.body,
+    url: opts.url,
+    icon: '/icons/icon-192x192.png',
+    priority: 'high',
+    category: opts.category,
+    created_by: opts.createdBy,
+    targeting: { user_ids: opts.recipientIds },
+    metadata: opts.metadata
+  };
+  if (opts.action) {
+    row.requires_acknowledgment = true;
+    row.acknowledgment_deadline_hours = opts.action.deadlineHours;
+    row.action_type = opts.action.type;
+    row.action_config = opts.action.config;
+  }
+
   const { data: notif, error } = await db
     .from('notifications')
-    .insert({
-      title: opts.title,
-      body: opts.body,
-      url: opts.url,
-      icon: '/icons/icon-192x192.png',
-      priority: 'high',
-      category: opts.category,
-      created_by: opts.createdBy,
-      targeting: { user_ids: opts.recipientIds },
-      metadata: opts.metadata
-    })
+    .insert(row)
     .select('id')
     .single();
 
@@ -312,7 +334,10 @@ export async function evaluateAttendanceTriggers(
         continue;
       }
 
-      // 6. Record the event (idempotent per rule+day).
+      // 6. Record the event (idempotent per rule+day) with the 24h deadline.
+      const explanationDeadline = new Date(
+        Date.now() + EXPLANATION_WINDOW_HOURS * 60 * 60 * 1000
+      ).toISOString();
       const { data: ev, error: evErr } = await db
         .from('meeting_trigger_events')
         .insert({
@@ -322,7 +347,8 @@ export async function evaluateAttendanceTriggers(
           observed_value: rateNum,
           threshold: rule.threshold,
           breach_date: date,
-          status: 'notified'
+          status: 'notified',
+          explanation_deadline: explanationDeadline
         })
         .select('id')
         .single();
@@ -333,7 +359,8 @@ export async function evaluateAttendanceTriggers(
         continue;
       }
 
-      // 7. Notify (informational; the explain-or-meet valve arrives in PR1b).
+      // 7. Notify the Principal with a 24h text-explanation ACTION (the valve):
+      //    they explain via the bell, or reconcile escalates to a meeting.
       const instName = await getInstitutionName(db, rule.institution_id);
       const notificationId = await createBellNotification(db, {
         recipientIds,
@@ -341,12 +368,22 @@ export async function evaluateAttendanceTriggers(
         title: `Attendance below threshold — ${instName}`,
         body:
           `${instName} recorded ${rateNum}% attendance on ${date}, below the ` +
-          `${rule.threshold}% line being tracked.` +
+          `${rule.threshold}% line. Please add a brief explanation within ` +
+          `${EXPLANATION_WINDOW_HOURS} hours, or a review meeting with the ` +
+          `Director will be scheduled.` +
           (fallbackToAdmin
             ? ' (No principal on record — routed to administration.)'
             : ''),
         url: '/academic/attendance',
         category: 'attendance:breach',
+        action: {
+          type: 'tracked',
+          deadlineHours: EXPLANATION_WINDOW_HOURS,
+          config: {
+            response_type: 'text',
+            min_text_length: MIN_EXPLANATION_LENGTH
+          }
+        },
         metadata: {
           rule_id: rule.id,
           institution_id: rule.institution_id,
@@ -372,4 +409,318 @@ export async function evaluateAttendanceTriggers(
   }
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// PR1b — explanation valve: reconcile responses + Director judgment
+// ---------------------------------------------------------------------------
+
+export interface ReconcileResult {
+  explained: number;
+  escalated: number;
+  errors: string[];
+}
+
+/** Resolve super-admin profile ids (the Director's reach for routing). */
+async function getSuperAdminIds(db: SupabaseClient): Promise<string[]> {
+  const { data } = await db
+    .from('profiles')
+    .select('id')
+    .eq('is_super_admin', true)
+    .limit(10);
+  return (data ?? []).map((r: any) => r.id).filter(Boolean);
+}
+
+/**
+ * Reconcile open breach events against the explanation valve:
+ *  - a Principal explanation (action_responses.text_response) → status
+ *    'explained' + route the explanation to the Director to judge.
+ *  - no explanation by the 24h deadline → status 'meeting_pending' + alert the
+ *    Director that a meeting is warranted (PR1c books it).
+ * Idempotent: only acts on status='notified' rows; flips them out of that state.
+ */
+export async function reconcileExplanations(
+  opts: { now?: Date; client?: SupabaseClient } = {}
+): Promise<ReconcileResult> {
+  const db = opts.client ?? createServiceRoleClient();
+  const nowISO = (opts.now ?? new Date()).toISOString();
+  const result: ReconcileResult = { explained: 0, escalated: 0, errors: [] };
+
+  const { data: events, error } = await db
+    .from('meeting_trigger_events')
+    .select(
+      'id, rule_id, institution_id, metric_key, observed_value, threshold, breach_date, notification_id, explanation_deadline, status'
+    )
+    .eq('status', 'notified');
+  if (error) {
+    result.errors.push(`load events: ${error.message}`);
+    return result;
+  }
+
+  const admins = await getSuperAdminIds(db);
+
+  for (const ev of (events ?? []) as any[]) {
+    try {
+      // 1. Did anyone explain? (text response on the breach notification)
+      let explained = false;
+      if (ev.notification_id) {
+        const { data: resp } = await db
+          .from('action_responses')
+          .select('text_response, user_id, submitted_at')
+          .eq('notification_id', ev.notification_id)
+          .not('text_response', 'is', null)
+          .order('submitted_at', { ascending: true })
+          .limit(1);
+        const r = (resp ?? [])[0] as any;
+        if (r?.text_response) {
+          await db
+            .from('meeting_trigger_events')
+            .update({
+              status: 'explained',
+              explanation_text: r.text_response,
+              explained_at: r.submitted_at,
+              explained_by: r.user_id
+            })
+            .eq('id', ev.id);
+
+          // Route to the Director to judge (skip / meet).
+          if (admins.length > 0) {
+            const instName = await getInstitutionName(db, ev.institution_id);
+            await createBellNotification(db, {
+              recipientIds: admins,
+              createdBy: admins[0],
+              title: `Attendance explanation — ${instName}`,
+              body:
+                `${instName} (${ev.observed_value ?? '—'}% on ${ev.breach_date}, ` +
+                `below ${ev.threshold}%) submitted an explanation:\n\n` +
+                `"${r.text_response}"\n\n` +
+                `Decide whether to skip or still hold a review meeting.`,
+              url: '/academic/attendance',
+              category: 'attendance:breach-explained',
+              metadata: {
+                event_id: ev.id,
+                institution_id: ev.institution_id,
+                breach_date: ev.breach_date,
+                source: 'cron:meeting-trigger-reconcile'
+              }
+            });
+          }
+          result.explained++;
+          explained = true;
+        }
+      }
+      if (explained) continue;
+
+      // 2. Deadline passed with no explanation → escalate to a meeting.
+      if (ev.explanation_deadline && nowISO > ev.explanation_deadline) {
+        await db
+          .from('meeting_trigger_events')
+          .update({ status: 'meeting_pending' })
+          .eq('id', ev.id);
+
+        if (admins.length > 0) {
+          const instName = await getInstitutionName(db, ev.institution_id);
+          await createBellNotification(db, {
+            recipientIds: admins,
+            createdBy: admins[0],
+            title: `Review meeting warranted — ${instName}`,
+            body:
+              `${instName} recorded ${ev.observed_value ?? '—'}% on ${ev.breach_date} ` +
+              `(below ${ev.threshold}%) and no explanation was given within ` +
+              `${EXPLANATION_WINDOW_HOURS} hours. A review meeting with the ` +
+              `Director is warranted.`,
+            url: '/academic/attendance',
+            category: 'attendance:breach-escalated',
+            metadata: {
+              event_id: ev.id,
+              institution_id: ev.institution_id,
+              breach_date: ev.breach_date,
+              source: 'cron:meeting-trigger-reconcile'
+            }
+          });
+        }
+        result.escalated++;
+      }
+    } catch (e: any) {
+      result.errors.push(`event ${ev.id}: ${e?.message ?? String(e)}`);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Director judgment on a breach event: 'skip' dismisses it, 'meet' marks it for
+ * a meeting (PR1c books it). Admin-gated at the route layer.
+ */
+export async function decideOnEvent(opts: {
+  eventId: string;
+  decision: 'skip' | 'meet';
+  deciderId: string;
+  client?: SupabaseClient;
+}): Promise<{ ok: boolean; status?: string; error?: string }> {
+  const db = opts.client ?? createServiceRoleClient();
+
+  const { data: ev, error } = await db
+    .from('meeting_trigger_events')
+    .select('id, status')
+    .eq('id', opts.eventId)
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!ev) return { ok: false, error: 'Event not found' };
+  if (
+    !['notified', 'explained', 'meeting_pending'].includes((ev as any).status)
+  ) {
+    return {
+      ok: false,
+      error: `Cannot decide on a ${(ev as any).status} event`
+    };
+  }
+
+  const newStatus = opts.decision === 'skip' ? 'dismissed' : 'meeting_pending';
+  const { error: upErr } = await db
+    .from('meeting_trigger_events')
+    .update({
+      director_decision: opts.decision,
+      director_decided_at: new Date().toISOString(),
+      director_decided_by: opts.deciderId,
+      status: newStatus
+    })
+    .eq('id', opts.eventId);
+  if (upErr) return { ok: false, error: upErr.message };
+
+  return { ok: true, status: newStatus };
+}
+
+// ---------------------------------------------------------------------------
+// PR4 — admin console reads/writes
+// ---------------------------------------------------------------------------
+
+export interface TriggerRuleWithRate {
+  id: string;
+  metric_key: string;
+  institution_id: string | null;
+  college_name: string;
+  comparator: string;
+  threshold: number;
+  cooldown_days: number;
+  weekly_cap: number;
+  active: boolean;
+  notes: string | null;
+  avg_rate: number | null;
+  latest_rate: number | null;
+  latest_date: string | null;
+}
+
+/** List all trigger rules with each college's current attendance rate. */
+export async function listTriggerRulesWithRates(
+  opts: { client?: SupabaseClient } = {}
+): Promise<TriggerRuleWithRate[]> {
+  const db = opts.client ?? createServiceRoleClient();
+
+  const { data: rules } = await db
+    .from('meeting_trigger_rules')
+    .select(
+      'id, metric_key, institution_id, comparator, threshold, cooldown_days, weekly_cap, active, notes'
+    )
+    .order('threshold', { ascending: true });
+
+  const instIds = [
+    ...new Set((rules ?? []).map((r: any) => r.institution_id).filter(Boolean))
+  ];
+  const { data: insts } = instIds.length
+    ? await db.from('institutions').select('id, name').in('id', instIds)
+    : { data: [] as any[] };
+  const nameById = new Map((insts ?? []).map((i: any) => [i.id, i.name]));
+
+  const { data: summary } = await db.rpc('fn_college_attendance_summary', {
+    p_days: 7
+  });
+  const rateById = new Map(
+    (summary ?? []).map((s: any) => [s.institution_id, s])
+  );
+
+  return (rules ?? []).map((r: any) => {
+    const s: any = rateById.get(r.institution_id);
+    return {
+      ...r,
+      college_name: nameById.get(r.institution_id) ?? '—',
+      avg_rate: s?.avg_rate ?? null,
+      latest_rate: s?.latest_rate ?? null,
+      latest_date: s?.latest_date ?? null
+    } as TriggerRuleWithRate;
+  });
+}
+
+/** Update an editable rule field (Director console). Validated. */
+export async function updateTriggerRule(opts: {
+  id: string;
+  patch: {
+    threshold?: number;
+    active?: boolean;
+    cooldown_days?: number;
+    weekly_cap?: number;
+  };
+  client?: SupabaseClient;
+}): Promise<{ ok: boolean; error?: string }> {
+  const db = opts.client ?? createServiceRoleClient();
+  const p = opts.patch;
+  const update: Record<string, unknown> = {};
+  if (typeof p.threshold === 'number' && p.threshold >= 0 && p.threshold <= 100)
+    update.threshold = p.threshold;
+  if (typeof p.active === 'boolean') update.active = p.active;
+  if (typeof p.cooldown_days === 'number' && p.cooldown_days >= 0)
+    update.cooldown_days = p.cooldown_days;
+  if (typeof p.weekly_cap === 'number' && p.weekly_cap >= 1)
+    update.weekly_cap = p.weekly_cap;
+  if (Object.keys(update).length === 0)
+    return { ok: false, error: 'No valid fields to update' };
+
+  const { error } = await db
+    .from('meeting_trigger_rules')
+    .update(update)
+    .eq('id', opts.id);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+export interface TriggerEventRow {
+  id: string;
+  institution_id: string | null;
+  college_name: string;
+  metric_key: string;
+  observed_value: number | null;
+  threshold: number;
+  breach_date: string;
+  status: string;
+  explanation_text: string | null;
+  director_decision: string | null;
+  created_at: string;
+}
+
+/** Recent breach events for the console (newest first). */
+export async function listRecentTriggerEvents(
+  opts: { limit?: number; client?: SupabaseClient } = {}
+): Promise<TriggerEventRow[]> {
+  const db = opts.client ?? createServiceRoleClient();
+  const { data: events } = await db
+    .from('meeting_trigger_events')
+    .select(
+      'id, institution_id, metric_key, observed_value, threshold, breach_date, status, explanation_text, director_decision, created_at'
+    )
+    .order('created_at', { ascending: false })
+    .limit(opts.limit ?? 30);
+
+  const instIds = [
+    ...new Set((events ?? []).map((e: any) => e.institution_id).filter(Boolean))
+  ];
+  const { data: insts } = instIds.length
+    ? await db.from('institutions').select('id, name').in('id', instIds)
+    : { data: [] as any[] };
+  const nameById = new Map((insts ?? []).map((i: any) => [i.id, i.name]));
+
+  return (events ?? []).map((e: any) => ({
+    ...e,
+    college_name: nameById.get(e.institution_id) ?? '—'
+  })) as TriggerEventRow[];
 }

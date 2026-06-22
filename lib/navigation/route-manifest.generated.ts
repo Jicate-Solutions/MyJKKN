@@ -2984,6 +2984,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Propose",
         "iconName": "CalendarHeart",
         "children": []
+      },
+      {
+        "path": "/events/tournament",
+        "label": "Tournament",
+        "iconName": "CalendarHeart",
+        "children": [
+          {
+            "path": "/events/tournament/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
       }
     ]
   },
@@ -4608,6 +4621,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/meetings/routing-forms",
         "label": "Routing Forms",
         "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/meetings/triggers",
+        "label": "Auto-Meetings",
+        "iconName": "CalendarClock",
         "children": []
       },
       {
