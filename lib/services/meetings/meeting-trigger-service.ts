@@ -591,3 +591,136 @@ export async function decideOnEvent(opts: {
 
   return { ok: true, status: newStatus };
 }
+
+// ---------------------------------------------------------------------------
+// PR4 — admin console reads/writes
+// ---------------------------------------------------------------------------
+
+export interface TriggerRuleWithRate {
+  id: string;
+  metric_key: string;
+  institution_id: string | null;
+  college_name: string;
+  comparator: string;
+  threshold: number;
+  cooldown_days: number;
+  weekly_cap: number;
+  active: boolean;
+  notes: string | null;
+  avg_rate: number | null;
+  latest_rate: number | null;
+  latest_date: string | null;
+}
+
+/** List all trigger rules with each college's current attendance rate. */
+export async function listTriggerRulesWithRates(
+  opts: { client?: SupabaseClient } = {}
+): Promise<TriggerRuleWithRate[]> {
+  const db = opts.client ?? createServiceRoleClient();
+
+  const { data: rules } = await db
+    .from('meeting_trigger_rules')
+    .select(
+      'id, metric_key, institution_id, comparator, threshold, cooldown_days, weekly_cap, active, notes'
+    )
+    .order('threshold', { ascending: true });
+
+  const instIds = [
+    ...new Set((rules ?? []).map((r: any) => r.institution_id).filter(Boolean))
+  ];
+  const { data: insts } = instIds.length
+    ? await db.from('institutions').select('id, name').in('id', instIds)
+    : { data: [] as any[] };
+  const nameById = new Map((insts ?? []).map((i: any) => [i.id, i.name]));
+
+  const { data: summary } = await db.rpc('fn_college_attendance_summary', {
+    p_days: 7
+  });
+  const rateById = new Map(
+    (summary ?? []).map((s: any) => [s.institution_id, s])
+  );
+
+  return (rules ?? []).map((r: any) => {
+    const s: any = rateById.get(r.institution_id);
+    return {
+      ...r,
+      college_name: nameById.get(r.institution_id) ?? '—',
+      avg_rate: s?.avg_rate ?? null,
+      latest_rate: s?.latest_rate ?? null,
+      latest_date: s?.latest_date ?? null
+    } as TriggerRuleWithRate;
+  });
+}
+
+/** Update an editable rule field (Director console). Validated. */
+export async function updateTriggerRule(opts: {
+  id: string;
+  patch: {
+    threshold?: number;
+    active?: boolean;
+    cooldown_days?: number;
+    weekly_cap?: number;
+  };
+  client?: SupabaseClient;
+}): Promise<{ ok: boolean; error?: string }> {
+  const db = opts.client ?? createServiceRoleClient();
+  const p = opts.patch;
+  const update: Record<string, unknown> = {};
+  if (typeof p.threshold === 'number' && p.threshold >= 0 && p.threshold <= 100)
+    update.threshold = p.threshold;
+  if (typeof p.active === 'boolean') update.active = p.active;
+  if (typeof p.cooldown_days === 'number' && p.cooldown_days >= 0)
+    update.cooldown_days = p.cooldown_days;
+  if (typeof p.weekly_cap === 'number' && p.weekly_cap >= 1)
+    update.weekly_cap = p.weekly_cap;
+  if (Object.keys(update).length === 0)
+    return { ok: false, error: 'No valid fields to update' };
+
+  const { error } = await db
+    .from('meeting_trigger_rules')
+    .update(update)
+    .eq('id', opts.id);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+export interface TriggerEventRow {
+  id: string;
+  institution_id: string | null;
+  college_name: string;
+  metric_key: string;
+  observed_value: number | null;
+  threshold: number;
+  breach_date: string;
+  status: string;
+  explanation_text: string | null;
+  director_decision: string | null;
+  created_at: string;
+}
+
+/** Recent breach events for the console (newest first). */
+export async function listRecentTriggerEvents(
+  opts: { limit?: number; client?: SupabaseClient } = {}
+): Promise<TriggerEventRow[]> {
+  const db = opts.client ?? createServiceRoleClient();
+  const { data: events } = await db
+    .from('meeting_trigger_events')
+    .select(
+      'id, institution_id, metric_key, observed_value, threshold, breach_date, status, explanation_text, director_decision, created_at'
+    )
+    .order('created_at', { ascending: false })
+    .limit(opts.limit ?? 30);
+
+  const instIds = [
+    ...new Set((events ?? []).map((e: any) => e.institution_id).filter(Boolean))
+  ];
+  const { data: insts } = instIds.length
+    ? await db.from('institutions').select('id, name').in('id', instIds)
+    : { data: [] as any[] };
+  const nameById = new Map((insts ?? []).map((i: any) => [i.id, i.name]));
+
+  return (events ?? []).map((e: any) => ({
+    ...e,
+    college_name: nameById.get(e.institution_id) ?? '—'
+  })) as TriggerEventRow[];
+}

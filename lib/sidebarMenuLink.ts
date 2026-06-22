@@ -983,6 +983,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/meetings/adoption': 'meetings.analytics.view',
   '/meetings/webhooks': 'meetings.webhooks.view',
   '/meetings/embed': 'meetings.embed.manage',
+  '/meetings/triggers': 'meetings.view',
 
   // CDC — module landing hub
   '/cdc': 'cdc.view',
