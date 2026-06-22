@@ -212,7 +212,12 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<
-    { uid: string; start: string; videoUrl: string | null } | null
+    {
+      uid: string;
+      start: string;
+      videoUrl: string | null;
+      venueStatus: 'pending' | 'confirmed' | null;
+    } | null
   >(null);
   // Identity gate (Director 2026-06-20): a JKKN account must log in to book.
   // 'jkkn_email' is detected client-side (domain match, no probe); 'account_exists'
@@ -289,7 +294,12 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
     });
     const json = await res.json();
     if (res.status === 409) {
-      setError('That time was just taken — please pick another slot.');
+      // PR2: distinguish the host's time being taken from the room being taken.
+      setError(
+        json.error === 'venue_taken'
+          ? 'The room for this meeting is already booked at this time — please pick another time.'
+          : 'That time was just taken — please pick another slot.',
+      );
       await pickType(selectedType); // refresh slots, stay on time step
       return;
     }
@@ -309,6 +319,10 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
       uid: json.uid,
       start: selectedStart,
       videoUrl: typeof json.videoUrl === 'string' ? json.videoUrl : null,
+      venueStatus:
+        json.venueStatus === 'pending' || json.venueStatus === 'confirmed'
+          ? json.venueStatus
+          : null,
     });
     setStep('done');
     // Wave-3 lifecycle: if the meeting type defines a post-booking redirect,
@@ -707,6 +721,12 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
             <p className="mt-1 text-sm text-[#1C2B24]/70">
               <LocationLine mt={selectedType} />
             </p>
+            {confirmation.venueStatus === 'pending' && (
+              <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                Your time is booked. The room is awaiting approval from the venue
+                in-charge — you&rsquo;ll be notified once it&rsquo;s confirmed.
+              </p>
+            )}
             {confirmation.videoUrl && (
               <a
                 href={confirmation.videoUrl}

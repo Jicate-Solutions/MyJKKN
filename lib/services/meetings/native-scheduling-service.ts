@@ -21,6 +21,7 @@ import crypto from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { MeetingBookingEmailService } from '@/lib/services/email/meeting-booking-email-service';
 import { formatVenueDirections } from './venue-directions';
+import { resolveVenuePlan, createVenueReservation } from './venue-reservation';
 import { GoogleCalendarService } from '@/lib/services/integrations/google-calendar-service';
 import { createZoomMeeting, isZoomConfigured } from '@/lib/services/integrations/zoom-service';
 import { createTeamsMeeting, isTeamsConfigured } from '@/lib/services/integrations/teams-service';
@@ -112,8 +113,24 @@ export interface NativeBookingInput {
 }
 
 export type NativeBookingResult =
-  | { success: true; uid: string; start: string; end: string; hostName: string | null }
-  | { success: false; error: 'SLOT_TAKEN' | 'NOT_FOUND' | 'INVALID_SLOT' | 'INTERNAL' };
+  | {
+      success: true;
+      uid: string;
+      start: string;
+      end: string;
+      hostName: string | null;
+      /**
+       * PR2: room state for this booking. null = no room reservation (walk-in /
+       * custom / online); 'confirmed' = room held; 'pending' = room held but
+       * awaiting caretaker approval (the meeting time is booked either way).
+       */
+      venueStatus: 'pending' | 'confirmed' | null;
+    }
+  | {
+      success: false;
+      // VENUE_TAKEN (PR2): the meeting type's room is already reserved for this slot.
+      error: 'SLOT_TAKEN' | 'VENUE_TAKEN' | 'NOT_FOUND' | 'INVALID_SLOT' | 'INTERNAL';
+    };
 
 // ============================================================================
 // SERVICE
@@ -647,6 +664,22 @@ export class NativeSchedulingService {
     const endIso = new Date(startDate.getTime() + mt.duration_min * 60_000).toISOString();
     const uid = crypto.randomBytes(16).toString('base64url');
 
+    // ── PR2: venue hold ──────────────────────────────────────────────────────
+    // For an in-person type linked to a registry room, hold the room too. The
+    // check runs BEFORE the booking insert so a clash returns without creating
+    // an orphan booking; the reservation row is created AFTER the insert
+    // succeeds (best-effort, never undoes a committed booking). Walk-in rooms
+    // and custom/online types resolve to { kind: 'none' } and skip all of this.
+    let venuePlan: Awaited<ReturnType<typeof resolveVenuePlan>> = { kind: 'none' };
+    let venueStatus: 'pending' | 'confirmed' | null = null;
+    if (mt.location_mode === 'in_person' && mt.location_resource_id) {
+      venuePlan = await resolveVenuePlan(supabase, mt.location_resource_id, startIso, endIso);
+      if (venuePlan.kind === 'taken') return { success: false, error: 'VENUE_TAKEN' };
+      if (venuePlan.kind === 'reserve') {
+        venueStatus = venuePlan.requiresApproval ? 'pending' : 'confirmed';
+      }
+    }
+
     // .select() reads back the DB-generated cancel_token for the attendee's
     // self-service cancel link (Phase N3a) — service-role only; the token
     // never reaches host-facing reads. Cast untyped: seat_index + payment_*
@@ -666,6 +699,8 @@ export class NativeSchedulingService {
         start_time: startIso,
         end_time: endIso,
         status: 'confirmed',
+        // PR2: room state (null unless this type holds a registry room).
+        venue_status: venueStatus,
         source: input.source ?? 'direct',
         seat_index: seatIndex,
         // Deposit bookings carry their verified payment handles (the route
@@ -727,6 +762,30 @@ export class NativeSchedulingService {
           return { success: false, error: 'INTERNAL' };
         }
         insertedCohostUids.push(thisUid);
+      }
+    }
+
+    // ── PR2: hold the room now the booking is committed ──────────────────────
+    // Best-effort, like the calendar/email side-effects: a reservation failure
+    // leaves the meeting booked with venue_status already set (availability was
+    // checked above). The reservation is owned by the HOST — the public booker
+    // is anonymous. Approval-required rooms create a 'pending' reservation +
+    // approval chain (caretaker resolves it in PR3); others are 'approved'.
+    if (venuePlan.kind === 'reserve' && mt.location_resource_id) {
+      const venueReservationId = await createVenueReservation(supabase, {
+        resourceId: mt.location_resource_id,
+        hostId: primaryHost,
+        purpose: `${mt.title} — ${input.attendeeName}`,
+        startIso,
+        endIso,
+        requiresApproval: venuePlan.requiresApproval,
+        approvers: venuePlan.approvers,
+      });
+      if (venueReservationId) {
+        await (supabase as any)
+          .from('meeting_bookings')
+          .update({ venue_reservation_id: venueReservationId })
+          .eq('uid', uid);
       }
     }
 
@@ -872,6 +931,7 @@ export class NativeSchedulingService {
       start: startIso,
       end: endIso,
       hostName: (host?.full_name as string | undefined) ?? host?.email ?? null,
+      venueStatus,
     };
   }
 

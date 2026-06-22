@@ -190,6 +190,10 @@ export async function POST(
       if (booking.error === 'SLOT_TAKEN' || booking.error === 'INVALID_SLOT') {
         return NextResponse.json({ error: 'slot_taken' }, { status: 409 });
       }
+      // PR2: the meeting type's room is already reserved for this slot.
+      if (booking.error === 'VENUE_TAKEN') {
+        return NextResponse.json({ error: 'venue_taken' }, { status: 409 });
+      }
       if (booking.error === 'NOT_FOUND') {
         return NextResponse.json({ error: 'Booking page not found' }, { status: 404 });
       }
@@ -235,6 +239,9 @@ export async function POST(
       durationMin: mt.durationMin,
       redirectUrl,
       videoUrl,
+      // PR2: 'pending' = room held but awaiting caretaker approval; 'confirmed'
+      // = room held; null = no room reservation (walk-in / custom / online).
+      venueStatus: booking.venueStatus,
     });
   } catch (err) {
     console.error('[public/meet/book] failed:', err);
