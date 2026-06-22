@@ -14,6 +14,8 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import {
   Loader2,
   Plus,
@@ -30,7 +32,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { useTournament } from '@/hooks/events/use-tournaments';
+import { useTournament, useUpdateTournament } from '@/hooks/events/use-tournaments';
 import {
   useTournamentEntries,
   useMarkEntryPaid,
@@ -75,6 +77,7 @@ export default function TournamentManagePage() {
   const id = String(params?.id ?? '');
 
   const { data: tournament, isLoading: loadingT } = useTournament(id);
+  const updateTournament = useUpdateTournament();
   const { data: entries = [], isLoading: loadingE } = useTournamentEntries(id);
   const { data: matches = [] } = useTournamentMatches(id);
   const markPaid = useMarkEntryPaid(id);
@@ -180,14 +183,42 @@ export default function TournamentManagePage() {
                 </Badge>
               </div>
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => window.open(`/p/tournament/${id}`, '_blank', 'noopener')}
-              title="Open the public no-login scoreboard"
-            >
-              <ExternalLink className="mr-1 h-3.5 w-3.5" /> Public scoreboard
-            </Button>
+            <div className="flex flex-col items-end gap-2">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="publish-toggle" className="text-xs text-muted-foreground">
+                  Show to public
+                </Label>
+                <Switch
+                  id="publish-toggle"
+                  checked={!!(tournament.config as Record<string, unknown>)?.public_scoreboard}
+                  disabled={updateTournament.isPending}
+                  onCheckedChange={(v) =>
+                    updateTournament.mutate({
+                      id,
+                      dto: {
+                        config: {
+                          ...((tournament.config as Record<string, unknown>) ?? {}),
+                          public_scoreboard: v,
+                        },
+                      },
+                    })
+                  }
+                />
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!(tournament.config as Record<string, unknown>)?.public_scoreboard}
+                onClick={() => window.open(`/p/tournament/${id}`, '_blank', 'noopener')}
+                title={
+                  (tournament.config as Record<string, unknown>)?.public_scoreboard
+                    ? 'Open the public no-login scoreboard'
+                    : 'Turn on "Show to public" first'
+                }
+              >
+                <ExternalLink className="mr-1 h-3.5 w-3.5" /> Public scoreboard
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
