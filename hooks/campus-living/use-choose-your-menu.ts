@@ -53,10 +53,10 @@ export function useMyVotes(learnerId: string | null, enabled = true) {
   });
 }
 
-export function useLiveVoteCounts(enabled = true) {
+export function useLiveVoteCounts(enabled = true, limit = 10) {
   return useQuery({
-    queryKey: ['mess', 'choose', 'live-votes'],
-    queryFn: () => ChooseYourMenuService.getLiveVoteCounts(),
+    queryKey: ['mess', 'choose', 'live-votes', limit],
+    queryFn: () => ChooseYourMenuService.getLiveVoteCounts(limit),
     enabled,
     // The live tally is the return-arc — keep it fresh-ish without hammering.
     staleTime: 30_000,
@@ -97,6 +97,47 @@ export function useClearChoice() {
   return useMutation({
     mutationFn: (vars: { weekStart: string; dayOfWeek: number; mealType: string }) =>
       ChooseYourMenuService.clearChoice(vars.weekStart, vars.dayOfWeek, vars.mealType),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['mess', 'choose'] }),
+  });
+}
+
+// ── Mode B: menu voting / wishlist ──────────────────────────────────────────
+
+/** Browseable/searchable library with live tally + my vote per dish. */
+export function useVotableDishes(search = '', enabled = true) {
+  return useQuery({
+    queryKey: ['mess', 'choose', 'votable-dishes', search],
+    queryFn: () => ChooseYourMenuService.getVotableDishes(search),
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
+/** Cast/flip a thumbs ±1. Invalidates the family so my-votes + the live tally move. */
+export function useCastVote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { itemId: string; vote: 1 | -1 }) =>
+      ChooseYourMenuService.castVote(vars.itemId, vars.vote),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['mess', 'choose'] }),
+  });
+}
+
+/** Withdraw my vote. Invalidates the family. */
+export function useClearVote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { itemId: string }) => ChooseYourMenuService.clearVote(vars.itemId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['mess', 'choose'] }),
+  });
+}
+
+/** ADMIN — confer recognition on a voted dish that landed on the menu (return-arc). */
+export function useRecognizeVotedDish() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { itemId: string; weekStart: string }) =>
+      ChooseYourMenuService.recognizeVotedDish(vars.itemId, vars.weekStart),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['mess', 'choose'] }),
   });
 }
