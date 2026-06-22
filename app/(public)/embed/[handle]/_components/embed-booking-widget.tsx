@@ -133,7 +133,9 @@ export function EmbedBookingWidget(props: EmbedBookingWidgetProps) {
   const [form, setForm] = useState({ name: '', email: '', phone: '', note: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmation, setConfirmation] = useState<{ uid: string; start: string } | null>(null);
+  const [confirmation, setConfirmation] = useState<
+    { uid: string; start: string; venueStatus: 'pending' | 'confirmed' | null } | null
+  >(null);
 
   const accent = props.themeColor;
   const accentFg = useMemo(() => readableForeground(accent), [accent]);
@@ -211,14 +213,26 @@ export function EmbedBookingWidget(props: EmbedBookingWidgetProps) {
       });
       const json = await res.json();
       if (res.status === 409) {
-        setError('That time was just taken — please pick another slot.');
+        // PR2: distinguish the host's time being taken from the room being taken.
+        setError(
+          json.error === 'venue_taken'
+            ? 'The room for this meeting is already booked at this time — please pick another time.'
+            : 'That time was just taken — please pick another slot.',
+        );
         await pickType(selectedType); // refresh slots, stay on time step
         return;
       }
       if (!res.ok || !json.success) {
         throw new Error(json.error || 'Could not complete the booking.');
       }
-      setConfirmation({ uid: json.uid, start: selectedStart });
+      setConfirmation({
+        uid: json.uid,
+        start: selectedStart,
+        venueStatus:
+          json.venueStatus === 'pending' || json.venueStatus === 'confirmed'
+            ? json.venueStatus
+            : null,
+      });
       setStep('done');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not complete the booking.');
@@ -469,6 +483,12 @@ export function EmbedBookingWidget(props: EmbedBookingWidgetProps) {
             <p className="mt-1 text-sm text-[#1C2B24]/70">
               <LocationLine mt={selectedType} />
             </p>
+            {confirmation.venueStatus === 'pending' && (
+              <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                Your time is booked. The room is awaiting approval from the venue
+                in-charge — you&rsquo;ll be notified once it&rsquo;s confirmed.
+              </p>
+            )}
             <p className="mt-3 text-xs text-[#1C2B24]/55">
               A confirmation email with the details — and a cancel link if your
               plans change — is on its way to {form.email}.
