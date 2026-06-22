@@ -948,7 +948,7 @@ export class NativeSchedulingService {
     const { data: booking, error } = await supabase
       .from('meeting_bookings')
       .select(
-        'id, host_profile_id, cancel_token, status, attendee_name, attendee_email, start_time, end_time, meeting_type_id, google_event_id',
+        'id, host_profile_id, cancel_token, status, attendee_name, attendee_email, start_time, end_time, meeting_type_id, google_event_id, venue_reservation_id',
       )
       .eq('uid', uid)
       .maybeSingle();
@@ -972,6 +972,25 @@ export class NativeSchedulingService {
     if (upErr) {
       console.error(`${LOG_PREFIX} cancel failed:`, upErr.message);
       return { success: false, error: 'INTERNAL' };
+    }
+
+    // PR3: free the held room. The booking is now cancelled, so the venue-sync
+    // trigger leaves its venue_status alone (its status='confirmed' guard); the
+    // reservation is simply released for others. Best-effort — a reservation
+    // hiccup never un-cancels the committed booking.
+    const venueReservationId = (booking as { venue_reservation_id?: string | null })
+      .venue_reservation_id;
+    if (venueReservationId) {
+      const { error: rErr } = await (supabase as any)
+        .from('resource_reservations')
+        .update({
+          status: 'cancelled',
+          cancelled_at: new Date().toISOString(),
+          cancellation_reason: 'Meeting cancelled',
+        })
+        .eq('id', venueReservationId)
+        .neq('status', 'cancelled');
+      if (rErr) console.error(`${LOG_PREFIX} venue reservation cancel failed:`, rErr.message);
     }
 
     // Phase N3a: cancellation notices to both parties. The cancel is already
@@ -1060,7 +1079,7 @@ export class NativeSchedulingService {
     const { data: booking, error } = await supabase
       .from('meeting_bookings')
       .select(
-        'id, host_profile_id, cancel_token, status, attendee_name, attendee_email, attendee_phone, start_time, end_time, meeting_type_id, google_event_id, reschedule_count',
+        'id, host_profile_id, cancel_token, status, attendee_name, attendee_email, attendee_phone, start_time, end_time, meeting_type_id, google_event_id, reschedule_count, venue_reservation_id',
       )
       .eq('uid', uid)
       .maybeSingle();
@@ -1149,6 +1168,21 @@ export class NativeSchedulingService {
         endIso,
         sched.timezone,
       );
+    }
+
+    // PR3: move the held room to the new slot. The meeting time is already
+    // moved; this keeps the room reservation's window in step. Best-effort and
+    // status-preserving — a confirmed room stays confirmed, a pending one stays
+    // pending at the new time (re-approval-on-move is a later refinement).
+    const venueReservationId = (booking as { venue_reservation_id?: string | null })
+      .venue_reservation_id;
+    if (venueReservationId) {
+      const { error: rErr } = await (supabase as any)
+        .from('resource_reservations')
+        .update({ start_time: startIso, end_time: endIso, updated_at: new Date().toISOString() })
+        .eq('id', venueReservationId)
+        .neq('status', 'cancelled');
+      if (rErr) console.error(`${LOG_PREFIX} venue reservation move failed:`, rErr.message);
     }
 
     const { data: host } = await supabase
