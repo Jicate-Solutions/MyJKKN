@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2, GitBranch, CalendarClock, RefreshCw, Swords, Trophy, Medal } from 'lucide-react';
+import { Loader2, GitBranch, CalendarClock, RefreshCw, Swords, Trophy, Medal, Network } from 'lucide-react';
 import { format } from 'date-fns';
 import type { TournamentMatch, RecordResultDto } from '@/types/tournament';
 import {
@@ -32,6 +32,7 @@ import {
   useScheduleMatch,
   useRecordResult,
   useAwardAchievements,
+  useGenerateKnockoutFromPools,
 } from '@/hooks/events/use-tournament-fixtures';
 
 function MatchStatusBadge({ status }: { status: string }) {
@@ -215,17 +216,28 @@ export function DivisionFixtures({
   divisionId,
   matches,
   entryCount,
+  divisionFormat,
 }: {
   eventId: string;
   divisionId: string;
   matches: TournamentMatch[];
   entryCount: number;
+  divisionFormat?: string;
 }) {
   const generate = useGenerateFixtures(eventId);
   const award = useAwardAchievements(eventId);
+  const poolKnockout = useGenerateKnockoutFromPools(eventId);
   const [scheduling, setScheduling] = useState<TournamentMatch | null>(null);
   const [recording, setRecording] = useState<TournamentMatch | null>(null);
   const hasCompleted = matches.some((m) => m.status === 'completed');
+  // pools_ko: offer "generate knockout" once every pool match is decided and no KO exists yet
+  const poolMatches = matches.filter((m) => m.pool);
+  const koMatches = matches.filter((m) => !m.pool && m.round_label && /final|ko/i.test(m.round_label));
+  const poolsDone =
+    divisionFormat === 'pools_ko' &&
+    poolMatches.length > 0 &&
+    poolMatches.every((m) => m.status !== 'pending' && m.status !== 'scheduled') &&
+    koMatches.length === 0;
 
   const byRound = useMemo(() => {
     const m = new Map<number, TournamentMatch[]>();
@@ -270,6 +282,23 @@ export function DivisionFixtures({
           <Swords className="h-3.5 w-3.5" /> Fixtures
         </span>
         <div className="flex items-center gap-1">
+          {poolsDone && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              disabled={poolKnockout.isPending}
+              onClick={() => poolKnockout.mutate({ divisionId })}
+              title="Build the knockout bracket from the group toppers"
+            >
+              {poolKnockout.isPending ? (
+                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+              ) : (
+                <Network className="mr-1 h-3 w-3" />
+              )}
+              Generate knockout
+            </Button>
+          )}
           {hasCompleted && (
             <Button
               size="sm"

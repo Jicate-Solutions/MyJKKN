@@ -29,6 +29,7 @@ export async function POST(
     const body = (await request.json().catch(() => ({}))) as {
       division_id?: string;
       regenerate?: boolean;
+      mode?: 'fixtures' | 'pool_knockout';
     };
     if (!body.division_id) {
       return NextResponse.json({ error: 'division_id is required' }, { status: 400 });
@@ -45,11 +46,18 @@ export async function POST(
       return NextResponse.json({ error: 'Division not found for this tournament' }, { status: 404 });
     }
 
-    // Call the SECURITY DEFINER RPC with the caller's auth context.
-    const { data, error } = await auth.rpc('fn_generate_fixtures', {
-      p_division_id: body.division_id,
-      p_regenerate: !!body.regenerate,
-    });
+    // mode='pool_knockout' (v2): build the knockout stage from finished pool standings.
+    // Otherwise: generate the initial fixtures (group/round-robin/knockout).
+    const { data, error } =
+      body.mode === 'pool_knockout'
+        ? await auth.rpc('fn_generate_pool_knockout', {
+            p_division_id: body.division_id,
+            p_regenerate: !!body.regenerate,
+          })
+        : await auth.rpc('fn_generate_fixtures', {
+            p_division_id: body.division_id,
+            p_regenerate: !!body.regenerate,
+          });
     if (error) {
       // Surface the function's own messages (e.g. "need at least 2 entries",
       // "fixtures already exist") as a 422 the UI can show verbatim.
