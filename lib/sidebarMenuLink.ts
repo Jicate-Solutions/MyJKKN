@@ -937,6 +937,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/events/marathon': 'events.marathon.view',
   '/events/marathon/new': 'events.marathon.create',
 
+  // Events — Sports Tournament submenu (Sports Tournament PR1, 2026-06-22)
+  '/events/tournament': 'sports.tournaments.view',
+  '/events/tournament/new': 'sports.tournaments.create',
+
   // Faculty — PDE faculty tree (Faculty / HOD / Mentor surface)
   '/pde/faculty': 'pde.faculty.view',
   '/pde/faculty/analytics': 'pde.faculty.analytics.view',
@@ -2116,6 +2120,9 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/events/marathon', label: 'Marathon · All Events', active: pathname === '/events/marathon' },
             { href: '/events/marathon/new', label: 'Marathon · New Event', active: pathname === '/events/marathon/new' },
+            // Sports Tournament PR1 (2026-06-22): conduct sports tournaments on the events platform
+            { href: '/events/tournament', label: 'Tournament · All', active: pathname === '/events/tournament' },
+            { href: '/events/tournament/new', label: 'Tournament · New', active: pathname === '/events/tournament/new' },
             // Stream C (2026-04-26): event_proposals workflow — chat-bypass propose intake
             { href: '/events/propose', label: 'Propose an Event', active: pathname === '/events/propose' || pathname.startsWith('/events/propose/') },
           ]
