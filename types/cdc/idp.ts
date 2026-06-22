@@ -68,3 +68,16 @@ export interface IdpListResponse {
   page: number;
   limit: number;
 }
+
+// IDP create-time prefill (BUG-004197). Read-only draft assembled from a
+// learner's existing data; hydrates the NEW IDP form so it starts pre-filled
+// instead of blank. Create-only — never used to re-fill an existing plan.
+export interface PrefilledIdpDraft {
+  learner: { id: string; name: string; register_number: string | null };
+  interests: string[];
+  skills: string[];               // → skills_self_attribution
+  academicStrengths: string;      // self-reported carry-forward (D1)
+  clubPicks: string[];            // from active club memberships
+  priorIdpYear: string | null;    // AY of the prior IDP, for the "carried from" banner
+  hasPriorIdp: boolean;
+}

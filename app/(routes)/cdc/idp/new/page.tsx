@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
@@ -18,10 +18,10 @@ import {
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { useCreateIdp } from '@/hooks/cdc/use-cdc-idp';
+import { useCreateIdp, useIdpPrefill } from '@/hooks/cdc/use-cdc-idp';
 import { useLearnersForPicker } from '@/hooks/cdc/use-cdc-pickers';
 import { useAcademicYears } from '@/hooks/use-academic-years';
-import { X, Plus } from 'lucide-react';
+import { X, Plus, Sparkles, Loader2 } from 'lucide-react';
 
 export default function NewIdpPage() {
   const router = useRouter();
@@ -42,6 +42,23 @@ export default function NewIdpPage() {
   const [shortTermGoal, setShortTermGoal] = useState('');
   const [longTermGoal, setLongTermGoal] = useState('');
   const [freeNotes, setFreeNotes] = useState('');
+
+  // Create-time prefill (BUG-004197): the moment a learner is chosen, pull a draft
+  // assembled from their existing data and hydrate the editable fields. Hydrate
+  // ONCE per learner (tracked by ref) so re-renders never clobber the
+  // coordinator's edits. This is a CREATE-only aid — there is no edit-page equivalent.
+  const { data: prefill, isFetching: prefilling } = useIdpPrefill(learnerId);
+  const hydratedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (prefill && learnerId && hydratedFor.current !== learnerId) {
+      hydratedFor.current = learnerId;
+      setInterests(prefill.interests ?? []);
+      setClubPicks(prefill.clubPicks ?? []);
+      setSkills(prefill.skills ?? []);
+      setAcademicStrengths(prefill.academicStrengths ?? '');
+    }
+  }, [prefill, learnerId]);
+  const prefilled = !!prefill && hydratedFor.current === learnerId;
 
   const addTag = (
     input: string,
@@ -114,6 +131,24 @@ export default function NewIdpPage() {
                   className="w-full"
                 />
               </div>
+
+              {learnerId && prefilling && !prefilled && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Pre-filling from {prefill?.learner.name ?? 'the learner'}&apos;s existing data…
+                </p>
+              )}
+              {prefilled && (
+                <div className="rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900 flex items-start gap-2">
+                  <Sparkles className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>
+                    {prefill?.hasPriorIdp
+                      ? <>Pre-filled from {prefill?.learner.name}&apos;s existing data{prefill?.priorIdpYear ? <> (carried from AY {prefill.priorIdpYear})</> : null}. </>
+                      : <>No earlier plan or club activity on record for {prefill?.learner.name}. </>}
+                    Review and edit everything below before saving.
+                  </span>
+                </div>
+              )}
+
               <div className="space-y-1">
                 <Label htmlFor="academic_year">Academic Year</Label>
                 <Select value={academicYear} onValueChange={setAcademicYear}>
