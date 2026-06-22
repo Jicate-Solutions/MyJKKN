@@ -58,7 +58,7 @@ export function BookingPageCard({
 
   const conn = initial.connection;
   const googleActive = conn?.status === 'active';
-  const handleLocked = !!page; // D5: immutable after first save
+  const handleLocked = !!page?.isPublic; // D5 (relaxed): locks only once the page is published — a reserved/draft page stays renameable
   const publicUrl = `${initial.appUrl || 'https://www.jkkn.ai'}/meet/${handle || '…'}`;
   const banner = googleFlag ? GOOGLE_BANNERS[googleFlag] : undefined;
 
@@ -180,8 +180,8 @@ export function BookingPageCard({
             </div>
             <p className="text-xs text-muted-foreground">
               {handleLocked
-                ? 'Your address is set — it can’t be changed here.'
-                : 'Choose carefully: the address locks after your first save.'}
+                ? 'Your page is live, so its address is locked. Contact an administrator to change it.'
+                : 'You can change this any time until you switch your page on — then it locks.'}
             </p>
           </div>
 
