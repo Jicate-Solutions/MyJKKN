@@ -45,7 +45,15 @@ export function WorksheetFill({ worksheetId }: { worksheetId: string }) {
     );
   }
 
-  const reviewed = response?.status === 'reviewed';
+  // Keep mentor feedback visible even after the student resubmits (Director decision
+  // 2026-06-22): show it whenever a review exists; flag it as "previous version" once
+  // the student has resubmitted (status back to 'submitted') and it awaits re-review.
+  const hasFeedback = !!(
+    response?.mentor_feedback ||
+    response?.mentor_rating != null ||
+    response?.reviewed_at
+  );
+  const feedbackIsStale = hasFeedback && response?.status === 'submitted';
 
   return (
     <div className="space-y-5 mt-4 max-w-2xl">
@@ -62,7 +70,7 @@ export function WorksheetFill({ worksheetId }: { worksheetId: string }) {
         )}
       </div>
 
-      {reviewed && (response?.mentor_feedback || response?.mentor_rating != null) && (
+      {hasFeedback && (
         <Card className="border-green-600/40 bg-green-50/40 dark:bg-green-950/20">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm">
@@ -74,6 +82,11 @@ export function WorksheetFill({ worksheetId }: { worksheetId: string }) {
                 </Badge>
               )}
             </CardTitle>
+            {feedbackIsStale && (
+              <CardDescription className="text-xs">
+                On your previous version — a mentor will review your update.
+              </CardDescription>
+            )}
           </CardHeader>
           {response?.mentor_feedback && (
             <CardContent>

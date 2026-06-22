@@ -25,7 +25,9 @@ import type {
 } from '@/types/startup-studio/foundations';
 
 const GRADUATION_POLICY_KEY = 'startup_studio.foundations_graduation_pct';
-const GRADUATION_DEFAULT_PCT = 80;
+// Director decision (2026-06-22 interview): Explorer = ALL canon worksheets done.
+// Still overridable per-institution via the policy row; this is the default.
+const GRADUATION_DEFAULT_PCT = 100;
 
 /** Roster row: enrollment joined with the student profile. */
 export interface FoundationsRosterEntry extends FoundationsEnrollment {
@@ -441,6 +443,18 @@ export class FoundationsService extends BaseService {
     dto: ReviewFoundationsResponseDto,
     reviewerId: string
   ): Promise<FoundationsResponse> {
+    // Hardening: only a SUBMITTED (or already-reviewed) worksheet can be reviewed.
+    // Reviewing a draft would wrongly flip it to 'reviewed' and count it complete.
+    const { data: existing, error: exErr } = await this.supabase
+      .from('ss_foundations_responses')
+      .select('status')
+      .eq('id', responseId)
+      .single();
+    if (exErr) throw new Error('Response not found');
+    if (existing.status === 'draft') {
+      throw new Error('This worksheet has not been submitted yet, so it cannot be reviewed.');
+    }
+
     const { data, error } = await this.supabase
       .from('ss_foundations_responses')
       .update({
