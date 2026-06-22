@@ -50,6 +50,7 @@ import {
   Building2,
   User,
   FileText,
+  Pencil,
 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
@@ -71,6 +72,7 @@ function IndentDetailPageInner() {
   const id = params.id as string;
   const { canAccess, isSuperAdmin } = usePermissions();
   const canApprove = isSuperAdmin || canAccess('ims.indents', 'approve');
+  const canEdit = isSuperAdmin || canAccess('ims.indents', 'edit');
   const canDispatch = isSuperAdmin || canAccess('ims.transfers', 'dispatch');
   const canReceive = isSuperAdmin || canAccess('ims.transfers', 'receive');
 
@@ -118,6 +120,11 @@ function IndentDetailPageInner() {
   const isPendingApproval = indent.status === 'pending_approval';
   const isRequester = indent.requested_by === profile?.id;
   const canConfirmDelivery = indent.status === 'issued' && isRequester && canReceive;
+  // Edit allowed only pre-approval, by the requester (or a privileged user).
+  const isEditable =
+    (indent.status === 'draft' || indent.status === 'pending_approval') &&
+    canEdit &&
+    (isRequester || isSuperAdmin);
 
   const allItemsIssued =
     indent.items &&
@@ -209,6 +216,15 @@ function IndentDetailPageInner() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {isEditable && (
+              <Button
+                variant="outline"
+                onClick={() => router.push(`/ims/indents/${id}/edit`)}
+              >
+                <Pencil className="mr-2 h-4 w-4" />
+                Edit
+              </Button>
+            )}
             {isPendingApproval && canApprove && (
               <>
                 <Button
