@@ -610,6 +610,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Startup Studio
   // Added 2026-04-24 (Wave 2b PR-S2): module root for the flat sidebar row.
   '/startup-studio': 'startup_studio.analytics.view',
+  // Foundations (Level 0) — student journey reads .view; cohort admin reads .manage;
+  // the review queue reads .review. /foundations/[worksheetId] inherits the .view of
+  // its /foundations parent via the route-matcher (most-specific match wins).
+  '/startup-studio/foundations': 'startup_studio.foundations.view',
+  '/startup-studio/foundations/my-journey': 'startup_studio.foundations.view',
+  '/startup-studio/foundations/cohorts': 'startup_studio.foundations.manage',
+  '/startup-studio/foundations/review': 'startup_studio.foundations.review',
   '/startup-studio/portfolio': 'startup_studio.analytics.view',
   '/startup-studio/mentors': 'startup_studio.analytics.view',
   '/startup-studio/alumni': 'startup_studio.analytics.view',

@@ -1,6 +1,6 @@
 {
   "project": "MyJKKN - HR Module + Exotel",
-  "lastUpdated": "2026-05-16",
+  "lastUpdated": "2026-06-02",
   "_schema": {
     "version": "2.0",
     "updated": "2026-05-02",
@@ -16,6 +16,20 @@
     "enforcement": "Specs missing `outcome_metric` block are invalid. /myjkkn-chain Q0 enforces this gate at spec-time. Cross-domain commitments mirrored to ~/Vaults/JKKNKB/Strategy/Locked-Initiatives.md via /lock-initiative skill."
   },
   "features": [
+    {
+      "id": "startup-studio-foundations-level0",
+      "name": "Startup Studio — Foundations (Level 0): pre-Appathon founder-formation on-ramp",
+      "status": "planned",
+      "outcome_metric": {
+        "metric_name": "appathon_conversion_rate_foundations: count(distinct Foundations-completers who registered AND submitted at the next Appathon) * 100 / count(distinct Foundations-completers)",
+        "baseline_value": "TBD — measure at launch. Cold-entry Appathon submission-rate among enrollees with NO Foundations completion. Read-only query in specs/startup-studio-foundations-level0-spec-2026-06-01.md §Q0 (hand to a Supabase-MCP session / Server Claude).",
+        "threshold_90d": "Foundations-completers submit at the next Appathon at >= cold-entry baseline + 20 percentage points (provisional per Director directive 2026-06-01; re-pin after baseline measured)",
+        "kill_criterion": "If completers convert at <= baseline (zero lift) at the first post-launch Appathon, the on-ramp failed to widen the funnel — revise curriculum sequencing OR archive Level 0. Do NOT extend the timeline to mask a flat result.",
+        "verdict_date": "first Appathon within 90 days of Phase-1 merge (EVENT-GATED, provisional — Appathons are not continuous; re-pin to the actual next Appathon date at launch)",
+        "verdict_status": "PENDING — baseline not yet measured; threshold provisional (+20pp)"
+      },
+      "notes": "Spec: specs/startup-studio-foundations-level0-spec-2026-06-01.md (incl. §16 assumption-thrash). EXTENDS the sf100 worksheet engine (sf100_exercises.fields JSONB + sf100_exercise_responses.response_data JSONB + sf100-exercise-form renderer) into a NEW ss_foundations_* container (5 tables: cohorts, enrollments, worksheets, responses, response_versions). Adds Level 0 'Explorer' below Level 1 'App Builder' in progression.ts. Source curriculum: YCEO 'Think Startup' 18-session workbook. Chain gates (2026-06-01/02): prod-sweep clean; persona-design clean (3 perm keys startup_studio.foundations.{view,manage,review}, no new role; ss_ prefix already maps tables); Q1 worksheets=CRUDable table; Q3 graduation % via fn_get_policy_int('startup_studio.foundations_graduation_pct',80); engine +3 field types (matrix, markdown, image); four-test 3/4. /assumption-thrash: 12 decisions (studio-native, one canon set, submit=complete + review=quality-flag, both enrol, snapshot field-schema, versioned resubmit, private RLS, proxy-fill, auto-cert+notify, per-student-GLOBAL completion). PR-1 = migration 20260602000001_ss_foundations_substrate.sql (5 tables + RLS + 8 seeded worksheets) + permissions.ts keys. Branch feat/startup-studio-foundations-level0 off jicate/main (recovered cleanly 2026-06-22 after the original uncommitted edits were lost to branch churn). P1 ~3-4wk."
+    },
     {
       "id": "counselor-rules-engine-substrate",
       "name": "Counselor rules-engine — Phases 1-8a shipped (verdict 2026-06-30)",

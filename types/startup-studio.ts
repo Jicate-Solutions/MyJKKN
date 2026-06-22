@@ -653,7 +653,8 @@ export interface VoteSummary {
 
 export type TrackId = 'solve_for_100' | 'jicate_solutions' | 'solve_for_industry' | 'completed'
 
-export type ProgressionLevelNumber = 1 | 2 | 3 | 4 | 5
+// Level 0 = Foundations (pre-Appathon) Explorer rung; 1-5 are the Appathon→NIF ladder.
+export type ProgressionLevelNumber = 0 | 1 | 2 | 3 | 4 | 5
 
 export interface TrackDeclaration {
   id: string;
