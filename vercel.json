@@ -24,6 +24,10 @@
       "schedule": "37 21 * * *"
     },
     {
+      "path": "/api/cron/meeting-trigger-reconcile?secret=${CRON_SECRET}",
+      "schedule": "23 * * * *"
+    },
+    {
       "path": "/api/cron/meeting-calendar-watch-renew?secret=${CRON_SECRET}",
       "schedule": "41 */6 * * *"
     },
