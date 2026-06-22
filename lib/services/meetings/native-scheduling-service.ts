@@ -20,6 +20,7 @@
 import crypto from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { MeetingBookingEmailService } from '@/lib/services/email/meeting-booking-email-service';
+import { formatVenueDirections } from './venue-directions';
 import { GoogleCalendarService } from '@/lib/services/integrations/google-calendar-service';
 import { createZoomMeeting, isZoomConfigured } from '@/lib/services/integrations/zoom-service';
 import { createTeamsMeeting, isTeamsConfigured } from '@/lib/services/integrations/teams-service';
@@ -64,6 +65,8 @@ export interface NativeMeetingType {
   /** U1 (D4): where the meeting happens. */
   location_mode: 'in_person' | 'phone' | 'online';
   location_text: string | null;
+  /** PR1: linked "Spaces & Venues" room (in-person directions source). */
+  location_resource_id?: string | null;
   // ── Wave-3 variants + lifecycle (migration 20260619000100). The columns are
   //    not in types/supabase.ts yet — getMeetingType reads them via select('*'). ──
   /** solo (default) | group | collective | round_robin. */
@@ -756,6 +759,27 @@ export class NativeSchedulingService {
     const wantsVideo = mt.location_mode === 'online';
     const provider = wantsVideo ? await this.resolveVideoProvider(supabase, primaryHost) : 'google';
 
+    // Venue-from-resource PR1: for an in-person type linked to a room, resolve
+    // its directions so the calendar event location + confirmation email tell
+    // the attendee exactly where to go. Best-effort: a lookup miss falls back to
+    // the type's free-text location. (supabase here is service-role.)
+    let venueDirections: string | null = null;
+    if (mt.location_mode === 'in_person' && mt.location_resource_id) {
+      const { data: room, error: roomErr } = await supabase
+        .from('resources')
+        .select('name, building_number, block_number, floor_number, room_number, location_notes')
+        .eq('id', mt.location_resource_id)
+        .maybeSingle();
+      if (roomErr) {
+        console.error('[native-scheduling] venue lookup failed:', roomErr.message);
+      } else {
+        venueDirections = formatVenueDirections(room as Record<string, string | null> | null);
+      }
+    }
+    // What the attendee sees as the place (room directions, else custom text).
+    const venueForAttendee =
+      mt.location_mode === 'in_person' ? venueDirections ?? mt.location_text : null;
+
     // A Google Calendar event always blocks the host's calendar + invites the
     // attendee when a connection exists. We only ask Google for a Meet link when
     // the host's provider is 'google'; for zoom/teams the event still rides (no
@@ -776,6 +800,7 @@ export class NativeSchedulingService {
         timezone: sched.timezone,
         attendees: [{ email: input.attendeeEmail, displayName: input.attendeeName }],
         withMeet: wantsVideo && provider === 'google',
+        location: venueForAttendee ?? undefined,
       });
       if (event) {
         googleEventId = event.eventId;
@@ -819,7 +844,8 @@ export class NativeSchedulingService {
       attendeeEmail: input.attendeeEmail,
       attendeePhone: input.attendeePhone ?? null,
       locationMode: mt.location_mode,
-      locationText: mt.location_text,
+      // PR1: prefer resolved room directions; fall back to the type's free text.
+      locationText: venueForAttendee ?? mt.location_text,
       videoUrl,
       cancelUrl,
       rescheduleUrl,
