@@ -13,7 +13,7 @@ import {
   TooltipProvider
 } from '@/components/ui/tooltip';
 import { motion, AnimatePresence } from 'motion/react';
-import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
+import { GetRoleBasedPages, RolePermissionData, MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
 import { getModulesBySection } from '@/lib/navigation/modules';
 import { getPageRegistry, getPageByPath } from '@/lib/navigation/page-registry';
 import { filterByPermissions } from '@/lib/navigation/permission-filter';
@@ -377,6 +377,14 @@ export function Menu({ isOpen }: MenuProps) {
                               path: sub.href,
                               title: sub.label,
                               module: moduleSlug ?? '',
+                              // Hand-authored `submenus` carry no permission of their
+                              // own, so filterByPermissions used to treat them as
+                              // "no permission required → visible to all" — leaking the
+                              // full menu (e.g. IMS) to users who only hold a subset of
+                              // the module's permissions. Attach the route's permission
+                              // from the manifest, falling back to MENU_PERMISSIONS, so
+                              // each child is gated like auto-discovered pages are.
+                              permission: fromManifest?.permission ?? MENU_PERMISSIONS[sub.href],
                               icon: fromManifest?.icon ?? FileText,
                               iconName: fromManifest?.iconName ?? 'FileText',
                               keywords: [],

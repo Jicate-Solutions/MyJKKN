@@ -1064,6 +1064,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/indents/new': 'ims.indents.create',
   '/ims/indents/pending': 'ims.indents.approve',
   '/ims/indents/[id]': 'ims.indents.view',
+  '/ims/indents/[id]/edit': 'ims.indents.edit',
   // Inventory
   '/ims/inventory': 'ims.inventory.view',
   '/ims/inventory/items': 'ims.inventory.view',
