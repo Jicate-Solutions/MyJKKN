@@ -9,9 +9,9 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
-import { useCdcProgramme, useCdcEnrollments, useUpdateCdcEnrollment } from '@/hooks/cdc/use-cdc-training';
+import { useCdcProgramme, useCdcEnrollments, useUpdateCdcEnrollment, useSyncTrainingAttendance } from '@/hooks/cdc/use-cdc-training';
 import { useAuth } from '@/hooks/use-auth';
-import { ArrowLeft, Calendar, BookOpen, Users, Building2, Plus, CheckCircle2, XCircle, Upload } from 'lucide-react';
+import { ArrowLeft, Calendar, BookOpen, Users, Building2, Plus, CheckCircle2, XCircle, Upload, RefreshCw, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { AddEnrollmentDialog } from './_components/add-enrollment-dialog';
 import { BulkEnrollDialog } from './_components/bulk-enroll-dialog';
@@ -50,8 +50,10 @@ function TrainingProgrammeDetailContent({ params }: Props) {
   const { data: programme, isLoading } = useCdcProgramme(id);
   const { data: enrollments, isLoading: enrollmentsLoading } = useCdcEnrollments({ programme_id: id });
   const updateEnrollment = useUpdateCdcEnrollment();
+  const syncAttendance = useSyncTrainingAttendance(id);
   const [addOpen, setAddOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const hasWindow = !!programme?.start_date && !!programme?.end_date;
 
   const canManage = profile?.is_super_admin ||
     profile?.role === 'admin' ||
@@ -167,6 +169,20 @@ function TrainingProgrammeDetailContent({ params }: Props) {
             </h2>
             <PermissionGuard module="cdc.training" action="edit">
               <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!hasWindow || syncAttendance.isPending || (enrollments ?? []).length === 0}
+                  title={hasWindow
+                    ? 'Recompute each learner’s attendance from the academic attendance records over this programme’s date window'
+                    : 'Set the programme start and end dates first'}
+                  onClick={() => syncAttendance.mutate()}
+                >
+                  {syncAttendance.isPending
+                    ? <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                    : <RefreshCw className="w-4 h-4 mr-1" />}
+                  Recompute attendance
+                </Button>
                 <Button size="sm" variant="outline" onClick={() => setBulkOpen(true)}>
                   <Upload className="w-4 h-4 mr-1" /> Bulk Add
                 </Button>
@@ -198,9 +214,23 @@ function TrainingProgrammeDetailContent({ params }: Props) {
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
-                    {enrollment.attendance_pct != null && (
-                      <span className="text-xs text-muted-foreground">{enrollment.attendance_pct}% attendance</span>
-                    )}
+                    {enrollment.attendance_pct != null ? (
+                      <span
+                        className="text-xs text-muted-foreground"
+                        title={enrollment.attendance_source === 'auto_window' && enrollment.attendance_basis
+                          ? `Computed from ${enrollment.attendance_basis.records_present ?? 0}/${enrollment.attendance_basis.records_total ?? 0} attendance records in the programme window`
+                          : 'Manually entered'}
+                      >
+                        {enrollment.attendance_pct}% attendance
+                        {enrollment.attendance_source === 'auto_window' && (
+                          <span className="ml-1 text-[10px] uppercase tracking-wide text-emerald-600">auto</span>
+                        )}
+                      </span>
+                    ) : enrollment.attendance_source === 'auto_window' ? (
+                      <span className="text-xs text-amber-600" title="No attendance records found in the programme date window — not the same as 0% attendance.">
+                        No records in window
+                      </span>
+                    ) : null}
                     <Badge className={`text-xs ${ENROLLMENT_STATUS_COLORS[enrollment.status as EnrollmentStatus] ?? ''}`}>
                       {enrollment.status}
                     </Badge>
