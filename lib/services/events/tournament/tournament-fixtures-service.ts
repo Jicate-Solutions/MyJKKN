@@ -7,6 +7,7 @@ import type {
   TournamentMatch,
   ScheduleMatchDto,
   GenerateFixturesResult,
+  RecordResultDto,
 } from '@/types/tournament';
 
 async function asJson<T>(res: Response): Promise<T> {
@@ -51,5 +52,19 @@ export class TournamentFixturesService {
       body: JSON.stringify(dto),
     });
     return asJson<{ match: TournamentMatch; clash: unknown[] | null; warning: string | null }>(res);
+  }
+
+  /** Record a match result (advances the knockout winner). */
+  static async recordResult(
+    eventId: string,
+    matchId: string,
+    dto: RecordResultDto
+  ): Promise<{ match: TournamentMatch }> {
+    const res = await fetch(`/api/events/tournament/${eventId}/matches/${matchId}/result`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dto),
+    });
+    return asJson<{ match: TournamentMatch }>(res);
   }
 }

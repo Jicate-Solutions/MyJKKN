@@ -302,3 +302,80 @@ export interface GenerateFixturesResult {
   matches_created: number;
 }
 
+// ============================================================================
+// PR4 — Results + standings + public scoreboard
+// ============================================================================
+
+/** Record a match result. status: completed (winner required) | walkover | disqualified. */
+export interface RecordResultDto {
+  status: 'completed' | 'walkover' | 'disqualified';
+  winner_entry_id?: string | null;
+  score_a?: number | null;
+  score_b?: number | null;
+  sets?: unknown | null;
+  notes?: string | null;
+}
+
+/** A computed standings row (round-robin / league / pool table). */
+export interface StandingsRow {
+  division_id: string;
+  pool: string | null;
+  entry_id: string;
+  entry_name: string;
+  institution_name: string | null;
+  played: number;
+  won: number;
+  lost: number;
+  drawn: number;
+  points: number;
+}
+
+/** Public scoreboard payload (fn_tournament_public_scoreboard) — NO PII. */
+export interface PublicScoreboard {
+  tournament: {
+    id: string;
+    name: string;
+    start_date: string | null;
+    end_date: string | null;
+    venue: string | null;
+    venue_text: string | null;
+    status: string;
+    scope: string;
+    visibility: string;
+  };
+  divisions: Array<{
+    id: string;
+    sport: string;
+    gender: string | null;
+    age_band: string | null;
+    format: string;
+    level: string | null;
+  }>;
+  entries: Array<{
+    id: string;
+    division_id: string;
+    entry_name: string;
+    institution_name: string | null;
+    is_external: boolean;
+    seed: number | null;
+    final_rank: number | null;
+    status: string;
+  }>;
+  matches: Array<{
+    id: string;
+    division_id: string;
+    round_no: number;
+    round_label: string | null;
+    match_no: number;
+    pool: string | null;
+    side_a_name: string | null;
+    side_b_name: string | null;
+    score_a: number | null;
+    score_b: number | null;
+    status: MatchStatus;
+    scheduled_at: string | null;
+    winner_name: string | null;
+  }>;
+  standings: StandingsRow[];
+}
+

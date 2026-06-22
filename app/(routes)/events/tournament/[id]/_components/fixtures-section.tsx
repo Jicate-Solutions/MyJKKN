@@ -17,10 +17,21 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Loader2, GitBranch, CalendarClock, RefreshCw, Swords } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Loader2, GitBranch, CalendarClock, RefreshCw, Swords, Trophy } from 'lucide-react';
 import { format } from 'date-fns';
-import type { TournamentMatch } from '@/types/tournament';
-import { useGenerateFixtures, useScheduleMatch } from '@/hooks/events/use-tournament-fixtures';
+import type { TournamentMatch, RecordResultDto } from '@/types/tournament';
+import {
+  useGenerateFixtures,
+  useScheduleMatch,
+  useRecordResult,
+} from '@/hooks/events/use-tournament-fixtures';
 
 function MatchStatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -100,6 +111,104 @@ function ScheduleDialog({
   );
 }
 
+function ResultDialog({
+  eventId,
+  match,
+  open,
+  onOpenChange,
+}: {
+  eventId: string;
+  match: TournamentMatch;
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
+  const record = useRecordResult(eventId);
+  const [status, setStatus] = useState<RecordResultDto['status']>('completed');
+  const [winner, setWinner] = useState<string>('');
+  const [scoreA, setScoreA] = useState('');
+  const [scoreB, setScoreB] = useState('');
+
+  const aId = match.side_a_entry_id;
+  const bId = match.side_b_entry_id;
+
+  async function submit() {
+    // completed requires a winner; walkover/DQ also set a winner (the advancing side)
+    if (!winner) return;
+    await record.mutateAsync({
+      matchId: match.id,
+      dto: {
+        status,
+        winner_entry_id: winner,
+        score_a: scoreA ? Number(scoreA) : null,
+        score_b: scoreB ? Number(scoreB) : null,
+        notes: null,
+      },
+    });
+    onOpenChange(false);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Record result</DialogTitle>
+          <DialogDescription>
+            {(match.side_a_name ?? 'TBD')} vs {(match.side_b_name ?? 'TBD')}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="space-y-1.5">
+            <Label>Outcome</Label>
+            <Select value={status} onValueChange={(v) => setStatus(v as RecordResultDto['status'])}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="completed">Completed (played)</SelectItem>
+                <SelectItem value="walkover">Walkover (no-show)</SelectItem>
+                <SelectItem value="disqualified">Disqualification</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>{status === 'disqualified' ? 'Advancing side (the non-DQ side)' : 'Winner'}</Label>
+            <Select value={winner} onValueChange={setWinner}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select the winning side" />
+              </SelectTrigger>
+              <SelectContent>
+                {aId && <SelectItem value={aId}>{match.side_a_name ?? 'Side A'}</SelectItem>}
+                {bId && <SelectItem value={bId}>{match.side_b_name ?? 'Side B'}</SelectItem>}
+              </SelectContent>
+            </Select>
+          </div>
+          {status === 'completed' && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>{match.side_a_name ?? 'Side A'} score</Label>
+                <Input type="number" value={scoreA} onChange={(e) => setScoreA(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>{match.side_b_name ?? 'Side B'} score</Label>
+                <Input type="number" value={scoreB} onChange={(e) => setScoreB(e.target.value)} />
+              </div>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={record.isPending}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={record.isPending || !winner}>
+            {record.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Save result
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function DivisionFixtures({
   eventId,
   divisionId,
@@ -113,6 +222,7 @@ export function DivisionFixtures({
 }) {
   const generate = useGenerateFixtures(eventId);
   const [scheduling, setScheduling] = useState<TournamentMatch | null>(null);
+  const [recording, setRecording] = useState<TournamentMatch | null>(null);
 
   const byRound = useMemo(() => {
     const m = new Map<number, TournamentMatch[]>();
@@ -207,6 +317,18 @@ export function DivisionFixtures({
                       <CalendarClock className="h-3.5 w-3.5" />
                     </Button>
                   )}
+                  {/* Record result — only once both sides are known and not a bye */}
+                  {m.status !== 'bye' && m.side_a_entry_id && m.side_b_entry_id && (
+                    <Button
+                      size="sm"
+                      variant={m.status === 'completed' ? 'ghost' : 'outline'}
+                      className="h-7"
+                      onClick={() => setRecording(m)}
+                      title={m.status === 'completed' ? 'Edit result' : 'Record result'}
+                    >
+                      <Trophy className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>
@@ -220,6 +342,14 @@ export function DivisionFixtures({
           match={scheduling}
           open={!!scheduling}
           onOpenChange={(v) => !v && setScheduling(null)}
+        />
+      )}
+      {recording && (
+        <ResultDialog
+          eventId={eventId}
+          match={recording}
+          open={!!recording}
+          onOpenChange={(v) => !v && setRecording(null)}
         />
       )}
     </div>
