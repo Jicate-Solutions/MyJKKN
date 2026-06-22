@@ -1733,6 +1733,21 @@ export const PERMISSION_CATEGORIES = [
       { key: 'health.programs.manage', label: 'Manage Wellness Programs' }
     ]
   },
+  // Added 2026-06-22 — Sports Tournament Conducting (PR1). A tournament is an
+  // events row (event_type='sports_tournament') on the shared events platform;
+  // these keys gate the /events/tournament UI and the tournament_divisions RLS.
+  // Granted to the new `sports_coordinator` role (see migration
+  // 20260622110716_sports_tournament_pr1.sql).
+  {
+    name: 'Sports Tournaments',
+    key: 'sports',
+    permissions: [
+      { key: 'sports.tournaments.view', label: 'View Sports Tournaments' },
+      { key: 'sports.tournaments.create', label: 'Create Sports Tournaments' },
+      { key: 'sports.tournaments.edit', label: 'Edit Sports Tournaments' },
+      { key: 'sports.tournaments.manage', label: 'Manage Sports Tournaments (Divisions, Lifecycle)' }
+    ]
+  },
   // Added 2026-04-27 — IMS (Inventory Management System) module integration
   // into MyJKKN role-based access. Taxonomy follows Admission CRM precedent
   // (module-level granularity ~28 keys) plus critical action keys for
