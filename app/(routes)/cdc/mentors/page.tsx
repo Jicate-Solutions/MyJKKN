@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/select';
 import { useMentorPairingList } from '@/hooks/cdc/use-cdc-mentors';
 import type { MentorPairingFilters, MentoringStatus } from '@/types/cdc/mentors';
-import { Plus, UserCog } from 'lucide-react';
+import { Plus, UserCog, Activity } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 
 const STATUS_COLORS: Record<MentoringStatus, string> = {
@@ -56,14 +56,22 @@ export default function MentorPairingsPage() {
             <UserCog className="w-6 h-6 text-blue-600" />
             Mentor Pairings
           </h1>
-          <PermissionGuard module="cdc.mentors" action="create">
-            <Button asChild>
-              <Link href="/cdc/mentors/new">
-                <Plus className="w-4 h-4 mr-1" />
-                New Pairing
+          <div className="flex items-center gap-2">
+            <Button variant="outline" asChild>
+              <Link href="/cdc/mentors/rollups">
+                <Activity className="w-4 h-4 mr-1" />
+                Activity
               </Link>
             </Button>
-          </PermissionGuard>
+            <PermissionGuard module="cdc.mentors" action="create">
+              <Button asChild>
+                <Link href="/cdc/mentors/new">
+                  <Plus className="w-4 h-4 mr-1" />
+                  New Pairing
+                </Link>
+              </Button>
+            </PermissionGuard>
+          </div>
         </div>
 
         {/* Filter */}
