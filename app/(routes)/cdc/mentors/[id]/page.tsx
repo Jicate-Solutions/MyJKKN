@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useMentorPairingById, useUpdateMentorPairing } from '@/hooks/cdc/use-cdc-mentors';
+import { MentorSessionsCard } from '@/components/cdc/mentor-sessions-card';
 import { BeatLoader } from 'react-spinners';
 import type { MentoringStatus } from '@/types/cdc/mentors';
 import { ArrowLeft, User } from 'lucide-react';
@@ -132,6 +133,9 @@ function MentorPairingDetailContent({ params }: PageProps) {
             <CardContent className="text-sm text-gray-600">{pairing.notes}</CardContent>
           </Card>
         )}
+
+        {/* Sessions (BUG-004198) — log + rollup for this peer pairing */}
+        <MentorSessionsCard kind="peer" pairingId={id} canLog={status !== 'concluded'} />
 
         {pairing.concluded_at && (
           <p className="text-sm text-gray-500">
