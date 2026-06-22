@@ -819,6 +819,15 @@ export const PERMISSION_CATEGORIES = [
       // SF100 — Audit Log
       { key: 'startup_studio.sf100.audit_log.view', label: 'SF100 — View Audit Log' },
 
+      // -----------------------------------------------------------------
+      // Foundations (Level 0) — pre-Appathon founder-formation on-ramp
+      // Spec: specs/startup-studio-foundations-level0-spec-2026-06-01.md
+      // Student participation is enrollment-gated (no perm key), matching SF100.
+      // -----------------------------------------------------------------
+      { key: 'startup_studio.foundations.view', label: 'Foundations — View cohorts & worksheets' },
+      { key: 'startup_studio.foundations.manage', label: 'Foundations — Manage cohorts, worksheets & enrolment' },
+      { key: 'startup_studio.foundations.review', label: 'Foundations — Review submissions (mentor feedback)' },
+
       // NIF Pipeline (Nattraja Incubation Forum)
       { key: 'startup_studio.nif.view', label: 'NIF — View Pipeline' },
       { key: 'startup_studio.nif.manage', label: 'NIF — Manage Candidates' },
