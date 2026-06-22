@@ -1,6 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -10,10 +12,15 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Loader2, ArrowUpCircle } from 'lucide-react';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useAuth } from '@/hooks/use-auth';
 import { useCategoryUpgradesReport } from '@/hooks/campus-living/use-category-upgrades-report';
+import { LearnerHosteliteService } from '@/lib/services/campus-living/learner-hostelite-service';
+import type { LearnerHostelitesFilters, BlockFilterValue } from '@/types/campus-living';
 import type {
   UpgradeStatusFilter, UpgradeKindFilter,
 } from '@/types/campus-living/category-upgrade-report';
+import { LearnersFilters } from './learners-filters';
 
 const inr = (n: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n);
@@ -22,9 +29,56 @@ const fmtDate = (s: string) =>
 
 export function UpgradesTab() {
   const { data: rows = [], isLoading } = useCategoryUpgradesReport();
+  const { isSuperAdmin } = usePermissions();
+  const { profile } = useAuth();
+  const searchParams = useSearchParams();
   const [status, setStatus] = useState<UpgradeStatusFilter>('all');
   const [kind, setKind] = useState<UpgradeKindFilter>('all');
   const [search, setSearch] = useState('');
+
+  // Shared advanced filters (same <LearnersFilters> as the Learners / Upgrade
+  // Categories tabs) drive URL params. This report lists upgrade-fee BILLS, not
+  // the v_learner_hostelites surface, so the cascade can't filter its columns
+  // directly. Instead we resolve the matching learner-id set from the same
+  // hostelite query the other tabs use and keep only bills for those learners.
+  // The view is active-hostelite-only, so an applied filter narrows to current
+  // residents — acceptable (today's upgrade bills are all for active learners).
+  const filterParams = useMemo<Omit<LearnerHostelitesFilters, 'search' | 'sortBy' | 'sortOrder'>>(() => {
+    const f: Omit<LearnerHostelitesFilters, 'search' | 'sortBy' | 'sortOrder'> = {};
+    const g = (k: string) => searchParams.get(k) ?? undefined;
+    if (isSuperAdmin && g('institution_id')) f.institution_id = g('institution_id');
+    if (g('degree_id')) f.degree_id = g('degree_id');
+    if (g('department_id')) f.department_id = g('department_id');
+    if (g('program_id')) f.program_id = g('program_id');
+    if (g('semester_id')) f.semester_id = g('semester_id');
+    if (g('section_id')) f.section_id = g('section_id');
+    if (g('academic_year_id')) f.academic_year_id = g('academic_year_id');
+    if (g('gender')) f.gender = g('gender') as 'Male' | 'Female' | 'Other';
+    if (g('block_id')) f.block_id = g('block_id') as BlockFilterValue;
+    if (g('hostel_category_id')) f.hostel_category_id = g('hostel_category_id');
+    const y = g('year_of_study');
+    if (y) f.year_of_study = Number(y);
+    return f;
+  }, [searchParams, isSuperAdmin]);
+
+  const hasAdvancedFilter = Object.keys(filterParams).length > 0;
+  const effectiveInstitutionId: string | undefined = isSuperAdmin
+    ? undefined
+    : (profile?.institution_id ?? undefined);
+
+  // Resolve matching learner ids only when a filter is active (otherwise the
+  // full bills report shows). Single pull with a page size well above the
+  // current hostelite count (~900); revisit (paginate) if hostelites exceed it.
+  const { data: matchingIds, isLoading: idsLoading } = useQuery({
+    queryKey: ['campus-living', 'upgrades-report', 'match-ids', effectiveInstitutionId, filterParams],
+    queryFn: async () => {
+      const { data } = await LearnerHosteliteService.listHostelites(
+        effectiveInstitutionId, filterParams, 1, 2000,
+      );
+      return new Set(data.map((d) => d.id));
+    },
+    enabled: hasAdvancedFilter,
+  });
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -33,12 +87,19 @@ export function UpgradesTab() {
       if (status === 'pending' && r.status_label !== 'Pending') return false;
       if (kind !== 'all' && r.kind !== kind) return false;
       if (q && !(`${r.learner_name} ${r.roll_number ?? ''}`.toLowerCase().includes(q))) return false;
+      if (hasAdvancedFilter && matchingIds && !matchingIds.has(r.learner_id)) return false;
       return true;
     });
-  }, [rows, status, kind, search]);
+  }, [rows, status, kind, search, hasAdvancedFilter, matchingIds]);
+
+  // While the id set is still resolving, show the loader instead of a transient
+  // unfiltered list.
+  const resolvingFilter = hasAdvancedFilter && idsLoading;
 
   return (
     <div className='space-y-4'>
+      <LearnersFilters />
+
       <div className='flex flex-col gap-3 sm:flex-row sm:items-end'>
         <div className='space-y-1'>
           <label className='text-xs text-muted-foreground'>Status</label>
@@ -73,7 +134,7 @@ export function UpgradesTab() {
         </div>
       </div>
 
-      {isLoading ? (
+      {isLoading || resolvingFilter ? (
         <div className='flex items-center text-sm text-muted-foreground py-8'>
           <Loader2 className='mr-2 h-4 w-4 animate-spin' /> Loading upgrades…
         </div>
