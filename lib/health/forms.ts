@@ -43,6 +43,7 @@ export const FIELD_TYPE_LABELS: Record<FormFieldType, string> = {
   short_text: 'Short text',
   paragraph: 'Paragraph',
   scale: 'Rating scale',
+  date: 'Date',
 };
 
 export const FIELD_TYPE_ORDER: FormFieldType[] = [
@@ -52,6 +53,7 @@ export const FIELD_TYPE_ORDER: FormFieldType[] = [
   'short_text',
   'paragraph',
   'scale',
+  'date',
 ];
 
 export function makeBlankOption(isCorrect = false): FormFieldOption {
@@ -104,6 +106,9 @@ function normalizeField(f: unknown): FormField {
           : '',
     required: typeof obj.required === 'boolean' ? obj.required : undefined,
   };
+  if (typeof obj.description === 'string' && obj.description.trim()) {
+    field.description = obj.description;
+  }
   if (isChoiceType(type)) {
     field.graded = !!obj.graded;
     field.options = Array.isArray(obj.options)

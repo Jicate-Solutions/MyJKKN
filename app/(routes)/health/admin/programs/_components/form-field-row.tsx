@@ -60,7 +60,13 @@ export function FormFieldRow({
   function changeType(type: FormFieldType) {
     // Rebuild type-specific scaffolding while keeping the label + required flag.
     const rebuilt = makeBlankField(type);
-    onChange({ ...rebuilt, id: field.id, label: field.label, required: field.required });
+    onChange({
+      ...rebuilt,
+      id: field.id,
+      label: field.label,
+      description: field.description,
+      required: field.required,
+    });
   }
 
   function updateOption(optId: string, next: FormFieldOption) {
@@ -167,6 +173,18 @@ export function FormFieldRow({
             </SelectContent>
           </Select>
         </div>
+      </div>
+
+      {/* Optional helper sub-text shown under the question (all types) */}
+      <div className="mt-3 space-y-1.5">
+        <Label className="text-xs">Description (optional)</Label>
+        <Input
+          value={field.description ?? ''}
+          onChange={(e) =>
+            onChange({ ...field, description: e.target.value })
+          }
+          placeholder="Helper text shown under the question"
+        />
       </div>
 
       {/* Choice options */}
