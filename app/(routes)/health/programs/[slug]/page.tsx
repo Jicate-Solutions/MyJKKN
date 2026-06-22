@@ -238,10 +238,17 @@ function FormFieldInput({
 }) {
   const opts = field.options ?? [];
   const label = (
-    <p className="text-sm font-medium leading-snug text-slate-800">
-      {index + 1}. {field.label}
-      {field.required && <span className="ml-1 text-rose-500">*</span>}
-    </p>
+    <div className="space-y-0.5">
+      <p className="text-sm font-medium leading-snug text-slate-800">
+        {index + 1}. {field.label}
+        {field.required && <span className="ml-1 text-rose-500">*</span>}
+      </p>
+      {field.description?.trim() && (
+        <p className="text-xs leading-snug text-slate-500">
+          {field.description}
+        </p>
+      )}
+    </div>
   );
 
   if (field.type === 'single_choice') {
@@ -394,6 +401,20 @@ function FormFieldInput({
             <span>{field.scale_max_label}</span>
           </div>
         )}
+      </div>
+    );
+  }
+
+  if (field.type === 'date') {
+    return (
+      <div className="space-y-2.5">
+        {label}
+        <Input
+          type="date"
+          value={typeof value === 'string' ? value : ''}
+          onChange={(e) => onText(e.target.value)}
+          className="w-auto"
+        />
       </div>
     );
   }

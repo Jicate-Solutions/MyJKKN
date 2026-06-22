@@ -268,6 +268,95 @@ const FLEX_QUERIES: Record<
   },
 };
 
+// ------------------------------------------------------------------
+// Proof bundle — supporting offer-letter documents for NAAC 5.2.1 / AICTE
+// (BUG-004082)
+// ------------------------------------------------------------------
+// Returns the list of offer-letter documents for the SAME placement set the
+// NAAC 5.2.1 export covers (cdc_placements where status = 'accepted'). The
+// caller (a CDC-staff-gated API route) hands this manifest to the browser,
+// which fetches each public cdc-docs URL and bundles them into a ZIP via
+// jszip. We return only { url, filename } — no PII beyond what the offer
+// letter itself contains — and let the client do the heavy file fetching so
+// the server never has to buffer N PDFs into memory.
+//
+// `offer_letter_url` is a public cdc-docs URL (uploaded via getPublicUrl on
+// the placements/internships forms). Placements with a null offer letter are
+// skipped here — the caller toasts "no proofs found" when this list is empty.
+//
+// RLS: this read runs under the regular server client (session-scoped). The
+// cdc_placements_read policy returns all rows to is_cdc_staff() and only the
+// learner's own row otherwise — so the API route MUST keep its app-layer
+// CDC-staff role gate (mirrors the NAAC route) to prevent a learner from
+// pulling the institution-wide set.
+// ------------------------------------------------------------------
+export interface PlacementProof {
+  url: string;
+  filename: string;
+}
+
+function sanitizeSegment(value: string | null | undefined, fallback: string): string {
+  const s = (value ?? '').trim();
+  if (!s) return fallback;
+  return s.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
+}
+
+function extensionFromUrl(url: string, fallback = 'pdf'): string {
+  // Strip query string, take the last path segment's extension.
+  const clean = url.split('?')[0].split('#')[0];
+  const m = clean.match(/\.([a-zA-Z0-9]{1,5})$/);
+  return m ? m[1].toLowerCase() : fallback;
+}
+
+export async function listPlacementProofs(): Promise<PlacementProof[]> {
+  const supabase = await createClient();
+
+  const { data, error } = await (supabase as any)
+    .from('cdc_placements')
+    .select(
+      `
+      id,
+      offer_letter_url,
+      learner:learners_profiles(register_number, first_name, last_name),
+      recruiter:cdc_recruiters(name)
+    `
+    )
+    .eq('status', 'accepted')
+    .not('offer_letter_url', 'is', null)
+    .order('accepted_at', { ascending: false });
+
+  if (error) throw new Error(`Proof listing failed: ${error.message}`);
+
+  // Build a unique, human-readable filename per proof. Collisions (same
+  // register number + recruiter) get a short id suffix so nothing is silently
+  // overwritten inside the ZIP.
+  const seen = new Map<string, number>();
+  const proofs: PlacementProof[] = [];
+
+  for (const r of (data ?? []) as Array<{
+    id: string;
+    offer_letter_url: string | null;
+    learner: { register_number: string | null; first_name: string | null; last_name: string | null } | null;
+    recruiter: { name: string | null } | null;
+  }>) {
+    const url = r.offer_letter_url;
+    if (!url) continue; // defensive — query already filters nulls
+
+    const reg = sanitizeSegment(r.learner?.register_number, 'unknown');
+    const recruiter = sanitizeSegment(r.recruiter?.name, 'recruiter');
+    const ext = extensionFromUrl(url);
+
+    let base = `${reg}-${recruiter}`;
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    if (count > 0) base = `${base}-${r.id.slice(0, 8)}`;
+
+    proofs.push({ url, filename: `${base}.${ext}` });
+  }
+
+  return proofs;
+}
+
 export async function generateFlexExport(
   req: FlexExportRequest
 ): Promise<{ data: Buffer | string; filename: string; mime: string }> {

@@ -56,6 +56,8 @@ const VIEW_SELECT = [
   'program_name',
   'current_block_name',
   'current_block_code',
+  'current_room_number',
+  'current_bed_number',
   'degree_name',
   'semester_name',
   'academic_year_name',

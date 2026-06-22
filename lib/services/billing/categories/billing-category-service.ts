@@ -58,6 +58,7 @@ export class BillingCategoryService {
             category_name: data.category_name.trim(),
             amount: data.amount ?? null,
             frequency: data.frequency,
+            kind: data.kind,
             description: data.description?.trim() || null,
             is_active: data.is_active ?? true
           }
@@ -115,6 +116,7 @@ export class BillingCategoryService {
         updateData.category_name = data.category_name.trim();
       if (data.amount !== undefined) updateData.amount = data.amount;
       if (data.frequency) updateData.frequency = data.frequency;
+      if (data.kind) updateData.kind = data.kind;
       if (data.description !== undefined)
         updateData.description = data.description?.trim() || null;
       if (data.is_active !== undefined) updateData.is_active = data.is_active;
@@ -226,7 +228,7 @@ export class BillingCategoryService {
     filters: BillingCategoryFilters = {}
   ): Promise<BillingCategoryListResponse> {
     try {
-      const { search, frequency, isActive, page = 1, limit = 10 } = filters;
+      const { search, frequency, isActive, page = 1, limit = 10, sortBy, sortOrder } = filters;
 
       let query = (this.supabase as any)
         .from('billing_categories')
@@ -244,9 +246,17 @@ export class BillingCategoryService {
         query = query.eq('is_active', isActive);
       }
 
+      // Whitelist sortable columns (guards against arbitrary order-by injection from
+      // the DataTable). Default to category_name asc — the prior fixed behaviour.
+      const SORTABLE = new Set([
+        'category_name', 'kind', 'frequency', 'amount', 'is_active', 'created_at'
+      ]);
+      const orderColumn = sortBy && SORTABLE.has(sortBy) ? sortBy : 'category_name';
+      const ascending = orderColumn === 'category_name' ? sortOrder !== 'desc' : sortOrder === 'asc';
+
       const from = (page - 1) * limit;
       const to = from + limit - 1;
-      query = query.range(from, to).order('category_name', { ascending: true });
+      query = query.range(from, to).order(orderColumn, { ascending });
 
       const { data, count, error } = await query;
 

@@ -12,6 +12,9 @@ import type {
   UpdateEnrollmentDto,
   TrainingProgrammeFilters,
   EnrollmentFilters,
+  CdcTrainingSemesterSchedule,
+  CreateSemesterScheduleDto,
+  UpdateSemesterScheduleDto,
 } from '@/types/cdc/training';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -41,7 +44,8 @@ export class TrainingService {
       .select(`
         *,
         training_type:cdc_training_types(id, config_key, display_name),
-        institution:institutions(id, name)
+        institution:institutions(id, name),
+        target_department:departments(id, department_name)
       `)
       .order('created_at', { ascending: false });
 
@@ -78,7 +82,8 @@ export class TrainingService {
       .select(`
         *,
         training_type:cdc_training_types(id, config_key, display_name, description),
-        institution:institutions(id, name)
+        institution:institutions(id, name),
+        target_department:departments(id, department_name)
       `)
       .eq('id', id)
       .maybeSingle();
@@ -96,7 +101,8 @@ export class TrainingService {
       .select(`
         *,
         training_type:cdc_training_types(id, config_key, display_name),
-        institution:institutions(id, name)
+        institution:institutions(id, name),
+        target_department:departments(id, department_name)
       `)
       .single();
     if (error) {
@@ -114,7 +120,8 @@ export class TrainingService {
       .select(`
         *,
         training_type:cdc_training_types(id, config_key, display_name),
-        institution:institutions(id, name)
+        institution:institutions(id, name),
+        target_department:departments(id, department_name)
       `)
       .single();
     if (error) {
@@ -185,5 +192,59 @@ export class TrainingService {
       throw error;
     }
     return data as CdcTrainingEnrollment;
+  }
+
+  // ─── Semester Schedules (BUG-004200) ───────────────────────────────────
+
+  static async getSemesterSchedules(programmeId: string): Promise<CdcTrainingSemesterSchedule[]> {
+    const { data, error } = await db()
+      .from('cdc_training_semester_schedules')
+      .select('*')
+      .eq('programme_id', programmeId)
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (error) {
+      console.error('[cdc/training] getSemesterSchedules failed:', error);
+      throw error;
+    }
+    return (data ?? []) as CdcTrainingSemesterSchedule[];
+  }
+
+  static async addSemesterSchedule(dto: CreateSemesterScheduleDto): Promise<CdcTrainingSemesterSchedule> {
+    const { data, error } = await db()
+      .from('cdc_training_semester_schedules')
+      .insert(dto)
+      .select('*')
+      .single();
+    if (error) {
+      console.error('[cdc/training] addSemesterSchedule failed:', error);
+      throw error;
+    }
+    return data as CdcTrainingSemesterSchedule;
+  }
+
+  static async updateSemesterSchedule(id: string, dto: UpdateSemesterScheduleDto): Promise<CdcTrainingSemesterSchedule> {
+    const { data, error } = await db()
+      .from('cdc_training_semester_schedules')
+      .update({ ...dto, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select('*')
+      .single();
+    if (error) {
+      console.error('[cdc/training] updateSemesterSchedule failed:', error);
+      throw error;
+    }
+    return data as CdcTrainingSemesterSchedule;
+  }
+
+  static async deleteSemesterSchedule(id: string): Promise<void> {
+    const { error } = await db()
+      .from('cdc_training_semester_schedules')
+      .delete()
+      .eq('id', id);
+    if (error) {
+      console.error('[cdc/training] deleteSemesterSchedule failed:', error);
+      throw error;
+    }
   }
 }

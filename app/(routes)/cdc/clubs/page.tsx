@@ -12,15 +12,39 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '@/components/ui/select';
 import { useClubList } from '@/hooks/cdc/use-cdc-clubs';
-import type { ClubFilters } from '@/types/cdc/clubs';
+import type { ClubFilters, CdcClubStatus } from '@/types/cdc/clubs';
 import { Plus, Search, Users } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 
+// 'all' is a UI-only sentinel meaning "no status filter".
+type StatusFilterValue = CdcClubStatus | 'all';
+
+const STATUS_FILTERS: { value: StatusFilterValue; label: string }[] = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive' },
+  { value: 'upcoming', label: 'Upcoming' },
+];
+
+const STATUS_BADGE: Record<CdcClubStatus, { label: string; className: string }> = {
+  active: { label: 'Active', className: 'border-green-300 text-green-700 bg-green-50' },
+  inactive: { label: 'Inactive', className: 'border-gray-300 text-gray-600 bg-gray-50' },
+  upcoming: { label: 'Upcoming', className: 'border-amber-300 text-amber-700 bg-amber-50' },
+};
+
 export default function ClubsListPage() {
-  const [filters, setFilters] = useState<ClubFilters>({ page: 1, limit: 20, is_active: true });
+  // Default to the Active view (matches the prior "Active only" default).
+  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('active');
+  const filters: ClubFilters = {
+    page: 1,
+    limit: 20,
+    status: statusFilter === 'all' ? undefined : statusFilter,
+  };
   const [search, setSearch] = useState('');
 
   const { data, isLoading, error } = useClubList(filters);
@@ -70,14 +94,20 @@ export default function ClubsListPage() {
             />
           </div>
           <div className="flex items-center gap-2">
-            <Switch
-              id="active-only"
-              checked={filters.is_active !== false}
-              onCheckedChange={v =>
-                setFilters(f => ({ ...f, is_active: v ? true : undefined, page: 1 }))
-              }
-            />
-            <Label htmlFor="active-only">Active only</Label>
+            <Label htmlFor="status-filter" className="text-sm text-gray-600">Status</Label>
+            <Select
+              value={statusFilter}
+              onValueChange={v => setStatusFilter(v as StatusFilterValue)}
+            >
+              <SelectTrigger id="status-filter" className="w-[160px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                {STATUS_FILTERS.map(s => (
+                  <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -110,8 +140,13 @@ export default function ClubsListPage() {
                       <CardHeader className="pb-2">
                         <div className="flex items-start justify-between gap-2">
                           <CardTitle className="text-base">{c.name}</CardTitle>
-                          {!c.is_active && (
-                            <Badge variant="outline" className="text-xs shrink-0">Inactive</Badge>
+                          {c.status !== 'active' && (
+                            <Badge
+                              variant="outline"
+                              className={`text-xs shrink-0 ${STATUS_BADGE[c.status]?.className ?? ''}`}
+                            >
+                              {STATUS_BADGE[c.status]?.label ?? c.status}
+                            </Badge>
                           )}
                         </div>
                         {c.club_type && (

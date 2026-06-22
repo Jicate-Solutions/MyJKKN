@@ -23,7 +23,8 @@ export type FormFieldType =
   | 'dropdown' // select, gradable
   | 'short_text' // single line, ungraded
   | 'paragraph' // multi line, ungraded
-  | 'scale'; // linear N..M, ungraded
+  | 'scale' // linear N..M, ungraded
+  | 'date'; // date picker, ungraded (answer stored as YYYY-MM-DD string)
 
 export interface FormFieldOption {
   id: string;
@@ -36,6 +37,8 @@ export interface FormField {
   id: string;
   type: FormFieldType;
   label: string;
+  /** Optional helper sub-text shown under the question label (all types). */
+  description?: string;
   required?: boolean;
   /** single_choice | multi_choice | dropdown */
   options?: FormFieldOption[];

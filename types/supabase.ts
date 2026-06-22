@@ -91018,6 +91018,7 @@ export type Database = {
           staff_id: string | null
           state: string | null
           status: string
+          tags: string[]
           ug_projects_guided: number
           updated_at: string
           updated_by: string | null
@@ -91082,6 +91083,7 @@ export type Database = {
           staff_id?: string | null
           state?: string | null
           status?: string
+          tags?: string[]
           ug_projects_guided?: number
           updated_at?: string
           updated_by?: string | null
@@ -91146,6 +91148,7 @@ export type Database = {
           staff_id?: string | null
           state?: string | null
           status?: string
+          tags?: string[]
           ug_projects_guided?: number
           updated_at?: string
           updated_by?: string | null

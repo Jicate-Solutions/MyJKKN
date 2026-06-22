@@ -43,6 +43,37 @@ export function useCreateImsIndent() {
   });
 }
 
+type UpdateImsIndentData = Omit<
+  CreateImsIndentDto,
+  | 'institution_id'
+  | 'store_id'
+  | 'request_scope'
+  | 'source_store_id'
+  | 'destination_institution_id'
+  | 'destination_store_id'
+>;
+
+export function useUpdateImsIndent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      data,
+      userId,
+    }: {
+      id: string;
+      data: UpdateImsIndentData;
+      userId: string;
+    }) => ImsIndentService.updateIndent(id, data, userId),
+    onSuccess: (_result, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['ims-indents'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-indent', id] });
+      queryClient.invalidateQueries({ queryKey: ['ims-pending-indents'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-dept-indents'] });
+    },
+  });
+}
+
 export function useApproveImsIndent() {
   const queryClient = useQueryClient();
   return useMutation({

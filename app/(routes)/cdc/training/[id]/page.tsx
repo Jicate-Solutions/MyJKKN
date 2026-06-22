@@ -9,11 +9,13 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
-import { useCdcProgramme, useCdcEnrollments, useAddCdcEnrollment, useUpdateCdcEnrollment } from '@/hooks/cdc/use-cdc-training';
+import { useCdcProgramme, useCdcEnrollments, useUpdateCdcEnrollment } from '@/hooks/cdc/use-cdc-training';
 import { useAuth } from '@/hooks/use-auth';
-import { ArrowLeft, Calendar, BookOpen, Users, Building2, Plus, CheckCircle2, XCircle } from 'lucide-react';
+import { ArrowLeft, Calendar, BookOpen, Users, Building2, Plus, CheckCircle2, XCircle, Upload } from 'lucide-react';
 import Link from 'next/link';
 import { AddEnrollmentDialog } from './_components/add-enrollment-dialog';
+import { BulkEnrollDialog } from './_components/bulk-enroll-dialog';
+import { SemesterScheduleCard } from './_components/semester-schedule-card';
 import type { TrainingProgrammeStatus, EnrollmentStatus } from '@/types/cdc/training';
 
 const STATUS_COLORS: Record<TrainingProgrammeStatus, string> = {
@@ -49,6 +51,7 @@ function TrainingProgrammeDetailContent({ params }: Props) {
   const { data: enrollments, isLoading: enrollmentsLoading } = useCdcEnrollments({ programme_id: id });
   const updateEnrollment = useUpdateCdcEnrollment();
   const [addOpen, setAddOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const canManage = profile?.is_super_admin ||
     profile?.role === 'admin' ||
@@ -151,6 +154,9 @@ function TrainingProgrammeDetailContent({ params }: Props) {
           </CardContent>
         </Card>
 
+        {/* Semester Schedule (BUG-004200) */}
+        <SemesterScheduleCard programmeId={id} />
+
         <Separator />
 
         {/* Enrollments */}
@@ -160,9 +166,14 @@ function TrainingProgrammeDetailContent({ params }: Props) {
               Enrolled Learners {!enrollmentsLoading && `(${enrollments?.length ?? 0})`}
             </h2>
             <PermissionGuard module="cdc.training" action="edit">
-              <Button size="sm" onClick={() => setAddOpen(true)}>
-                <Plus className="w-4 h-4 mr-1" /> Add Learner
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => setBulkOpen(true)}>
+                  <Upload className="w-4 h-4 mr-1" /> Bulk Add
+                </Button>
+                <Button size="sm" onClick={() => setAddOpen(true)}>
+                  <Plus className="w-4 h-4 mr-1" /> Add Learner
+                </Button>
+              </div>
             </PermissionGuard>
           </div>
 
@@ -224,11 +235,19 @@ function TrainingProgrammeDetailContent({ params }: Props) {
       </div>
 
       {canManage && (
-        <AddEnrollmentDialog
-          open={addOpen}
-          onOpenChange={setAddOpen}
-          programmeId={id}
-        />
+        <>
+          <AddEnrollmentDialog
+            open={addOpen}
+            onOpenChange={setAddOpen}
+            programmeId={id}
+          />
+          <BulkEnrollDialog
+            open={bulkOpen}
+            onOpenChange={setBulkOpen}
+            programmeId={id}
+            existingEnrollments={enrollments ?? []}
+          />
+        </>
       )}
     </ContentLayout>
   );

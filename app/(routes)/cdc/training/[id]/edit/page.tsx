@@ -13,6 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCdcProgramme, useCdcTrainingTypes, useUpdateCdcProgramme } from '@/hooks/cdc/use-cdc-training';
+import { useDepartments } from '@/hooks/organization/use-departments';
+import { useAcademicYears } from '@/hooks/use-academic-years';
 import { ArrowLeft, BookOpen, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import type { UpdateTrainingProgrammeDto, TrainingProgrammeStatus } from '@/types/cdc/training';
@@ -36,6 +38,12 @@ function EditTrainingProgrammeContent({ params }: Props) {
   const { data: trainingTypes } = useCdcTrainingTypes();
   const updateMutation = useUpdateCdcProgramme();
 
+  // BUG-004073 — cohort binding: load active departments & academic years org-wide
+  const { data: departmentsData, isLoading: deptsLoading } = useDepartments({ isActive: true, limit: 500 });
+  const departmentOptions = (departmentsData?.data ?? []).map((d) => ({ id: d.id, label: d.department_name }));
+  const { data: academicYearsData, isLoading: academicYearsLoading } = useAcademicYears();
+  const academicYearOptions = academicYearsData?.data ?? [];
+
   const [form, setForm] = useState<UpdateTrainingProgrammeDto>({});
   const [hydrated, setHydrated] = useState(false);
 
@@ -52,6 +60,8 @@ function EditTrainingProgrammeContent({ params }: Props) {
         end_date: programme.end_date ?? null,
         status: programme.status,
         external_provider: programme.external_provider ?? null,
+        target_department_id: programme.target_department_id ?? null,   // BUG-004073
+        academic_year_label: programme.academic_year_label ?? null,     // BUG-004073
       });
       setHydrated(true);
     }
@@ -157,6 +167,46 @@ function EditTrainingProgrammeContent({ params }: Props) {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+
+                {/* Cohort binding — Target Department + Batch (BUG-004073) */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label>Target Department</Label>
+                    <Select
+                      value={form.target_department_id ?? 'none'}
+                      onValueChange={(v) => set('target_department_id', v === 'none' ? null : v)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={deptsLoading ? 'Loading…' : 'All departments (optional)'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">— All departments —</SelectItem>
+                        {departmentOptions.map((d) => (
+                          <SelectItem key={d.id} value={d.id}>{d.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Batch / Academic Year</Label>
+                    <Select
+                      value={form.academic_year_label ?? 'none'}
+                      onValueChange={(v) => set('academic_year_label', v === 'none' ? null : v)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={academicYearsLoading ? 'Loading…' : 'Any year (optional)'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">— Any year —</SelectItem>
+                        {academicYearOptions.map((y) => (
+                          <SelectItem key={y.id} value={y.academic_year_name}>
+                            {y.academic_year_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
 
                 {/* Status */}

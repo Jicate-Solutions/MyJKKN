@@ -43,6 +43,10 @@ export interface CreateBillingCategoryDto {
   category_name: string;
   amount?: number | null;
   frequency: BillingCategoryFrequency;
+  // Fee head — drives Razorpay account routing (payment-gateway-service matches
+  // billing_categories.kind against razorpay_accounts.fee_head). Required so a new
+  // category never silently defaults to 'other' and misroutes its payments.
+  kind: BillingCategoryKind;
   description?: string | null;
   is_active?: boolean;
 }
@@ -56,6 +60,9 @@ export interface BillingCategoryFilters {
   isActive?: boolean;
   page?: number;
   limit?: number;
+  // Server-side sort (consumed by the advanced DataTable's sortable column headers).
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }
 
 export interface BillingCategoryListResponse {
@@ -66,4 +73,39 @@ export interface BillingCategoryListResponse {
     limit: number;
     totalPages: number;
   };
+}
+
+// ---------------------------------------------------------------------------
+// Student self-service "My Bills" (read-only). The /learners/my-bills page
+// fetches these server-side via the user session; RLS ("Students can view their
+// own bills/receipts") scopes every row to the signed-in learner.
+// ---------------------------------------------------------------------------
+
+export interface MyBill {
+  id: string;
+  description: string;
+  categoryName: string | null;
+  /** Fee head (billing_categories.kind) — the routing/grouping bucket. */
+  kind: BillingCategoryKind | null;
+  totalAmount: number;
+  balanceAmount: number;
+  dueDate: string | null;
+  status: string | null;
+}
+
+export interface MyReceipt {
+  id: string;
+  receiptNumber: string;
+  amount: number;
+  paidDate: string | null;
+  mode: string | null;
+  reference: string | null;
+}
+
+export interface MyBillsData {
+  totalDue: number;
+  currency: string;
+  /** Outstanding only (balance > 0). */
+  bills: MyBill[];
+  receipts: MyReceipt[];
 }

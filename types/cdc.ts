@@ -22,6 +22,11 @@ export type CdcDriveStatus =
   | 'closed'
   | 'cancelled';
 
+// Venue mode of a drive (BUG-004045/004096). NOT to be confused with cdc_placements.is_walk_in
+// (a flag on the offer record); the drive's walk-in concept is the 'walk_in' mode here plus
+// the drive type's cdc_drive_types.skip_states lifecycle shortcut.
+export type CdcDriveMode = 'on_campus' | 'off_campus' | 'walk_in';
+
 export type CdcWillingnessStatus = 'willing' | 'confirmed' | 'withdrawn' | 'no_show';
 
 export type CdcPlacementStatus = 'offered' | 'accepted' | 'declined' | 'rescinded';
@@ -128,6 +133,10 @@ export interface CdcDrive {
   description: string | null;
   status: CdcDriveStatus;
   rounds_count: number;
+  // Venue mode of the drive (BUG-004045): 'on_campus' | 'off_campus' | 'walk_in'. Defaults to 'on_campus'.
+  drive_mode: CdcDriveMode;
+  // Live-location / map link used when drive_mode = 'off_campus' (BUG-004096).
+  location_url: string | null;
   drive_date: string | null;
   drive_start_time: string | null;
   drive_end_time: string | null;
@@ -212,6 +221,10 @@ export interface CdcDriveInsert {
   description?: string | null;
   institutions: string[];
   rounds_count?: number;
+  // Venue mode of the drive (BUG-004045). Omitted → DB defaults to 'on_campus'.
+  drive_mode?: CdcDriveMode;
+  // Live-location / map link; required by the form only when drive_mode = 'off_campus' (BUG-004096).
+  location_url?: string | null;
   drive_date?: string | null;
   drive_start_time?: string | null;
   drive_end_time?: string | null;

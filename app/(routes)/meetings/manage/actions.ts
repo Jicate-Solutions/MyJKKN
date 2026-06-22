@@ -40,6 +40,11 @@ export interface ManageEventType {
   description: string | null;
   locationMode: MeetingLocationMode;
   locationText: string | null;
+  // Venue from Resource Management (PR1). When set, the in-person meeting happens
+  // in this canonical "Spaces & Venues" room; locationText is the custom fallback.
+  locationResourceId: string | null;
+  /** Resolved on read for the manage list/picker display (room name). */
+  locationResourceName: string | null;
   // M2 slot rules — see the native slot engine (computeSlots).
   bufferBeforeMin: number;
   bufferAfterMin: number;
@@ -59,6 +64,11 @@ export interface ManageEventType {
   redirectUrl: string | null;
   /** lifecycle: free-text shown on the cancel page. */
   cancellationPolicy: string | null;
+  // ── Wave-3 (B): paid bookings (migration 20260619100000) ─────────────────────
+  /** when true, an attendee pays a Razorpay deposit before the booking confirms. */
+  requiresDeposit: boolean;
+  /** deposit to collect, in paise (e.g. ₹500 = 50000). null when no deposit. */
+  depositAmountPaise: number | null;
 }
 
 /** Payload accepted by create / update from the client. */
@@ -73,6 +83,12 @@ export interface EventTypeFormInput {
   locationMode?: MeetingLocationMode;
   /** Free-text place for in_person (e.g. "Pharmacy block, Room 204"). */
   locationText?: string;
+  /**
+   * Venue from Resource Management (PR1): a "Spaces & Venues" resource id.
+   * For in_person types the host picks a registry room OR types a custom place
+   * (locationText) — one of the two is required (validated server-side).
+   */
+  locationResourceId?: string | null;
   // M2 slot rules (all optional — omitted fields keep the DB default).
   bufferBeforeMin?: number;
   bufferAfterMin?: number;
@@ -90,6 +106,11 @@ export interface EventTypeFormInput {
   redirectUrl?: string;
   /** lifecycle: cancel-page policy text. */
   cancellationPolicy?: string;
+  // ── Wave-3 (B): paid bookings ────────────────────────────────────────────────
+  /** when true, collect a deposit before confirming. */
+  requiresDeposit?: boolean;
+  /** deposit in paise (only meaningful when requiresDeposit). */
+  depositAmountPaise?: number | null;
 }
 
 // The native tables aren't in generated types yet — untyped client (TS2589 class).
@@ -114,6 +135,8 @@ interface MeetingTypeRow {
   description: string | null;
   location_mode: MeetingLocationMode | null;
   location_text: string | null;
+  // Venue-from-resource PR1 (migration 20260715000000) — absent pre-migration.
+  location_resource_id?: string | null;
   buffer_before_min: number | null;
   buffer_after_min: number | null;
   min_notice_min: number | null;
@@ -124,14 +147,24 @@ interface MeetingTypeRow {
   host_pool?: string[] | null;
   redirect_url?: string | null;
   cancellation_policy?: string | null;
+  // Wave-3 (B) paid bookings (migration 20260619100000) — absent pre-migration.
+  requires_deposit?: boolean | null;
+  deposit_amount_paise?: number | null;
 }
 
 /** Columns the manage actions select / round-trip (kept in one place). */
 const MT_COLUMNS =
-  'id, title, slug, duration_min, hidden, description, location_mode, location_text, buffer_before_min, buffer_after_min, min_notice_min, slot_interval_min, kind, capacity, host_pool, redirect_url, cancellation_policy';
+  'id, title, slug, duration_min, hidden, description, location_mode, location_text, location_resource_id, buffer_before_min, buffer_after_min, min_notice_min, slot_interval_min, kind, capacity, host_pool, redirect_url, cancellation_policy, requires_deposit, deposit_amount_paise';
 
-/** Base mapper; hostEmails is enriched separately (cohosts / pool lookup). */
-function toManageEventType(row: MeetingTypeRow, hostEmails: string[] = []): ManageEventType {
+/**
+ * Base mapper; hostEmails (cohosts / pool) and locationResourceName (room name)
+ * are enriched separately by the action via lookup.
+ */
+function toManageEventType(
+  row: MeetingTypeRow,
+  hostEmails: string[] = [],
+  locationResourceName: string | null = null,
+): ManageEventType {
   const kind = row.kind ?? 'solo';
   return {
     id: row.id,
@@ -142,6 +175,8 @@ function toManageEventType(row: MeetingTypeRow, hostEmails: string[] = []): Mana
     description: row.description ?? null,
     locationMode: row.location_mode ?? 'in_person',
     locationText: row.location_text ?? null,
+    locationResourceId: row.location_resource_id ?? null,
+    locationResourceName,
     bufferBeforeMin: row.buffer_before_min ?? 0,
     bufferAfterMin: row.buffer_after_min ?? 0,
     minNoticeMin: row.min_notice_min ?? 0,
@@ -153,6 +188,8 @@ function toManageEventType(row: MeetingTypeRow, hostEmails: string[] = []): Mana
     hostEmails,
     redirectUrl: row.redirect_url ?? null,
     cancellationPolicy: row.cancellation_policy ?? null,
+    requiresDeposit: Boolean(row.requires_deposit),
+    depositAmountPaise: row.deposit_amount_paise ?? null,
   };
 }
 
@@ -190,6 +227,24 @@ async function emailsForProfileIds(
     return [];
   }
   return (data ?? []).map((p) => p.email as string).filter(Boolean);
+}
+
+/** Resolve a "Spaces & Venues" resource id → its room name for display (null-safe). */
+async function resourceNameForId(
+  supabase: SupabaseClient,
+  id: string | null | undefined,
+): Promise<string | null> {
+  if (!id) return null;
+  const { data, error } = await supabase
+    .from('resources')
+    .select('name')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) {
+    console.error('[meetings/manage] resource name lookup failed:', error.message);
+    return null;
+  }
+  return ((data as { name?: string } | null)?.name as string | undefined) ?? null;
 }
 
 /**
@@ -251,6 +306,7 @@ function validateForm(
     description?: string;
     location_mode: MeetingLocationMode;
     location_text: string | null;
+    location_resource_id: string | null;
     buffer_before_min: number;
     buffer_after_min: number;
     min_notice_min: number;
@@ -260,6 +316,8 @@ function validateForm(
     capacity: number | null;
     redirect_url: string | null;
     cancellation_policy: string | null;
+    requires_deposit: boolean;
+    deposit_amount_paise: number | null;
   };
   error?: string;
 } {
@@ -287,6 +345,26 @@ function validateForm(
     return { ok: false, error: 'Invalid meeting location type.' };
   }
   const locationText = input.locationText?.trim().slice(0, 200);
+
+  // Venue-from-resource PR1: a "Spaces & Venues" room id, or a custom place
+  // (locationText). One of the two is REQUIRED for in-person meetings so the
+  // booking page never shows a bare "In person" with no directions again.
+  const rawResourceId = (input.locationResourceId ?? '').trim();
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (rawResourceId && !uuidRe.test(rawResourceId)) {
+    return { ok: false, error: 'Invalid venue selection.' };
+  }
+  // Only in-person meetings carry a venue at all; clear both for phone/online.
+  const locationResourceId =
+    locationMode === 'in_person' && rawResourceId ? rawResourceId : null;
+  const resolvedLocationText =
+    locationMode === 'in_person' && locationText ? locationText : null;
+  if (locationMode === 'in_person' && !locationResourceId && !resolvedLocationText) {
+    return {
+      ok: false,
+      error: 'Pick a venue from the list, or type a custom place, for in-person meetings.',
+    };
+  }
 
   // ── M2 slot rules ──────────────────────────────────────────────────────────
   const bufferBefore = optInt(input.bufferBeforeMin) ?? 0;
@@ -345,6 +423,23 @@ function validateForm(
 
   const cancellationPolicy = input.cancellationPolicy?.trim().slice(0, 2000) || null;
 
+  // ── Wave-3 (B): paid bookings ────────────────────────────────────────────────
+  // A deposit needs a positive amount; clear both when not required so a type
+  // toggled off doesn't carry a stale amount. Range mirrors the DB CHECK
+  // (100..10000000 paise = ₹1..₹100000).
+  const requiresDeposit = input.requiresDeposit === true;
+  let depositAmountPaise: number | null = null;
+  if (requiresDeposit) {
+    const paise = optInt(input.depositAmountPaise);
+    if (paise === null || paise < 100) {
+      return { ok: false, error: 'Enter a deposit amount of at least ₹1.' };
+    }
+    if (paise > 10000000) {
+      return { ok: false, error: 'Deposit cannot exceed ₹1,00,000.' };
+    }
+    depositAmountPaise = paise;
+  }
+
   return {
     ok: true,
     value: {
@@ -353,8 +448,9 @@ function validateForm(
       duration_min: Math.round(len),
       ...(description ? { description } : {}),
       location_mode: locationMode,
-      // Only in-person meetings carry a free-text place; clear it otherwise.
-      location_text: locationMode === 'in_person' && locationText ? locationText : null,
+      // Only in-person meetings carry a venue; both cleared otherwise (above).
+      location_text: resolvedLocationText,
+      location_resource_id: locationResourceId,
       buffer_before_min: bufferBefore,
       buffer_after_min: bufferAfter,
       min_notice_min: minNotice,
@@ -363,6 +459,8 @@ function validateForm(
       capacity,
       redirect_url: redirectUrl,
       cancellation_policy: cancellationPolicy,
+      requires_deposit: requiresDeposit,
+      deposit_amount_paise: depositAmountPaise,
     },
   };
 }
@@ -424,8 +522,11 @@ export async function listMyEventTypes(): Promise<ActionResult<ManageEventType[]
     const rows = (data ?? []) as MeetingTypeRow[];
     const enriched = await Promise.all(
       rows.map(async (row) => {
-        const hostEmails = await hostEmailsForType(supabase, row, userId);
-        return toManageEventType(row, hostEmails);
+        const [hostEmails, locationResourceName] = await Promise.all([
+          hostEmailsForType(supabase, row, userId),
+          resourceNameForId(supabase, row.location_resource_id),
+        ]);
+        return toManageEventType(row, hostEmails, locationResourceName);
       }),
     );
     return { success: true, data: enriched };
@@ -471,8 +572,14 @@ export async function createMyEventType(
     if (validated.value!.kind === 'collective') {
       await syncCohosts(supabase, (data as MeetingTypeRow).id, resolvedIds);
     }
-    const hostEmails = await hostEmailsForType(supabase, data as MeetingTypeRow, userId);
-    return { success: true, data: toManageEventType(data as MeetingTypeRow, hostEmails) };
+    const [hostEmails, locationResourceName] = await Promise.all([
+      hostEmailsForType(supabase, data as MeetingTypeRow, userId),
+      resourceNameForId(supabase, (data as MeetingTypeRow).location_resource_id),
+    ]);
+    return {
+      success: true,
+      data: toManageEventType(data as MeetingTypeRow, hostEmails, locationResourceName),
+    };
   } catch (err) {
     return {
       success: false,
@@ -527,8 +634,14 @@ export async function updateMyEventType(
     }
     // Collective → sync co-hosts to exactly resolvedIds; any other kind → clear them.
     await syncCohosts(supabase, id, kind === 'collective' ? resolvedIds : []);
-    const hostEmails = await hostEmailsForType(supabase, data as MeetingTypeRow, userId);
-    return { success: true, data: toManageEventType(data as MeetingTypeRow, hostEmails) };
+    const [hostEmails, locationResourceName] = await Promise.all([
+      hostEmailsForType(supabase, data as MeetingTypeRow, userId),
+      resourceNameForId(supabase, (data as MeetingTypeRow).location_resource_id),
+    ]);
+    return {
+      success: true,
+      data: toManageEventType(data as MeetingTypeRow, hostEmails, locationResourceName),
+    };
   } catch (err) {
     return {
       success: false,

@@ -131,3 +131,6 @@ __pycache__/
 .auth/
 /test-results/
 /playwright-report/
+
+# Local fee-sync analysis artifacts (contain student PII) — keep out of git
+reports/

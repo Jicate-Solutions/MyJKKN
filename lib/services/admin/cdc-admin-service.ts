@@ -31,6 +31,10 @@ export const ALLOWED_MASTER_TABLES: CdcMasterTable[] = [
   'cdc_workshop_types',
   'cdc_industry_sectors',
   'cdc_recruiters',
+  'cdc_mentor_categories',
+  'cdc_mentorship_categories',
+  'cdc_internship_types',
+  'cdc_expertise_areas',
 ];
 
 // CDC cron job names as seeded in Sprint 1.

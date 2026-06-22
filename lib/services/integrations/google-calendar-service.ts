@@ -82,6 +82,8 @@ export interface CreateEventInput {
   attendees: Array<{ email: string; displayName?: string }>;
   /** true → request a Google Meet link (location_mode 'online', D4). */
   withMeet: boolean;
+  /** PR1: in-person venue directions shown as the event location. */
+  location?: string;
 }
 
 export interface CreatedEvent {
@@ -248,6 +250,14 @@ export class GoogleCalendarService {
       .eq('host_profile_id', hostProfileId)
       .eq('auto_hidden', true);
 
+    // Start the inbound push-notification watch so calendar-side edits sync
+    // back immediately. Best-effort: a watch failure (e.g. unverified webhook
+    // domain) must not fail the connection — the daily cron retries it.
+    await this.startWatch(supabase, hostProfileId).catch((e) => {
+      console.error(`${LOG_PREFIX} startWatch after connect failed:`, (e as Error).message);
+      return false;
+    });
+
     return { success: true, googleEmail };
   }
 
@@ -366,6 +376,7 @@ export class GoogleCalendarService {
       end: { dateTime: input.endIso, timeZone: input.timezone },
       attendees: input.attendees,
     };
+    if (input.location) body.location = input.location;
     if (input.withMeet) {
       body.conferenceData = {
         createRequest: {
@@ -423,6 +434,37 @@ export class GoogleCalendarService {
     );
     if (!res.ok) console.error(`${LOG_PREFIX} event patch failed:`, res.status);
     return res.ok;
+  }
+
+  /**
+   * Mark a cancelled booking's event as cancelled but KEEP it on the host's
+   * calendar — renamed ("Cancelled: …") and freed (transparent so it no longer
+   * blocks time), for record-keeping. Mirrors the old Calendly behaviour the
+   * Director relied on; status stays 'confirmed' so Google keeps it visible
+   * (status:'cancelled' would hide/remove it). Best effort; sendUpdates=all so
+   * the attendee is notified. Falls through to a no-op on 410 (already gone).
+   */
+  static async markEventCancelled(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+    eventId: string,
+    cancelledSummary: string,
+  ): Promise<boolean> {
+    const token = await this.accessTokenForHost(supabase, hostProfileId);
+    if (!token) return false;
+    const res = await fetch(
+      `${CAL_BASE}/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+      {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summary: cancelledSummary, transparency: 'transparent' }),
+      },
+    );
+    if (!res.ok && res.status !== 410) {
+      console.error(`${LOG_PREFIX} event cancel-mark failed:`, res.status);
+      return false;
+    }
+    return true;
   }
 
   /** Delete the calendar event for a cancelled booking (best effort). */
@@ -492,4 +534,289 @@ export class GoogleCalendarService {
     }
     console.warn(`${LOG_PREFIX} connection BROKEN for ${hostProfileId}: ${reason}`);
   }
+
+  // ── INBOUND SYNC: watch channels + incremental events.list ─────────────────
+  //
+  // The module was outbound-only until 2026-06-20. These methods let changes
+  // made DIRECTLY in Google Calendar (delete / cancel / move an event) flow
+  // back into meeting_bookings. events.watch pushes a contentless ping to the
+  // webhook; we then read the delta with the stored sync_token.
+
+  /** Public webhook address Google POSTs change-pings to. */
+  private static watchAddress(): string {
+    const app = env('NEXT_PUBLIC_APP_URL') ?? 'https://www.jkkn.ai';
+    return `${app.replace(/\/$/, '')}/api/webhooks/google-calendar`;
+  }
+
+  /**
+   * Per-host verification token. Sent as the channel `token` at watch time and
+   * echoed back by Google in X-Goog-Channel-Token on every ping — the webhook
+   * recomputes and compares it (constant work, no DB round-trip) so a spoofed
+   * ping for a guessed channel id cannot trigger a reconcile.
+   */
+  static channelToken(hostProfileId: string): string | null {
+    const secret = env('GOOGLE_TOKEN_MASTER_SECRET');
+    if (!secret) return null;
+    return crypto
+      .createHmac('sha256', secret)
+      .update(`watch:${hostProfileId}`)
+      .digest('base64url');
+  }
+
+  /**
+   * Seed (or re-seed) the incremental-sync cursor: a full events.list paginated
+   * to its nextSyncToken, stored on the connection. The webhook reads deltas
+   * from here. Returns the token, or null on failure.
+   *
+   * Note: a sync token only becomes valid once the full list is exhausted, so
+   * we page to the end (capped defensively at 20 pages × 250 = 5k events).
+   */
+  static async seedSyncToken(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+  ): Promise<string | null> {
+    const token = await this.accessTokenForHost(supabase, hostProfileId);
+    if (!token) return null;
+
+    let pageToken: string | undefined;
+    let syncToken: string | null = null;
+    for (let i = 0; i < 20; i++) {
+      const params = new URLSearchParams({
+        singleEvents: 'true',
+        showDeleted: 'true',
+        maxResults: '250',
+      });
+      if (pageToken) params.set('pageToken', pageToken);
+      const res = await fetch(`${CAL_BASE}/calendars/primary/events?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        console.error(`${LOG_PREFIX} seedSyncToken list failed for ${hostProfileId}:`, res.status);
+        return null;
+      }
+      const json = (await res.json()) as { nextSyncToken?: string; nextPageToken?: string };
+      if (json.nextSyncToken) {
+        syncToken = json.nextSyncToken;
+        break;
+      }
+      pageToken = json.nextPageToken;
+      if (!pageToken) break;
+    }
+    if (syncToken) {
+      await supabase
+        .from('meeting_host_google_connections')
+        .update({ sync_token: syncToken })
+        .eq('host_profile_id', hostProfileId);
+    }
+    return syncToken;
+  }
+
+  /**
+   * Start (or restart) a push-notification watch on the host's primary
+   * calendar. Stops any prior channel first, seeds a sync cursor, then calls
+   * events.watch. FAIL-SAFE: on any error (most likely the receiving domain is
+   * not verified in the GCP project → 401 "Unauthorized WebHook callback
+   * channel") it logs and returns false — the booking/freebusy flow is
+   * completely unaffected; only real-time inbound sync is deferred.
+   */
+  static async startWatch(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+  ): Promise<boolean> {
+    const conn = await this.getConnection(supabase, hostProfileId);
+    if (!conn || conn.status !== 'active') return false;
+    const token = await this.accessTokenForHost(supabase, hostProfileId);
+    if (!token) return false;
+    const channelTok = this.channelToken(hostProfileId);
+    if (!channelTok) return false;
+
+    // Stop a prior channel so we don't receive duplicate pings.
+    await this.stopWatch(supabase, hostProfileId).catch(() => {});
+    // Seed the delta cursor BEFORE the watch goes live.
+    await this.seedSyncToken(supabase, hostProfileId);
+
+    const channelId = crypto.randomUUID();
+    const res = await fetch(`${CAL_BASE}/calendars/primary/events/watch`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: channelId,
+        type: 'web_hook',
+        address: this.watchAddress(),
+        token: channelTok,
+        params: { ttl: '604800' }, // 7 days; the renewal cron re-watches before expiry.
+      }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.error(
+        `${LOG_PREFIX} events.watch failed for ${hostProfileId}:`,
+        res.status,
+        text.slice(0, 200),
+      );
+      return false;
+    }
+    const json = (await res.json()) as { resourceId?: string; expiration?: string };
+    await supabase
+      .from('meeting_host_google_connections')
+      .update({
+        watch_channel_id: channelId,
+        watch_resource_id: json.resourceId ?? null,
+        watch_expiration: json.expiration
+          ? new Date(Number(json.expiration)).toISOString()
+          : null,
+        watch_started_at: new Date().toISOString(),
+      })
+      .eq('host_profile_id', hostProfileId);
+    return true;
+  }
+
+  /** Stop the host's active watch channel (best effort) and clear its state. */
+  static async stopWatch(supabase: SupabaseClient, hostProfileId: string): Promise<void> {
+    const { data: conn } = await supabase
+      .from('meeting_host_google_connections')
+      .select('watch_channel_id, watch_resource_id')
+      .eq('host_profile_id', hostProfileId)
+      .maybeSingle();
+    if (!conn?.watch_channel_id || !conn?.watch_resource_id) return;
+
+    const token = await this.accessTokenForHost(supabase, hostProfileId);
+    if (token) {
+      await fetch(`${CAL_BASE}/channels/stop`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: conn.watch_channel_id, resourceId: conn.watch_resource_id }),
+      }).catch(() => {});
+    }
+    await supabase
+      .from('meeting_host_google_connections')
+      .update({
+        watch_channel_id: null,
+        watch_resource_id: null,
+        watch_expiration: null,
+        watch_started_at: null,
+      })
+      .eq('host_profile_id', hostProfileId);
+  }
+
+  /**
+   * Read the change delta since the stored sync_token. Returns:
+   *   { changes, nextSyncToken } — apply changes, then persist the new token.
+   *   { expired: true }          — sync token died (410); caller must re-seed.
+   *   null                       — transient failure; caller does nothing.
+   * Each change carries the event id + status ('confirmed'|'cancelled'|…) +
+   * start/end so the reconcile can decide cancel vs reschedule.
+   */
+  static async listEventChanges(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+  ): Promise<
+    | { changes: CalendarChange[]; nextSyncToken: string | null }
+    | { expired: true }
+    | null
+  > {
+    const { data: conn } = await supabase
+      .from('meeting_host_google_connections')
+      .select('sync_token')
+      .eq('host_profile_id', hostProfileId)
+      .maybeSingle();
+    if (!conn?.sync_token) {
+      // No cursor yet — seed one. Nothing to reconcile from the delta this round.
+      await this.seedSyncToken(supabase, hostProfileId);
+      return { changes: [], nextSyncToken: null };
+    }
+    const token = await this.accessTokenForHost(supabase, hostProfileId);
+    if (!token) return null;
+
+    const changes: CalendarChange[] = [];
+    let pageToken: string | undefined;
+    let nextSyncToken: string | null = null;
+    for (let i = 0; i < 20; i++) {
+      const params = new URLSearchParams({ syncToken: conn.sync_token, maxResults: '250' });
+      if (pageToken) params.set('pageToken', pageToken);
+      const res = await fetch(`${CAL_BASE}/calendars/primary/events?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 410) return { expired: true }; // sync token expired
+      if (!res.ok) {
+        console.error(`${LOG_PREFIX} listEventChanges failed for ${hostProfileId}:`, res.status);
+        return null;
+      }
+      const json = (await res.json()) as {
+        items?: Array<{
+          id?: string;
+          status?: string;
+          start?: { dateTime?: string; date?: string };
+          end?: { dateTime?: string; date?: string };
+        }>;
+        nextPageToken?: string;
+        nextSyncToken?: string;
+      };
+      for (const ev of json.items ?? []) {
+        if (!ev.id) continue;
+        changes.push({
+          id: ev.id,
+          status: (ev.status as CalendarChange['status']) ?? 'confirmed',
+          startIso: ev.start?.dateTime ?? null,
+          endIso: ev.end?.dateTime ?? null,
+        });
+      }
+      if (json.nextSyncToken) {
+        nextSyncToken = json.nextSyncToken;
+        break;
+      }
+      pageToken = json.nextPageToken;
+      if (!pageToken) break;
+    }
+    return { changes, nextSyncToken };
+  }
+
+  /** Persist a fresh incremental-sync cursor. */
+  static async storeSyncToken(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+    syncToken: string,
+  ): Promise<void> {
+    await supabase
+      .from('meeting_host_google_connections')
+      .update({ sync_token: syncToken })
+      .eq('host_profile_id', hostProfileId);
+  }
+
+  /**
+   * Current state of ONE event. Used by the safety reconcile (cron) to recheck
+   * a confirmed booking directly. Returns:
+   *   'gone'  — 404/410 or status=cancelled (the event no longer exists);
+   *   null    — transient failure (caller must NOT change the booking);
+   *   object  — the live start/end.
+   */
+  static async getEvent(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+    eventId: string,
+  ): Promise<{ startIso: string | null; endIso: string | null } | 'gone' | null> {
+    const token = await this.accessTokenForHost(supabase, hostProfileId);
+    if (!token) return null;
+    const res = await fetch(
+      `${CAL_BASE}/calendars/primary/events/${encodeURIComponent(eventId)}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (res.status === 404 || res.status === 410) return 'gone';
+    if (!res.ok) return null;
+    const ev = (await res.json()) as {
+      status?: string;
+      start?: { dateTime?: string };
+      end?: { dateTime?: string };
+    };
+    if (ev.status === 'cancelled') return 'gone';
+    return { startIso: ev.start?.dateTime ?? null, endIso: ev.end?.dateTime ?? null };
+  }
+}
+
+/** One changed event from an incremental events.list. */
+export interface CalendarChange {
+  id: string;
+  status: 'confirmed' | 'tentative' | 'cancelled';
+  startIso: string | null;
+  endIso: string | null;
 }

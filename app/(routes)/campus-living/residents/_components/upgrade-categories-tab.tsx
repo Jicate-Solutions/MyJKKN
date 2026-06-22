@@ -13,6 +13,7 @@
 // holders); the RPCs re-check the permission + institution access server-side.
 
 import { useState, useMemo, useCallback, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
@@ -20,9 +21,6 @@ import { DataTable } from '@/components/data-table/data-table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -34,10 +32,12 @@ import type {
   LearnerHostelite,
   LearnerHostelitesFilters,
   HosteliteBillStatus,
+  BlockFilterValue,
 } from '@/types/campus-living';
 import { BulkUpgradeDialog } from './bulk-upgrade-dialog';
 import { AdminRoomUpgradeDialog } from './admin-room-upgrade-dialog';
 import { LearnerDetailDrawer } from './learner-detail-drawer';
+import { LearnersFilters } from './learners-filters';
 
 function fullName(l: LearnerHostelite): string {
   const parts = [l.first_name, l.last_name].filter(Boolean).map((s) => s!.trim());
@@ -77,14 +77,34 @@ export function UpgradeCategoriesTab() {
 
   const canEdit = isSuperAdmin || !!permissions?.['campus_living.residents.edit'];
 
-  // Local filter state (this tab uses enableUrlState:false to avoid colliding
-  // with the always-mounted Learners tab's URL state).
-  const [genderFilter, setGenderFilter] = useState<'all' | 'Male' | 'Female'>('all');
-  const [instFilter, setInstFilter] = useState<string>('all');
+  const searchParams = useSearchParams();
 
-  // Non-super-admins are pinned to their institution; super-admins pick one.
+  // Filters come from the URL via the shared <LearnersFilters> (same advanced
+  // cascade the Learners tab uses). The DataTable keeps enableUrlState:false so
+  // its page/sort don't collide with the always-mounted Learners tab — only the
+  // filter keys are shared, which is the intended cross-tab behaviour.
+  const filterParams = useMemo<Omit<LearnerHostelitesFilters, 'search' | 'sortBy' | 'sortOrder'>>(() => {
+    const f: Omit<LearnerHostelitesFilters, 'search' | 'sortBy' | 'sortOrder'> = {};
+    const g = (k: string) => searchParams.get(k) ?? undefined;
+    if (isSuperAdmin && g('institution_id')) f.institution_id = g('institution_id');
+    if (g('degree_id')) f.degree_id = g('degree_id');
+    if (g('department_id')) f.department_id = g('department_id');
+    if (g('program_id')) f.program_id = g('program_id');
+    if (g('semester_id')) f.semester_id = g('semester_id');
+    if (g('section_id')) f.section_id = g('section_id');
+    if (g('academic_year_id')) f.academic_year_id = g('academic_year_id');
+    if (g('gender')) f.gender = g('gender') as 'Male' | 'Female' | 'Other';
+    if (g('block_id')) f.block_id = g('block_id') as BlockFilterValue;
+    if (g('hostel_category_id')) f.hostel_category_id = g('hostel_category_id');
+    const y = g('year_of_study');
+    if (y) f.year_of_study = Number(y);
+    return f;
+  }, [searchParams, isSuperAdmin]);
+
+  // Non-super-admins are pinned to their institution; super-admins narrow via
+  // the Advanced Filters' Institution select (URL → filterParams.institution_id).
   const effectiveInstitutionId: string | undefined = isSuperAdmin
-    ? instFilter === 'all' ? undefined : instFilter
+    ? undefined
     : (profile?.institution_id ?? undefined);
 
   const instName = useMemo(() => {
@@ -107,11 +127,11 @@ export function UpgradeCategoriesTab() {
       sort_by: string; sort_order: string;
     }) => {
       const filters: LearnerHostelitesFilters = {
+        ...filterParams,
         search: params.search || undefined,
         sortBy: params.sort_by || undefined,
         sortOrder: (params.sort_order as 'asc' | 'desc') || undefined,
       };
-      if (genderFilter !== 'all') filters.gender = genderFilter;
       const { data, count } = await LearnerHosteliteService.listHostelites(
         effectiveInstitutionId,
         filters,
@@ -135,7 +155,7 @@ export function UpgradeCategoriesTab() {
         },
       };
     },
-    [effectiveInstitutionId, genderFilter],
+    [effectiveInstitutionId, filterParams],
   );
 
   const columns = useMemo<ColumnDef<LearnerHostelite>[]>(() => {
@@ -275,37 +295,13 @@ export function UpgradeCategoriesTab() {
 
   return (
     <div className='space-y-4'>
-      <div className='flex flex-col gap-3 sm:flex-row sm:items-end'>
-        {isSuperAdmin && (
-          <div className='space-y-1'>
-            <label className='text-xs text-muted-foreground'>Institution</label>
-            <Select value={instFilter} onValueChange={setInstFilter}>
-              <SelectTrigger className='w-[220px]'><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value='all'>All institutions</SelectItem>
-                {institutions.map((i: { id: string; name: string }) => (
-                  <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-        <div className='space-y-1'>
-          <label className='text-xs text-muted-foreground'>Gender</label>
-          <Select value={genderFilter} onValueChange={(v) => setGenderFilter(v as typeof genderFilter)}>
-            <SelectTrigger className='w-[160px]'><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value='all'>All</SelectItem>
-              <SelectItem value='Female'>Female</SelectItem>
-              <SelectItem value='Male'>Male</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <p className='text-xs text-muted-foreground sm:ml-auto sm:max-w-sm'>
-          Select learners, then upgrade their room and/or mess category in bulk. Tip: filter by
-          gender and search to target a cohort on the same current category.
-        </p>
-      </div>
+      <p className='text-xs text-muted-foreground sm:max-w-2xl'>
+        Select learners, then upgrade their room and/or mess category in bulk. Tip: use the
+        Advanced Filters (institution, degree, program, gender, room category…) and search to
+        target a cohort on the same current category.
+      </p>
+
+      <LearnersFilters />
 
       <DataTable
         fetchDataFn={fetchData}

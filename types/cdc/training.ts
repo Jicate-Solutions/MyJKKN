@@ -37,7 +37,10 @@ export interface CdcTrainingProgramme {
   end_date: string | null;         // ISO date
   status: TrainingProgrammeStatus;
   external_provider: string | null;
+  trainer_name: string | null;     // BUG-004076 — trainer / facilitator name
   certificate_template_url: string | null;
+  target_department_id: string | null;  // BUG-004073 — cohort binding: target department
+  academic_year_label: string | null;   // BUG-004073 — cohort binding: batch / academic year
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -45,6 +48,7 @@ export interface CdcTrainingProgramme {
   // Joined
   training_type?: CdcTrainingType | null;
   institution?: { id: string; name: string } | null;
+  target_department?: { id: string; department_name: string } | null;  // BUG-004073
   enrollment_count?: number;
 }
 
@@ -78,6 +82,27 @@ export interface CdcTrainingEnrollment {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// SEMESTER SCHEDULE — cdc_training_semester_schedules (BUG-004200)
+// Per-semester schedule/hours for a programme. One row per (programme, semester).
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface CdcTrainingSemesterSchedule {
+  id: string;
+  programme_id: string;
+  semester_label: string;          // free-form, e.g. 'Semester 1'
+  total_hours: number | null;
+  start_date: string | null;       // ISO date
+  end_date: string | null;         // ISO date
+  trainer_name: string | null;
+  notes: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // DTOs
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -91,7 +116,10 @@ export interface CreateTrainingProgrammeDto {
   end_date?: string | null;
   status?: TrainingProgrammeStatus;
   external_provider?: string | null;
+  trainer_name?: string | null;    // BUG-004076 — trainer / facilitator name
   certificate_template_url?: string | null;
+  target_department_id?: string | null;  // BUG-004073 — cohort binding: target department
+  academic_year_label?: string | null;   // BUG-004073 — cohort binding: batch / academic year
 }
 
 export interface UpdateTrainingProgrammeDto extends Partial<CreateTrainingProgrammeDto> {}
@@ -109,6 +137,27 @@ export interface UpdateEnrollmentDto {
   certificate_url?: string | null;
   certificate_issued_at?: string | null;
   notes?: string | null;
+}
+
+export interface CreateSemesterScheduleDto {
+  programme_id: string;
+  semester_label: string;
+  total_hours?: number | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  trainer_name?: string | null;
+  notes?: string | null;
+  sort_order?: number;
+}
+
+export interface UpdateSemesterScheduleDto {
+  semester_label?: string;
+  total_hours?: number | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  trainer_name?: string | null;
+  notes?: string | null;
+  sort_order?: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

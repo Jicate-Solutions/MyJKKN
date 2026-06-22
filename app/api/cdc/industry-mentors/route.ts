@@ -49,6 +49,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Engagement category is required on new records (BUG-004059).
+    if (!body.mentor_category_id) {
+      return NextResponse.json(
+        { error: 'mentor_category_id (engagement category) is required' },
+        { status: 400 }
+      );
+    }
+
     const mentor = await createIndustryMentor(body);
     return NextResponse.json(mentor, { status: 201 });
   } catch (e) {

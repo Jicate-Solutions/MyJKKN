@@ -50,6 +50,12 @@ export interface InternshipAssignment {
   days_present: number | null;
   attendance_percentage: number | null;
   overall_grade: string | null;
+  // BUG-004087: optional offer-letter document URL (cdc-docs bucket)
+  offer_letter_url: string | null;
+  // BUG-004039: FK to cdc_internship_types config-master (nullable — backfilled
+  // from the legacy internship_type ENUM; null only for rows whose enum had no
+  // matching master config_key, which the seed guarantees does not happen).
+  internship_type_id: string | null;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -103,6 +109,13 @@ export interface CreateCorporateInternshipPayload {
   rotation_end_date: string;   // ISO date
   required_attendance_pct?: number;
   department_rotation?: string;
+  // BUG-004087: optional offer-letter document URL (cdc-docs bucket)
+  offer_letter_url?: string | null;
+  // BUG-004039: FK to cdc_internship_types (the CRUDable config-master).
+  // Required on new records (Director decision). The API derives the legacy
+  // internship_type ENUM from the selected master row's config_key for
+  // back-compat, so this FK is the forward-looking source of truth.
+  internship_type_id?: string;
 }
 
 // Payload for issuing a certificate (POST to /api/cdc/internships/:id/certificate)

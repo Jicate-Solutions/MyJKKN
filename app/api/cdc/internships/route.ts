@@ -9,8 +9,9 @@ const ASSIGNMENT_SELECT = `
   id, institution_id, cycle_id, learner_id, site_id, facilitator_id,
   preceptor_id, program_id, department_rotation,
   rotation_start_date, rotation_end_date, assignment_join_date,
-  required_attendance_pct, status, internship_type,
+  required_attendance_pct, status, internship_type, internship_type_id,
   total_days, days_present, attendance_percentage, overall_grade,
+  offer_letter_url,
   created_at, updated_at, created_by, updated_by,
   site:internship_external_sites (
     id, institution_id, site_name, internship_type,
@@ -104,7 +105,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden — CDC staff only' }, { status: 403 });
     }
 
-    const body: CreateCorporateInternshipPayload & { institution_id?: string } = await request.json();
+    const body: CreateCorporateInternshipPayload & {
+      institution_id?: string;
+      is_paid?: boolean;
+      stipend_amount?: number | null;
+      offer_letter_url?: string | null;
+    } = await request.json();
 
     if (!body.learner_id || !body.site_id || !body.facilitator_id || !body.cycle_id) {
       return NextResponse.json({
@@ -116,10 +122,35 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'rotation_start_date and rotation_end_date are required' }, { status: 400 });
     }
 
+    // BUG-004039: internship type is now a CRUDable config-master (cdc_internship_types).
+    // The FK is REQUIRED on new records (Director decision). Look the chosen master row up
+    // by id so we can (a) validate the FK exists and (b) derive the legacy internship_type
+    // ENUM from its config_key — keeping both columns provably consistent for back-compat.
+    if (!body.internship_type_id) {
+      return NextResponse.json({ error: 'internship_type_id is required' }, { status: 400 });
+    }
+
+    const { data: typeRow, error: typeError } = await (supabase as any)
+      .from('cdc_internship_types')
+      .select('id, config_key, is_active')
+      .eq('id', body.internship_type_id)
+      .maybeSingle();
+
+    if (typeError) throw new Error(typeError.message);
+    if (!typeRow || typeRow.is_active === false) {
+      return NextResponse.json({ error: 'Invalid or inactive internship type' }, { status: 400 });
+    }
+    const internshipTypeKey = typeRow.config_key as string;
+
     const institutionId = body.institution_id || profile.institution_id;
     if (!institutionId) {
       return NextResponse.json({ error: 'institution_id required' }, { status: 400 });
     }
+
+    // BUG-004040: Paid/Unpaid + stipend amount. Unpaid internships never carry a
+    // stipend, so force stipend_amount to null when is_paid is false.
+    const isPaid = body.is_paid ?? false;
+    const stipendAmount = isPaid ? (body.stipend_amount ?? null) : null;
 
     const { data, error } = await (supabase as any)
       .from('internship_assignments')
@@ -133,7 +164,15 @@ export async function POST(request: NextRequest) {
         rotation_end_date: body.rotation_end_date,
         required_attendance_pct: body.required_attendance_pct ?? 75,
         department_rotation: body.department_rotation ?? null,
-        internship_type: 'corporate_internship',
+        is_paid: isPaid,
+        stipend_amount: stipendAmount,
+        // BUG-004087: optional offer-letter document URL
+        offer_letter_url: body.offer_letter_url ?? null,
+        // BUG-004039: persist the new config-master FK (forward source of truth)
+        // AND the legacy internship_type ENUM derived from the SAME master row's
+        // config_key, so existing reads that key off internship_type still work.
+        internship_type_id: typeRow.id,
+        internship_type: internshipTypeKey,
         status: 'pending',
         created_by: user.id,
         updated_by: user.id,

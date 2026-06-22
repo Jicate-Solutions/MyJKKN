@@ -67,3 +67,26 @@ export function useUpdateIdp(id: string) {
     onError: (e: Error) => toast.error(e.message),
   });
 }
+
+// Completion reminders (BUG-004092). Manual (single id) + bulk (all pending).
+// Surfaces honest counts: how many learners were actually reachable in-app
+// vs skipped (no linked profile / not actually pending).
+export function useSendIdpReminders() {
+  return useMutation({
+    mutationFn: (opts: { ids?: string[]; scope?: 'selected' | 'all_pending'; filters?: IdpFilters }) =>
+      IdpService.sendReminders(supabase, opts),
+    onSuccess: ({ sent, skipped, pending }) => {
+      if (sent === 0 && pending === 0) {
+        toast('No pending IDPs to remind.', { icon: 'ℹ️' });
+      } else if (sent === 0) {
+        toast.error(
+          `No reminders sent — ${pending} pending learner${pending === 1 ? '' : 's'} ${pending === 1 ? 'has' : 'have'} no app account to notify.`
+        );
+      } else {
+        const extra = skipped > 0 ? ` (${skipped} skipped — no app account)` : '';
+        toast.success(`Reminder sent to ${sent} learner${sent === 1 ? '' : 's'}${extra}.`);
+      }
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}

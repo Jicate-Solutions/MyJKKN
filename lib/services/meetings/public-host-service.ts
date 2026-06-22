@@ -16,6 +16,7 @@
 // Pattern: MeetingRoutingService (service-role resolution for public funnel).
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { formatVenueDirections } from './venue-directions';
 
 const LOG_PREFIX = '[public-host]';
 
@@ -28,6 +29,12 @@ export interface PublicMeetingType {
   description: string | null;
   locationMode: 'in_person' | 'phone' | 'online';
   locationText: string | null;
+  /**
+   * Venue-from-resource PR1: full directions resolved from the linked
+   * "Spaces & Venues" room (name + building/block/floor/room/notes), shown to
+   * the booker so they can find an in-person meeting. null = custom/no room.
+   */
+  locationDetails: string | null;
 }
 
 export interface PublicHost {
@@ -110,13 +117,23 @@ export class PublicHostService {
         .maybeSingle(),
       supabase
         .from('meeting_types')
-        .select('id, title, slug, duration_min, description, location_mode, location_text')
+        .select('id, title, slug, duration_min, description, location_mode, location_text, location_resource_id')
         .eq('host_profile_id', page.host_profile_id)
         .eq('is_active', true)
         .eq('hidden', false)
         .order('duration_min', { ascending: true }),
     ]);
     if (!profile) return null;
+
+    // Venue-from-resource PR1: resolve every linked room → a directions line so
+    // the booker can find an in-person meeting. One batched lookup (service-role
+    // client here, so resources are readable regardless of the booker).
+    const directionsById = await this.venueDirectionsFor(
+      supabase,
+      (types ?? [])
+        .map((t) => t.location_resource_id as string | null)
+        .filter((id): id is string => Boolean(id)),
+    );
 
     const [instName, deptName] = await Promise.all([
       this.nameOf(supabase, 'institutions', profile.institution_id),
@@ -140,8 +157,34 @@ export class PublicHostService {
         description: t.description ?? null,
         locationMode: (t.location_mode as PublicMeetingType['locationMode']) ?? 'in_person',
         locationText: t.location_text ?? null,
+        locationDetails: t.location_resource_id
+          ? directionsById.get(t.location_resource_id as string) ?? null
+          : null,
       })),
     };
+  }
+
+  /** Batch-resolve resource ids → a formatted directions line (id → string). */
+  private static async venueDirectionsFor(
+    supabase: SupabaseClient,
+    resourceIds: string[],
+  ): Promise<Map<string, string>> {
+    const unique = [...new Set(resourceIds)];
+    if (!unique.length) return new Map();
+    const { data, error } = await supabase
+      .from('resources')
+      .select('id, name, building_number, block_number, floor_number, room_number, location_notes')
+      .in('id', unique);
+    if (error) {
+      console.error(`${LOG_PREFIX} venue directions load failed:`, error.message);
+      return new Map();
+    }
+    const map = new Map<string, string>();
+    for (const r of data ?? []) {
+      const directions = formatVenueDirections(r);
+      if (directions) map.set(r.id as string, directions);
+    }
+    return map;
   }
 
   private static async nameOf(

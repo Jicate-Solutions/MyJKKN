@@ -976,11 +976,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/meetings/polls': 'meetings.polls.view',
   '/meetings/contacts': 'meetings.contacts.view',
   '/meetings/analytics': 'meetings.analytics.view',
+  '/meetings/adoption': 'meetings.analytics.view',
   '/meetings/webhooks': 'meetings.webhooks.view',
   '/meetings/embed': 'meetings.embed.manage',
 
   // CDC — module landing hub
   '/cdc': 'cdc.view',
+  '/cdc/career-guidance': 'cdc.view',
 
   // CDC — Campus Drives
   '/cdc/drives': 'cdc.drives.view',
@@ -1062,6 +1064,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/indents/new': 'ims.indents.create',
   '/ims/indents/pending': 'ims.indents.approve',
   '/ims/indents/[id]': 'ims.indents.view',
+  '/ims/indents/[id]/edit': 'ims.indents.edit',
   // Inventory
   '/ims/inventory': 'ims.inventory.view',
   '/ims/inventory/items': 'ims.inventory.view',
@@ -1732,6 +1735,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          href: '/learners/my-bills',
+          label: 'My Bills',
+          active: pathname.startsWith('/learners/my-bills'),
+          icon: Wallet,
+          submenus: []
+        },
+        {
           href: '/learners/leave-onduty/my-applications',
           label: 'Leave/OnDuty',
           active: pathname.startsWith('/learners/leave-onduty'),
@@ -1757,6 +1767,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/learners/my-timetable', label: 'My Timetable', active: pathname === '/learners/my-timetable' },
             { href: '/learners/my-attendance', label: 'My Attendance', active: pathname.startsWith('/learners/my-attendance') },
             { href: '/learners/my-profile', label: 'My Profile', active: pathname === '/learners/my-profile' },
+            { href: '/learners/my-bills', label: 'My Bills', active: pathname.startsWith('/learners/my-bills') },
             { href: '/learners/leave-onduty', label: 'Leave/OnDuty · Landing', active: pathname === '/learners/leave-onduty' },
             { href: '/learners/leave-onduty/my-applications', label: 'Leave/OnDuty · My Applications', active: pathname === '/learners/leave-onduty/my-applications' },
             { href: '/learners/leave-onduty/apply', label: 'Leave/OnDuty · Apply', active: pathname === '/learners/leave-onduty/apply' },
@@ -2002,6 +2013,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/meetings/polls', label: 'Polls', active: pathname.startsWith('/meetings/polls') },
             { href: '/meetings/contacts', label: 'Contacts', active: pathname.startsWith('/meetings/contacts') },
             { href: '/meetings/analytics', label: 'Analytics', active: pathname.startsWith('/meetings/analytics') },
+            { href: '/meetings/adoption', label: 'Adoption', active: pathname.startsWith('/meetings/adoption') },
             { href: '/meetings/webhooks', label: 'Webhooks', active: pathname.startsWith('/meetings/webhooks') },
             { href: '/meetings/embed', label: 'Embed & Theming', active: pathname.startsWith('/meetings/embed') },
           ]
@@ -2319,6 +2331,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Training Programmes',
           active: pathname.startsWith('/cdc/training'),
           icon: BookOpen,
+          submenus: []
+        },
+        {
+          href: '/cdc/career-guidance',
+          label: 'AI Career Guidance',
+          active: pathname.startsWith('/cdc/career-guidance'),
+          icon: Compass,
           submenus: []
         },
         {

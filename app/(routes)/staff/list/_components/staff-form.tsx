@@ -48,6 +48,8 @@ import { RoleService } from '@/lib/services/roles/role-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { CustomRole } from '@/types/auth';
 import { fullStaffSchema, extendedStaffSchema, type StaffFormValues } from './staff-form-schema';
+import { TagsInput } from './tags-input';
+import { useStaffTags } from '@/hooks/staff/use-staff-tags';
 import { TabbedFormShell, type TabSpec } from '@/components/forms';
 import { BasicTab } from './staff-form-tabs/basic-tab';
 import { AcademicTab } from './staff-form-tabs/academic-tab';
@@ -98,6 +100,8 @@ function buildDefaults(staff?: Staff) {
     // The form auto-derives from selected category's allows_login when the
     // user hasn't manually toggled it.
     login_enabled: staff?.login_enabled ?? true,
+    // Optional free-form labels for external-API filtering. Empty = untagged.
+    tags: staff?.tags ?? [],
     // Extended-profile defaults — keep RHF from seeing `undefined` for any of
     // these fields (which would silently fail Zod required-checks once the
     // user toggles `has_extended_profile=true`).
@@ -225,6 +229,10 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     resolver: zodResolver(fullStaffSchema),
     defaultValues: buildDefaults(staff)
   });
+
+  // Distinct tags already used across staff — powers the tags-input autocomplete.
+  // Global (not institution-scoped) so the same vocabulary is suggested everywhere.
+  const { data: tagSuggestions = [] } = useStaffTags();
 
   // Watch institution_id for departments loading
   const watchedInstitutionId = form.watch('institution_id');
@@ -833,6 +841,30 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                   staffId={isEditing ? (staff?.id as string) : 'temp'}
                 />
               </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='tags'
+          render={({ field }) => (
+            <FormItem className='md:col-span-2' data-field='tags'>
+              <FormLabel>Tags</FormLabel>
+              <FormControl>
+                <TagsInput
+                  value={field.value ?? []}
+                  onChange={field.onChange}
+                  suggestions={tagSuggestions}
+                  placeholder='e.g. placement_cell, nss — type and press Enter'
+                />
+              </FormControl>
+              <p className='text-xs text-muted-foreground'>
+                Optional labels for grouping staff (saved in lowercase). Used to
+                fetch specific staff categories via the API
+                (<code>?tags=placement_cell,nss</code>).
+              </p>
               <FormMessage />
             </FormItem>
           )}

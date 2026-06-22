@@ -21,6 +21,7 @@ import { toast } from 'sonner';
 import {
   Calendar,
   Clock,
+  CreditCard,
   EyeOff,
   Loader2,
   Pencil,
@@ -61,6 +62,7 @@ import {
   type EventTypeFormInput,
   type ManageEventType,
 } from '../actions';
+import { VenueRoomPicker } from './venue-room-picker';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Form schema
@@ -83,6 +85,8 @@ const formSchema = z.object({
   hidden: z.boolean(),
   locationMode: z.enum(['in_person', 'phone', 'online']),
   locationText: z.string().trim().max(200, 'Keep the location short').optional().or(z.literal('')),
+  // Venue from Resource Management (PR1): a "Spaces & Venues" room id ('' = none).
+  locationResourceId: z.string().optional().or(z.literal('')),
   // ── M2 slot rules ──────────────────────────────────────────────────────────
   bufferBeforeMin: z.coerce
     .number({ invalid_type_error: 'Enter a number' })
@@ -123,6 +127,29 @@ const formSchema = z.object({
     .optional()
     .or(z.literal('')),
   cancellationPolicy: z.string().trim().max(2000, 'Keep the policy under 2000 characters').optional().or(z.literal('')),
+  // ── Wave-3 (B): paid bookings ────────────────────────────────────────────────
+  requiresDeposit: z.boolean(),
+  // Deposit amount in RUPEES in the form (converted to paise on submit).
+  // Ignored unless requiresDeposit; validated server-side too.
+  depositAmountRupees: z.coerce
+    .number({ invalid_type_error: 'Enter an amount' })
+    .min(0, 'Cannot be negative')
+    .max(100000, 'Max ₹1,00,000'),
+}).superRefine((val, ctx) => {
+  // Venue-from-resource PR1: an in-person meeting must name a place — either a
+  // room from the registry OR a custom text location. Mirrors the server rule
+  // in actions.ts validateForm so the host gets feedback before submitting.
+  if (val.locationMode === 'in_person') {
+    const hasRoom = Boolean(val.locationResourceId && val.locationResourceId.trim());
+    const hasText = Boolean(val.locationText && val.locationText.trim());
+    if (!hasRoom && !hasText) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['locationResourceId'],
+        message: 'Pick a venue, or type a custom place, for in-person meetings.',
+      });
+    }
+  }
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -157,7 +184,7 @@ function kindLabel(kind: ManageEventType['kind']): string {
 function locationLabel(et: ManageEventType): string {
   if (et.locationMode === 'phone') return 'Phone call';
   if (et.locationMode === 'online') return 'Google Meet';
-  return et.locationText || 'In person';
+  return et.locationResourceName || et.locationText || 'In person';
 }
 
 /** Lowercase-hyphenated slug derived from a title. */
@@ -280,6 +307,12 @@ export function EventTypesManager({
                           {et.kind === 'group' && et.capacity ? ` · ${et.capacity}` : ''}
                         </Badge>
                       )}
+                      {et.requiresDeposit && et.depositAmountPaise ? (
+                        <Badge variant="outline" className="shrink-0 gap-1">
+                          <CreditCard className="h-3 w-3" aria-hidden />
+                          {`₹${(et.depositAmountPaise / 100).toLocaleString('en-IN')}`}
+                        </Badge>
+                      ) : null}
                       {et.hidden && (
                         <Badge variant="secondary" className="shrink-0 gap-1">
                           <EyeOff className="h-3 w-3" aria-hidden />
@@ -416,6 +449,7 @@ function EventTypeDialog({
       hidden: editing?.hidden ?? false,
       locationMode: editing?.locationMode ?? 'in_person',
       locationText: editing?.locationText ?? '',
+      locationResourceId: editing?.locationResourceId ?? '',
       bufferBeforeMin: editing?.bufferBeforeMin ?? 0,
       bufferAfterMin: editing?.bufferAfterMin ?? 0,
       minNoticeMin: editing?.minNoticeMin ?? 0,
@@ -427,6 +461,9 @@ function EventTypeDialog({
       hostEmails: (editing?.hostEmails ?? []).join('\n'),
       redirectUrl: editing?.redirectUrl ?? '',
       cancellationPolicy: editing?.cancellationPolicy ?? '',
+      // Wave-3 (B): paid bookings — paise in the DB ↔ rupees in the form.
+      requiresDeposit: editing?.requiresDeposit ?? false,
+      depositAmountRupees: editing?.depositAmountPaise ? editing.depositAmountPaise / 100 : 0,
     },
   });
 
@@ -436,8 +473,10 @@ function EventTypeDialog({
   const hiddenValue = watch('hidden');
   const locationModeValue = watch('locationMode');
   const locationTextValue = watch('locationText');
+  const locationResourceIdValue = watch('locationResourceId');
   const slotIntervalValue = watch('slotIntervalMin');
   const kindValue = watch('kind');
+  const requiresDepositValue = watch('requiresDeposit');
 
   function onTitleChange(value: string) {
     setValue('title', value, { shouldValidate: true });
@@ -463,6 +502,7 @@ function EventTypeDialog({
       hidden: values.hidden,
       locationMode: values.locationMode,
       locationText: values.locationText?.trim() || undefined,
+      locationResourceId: values.locationResourceId?.trim() || undefined,
       bufferBeforeMin: values.bufferBeforeMin,
       bufferAfterMin: values.bufferAfterMin,
       minNoticeMin: values.minNoticeMin,
@@ -474,6 +514,11 @@ function EventTypeDialog({
       hostEmails: values.kind === 'collective' || values.kind === 'round_robin' ? hostEmails : [],
       redirectUrl: values.redirectUrl?.trim() || undefined,
       cancellationPolicy: values.cancellationPolicy?.trim() || undefined,
+      // Wave-3 (B): paid bookings — rupees → paise; cleared when not required.
+      requiresDeposit: values.requiresDeposit,
+      depositAmountPaise: values.requiresDeposit
+        ? Math.round((values.depositAmountRupees || 0) * 100)
+        : null,
     };
 
     startSave(async () => {
@@ -687,12 +732,36 @@ function EventTypeDialog({
                 ))}
               </div>
               {locationModeValue === 'in_person' && (
-                <Input
-                  placeholder="e.g. Pharmacy block, Room 204"
-                  value={locationTextValue ?? ''}
-                  onChange={(e) => setValue('locationText', e.target.value)}
-                  aria-label="Meeting location"
-                />
+                <div className="space-y-2">
+                  {/* PR1: pick a real room from Resource Management (all JKKN,
+                      searchable). Picking a room supersedes any custom text. */}
+                  <VenueRoomPicker
+                    value={locationResourceIdValue ?? ''}
+                    onChange={(id) => {
+                      setValue('locationResourceId', id, { shouldValidate: true });
+                      if (id) setValue('locationText', '', { shouldValidate: true });
+                    }}
+                    initialName={editing?.locationResourceName ?? null}
+                  />
+                  {/* Custom-place fallback — only when no registry room is chosen
+                      (e.g. an off-campus venue). Required-for-in-person is
+                      enforced by the schema refine + server validateForm. */}
+                  {!locationResourceIdValue && (
+                    <Input
+                      placeholder="…or type a custom place (e.g. Pharmacy block, Room 204)"
+                      value={locationTextValue ?? ''}
+                      onChange={(e) =>
+                        setValue('locationText', e.target.value, { shouldValidate: true })
+                      }
+                      aria-label="Custom meeting location"
+                    />
+                  )}
+                  {errors.locationResourceId && (
+                    <p className="text-xs text-destructive">
+                      {errors.locationResourceId.message}
+                    </p>
+                  )}
+                </div>
               )}
               {locationModeValue === 'online' && (
                 <p className="text-xs text-muted-foreground">
@@ -894,6 +963,52 @@ function EventTypeDialog({
                   Shown to the attendee on the cancel page.
                 </p>
               </div>
+            </div>
+
+            {/* ── Wave-3 (B) paid bookings — require a Razorpay deposit ───────── */}
+            <div className="space-y-3 rounded-md border p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <Label htmlFor="et-requires-deposit" className="text-sm">
+                    Require a deposit to book
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Collect a payment before the booking is confirmed.
+                  </p>
+                </div>
+                <Switch
+                  id="et-requires-deposit"
+                  checked={requiresDepositValue}
+                  onCheckedChange={(v) => setValue('requiresDeposit', v, { shouldValidate: true })}
+                />
+              </div>
+
+              {requiresDepositValue && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="et-deposit-amount" className="text-xs">
+                    Deposit amount (₹)
+                  </Label>
+                  <Input
+                    id="et-deposit-amount"
+                    type="number"
+                    min={1}
+                    max={100000}
+                    step="1"
+                    className="w-40"
+                    {...register('depositAmountRupees')}
+                    aria-invalid={!!errors.depositAmountRupees}
+                  />
+                  {errors.depositAmountRupees && (
+                    <p className="text-xs text-destructive">
+                      {errors.depositAmountRupees.message}
+                    </p>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">
+                    Charged via Razorpay on the booking page. If online payments
+                    aren&rsquo;t set up yet, the meeting can still be booked for free.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Hidden toggle (edit only — new types default visible) */}

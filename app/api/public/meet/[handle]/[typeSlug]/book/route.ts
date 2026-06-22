@@ -13,6 +13,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { PublicHostService } from '@/lib/services/meetings/public-host-service';
 import { NativeSchedulingService } from '@/lib/services/meetings/native-scheduling-service';
+import { BookingIdentityService } from '@/lib/services/meetings/booking-identity-service';
+import {
+  createBookingOrder,
+  isRazorpayBookingConfigured,
+  verifyBookingPayment,
+} from '@/lib/services/integrations/razorpay-booking-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,6 +65,10 @@ export async function POST(
       return NextResponse.json({ success: true, uid: null });
     }
 
+    // Wave-3 (B): 'order' = create a Razorpay deposit order before Checkout;
+    // default = confirm the booking (free, or paid with a verified payment).
+    const mode = body.mode === 'order' ? 'order' : 'confirm';
+
     const start = typeof body.start === 'string' ? body.start : '';
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, 200) : '';
     const email = typeof body.email === 'string' ? body.email.trim().slice(0, 254) : '';
@@ -90,14 +100,91 @@ export async function POST(
       return NextResponse.json({ error: 'Meeting type not found' }, { status: 404 });
     }
 
+    // Identity gate (Director 2026-06-20): a signed-in user books as themselves
+    // (binds attendee_profile_id); a JKKN-account email must log in first;
+    // everyone else books as a guest. Enforced server-side — never trusted from
+    // the client. The 403 carries a loginUrl that returns here after sign-in.
+    // Runs BEFORE the deposit/order step so a user who must log in is never
+    // sent to a Razorpay order.
+    const identity = await BookingIdentityService.resolve(supabase, email);
+    if (identity.kind === 'login_required') {
+      return NextResponse.json(
+        {
+          error: 'login_required',
+          reason: identity.reason,
+          loginUrl: `/auth/login?redirectedFrom=${encodeURIComponent(`/meet/${handle}`)}`,
+        },
+        { status: 403 },
+      );
+    }
+    const attendeeName = identity.kind === 'authenticated' ? identity.name : name;
+    const attendeeEmail = identity.kind === 'authenticated' ? identity.email : email;
+    const attendeeProfileId = identity.kind === 'authenticated' ? identity.profileId : null;
+
+    // Re-resolve the deposit requirement server-side (never trust the client).
+    const fullType = await NativeSchedulingService.getMeetingType(supabase, mt.id);
+    if (!fullType) {
+      return NextResponse.json({ error: 'Meeting type not found' }, { status: 404 });
+    }
+    const depositActive =
+      !!fullType.requires_deposit &&
+      (fullType.deposit_amount_paise ?? 0) > 0 &&
+      isRazorpayBookingConfigured();
+    const depositPaise = depositActive ? fullType.deposit_amount_paise! : 0;
+
+    // ── Step 1 (deposit types only): create the Razorpay order ─────────────────
+    if (mode === 'order') {
+      if (!depositActive) {
+        // No deposit needed (free type, or required-but-Razorpay-unconfigured →
+        // degrade to free). Tell the widget to skip Checkout.
+        return NextResponse.json({ success: true, requiresPayment: false });
+      }
+      const order = await createBookingOrder({
+        amountPaise: depositPaise,
+        receipt: `booking-${Date.now().toString(36)}`,
+        notes: { handle, typeSlug, attendee_email: email },
+      });
+      if (!order) {
+        return NextResponse.json(
+          { error: 'Could not start payment. Please try again.' },
+          { status: 502 },
+        );
+      }
+      return NextResponse.json({
+        success: true,
+        requiresPayment: true,
+        orderId: order.orderId,
+        amountPaise: order.amountPaise,
+        keyId: order.keyId,
+      });
+    }
+
+    // ── Step 2 (confirm): for a deposit type, verify the payment FIRST ─────────
+    let verifiedPayment: { orderId: string; paymentId: string } | undefined;
+    if (depositActive) {
+      const orderId = typeof body.razorpayOrderId === 'string' ? body.razorpayOrderId : '';
+      const paymentId = typeof body.razorpayPaymentId === 'string' ? body.razorpayPaymentId : '';
+      const signature = typeof body.razorpaySignature === 'string' ? body.razorpaySignature : '';
+      if (!orderId || !paymentId || !signature) {
+        return NextResponse.json({ error: 'payment_required' }, { status: 402 });
+      }
+      const ok = verifyBookingPayment({ orderId, paymentId, signature });
+      if (!ok) {
+        return NextResponse.json({ error: 'payment_unverified' }, { status: 402 });
+      }
+      verifiedPayment = { orderId, paymentId };
+    }
+
     const booking = await NativeSchedulingService.createBooking(supabase, {
       meetingTypeId: mt.id,
       start,
-      attendeeName: name,
-      attendeeEmail: email,
+      attendeeName,
+      attendeeEmail,
       attendeePhone: phone || null,
+      attendeeProfileId,
       answers: note ? { note } : {},
       source: 'meet-page',
+      payment: verifiedPayment,
     });
     if (!booking.success) {
       if (booking.error === 'SLOT_TAKEN' || booking.error === 'INVALID_SLOT') {
@@ -128,6 +215,18 @@ export async function POST(
       redirectUrl = candidate;
     }
 
+    // Wave-3 (A): surface the video link (Google Meet / Zoom / Teams) minted by
+    // createBooking so the confirmation can show "Join" right away. NULL when
+    // the type isn't online or no provider was configured (link only emailed).
+    let videoUrl: string | null = null;
+    const { data: bookingRow } = await (supabase as any)
+      .from('meeting_bookings')
+      .select('video_url')
+      .eq('uid', booking.uid)
+      .maybeSingle();
+    const vu = String((bookingRow?.video_url as string | null) ?? '').trim();
+    if (/^https?:\/\//i.test(vu)) videoUrl = vu;
+
     return NextResponse.json({
       success: true,
       uid: booking.uid,
@@ -135,6 +234,7 @@ export async function POST(
       hostName: host.name,
       durationMin: mt.durationMin,
       redirectUrl,
+      videoUrl,
     });
   } catch (err) {
     console.error('[public/meet/book] failed:', err);
