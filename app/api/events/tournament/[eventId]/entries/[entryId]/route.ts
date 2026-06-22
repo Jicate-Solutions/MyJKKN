@@ -10,6 +10,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { getPaymentProvider } from '@/lib/services/payments/factory';
+import type { Paise } from '@/lib/services/payments/amount';
 import type { UpdateEntryDto } from '@/types/tournament';
 
 async function requireManage(): Promise<{ ok: true; userId: string } | { ok: false; res: NextResponse }> {
@@ -130,33 +132,83 @@ export async function DELETE(
     const cutoff = cutoffRaw ? new Date(cutoffRaw) : null;
     const withinWindow = !cutoff || Number.isNaN(cutoff.getTime()) || new Date() <= cutoff;
 
-    // Read the payment state to decide refund eligibility.
-    // NOTE: events_registrations.payment_status CHECK has no "refund_pending" value,
-    // and PR2 does not move money through the gateway. So we DON'T overwrite
-    // payment_status (that would falsely claim 'refunded'); instead we record the
-    // refund intent in custom_data for ops/a future refund-processing surface, and
-    // leave payment_status='paid' until the refund is actually processed.
-    let refund: 'pending' | 'none' | 'not_applicable' = 'not_applicable';
+    // Refund handling (Director decision 2026-06-23: AUTO-refund via the gateway within
+    // the window). For a paid entry inside the refund window we call the payment
+    // provider's refund API directly and set payment_status='refunded'. If the entry was
+    // paid OFFLINE (no gateway transaction), we fall back to flagging it for the accounts
+    // team (custom_data.refund_due) since there's nothing to refund through the gateway.
+    let refund: 'processed' | 'pending' | 'failed' | 'manual' | 'none' | 'not_applicable' = 'not_applicable';
     let reason: string | undefined;
     if (entry.registration_id) {
       const { data: reg } = await (svc as any)
         .from('events_registrations')
-        .select('payment_status, payment_amount, custom_data')
+        .select('payment_status, payment_amount, institution_id, custom_data')
         .eq('id', entry.registration_id)
         .single();
       const wasPaid = reg?.payment_status === 'paid' && Number(reg?.payment_amount ?? 0) > 0;
-      if (wasPaid) {
-        if (withinWindow) {
-          const custom = { ...(reg?.custom_data ?? {}), refund_due: true, refund_marked_by: gate.userId };
+      if (wasPaid && !withinWindow) {
+        refund = 'none';
+        reason = `Past the refund cutoff (${cutoffRaw}); no refund.`;
+      } else if (wasPaid && withinWindow) {
+        // find the successful gateway transaction backing this registration
+        const { data: txn } = await (svc as any)
+          .from('event_payment_transactions')
+          .select('id, razorpay_payment_id, gateway_transaction_id, amount_paise, amount')
+          .eq('registration_id', entry.registration_id)
+          .eq('status', 'success')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const gatewayPaymentId = txn?.razorpay_payment_id || txn?.gateway_transaction_id || null;
+        // amount_paise is already in paise; reg.payment_amount is in rupees. Brand as Paise.
+        const amountPaise = (
+          txn?.amount_paise != null
+            ? Number(txn.amount_paise)
+            : Math.round(Number(reg.payment_amount) * 100)
+        ) as Paise;
+
+        if (gatewayPaymentId) {
+          try {
+            const provider = await getPaymentProvider('events', {
+              institutionId: reg.institution_id ?? undefined,
+            });
+            const result = await provider.createRefund({
+              gatewayPaymentId,
+              amountPaise,
+              refundReference: `TRF-${entry.registration_id}`.slice(0, 40),
+              notes: { reason: 'tournament entry withdrawn', entry_id: entryId },
+            });
+            const ok = result.status !== 'failed';
+            await (svc as any)
+              .from('events_registrations')
+              .update({
+                payment_status: ok ? 'refunded' : 'paid',
+                custom_data: {
+                  ...(reg?.custom_data ?? {}),
+                  refund: { gateway_refund_id: result.gatewayRefundId, status: result.status, at: new Date().toISOString(), by: gate.userId },
+                },
+              })
+              .eq('id', entry.registration_id);
+            refund = ok ? (result.status === 'processed' ? 'processed' : 'pending') : 'failed';
+            reason = ok
+              ? `Refund ${result.status} via gateway (${result.gatewayRefundId}).`
+              : 'Gateway refund failed — left as paid; retry or refund manually.';
+          } catch (refErr) {
+            refund = 'failed';
+            reason = `Gateway refund error: ${refErr instanceof Error ? refErr.message : 'unknown'}. Left as paid.`;
+            await (svc as any)
+              .from('events_registrations')
+              .update({ custom_data: { ...(reg?.custom_data ?? {}), refund_error: reason } })
+              .eq('id', entry.registration_id);
+          }
+        } else {
+          // paid offline (cash/UPI marked) — no gateway txn to refund → flag for accounts
           await (svc as any)
             .from('events_registrations')
-            .update({ custom_data: custom })
+            .update({ custom_data: { ...(reg?.custom_data ?? {}), refund_due: true, refund_marked_by: gate.userId } })
             .eq('id', entry.registration_id);
-          refund = 'pending';
-          reason = 'Within refund window — refund due (recorded for processing).';
-        } else {
-          refund = 'none';
-          reason = `Past the refund cutoff (${cutoffRaw}); no refund.`;
+          refund = 'manual';
+          reason = 'Paid offline — flagged for the accounts team to refund manually.';
         }
       }
     }
