@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { IdpService } from '@/lib/services/cdc/idp-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { CreateIdpResponseDto, UpdateIdpResponseDto, IdpFilters } from '@/types/cdc/idp';
+import type { CreateIdpResponseDto, UpdateIdpResponseDto, IdpFilters, PrefilledIdpDraft } from '@/types/cdc/idp';
 
 const supabase = createClientSupabaseClient();
 
@@ -40,6 +40,26 @@ export function useIdpByLearner(learnerId: string) {
     queryFn: () => IdpService.getByLearnerId(supabase, learnerId),
     enabled: !!learnerId,
     staleTime: 2 * 60 * 1000,
+  });
+}
+
+// Create-time prefill (BUG-004197). Fetches a draft assembled from the learner's
+// existing data the moment a learner is chosen on the NEW IDP form. Create-only —
+// the edit page must never call this (would clobber saved work).
+export function useIdpPrefill(learnerId: string) {
+  return useQuery({
+    queryKey: [...idpKeys.all, 'prefill', learnerId] as const,
+    enabled: !!learnerId,
+    staleTime: 0,
+    gcTime: 0,
+    queryFn: async (): Promise<PrefilledIdpDraft> => {
+      const res = await fetch(`/api/cdc/idp/prefill?learner_id=${encodeURIComponent(learnerId)}`);
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        throw new Error(b.error || `Request failed (${res.status})`);
+      }
+      return res.json() as Promise<PrefilledIdpDraft>;
+    },
   });
 }
 

@@ -98,6 +98,8 @@ export class IdpService {
         // from skills_self_attribution tag array).
         academic_strengths: dto.academic_strengths ?? null,
         free_text_notes: dto.free_text_notes ?? null,
+        // BUG-004197 (provenance): which fields were machine-suggested at create.
+        prefill_sources: dto.prefill_sources ?? {},
         source: 'native_form',
       })
       .select()
