@@ -121,6 +121,37 @@ export function useUpdateCdcEnrollment() {
   });
 }
 
+// ─── Attendance auto-pickup (BUG-004201) ─────────────────────────────────
+// Recompute every enrolled learner's attendance_pct from the academic attendance
+// master over the programme window (Model A). Goes through the service-role API
+// route; invalidates the enrollment list so the synced %s + provenance refresh.
+export function useSyncTrainingAttendance(programmeId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<{ ok: boolean; synced?: number; no_records?: number; reason?: string }> => {
+      const res = await fetch(`/api/cdc/training/${programmeId}/attendance-sync`, { method: 'POST' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
+      return body;
+    },
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ['cdc-training-enrollments', { programme_id: programmeId }] });
+      if (r.ok) {
+        const synced = r.synced ?? 0;
+        const none = r.no_records ?? 0;
+        toast.success(
+          `Attendance recomputed for ${synced} learner${synced === 1 ? '' : 's'}` +
+          (none > 0 ? ` · ${none} had no records in the window` : '')
+        );
+      }
+    },
+    onError: (err: Error) => {
+      console.error('[cdc/training] attendance sync error:', err);
+      toast.error(err.message || 'Failed to recompute attendance');
+    },
+  });
+}
+
 // ─── Semester Schedules (BUG-004200) ─────────────────────────────────────
 
 export function useCdcSemesterSchedules(programmeId: string | undefined) {

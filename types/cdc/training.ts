@@ -65,6 +65,11 @@ export interface CdcTrainingEnrollment {
   enrolled_at: string;
   status: EnrollmentStatus;
   attendance_pct: number | null;
+  // BUG-004201: provenance of attendance_pct — manual entry vs auto-computed from
+  // the academic attendance master over the programme window.
+  attendance_source?: 'manual' | 'auto_window' | null;
+  attendance_synced_at?: string | null;
+  attendance_basis?: { records_total?: number; records_present?: number; window_start?: string; window_end?: string } | null;
   certificate_url: string | null;
   certificate_issued_at: string | null;
   notes: string | null;
