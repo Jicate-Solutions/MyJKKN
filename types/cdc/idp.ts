@@ -17,6 +17,11 @@ export interface CdcIdpResponse {
   // academic strong points. Nullable for rows created before this field.
   academic_strengths: string | null;
   free_text_notes: string | null;
+  // BUG-004197 (provenance): map of field -> source recording which IDP fields
+  // received a non-empty machine suggestion at create time (e.g.
+  // { interests: 'prior_idp', club_picks: 'cdc_club_memberships' }). Empty {}
+  // for fully hand-typed rows. Lets CDC report "% machine-suggested".
+  prefill_sources: Record<string, string>;
   source: 'native_form' | 'google_form_import';
   source_response_id: string | null;
   submitted_at: string;
@@ -47,6 +52,9 @@ export interface CreateIdpResponseDto {
   // skills_self_attribution (tag array).
   academic_strengths?: string;
   free_text_notes?: string;
+  // BUG-004197 (provenance): which fields were machine-suggested at create time.
+  // Set by the create form from the prefill draft; '{}' when nothing was prefilled.
+  prefill_sources?: Record<string, string>;
 }
 
 export interface UpdateIdpResponseDto extends Partial<CreateIdpResponseDto> {

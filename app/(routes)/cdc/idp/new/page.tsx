@@ -49,6 +49,9 @@ export default function NewIdpPage() {
   // coordinator's edits. This is a CREATE-only aid — there is no edit-page equivalent.
   const { data: prefill, isFetching: prefilling } = useIdpPrefill(learnerId);
   const hydratedFor = useRef<string | null>(null);
+  // BUG-004197 (provenance): which fields received a non-empty machine suggestion
+  // at create time, so the saved IDP records what was prefilled vs hand-typed.
+  const prefillSourcesRef = useRef<Record<string, string>>({});
   useEffect(() => {
     if (prefill && learnerId && hydratedFor.current !== learnerId) {
       hydratedFor.current = learnerId;
@@ -56,6 +59,13 @@ export default function NewIdpPage() {
       setClubPicks(prefill.clubPicks ?? []);
       setSkills(prefill.skills ?? []);
       setAcademicStrengths(prefill.academicStrengths ?? '');
+
+      const sources: Record<string, string> = {};
+      if ((prefill.interests ?? []).length) sources.interests = 'prior_idp';
+      if ((prefill.skills ?? []).length) sources.skills_self_attribution = 'prior_idp';
+      if ((prefill.academicStrengths ?? '').trim()) sources.academic_strengths = 'prior_idp';
+      if ((prefill.clubPicks ?? []).length) sources.club_picks = 'cdc_club_memberships';
+      prefillSourcesRef.current = sources;
     }
   }, [prefill, learnerId]);
   const prefilled = !!prefill && hydratedFor.current === learnerId;
@@ -92,6 +102,7 @@ export default function NewIdpPage() {
       },
       aspirations: {},
       free_text_notes: freeNotes || undefined,
+      prefill_sources: prefillSourcesRef.current,
     });
 
     router.push('/cdc/idp');
