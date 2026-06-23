@@ -5161,3 +5161,22 @@ CREATE TABLE IF NOT EXISTS public.calendar_feed_settings (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_calendar_feed_global      ON public.calendar_feed_settings (feed_key) WHERE institution_id IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_calendar_feed_institution ON public.calendar_feed_settings (feed_key, institution_id) WHERE institution_id IS NOT NULL;
+
+-- 2026-06-24 — Social Loop Engine playbook table
+-- One row per closed cycle per ig account: the department innovation loop's
+-- durable memory (Read → Decide → Act → Learn). Migration:
+-- supabase/migrations/20260624031500_social_loop_playbook.sql
+CREATE TABLE IF NOT EXISTS public.social_loop_playbook (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id UUID NOT NULL REFERENCES public.ig_accounts(id) ON DELETE CASCADE,
+  cycle_no INT NOT NULL,
+  week_start DATE NOT NULL DEFAULT (now()::date),
+  read_summary JSONB NOT NULL DEFAULT '{}'::jsonb,        -- snapshot of the READ at close time
+  decide JSONB NOT NULL DEFAULT '{}'::jsonb,              -- {formatInstruction, barToBeat, nextInstruction, domainHypothesis}
+  learning TEXT,                                          -- the one human change written down
+  created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT social_loop_playbook_account_cycle_key UNIQUE (account_id, cycle_no)
+);
+CREATE INDEX IF NOT EXISTS idx_social_loop_playbook_account ON public.social_loop_playbook (account_id, cycle_no DESC);

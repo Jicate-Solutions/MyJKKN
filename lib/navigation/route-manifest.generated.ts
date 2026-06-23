@@ -1352,6 +1352,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/social/loop",
+            "label": "Loop",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
             "path": "/admission/social/meta-audiences",
             "label": "Meta Audiences",
             "iconName": "GraduationCap",
