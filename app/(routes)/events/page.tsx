@@ -11,7 +11,8 @@ import {
   CardContent,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Timer, Music, Mic2, Dumbbell, BookOpen, Users, FileText } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Timer, Music, Mic2, Dumbbell, BookOpen, Users, FileText, Plus } from 'lucide-react';
 
 interface EventTypeCard {
   title: string;
@@ -51,11 +52,24 @@ export default function EventsHubPage() {
       />
 
       <div className="space-y-4 mt-4">
-        <div>
-          <h1 className="text-2xl font-bold py-1">Events Hub</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage all types of institutional events from a single place.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold py-1">Events Hub</h1>
+            <p className="text-sm text-muted-foreground">
+              Manage all types of institutional events from a single place.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link href="/events/presets">Presets</Link>
+            </Button>
+            <Button asChild>
+              <Link href="/events/create" className="gap-1.5">
+                <Plus className="h-4 w-4" />
+                Create an Event
+              </Link>
+            </Button>
+          </div>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
