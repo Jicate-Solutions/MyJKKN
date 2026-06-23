@@ -19,6 +19,8 @@ const BASE_FEEDS = [
   { key: 'global_entries', label: 'Global' },
   { key: 'academic_holidays', label: 'Academic Holidays' },
   { key: 'hr_public_holidays', label: 'HR Holidays' },
+  { key: 'events', label: 'Events' },
+  { key: 'meetings', label: 'Meetings' },
 ];
 
 const LEAVE_FEEDS = [
@@ -192,5 +194,7 @@ function feedKeyFor(it: CalendarItem): string {
   if (it.source_module === 'hr') return 'hr_public_holidays';
   if (it.source_module === 'hr_leave') return 'staff_leave';
   if (it.source_module === 'academic_leave') return 'student_leave';
+  if (it.source_module === 'events' || it.source_module === 'lc_event' || it.source_module === 'startup_event') return 'events';
+  if (it.source_module === 'bos_meeting') return 'meetings';
   return it.source_module;
 }
