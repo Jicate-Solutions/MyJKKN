@@ -1669,6 +1669,34 @@ CREATE POLICY "reservations_delete_own" ON resource_reservations
         )
     );
 
+-- NOTE (2026-06-23): the live DB has since diverged from the four policies
+-- above (later migrations renamed/added resource_reservations_select_by_*,
+-- _by_approver, the per-resource home-institution SELECT, etc.). This block is
+-- kept as historical reference; the authoritative state is the migrations.
+--
+-- Migration 20260623120000 replaced the unscoped staff SELECT policy
+-- ("Staff with permission can view all reservations", which let
+-- super_admin/admin/accounts see EVERY institution's reservations) with the
+-- institution-scoped policy below. role_has_institution_access() keeps
+-- super_admin + scope='all' staff global while limiting institution-scoped
+-- staff to their accessible institutions.
+DROP POLICY IF EXISTS "Staff with permission can view all reservations"
+  ON resource_reservations;
+
+CREATE POLICY "resource_reservations_select_staff_scoped" ON resource_reservations
+    FOR SELECT TO authenticated USING (
+        EXISTS (
+            SELECT 1 FROM profiles p
+            WHERE p.id = (SELECT auth.uid())
+              AND p.role = ANY (ARRAY['super_admin', 'admin', 'accounts'])
+        )
+        AND EXISTS (
+            SELECT 1 FROM resources r
+            WHERE r.id = resource_reservations.resource_id
+              AND role_has_institution_access(r.institution_id)
+        )
+    );
+
 -- RESOURCE_APPROVALS TABLE (2 policies)
 ALTER TABLE resource_approvals ENABLE ROW LEVEL SECURITY;
 
