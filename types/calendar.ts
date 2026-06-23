@@ -104,4 +104,5 @@ export const CALENDAR_FEEDS: { key: string; label: string }[] = [
   { key: 'student_leave', label: 'Student Leave' },
   { key: 'events', label: 'Events' },
   { key: 'meetings', label: 'Meetings' },
+  { key: 'reservations', label: 'Reservations' },
 ];
