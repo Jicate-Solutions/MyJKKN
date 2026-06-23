@@ -256,6 +256,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/academic/session-feedback/admin",
+            "label": "Admin",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/academic/session-feedback/faculty",
             "label": "Faculty",
             "iconName": "FileText",
@@ -2992,6 +2998,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "CalendarHeart",
     "children": [
       {
+        "path": "/events/create",
+        "label": "Create",
+        "iconName": "Plus",
+        "children": []
+      },
+      {
         "path": "/events/marathon",
         "label": "Marathon",
         "iconName": "CalendarHeart",
@@ -3003,6 +3015,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/events/presets",
+        "label": "Presets",
+        "iconName": "CalendarHeart",
+        "children": []
       },
       {
         "path": "/events/proposals",
