@@ -708,8 +708,17 @@ function HealthDashboardInner() {
       {/* ── 6. Active wellness programs ── */}
       <WellnessProgramsCard />
 
-      {/* Bottom breathing room for mobile nav bars */}
-      <div className="h-4" />
+      {/* Bottom breathing room so the last card (Active Wellness Programs —
+          incl. the MindSmile entry) is never hidden behind the fixed mobile
+          bottom navbar. That nav is `min-h-[100px]` + a top border +
+          env(safe-area-inset-bottom) (~120–134px on notched phones), while
+          AdminPanelLayout only adds pb-20 (80px) to <main>. The old h-4 (16px)
+          spacer left the final card covered by the nav, which read as both
+          "can't scroll down anymore" and "MindSmile icon not appearing".
+          h-28 (112px) + the safe-area inset clears the nav on all phones;
+          lg:h-0 drops the gap on desktop where the nav is hidden.
+          Fixes BUG-004237 + BUG-004221. */}
+      <div className="h-28 lg:h-0 pb-[env(safe-area-inset-bottom)]" aria-hidden />
     </div>
   );
 }
