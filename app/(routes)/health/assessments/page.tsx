@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,6 +16,7 @@ import {
   AlertTriangle,
   CheckCircle,
   Clock,
+  Info,
   X,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
@@ -78,11 +80,13 @@ function AssessmentCard({
   onStart,
   onDecline,
   learnerId,
+  disabled = false,
 }: {
   type: AssessmentType;
   onStart: (type: AssessmentType) => void;
   onDecline: (type: AssessmentType) => void;
   learnerId: string | undefined;
+  disabled?: boolean;
 }) {
   const { data: latest } = useLatestAssessment(learnerId, type);
 
@@ -153,7 +157,10 @@ function AssessmentCard({
         {/* Actions */}
         <div className="flex items-center gap-3">
           <Button
-            className={`flex-1 h-9 text-sm font-medium rounded-lg ${buttonClass}`}
+            className={`flex-1 h-9 text-sm font-medium rounded-lg ${
+              disabled ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : buttonClass
+            }`}
+            disabled={disabled}
             onClick={() => onStart(type)}
           >
             {lastCompleted ? 'Retake' : 'Start'}
@@ -561,8 +568,14 @@ function ResultsView({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AssessmentsPage() {
-  const { profile } = useAuth();
+  const { profile, isLoading: isAuthLoading } = useAuth();
   const learnerId = profile?.learner_id ?? undefined;
+  // Assessments are keyed on a learner profile (health_assessments.learner_id →
+  // learners_profiles.id). Staff/faculty/HOD accounts — and a chunk of student
+  // accounts whose learner_id FK was never set — have no learner_id. Without
+  // this flag the Submit button would silently no-op (BUG-004233: "Not able to
+  // submit"). We surface the blocked state explicitly instead (CLAUDE.md #27).
+  const canTakeAssessment = !!learnerId;
 
   const [view, setView] = useState<View>('landing');
   const [activeType, setActiveType] = useState<AssessmentType>('phq9');
@@ -571,11 +584,20 @@ export default function AssessmentsPage() {
   const submitMutation = useSubmitAssessment();
   const declineMutation = useDeclineAssessment();
 
-  const handleStart = useCallback((type: AssessmentType) => {
-    setActiveType(type);
-    setResult(null);
-    setView('quiz');
-  }, []);
+  const handleStart = useCallback(
+    (type: AssessmentType) => {
+      if (!canTakeAssessment) {
+        toast.error(
+          'This screening is only available for student accounts. Your profile is not linked to a learner record.'
+        );
+        return;
+      }
+      setActiveType(type);
+      setResult(null);
+      setView('quiz');
+    },
+    [canTakeAssessment]
+  );
 
   const handleDecline = useCallback(
     (type?: AssessmentType) => {
@@ -590,7 +612,16 @@ export default function AssessmentsPage() {
 
   const handleComplete = useCallback(
     (responses: AssessmentResponse[]) => {
-      if (!learnerId) return;
+      if (!learnerId) {
+        // Should be unreachable now that handleStart gates entry, but guard
+        // loudly rather than silently — a dead Submit button is what the
+        // original bug report described.
+        toast.error(
+          'Could not submit — your account is not linked to a learner profile. Please contact your institution administrator.'
+        );
+        setView('landing');
+        return;
+      }
 
       const scored =
         activeType === 'phq9'
@@ -629,6 +660,29 @@ export default function AssessmentsPage() {
             </p>
           </div>
 
+          {/* No-learner-profile notice — explains why submit is unavailable
+              instead of leaving a dead Submit button (BUG-004233). */}
+          {!isAuthLoading && !canTakeAssessment && (
+            <Card className="border-amber-200 bg-amber-50 shadow-sm">
+              <CardContent className="pt-5 pb-5">
+                <div className="flex items-start gap-3">
+                  <Info className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-amber-800">
+                      Screenings are available for student accounts
+                    </p>
+                    <p className="text-sm text-amber-700 leading-relaxed">
+                      Your account isn&apos;t linked to a learner profile, so
+                      these assessments can&apos;t be submitted. If you are a
+                      student and believe this is a mistake, please contact your
+                      institution administrator.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Assessment cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <AssessmentCard
@@ -636,12 +690,14 @@ export default function AssessmentsPage() {
               onStart={handleStart}
               onDecline={handleDecline}
               learnerId={learnerId}
+              disabled={!isAuthLoading && !canTakeAssessment}
             />
             <AssessmentCard
               type="gad7"
               onStart={handleStart}
               onDecline={handleDecline}
               learnerId={learnerId}
+              disabled={!isAuthLoading && !canTakeAssessment}
             />
           </div>
 
