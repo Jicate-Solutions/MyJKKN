@@ -258,6 +258,10 @@
     {
       "path": "/api/cron/meeting-webhooks?secret=${CRON_SECRET}",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/session-feedback-nudge?secret=${CRON_SECRET}",
+      "schedule": "13 7 * * *"
     }
   ]
 }
