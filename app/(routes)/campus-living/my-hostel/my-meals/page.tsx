@@ -59,6 +59,7 @@ import { MealChoiceDialog } from './_components/meal-choice-dialog';
 import { LiveCountsBoard } from './_components/live-counts-board';
 import { RecognitionFeed } from './_components/recognition-feed';
 import { RateDishesBoard } from './_components/rate-dishes-board';
+import { UpcomingSpecialDays } from './_components/upcoming-special-days';
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MEAL_LABELS: Record<string, string> = {
@@ -305,6 +306,9 @@ export default function MyMealsPage() {
 
             {/* Mode B input — rate dishes (only for voting-enabled tiers) */}
             {canVote && <RateDishesBoard />}
+
+            {/* Mode C — upcoming approved special days */}
+            <UpcomingSpecialDays enabled={masterOn} />
 
             {/* The return-arc: public tally + personal recognition */}
             <div className="grid gap-6 lg:grid-cols-2">
