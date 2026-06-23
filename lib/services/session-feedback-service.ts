@@ -14,6 +14,9 @@ import type {
   PendingRosterRow,
   EscalationRow,
   EscalationFollowupRow,
+  AdminCollegeSummaryRow,
+  AdminFacultySummaryRow,
+  AdminTrendRow,
   ChecklistConfigItem,
   SubmitFeedbackInput,
 } from '@/types/session-feedback';
@@ -145,5 +148,50 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to load escalation follow-ups: ${error.message}`);
     return (data || []) as EscalationFollowupRow[];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Super-admin / institution-leadership all-college dashboard (aggregates only).
+  // The RPCs raise for non-authorized callers; all three return ONLY aggregates
+  // (counts/averages) — never per-student feedback content.
+  // ---------------------------------------------------------------------------
+
+  /** Per-college submission + completion picture within scope. */
+  static async getAdminCollegeSummary(
+    from: string,
+    to: string,
+  ): Promise<AdminCollegeSummaryRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_admin_college_summary', {
+      p_from: from,
+      p_to: to,
+    });
+    if (error) throw new Error(`Failed to load college summary: ${error.message}`);
+    return (data || []) as AdminCollegeSummaryRow[];
+  }
+
+  /** Per-faculty summary (worst understanding first) within scope. */
+  static async getAdminFacultySummary(
+    from: string,
+    to: string,
+  ): Promise<AdminFacultySummaryRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_admin_faculty_summary', {
+      p_from: from,
+      p_to: to,
+    });
+    if (error) throw new Error(`Failed to load faculty summary: ${error.message}`);
+    return (data || []) as AdminFacultySummaryRow[];
+  }
+
+  /** Per-day understanding trend within scope. */
+  static async getAdminTrend(from: string, to: string): Promise<AdminTrendRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_admin_trend', {
+      p_from: from,
+      p_to: to,
+    });
+    if (error) throw new Error(`Failed to load understanding trend: ${error.message}`);
+    return (data || []) as AdminTrendRow[];
   }
 }

@@ -24,6 +24,12 @@ export const scfQueryKeys = {
     [...scfQueryKeys.all, 'escalations', from, to] as const,
   escalationFollowups: (from: string, to: string) =>
     [...scfQueryKeys.all, 'escalation-followups', from, to] as const,
+  adminCollegeSummary: (from: string, to: string) =>
+    [...scfQueryKeys.all, 'admin-college-summary', from, to] as const,
+  adminFacultySummary: (from: string, to: string) =>
+    [...scfQueryKeys.all, 'admin-faculty-summary', from, to] as const,
+  adminTrend: (from: string, to: string) =>
+    [...scfQueryKeys.all, 'admin-trend', from, to] as const,
 };
 
 export function useChecklistConfig(institutionId?: string | null) {
@@ -100,6 +106,36 @@ export function useEscalationFollowups(from: string, to: string) {
   return useQuery({
     queryKey: scfQueryKeys.escalationFollowups(from, to),
     queryFn: () => SessionFeedbackService.getEscalationFollowups(from, to),
+    enabled: !!from && !!to,
+    staleTime: 60 * 1000,
+  });
+}
+
+/** All-college per-institution summary (super-admin / institution leadership). */
+export function useAdminCollegeSummary(from: string, to: string) {
+  return useQuery({
+    queryKey: scfQueryKeys.adminCollegeSummary(from, to),
+    queryFn: () => SessionFeedbackService.getAdminCollegeSummary(from, to),
+    enabled: !!from && !!to,
+    staleTime: 60 * 1000,
+  });
+}
+
+/** All-college per-faculty summary (worst understanding first). */
+export function useAdminFacultySummary(from: string, to: string) {
+  return useQuery({
+    queryKey: scfQueryKeys.adminFacultySummary(from, to),
+    queryFn: () => SessionFeedbackService.getAdminFacultySummary(from, to),
+    enabled: !!from && !!to,
+    staleTime: 60 * 1000,
+  });
+}
+
+/** All-college per-day understanding trend. */
+export function useAdminTrend(from: string, to: string) {
+  return useQuery({
+    queryKey: scfQueryKeys.adminTrend(from, to),
+    queryFn: () => SessionFeedbackService.getAdminTrend(from, to),
     enabled: !!from && !!to,
     staleTime: 60 * 1000,
   });

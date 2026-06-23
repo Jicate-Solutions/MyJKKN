@@ -324,6 +324,18 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/attendance/reports': 'academic.attendance.reports.view',
   '/academic/attendance/consolidation': 'academic.attendance.consolidation.view',
 
+  // Post-Class Session Feedback lanes.
+  // faculty lane: gated to academic.attendance.view (the teacher's own session
+  //   feedback = the attendance-confirmation surface). Held by faculty/hod/
+  //   principal/administrator → previously the faculty lane had NO permission key
+  //   so it was hidden from the `faculty` role (only super_admin saw it via
+  //   bypass). This key makes the faculty completion lane REACHABLE by faculty.
+  // principal lane: gated to academic.attendance.dashboard.view (held by
+  //   principal/hod, not plain faculty) — the escalation oversight audience.
+  // (admin lane is super-admin-only via requiresSuperAdmin on the menu item.)
+  '/academic/session-feedback/faculty': 'academic.attendance.view',
+  '/academic/session-feedback/principal': 'academic.attendance.dashboard.view',
+
   // Internal Marks (CIA) - Mark Entry & Reports
   '/academic/internal-marks': 'academic.internal-marks.view',
   '/academic/internal-marks/report': 'academic.internal-marks.view',
@@ -1312,7 +1324,21 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/academic/session-feedback/principal'),
           icon: Activity,
           submenus: []
-        }
+        },
+        {
+          // Post-class feedback — SUPER-ADMIN all-college dashboard (L5). The
+          // cross-college rollup (submission + understanding per college / faculty
+          // / day). Cross-college reach is super-admin-only, so the sidebar entry
+          // is gated to super admin via requiresSuperAdmin (super_admin sees ALL
+          // menus via the bypass earlier in GetRoleBasedPages). The page's RPCs
+          // still authorize institution leadership if they navigate directly.
+          href: '/academic/session-feedback/admin',
+          label: 'All-College Feedback',
+          active: pathname.startsWith('/academic/session-feedback/admin'),
+          icon: BarChart,
+          requiresSuperAdmin: true,
+          submenus: []
+        } as MenuItem & { requiresSuperAdmin: boolean }
       ]
     },
     {
