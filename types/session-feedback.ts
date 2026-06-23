@@ -117,6 +117,38 @@ export interface EscalationFollowupRow {
   lift: number | null;
 }
 
+/** Per-college admin summary. fn_scf_admin_college_summary (aggregates only).
+ *  Cross-college for super_admin; own-institution for institution leadership. */
+export interface AdminCollegeSummaryRow {
+  institution_id: string;
+  institution_name: string | null;
+  sessions: number;
+  responses: number;
+  students: number;
+  avg_understood: number | null;
+  low_sessions: number;
+}
+
+/** Per-faculty admin summary (worst understanding first). fn_scf_admin_faculty_summary.
+ *  Aggregates only — never per-student feedback content. */
+export interface AdminFacultySummaryRow {
+  institution_id: string;
+  institution_name: string | null;
+  faculty_email: string | null;
+  sessions: number;
+  responses: number;
+  avg_understood: number | null;
+  low_sessions: number;
+}
+
+/** Per-day understanding trend across scope. fn_scf_admin_trend (aggregates only). */
+export interface AdminTrendRow {
+  attendance_date: string;
+  responses: number;
+  students: number;
+  avg_understood: number | null;
+}
+
 /** A configured checklist item the learner ticks. session_feedback_checklist_config. */
 export interface ChecklistConfigItem {
   id: string;

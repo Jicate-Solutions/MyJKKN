@@ -324,6 +324,18 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/attendance/reports': 'academic.attendance.reports.view',
   '/academic/attendance/consolidation': 'academic.attendance.consolidation.view',
 
+  // Post-Class Session Feedback lanes.
+  // faculty lane: gated to academic.attendance.view (the teacher's own session
+  //   feedback = the attendance-confirmation surface). Held by faculty/hod/
+  //   principal/administrator → previously the faculty lane had NO permission key
+  //   so it was hidden from the `faculty` role (only super_admin saw it via
+  //   bypass). This key makes the faculty completion lane REACHABLE by faculty.
+  // principal lane: gated to academic.attendance.dashboard.view (held by
+  //   principal/hod, not plain faculty) — the escalation oversight audience.
+  // (admin lane is super-admin-only via requiresSuperAdmin on the menu item.)
+  '/academic/session-feedback/faculty': 'academic.attendance.view',
+  '/academic/session-feedback/principal': 'academic.attendance.dashboard.view',
+
   // Internal Marks (CIA) - Mark Entry & Reports
   '/academic/internal-marks': 'academic.internal-marks.view',
   '/academic/internal-marks/report': 'academic.internal-marks.view',
@@ -395,6 +407,16 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/social/attribution': 'social.attribution.view',
   '/admission/social/meta-pixel': 'social.meta_pixel.view',
   '/admission/social/meta-audiences': 'social.meta_audiences.view',
+  // 2026-06-23 — Social Governance wave (#1493/#1494/#1496) nav-wiring.
+  // Governance is now a tier-3 chip under Social (admission/nav-config.ts).
+  // Gate it to social.view — matches the page's own PermissionGuard — so the
+  // chip honours per-role social access instead of AutoTabNav's show-by-default
+  // (auto-tab-nav.tsx:150, `if (!perm) return true`). The super-admin policy
+  // editor (/admission/social/admin/policies) is intentionally NOT a chip
+  // (kept off the Social strip + in NAV_EXCLUDE; reached via the governance
+  // page's "Edit policy →" links) and self-guards as super-admin, so it needs
+  // no MENU_PERMISSIONS entry.
+  '/admission/social/governance': 'social.view',
 
   // Internship Module — Policy Admin (super_admin only)
   '/internships/policy': 'super_admin',
@@ -792,6 +814,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Events — Propose (Stream C, 2026-04-26)
   '/events/propose': 'events.proposals.view',
+
+  // Global Calendar module
+  '/calendar': 'calendar.view',
+  '/calendar/holidays': 'calendar.holidays.manage',
+  '/calendar/settings': 'calendar.config.manage',
 
   // Audit Workflow Sprint 01
   '/audit': 'audit.cycle.view',
@@ -1311,7 +1338,21 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/academic/session-feedback/principal'),
           icon: Activity,
           submenus: []
-        }
+        },
+        {
+          // Post-class feedback — SUPER-ADMIN all-college dashboard (L5). The
+          // cross-college rollup (submission + understanding per college / faculty
+          // / day). Cross-college reach is super-admin-only, so the sidebar entry
+          // is gated to super admin via requiresSuperAdmin (super_admin sees ALL
+          // menus via the bypass earlier in GetRoleBasedPages). The page's RPCs
+          // still authorize institution leadership if they navigate directly.
+          href: '/academic/session-feedback/admin',
+          label: 'All-College Feedback',
+          active: pathname.startsWith('/academic/session-feedback/admin'),
+          icon: BarChart,
+          requiresSuperAdmin: true,
+          submenus: []
+        } as MenuItem & { requiresSuperAdmin: boolean }
       ]
     },
     {
@@ -2257,6 +2298,18 @@ export function GetPages(pathname: string): MenuGroup[] {
             // PDE faculty entries moved to the unified 'PDE' sidebar group (PR
             // sidebar-unify, 2026-06-09). See groupLabel: 'PDE' below.
           ]
+        }
+      ]
+    },
+    {
+      groupLabel: 'Calendar',
+      menus: [
+        {
+          href: '/calendar',
+          label: 'Calendar',
+          active: pathname === '/calendar' || pathname.startsWith('/calendar/'),
+          icon: Calendar,
+          submenus: []
         }
       ]
     },

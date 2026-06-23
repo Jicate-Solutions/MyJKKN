@@ -25,19 +25,35 @@ import {
   TableRow
 } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import Link from 'next/link';
 import { useReservations } from '@/hooks/reservation/use-reservations';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { Reservation, ReservationStatus } from '@/types/reservation';
 
 export default function ReservationsPage() {
   const router = useRouter();
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [selectedInstitution, setSelectedInstitution] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Institutions the current user can access — drives the filter dropdown.
+  // RLS still gates rows server-side; this just lets the user narrow the view.
+  const { institutions, loading: loadingInstitutions } =
+    useInstitutionsWithAccess({ entityType: 'all' });
 
   const { data: reservations, isLoading } = useReservations({
     status:
-      statusFilter === 'all' ? undefined : (statusFilter as ReservationStatus)
+      statusFilter === 'all' ? undefined : (statusFilter as ReservationStatus),
+    institution_id:
+      selectedInstitution === 'all' ? undefined : selectedInstitution
   });
 
   const getStatusBadgeVariant = (
@@ -152,8 +168,25 @@ export default function ReservationsPage() {
         </div>
 
         {/* Actions */}
-        <div className='flex justify-between items-center'>
-          <div className='flex gap-2'>
+        <div className='flex flex-wrap justify-between items-center gap-2'>
+          <div className='flex flex-wrap items-center gap-2'>
+            <Select
+              value={selectedInstitution}
+              onValueChange={setSelectedInstitution}
+              disabled={loadingInstitutions}
+            >
+              <SelectTrigger className='w-[220px]'>
+                <SelectValue placeholder='All Institutions' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>All Institutions</SelectItem>
+                {institutions.map((inst: any) => (
+                  <SelectItem key={inst.id} value={inst.id}>
+                    {inst.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button
               variant={statusFilter === 'all' ? 'default' : 'outline'}
               size='sm'

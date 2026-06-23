@@ -1932,6 +1932,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "children": []
   },
   {
+    "path": "/calendar",
+    "label": "Calendar",
+    "iconName": "Calendar",
+    "children": [
+      {
+        "path": "/calendar/holidays",
+        "label": "Holidays",
+        "iconName": "Calendar",
+        "children": []
+      },
+      {
+        "path": "/calendar/settings",
+        "label": "Settings",
+        "iconName": "Settings",
+        "children": []
+      }
+    ]
+  },
+  {
     "path": "/campus-living",
     "label": "Campus Living",
     "iconName": "FileText",
@@ -2873,6 +2892,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "New",
             "iconName": "Plus",
             "children": []
+          },
+          {
+            "path": "/cdc/mentors/rollups",
+            "label": "Rollups",
+            "iconName": "UserCheck",
+            "children": []
           }
         ]
       },
@@ -2901,6 +2926,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/cdc/udyog",
+        "label": "Udyog",
+        "iconName": "FileText",
+        "children": []
       }
     ]
   },
@@ -5910,6 +5941,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Finance",
         "iconName": "DollarSign",
         "children": []
+      },
+      {
+        "path": "/startup-studio/foundations",
+        "label": "Foundations",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/startup-studio/foundations/cohorts",
+            "label": "Cohorts",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/startup-studio/foundations/my-journey",
+            "label": "My Journey",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/startup-studio/foundations/review",
+            "label": "Review",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/startup-studio/governance",
