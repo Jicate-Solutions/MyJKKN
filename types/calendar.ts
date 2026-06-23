@@ -88,3 +88,20 @@ export interface CalendarItemsQuery {
   feeds?: string[] | null;
   kinds?: string[] | null;
 }
+
+export interface CalendarFeedSetting {
+  id: string;
+  feed_key: string;
+  institution_id: string | null;
+  is_enabled: boolean;
+}
+
+export const CALENDAR_FEEDS: { key: string; label: string }[] = [
+  { key: 'global_entries', label: 'Global Holidays & Events' },
+  { key: 'academic_holidays', label: 'Academic Holidays' },
+  { key: 'hr_public_holidays', label: 'HR Public Holidays' },
+  { key: 'staff_leave', label: 'Staff Leave' },
+  { key: 'student_leave', label: 'Student Leave' },
+  { key: 'events', label: 'Events' },
+  { key: 'meetings', label: 'Meetings' },
+];

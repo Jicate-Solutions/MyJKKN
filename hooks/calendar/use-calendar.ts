@@ -7,6 +7,7 @@ import type {
   CalendarItemsQuery,
   CreateCalendarEntryInput,
   UpdateCalendarEntryInput,
+  CalendarCategory,
 } from '@/types/calendar';
 
 export function useCalendarItems(query: CalendarItemsQuery, enabled = true) {
@@ -57,6 +58,65 @@ export function useDeleteCalendarEntry() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => CalendarService.deleteEntry(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.calendar.all }),
+  });
+}
+
+export function useFeedSettings() {
+  return useQuery({
+    queryKey: ['calendar', 'feed-settings'] as const,
+    queryFn: () => CalendarService.listFeedSettings(),
+  });
+}
+
+export function useUpsertFeedSetting() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      feedKey,
+      institutionId,
+      isEnabled,
+    }: {
+      feedKey: string;
+      institutionId: string | null;
+      isEnabled: boolean;
+    }) => CalendarService.upsertFeedSetting(feedKey, institutionId, isEnabled),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.calendar.all }),
+  });
+}
+
+export function useCreateCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      name: string;
+      slug: string;
+      color_code?: string;
+      applies_to_kinds?: string[];
+      sort_order?: number;
+    }) => CalendarService.createCategory(input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.calendar.all }),
+  });
+}
+
+export function useUpdateCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      updates,
+    }: {
+      id: string;
+      updates: Partial<{ name: string; slug: string; color_code: string; sort_order: number; is_active: boolean }>;
+    }) => CalendarService.updateCategory(id, updates),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.calendar.all }),
+  });
+}
+
+export function useDeleteCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => CalendarService.deleteCategory(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.calendar.all }),
   });
 }

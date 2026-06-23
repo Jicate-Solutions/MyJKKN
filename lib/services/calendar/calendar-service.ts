@@ -14,6 +14,7 @@ import type {
   CreateCalendarEntryInput,
   UpdateCalendarEntryInput,
   CalendarCategory,
+  CalendarFeedSetting,
 } from '@/types/calendar';
 
 const ENTRIES = 'calendar_entries';
@@ -115,5 +116,82 @@ export class CalendarService extends BaseService {
       .order('sort_order', { ascending: true });
     if (error) throw new Error(getErrorMessage(error));
     return (data ?? []) as CalendarCategory[];
+  }
+
+  static async listFeedSettings(): Promise<CalendarFeedSetting[]> {
+    const { data, error } = await this.supabase
+      .from('calendar_feed_settings')
+      .select('*')
+      .order('feed_key', { ascending: true });
+    if (error) throw new Error(getErrorMessage(error));
+    return (data ?? []) as CalendarFeedSetting[];
+  }
+
+  static async upsertFeedSetting(
+    feedKey: string,
+    institutionId: string | null,
+    isEnabled: boolean,
+  ): Promise<void> {
+    // calendar_feed_settings uses PARTIAL unique indexes — cannot use .upsert(onConflict).
+    // We must check for an existing row and branch on update vs insert.
+    let existingQuery = this.supabase
+      .from('calendar_feed_settings')
+      .select('id')
+      .eq('feed_key', feedKey);
+    if (institutionId === null) {
+      existingQuery = existingQuery.is('institution_id', null);
+    } else {
+      existingQuery = existingQuery.eq('institution_id', institutionId);
+    }
+    const { data: existing, error: selectError } = await existingQuery.maybeSingle();
+    if (selectError) throw new Error(getErrorMessage(selectError));
+
+    if (existing) {
+      const { error: updateError } = await this.supabase
+        .from('calendar_feed_settings')
+        .update({ is_enabled: isEnabled })
+        .eq('id', existing.id);
+      if (updateError) throw new Error(getErrorMessage(updateError));
+    } else {
+      const { error: insertError } = await this.supabase
+        .from('calendar_feed_settings')
+        .insert({ feed_key: feedKey, institution_id: institutionId, is_enabled: isEnabled });
+      if (insertError) throw new Error(getErrorMessage(insertError));
+    }
+  }
+
+  static async createCategory(input: {
+    name: string;
+    slug: string;
+    color_code?: string;
+    applies_to_kinds?: string[];
+    sort_order?: number;
+  }): Promise<CalendarCategory> {
+    const { data, error } = await this.supabase
+      .from(CATEGORIES)
+      .insert(input)
+      .select('*')
+      .single();
+    if (error) throw new Error(getErrorMessage(error));
+    return data as CalendarCategory;
+  }
+
+  static async updateCategory(
+    id: string,
+    updates: Partial<{ name: string; slug: string; color_code: string; sort_order: number; is_active: boolean }>,
+  ): Promise<CalendarCategory> {
+    const { data, error } = await this.supabase
+      .from(CATEGORIES)
+      .update(updates)
+      .eq('id', id)
+      .select('*')
+      .single();
+    if (error) throw new Error(getErrorMessage(error));
+    return data as CalendarCategory;
+  }
+
+  static async deleteCategory(id: string): Promise<void> {
+    const { error } = await this.supabase.from(CATEGORIES).delete().eq('id', id);
+    if (error) throw new Error(getErrorMessage(error));
   }
 }
