@@ -11,12 +11,18 @@
 import type { ComponentType, ReactNode } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Handshake, Package, Wallet, Users, UserCheck, QrCode } from 'lucide-react';
+import { Handshake, Package, Wallet, Users, UserCheck, QrCode, HeartHandshake, AlertTriangle, BadgeCheck, Upload, BarChart3, Shirt } from 'lucide-react';
 import { SponsorsBoard } from './sponsors-board';
 import { BudgetBoard } from './budget-board';
 import { CommitteesBoard } from './committees-board';
 import { CheckinBoard } from './checkin-board';
 import { QrBoard } from './qr-board';
+import { VolunteersBoard } from './volunteers-board';
+import { IncidentsBoard } from './incidents-board';
+import { CertificatesBoard } from './certificates-board';
+import { BulkImportBoard } from './bulk-import-board';
+import { AnalyticsBoard } from './analytics-board';
+import { KitBoard } from './kit-board';
 
 export interface EventLogisticsContext {
   eventId: string;
@@ -70,6 +76,50 @@ export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
     icon: QrCode,
     eventTypes: 'all',
     render: ({ eventId, canManage }) => <QrBoard eventId={eventId} canManage={canManage} />,
+  },
+  {
+    key: 'volunteers',
+    label: 'Volunteers',
+    icon: HeartHandshake,
+    eventTypes: 'all',
+    render: ({ eventId, canManage }) => <VolunteersBoard eventId={eventId} canManage={canManage} />,
+  },
+  {
+    key: 'incidents',
+    label: 'Incidents',
+    icon: AlertTriangle,
+    eventTypes: 'all',
+    render: ({ eventId, canManage }) => <IncidentsBoard eventId={eventId} canManage={canManage} />,
+  },
+  {
+    key: 'certificates',
+    label: 'Certificates',
+    icon: BadgeCheck,
+    eventTypes: 'all',
+    render: ({ eventId, canManage }) => <CertificatesBoard eventId={eventId} canManage={canManage} />,
+  },
+  {
+    key: 'bulk-import',
+    label: 'Bulk Import',
+    icon: Upload,
+    eventTypes: 'all',
+    render: ({ eventId, canManage }) => <BulkImportBoard eventId={eventId} canManage={canManage} />,
+  },
+  // PR8 — shared analytics shell (format-agnostic core metrics).
+  {
+    key: 'analytics',
+    label: 'Analytics',
+    icon: BarChart3,
+    eventTypes: 'all',
+    render: ({ eventId, canManage }) => <AnalyticsBoard eventId={eventId} canManage={canManage} />,
+  },
+  // PR8 — kit / t-shirt / merch distribution over events_registrations.tshirt_collected*.
+  {
+    key: 'kit',
+    label: 'Kit / T-shirt',
+    icon: Shirt,
+    eventTypes: 'all',
+    render: ({ eventId, canManage }) => <KitBoard eventId={eventId} canManage={canManage} />,
   },
 ];
 
