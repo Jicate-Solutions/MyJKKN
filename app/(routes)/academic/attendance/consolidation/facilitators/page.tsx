@@ -23,7 +23,6 @@ import {
 } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
-import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { useFacilitatorAttendanceReport } from '@/hooks/academic/use-facilitator-attendance';
@@ -41,7 +40,6 @@ import { FacilitatorExportActions } from './_components/facilitator-export-actio
 
 export default function FacilitatorAttendancePage() {
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions([], { waitForLoad: false });
   const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess({
     isActive: true,
     autoFetch: !!profile,
@@ -49,15 +47,18 @@ export default function FacilitatorAttendancePage() {
 
   const [selectedInstitutionId, setSelectedInstitutionId] = useState<string | undefined>(undefined);
 
-  // Auto-select institution once loaded
+  // Auto-select institution once loaded. Trust the accessible-institution list
+  // (which already honors custom-role scope), NOT isSuperAdmin: a custom role
+  // with scope='all' is not a super admin but still accesses multiple
+  // institutions. Prefer the user's home institution when accessible, else the
+  // first accessible one.
   useEffect(() => {
-    if (institutionsLoading || selectedInstitutionId) return;
-    if (!isSuperAdmin && profile?.institution_id) {
-      setSelectedInstitutionId(profile.institution_id);
-    } else if (isSuperAdmin && institutions.length > 0) {
-      setSelectedInstitutionId(institutions[0].id);
-    }
-  }, [profile, institutions, institutionsLoading, isSuperAdmin, selectedInstitutionId]);
+    if (institutionsLoading || selectedInstitutionId || institutions.length === 0) return;
+    const home = profile?.institution_id;
+    const preferred =
+      home && institutions.some((i) => i.id === home) ? home : institutions[0].id;
+    setSelectedInstitutionId(preferred);
+  }, [profile, institutions, institutionsLoading, selectedInstitutionId]);
 
   const today = format(new Date(), 'yyyy-MM-dd');
   const monthStart = format(startOfMonth(new Date()), 'yyyy-MM-dd');
@@ -154,7 +155,7 @@ export default function FacilitatorAttendancePage() {
                   Periods marked by each facilitator within the selected date range
                 </p>
               </div>
-              {isSuperAdmin && institutions.length > 0 && (
+              {institutions.length > 1 && (
                 <Select
                   value={selectedInstitutionId ?? ''}
                   onValueChange={(val) => setSelectedInstitutionId(val)}
