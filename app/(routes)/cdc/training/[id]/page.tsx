@@ -11,7 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { useCdcProgramme, useCdcEnrollments, useUpdateCdcEnrollment, useSyncTrainingAttendance } from '@/hooks/cdc/use-cdc-training';
 import { useAuth } from '@/hooks/use-auth';
-import { ArrowLeft, Calendar, BookOpen, Users, Building2, Plus, CheckCircle2, XCircle, Upload, RefreshCw, Loader2 } from 'lucide-react';
+import { ArrowLeft, Calendar, BookOpen, Users, Building2, Plus, CheckCircle2, XCircle, Upload, RefreshCw, Loader2, Pencil } from 'lucide-react';
 import Link from 'next/link';
 import { AddEnrollmentDialog } from './_components/add-enrollment-dialog';
 import { BulkEnrollDialog } from './_components/bulk-enroll-dialog';
@@ -117,8 +117,15 @@ function TrainingProgrammeDetailContent({ params }: Props) {
 
         {/* Details card */}
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-base">Programme Info</CardTitle>
+            <PermissionGuard module="cdc.training" action="edit">
+              <Button size="sm" variant="outline" asChild>
+                <Link href={`/cdc/training/${id}/edit`}>
+                  <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit
+                </Link>
+              </Button>
+            </PermissionGuard>
           </CardHeader>
           <CardContent className="grid sm:grid-cols-2 gap-4 text-sm">
             {programme.institution ? (
