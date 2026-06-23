@@ -7,7 +7,6 @@ import type {
   CalendarItemsQuery,
   CreateCalendarEntryInput,
   UpdateCalendarEntryInput,
-  CalendarCategory,
 } from '@/types/calendar';
 
 export function useCalendarItems(query: CalendarItemsQuery, enabled = true) {
