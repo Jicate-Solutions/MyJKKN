@@ -11,9 +11,10 @@
 import type { ComponentType, ReactNode } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Handshake, Package, Wallet } from 'lucide-react';
+import { Handshake, Package, Wallet, Users } from 'lucide-react';
 import { SponsorsBoard } from './sponsors-board';
 import { BudgetBoard } from './budget-board';
+import { CommitteesBoard } from './committees-board';
 
 export interface EventLogisticsContext {
   eventId: string;
@@ -46,6 +47,13 @@ export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
     icon: Wallet,
     eventTypes: 'all',
     render: ({ eventId, canManage }) => <BudgetBoard eventId={eventId} canManage={canManage} />,
+  },
+  {
+    key: 'committees',
+    label: 'Committees',
+    icon: Users,
+    eventTypes: 'all',
+    render: ({ eventId, canManage }) => <CommitteesBoard eventId={eventId} canManage={canManage} />,
   },
 ];
 

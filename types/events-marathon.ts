@@ -78,6 +78,12 @@ export interface MarathonSponsorActivityLog {
   created_at: string;
 }
 
+// External (non-JKKN) committee member — added by name/phone, no login (decision #8).
+export interface ExternalCommitteeMember {
+  name: string;
+  phone?: string;
+}
+
 export interface MarathonCommittee {
   id: string;
   event_id: string;
@@ -87,6 +93,7 @@ export interface MarathonCommittee {
   lead_name: string | null;
   member_ids: string[];
   member_names: string[];
+  external_members?: ExternalCommitteeMember[];
   status: string;
   created_at: string;
   updated_at: string;
