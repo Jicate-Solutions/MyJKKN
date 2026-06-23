@@ -94,6 +94,15 @@ const config: ModuleNavConfig = {
           icon: 'ShieldCheck',
           href: '/admission/social/governance',
         },
+        // 2026-06-24 — Social Loop Engine. The weekly READ→DECIDE→LEARN
+        // improvement loop for a handle (pharmacy pilot; graph-readable so
+        // engagement is live). Reachable tier-3 chip, gated social.view via
+        // MENU_PERMISSIONS — matches the page's PermissionGuard.
+        {
+          label: 'Loop',
+          icon: 'RefreshCw',
+          href: '/admission/social/loop',
+        },
       ],
     },
     {

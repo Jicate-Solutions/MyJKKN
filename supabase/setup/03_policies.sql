@@ -6961,3 +6961,29 @@ DROP POLICY IF EXISTS calendar_feed_settings_write ON public.calendar_feed_setti
 CREATE POLICY calendar_feed_settings_write ON public.calendar_feed_settings
   FOR ALL USING (is_super_admin() OR is_admin() OR user_has_permission('calendar.config.manage'))
   WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('calendar.config.manage'));
+
+-- =====================================================================
+-- 2026-06-24 — Social Loop Engine playbook table
+-- Dynamic-permission RLS: read=social.view, write=social.manage (or admins).
+-- Migration: supabase/migrations/20260624031500_social_loop_playbook.sql
+-- =====================================================================
+ALTER TABLE public.social_loop_playbook ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS social_loop_playbook_select ON public.social_loop_playbook;
+CREATE POLICY social_loop_playbook_select ON public.social_loop_playbook
+  FOR SELECT TO authenticated
+  USING (is_super_admin() OR is_admin() OR user_has_permission('social.view'));
+
+DROP POLICY IF EXISTS social_loop_playbook_insert ON public.social_loop_playbook;
+CREATE POLICY social_loop_playbook_insert ON public.social_loop_playbook
+  FOR INSERT TO authenticated
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('social.manage'));
+
+DROP POLICY IF EXISTS social_loop_playbook_update ON public.social_loop_playbook;
+CREATE POLICY social_loop_playbook_update ON public.social_loop_playbook
+  FOR UPDATE TO authenticated
+  USING (is_super_admin() OR is_admin() OR user_has_permission('social.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('social.manage'));
+
+REVOKE ALL ON public.social_loop_playbook FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON public.social_loop_playbook TO authenticated;

@@ -417,6 +417,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // page's "Edit policy →" links) and self-guards as super-admin, so it needs
   // no MENU_PERMISSIONS entry.
   '/admission/social/governance': 'social.view',
+  '/admission/social/loop': 'social.view',
 
   // Internship Module — Policy Admin (super_admin only)
   '/internships/policy': 'super_admin',
