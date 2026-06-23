@@ -6918,3 +6918,46 @@ ALTER POLICY hostel_cleaning_tasks_delete_permission ON public.hostel_cleaning_t
     OR (user_has_permission('campus_living.housekeeping.schedule')
         AND role_has_institution_access(institution_id))
   );
+
+-- =====================================================================
+-- Global Calendar module (Phase 1) — mirror of 20260623100000_calendar_module_tables.sql
+-- =====================================================================
+ALTER TABLE public.calendar_categories    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.calendar_entries       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.calendar_feed_settings ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.calendar_categories    FROM anon;
+REVOKE ALL ON public.calendar_entries       FROM anon;
+REVOKE ALL ON public.calendar_feed_settings FROM anon;
+
+DROP POLICY IF EXISTS calendar_categories_select ON public.calendar_categories;
+CREATE POLICY calendar_categories_select ON public.calendar_categories
+  FOR SELECT USING (is_super_admin() OR is_admin() OR user_has_permission('calendar.view'));
+DROP POLICY IF EXISTS calendar_categories_write ON public.calendar_categories;
+CREATE POLICY calendar_categories_write ON public.calendar_categories
+  FOR ALL USING (is_super_admin() OR is_admin() OR user_has_permission('calendar.config.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('calendar.config.manage'));
+
+DROP POLICY IF EXISTS calendar_entries_select ON public.calendar_entries;
+CREATE POLICY calendar_entries_select ON public.calendar_entries
+  FOR SELECT USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('calendar.view')
+        AND (scope_institution_ids IS NULL OR scope_institution_ids && public._user_accessible_institutions())));
+DROP POLICY IF EXISTS calendar_entries_write ON public.calendar_entries;
+CREATE POLICY calendar_entries_write ON public.calendar_entries
+  FOR ALL USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('calendar.holidays.manage')
+        AND (scope_institution_ids IS NULL OR scope_institution_ids && public._user_accessible_institutions())))
+  WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('calendar.holidays.manage')
+        AND (scope_institution_ids IS NULL OR scope_institution_ids && public._user_accessible_institutions())));
+
+DROP POLICY IF EXISTS calendar_feed_settings_select ON public.calendar_feed_settings;
+CREATE POLICY calendar_feed_settings_select ON public.calendar_feed_settings
+  FOR SELECT USING (is_super_admin() OR is_admin() OR user_has_permission('calendar.view'));
+DROP POLICY IF EXISTS calendar_feed_settings_write ON public.calendar_feed_settings;
+CREATE POLICY calendar_feed_settings_write ON public.calendar_feed_settings
+  FOR ALL USING (is_super_admin() OR is_admin() OR user_has_permission('calendar.config.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('calendar.config.manage'));

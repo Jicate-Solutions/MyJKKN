@@ -5107,3 +5107,57 @@ ALTER TABLE public.hostel_categories
 
 ALTER TABLE public.mess_categories
   ADD COLUMN IF NOT EXISTS upgrades_enabled boolean NOT NULL DEFAULT false;
+
+-- =====================================================================
+-- Global Calendar module (Phase 1) — mirror of 20260623100000_calendar_module_tables.sql
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS public.calendar_categories (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name             TEXT NOT NULL,
+  slug             TEXT NOT NULL UNIQUE,
+  color_code       TEXT NOT NULL DEFAULT '#6b7280',
+  applies_to_kinds TEXT[] NOT NULL DEFAULT ARRAY['holiday','event','meeting'],
+  icon             TEXT,
+  sort_order       INTEGER NOT NULL DEFAULT 0,
+  is_active        BOOLEAN NOT NULL DEFAULT true,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.calendar_entries (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind                  TEXT NOT NULL DEFAULT 'holiday' CHECK (kind IN ('holiday','event','meeting')),
+  title                 TEXT NOT NULL,
+  description           TEXT,
+  category_id           UUID REFERENCES public.calendar_categories(id),
+  start_at              TIMESTAMPTZ NOT NULL,
+  end_at                TIMESTAMPTZ NOT NULL,
+  all_day               BOOLEAN NOT NULL DEFAULT true,
+  blocks_attendance     BOOLEAN NOT NULL DEFAULT true,
+  scope_institution_ids UUID[],                       -- NULL = common (all institutions)
+  visibility            TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public','restricted')),
+  location              TEXT,
+  meeting_url           TEXT,
+  is_recurring          BOOLEAN NOT NULL DEFAULT false,
+  recurrence_pattern    JSONB,
+  color_code            TEXT,
+  is_active             BOOLEAN NOT NULL DEFAULT true,
+  created_by            UUID REFERENCES public.profiles(id),
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT calendar_entries_end_after_start CHECK (end_at >= start_at)
+);
+CREATE INDEX IF NOT EXISTS idx_calendar_entries_active_start ON public.calendar_entries (is_active, start_at);
+CREATE INDEX IF NOT EXISTS idx_calendar_entries_kind_start   ON public.calendar_entries (kind, start_at);
+CREATE INDEX IF NOT EXISTS idx_calendar_entries_scope        ON public.calendar_entries USING GIN (scope_institution_ids);
+
+CREATE TABLE IF NOT EXISTS public.calendar_feed_settings (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  feed_key        TEXT NOT NULL,
+  institution_id  UUID REFERENCES public.institutions(id),  -- NULL = global default
+  is_enabled      BOOLEAN NOT NULL DEFAULT true,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_calendar_feed_global      ON public.calendar_feed_settings (feed_key) WHERE institution_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_calendar_feed_institution ON public.calendar_feed_settings (feed_key, institution_id) WHERE institution_id IS NOT NULL;
