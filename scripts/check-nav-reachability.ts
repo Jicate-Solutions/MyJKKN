@@ -378,17 +378,13 @@ const NAV_EXCLUDE = new Set<string>([
   '/audit/care/new',
   '/audit/care/score',
 
-  // ════════════════════════════════════════════════════════════
-  // 2026-06-18 — Social Governance Director's-View consequences
-  // surface (/admission/social/governance). A read-only page that
-  // turns each live social policy into a plain-English consequence.
-  // The sidebar/nav-config entry is wired in a sibling PR (nav is
-  // owned by the swarm lead); excluded here so this standalone PR
-  // stays green while the gate sits at its 58/58 baseline. Same
-  // "config/consequence surface, not a tier-strip chip" rationale
-  // as the /okr/admin and admission-relocation blocks above.
-  // ════════════════════════════════════════════════════════════
-  '/admission/social/governance',
+  // NOTE (2026-06-23): /admission/social/governance is NO LONGER excluded.
+  // It is now a properly-gated chip (MENU_PERMISSIONS['/admission/social/governance']
+  // = 'social.view') reachable via the social module's AutoTabNav tier strip,
+  // so it passes this gate as a real reachable surface. Its sibling admin
+  // write-UI (/admission/social/admin + /admission/social/admin/policies) stays
+  // excluded above — super-admin-only config, reached via the governance page's
+  // "Edit policy →" links, not a tier-strip chip.
 
 ]);
 
