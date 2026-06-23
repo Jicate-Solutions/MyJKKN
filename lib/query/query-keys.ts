@@ -35,4 +35,10 @@ export const queryKeys = {
     list: (institutionId: string | null, academicYearId: string | null) =>
       [...queryKeys.transportCollectables.all, 'list', institutionId, academicYearId] as const,
   },
+  calendar: {
+    all: ['calendar'] as const,
+    items: (query: unknown) => ['calendar', 'items', query] as const,
+    entries: (params: unknown) => ['calendar', 'entries', params] as const,
+    categories: () => ['calendar', 'categories'] as const,
+  },
 } as const;
