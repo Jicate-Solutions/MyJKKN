@@ -202,10 +202,14 @@ function RaciDialogBody({ task }: { task: ProjectTask }) {
             onValueChange={setStaffId}
             options={staffOptions}
             placeholder={
-              !institutionId ? 'Loading project…' : staffLoading ? 'Loading staff…' : 'Select staff…'
+              !institutionId
+                ? 'Loading project…'
+                : staffLoading
+                  ? 'Loading team members…'
+                  : 'Select team member…'
             }
-            searchPlaceholder="Search staff…"
-            emptyMessage="No staff found."
+            searchPlaceholder="Search team members…"
+            emptyMessage="No team members found."
             loading={staffLoading}
             disabled={!institutionId}
             modal
