@@ -44,6 +44,44 @@ const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
 
 const DECIDABLE = new Set(['notified', 'explained', 'meeting_pending']);
 
+const ATTENDANCE_METRIC = 'attendance_rate_daily';
+
+/** Friendly labels for the project-accountability metrics (RACI-driven). */
+const PROJECT_METRIC: Record<
+  string,
+  { name: string; fires: string; thresholdLabel: string }
+> = {
+  task_overdue: {
+    name: 'Overdue tasks',
+    fires: 'a task is overdue by at least this many days (Accountable explains, else a meeting is booked)',
+    thresholdLabel: 'days'
+  },
+  project_at_risk: {
+    name: 'At-risk projects',
+    fires: 'a project RAG reaches this risk level (amber = 1, red = 2)',
+    thresholdLabel: 'level'
+  }
+};
+
+function ruleDisplayName(r: { metric_key: string; college_name: string }): string {
+  return PROJECT_METRIC[r.metric_key]?.name ?? r.college_name;
+}
+
+/** Metric-appropriate detail line for a breach event. */
+function eventDetail(ev: {
+  metric_key: string;
+  observed_value: number | null;
+  threshold: number;
+}): string {
+  if (ev.metric_key === 'task_overdue') {
+    return `overdue ${ev.observed_value ?? '—'} days (≥ ${ev.threshold})`;
+  }
+  if (ev.metric_key === 'project_at_risk') {
+    return `risk level ${ev.observed_value ?? '—'} (≥ ${ev.threshold})`;
+  }
+  return `${ev.observed_value ?? '—'}% (below ${ev.threshold}%)`;
+}
+
 export function TriggersConsole({
   initialRules,
   initialEvents
@@ -55,6 +93,9 @@ export function TriggersConsole({
   const [events, setEvents] = useState<TriggerEventRow[]>(initialEvents);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [decidingId, setDecidingId] = useState<string | null>(null);
+
+  const attendanceRules = rules.filter((r) => r.metric_key === ATTENDANCE_METRIC);
+  const projectRules = rules.filter((r) => r.metric_key !== ATTENDANCE_METRIC);
 
   function patchLocal(id: string, patch: Partial<TriggerRuleWithRate>) {
     setRules((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -76,7 +117,7 @@ export function TriggersConsole({
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? 'Save failed');
-      toast.success(`${rule.college_name}: saved`);
+      toast.success(`${ruleDisplayName(rule)}: saved`);
     } catch (e: any) {
       toast.error(e?.message ?? 'Save failed');
     } finally {
@@ -108,8 +149,8 @@ export function TriggersConsole({
       if (!res.ok) throw new Error(json?.error ?? 'Decision failed');
       toast.success(
         decision === 'skip'
-          ? `${ev.college_name}: skipped`
-          : `${ev.college_name}: meeting marked`
+          ? `${ev.subject_label ?? ev.college_name}: skipped`
+          : `${ev.subject_label ?? ev.college_name}: meeting marked`
       );
       await refreshEvents();
     } catch (e: any) {
@@ -145,7 +186,7 @@ export function TriggersConsole({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rules.map((r) => {
+              {attendanceRules.map((r) => {
                 const breaching =
                   r.latest_rate != null && r.latest_rate < r.threshold;
                 return (
@@ -241,6 +282,110 @@ export function TriggersConsole({
         </CardContent>
       </Card>
 
+      {/* ---- Project accountability rules (RACI-driven) ---- */}
+      {projectRules.length > 0 && (
+        <Card className="rounded-2xl border-neutral-200 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base">Project accountability</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              These watch every project. On a breach, the task&apos;s Accountable
+              person (RACI) is asked to explain within 24h, and a short meeting
+              with their reporting head is booked otherwise. Rules stay off until
+              you switch them on.
+            </p>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Trigger</TableHead>
+                  <TableHead>Fires when</TableHead>
+                  <TableHead className="w-28 text-right">Threshold</TableHead>
+                  <TableHead className="w-20 text-right">Cooldown</TableHead>
+                  <TableHead className="w-20 text-right">Weekly cap</TableHead>
+                  <TableHead className="w-20 text-center">Active</TableHead>
+                  <TableHead className="w-20" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {projectRules.map((r) => {
+                  const meta = PROJECT_METRIC[r.metric_key];
+                  return (
+                    <TableRow key={r.id}>
+                      <TableCell className="font-medium">
+                        {meta?.name ?? r.metric_key}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {meta?.fires ?? '—'}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Input
+                            type="number"
+                            min={0}
+                            value={r.threshold}
+                            onChange={(e) =>
+                              patchLocal(r.id, { threshold: Number(e.target.value) })
+                            }
+                            className="h-8 w-16 text-right tabular-nums"
+                          />
+                          <span className="text-xs text-muted-foreground">
+                            {meta?.thresholdLabel ?? ''}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Input
+                          type="number"
+                          min={0}
+                          value={r.cooldown_days}
+                          onChange={(e) =>
+                            patchLocal(r.id, { cooldown_days: Number(e.target.value) })
+                          }
+                          className="h-8 w-16 text-right tabular-nums"
+                        />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Input
+                          type="number"
+                          min={1}
+                          value={r.weekly_cap}
+                          onChange={(e) =>
+                            patchLocal(r.id, { weekly_cap: Number(e.target.value) })
+                          }
+                          className="h-8 w-16 text-right tabular-nums"
+                        />
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Switch
+                          checked={r.active}
+                          onCheckedChange={(v) => patchLocal(r.id, { active: v })}
+                          aria-label={`Activate ${meta?.name ?? r.metric_key}`}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => saveRule(r)}
+                          disabled={savingId === r.id}
+                        >
+                          {savingId === r.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Save className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ---- Events ---- */}
       <Card className="rounded-2xl border-neutral-200 shadow-sm">
         <CardHeader>
@@ -269,11 +414,10 @@ export function TriggersConsole({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium">
-                      {ev.college_name}
+                      {ev.subject_label ?? ev.college_name}
                     </span>
                     <span className="text-xs text-muted-foreground tabular-nums">
-                      {ev.breach_date} · {ev.observed_value ?? '—'}% (below{' '}
-                      {ev.threshold}%)
+                      {ev.breach_date} · {eventDetail(ev)}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
