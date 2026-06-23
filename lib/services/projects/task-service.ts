@@ -14,6 +14,7 @@ import type {
   ProjectTaskInsert,
   ProjectTaskUpdate,
   ProjectTaskAssignee,
+  ProjectTaskAssigneeWithStaff,
   ProjectTaskComment,
   ProjectTaskSubtask,
   TaskFilters,
@@ -145,24 +146,47 @@ export class TaskService {
   static async listAssignees(
     supabase: SupabaseClient,
     taskId: string
-  ): Promise<ProjectTaskAssignee[]> {
+  ): Promise<ProjectTaskAssigneeWithStaff[]> {
     const { data, error } = await supabase
       .from('project_task_assignees')
-      .select('*')
+      .select('id, task_id, staff_id, role, assigned_by, created_at, staff:staff(id, first_name, last_name)')
       .eq('task_id', taskId)
       .order('created_at', { ascending: true });
 
     if (error) throw error;
-    return (data ?? []) as ProjectTaskAssignee[];
+    return (data ?? []) as unknown as ProjectTaskAssigneeWithStaff[];
   }
 
+  /**
+   * Assign a person to a task with a RACI role.
+   *
+   * Enforces two RACI invariants the meeting engine relies on:
+   *  - one role per person per task (re-assigning replaces the person's prior role);
+   *  - exactly one Accountable per task (a new Accountable clears the previous one).
+   */
   static async assign(
     supabase: SupabaseClient,
     taskId: string,
     staffId: string,
-    role = 'assignee',
+    role = 'responsible',
     assignedBy?: string | null
   ): Promise<ProjectTaskAssignee> {
+    // One RACI role per person per task: clear this person's existing assignment.
+    await supabase
+      .from('project_task_assignees')
+      .delete()
+      .eq('task_id', taskId)
+      .eq('staff_id', staffId);
+
+    // Exactly one Accountable per task (the engine resolves a single owner).
+    if (role === 'accountable') {
+      await supabase
+        .from('project_task_assignees')
+        .delete()
+        .eq('task_id', taskId)
+        .eq('role', 'accountable');
+    }
+
     const { data, error } = await supabase
       .from('project_task_assignees')
       .insert({
@@ -171,7 +195,7 @@ export class TaskService {
         role,
         ...(assignedBy ? { assigned_by: assignedBy } : {}),
       })
-      .select('*')
+      .select('id, task_id, staff_id, role, assigned_by, created_at')
       .single();
 
     if (error) throw error;
