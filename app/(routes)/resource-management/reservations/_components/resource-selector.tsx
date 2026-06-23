@@ -309,11 +309,12 @@ export function ResourceSelector({
               onClick={() => onSelectResource(resource)}
             >
               <CardHeader className='pb-3'>
-                <div className='flex items-start justify-between'>
-                  <CardTitle className='text-base line-clamp-1'>
+                <div className='flex items-start justify-between gap-2'>
+                  <CardTitle className='text-base flex-1 min-w-0 break-words'>
                     {resource.name}
                   </CardTitle>
                   <Badge
+                    className='shrink-0'
                     variant={
                       resource.status === 'available'
                         ? 'default'

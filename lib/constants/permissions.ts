@@ -2177,6 +2177,16 @@ export const PERMISSION_CATEGORIES = [
     permissions: [
       { key: 'rcltp.config.manage', label: 'Manage RCLTP Config' }
     ]
+  },
+  {
+    name: 'Calendar',
+    key: 'calendar',
+    permissions: [
+      { key: 'calendar.view', label: 'View Calendar' },
+      { key: 'calendar.people_leave.view', label: 'View Person-Level Leave on Calendar' },
+      { key: 'calendar.holidays.manage', label: 'Manage Common Holidays & Events' },
+      { key: 'calendar.config.manage', label: 'Manage Calendar Config (Feeds, Categories)' }
+    ]
   }
 ];
 

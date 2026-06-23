@@ -1932,6 +1932,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "children": []
   },
   {
+    "path": "/calendar",
+    "label": "Calendar",
+    "iconName": "Calendar",
+    "children": [
+      {
+        "path": "/calendar/holidays",
+        "label": "Holidays",
+        "iconName": "Calendar",
+        "children": []
+      },
+      {
+        "path": "/calendar/settings",
+        "label": "Settings",
+        "iconName": "Settings",
+        "children": []
+      }
+    ]
+  },
+  {
     "path": "/campus-living",
     "label": "Campus Living",
     "iconName": "FileText",

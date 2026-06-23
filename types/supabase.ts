@@ -15460,6 +15460,149 @@ export type Database = {
           },
         ]
       }
+      calendar_categories: {
+        Row: {
+          applies_to_kinds: string[]
+          color_code: string
+          created_at: string
+          icon: string | null
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          applies_to_kinds?: string[]
+          color_code?: string
+          created_at?: string
+          icon?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          applies_to_kinds?: string[]
+          color_code?: string
+          created_at?: string
+          icon?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      calendar_entries: {
+        Row: {
+          all_day: boolean
+          blocks_attendance: boolean
+          category_id: string | null
+          color_code: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          end_at: string
+          id: string
+          is_active: boolean
+          is_recurring: boolean
+          kind: string
+          location: string | null
+          meeting_url: string | null
+          recurrence_pattern: Json | null
+          scope_institution_ids: string[] | null
+          start_at: string
+          title: string
+          updated_at: string
+          visibility: string
+        }
+        Insert: {
+          all_day?: boolean
+          blocks_attendance?: boolean
+          category_id?: string | null
+          color_code?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          end_at: string
+          id?: string
+          is_active?: boolean
+          is_recurring?: boolean
+          kind?: string
+          location?: string | null
+          meeting_url?: string | null
+          recurrence_pattern?: Json | null
+          scope_institution_ids?: string[] | null
+          start_at: string
+          title: string
+          updated_at?: string
+          visibility?: string
+        }
+        Update: {
+          all_day?: boolean
+          blocks_attendance?: boolean
+          category_id?: string | null
+          color_code?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          end_at?: string
+          id?: string
+          is_active?: boolean
+          is_recurring?: boolean
+          kind?: string
+          location?: string | null
+          meeting_url?: string | null
+          recurrence_pattern?: Json | null
+          scope_institution_ids?: string[] | null
+          start_at?: string
+          title?: string
+          updated_at?: string
+          visibility?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_entries_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "calendar_categories"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      calendar_feed_settings: {
+        Row: {
+          created_at: string
+          feed_key: string
+          id: string
+          institution_id: string | null
+          is_enabled: boolean
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          feed_key: string
+          id?: string
+          institution_id?: string | null
+          is_enabled?: boolean
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          feed_key?: string
+          id?: string
+          institution_id?: string | null
+          is_enabled?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
       case_alerts: {
         Row: {
           alert_type: string

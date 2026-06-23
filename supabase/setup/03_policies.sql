@@ -1669,6 +1669,34 @@ CREATE POLICY "reservations_delete_own" ON resource_reservations
         )
     );
 
+-- NOTE (2026-06-23): the live DB has since diverged from the four policies
+-- above (later migrations renamed/added resource_reservations_select_by_*,
+-- _by_approver, the per-resource home-institution SELECT, etc.). This block is
+-- kept as historical reference; the authoritative state is the migrations.
+--
+-- Migration 20260623120000 replaced the unscoped staff SELECT policy
+-- ("Staff with permission can view all reservations", which let
+-- super_admin/admin/accounts see EVERY institution's reservations) with the
+-- institution-scoped policy below. role_has_institution_access() keeps
+-- super_admin + scope='all' staff global while limiting institution-scoped
+-- staff to their accessible institutions.
+DROP POLICY IF EXISTS "Staff with permission can view all reservations"
+  ON resource_reservations;
+
+CREATE POLICY "resource_reservations_select_staff_scoped" ON resource_reservations
+    FOR SELECT TO authenticated USING (
+        EXISTS (
+            SELECT 1 FROM profiles p
+            WHERE p.id = (SELECT auth.uid())
+              AND p.role = ANY (ARRAY['super_admin', 'admin', 'accounts'])
+        )
+        AND EXISTS (
+            SELECT 1 FROM resources r
+            WHERE r.id = resource_reservations.resource_id
+              AND role_has_institution_access(r.institution_id)
+        )
+    );
+
 -- RESOURCE_APPROVALS TABLE (2 policies)
 ALTER TABLE resource_approvals ENABLE ROW LEVEL SECURITY;
 
@@ -6890,3 +6918,46 @@ ALTER POLICY hostel_cleaning_tasks_delete_permission ON public.hostel_cleaning_t
     OR (user_has_permission('campus_living.housekeeping.schedule')
         AND role_has_institution_access(institution_id))
   );
+
+-- =====================================================================
+-- Global Calendar module (Phase 1) — mirror of 20260623100000_calendar_module_tables.sql
+-- =====================================================================
+ALTER TABLE public.calendar_categories    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.calendar_entries       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.calendar_feed_settings ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.calendar_categories    FROM anon;
+REVOKE ALL ON public.calendar_entries       FROM anon;
+REVOKE ALL ON public.calendar_feed_settings FROM anon;
+
+DROP POLICY IF EXISTS calendar_categories_select ON public.calendar_categories;
+CREATE POLICY calendar_categories_select ON public.calendar_categories
+  FOR SELECT USING (is_super_admin() OR is_admin() OR user_has_permission('calendar.view'));
+DROP POLICY IF EXISTS calendar_categories_write ON public.calendar_categories;
+CREATE POLICY calendar_categories_write ON public.calendar_categories
+  FOR ALL USING (is_super_admin() OR is_admin() OR user_has_permission('calendar.config.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('calendar.config.manage'));
+
+DROP POLICY IF EXISTS calendar_entries_select ON public.calendar_entries;
+CREATE POLICY calendar_entries_select ON public.calendar_entries
+  FOR SELECT USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('calendar.view')
+        AND (scope_institution_ids IS NULL OR scope_institution_ids && public._user_accessible_institutions())));
+DROP POLICY IF EXISTS calendar_entries_write ON public.calendar_entries;
+CREATE POLICY calendar_entries_write ON public.calendar_entries
+  FOR ALL USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('calendar.holidays.manage')
+        AND (scope_institution_ids IS NULL OR scope_institution_ids && public._user_accessible_institutions())))
+  WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('calendar.holidays.manage')
+        AND (scope_institution_ids IS NULL OR scope_institution_ids && public._user_accessible_institutions())));
+
+DROP POLICY IF EXISTS calendar_feed_settings_select ON public.calendar_feed_settings;
+CREATE POLICY calendar_feed_settings_select ON public.calendar_feed_settings
+  FOR SELECT USING (is_super_admin() OR is_admin() OR user_has_permission('calendar.view'));
+DROP POLICY IF EXISTS calendar_feed_settings_write ON public.calendar_feed_settings;
+CREATE POLICY calendar_feed_settings_write ON public.calendar_feed_settings
+  FOR ALL USING (is_super_admin() OR is_admin() OR user_has_permission('calendar.config.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('calendar.config.manage'));

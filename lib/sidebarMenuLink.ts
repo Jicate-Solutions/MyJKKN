@@ -793,6 +793,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Events — Propose (Stream C, 2026-04-26)
   '/events/propose': 'events.proposals.view',
 
+  // Global Calendar module
+  '/calendar': 'calendar.view',
+  '/calendar/holidays': 'calendar.holidays.manage',
+  '/calendar/settings': 'calendar.config.manage',
+
   // Audit Workflow Sprint 01
   '/audit': 'audit.cycle.view',
   '/audit/dashboard': 'audit.cycle.view',
@@ -2250,6 +2255,18 @@ export function GetPages(pathname: string): MenuGroup[] {
             // PDE faculty entries moved to the unified 'PDE' sidebar group (PR
             // sidebar-unify, 2026-06-09). See groupLabel: 'PDE' below.
           ]
+        }
+      ]
+    },
+    {
+      groupLabel: 'Calendar',
+      menus: [
+        {
+          href: '/calendar',
+          label: 'Calendar',
+          active: pathname === '/calendar' || pathname.startsWith('/calendar/'),
+          icon: Calendar,
+          submenus: []
         }
       ]
     },

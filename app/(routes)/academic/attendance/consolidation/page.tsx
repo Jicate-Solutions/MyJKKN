@@ -55,27 +55,31 @@ export default function AttendanceConsolidationPage() {
     autoFetch: !!profile
   });
 
-  // Auto-select institution based on role
+  // Auto-select institution based on accessible-institution scope.
+  // Trust the accessible-institution list (which already honors custom-role
+  // scope), NOT isSuperAdmin: a custom role with scope='all' is not a super
+  // admin but can still access multiple institutions and must be able to pick
+  // among them to generate a report.
   useEffect(() => {
-    if (!selectedInstitutionId && !institutionsLoading && profile) {
-      if (!isSuperAdmin && profile?.institution_id) {
-        // Non-super admin: auto-select their institution
-        setSelectedInstitutionId(profile.institution_id);
-      } else if (isSuperAdmin) {
-        // Super admin: can select "All Institutions" or specific one
-        // Start with null to show all institutions
-        setSelectedInstitutionId(null);
-      } else if (!isSuperAdmin && institutions.length > 0 && !profile.institution_id) {
-        // User without institution_id but has access to institutions
-        setSelectedInstitutionId(institutions[0].id);
-      }
+    if (selectedInstitutionId || institutionsLoading || !profile) return;
+
+    if (institutions.length === 1) {
+      // Single accessible institution: auto-select it (no selector needed)
+      setSelectedInstitutionId(institutions[0].id);
+    } else if (institutions.length > 1) {
+      // Multiple accessible institutions (super admin or multi-institution
+      // custom role): default to "All Institutions"
+      setSelectedInstitutionId(null);
     }
-  }, [profile, institutions, institutionsLoading, selectedInstitutionId, isSuperAdmin]);
+  }, [profile, institutions, institutionsLoading, selectedInstitutionId]);
 
   const isLoading = authLoading || institutionsLoading;
 
-  // Only super admin can see institution selector
-  const showInstitutionSelector = isSuperAdmin && institutions.length > 0;
+  // Show the institution selector whenever the user can access more than one
+  // institution — super admins AND custom roles with multi-institution scope.
+  // (Gating on isSuperAdmin alone silently hid the selector from scope='all'
+  // custom roles, locking them to a single institution.)
+  const showInstitutionSelector = institutions.length > 1;
 
   // Loading state
   if (isLoading) {
@@ -154,8 +158,13 @@ export default function AttendanceConsolidationPage() {
   };
 
   const handleCreateClick = () => {
-    // Validate that we have a valid institution ID
-    const institutionId = selectedInstitutionId || profile?.institution_id;
+    // A consolidation report targets exactly one institution. When the user can
+    // choose among institutions, require an explicit pick — "All Institutions"
+    // is a valid view filter but not a valid generation target. Otherwise fall
+    // back to the single accessible / home institution.
+    const institutionId = showInstitutionSelector
+      ? selectedInstitutionId
+      : selectedInstitutionId || profile?.institution_id;
 
     if (!institutionId) {
       toast.error('Please select an institution before creating a report');
