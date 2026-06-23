@@ -12,6 +12,7 @@
 // toast + useTransition).
 
 import { useState, useTransition } from 'react';
+import Link from 'next/link';
 import {
   AlertTriangle,
   CalendarCheck2,
@@ -46,9 +47,12 @@ const GOOGLE_BANNERS: Record<string, { tone: 'ok' | 'bad'; text: string }> = {
 export function BookingPageCard({
   initial,
   googleFlag,
+  meetingTypeCount = 0,
 }: {
   initial: BookingPageState;
   googleFlag?: string;
+  /** Bookable meeting types the host has. 0 → their link can't accept bookings. */
+  meetingTypeCount?: number;
 }) {
   const [page, setPage] = useState(initial.page);
   const [handle, setHandle] = useState(initial.page?.handle ?? initial.suggestedHandle);
@@ -61,6 +65,10 @@ export function BookingPageCard({
   const handleLocked = !!page?.isPublic; // D5 (relaxed): locks only once the page is published — a reserved/draft page stays renameable
   const publicUrl = `${initial.appUrl || 'https://www.jkkn.ai'}/meet/${handle || '…'}`;
   const banner = googleFlag ? GOOGLE_BANNERS[googleFlag] : undefined;
+  // A booking link with no meeting types can't accept bookings — the public
+  // page shows "not accepting bookings" (BUG-004267). Warn the host here so
+  // they don't share a dead link.
+  const noMeetingTypes = meetingTypeCount === 0;
 
   function onSave() {
     startSave(async () => {
@@ -197,6 +205,29 @@ export function BookingPageCard({
               placeholder="e.g. Associate Professor, Pharmaceutics — happy to talk admissions & research"
             />
           </div>
+
+          {noMeetingTypes && (
+            <div
+              className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800"
+              role="alert"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              <div className="space-y-1">
+                <p className="font-medium">No meeting types yet</p>
+                <p>
+                  {page?.isPublic
+                    ? 'Your link is live but has nothing to book — visitors see “not accepting bookings.”'
+                    : 'Your link won’t accept bookings until you add at least one meeting type.'}
+                </p>
+                <Link
+                  href="/meetings/manage"
+                  className="inline-flex font-medium text-amber-900 underline underline-offset-2 hover:text-amber-700"
+                >
+                  Add a meeting type →
+                </Link>
+              </div>
+            </div>
+          )}
 
           <div className="flex items-start justify-between gap-3 rounded-md border px-3 py-2.5">
             <div className="space-y-0.5">
