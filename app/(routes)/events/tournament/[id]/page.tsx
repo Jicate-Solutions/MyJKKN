@@ -45,6 +45,7 @@ import { TEAM_SPORTS } from '@/types/health-sports';
 import type { TournamentDivision, TournamentEntry, TournamentMatch } from '@/types/tournament';
 import { AddEntryDialog } from './_components/add-entry-dialog';
 import { DivisionFixtures } from './_components/fixtures-section';
+import { EventLogistics } from '@/components/events/shared/event-logistics';
 
 function divisionLabel(d: TournamentDivision): string {
   return [d.sport, d.age_band, d.gender && d.gender !== 'open' ? d.gender : null]
@@ -355,6 +356,9 @@ export default function TournamentManagePage() {
           })}
         </div>
       )}
+
+      {/* Shared event logistics (sponsors, …) — promoted from Marathon so tournaments inherit them. */}
+      <EventLogistics eventId={id} eventType="sports_tournament" canManage />
 
       <AddEntryDialog
         eventId={id}

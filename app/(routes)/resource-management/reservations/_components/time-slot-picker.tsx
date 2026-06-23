@@ -194,17 +194,26 @@ export function TimeSlotPicker({
         </div>
 
         {/* Slot Footer */}
-        <div className='flex items-center gap-2 mt-2 w-full'>
-          <Badge
-            variant={slot.is_available ? 'default' : 'destructive'}
-            className='text-[10px]'
-          >
-            {slot.is_available ? 'Available' : 'Booked'}
-          </Badge>
-          {slot.max_capacity && slot.max_capacity > 1 && (
-            <Badge variant='outline' className='text-[10px]'>
-              Capacity: {slot.max_capacity}
+        <div className='flex flex-col gap-1 mt-2 w-full'>
+          <div className='flex items-center gap-2'>
+            <Badge
+              variant={slot.is_available ? 'default' : 'destructive'}
+              className='text-[10px]'
+            >
+              {slot.is_available ? 'Available' : 'Booked'}
             </Badge>
+            {slot.max_capacity && slot.max_capacity > 1 && (
+              <Badge variant='outline' className='text-[10px]'>
+                Capacity: {slot.max_capacity}
+              </Badge>
+            )}
+          </div>
+          {!slot.is_available && slot.booked_by_name && (
+            <span className='text-[10px] text-muted-foreground'>
+              {slot.booked_by_name}
+              {slot.booked_by_designation ? ` · ${slot.booked_by_designation}` : ''}
+              {slot.booked_status ? ` (${slot.booked_status})` : ''}
+            </span>
           )}
         </div>
       </Button>

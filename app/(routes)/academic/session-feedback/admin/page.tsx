@@ -1,0 +1,447 @@
+'use client';
+
+// L5 — Super-admin / institution-leadership ALL-COLLEGE feedback dashboard.
+// The cross-college sibling of the principal escalation lane: instead of one
+// institution's breaching sessions, it shows the submission + understanding
+// picture for EVERY college in scope (super_admin = all 8; institution
+// leadership = own institution only), grouped three ways:
+//   • College Summary   — sessions / responses / students / avg / low sessions
+//   • Faculty Summary    — worst-understanding faculty first (cross-college)
+//   • Understanding Trend — per-day average understanding over the window
+//
+// ANONYMITY: every number here comes from an aggregate RPC
+// (fn_scf_admin_college_summary / _faculty_summary / _trend). No per-student
+// feedback content (understood/checklist/free_text) is ever fetched or shown.
+//
+// On RPC error (non-authorized caller) we render an EXPLICIT access-denied
+// message — never a silent redirect (hard project rule, CLAUDE.md #27).
+// Spec: specs/post-class-feedback-attendance-gate-2026-06-15.md (admin lane)
+
+import { useMemo } from 'react';
+import { AlertTriangle, Building2, Users, BarChart3, TrendingDown } from 'lucide-react';
+import { BeatLoader } from 'react-spinners';
+import { format, subDays } from 'date-fns';
+import { ContentLayout } from '@/components/layout/content-layout';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import {
+  useAdminCollegeSummary,
+  useAdminFacultySummary,
+  useAdminTrend,
+} from '@/hooks/use-session-feedback';
+import type {
+  AdminCollegeSummaryRow,
+  AdminFacultySummaryRow,
+  AdminTrendRow,
+} from '@/types/session-feedback';
+
+const BRAND_GREEN = '#0b6d41';
+
+/** Color an understanding average: red < 3, amber < 3.5, green otherwise. */
+function avgColor(avg: number | null): string {
+  if (avg == null) return 'text-muted-foreground';
+  if (avg < 3) return 'text-red-600';
+  if (avg < 3.5) return 'text-amber-600';
+  return 'text-green-600';
+}
+
+/** Shared loading / access-denied / empty wrapper so all three tables behave
+ *  identically — and so the access-denied block (no silent redirect) is in one
+ *  place. */
+function TableShell({
+  isLoading,
+  isError,
+  error,
+  isEmpty,
+  emptyLabel,
+  children,
+}: {
+  isLoading: boolean;
+  isError: boolean;
+  error: unknown;
+  isEmpty: boolean;
+  emptyLabel: string;
+  children: React.ReactNode;
+}) {
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12">
+        <BeatLoader color={BRAND_GREEN} />
+        <p className="mt-4 text-sm text-muted-foreground">Loading…</p>
+      </div>
+    );
+  }
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+        <AlertTriangle className="h-10 w-10 text-amber-500" />
+        <p className="max-w-md text-sm font-medium text-foreground">
+          You don&apos;t have access to the all-college dashboard — contact your
+          administrator.
+        </p>
+        {error instanceof Error && error.message ? (
+          <p className="max-w-md text-xs text-muted-foreground">{error.message}</p>
+        ) : null}
+      </div>
+    );
+  }
+  if (isEmpty) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
+        <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+      </div>
+    );
+  }
+  return <div className="overflow-x-auto">{children}</div>;
+}
+
+export default function AdminFeedbackDashboardPage() {
+  // Default range: last 30 days (inclusive of today) — matches the principal lane.
+  const { from, to } = useMemo(() => {
+    const today = new Date();
+    return {
+      from: format(subDays(today, 30), 'yyyy-MM-dd'),
+      to: format(today, 'yyyy-MM-dd'),
+    };
+  }, []);
+
+  const college = useAdminCollegeSummary(from, to);
+  const faculty = useAdminFacultySummary(from, to);
+  const trend = useAdminTrend(from, to);
+
+  const collegeRows = (college.data ?? []) as AdminCollegeSummaryRow[];
+  const facultyRows = (faculty.data ?? []) as AdminFacultySummaryRow[];
+  const trendRows = (trend.data ?? []) as AdminTrendRow[];
+
+  // Headline totals across all colleges in scope (cheap client roll-up).
+  const totals = useMemo(() => {
+    let responses = 0;
+    let students = 0;
+    let lowSessions = 0;
+    let weighted = 0;
+    for (const r of collegeRows) {
+      responses += r.responses;
+      students += r.students;
+      lowSessions += r.low_sessions;
+      if (r.avg_understood != null) weighted += r.avg_understood * r.responses;
+    }
+    const avg = responses > 0 ? weighted / responses : null;
+    return {
+      colleges: collegeRows.length,
+      responses,
+      students,
+      lowSessions,
+      avg,
+    };
+  }, [collegeRows]);
+
+  // Max responses-per-day, for scaling the inline trend bars.
+  const maxTrendResponses = useMemo(
+    () => trendRows.reduce((m, r) => Math.max(m, r.responses), 0),
+    [trendRows],
+  );
+
+  return (
+    <ContentLayout title="All-College Feedback">
+      <Breadcrumb className="mb-4">
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/academic">Academic</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>All-College Feedback</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+
+      {/* Headline strip */}
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Card>
+          <CardContent className="flex flex-col gap-1 p-4">
+            <span className="text-xs text-muted-foreground">Colleges</span>
+            <span className="text-2xl font-semibold tabular-nums">
+              {totals.colleges}
+            </span>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex flex-col gap-1 p-4">
+            <span className="text-xs text-muted-foreground">Responses</span>
+            <span className="text-2xl font-semibold tabular-nums">
+              {totals.responses}
+            </span>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex flex-col gap-1 p-4">
+            <span className="text-xs text-muted-foreground">Avg understood</span>
+            <span
+              className={`text-2xl font-semibold tabular-nums ${avgColor(totals.avg)}`}
+            >
+              {totals.avg != null ? totals.avg.toFixed(2) : '—'}
+            </span>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex flex-col gap-1 p-4">
+            <span className="text-xs text-muted-foreground">Low sessions</span>
+            <span className="text-2xl font-semibold tabular-nums text-red-600">
+              {totals.lowSessions}
+            </span>
+          </CardContent>
+        </Card>
+      </div>
+
+      <p className="mb-4 text-xs text-muted-foreground">Showing {from} to {to}</p>
+
+      {/* College Summary */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Building2 className="h-5 w-5" style={{ color: BRAND_GREEN }} />
+            College Summary
+          </CardTitle>
+          <CardDescription>
+            Submission and understanding picture per college — how many sessions
+            collected feedback, how many learners responded, and how many sessions
+            breached the low-understanding threshold (&ge; 3 responses, avg &lt; 3).
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <TableShell
+            isLoading={college.isLoading}
+            isError={college.isError}
+            error={college.error}
+            isEmpty={collegeRows.length === 0}
+            emptyLabel="No feedback collected in this period."
+          >
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>College</TableHead>
+                  <TableHead className="text-right">Sessions</TableHead>
+                  <TableHead className="text-right">Responses</TableHead>
+                  <TableHead className="text-right">Students</TableHead>
+                  <TableHead className="text-right">Avg understood</TableHead>
+                  <TableHead className="text-right">Low sessions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {collegeRows.map((r) => (
+                  <TableRow key={r.institution_id}>
+                    <TableCell className="font-medium">
+                      {r.institution_name ?? '—'}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {r.sessions}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {r.responses}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {r.students}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <span
+                        className={`font-semibold tabular-nums ${avgColor(r.avg_understood)}`}
+                      >
+                        {r.avg_understood != null
+                          ? r.avg_understood.toFixed(2)
+                          : '—'}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {r.low_sessions > 0 ? (
+                        <Badge variant="destructive">{r.low_sessions}</Badge>
+                      ) : (
+                        <span className="text-muted-foreground tabular-nums">0</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableShell>
+        </CardContent>
+      </Card>
+
+      {/* Faculty Summary */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Users className="h-5 w-5" style={{ color: BRAND_GREEN }} />
+            Faculty Summary
+          </CardTitle>
+          <CardDescription>
+            Faculty across all colleges in scope, lowest average understanding
+            first — so the staff who most need support surface at the top.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <TableShell
+            isLoading={faculty.isLoading}
+            isError={faculty.isError}
+            error={faculty.error}
+            isEmpty={facultyRows.length === 0}
+            emptyLabel="No faculty feedback in this period."
+          >
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Faculty</TableHead>
+                  <TableHead>College</TableHead>
+                  <TableHead className="text-right">Sessions</TableHead>
+                  <TableHead className="text-right">Responses</TableHead>
+                  <TableHead className="text-right">Avg understood</TableHead>
+                  <TableHead className="text-right">Low sessions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {facultyRows.map((r, i) => (
+                  <TableRow key={`${r.institution_id}-${r.faculty_email ?? 'na'}-${i}`}>
+                    <TableCell className="text-sm">
+                      {r.faculty_email ?? (
+                        <span className="text-muted-foreground italic">
+                          unassigned
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {r.institution_name ?? '—'}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {r.sessions}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {r.responses}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <span
+                        className={`font-semibold tabular-nums ${avgColor(r.avg_understood)}`}
+                      >
+                        {r.avg_understood != null
+                          ? r.avg_understood.toFixed(2)
+                          : '—'}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {r.low_sessions > 0 ? (
+                        <Badge variant="destructive">{r.low_sessions}</Badge>
+                      ) : (
+                        <span className="text-muted-foreground tabular-nums">0</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableShell>
+        </CardContent>
+      </Card>
+
+      {/* Understanding Trend (inline bars — no chart dependency) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5" style={{ color: BRAND_GREEN }} />
+            Understanding Trend
+          </CardTitle>
+          <CardDescription>
+            Average understanding per day across all colleges in scope. Bar length
+            reflects the number of responses that day.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <TableShell
+            isLoading={trend.isLoading}
+            isError={trend.isError}
+            error={trend.error}
+            isEmpty={trendRows.length === 0}
+            emptyLabel="No feedback collected in this period."
+          >
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead className="text-right">Responses</TableHead>
+                  <TableHead className="text-right">Students</TableHead>
+                  <TableHead className="text-right">Avg understood</TableHead>
+                  <TableHead className="w-[40%]">Volume</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {trendRows.map((r) => {
+                  const pct =
+                    maxTrendResponses > 0
+                      ? Math.max(4, Math.round((r.responses / maxTrendResponses) * 100))
+                      : 0;
+                  return (
+                    <TableRow key={r.attendance_date}>
+                      <TableCell className="whitespace-nowrap">
+                        {r.attendance_date}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {r.responses}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {r.students}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span
+                          className={`font-semibold tabular-nums ${avgColor(r.avg_understood)}`}
+                        >
+                          {r.avg_understood != null
+                            ? r.avg_understood.toFixed(2)
+                            : '—'}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <div
+                          className="h-2 rounded-full"
+                          style={{
+                            width: `${pct}%`,
+                            backgroundColor: BRAND_GREEN,
+                          }}
+                          aria-hidden
+                        />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableShell>
+        </CardContent>
+      </Card>
+
+      {/* Footnote: anonymity reminder + intent. TrendingDown kept for parity icon set. */}
+      <p className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground">
+        <TrendingDown className="h-3.5 w-3.5" aria-hidden />
+        All figures are aggregates. Individual learner feedback is never shown.
+      </p>
+    </ContentLayout>
+  );
+}
