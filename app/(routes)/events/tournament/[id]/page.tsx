@@ -29,6 +29,7 @@ import {
   XCircle,
   Globe,
   ExternalLink,
+  Copy,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -205,19 +206,39 @@ export default function TournamentManagePage() {
                   }
                 />
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!(tournament.config as Record<string, unknown>)?.public_scoreboard}
-                onClick={() => window.open(`/p/tournament/${id}`, '_blank', 'noopener')}
-                title={
-                  (tournament.config as Record<string, unknown>)?.public_scoreboard
-                    ? 'Open the public no-login scoreboard'
-                    : 'Turn on "Show to public" first'
-                }
-              >
-                <ExternalLink className="mr-1 h-3.5 w-3.5" /> Public scoreboard
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const url = `${window.location.origin}/p/tournament/${id}/register`;
+                    if (navigator.clipboard?.writeText) {
+                      navigator.clipboard.writeText(url).then(
+                        () => toast.success('Registration link copied'),
+                        () => toast.error('Could not copy — copy it manually: ' + url)
+                      );
+                    } else {
+                      toast('Registration link: ' + url, { duration: 8000 });
+                    }
+                  }}
+                  title="Copy the public self-service registration link to share"
+                >
+                  <Copy className="mr-1 h-3.5 w-3.5" /> Copy registration link
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!(tournament.config as Record<string, unknown>)?.public_scoreboard}
+                  onClick={() => window.open(`/p/tournament/${id}`, '_blank', 'noopener')}
+                  title={
+                    (tournament.config as Record<string, unknown>)?.public_scoreboard
+                      ? 'Open the public no-login scoreboard'
+                      : 'Turn on "Show to public" first'
+                  }
+                >
+                  <ExternalLink className="mr-1 h-3.5 w-3.5" /> Public scoreboard
+                </Button>
+              </div>
             </div>
           </div>
         </CardContent>

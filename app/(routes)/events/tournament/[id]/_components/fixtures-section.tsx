@@ -339,9 +339,10 @@ export function DivisionFixtures({
       <div className="space-y-3">
         {byRound.map(([round, ms]) => (
           <div key={round}>
+            {/* round_label already includes the pool for pool matches
+                (e.g. "Pool A · R1"), so don't append it again here. */}
             <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               {ms[0]?.round_label || `Round ${round}`}
-              {ms[0]?.pool ? ` · Pool ${ms[0].pool}` : ''}
             </p>
             <div className="divide-y">
               {ms.map((m) => (
