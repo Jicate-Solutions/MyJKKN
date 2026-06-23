@@ -119,3 +119,34 @@ export function useDeleteCategory() {
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.calendar.all }),
   });
 }
+
+// ── ICS feed token hooks ─────────────────────────────────────────────────
+
+export function useMyFeedToken() {
+  return useQuery({
+    queryKey: ['calendar', 'feed-token'] as const,
+    queryFn: () => CalendarService.getMyFeedToken(),
+  });
+}
+
+export function useGenerateFeedToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => CalendarService.generateFeedToken(),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['calendar', 'feed-token'] });
+      void qc.invalidateQueries({ queryKey: queryKeys.calendar.all });
+    },
+  });
+}
+
+export function useRevokeFeedToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => CalendarService.revokeFeedToken(),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['calendar', 'feed-token'] });
+      void qc.invalidateQueries({ queryKey: queryKeys.calendar.all });
+    },
+  });
+}

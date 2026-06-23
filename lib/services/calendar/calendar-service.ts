@@ -194,4 +194,30 @@ export class CalendarService extends BaseService {
     const { error } = await this.supabase.from(CATEGORIES).delete().eq('id', id);
     if (error) throw new Error(getErrorMessage(error));
   }
+
+  // ── ICS feed token management ────────────────────────────────────────────
+
+  /** Returns the caller's active ICS feed token, or null if none exists. */
+  static async getMyFeedToken(): Promise<string | null> {
+    const { data, error } = await this.supabase
+      .from('calendar_feed_tokens')
+      .select('token')
+      .eq('is_active', true)
+      .maybeSingle();
+    if (error) throw new Error(getErrorMessage(error));
+    return data?.token ?? null;
+  }
+
+  /** Revokes the old token (if any) and issues a fresh one for the caller. */
+  static async generateFeedToken(): Promise<string> {
+    const { data, error } = await this.supabase.rpc('fn_calendar_generate_feed_token');
+    if (error) throw new Error(getErrorMessage(error));
+    return data as string;
+  }
+
+  /** Revokes the caller's active ICS feed token. */
+  static async revokeFeedToken(): Promise<void> {
+    const { error } = await this.supabase.rpc('fn_calendar_revoke_feed_token');
+    if (error) throw new Error(getErrorMessage(error));
+  }
 }
