@@ -32,6 +32,48 @@ export type TaskType = string;
 /** Membership / assignee roles (free-form text in DB) */
 export type ProjectMemberRole = string;
 
+/**
+ * RACI accountability roles stored in `project_task_assignees.role`.
+ * The column is free-form text (back-compat: legacy 'assignee' rows remain valid),
+ * but task assignment now uses these four. The auto-accountability meeting engine
+ * resolves the single 'accountable' person as the meeting owner, 'responsible' as
+ * the doer, 'consulted' as notified, 'informed' as bell-only.
+ */
+export type RaciRole = 'responsible' | 'accountable' | 'consulted' | 'informed';
+
+export const RACI_ROLES: RaciRole[] = [
+  'responsible',
+  'accountable',
+  'consulted',
+  'informed',
+];
+
+export const RACI_LABELS: Record<RaciRole, string> = {
+  responsible: 'Responsible',
+  accountable: 'Accountable',
+  consulted: 'Consulted',
+  informed: 'Informed',
+};
+
+export const RACI_LETTERS: Record<RaciRole, string> = {
+  responsible: 'R',
+  accountable: 'A',
+  consulted: 'C',
+  informed: 'I',
+};
+
+export const RACI_DESCRIPTIONS: Record<RaciRole, string> = {
+  responsible: 'Does the work',
+  accountable: 'Answers for it — exactly one per task',
+  consulted: 'Gives input before it is done',
+  informed: 'Kept in the loop',
+};
+
+export function isRaciRole(value: string | null | undefined): value is RaciRole {
+  return value === 'responsible' || value === 'accountable'
+    || value === 'consulted' || value === 'informed';
+}
+
 // ─── Masters (CRUDable) ─────────────────────────────────────────────────────────
 
 export interface ProjectType {
@@ -337,6 +379,15 @@ export interface ProjectTaskAssignee {
   role: string;
   assigned_by: string | null;
   created_at: string;
+}
+
+/** ProjectTaskAssignee with the joined staff name (from listAssignees). */
+export interface ProjectTaskAssigneeWithStaff extends ProjectTaskAssignee {
+  staff?: {
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+  } | null;
 }
 
 export interface ProjectTaskComment {
