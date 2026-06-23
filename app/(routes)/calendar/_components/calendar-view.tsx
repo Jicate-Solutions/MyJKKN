@@ -15,10 +15,15 @@ import type { CalendarItem } from '@/types/calendar';
 
 const localizer = momentLocalizer(moment);
 
-const FEEDS = [
+const BASE_FEEDS = [
   { key: 'global_entries', label: 'Global' },
   { key: 'academic_holidays', label: 'Academic Holidays' },
   { key: 'hr_public_holidays', label: 'HR Holidays' },
+];
+
+const LEAVE_FEEDS = [
+  { key: 'staff_leave', label: 'Staff Leave' },
+  { key: 'student_leave', label: 'Student Leave' },
 ];
 
 interface RBCEvent {
@@ -32,13 +37,24 @@ interface RBCEvent {
 }
 
 export function CalendarView() {
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, canAccess } = usePermissions();
+  const canViewPeopleLeave = isSuperAdmin || canAccess('calendar.people_leave', 'view');
+
+  const feeds = useMemo(
+    () => (canViewPeopleLeave ? [...BASE_FEEDS, ...LEAVE_FEEDS] : BASE_FEEDS),
+    [canViewPeopleLeave]
+  );
+
   const { institutions } = useInstitutionsWithAccess({ isActive: true, entityType: 'all' });
 
   const [selectedInstitution, setSelectedInstitution] = useState<string | null>(null); // null = All
   const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
   const [currentView, setCurrentView] = useState<View>(Views.MONTH);
-  const [activeFeeds, setActiveFeeds] = useState<string[]>(FEEDS.map((f) => f.key));
+  const [activeFeeds, setActiveFeeds] = useState<string[]>(() =>
+    canViewPeopleLeave
+      ? [...BASE_FEEDS, ...LEAVE_FEEDS].map((f) => f.key)
+      : BASE_FEEDS.map((f) => f.key)
+  );
 
   // visible window (pad a month each side so multi-day items at edges render)
   const { start, end } = useMemo(() => {
@@ -58,15 +74,23 @@ export function CalendarView() {
     () =>
       items
         .filter((it) => activeFeeds.length === 0 || activeFeeds.includes(feedKeyFor(it)))
-        .map((it) => ({
-          id: it.item_id,
-          title: it.institution_name ? `${it.title} · ${it.institution_name}` : it.title,
-          start: new Date(it.start_at),
-          end: new Date(it.end_at),
-          allDay: it.all_day,
-          color: it.color_code || '#6b7280',
-          resource: it,
-        })),
+        .map((it) => {
+          const title =
+            it.kind === 'leave'
+              ? `${it.person_name ?? 'Someone'} · On Leave`
+              : it.institution_name
+              ? `${it.title} · ${it.institution_name}`
+              : it.title;
+          return {
+            id: it.item_id,
+            title,
+            start: new Date(it.start_at),
+            end: new Date(it.end_at),
+            allDay: it.all_day,
+            color: it.color_code || '#6b7280',
+            resource: it,
+          };
+        }),
     [items, activeFeeds]
   );
 
@@ -113,7 +137,7 @@ export function CalendarView() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {FEEDS.map((f) => (
+        {feeds.map((f) => (
           <Button
             key={f.key}
             size="sm"
@@ -166,5 +190,7 @@ function feedKeyFor(it: CalendarItem): string {
   if (it.source_module === 'global') return 'global_entries';
   if (it.source_module === 'academic') return 'academic_holidays';
   if (it.source_module === 'hr') return 'hr_public_holidays';
+  if (it.source_module === 'hr_leave') return 'staff_leave';
+  if (it.source_module === 'academic_leave') return 'student_leave';
   return it.source_module;
 }
