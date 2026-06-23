@@ -407,6 +407,16 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/social/attribution': 'social.attribution.view',
   '/admission/social/meta-pixel': 'social.meta_pixel.view',
   '/admission/social/meta-audiences': 'social.meta_audiences.view',
+  // 2026-06-23 — Social Governance wave (#1493/#1494/#1496) nav-wiring.
+  // Governance is now a tier-3 chip under Social (admission/nav-config.ts).
+  // Gate it to social.view — matches the page's own PermissionGuard — so the
+  // chip honours per-role social access instead of AutoTabNav's show-by-default
+  // (auto-tab-nav.tsx:150, `if (!perm) return true`). The super-admin policy
+  // editor (/admission/social/admin/policies) is intentionally NOT a chip
+  // (kept off the Social strip + in NAV_EXCLUDE; reached via the governance
+  // page's "Edit policy →" links) and self-guards as super-admin, so it needs
+  // no MENU_PERMISSIONS entry.
+  '/admission/social/governance': 'social.view',
 
   // Internship Module — Policy Admin (super_admin only)
   '/internships/policy': 'super_admin',

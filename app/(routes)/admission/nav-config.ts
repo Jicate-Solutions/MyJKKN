@@ -82,6 +82,18 @@ const config: ModuleNavConfig = {
           icon: 'UsersRound',
           href: '/admission/social/meta-audiences',
         },
+        // 2026-06-23 — Social Governance wave (#1493/#1494/#1496). Director's-
+        // view consequences surface: each live social.* policy rendered as a
+        // plain-English consequence, linking to the super-admin policy editor.
+        // Added here so it renders as a reachable tier-3 chip (was NAV_EXCLUDE'd
+        // pending this wiring). Gated social.view via MENU_PERMISSIONS — matches
+        // the page's own PermissionGuard. The admin policy editor itself stays
+        // OFF this strip (super-admin-only; reached via the page's "Edit →" links).
+        {
+          label: 'Governance',
+          icon: 'ShieldCheck',
+          href: '/admission/social/governance',
+        },
       ],
     },
     {
