@@ -1718,7 +1718,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'events.proposals.view', label: 'View Event Proposals' },
       { key: 'events.proposals.create', label: 'Create Event Proposals' },
       { key: 'events.marathon.view', label: 'View Marathon Events' },
-      { key: 'events.marathon.create', label: 'Create Marathon Events' }
+      { key: 'events.marathon.create', label: 'Create Marathon Events' },
+      // Events Platform Promotion — shared logistics
+      { key: 'events.budget.approve', label: 'Approve Event Budgets (finance sign-off)' },
+      { key: 'events.presets.manage', label: 'Publish Official Event Presets' }
     ]
   },
   // Added 2026-04-27 — menu-coverage baseline cleanup. The /health/* tree
