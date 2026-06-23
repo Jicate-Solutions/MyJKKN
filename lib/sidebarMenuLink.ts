@@ -975,6 +975,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/events/tournament': 'sports.tournaments.view',
   '/events/tournament/new': 'sports.tournaments.create',
 
+  // Events — unified create-flow + preset hub (Events Platform Promotion PR9)
+  '/events/create': 'events.view',
+  '/events/presets': 'events.view',
+
   // Faculty — PDE faculty tree (Faculty / HOD / Mentor surface)
   '/pde/faculty': 'pde.faculty.view',
   '/pde/faculty/analytics': 'pde.faculty.analytics.view',
@@ -2176,6 +2180,9 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/events' || pathname.startsWith('/events/'),
           icon: Calendar,
           submenus: [
+            // Events Platform Promotion PR9 (2026-06-23): one create flow asks format + home
+            { href: '/events/create', label: 'Create an Event', active: pathname === '/events/create' },
+            { href: '/events/presets', label: 'Event Presets', active: pathname === '/events/presets' },
             { href: '/events/marathon', label: 'Marathon · All Events', active: pathname === '/events/marathon' },
             { href: '/events/marathon/new', label: 'Marathon · New Event', active: pathname === '/events/marathon/new' },
             // Sports Tournament PR1 (2026-06-22): conduct sports tournaments on the events platform
