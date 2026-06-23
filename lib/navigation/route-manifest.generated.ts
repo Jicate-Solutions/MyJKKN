@@ -1941,6 +1941,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Holidays",
         "iconName": "Calendar",
         "children": []
+      },
+      {
+        "path": "/calendar/settings",
+        "label": "Settings",
+        "iconName": "Settings",
+        "children": []
       }
     ]
   },
