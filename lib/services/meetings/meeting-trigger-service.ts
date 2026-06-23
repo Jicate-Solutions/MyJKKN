@@ -29,6 +29,8 @@ const MODULE = 'meetings/triggers';
 const ATTENDANCE_METRIC = 'attendance_rate_daily';
 /** Decision #6: the Principal has 24h to explain before a meeting is scheduled. */
 const EXPLANATION_WINDOW_HOURS = 24;
+/** Re-check the last N days each run so late-marked attendance is still caught (decision E4). */
+const LOOKBACK_DAYS = 3;
 const MIN_EXPLANATION_LENGTH = 20;
 
 export interface TriggerEvalResult {
@@ -276,18 +278,20 @@ export async function evaluateAttendanceTriggers(
     return result;
   }
 
+  // Newest-first look-back window so attendance marked late (after a prior
+  // run) is still caught (decision E4). [yesterday, -2, -3].
+  const candidateDates = Array.from({ length: LOOKBACK_DAYS }, (_, i) =>
+    addDaysISO(date, -i)
+  );
+
   for (const rule of (rules ?? []) as TriggerRule[]) {
-    if (!rule.institution_id) continue; // global rules unsupported in PR1a
+    if (!rule.institution_id) continue; // global rules unsupported
     result.evaluated++;
 
     try {
-      // 1. Quiet window (exam weeks / holidays)
-      if (isInQuietWindow(date, rule.quiet_windows)) {
-        result.skipped_quiet++;
-        continue;
-      }
-
-      // 2. Cooldown + weekly cap — count events already fired in the window.
+      // Cooldown + weekly cap — ONCE per rule, over the trailing window ending
+      // at the newest day. Caps the rule to `cap` events/window no matter how
+      // many of the looked-back days breach.
       const cooldownDays = rule.cooldown_days ?? 7;
       const cap = rule.weekly_cap ?? 1;
       const windowStart = addDaysISO(date, -(cooldownDays - 1));
@@ -302,107 +306,121 @@ export async function evaluateAttendanceTriggers(
         continue;
       }
 
-      // 3. Compute the metric.
-      const { data: rate, error: rpcErr } = await db.rpc(
-        'fn_college_day_attendance_rate',
-        { p_institution_id: rule.institution_id, p_date: date }
-      );
-      if (rpcErr) {
-        result.errors.push(`rpc ${rule.institution_id}: ${rpcErr.message}`);
-        continue;
-      }
-      if (rate === null || rate === undefined) {
-        // No attendance recorded → a data gap (PR3), never a false 0% breach.
-        result.skipped_no_data++;
-        continue;
-      }
-      const rateNum = Number(rate);
+      // Evaluate the window newest-first; fire on the first breaching day.
+      let fired = false;
+      let sawData = false;
+      for (const candDate of candidateDates) {
+        // Quiet window (exam weeks / holidays) for this specific day.
+        if (isInQuietWindow(candDate, rule.quiet_windows)) continue;
 
-      // 4. Breach?
-      if (!compare(rateNum, rule.comparator, Number(rule.threshold))) continue;
-      result.breaches++;
-
-      // 5. Resolve recipients (principal → admin fallback).
-      const { recipientIds, createdBy, fallbackToAdmin } =
-        await resolveRecipients(db, rule.institution_id);
-      if (recipientIds.length === 0 || !createdBy) {
-        result.skipped_no_recipient++;
-        logger.warn(MODULE, 'Breach with no resolvable recipient', {
-          institution_id: rule.institution_id,
-          date
-        });
-        continue;
-      }
-
-      // 6. Record the event (idempotent per rule+day) with the 24h deadline.
-      const explanationDeadline = new Date(
-        Date.now() + EXPLANATION_WINDOW_HOURS * 60 * 60 * 1000
-      ).toISOString();
-      const { data: ev, error: evErr } = await db
-        .from('meeting_trigger_events')
-        .insert({
-          rule_id: rule.id,
-          institution_id: rule.institution_id,
-          metric_key: rule.metric_key,
-          observed_value: rateNum,
-          threshold: rule.threshold,
-          breach_date: date,
-          status: 'notified',
-          explanation_deadline: explanationDeadline
-        })
-        .select('id')
-        .single();
-      if (evErr) {
-        // 23505 = unique violation = already handled for this rule+day.
-        if ((evErr as any).code === '23505') continue;
-        result.errors.push(`event ${rule.institution_id}: ${evErr.message}`);
-        continue;
-      }
-
-      // 7. Notify the Principal with a 24h text-explanation ACTION (the valve):
-      //    they explain via the bell, or reconcile escalates to a meeting.
-      const instName = await getInstitutionName(db, rule.institution_id);
-      const notificationId = await createBellNotification(db, {
-        recipientIds,
-        createdBy,
-        title: `Attendance below threshold — ${instName}`,
-        body:
-          `${instName} recorded ${rateNum}% attendance on ${date}, below the ` +
-          `${rule.threshold}% line. Please add a brief explanation within ` +
-          `${EXPLANATION_WINDOW_HOURS} hours, or a review meeting with the ` +
-          `Director will be scheduled.` +
-          (fallbackToAdmin
-            ? ' (No principal on record — routed to administration.)'
-            : ''),
-        url: '/academic/attendance',
-        category: 'attendance:breach',
-        action: {
-          type: 'tracked',
-          deadlineHours: EXPLANATION_WINDOW_HOURS,
-          config: {
-            response_type: 'text',
-            min_text_length: MIN_EXPLANATION_LENGTH
-          }
-        },
-        metadata: {
-          rule_id: rule.id,
-          institution_id: rule.institution_id,
-          breach_date: date,
-          observed: rateNum,
-          threshold: rule.threshold,
-          source: 'cron:attendance-breach-check'
+        const { data: rate, error: rpcErr } = await db.rpc(
+          'fn_college_day_attendance_rate',
+          { p_institution_id: rule.institution_id, p_date: candDate }
+        );
+        if (rpcErr) {
+          result.errors.push(
+            `rpc ${rule.institution_id} ${candDate}: ${rpcErr.message}`
+          );
+          continue;
         }
-      });
+        // No attendance that day → missing-data is a separate trigger (PR3),
+        // never a false 0% breach here.
+        if (rate === null || rate === undefined) continue;
+        sawData = true;
+        const rateNum = Number(rate);
 
-      await db
-        .from('meeting_trigger_events')
-        .update({
-          notified_profile_ids: recipientIds,
-          notification_id: notificationId
-        })
-        .eq('id', (ev as any).id);
+        // Breach? (comparator is per-rule — 'lte' means at-or-below, decision E9.)
+        if (!compare(rateNum, rule.comparator, Number(rule.threshold))) continue;
 
-      result.notified += recipientIds.length;
+        // Resolve recipients (principal → admin fallback).
+        const { recipientIds, createdBy, fallbackToAdmin } =
+          await resolveRecipients(db, rule.institution_id);
+        if (recipientIds.length === 0 || !createdBy) {
+          result.skipped_no_recipient++;
+          logger.warn(MODULE, 'Breach with no resolvable recipient', {
+            institution_id: rule.institution_id,
+            date: candDate
+          });
+          break; // no one to notify for this institution — stop the window
+        }
+
+        // Record the event (idempotent per rule+day).
+        const explanationDeadline = new Date(
+          Date.now() + EXPLANATION_WINDOW_HOURS * 60 * 60 * 1000
+        ).toISOString();
+        const { data: ev, error: evErr } = await db
+          .from('meeting_trigger_events')
+          .insert({
+            rule_id: rule.id,
+            institution_id: rule.institution_id,
+            metric_key: rule.metric_key,
+            observed_value: rateNum,
+            threshold: rule.threshold,
+            breach_date: candDate,
+            status: 'notified',
+            explanation_deadline: explanationDeadline
+          })
+          .select('id')
+          .single();
+        if (evErr) {
+          // 23505 = already handled this rule+day → try the next older day.
+          if ((evErr as any).code === '23505') continue;
+          result.errors.push(
+            `event ${rule.institution_id} ${candDate}: ${evErr.message}`
+          );
+          continue;
+        }
+
+        result.breaches++;
+
+        // Notify — supportive tone (decision E6): ask for context, not blame.
+        const instName = await getInstitutionName(db, rule.institution_id);
+        const notificationId = await createBellNotification(db, {
+          recipientIds,
+          createdBy,
+          title: `Attendance check-in — ${instName}`,
+          body:
+            `${instName} recorded ${rateNum}% attendance on ${candDate}, below the ` +
+            `${rule.threshold}% line being tracked. Could you help us understand what ` +
+            `happened that day? Please add a brief note within ${EXPLANATION_WINDOW_HOURS} ` +
+            `hours so we have the context.` +
+            (fallbackToAdmin
+              ? ' (No principal on record yet — routed to administration.)'
+              : ''),
+          url: '/academic/attendance',
+          category: 'attendance:breach',
+          action: {
+            type: 'tracked',
+            deadlineHours: EXPLANATION_WINDOW_HOURS,
+            config: {
+              response_type: 'text',
+              min_text_length: MIN_EXPLANATION_LENGTH
+            }
+          },
+          metadata: {
+            rule_id: rule.id,
+            institution_id: rule.institution_id,
+            breach_date: candDate,
+            observed: rateNum,
+            threshold: rule.threshold,
+            source: 'cron:attendance-breach-check'
+          }
+        });
+
+        await db
+          .from('meeting_trigger_events')
+          .update({
+            notified_profile_ids: recipientIds,
+            notification_id: notificationId
+          })
+          .eq('id', (ev as any).id);
+
+        result.notified += recipientIds.length;
+        fired = true;
+        break; // one event per rule per run
+      }
+
+      if (!fired && !sawData) result.skipped_no_data++;
     } catch (e: any) {
       result.errors.push(`rule ${rule.id}: ${e?.message ?? String(e)}`);
     }
