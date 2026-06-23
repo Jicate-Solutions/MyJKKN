@@ -864,7 +864,7 @@ export async function evaluateProjectTriggers(
       const { data: tasks, error } = await db
         .from('project_tasks')
         .select(
-          'id, title, due_date, project_id, owner_staff_id, projects!inner(institution_id, name)'
+          'id, title, due_date, project_id, owner_staff_id, projects!inner(institution_id, title)'
         )
         .is('completed_at', null)
         .not('due_date', 'is', null)
@@ -963,7 +963,7 @@ export async function evaluateProjectTriggers(
       if (qualifying.length > 0) {
         const { data: projects, error } = await db
           .from('projects')
-          .select('id, name, institution_id, owner_staff_id, rag_status')
+          .select('id, title, institution_id, owner_staff_id, rag_status')
           .in('rag_status', qualifying)
           .limit(500);
         if (error) result.errors.push(`project_at_risk query: ${error.message}`);
@@ -994,7 +994,7 @@ export async function evaluateProjectTriggers(
                 rule: riskRule,
                 subjectType: 'project',
                 subjectId: p.id,
-                subjectLabel: p.name ?? 'Untitled project',
+                subjectLabel: p.title ?? 'Untitled project',
                 institutionId: p.institution_id ?? null,
                 observed: ragLevel(p.rag_status),
                 accountableProfile,
