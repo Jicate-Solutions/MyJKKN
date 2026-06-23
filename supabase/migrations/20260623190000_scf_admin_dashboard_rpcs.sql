@@ -92,7 +92,7 @@ BEGIN
     GROUP BY f.institution_id
   )
   SELECT sr.inst_id AS institution_id,
-         i.name      AS institution_name,
+         i.name::text AS institution_name,
          sr.sessions,
          sr.responses,
          st.students,
@@ -152,7 +152,7 @@ BEGIN
     GROUP BY f.institution_id, f.faculty_email, f.attendance_date, f.period_id, f.course_code
   )
   SELECT ps.inst_id AS institution_id,
-         i.name      AS institution_name,
+         i.name::text AS institution_name,
          ps.faculty_email,
          count(*)::bigint                                                   AS sessions,
          sum(ps.s_responses)::bigint                                        AS responses,
