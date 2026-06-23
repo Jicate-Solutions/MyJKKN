@@ -469,7 +469,11 @@ export async function reconcileExplanations(
     .select(
       'id, rule_id, institution_id, metric_key, observed_value, threshold, breach_date, notification_id, explanation_deadline, status'
     )
-    .eq('status', 'notified');
+    .eq('status', 'notified')
+    // Attendance events only — project (subject-scoped) events are reconciled by
+    // reconcileProjectExplanations, which routes to the judge, not super-admins.
+    // (The column is new; all existing attendance rows have subject_id IS NULL.)
+    .is('subject_id', null);
   if (error) {
     result.errors.push(`load events: ${error.message}`);
     return result;
@@ -611,6 +615,521 @@ export async function decideOnEvent(opts: {
 }
 
 // ---------------------------------------------------------------------------
+// PR2 — project-accountability triggers (task_overdue + project_at_risk)
+// ---------------------------------------------------------------------------
+// Parallel to the attendance path above: reuses the same module-level helpers
+// (compare, isInQuietWindow, createBellNotification, the bell-delivery contract)
+// but operates on SUBJECT-scoped events (subject_type/subject_id) whose recipients
+// are resolved per-task via RACI. The live attendance functions are untouched —
+// reconcileExplanations filters to subject_id IS NULL so it never sees these.
+
+const TASK_OVERDUE_METRIC = 'task_overdue';
+const PROJECT_AT_RISK_METRIC = 'project_at_risk';
+
+export interface ProjectTriggerResult {
+  date: string;
+  evaluated: number;
+  breaches: number;
+  notified: number;
+  skipped_cooldown: number;
+  skipped_quiet: number;
+  skipped_no_recipient: number;
+  errors: string[];
+}
+
+/** Today in campus time — project breaches are "as of now", not yesterday. */
+function todayIST(now: Date): string {
+  const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  return `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, '0')}-${String(
+    ist.getDate()
+  ).padStart(2, '0')}`;
+}
+
+/** Whole days from `fromISO` to `toISO` (UTC-anchored). */
+function daysBetween(fromISO: string, toISO: string): number {
+  const [fy, fm, fd] = fromISO.split('-').map(Number);
+  const [ty, tm, td] = toISO.split('-').map(Number);
+  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86400000);
+}
+
+/** project rag_status -> numeric risk level (green/none=0, amber=1, red=2). */
+function ragLevel(rag: string | null): number {
+  if (rag === 'red') return 2;
+  if (rag === 'amber') return 1;
+  return 0;
+}
+
+/** Map staff ids -> profile ids (assignee.staff_id / owner_staff_id -> staff.profile_id). */
+async function mapStaffToProfiles(
+  db: SupabaseClient,
+  staffIds: Array<string | null | undefined>
+): Promise<Map<string, string>> {
+  const ids = [...new Set(staffIds.filter(Boolean))] as string[];
+  const map = new Map<string, string>();
+  if (ids.length === 0) return map;
+  const { data } = await db.from('staff').select('id, profile_id').in('id', ids);
+  for (const r of (data ?? []) as any[]) {
+    if (r.profile_id) map.set(r.id, r.profile_id);
+  }
+  return map;
+}
+
+/** The single active global rule for a project metric (or null when inactive). */
+async function loadActiveProjectRule(
+  db: SupabaseClient,
+  metricKey: string
+): Promise<TriggerRule | null> {
+  const { data } = await db
+    .from('meeting_trigger_rules')
+    .select(
+      'id, metric_key, institution_id, comparator, threshold, cooldown_days, weekly_cap, quiet_windows, notify_role, active'
+    )
+    .eq('metric_key', metricKey)
+    .eq('active', true)
+    .is('institution_id', null)
+    .maybeSingle();
+  return (data as any) ?? null;
+}
+
+/** Has this (rule, subject) already fired within cooldown_days? */
+async function inSubjectCooldown(
+  db: SupabaseClient,
+  ruleId: string,
+  subjectId: string,
+  todayISO: string,
+  cooldownDays: number
+): Promise<boolean> {
+  const since = addDaysISO(todayISO, -Math.max(0, cooldownDays));
+  const { data } = await db
+    .from('meeting_trigger_events')
+    .select('id')
+    .eq('rule_id', ruleId)
+    .eq('subject_id', subjectId)
+    .gte('breach_date', since)
+    .limit(1);
+  return (data ?? []).length > 0;
+}
+
+interface SubjectBreach {
+  rule: TriggerRule;
+  subjectType: 'task' | 'project';
+  subjectId: string;
+  subjectLabel: string;
+  institutionId: string | null;
+  observed: number;
+  /** who must explain (the Accountable / project owner) */
+  accountableProfile: string;
+  /** R + C + I + head — informational bell (deduped, minus accountable) */
+  informProfiles: string[];
+  /** the reporting head who judges the explanation */
+  judgeProfile: string | null;
+  noun: string;
+  detail: string;
+}
+
+/**
+ * Record a subject breach event (idempotent per rule+subject+day) and fire the
+ * RACI notifications: an actionable explain-or-meet to the Accountable, and an
+ * informational bell to Responsible/Consulted/Informed/head.
+ */
+async function recordAndNotifySubjectBreach(
+  db: SupabaseClient,
+  b: SubjectBreach,
+  todayISO: string,
+  createdBy: string | null,
+  result: ProjectTriggerResult
+): Promise<boolean> {
+  const explanationDeadline = new Date(
+    Date.now() + EXPLANATION_WINDOW_HOURS * 60 * 60 * 1000
+  ).toISOString();
+
+  const { data: ev, error: evErr } = await db
+    .from('meeting_trigger_events')
+    .insert({
+      rule_id: b.rule.id,
+      institution_id: b.institutionId,
+      metric_key: b.rule.metric_key,
+      observed_value: b.observed,
+      threshold: b.rule.threshold,
+      breach_date: todayISO,
+      status: 'notified',
+      subject_type: b.subjectType,
+      subject_id: b.subjectId,
+      subject_label: b.subjectLabel,
+      judge_profile_id: b.judgeProfile,
+      explanation_deadline: explanationDeadline
+    })
+    .select('id')
+    .single();
+  if (evErr) {
+    if ((evErr as any).code === '23505') return false; // already fired this rule+subject+day
+    result.errors.push(`event ${b.subjectType} ${b.subjectId}: ${evErr.message}`);
+    return false;
+  }
+
+  // Actionable explain-or-meet → the Accountable (supportive tone).
+  const notificationId = await createBellNotification(db, {
+    recipientIds: [b.accountableProfile],
+    createdBy: createdBy ?? b.accountableProfile,
+    title: `Accountability check-in — ${b.subjectLabel}`,
+    body:
+      `The ${b.noun} "${b.subjectLabel}" is ${b.detail}. As the Accountable ` +
+      `person, could you add a brief note on what's happening and the plan to ` +
+      `resolve it within ${EXPLANATION_WINDOW_HOURS} hours? Otherwise a short ` +
+      `meeting with your reporting head will be scheduled.`,
+    url: '/projects',
+    category: `project:${b.subjectType}-breach`,
+    action: {
+      type: 'tracked',
+      deadlineHours: EXPLANATION_WINDOW_HOURS,
+      config: { response_type: 'text', min_text_length: MIN_EXPLANATION_LENGTH }
+    },
+    metadata: {
+      rule_id: b.rule.id,
+      subject_type: b.subjectType,
+      subject_id: b.subjectId,
+      observed: b.observed,
+      threshold: b.rule.threshold,
+      source: 'cron:project-accountability-check'
+    }
+  });
+
+  // Informational bell → Responsible / Consulted / Informed / head (deduped).
+  const informees = [...new Set(b.informProfiles)].filter(
+    (id) => id && id !== b.accountableProfile
+  );
+  if (informees.length > 0) {
+    await createBellNotification(db, {
+      recipientIds: informees,
+      createdBy: createdBy ?? informees[0],
+      title: `Heads-up — ${b.subjectLabel}`,
+      body:
+        `The ${b.noun} "${b.subjectLabel}" is ${b.detail}. The Accountable ` +
+        `person has been asked to explain within ${EXPLANATION_WINDOW_HOURS} ` +
+        `hours; a short meeting may follow.`,
+      url: '/projects',
+      category: `project:${b.subjectType}-breach-info`,
+      metadata: {
+        rule_id: b.rule.id,
+        subject_id: b.subjectId,
+        source: 'cron:project-accountability-check'
+      }
+    });
+  }
+
+  await db
+    .from('meeting_trigger_events')
+    .update({
+      notified_profile_ids: [b.accountableProfile, ...informees],
+      notification_id: notificationId
+    })
+    .eq('id', (ev as any).id);
+
+  result.notified += 1 + informees.length;
+  return true;
+}
+
+/**
+ * Evaluate the active project rules (task_overdue + project_at_risk). Idempotent
+ * per (rule, subject, day) via the partial unique index on meeting_trigger_events.
+ * Nothing runs unless a rule is `active` (both seeded inactive).
+ */
+export async function evaluateProjectTriggers(
+  opts: { now?: Date; client?: SupabaseClient } = {}
+): Promise<ProjectTriggerResult> {
+  const db = opts.client ?? createServiceRoleClient();
+  const today = todayIST(opts.now ?? new Date());
+  const result: ProjectTriggerResult = {
+    date: today,
+    evaluated: 0,
+    breaches: 0,
+    notified: 0,
+    skipped_cooldown: 0,
+    skipped_quiet: 0,
+    skipped_no_recipient: 0,
+    errors: []
+  };
+
+  const admins = await getSuperAdminIds(db);
+  const createdBy = admins[0] ?? null;
+
+  // ---- task_overdue ----
+  const overdueRule = await loadActiveProjectRule(db, TASK_OVERDUE_METRIC);
+  if (overdueRule) {
+    if (isInQuietWindow(today, overdueRule.quiet_windows)) {
+      result.skipped_quiet++;
+    } else {
+      result.evaluated++;
+      const cutoff = addDaysISO(today, -Math.max(0, overdueRule.threshold));
+      const { data: tasks, error } = await db
+        .from('project_tasks')
+        .select(
+          'id, title, due_date, project_id, owner_staff_id, projects!inner(institution_id, name)'
+        )
+        .is('completed_at', null)
+        .not('due_date', 'is', null)
+        .lte('due_date', cutoff)
+        .limit(500);
+      if (error) result.errors.push(`task_overdue query: ${error.message}`);
+
+      for (const t of (tasks ?? []) as any[]) {
+        try {
+          const daysOverdue = daysBetween(t.due_date, today);
+          if (!compare(daysOverdue, overdueRule.comparator, overdueRule.threshold)) continue;
+          if (await inSubjectCooldown(db, overdueRule.id, t.id, today, overdueRule.cooldown_days)) {
+            result.skipped_cooldown++;
+            continue;
+          }
+
+          const institutionId = t.projects?.institution_id ?? null;
+          const { data: assignees } = await db
+            .from('project_task_assignees')
+            .select('staff_id, role')
+            .eq('task_id', t.id);
+          const buckets: Record<string, string[]> = {
+            accountable: [],
+            responsible: [],
+            consulted: [],
+            informed: []
+          };
+          for (const a of (assignees ?? []) as any[]) {
+            if (a.role in buckets && a.staff_id) buckets[a.role].push(a.staff_id);
+          }
+
+          const accountableStaff = buckets.accountable[0] ?? t.owner_staff_id ?? null;
+          const otherStaff = [
+            ...buckets.responsible,
+            ...buckets.consulted,
+            ...buckets.informed
+          ];
+          const staffMap = await mapStaffToProfiles(db, [accountableStaff, ...otherStaff]);
+
+          const head = institutionId
+            ? await resolveRecipients(db, institutionId)
+            : { recipientIds: [] as string[], createdBy: null, fallbackToAdmin: true };
+          const headIds = head.recipientIds;
+
+          let accountableProfile =
+            (accountableStaff ? staffMap.get(accountableStaff) : null) ?? null;
+          if (!accountableProfile) accountableProfile = admins[0] ?? null;
+          if (!accountableProfile) {
+            result.skipped_no_recipient++;
+            continue;
+          }
+
+          const informProfiles = [
+            ...otherStaff.map((s) => staffMap.get(s)).filter(Boolean) as string[],
+            ...headIds
+          ];
+          const judgeProfile = headIds[0] ?? admins[0] ?? null;
+
+          const fired = await recordAndNotifySubjectBreach(
+            db,
+            {
+              rule: overdueRule,
+              subjectType: 'task',
+              subjectId: t.id,
+              subjectLabel: t.title ?? 'Untitled task',
+              institutionId,
+              observed: daysOverdue,
+              accountableProfile,
+              informProfiles,
+              judgeProfile,
+              noun: 'task',
+              detail: `overdue by ${daysOverdue} day${daysOverdue === 1 ? '' : 's'}`
+            },
+            today,
+            createdBy,
+            result
+          );
+          if (fired) result.breaches++;
+        } catch (e: any) {
+          result.errors.push(`task ${t.id}: ${e?.message ?? String(e)}`);
+        }
+      }
+    }
+  }
+
+  // ---- project_at_risk ----
+  const riskRule = await loadActiveProjectRule(db, PROJECT_AT_RISK_METRIC);
+  if (riskRule) {
+    if (isInQuietWindow(today, riskRule.quiet_windows)) {
+      result.skipped_quiet++;
+    } else {
+      result.evaluated++;
+      const qualifying = ['red', 'amber', 'green'].filter((r) =>
+        compare(ragLevel(r), riskRule.comparator, riskRule.threshold)
+      );
+      if (qualifying.length > 0) {
+        const { data: projects, error } = await db
+          .from('projects')
+          .select('id, name, institution_id, owner_staff_id, rag_status')
+          .in('rag_status', qualifying)
+          .limit(500);
+        if (error) result.errors.push(`project_at_risk query: ${error.message}`);
+
+        for (const p of (projects ?? []) as any[]) {
+          try {
+            if (await inSubjectCooldown(db, riskRule.id, p.id, today, riskRule.cooldown_days)) {
+              result.skipped_cooldown++;
+              continue;
+            }
+            const staffMap = await mapStaffToProfiles(db, [p.owner_staff_id]);
+            const head = p.institution_id
+              ? await resolveRecipients(db, p.institution_id)
+              : { recipientIds: [] as string[], createdBy: null, fallbackToAdmin: true };
+            const headIds = head.recipientIds;
+
+            let accountableProfile =
+              (p.owner_staff_id ? staffMap.get(p.owner_staff_id) : null) ?? null;
+            if (!accountableProfile) accountableProfile = admins[0] ?? null;
+            if (!accountableProfile) {
+              result.skipped_no_recipient++;
+              continue;
+            }
+
+            const fired = await recordAndNotifySubjectBreach(
+              db,
+              {
+                rule: riskRule,
+                subjectType: 'project',
+                subjectId: p.id,
+                subjectLabel: p.name ?? 'Untitled project',
+                institutionId: p.institution_id ?? null,
+                observed: ragLevel(p.rag_status),
+                accountableProfile,
+                informProfiles: headIds,
+                judgeProfile: headIds[0] ?? admins[0] ?? null,
+                noun: 'project',
+                detail: `flagged at-risk (${p.rag_status})`
+              },
+              today,
+              createdBy,
+              result
+            );
+            if (fired) result.breaches++;
+          } catch (e: any) {
+            result.errors.push(`project ${p.id}: ${e?.message ?? String(e)}`);
+          }
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Reconcile open project breach events against the explanation valve. Mirrors
+ * reconcileExplanations but for SUBJECT events: routes the explanation (or the
+ * "no explanation in 24h" escalation) to the event's judge (the reporting head),
+ * not the Director. Idempotent: only acts on status='notified' subject events.
+ */
+export async function reconcileProjectExplanations(
+  opts: { now?: Date; client?: SupabaseClient } = {}
+): Promise<ReconcileResult> {
+  const db = opts.client ?? createServiceRoleClient();
+  const nowISO = (opts.now ?? new Date()).toISOString();
+  const result: ReconcileResult = { explained: 0, escalated: 0, errors: [] };
+
+  const { data: events, error } = await db
+    .from('meeting_trigger_events')
+    .select(
+      'id, subject_type, subject_id, subject_label, observed_value, threshold, breach_date, notification_id, explanation_deadline, status, judge_profile_id'
+    )
+    .eq('status', 'notified')
+    .not('subject_id', 'is', null);
+  if (error) {
+    result.errors.push(`load subject events: ${error.message}`);
+    return result;
+  }
+
+  for (const ev of (events ?? []) as any[]) {
+    try {
+      const judge: string[] = ev.judge_profile_id
+        ? [ev.judge_profile_id]
+        : await getSuperAdminIds(db);
+
+      // 1. Explained?
+      if (ev.notification_id) {
+        const { data: resp } = await db
+          .from('action_responses')
+          .select('text_response, user_id, submitted_at')
+          .eq('notification_id', ev.notification_id)
+          .not('text_response', 'is', null)
+          .order('submitted_at', { ascending: true })
+          .limit(1);
+        const r = (resp ?? [])[0] as any;
+        if (r?.text_response) {
+          await db
+            .from('meeting_trigger_events')
+            .update({
+              status: 'explained',
+              explanation_text: r.text_response,
+              explained_at: r.submitted_at,
+              explained_by: r.user_id
+            })
+            .eq('id', ev.id);
+
+          if (judge.length > 0) {
+            await createBellNotification(db, {
+              recipientIds: judge,
+              createdBy: judge[0],
+              title: `Explanation submitted — ${ev.subject_label}`,
+              body:
+                `The Accountable person on "${ev.subject_label}" explained:\n\n` +
+                `"${r.text_response}"\n\n` +
+                `Decide whether to skip or still hold a short meeting.`,
+              url: '/meetings/triggers',
+              category: 'project:breach-explained',
+              metadata: {
+                event_id: ev.id,
+                subject_id: ev.subject_id,
+                source: 'cron:project-accountability-check'
+              }
+            });
+          }
+          result.explained++;
+          continue;
+        }
+      }
+
+      // 2. Deadline passed with no explanation → meeting warranted.
+      if (ev.explanation_deadline && nowISO > ev.explanation_deadline) {
+        await db
+          .from('meeting_trigger_events')
+          .update({ status: 'meeting_pending' })
+          .eq('id', ev.id);
+
+        if (judge.length > 0) {
+          await createBellNotification(db, {
+            recipientIds: judge,
+            createdBy: judge[0],
+            title: `Meeting warranted — ${ev.subject_label}`,
+            body:
+              `No explanation was given on "${ev.subject_label}" within ` +
+              `${EXPLANATION_WINDOW_HOURS} hours. A short accountability meeting ` +
+              `is warranted.`,
+            url: '/meetings/triggers',
+            category: 'project:breach-escalated',
+            metadata: {
+              event_id: ev.id,
+              subject_id: ev.subject_id,
+              source: 'cron:project-accountability-check'
+            }
+          });
+        }
+        result.escalated++;
+      }
+    } catch (e: any) {
+      result.errors.push(`event ${ev.id}: ${e?.message ?? String(e)}`);
+    }
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // PR4 — admin console reads/writes
 // ---------------------------------------------------------------------------
 
@@ -714,6 +1233,8 @@ export interface TriggerEventRow {
   explanation_text: string | null;
   director_decision: string | null;
   created_at: string;
+  subject_type: string | null;
+  subject_label: string | null;
 }
 
 /** Recent breach events for the console (newest first). */
@@ -724,7 +1245,7 @@ export async function listRecentTriggerEvents(
   const { data: events } = await db
     .from('meeting_trigger_events')
     .select(
-      'id, institution_id, metric_key, observed_value, threshold, breach_date, status, explanation_text, director_decision, created_at'
+      'id, institution_id, metric_key, observed_value, threshold, breach_date, status, explanation_text, director_decision, created_at, subject_type, subject_label'
     )
     .order('created_at', { ascending: false })
     .limit(opts.limit ?? 30);
