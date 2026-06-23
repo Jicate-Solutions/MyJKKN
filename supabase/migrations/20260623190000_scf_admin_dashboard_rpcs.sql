@@ -58,30 +58,50 @@ BEGIN
   END IF;
 
   RETURN QUERY
-  -- Per-session aggregate first, then roll up to the institution so that
-  -- "sessions" and "low_sessions" count sessions (not rows).
+  -- per_session: session-grained aggregates (sessions / responses / weighted avg /
+  -- low_sessions). Does NOT carry distinct-student counts — summing per-session
+  -- distinct counts would OVERCOUNT any student who gave feedback in >1 session
+  -- (student-sessions, not students). Distinct students is rolled up separately.
   WITH per_session AS (
     SELECT f.institution_id AS inst_id,
            f.attendance_date, f.period_id, f.course_code,
-           count(*)::bigint                     AS s_responses,
-           count(DISTINCT f.student_id)::bigint AS s_students,
-           avg(f.understood)::numeric           AS s_avg
+           count(*)::bigint           AS s_responses,
+           avg(f.understood)::numeric AS s_avg
     FROM public.session_feedback f
     WHERE (v_super OR f.institution_id = v_inst)
       AND f.attendance_date BETWEEN p_from AND p_to
     GROUP BY f.institution_id, f.attendance_date, f.period_id, f.course_code
+  ),
+  sess_roll AS (
+    SELECT ps.inst_id,
+           count(*)::bigint                                                     AS sessions,
+           sum(ps.s_responses)::bigint                                          AS responses,
+           round((sum(ps.s_avg * ps.s_responses) / NULLIF(sum(ps.s_responses),0))::numeric, 2) AS avg_understood,
+           count(*) FILTER (WHERE ps.s_responses >= 3 AND ps.s_avg < 3)::bigint AS low_sessions
+    FROM per_session ps
+    GROUP BY ps.inst_id
+  ),
+  -- stud_roll: DISTINCT students over the RAW feedback rows — a student who
+  -- submitted in N sessions counts exactly ONCE per institution.
+  stud_roll AS (
+    SELECT f.institution_id AS inst_id,
+           count(DISTINCT f.student_id)::bigint AS students
+    FROM public.session_feedback f
+    WHERE (v_super OR f.institution_id = v_inst)
+      AND f.attendance_date BETWEEN p_from AND p_to
+    GROUP BY f.institution_id
   )
-  SELECT ps.inst_id AS institution_id,
+  SELECT sr.inst_id AS institution_id,
          i.name      AS institution_name,
-         count(*)::bigint                                                   AS sessions,
-         sum(ps.s_responses)::bigint                                        AS responses,
-         sum(ps.s_students)::bigint                                         AS students,
-         round((sum(ps.s_avg * ps.s_responses) / NULLIF(sum(ps.s_responses),0))::numeric, 2) AS avg_understood,
-         count(*) FILTER (WHERE ps.s_responses >= 3 AND ps.s_avg < 3)::bigint AS low_sessions
-  FROM per_session ps
-  LEFT JOIN public.institutions i ON i.id = ps.inst_id
-  GROUP BY ps.inst_id, i.name
-  ORDER BY responses DESC;
+         sr.sessions,
+         sr.responses,
+         st.students,
+         sr.avg_understood,
+         sr.low_sessions
+  FROM sess_roll sr
+  JOIN stud_roll st ON st.inst_id = sr.inst_id
+  LEFT JOIN public.institutions i ON i.id = sr.inst_id
+  ORDER BY sr.responses DESC;
 END;
 $$;
 
