@@ -11,12 +11,14 @@
 import type { ComponentType, ReactNode } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Handshake, Package, Wallet, Users, UserCheck, QrCode } from 'lucide-react';
+import { Handshake, Package, Wallet, Users, UserCheck, QrCode, HeartHandshake, AlertTriangle } from 'lucide-react';
 import { SponsorsBoard } from './sponsors-board';
 import { BudgetBoard } from './budget-board';
 import { CommitteesBoard } from './committees-board';
 import { CheckinBoard } from './checkin-board';
 import { QrBoard } from './qr-board';
+import { VolunteersBoard } from './volunteers-board';
+import { IncidentsBoard } from './incidents-board';
 
 export interface EventLogisticsContext {
   eventId: string;
@@ -70,6 +72,20 @@ export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
     icon: QrCode,
     eventTypes: 'all',
     render: ({ eventId, canManage }) => <QrBoard eventId={eventId} canManage={canManage} />,
+  },
+  {
+    key: 'volunteers',
+    label: 'Volunteers',
+    icon: HeartHandshake,
+    eventTypes: 'all',
+    render: ({ eventId, canManage }) => <VolunteersBoard eventId={eventId} canManage={canManage} />,
+  },
+  {
+    key: 'incidents',
+    label: 'Incidents',
+    icon: AlertTriangle,
+    eventTypes: 'all',
+    render: ({ eventId, canManage }) => <IncidentsBoard eventId={eventId} canManage={canManage} />,
   },
 ];
 
