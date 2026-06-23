@@ -4,7 +4,7 @@
 // Individual vs team is decided by the division's sport (TEAM_SPORTS → roster).
 // Created: 2026-06-22 (Sports Tournament PR2).
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Loader2, Search, Check, X } from 'lucide-react';
 import { TEAM_SPORTS } from '@/types/health-sports';
 import { TEAM_MEMBER_ROLES } from '@/types/tournament';
 import type { TournamentDivision, CreateEntryDto, CreateTeamMemberDto } from '@/types/tournament';
@@ -39,6 +39,132 @@ function divisionLabel(d: TournamentDivision): string {
 function feeOf(d: TournamentDivision | undefined): number {
   if (!d) return 0;
   return Number((d.config as { entry_fee?: number })?.entry_fee ?? 0) || 0;
+}
+
+type LearnerHit = { id: string; name: string; register_number: string | null };
+
+/**
+ * Name field with an attached JKKN-learner search. Typing searches
+ * learners_profiles (by name / register number) via the organizer-gated
+ * /learner-search route; picking a learner LINKS the entry to their record so
+ * wins post to their athlete profile. Typing freely (or no match) leaves the
+ * entry unlinked — that's the guest / external path.
+ */
+function LearnerSearchInput({
+  value,
+  linkedId,
+  onText,
+  onPick,
+  onClear,
+  placeholder,
+}: {
+  value: string;
+  linkedId: string | null;
+  onText: (text: string) => void;
+  onPick: (hit: LearnerHit) => void;
+  onClear: () => void;
+  placeholder?: string;
+}) {
+  const [results, setResults] = useState<LearnerHit[]>([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (linkedId) return; // already linked — don't keep searching
+    const term = value.trim();
+    if (term.length < 2) {
+      setResults([]);
+      return;
+    }
+    let active = true;
+    setLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/events/tournament/learner-search?q=${encodeURIComponent(term)}`
+        );
+        const json = await res.json().catch(() => ({}));
+        if (active) {
+          setResults(json.results ?? []);
+          setOpen(true);
+        }
+      } catch {
+        if (active) setResults([]);
+      } finally {
+        if (active) setLoading(false);
+      }
+    }, 300);
+    return () => {
+      active = false;
+      clearTimeout(t);
+    };
+  }, [value, linkedId]);
+
+  // Close the dropdown on an outside click.
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  return (
+    <div ref={boxRef} className="relative">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          className="pl-8 pr-8"
+          value={value}
+          placeholder={placeholder}
+          onChange={(e) => onText(e.target.value)}
+          onFocus={() => results.length > 0 && setOpen(true)}
+        />
+        {linkedId ? (
+          <button
+            type="button"
+            onClick={onClear}
+            title="Unlink learner"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        ) : loading ? (
+          <Loader2 className="absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
+        ) : null}
+      </div>
+
+      {linkedId && (
+        <p className="mt-1 flex items-center gap-1 text-[11px] text-emerald-600">
+          <Check className="h-3 w-3" /> Linked to a JKKN learner — wins post to their athlete profile.
+        </p>
+      )}
+
+      {open && !linkedId && results.length > 0 && (
+        <div className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-popover shadow-md">
+          {results.map((r) => (
+            <button
+              key={r.id}
+              type="button"
+              // onMouseDown (not onClick) so the pick fires before the input blur.
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onPick(r);
+                setOpen(false);
+              }}
+              className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
+            >
+              <span className="truncate">{r.name || 'Unnamed learner'}</span>
+              {r.register_number && (
+                <span className="shrink-0 text-xs text-muted-foreground">{r.register_number}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function AddEntryDialog({
@@ -58,6 +184,7 @@ export function AddEntryDialog({
 
   const [divisionId, setDivisionId] = useState(defaultDivisionId ?? divisions[0]?.id ?? '');
   const [entryName, setEntryName] = useState('');
+  const [learnerId, setLearnerId] = useState<string | null>(null);
   const [isExternal, setIsExternal] = useState(false);
   const [institutionName, setInstitutionName] = useState('');
   const [gender, setGender] = useState('');
@@ -77,6 +204,7 @@ export function AddEntryDialog({
 
   function reset() {
     setEntryName('');
+    setLearnerId(null);
     setIsExternal(false);
     setInstitutionName('');
     setGender('');
@@ -112,6 +240,8 @@ export function AddEntryDialog({
         .filter((m) => m.member_name.trim())
         .map((m) => ({ ...m, member_name: m.member_name.trim() }));
     } else {
+      // Link a real JKKN learner (when picked) so PR5 awards post to their profile.
+      dto.learner_id = isExternal ? null : learnerId;
       dto.participant_gender = gender || null;
       dto.participant_age = age ? Number(age) : null;
     }
@@ -158,14 +288,32 @@ export function AddEntryDialog({
             )}
           </div>
 
-          {/* Entry name */}
+          {/* Entry name. For a JKKN individual, the name field doubles as a
+              learner search so the organizer can link a real student. */}
           <div className="space-y-1.5">
             <Label>{isTeam ? 'Team name' : 'Participant name'}</Label>
-            <Input
-              value={entryName}
-              onChange={(e) => setEntryName(e.target.value)}
-              placeholder={isTeam ? 'e.g. JKKN Engineering A' : 'e.g. R. Karthik'}
-            />
+            {!isTeam && !isExternal ? (
+              <LearnerSearchInput
+                value={entryName}
+                linkedId={learnerId}
+                placeholder="Search a JKKN learner by name / register number"
+                onText={(t) => {
+                  setEntryName(t);
+                  setLearnerId(null);
+                }}
+                onPick={(hit) => {
+                  setEntryName(hit.name);
+                  setLearnerId(hit.id);
+                }}
+                onClear={() => setLearnerId(null)}
+              />
+            ) : (
+              <Input
+                value={entryName}
+                onChange={(e) => setEntryName(e.target.value)}
+                placeholder={isTeam ? 'e.g. JKKN Engineering A' : 'e.g. R. Karthik'}
+              />
+            )}
           </div>
 
           {/* External toggle + institution */}
@@ -174,7 +322,13 @@ export function AddEntryDialog({
               <Label className="text-sm">External (non-JKKN)</Label>
               <p className="text-xs text-muted-foreground">An outside team/player, not a JKKN institution.</p>
             </div>
-            <Switch checked={isExternal} onCheckedChange={setIsExternal} />
+            <Switch
+              checked={isExternal}
+              onCheckedChange={(v) => {
+                setIsExternal(v);
+                if (v) setLearnerId(null); // externals have no JKKN learner record
+              }}
+            />
           </div>
           <div className="space-y-1.5">
             <Label>{isExternal ? 'Organization / Club' : 'Institution / College'}</Label>
@@ -225,11 +379,22 @@ export function AddEntryDialog({
               {members.map((m, i) => (
                 <div key={i} className="flex items-end gap-2">
                   <div className="flex-1 space-y-1">
-                    <Input
-                      value={m.member_name}
-                      onChange={(e) => setMember(i, { member_name: e.target.value })}
-                      placeholder="Player name"
-                    />
+                    {isExternal ? (
+                      <Input
+                        value={m.member_name}
+                        onChange={(e) => setMember(i, { member_name: e.target.value })}
+                        placeholder="Player name"
+                      />
+                    ) : (
+                      <LearnerSearchInput
+                        value={m.member_name}
+                        linkedId={m.learner_id ?? null}
+                        placeholder="Search player by name / register number"
+                        onText={(t) => setMember(i, { member_name: t, learner_id: null })}
+                        onPick={(hit) => setMember(i, { member_name: hit.name, learner_id: hit.id })}
+                        onClear={() => setMember(i, { learner_id: null })}
+                      />
+                    )}
                   </div>
                   <div className="w-20 space-y-1">
                     <Input
