@@ -573,6 +573,18 @@ function groupFieldsByTab(fields: string[]): Record<string, string[]> {
 }
 
 /**
+ * Normalize a form UUID value for the API: empty/whitespace → null, otherwise
+ * the value as-is. Module-scoped so BOTH formatFormDataForAPI and onSubmit's
+ * pre-submit fee-dialog dimension builder can use it (it was previously a local
+ * closure inside formatFormDataForAPI, which caused a ReferenceError when
+ * onSubmit referenced it).
+ */
+const formatUUID = (value: string | undefined): string | null => {
+  if (!value || value.trim() === '') return null;
+  return value;
+};
+
+/**
  * EnquiryForm Component
  *
  * Complete multi-step form for learner enquiries
@@ -1028,13 +1040,10 @@ export function EnquiryForm({
 
   // Format form data with default values for required fields
   const formatFormDataForAPI = async (values: EnquiryFormValues) => {
-    // Helper to handle UUID fields - return null if empty string so the DB
-    // column is explicitly cleared. Returning undefined would cause
-    // JSON.stringify to strip the key, leaving the old stale value in place.
-    const formatUUID = (value: string | undefined): string | null => {
-      if (!value || value.trim() === '') return null;
-      return value;
-    };
+    // formatUUID is now a module-level helper (see top of file) so onSubmit's
+    // pre-submit fee-dialog dimension builder can share it. It returns null for
+    // empty strings so the DB column is explicitly cleared rather than the key
+    // being stripped by JSON.stringify (which would leave the stale value).
 
     // Helper to convert personal details to uppercase (except email fields)
     const toUpperCaseField = (value: string | undefined) => {

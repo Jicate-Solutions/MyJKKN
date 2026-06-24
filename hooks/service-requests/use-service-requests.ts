@@ -336,6 +336,36 @@ export function useCancelServiceRequest() {
 }
 
 /**
+ * Permanently delete a service request (super-admin only).
+ *
+ * The DELETE is gated by RLS (is_super_admin()); the API returns 403 for any
+ * other caller, so the onError toast surfaces the denial cleanly.
+ */
+export function useDeleteServiceRequest() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/service-requests/${id}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to delete request');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: serviceRequestKeys.all });
+      toast.success('Request deleted');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+}
+
+/**
  * Process an approval action (approve, reject, or return)
  */
 export function useProcessApproval() {

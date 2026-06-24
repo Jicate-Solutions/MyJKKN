@@ -1008,6 +1008,42 @@ CREATE VIEW public.v_learner_hostelites AS
 
 GRANT ALL ON public.v_learner_hostelites TO anon, authenticated, service_role;
 
+-- ─── v_learner_hostelites_scoped ──────────────────────────────────────────
+-- Added 2026-06-24 (migration 20260624104223_scope_learner_hostelites_view_idor_fix.sql).
+-- Security wrapper over v_learner_hostelites (which bypasses RLS). The client
+-- list path (LearnerHosteliteService.listHostelites) MUST read this view, not
+-- the base view, so block-scoped wardens cannot tamper a client `block_ids`
+-- filter to read every hostelite. Scope is re-derived from auth.uid():
+--   super admin → all; warden (has user_block_access grants) → their granted
+--   blocks only (cross-institution, excludes unassigned); else → accessible
+--   institutions. security_barrier prevents predicate-pushdown leaks.
+CREATE OR REPLACE VIEW public.v_learner_hostelites_scoped
+WITH (security_barrier = true) AS
+SELECT v.*
+FROM public.v_learner_hostelites v
+WHERE
+  is_super_admin()
+  OR (
+    CASE
+      WHEN EXISTS (
+        SELECT 1 FROM public.user_block_access uba
+        WHERE uba.user_id = auth.uid()
+          AND uba.revoked_at IS NULL
+      )
+      THEN v.current_block_id IS NOT NULL
+           AND EXISTS (
+             SELECT 1 FROM public.user_block_access uba
+             WHERE uba.user_id = auth.uid()
+               AND uba.revoked_at IS NULL
+               AND uba.block_id = v.current_block_id
+           )
+      ELSE role_has_institution_access(v.institution_id)
+    END
+  );
+
+REVOKE ALL ON public.v_learner_hostelites_scoped FROM anon;
+GRANT SELECT ON public.v_learner_hostelites_scoped TO authenticated;
+
 -- =============================================================================
 -- IMS Department Stock — added 2026-04-28
 -- Purpose: power /ims/stock/department page (replaces hardcoded placeholders).

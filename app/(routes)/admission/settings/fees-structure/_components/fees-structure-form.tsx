@@ -149,10 +149,19 @@ interface Community {
 
 interface Props {
   dims: DimsWithLeafCommunity;
+  /**
+   * Edit mode: load THIS exact structure by id rather than re-resolving it from
+   * `dims` via findByDimensions. findByDimensions is active-only and filters on
+   * accommodation, so it cannot reliably re-find an accommodation-specific (or
+   * draft/archived) structure — which left the editor falling through to the
+   * empty "create new" form with none of the existing fee items. The /new and
+   * /clone flows leave this undefined and keep using the dims lookup.
+   */
+  structureId?: string;
   onChanged?: () => void;
 }
 
-export function FeesStructureForm({ dims, onChanged }: Props) {
+export function FeesStructureForm({ dims, structureId, onChanged }: Props) {
   const [structure, setStructure] = useState<AdmissionFeeStructureWithItems | null>(null);
   const [categories, setCategories] = useState<BillingCategory[]>([]);
   const [communityOptions, setCommunityOptions] = useState<Community[]>([]);
@@ -162,6 +171,28 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
   const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
+    // Edit mode: load the EXACT structure by id. findByDimensions is active-only
+    // and accommodation-filtered, so it can't reliably re-resolve the row being
+    // edited (accommodation-specific or non-active) — that left the editor empty,
+    // dropping every existing fee item.
+    if (structureId) {
+      setLoading(true);
+      FeeStructureService.getWithItems(structureId)
+        .then((s) => {
+          if (!cancelled) setStructure(s);
+        })
+        .catch((err) => {
+          console.error('Failed to load fee structure', err);
+          toast.error(getErrorMessage(err) || 'Failed to load fee structure');
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
     if (!hasSevenDims(dims)) {
       setStructure(null);
       return;
@@ -173,7 +204,6 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
       setStructure(null);
       return;
     }
-    let cancelled = false;
     setLoading(true);
     const sevenDims: FeeStructureMatrixDimensions = {
       institution_id:        dims.institution_id!,
@@ -199,7 +229,7 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [dims, reloadTick]);
+  }, [structureId, dims, reloadTick]);
 
   useEffect(() => {
     BillingCategoryService.getActiveBillingCategories()
@@ -232,7 +262,7 @@ export function FeesStructureForm({ dims, onChanged }: Props) {
     onChanged?.();
   };
 
-  if (!hasSevenDims(dims)) {
+  if (!structureId && !hasSevenDims(dims)) {
     return (
       <div className="text-sm text-muted-foreground py-12 text-center">
         <p>

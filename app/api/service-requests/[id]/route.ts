@@ -64,3 +64,37 @@ export async function PATCH(
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  await connection();
+  try {
+    const { id } = await params;
+    const { session, error: sessionError } = await getAuthSession();
+    if (sessionError || !session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Authority is RLS (service_requests_delete_super_admin / is_super_admin()).
+    // The service turns an RLS-blocked delete into a 'super administrators'
+    // error so non-super-admins get a clean 403 instead of a false success.
+    await ServiceRequestService.deleteRequest(id);
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('[service-requests] DELETE [id] error:', error);
+
+    if (error instanceof Error) {
+      if (error.message.includes('not found')) {
+        return NextResponse.json({ error: 'Service request not found' }, { status: 404 });
+      }
+      if (error.message.includes('super administrators')) {
+        return NextResponse.json({ error: error.message }, { status: 403 });
+      }
+    }
+
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
+}

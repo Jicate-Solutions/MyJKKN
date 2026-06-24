@@ -11,7 +11,8 @@
 
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useLearnerProfile } from '@/hooks/use-learner-profiles';
+import { useQueryClient } from '@tanstack/react-query';
+import { useLearnerProfile, learnerProfileKeys } from '@/hooks/use-learner-profiles';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
@@ -40,8 +41,23 @@ import { usePermissions } from '@/hooks/use-permissions';
 export default function EditEnquiryPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const { data: learner, isPending, error } = useLearnerProfile(id);
+
+  // EnquiryForm saves via LearnerProfileService directly (it bypasses the
+  // useUpdateLearnerProfile mutation hook), so nothing here invalidates the
+  // caches. Without this, the Admission Management "Search All" list (a cached
+  // server component) and the React Query detail cache keep showing the
+  // pre-edit course/program after a successful save — the edit looks like it
+  // "didn't work". Mirror what the row-actions do: bust RQ caches + refresh the
+  // Router Cache before navigating to the detail page.
+  const handleEditSuccess = (updatedLearner: { id: string }) => {
+    queryClient.invalidateQueries({ queryKey: learnerProfileKeys.detail(updatedLearner.id) });
+    queryClient.invalidateQueries({ queryKey: learnerProfileKeys.lists() });
+    router.refresh();
+    router.push(`/learners/enquiries/${updatedLearner.id}`);
+  };
 
   // Activities tab visibility — super_admin always sees it; others need the
   // admission.enquiries.activities.view permission. Counselor roles do not
@@ -134,9 +150,7 @@ export default function EditEnquiryPage() {
               <Card className="p-6">
                 <EnquiryForm
                   learner={learner}
-                  onSuccess={(updatedLearner) => {
-                    router.push(`/learners/enquiries/${updatedLearner.id}`);
-                  }}
+                  onSuccess={handleEditSuccess}
                 />
               </Card>
             </TabsContent>
@@ -160,9 +174,7 @@ export default function EditEnquiryPage() {
           <Card className="p-6">
             <EnquiryForm
               learner={learner}
-              onSuccess={(updatedLearner) => {
-                router.push(`/learners/enquiries/${updatedLearner.id}`);
-              }}
+              onSuccess={handleEditSuccess}
             />
           </Card>
         )}
