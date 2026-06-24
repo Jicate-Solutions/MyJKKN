@@ -473,9 +473,11 @@ export class ReservationService {
 
     // Step 2: Generate slots using TimeSlotGeneratorService
     const timeConfig = bookingConfig?.time_slot_config;
-    const generatedSlots = timeConfig
-      ? TimeSlotGeneratorService.generateSlotsForDate(timeConfig, date, resourceId)
-      : this.generateLegacySlots(date, bookingConfig, resourceId);
+    const generatedSlots = TimeSlotGeneratorService.generateSlotsForDate(
+      timeConfig,
+      date,
+      resourceId
+    );
 
     // Step 3: Get existing reservations for the date
     // Compute the user-local day window expressed in UTC so the query bounds
@@ -528,43 +530,6 @@ export class ReservationService {
         booked_end: isBooked ? holder?.end_time : undefined
       };
     });
-  }
-
-  /**
-   * Generate legacy slots for backward compatibility
-   */
-  private static generateLegacySlots(
-    date: string,
-    bookingConfig: any,
-    resourceId: string
-  ): Array<{ start_time: string; end_time: string; is_available: boolean; resource_id: string; slot_name?: string; max_capacity?: number }> {
-    const slots = [];
-
-    // Default: 1-hour slots from 9 AM to 5 PM
-    const startHour = bookingConfig?.operating_hours?.start || 9;
-    const endHour = bookingConfig?.operating_hours?.end || 17;
-
-    for (let hour = startHour; hour < endHour; hour++) {
-      // Naive local string -> Date() parses as local -> toISOString() emits
-      // the equivalent UTC instant. This is what PostgREST expects to store
-      // and what new Date() must produce later for the overlap check at
-      // L455 to compare apples to apples.
-      const slotStart = new Date(
-        `${date}T${hour.toString().padStart(2, '0')}:00:00`
-      ).toISOString();
-      const slotEnd = new Date(
-        `${date}T${(hour + 1).toString().padStart(2, '0')}:00:00`
-      ).toISOString();
-
-      slots.push({
-        start_time: slotStart,
-        end_time: slotEnd,
-        is_available: true,
-        resource_id: resourceId
-      });
-    }
-
-    return slots;
   }
 
   /**

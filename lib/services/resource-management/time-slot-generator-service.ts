@@ -2,6 +2,7 @@
 // Time Slot Generator Service - Generates time slots for resources
 
 import type { TimeSlotConfig, CustomTimeSlot } from '@/types/resource-management';
+import { DEFAULT_CUSTOM_SLOTS } from './default-slots';
 
 export interface GeneratedTimeSlot {
   start_time: string; // ISO datetime string
@@ -151,26 +152,15 @@ export class TimeSlotGeneratorService {
   }
 
   /**
-   * Generate default slots (9 AM - 5 PM, hourly)
+   * Default slots applied when a resource has no time_slot_config:
+   * Full Day (9-5), Morning (9-1), Afternoon (1-5). Delegates to the custom-slot
+   * generator so it reuses the same TZ-safe ISO construction and carries slot_name.
    */
   private static generateDefaultSlots(
     date: string,
     resourceId: string
   ): GeneratedTimeSlot[] {
-    const slots: GeneratedTimeSlot[] = [];
-
-    for (let hour = 9; hour < 17; hour++) {
-      const startLocal = `${date}T${hour.toString().padStart(2, '0')}:00:00`;
-      const endLocal = `${date}T${(hour + 1).toString().padStart(2, '0')}:00:00`;
-      slots.push({
-        start_time: new Date(startLocal).toISOString(),
-        end_time: new Date(endLocal).toISOString(),
-        is_available: true,
-        resource_id: resourceId
-      });
-    }
-
-    return slots;
+    return this.generateFromCustomSlots(DEFAULT_CUSTOM_SLOTS, date, resourceId);
   }
 
   /**
