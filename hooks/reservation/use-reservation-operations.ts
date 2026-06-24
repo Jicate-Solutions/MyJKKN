@@ -33,6 +33,8 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['reservations'] });
       queryClient.invalidateQueries({ queryKey: ['my-reservations'] });
       queryClient.invalidateQueries({ queryKey: ['resource-availability'] });
+      queryClient.invalidateQueries({ queryKey: ['available-slots'] });
+      queryClient.invalidateQueries({ queryKey: ['month-availability'] });
       queryClient.invalidateQueries({ queryKey: ['reservation-stats'] });
       queryClient.invalidateQueries({ queryKey: ['approval-stats'] });
       queryClient.invalidateQueries({ queryKey: ['pending-approvals'] });
@@ -102,6 +104,8 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['reservation', data.id] });
       queryClient.invalidateQueries({ queryKey: ['my-reservations'] });
       queryClient.invalidateQueries({ queryKey: ['resource-availability'] });
+      queryClient.invalidateQueries({ queryKey: ['available-slots'] });
+      queryClient.invalidateQueries({ queryKey: ['month-availability'] });
 
       toast.success(
         '✅ Reservation Updated!\nYour reservation has been updated successfully.',

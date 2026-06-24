@@ -2,6 +2,7 @@
 // Time Slot Generator Service - Generates time slots for resources
 
 import type { TimeSlotConfig, CustomTimeSlot } from '@/types/resource-management';
+import { DEFAULT_CUSTOM_SLOTS } from './default-slots';
 
 export interface GeneratedTimeSlot {
   start_time: string; // ISO datetime string
@@ -151,26 +152,15 @@ export class TimeSlotGeneratorService {
   }
 
   /**
-   * Generate default slots (9 AM - 5 PM, hourly)
+   * Default slots applied when a resource has no time_slot_config:
+   * Full Day (9-5), Morning (9-1), Afternoon (1-5). Delegates to the custom-slot
+   * generator so it reuses the same TZ-safe ISO construction and carries slot_name.
    */
   private static generateDefaultSlots(
     date: string,
     resourceId: string
   ): GeneratedTimeSlot[] {
-    const slots: GeneratedTimeSlot[] = [];
-
-    for (let hour = 9; hour < 17; hour++) {
-      const startLocal = `${date}T${hour.toString().padStart(2, '0')}:00:00`;
-      const endLocal = `${date}T${(hour + 1).toString().padStart(2, '0')}:00:00`;
-      slots.push({
-        start_time: new Date(startLocal).toISOString(),
-        end_time: new Date(endLocal).toISOString(),
-        is_available: true,
-        resource_id: resourceId
-      });
-    }
-
-    return slots;
+    return this.generateFromCustomSlots(DEFAULT_CUSTOM_SLOTS, date, resourceId);
   }
 
   /**
@@ -241,6 +231,42 @@ export class TimeSlotGeneratorService {
       }
     }
 
+    return { valid: true };
+  }
+
+  /**
+   * Validate a free-form custom booking range. Reuses validateTimeSlot for the
+   * end>start / within-operating-hours / break-conflict checks, then adds a
+   * minimum-duration and step-alignment guard for the custom picker.
+   * NOTE: validateTimeSlot returns {valid:true} when config is undefined, so
+   * callers must pass an effective config (e.g. DEFAULT_TIME_SLOT_CONFIG) to
+   * actually enforce operating hours.
+   */
+  static validateCustomRange(
+    config: TimeSlotConfig | undefined,
+    startTime: string,
+    endTime: string,
+    opts?: { stepMinutes?: number; minMinutes?: number }
+  ): { valid: boolean; reason?: string } {
+    const base = this.validateTimeSlot(config, startTime, endTime, '');
+    if (!base.valid) return base;
+
+    const step = opts?.stepMinutes ?? 30;
+    const min = opts?.minMinutes ?? 30;
+
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    const durationMinutes = (end.getTime() - start.getTime()) / 60000;
+
+    if (durationMinutes < min) {
+      return { valid: false, reason: `Booking must be at least ${min} minutes long` };
+    }
+    if (start.getMinutes() % step !== 0 || end.getMinutes() % step !== 0) {
+      return {
+        valid: false,
+        reason: `Start and end times must align to ${step}-minute steps`,
+      };
+    }
     return { valid: true };
   }
 

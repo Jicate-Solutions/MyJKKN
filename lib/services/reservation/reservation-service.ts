@@ -12,6 +12,12 @@ import {
   notifyBookingApproved,
   notifyBookingRejected,
 } from '@/lib/services/reservation/reservation-notification-service';
+import { TimeSlotGeneratorService } from '@/lib/services/resource-management/time-slot-generator-service';
+import {
+  DEFAULT_TIME_SLOT_CONFIG,
+  CUSTOM_RANGE_STEP_MINUTES,
+  CUSTOM_RANGE_MIN_MINUTES,
+} from '@/lib/services/resource-management/default-slots';
 import type {
   Reservation,
   CreateReservationDto,
@@ -138,6 +144,52 @@ export class ReservationService {
     return data as unknown as Reservation;
   }
 
+  /** Local YYYY-MM-DD for an ISO instant (matches how generated slots are keyed). */
+  private static toLocalDateString(iso: string): string {
+    const d = new Date(iso);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  /**
+   * Guard a requested booking window. Accepts it when it exactly matches a
+   * generated slot (a default chip or an admin-configured slot, which are valid
+   * by construction); otherwise validates it as a free-form custom range within
+   * the resource's operating hours. Throws with a human-readable reason.
+   */
+  private static validateBookingRange(
+    bookingConfig: any,
+    resourceId: string,
+    startTime: string,
+    endTime: string
+  ): void {
+    const timeConfig = bookingConfig?.time_slot_config;
+    const effectiveConfig = timeConfig ?? DEFAULT_TIME_SLOT_CONFIG;
+    const bookingDate = this.toLocalDateString(startTime);
+
+    const generated = TimeSlotGeneratorService.generateSlotsForDate(
+      effectiveConfig,
+      bookingDate,
+      resourceId
+    );
+    const matchesSlot = generated.some(
+      (s) => s.start_time === startTime && s.end_time === endTime
+    );
+    if (matchesSlot) return;
+
+    const check = TimeSlotGeneratorService.validateCustomRange(
+      effectiveConfig,
+      startTime,
+      endTime,
+      { stepMinutes: CUSTOM_RANGE_STEP_MINUTES, minMinutes: CUSTOM_RANGE_MIN_MINUTES }
+    );
+    if (!check.valid) {
+      throw new Error(check.reason || 'Invalid booking time range');
+    }
+  }
+
   /**
    * Create a new reservation
    */
@@ -168,6 +220,15 @@ export class ReservationService {
       .select('approval_config, booking_config')
       .eq('id', dto.resource_id)
       .single();
+
+    // Reject out-of-bounds custom time ranges before inserting. Booked-by-slot
+    // selections (default chips / admin slots) pass through untouched.
+    this.validateBookingRange(
+      (resource as any)?.booking_config,
+      dto.resource_id,
+      dto.start_time,
+      dto.end_time
+    );
 
     // Determine initial status based on approval config
     const requiresApproval = (resource as any)?.approval_config?.enabled || false;
@@ -286,6 +347,18 @@ export class ReservationService {
             'Resource is not available for the selected time'
         );
       }
+
+      const { data: res } = await supabase
+        .from('resources')
+        .select('booking_config')
+        .eq('id', existing.resource_id)
+        .single();
+      this.validateBookingRange(
+        (res as any)?.booking_config,
+        existing.resource_id,
+        dto.start_time || existing.start_time,
+        dto.end_time || existing.end_time
+      );
     }
 
     const { data, error } = await (supabase
@@ -455,12 +528,9 @@ export class ReservationService {
       return [];
     }
 
-    // Import the new services
+    // Import date-availability service (TimeSlotGeneratorService uses static top-level import)
     const { DateAvailabilityService } = await import(
       '@/lib/services/resource-management/date-availability-service'
-    );
-    const { TimeSlotGeneratorService } = await import(
-      '@/lib/services/resource-management/time-slot-generator-service'
     );
 
     const bookingConfig = (resource as any).booking_config as any;
@@ -473,9 +543,11 @@ export class ReservationService {
 
     // Step 2: Generate slots using TimeSlotGeneratorService
     const timeConfig = bookingConfig?.time_slot_config;
-    const generatedSlots = timeConfig
-      ? TimeSlotGeneratorService.generateSlotsForDate(timeConfig, date, resourceId)
-      : this.generateLegacySlots(date, bookingConfig, resourceId);
+    const generatedSlots = TimeSlotGeneratorService.generateSlotsForDate(
+      timeConfig,
+      date,
+      resourceId
+    );
 
     // Step 3: Get existing reservations for the date
     // Compute the user-local day window expressed in UTC so the query bounds
@@ -528,43 +600,6 @@ export class ReservationService {
         booked_end: isBooked ? holder?.end_time : undefined
       };
     });
-  }
-
-  /**
-   * Generate legacy slots for backward compatibility
-   */
-  private static generateLegacySlots(
-    date: string,
-    bookingConfig: any,
-    resourceId: string
-  ): Array<{ start_time: string; end_time: string; is_available: boolean; resource_id: string; slot_name?: string; max_capacity?: number }> {
-    const slots = [];
-
-    // Default: 1-hour slots from 9 AM to 5 PM
-    const startHour = bookingConfig?.operating_hours?.start || 9;
-    const endHour = bookingConfig?.operating_hours?.end || 17;
-
-    for (let hour = startHour; hour < endHour; hour++) {
-      // Naive local string -> Date() parses as local -> toISOString() emits
-      // the equivalent UTC instant. This is what PostgREST expects to store
-      // and what new Date() must produce later for the overlap check at
-      // L455 to compare apples to apples.
-      const slotStart = new Date(
-        `${date}T${hour.toString().padStart(2, '0')}:00:00`
-      ).toISOString();
-      const slotEnd = new Date(
-        `${date}T${(hour + 1).toString().padStart(2, '0')}:00:00`
-      ).toISOString();
-
-      slots.push({
-        start_time: slotStart,
-        end_time: slotEnd,
-        is_available: true,
-        resource_id: resourceId
-      });
-    }
-
-    return slots;
   }
 
   /**
