@@ -6732,6 +6732,34 @@ BEGIN
 END;
 $function$;
 
+-- Cross-institution named approvers for Service Requests (migration
+-- 20260624120000). Boolean predicate used by the named-approver RLS policies
+-- in 03_policies.sql. SECURITY DEFINER so it can read service_requests/steps
+-- from inside service_requests' own policies without RLS recursion; it only
+-- reveals whether the CALLER (auth.uid()) is a named approver, so it is safe
+-- for the authenticated role. "Any step" keeps the UPDATE WITH CHECK satisfied
+-- when current_approval_step advances past the step the approver was named on.
+CREATE OR REPLACE FUNCTION public.user_is_request_named_approver(p_request_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+  SELECT EXISTS (
+    SELECT 1
+    FROM service_requests sr
+    JOIN service_request_approval_steps st
+      ON st.service_type_id = sr.service_type_id
+    WHERE sr.id = p_request_id
+      AND auth.uid() = ANY (st.approver_user_ids)
+  );
+$function$;
+
+REVOKE ALL ON FUNCTION public.user_is_request_named_approver(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.user_is_request_named_approver(uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.user_is_request_named_approver(uuid) TO authenticated;
+
 -- Updated: 2026-04-15 - Per-module access scope helpers (Option A).
 -- get_user_module_scope returns the most permissive scope across the user's
 -- roles for the given module_key. role_has_module_access combines that with
@@ -18695,3 +18723,79 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.staff_distinct_tags(uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.staff_distinct_tags(uuid) TO authenticated;
+
+-- =====================================================================
+-- Resource reservation: time-window-aware approval guard + waitlist
+-- (mig 20260623170000). The approval guard no longer mutates a global
+-- current_stock_quantity counter; it checks capacity WITHIN the booking's
+-- [start_time, end_time) window so non-overlapping bookings of a
+-- single-unit resource (rooms / halls) can all be approved. The end-of-life
+-- trigger only promotes the next waitlist entry (no stock restore).
+-- =====================================================================
+CREATE OR REPLACE FUNCTION public.fn_reservation_approved_decrement_stock()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_total     int;
+  v_committed int;
+BEGIN
+  IF NEW.status = 'approved'
+     AND (OLD.status IS NULL OR OLD.status <> 'approved')
+     AND COALESCE(NEW.quantity, 0) > 0
+     AND NEW.start_time IS NOT NULL
+     AND NEW.end_time   IS NOT NULL THEN
+
+    SELECT initial_stock_quantity INTO v_total
+    FROM public.resources
+    WHERE id = NEW.resource_id;
+
+    IF v_total IS NOT NULL THEN
+      SELECT COALESCE(SUM(rr.quantity), 0) INTO v_committed
+      FROM public.resource_reservations rr
+      WHERE rr.resource_id = NEW.resource_id
+        AND rr.id <> NEW.id
+        AND rr.status = 'approved'
+        AND rr.start_time < NEW.end_time
+        AND rr.end_time   > NEW.start_time;
+
+      IF v_committed + NEW.quantity > v_total THEN
+        RAISE EXCEPTION
+          'Insufficient stock: only % unit(s) of this resource are free for the selected time window, but % unit(s) are needed to approve this reservation',
+          GREATEST(v_total - v_committed, 0), NEW.quantity
+          USING ERRCODE = 'P0001';
+      END IF;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fn_reservation_cancelled_restore_stock_and_waitlist()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  next_waitlist_id UUID;
+BEGIN
+  IF NEW.status = 'cancelled' THEN
+    SELECT id INTO next_waitlist_id
+    FROM public.event_waitlist
+    WHERE resource_reservation_id = NEW.id
+      AND status = 'waiting'
+    ORDER BY position ASC LIMIT 1;
+
+    IF next_waitlist_id IS NOT NULL THEN
+      UPDATE public.event_waitlist
+         SET status = 'promoted', promoted_at = now()
+       WHERE id = next_waitlist_id;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;

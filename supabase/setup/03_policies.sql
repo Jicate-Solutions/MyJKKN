@@ -2266,6 +2266,28 @@ CREATE POLICY "Approvers can view pending requests"
         )
     );
 
+-- Cross-institution named approvers (migration 20260624120000). Additive
+-- PERMISSIVE policies: a user explicitly listed in approver_user_ids can SEE
+-- and ACT on the request regardless of institution. Role-based approval stays
+-- institution-scoped via the policies above. Predicate is defined in
+-- 02_functions.sql (user_is_request_named_approver).
+CREATE POLICY "service_requests_named_approver_select"
+    ON service_requests FOR SELECT
+    USING (public.user_is_request_named_approver(id));
+
+CREATE POLICY "service_requests_named_approver_update"
+    ON service_requests FOR UPDATE
+    USING (public.user_is_request_named_approver(id))
+    WITH CHECK (public.user_is_request_named_approver(id));
+
+CREATE POLICY "sr_approvals_named_approver_select"
+    ON service_request_approvals FOR SELECT
+    USING (public.user_is_request_named_approver(service_request_id));
+
+CREATE POLICY "sr_timeline_named_approver_select"
+    ON service_request_timeline FOR SELECT
+    USING (public.user_is_request_named_approver(service_request_id));
+
 CREATE POLICY "Users can create service requests"
     ON service_requests FOR INSERT
     WITH CHECK (requester_id = auth.uid());
