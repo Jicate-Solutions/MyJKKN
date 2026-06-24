@@ -61,9 +61,17 @@ export function PendingStatisticsCards({
         setLoading(true);
         setError(null);
 
+        // For a view_all_institutions viewer with no explicit institution filter, leave
+        // institution undefined so counts span every college (RLS scopes the rows).
+        // Falling back to the viewer's own institution collapsed all-colleges scope on
+        // the Pending tab — same root cause as BUG-004284 on the Statistics tab.
+        const effectiveUserInstitutionId = canViewAllInstitutions
+          ? filters.institutionId || undefined
+          : filters.institutionId || userInstitutionId;
+
         // Build filters for the API call
         const apiFilters: DashboardFilters = {
-          userInstitutionId: filters.institutionId || userInstitutionId,
+          userInstitutionId: effectiveUserInstitutionId,
           page: 1,
           limit: 1000, // Get all for counting
           sortBy: 'attendance_date',
