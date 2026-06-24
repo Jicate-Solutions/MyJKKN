@@ -24,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { PermissionError } from '@/components/errors/permission-error';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { StatisticsCards } from './_components/statistics-cards';
@@ -473,7 +474,22 @@ function PendingAttendanceTableSkeleton() {
 
 export default function AttendanceDashboardPage() {
   return (
-    <PermissionGuard module='academic.attendance.dashboard' action='view'>
+    <PermissionGuard
+      module='academic.attendance.dashboard'
+      action='view'
+      // Without an explicit fallback the guard renders null on denial, leaving a
+      // blank page with no feedback (BUG-004278: "attendance dashboard is not
+      // showing"). Surface an explicit Access Denied so the user knows it's a
+      // permission gap and who to contact, not a broken page.
+      fallback={
+        <ContentLayout title='Attendance Dashboard'>
+          <PermissionError
+            message='You do not have permission to view the Attendance Dashboard. Ask your administrator to grant the "View Attendance Dashboard" permission to your role.'
+            requiredPermission='academic.attendance.dashboard.view'
+          />
+        </ContentLayout>
+      }
+    >
       <AttendanceDashboardContent />
     </PermissionGuard>
   );
