@@ -462,10 +462,29 @@ export function usePermissions(
     [isSuperAdmin, userRoles]
   );
 
+  // Single source of truth for "did this user's PERMISSIONS fail to load?" — used
+  // by nav surfaces (the sidebar) and page guards (PermissionGuard fallbacks) to
+  // show an explicit, recoverable Retry instead of silently collapsing to a
+  // Dashboard-only menu, or mislabeling a transient as "Access Denied"
+  // (BUG-004281 / BUG-004278; CLAUDE.md #27). A signed-in NON-student role-holder
+  // should always resolve >= 1 permission; an empty set (or a query error) means
+  // the load failed — almost always a transient network/RPC hiccup, not a real
+  // loss of access. Exclusions are deliberate, legitimate empty-permission states:
+  //   - super admins (their menu/pages aren't permission-keyed; perms empty by design)
+  //   - students (student-status rules deliberately empty/limit the permission set)
+  //   - users with no profile role (nothing to load)
+  const permissionsLoadFailed = useMemo(() => {
+    if (isSuperAdmin || isStudent || isLoading) return false;
+    if (!userProfile || !userProfile.role) return false;
+    const hasAnyTrue = Object.values(enhancedPermissions).some((v) => v === true);
+    return !!error || !hasAnyTrue;
+  }, [isSuperAdmin, isStudent, isLoading, userProfile, enhancedPermissions, error]);
+
   return {
     permissions: enhancedPermissions, // Return enhanced permissions instead of raw permissions
     isLoading,
     error,
+    permissionsLoadFailed,
     hasAllPermissions,
     hasAnyPermission,
     isSuperAdmin,

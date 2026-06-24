@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { Ellipsis, LogOut, Download, ChevronDown, ChevronRight, FileText, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Ellipsis, LogOut, Download, ChevronDown, ChevronRight, FileText } from 'lucide-react';
+import { PermissionsLoadError } from '@/components/auth/permissions-load-error';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -46,9 +47,8 @@ export function Menu({ isOpen }: MenuProps) {
   const {
     permissions,
     isSuperAdmin,
-    isStudent,
     isLoading: permissionsLoading,
-    error: permissionsError,
+    permissionsLoadFailed,
     refetch: refetchPermissions,
     userProfile
   } = usePermissions();
@@ -225,29 +225,6 @@ export function Menu({ isOpen }: MenuProps) {
     }
   };
 
-  // Distinguish a genuine "no access" state from a transient permission-LOAD
-  // failure. A signed-in STAFF user (non-student) who has a role on their profile
-  // should always resolve at least one permission; an EMPTY merged set (or a
-  // query error) means permissions didn't load — almost always a transient
-  // network/RPC hiccup, not a real loss of access. We must NOT silently collapse
-  // to a Dashboard-only menu in that case: that reads as "you lost all your
-  // access" and is the exact confusion behind BUG-004281 (CLAUDE.md #27 — surface
-  // failures explicitly).
-  //
-  // Exclusions (legitimate empty-permission states, NOT failures):
-  //   - super admins: menu isn't permission-keyed; `permissions` is empty by design.
-  //   - students: student-status rules (inactive/exited/pending) deliberately empty
-  //     the permission set, which is a valid no-menu state.
-  //   - users with no profile role: nothing to load.
-  const hasAnyTruePermission = Object.values(permissions).some((v) => v === true);
-  const permissionsLoadFailed =
-    !isSuperAdmin &&
-    !isStudent &&
-    !permissionsLoading &&
-    !!userProfile &&
-    !!userProfile.role &&
-    (!!permissionsError || !hasAnyTruePermission);
-
   return (
     <div className='overflow-y-auto overflow-x-hidden h-full custom-scrollbar'>
       {/* Sticky header: search + favorites pin to the top so they remain
@@ -292,40 +269,13 @@ export function Menu({ isOpen }: MenuProps) {
           </div>
         ) : permissionsLoadFailed ? (
           // Explicit, recoverable state — never silently collapse to Dashboard-only
-          // when permissions failed to load (BUG-004281). The user keeps a way out
-          // (Retry + Dashboard) and a plain-language reason.
-          <div className='flex flex-col items-center justify-center gap-3 px-4 py-12 text-center'>
-            <AlertTriangle className='h-8 w-8 text-amber-500' aria-hidden />
-            <div className='space-y-1'>
-              <p className='text-sm font-medium text-foreground'>
-                We couldn&apos;t load your menu
-              </p>
-              <p className='text-xs text-muted-foreground'>
-                Your access didn&apos;t load. This is almost always a temporary
-                network hiccup — your permissions haven&apos;t changed.
-              </p>
-            </div>
-            <button
-              type='button'
-              onClick={() => {
-                void refetchPermissions();
-              }}
-              className='inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-            >
-              <RefreshCw className='h-3.5 w-3.5' aria-hidden />
-              Retry
-            </button>
-            <Link
-              href='/'
-              className='text-xs text-muted-foreground underline-offset-2 hover:underline'
-            >
-              Go to Dashboard
-            </Link>
-            <p className='text-[11px] text-muted-foreground'>
-              If this keeps happening, refresh the page or contact your
-              administrator.
-            </p>
-          </div>
+          // when permissions failed to load (BUG-004281, CLAUDE.md #27).
+          <PermissionsLoadError
+            variant='compact'
+            onRetry={() => {
+              void refetchPermissions();
+            }}
+          />
         ) : (
           <ul className='flex flex-col min-h-[calc(100vh-48px-36px-16px-32px)] lg:min-h-[calc(100vh-32px-40px-32px)] items-start space-y-1 px-2'>
             {pages.map(({ groupLabel, menus }, index) => {

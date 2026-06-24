@@ -24,6 +24,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { PermissionError } from '@/components/errors/permission-error';
+import { PermissionsLoadError } from '@/components/auth/permissions-load-error';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { StatisticsCards } from './_components/statistics-cards';
@@ -471,9 +473,40 @@ function PendingAttendanceTableSkeleton() {
   );
 }
 
+// Fallback for the dashboard's permission guard. Distinguishes a transient
+// permission-LOAD failure (show a recoverable Retry — BUG-004281, where the
+// viewer actually HAS the permission but it didn't load) from a GENUINE lack of
+// permission (show Access Denied — BUG-004278, where a blank page used to leave
+// the viewer with no feedback). Without this split, a load hiccup would mislabel
+// itself "Access Denied — you lack permission" for a user who has it.
+function AttendanceDashboardAccessFallback() {
+  const { permissionsLoadFailed, refetch } = usePermissions();
+  return (
+    <ContentLayout title='Attendance Dashboard'>
+      {permissionsLoadFailed ? (
+        <PermissionsLoadError
+          variant='page'
+          onRetry={() => {
+            void refetch();
+          }}
+        />
+      ) : (
+        <PermissionError
+          message='You do not have permission to view the Attendance Dashboard. Ask your administrator to grant the "View Attendance Dashboard" permission to your role.'
+          requiredPermission='academic.attendance.dashboard.view'
+        />
+      )}
+    </ContentLayout>
+  );
+}
+
 export default function AttendanceDashboardPage() {
   return (
-    <PermissionGuard module='academic.attendance.dashboard' action='view'>
+    <PermissionGuard
+      module='academic.attendance.dashboard'
+      action='view'
+      fallback={<AttendanceDashboardAccessFallback />}
+    >
       <AttendanceDashboardContent />
     </PermissionGuard>
   );
