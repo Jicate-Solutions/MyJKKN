@@ -65,9 +65,21 @@ export default async function PendingAttendancePage() {
   const isHOD = profile?.role === 'hod';
   const isFaculty = profile?.role === 'faculty';
 
-  // canViewAllInstitutions mirrors the client-side canAccess check:
-  // super_admin users implicitly have all permissions.
-  const canViewAllInstitutions = isSuperAdmin;
+  // canViewAllInstitutions mirrors the client-side canAccess check
+  // (canAccess('academic.attendance.dashboard', 'view_all_institutions')).
+  // Gating on isSuperAdmin ALONE silently restricted any non-super-admin
+  // scope='all' role (e.g. executive_admin_officer / "eao", which holds the
+  // view_all_institutions permission) to its own institution — the same
+  // institution-scope bug class fixed for the embedded dashboard tab in #1618,
+  // which never touched this standalone page. user_has_permission() already
+  // bypasses super_admin and OR-merges multi-role permissions; we keep the
+  // explicit isSuperAdmin OR as a defensive fallback.
+  const { data: hasViewAllInstitutions } = await supabase.rpc(
+    'user_has_permission',
+    { permission_name: 'academic.attendance.dashboard.view_all_institutions' }
+  );
+  const canViewAllInstitutions =
+    isSuperAdmin || hasViewAllInstitutions === true;
 
   const userInstitutionId = profile?.institution_id ?? undefined;
   const userDepartmentId = profile?.department_id ?? undefined;
