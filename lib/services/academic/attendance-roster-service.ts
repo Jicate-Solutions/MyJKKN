@@ -618,66 +618,31 @@ export class AttendanceRosterService {
     section_ids?: string[]; // Multiple sections (new feature)
   }): Promise<AttendanceStudent[]> {
     try {
-      // Updated: 2026-03-10 - Removed redundant auth + profile queries
-      // RLS policies on learners_profiles already enforce institution-level access
-      // The caller (mark page) already has auth context from useAuth/usePermissions
+      // Updated: 2026-06-19 (FIX 1) - Route roster reads through fn_attendance_roster,
+      // a scoped SECURITY DEFINER RPC. The learners_profiles SELECT RLS policy only admits
+      // roles holding a learners.*view permission; faculty/HOD/staff_counselor who can mark
+      // attendance but lack those keys were getting an EMPTY roster even on fully-enrolled
+      // sections. The RPC returns only the roster columns, gated by academic.attendance.
+      // mark/view/reports + institution access — so it does not broaden learners_profiles
+      // table RLS. Department is intentionally not filtered (faculty teach across departments);
+      // section_id/section_ids scope the rows. Ordering is done inside the RPC.
+      const sectionIds =
+        filters.section_ids && filters.section_ids.length > 0
+          ? filters.section_ids
+          : filters.section_id
+            ? [filters.section_id]
+            : null;
 
-      let query = this.supabase
-        .from('learners_profiles')
-        .select(
-          `
-          id,
-          first_name,
-          last_name,
-          roll_number,
-          student_photo_url,
-          institution_id,
-          degree_id,
-          program_id,
-          department_id,
-          semester_id,
-          section_id,
-          lifecycle_status
-        `
-        )
-        .eq('lifecycle_status', 'active')
-        .eq('institution_id', filters.institution_id);
-
-      if (filters.degree_id) {
-        query = query.eq('degree_id', filters.degree_id);
-      }
-
-      if (filters.program_id) {
-        query = query.eq('program_id', filters.program_id);
-      }
-
-      // Updated: 2025-10-13 - Skip department_id filter for faculty users
-      // Faculty can teach students from other departments (e.g., subdivision groups, electives)
-      // Department filter is intentionally omitted — section_id/section_ids
-      // already scope students correctly, and RLS enforces institution access
-
-      if (filters.semester_id) {
-        query = query.eq('semester_id', filters.semester_id);
-      }
-
-      // Updated: 2025-10-08 - Support both single section and multiple sections
-      if (filters.section_ids && filters.section_ids.length > 0) {
-        // Multi-section support (new feature)
-        query = query.in('section_id', filters.section_ids);
-      } else if (filters.section_id) {
-        // Single section (backward compatibility)
-        query = query.eq('section_id', filters.section_id);
-      }
-
-      // Order alphabetically by name for easier attendance marking
-      query = query
-        .order('first_name', { ascending: true })
-        .order('last_name', { ascending: true });
-
-      const { data, error } = await query;
+      const { data, error } = await (this.supabase as any).rpc('fn_attendance_roster', {
+        p_institution_id: filters.institution_id,
+        p_section_ids: sectionIds,
+        p_degree_id: filters.degree_id ?? null,
+        p_program_id: filters.program_id ?? null,
+        p_semester_id: filters.semester_id ?? null
+      });
 
       if (error) {
-        logger.error('academic/attendance', 'Supabase query error in getStudentsForAttendance', error);
+        logger.error('academic/attendance', 'RPC error in getStudentsForAttendance (fn_attendance_roster)', error);
         throw error;
       }
 

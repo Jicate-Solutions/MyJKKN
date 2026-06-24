@@ -2,7 +2,7 @@
 
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -84,6 +84,7 @@ export default function AttendanceReportDetailPage() {
   const label = useAdaptiveLabels();
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const { profile } = useAuth();
   const { isSuperAdmin } = usePermissions();
 
@@ -171,9 +172,16 @@ export default function AttendanceReportDetailPage() {
 
       const reportData = data as DetailedAttendanceReport;
       setReport(reportData);
-      // Default select first period
+      // Updated: 2026-06-19 (FIX 3) - Honor the ?period= passed by the period cards so
+      // "View Details" opens ON the clicked period, not always the first one in the record.
+      // A semester-level record holds several periods, so defaulting to [0] surfaced the
+      // wrong class (e.g. Oral Medicine showing Oral Surgery). Falls back to the first period.
       if (reportData.period_details && reportData.period_details.length > 0) {
-        setSelectedPeriod(reportData.period_details[0].period_id);
+        const requestedPeriodId = searchParams.get('period');
+        const requested = requestedPeriodId
+          ? reportData.period_details.find((p) => p.period_id === requestedPeriodId)
+          : undefined;
+        setSelectedPeriod((requested ?? reportData.period_details[0]).period_id);
       }
     } catch (error) {
       toast.error('An error occurred while fetching the report');
@@ -181,7 +189,7 @@ export default function AttendanceReportDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [reportId, isValidReportId, userRole, profile?.id, router, shouldWaitForRole]);
+  }, [reportId, isValidReportId, userRole, profile?.id, router, shouldWaitForRole, searchParams]);
 
   useEffect(() => {
     fetchReportDetails();
