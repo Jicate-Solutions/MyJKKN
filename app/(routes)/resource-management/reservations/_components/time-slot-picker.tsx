@@ -11,7 +11,7 @@ import { useAvailableSlots } from '@/hooks/reservation/use-resource-availability
 import type { TimeSlot } from '@/types/reservation';
 import { Input } from '@/components/ui/input';
 import { TimeSlotGeneratorService } from '@/lib/services/resource-management/time-slot-generator-service';
-import { DEFAULT_OPERATING_WINDOW } from '@/lib/services/resource-management/default-slots';
+import { DEFAULT_OPERATING_WINDOW, CUSTOM_RANGE_STEP_MINUTES, CUSTOM_RANGE_MIN_MINUTES } from '@/lib/services/resource-management/default-slots';
 
 interface TimeSlotPickerProps {
   resourceId: string;
@@ -92,7 +92,7 @@ export function TimeSlotPicker({
       config,
       startISO,
       endISO,
-      { stepMinutes: 30, minMinutes: 30 }
+      { stepMinutes: CUSTOM_RANGE_STEP_MINUTES, minMinutes: CUSTOM_RANGE_MIN_MINUTES }
     );
     if (!result.valid) {
       setCustomError(result.reason || 'Invalid time range.');
@@ -277,14 +277,14 @@ export function TimeSlotPicker({
             <Button
               variant={selectionMode === 'slots' ? 'default' : 'outline'}
               size='sm'
-              onClick={() => setSelectionMode('slots')}
+              onClick={() => { setSelectionMode('slots'); setCustomError(null); }}
             >
               Pick a slot
             </Button>
             <Button
               variant={selectionMode === 'custom' ? 'default' : 'outline'}
               size='sm'
-              onClick={() => setSelectionMode('custom')}
+              onClick={() => { setSelectionMode('custom'); setCustomError(null); }}
             >
               Custom time
             </Button>
@@ -325,7 +325,7 @@ export function TimeSlotPicker({
                 <label className='text-sm font-medium'>Start time</label>
                 <Input
                   type='time'
-                  step={1800}
+                  step={CUSTOM_RANGE_STEP_MINUTES * 60}
                   min={operatingHours.start}
                   max={operatingHours.end}
                   value={customStart}
@@ -336,7 +336,7 @@ export function TimeSlotPicker({
                 <label className='text-sm font-medium'>End time</label>
                 <Input
                   type='time'
-                  step={1800}
+                  step={CUSTOM_RANGE_STEP_MINUTES * 60}
                   min={operatingHours.start}
                   max={operatingHours.end}
                   value={customEnd}
