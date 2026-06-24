@@ -80,14 +80,23 @@ export function usePendingAttendance(
   filters: DashboardFilters & { refreshTrigger?: number } = {}
 ) {
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, canAccess } = usePermissions();
+
+  // A super admin OR a role holding academic.attendance.dashboard.view_all_institutions
+  // (e.g. Executive Admin Officer, institution_scope='all') may span every college.
+  // Previously this gated on isSuperAdmin alone, which silently collapsed a scope='all'
+  // custom role back to its own institution on the Pending tab — same root cause as
+  // BUG-004284. The service omits the institution filter when none is given and lets
+  // student_attendance RLS scope the rows.
+  const canSeeAllInstitutions =
+    isSuperAdmin || canAccess('academic.attendance.dashboard', 'view_all_institutions');
 
   const { refreshTrigger = 0, ...restFilters } = filters;
 
   // Use provided institution or user's institution
   const queryFilters: DashboardFilters = {
     ...restFilters,
-    userInstitutionId: isSuperAdmin
+    userInstitutionId: canSeeAllInstitutions
       ? restFilters.userInstitutionId
       : profile?.institution_id || undefined
   };
@@ -98,10 +107,12 @@ export function usePendingAttendance(
     error,
     refetch
   } = useQuery({
-    queryKey: ['pending-attendance', queryFilters, refreshTrigger],
+    queryKey: ['pending-attendance', queryFilters, refreshTrigger, canSeeAllInstitutions],
     queryFn: () =>
       AttendanceDashboardService.getTodayPendingAttendance(queryFilters),
-    enabled: !!queryFilters.userInstitutionId,
+    // All-institutions viewers may query with no institution (service omits the
+    // filter, RLS scopes the rows); everyone else still requires their own institution.
+    enabled: canSeeAllInstitutions || !!queryFilters.userInstitutionId,
     // Use REALTIME_DATA config for pending attendance (needs frequent updates)
     ...QUERY_CONFIG.REALTIME_DATA,
     refetchInterval: 2 * 60 * 1000 // Override: 2 minutes for pending attendance
@@ -150,7 +161,16 @@ export function useAttendanceTrend(institutionId?: string, days: number = 7) {
   const { profile } = useAuth();
   const { isSuperAdmin } = usePermissions();
 
-  // Determine which institution to query
+  // NOTE (BUG-004284): intentionally NOT extended to view_all_institutions roles.
+  // Unlike the stats/pending services, AttendanceDashboardService.getAttendanceTrend
+  // requires a concrete institutionId — it runs `.eq('institution_id', institutionId)`
+  // unconditionally with no "all institutions" branch and no per-institution
+  // aggregation. Forcing `undefined` here would send `institution_id=eq.undefined`
+  // (zero rows / broken query), and the hook is `enabled: !!queryInstitutionId` anyway.
+  // A correct all-colleges trend needs a SERVICE-LEVEL change first (drop the eq when
+  // no institution is given AND aggregate across institutions per day). Until then a
+  // view_all_institutions viewer with no institution selected simply sees no trend —
+  // the same behaviour a super admin already gets with no institution selected.
   const queryInstitutionId = isSuperAdmin
     ? institutionId
     : profile?.institution_id;
@@ -182,7 +202,13 @@ export function useAttendanceTrend(institutionId?: string, days: number = 7) {
  */
 export function useAttendanceDashboard() {
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, canAccess } = usePermissions();
+
+  // Super admin OR a view_all_institutions role (e.g. Executive Admin Officer,
+  // institution_scope='all') may pick any institution / span all colleges — same
+  // BUG-004284 fix as the Statistics tab. Everyone else is pinned to their own.
+  const canSeeAllInstitutions =
+    isSuperAdmin || canAccess('academic.attendance.dashboard', 'view_all_institutions');
 
   // State for filters and selected institution (for super admin)
   const [selectedInstitutionId, setSelectedInstitutionId] = useState<
@@ -202,7 +228,7 @@ export function useAttendanceDashboard() {
   });
 
   // Get the effective institution ID
-  const effectiveInstitutionId = isSuperAdmin
+  const effectiveInstitutionId = canSeeAllInstitutions
     ? selectedInstitutionId
     : profile?.institution_id;
 
