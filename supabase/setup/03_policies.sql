@@ -2304,6 +2304,14 @@ CREATE POLICY "Approvers can update request status"
         OR user_has_permission('service_requests.approve')
     );
 
+-- Super-admin-only hard delete. service_requests has no other DELETE policy, so
+-- this additive is_super_admin() path is the sole grant; cascades clean up
+-- approvals/timeline/attachments. (mig 20260624160000)
+CREATE POLICY "service_requests_delete_super_admin"
+    ON service_requests FOR DELETE
+    TO authenticated
+    USING (is_super_admin());
+
 CREATE POLICY "Users can view approvals for their requests"
     ON service_request_approvals FOR SELECT
     USING (

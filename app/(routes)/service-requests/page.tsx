@@ -215,7 +215,7 @@ export default function ServiceRequestsHubPage() {
                       <p className="text-sm text-muted-foreground">Loading...</p>
                     </div>
                   ) : allRequestsData?.data && allRequestsData.data.length > 0 ? (
-                    <RequestDataTable data={allRequestsData.data} />
+                    <RequestDataTable data={allRequestsData.data} showDelete={isSuperAdmin} />
                   ) : (
                     <div className="flex flex-col items-center justify-center py-12">
                       <p className="text-sm text-muted-foreground">No requests found</p>

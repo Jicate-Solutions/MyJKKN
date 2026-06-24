@@ -107,23 +107,32 @@ export class HostelAttendanceService {
     try {
       const supabase = createClientSupabaseClient();
 
-      let residentsQ = supabase
+      // Scope is enforced by RLS, NOT by an institution_id filter here:
+      //  - hostel_residents NO LONGER HAS institution_id (dropped in
+      //    hostel-rooms-v2 PR2). Filtering it by institution_id raised
+      //    42703 (column does not exist) for every institution-scoped user
+      //    — only super-admins (who pass institutionId=undefined) escaped it,
+      //    which is why wardens saw an empty roster. RLS scopes residents via
+      //    role_has_hostel_block_scope (block grants) + the unallocated branch.
+      //  - hostel_allocations IS scoped server-side by role_has_block_access,
+      //    so a block warden whose blocks belong to ANOTHER institution (the
+      //    common cross-institution case) still gets their rows. Filtering by
+      //    the marker's own profile institution_id wrongly hid those.
+      const residentsQ = supabase
         .from('hostel_residents')
         .select(
           'id, profile_id, id_proof_number, profile:profiles!hostel_residents_profile_id_fkey(id, full_name, email)'
         )
         .eq('is_active', true)
         .limit(1000);
-      if (institutionId) residentsQ = residentsQ.eq('institution_id', institutionId);
 
-      let allocQ = supabase
+      const allocQ = supabase
         .from('hostel_allocations')
         .select(
           'learner_id, block_id, room_id, bed_id, block:hostel_blocks!hostel_allocations_block_id_fkey(id, name, code), room:hostel_rooms!hostel_allocations_room_id_fkey(id, room_number, floor), bed:hostel_beds!hostel_allocations_bed_id_fkey(id, bed_number), learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email)'
         )
         .eq('status', 'active')
         .limit(1000);
-      if (institutionId) allocQ = allocQ.eq('institution_id', institutionId);
 
       const [residents, allocs] = await Promise.all([residentsQ, allocQ]);
       if (residents.error) {
@@ -175,6 +184,139 @@ export class HostelAttendanceService {
       });
     } catch (error) {
       logger.error('campus-living/attendance', 'Unexpected error in getMarkableResidents', error);
+      throw error;
+    }
+  }
+
+  // ── Dashboard aggregate for the Hostel Attendance landing page ────
+  // The dashboard page reads an AGGREGATE shape (total_hostellers, present,
+  // blocks[], weekly_trend[], …). getAttendance returns a raw row list, so the
+  // page used to fall back to all-zeros forever. This computes the real shape.
+  //
+  // Scope is RLS-enforced (block access on hostel_attendance/hostel_allocations);
+  // no profile-institution filter — see getMarkableResidents for why that breaks
+  // cross-institution wardens. institutionId is kept only for the hook's cache
+  // key / enabled gate.
+  static async getAttendanceDashboard(
+    institutionId: string | undefined,
+    date: string,
+    blockId?: string
+  ) {
+    try {
+      const supabase = createClientSupabaseClient();
+
+      // Date math in UTC so an IST (+5:30) midnight never rolls back a day.
+      const parts = (s: string) => s.split('-').map(Number) as [number, number, number];
+      const addDays = (s: string, n: number) => {
+        const [y, m, d] = parts(s);
+        const dt = new Date(Date.UTC(y, m - 1, d));
+        dt.setUTCDate(dt.getUTCDate() + n);
+        return dt.toISOString().split('T')[0];
+      };
+      const weekdayLabel = (s: string) => {
+        const [y, m, d] = parts(s);
+        return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][
+          new Date(Date.UTC(y, m - 1, d)).getUTCDay()
+        ];
+      };
+      const weekStart = addDays(date, -6);
+
+      // Active allocations = the hosteller population (one bed = one hosteller).
+      let allocQ = supabase
+        .from('hostel_allocations')
+        .select('block_id, block:hostel_blocks!hostel_allocations_block_id_fkey(id, name, code)')
+        .eq('status', 'active')
+        .limit(5000);
+      if (blockId) allocQ = allocQ.eq('block_id', blockId);
+
+      let attQ = supabase
+        .from('hostel_attendance')
+        .select('block_id, evening_status, is_curfew_violation')
+        .eq('date', date)
+        .limit(5000);
+      if (blockId) attQ = attQ.eq('block_id', blockId);
+
+      let weekQ = supabase
+        .from('hostel_attendance')
+        .select('date, evening_status')
+        .gte('date', weekStart)
+        .lte('date', date)
+        .limit(20000);
+      if (blockId) weekQ = weekQ.eq('block_id', blockId);
+
+      const [allocs, att, week] = await Promise.all([allocQ, attQ, weekQ]);
+      if (allocs.error) throw allocs.error;
+      if (att.error) throw att.error;
+      if (week.error) throw week.error;
+
+      type AllocRow = { block_id: string | null; block: { id: string; name: string; code: string } | null };
+      type AttRow = { block_id: string | null; evening_status: HostelAttendanceStatus | null; is_curfew_violation: boolean | null };
+
+      const allocRows = (allocs.data ?? []) as unknown as AllocRow[];
+      const attRows = (att.data ?? []) as unknown as AttRow[];
+
+      type BlockStat = { id: string; name: string; code: string; total: number; present: number; absent: number; on_leave: number; marked: boolean };
+      const blocks = new Map<string, BlockStat>();
+      const blockOf = (id: string, name = '—', code = ''): BlockStat => {
+        const existing = blocks.get(id);
+        if (existing) return existing;
+        const fresh: BlockStat = { id, name, code, total: 0, present: 0, absent: 0, on_leave: 0, marked: false };
+        blocks.set(id, fresh);
+        return fresh;
+      };
+
+      // Seed block totals from the allocation population so blocks with zero
+      // marks still render (with a "Not Marked" badge).
+      for (const a of allocRows) {
+        if (!a.block_id) continue;
+        blockOf(a.block_id, a.block?.name ?? '—', a.block?.code ?? '').total += 1;
+      }
+
+      let present = 0, absent = 0, on_leave = 0, late_entry = 0, curfew = 0;
+      for (const r of attRows) {
+        if (r.evening_status === 'present') present += 1;
+        else if (r.evening_status === 'absent') absent += 1;
+        else if (r.evening_status === 'on_leave') on_leave += 1;
+        else if (r.evening_status === 'late_entry') late_entry += 1;
+        if (r.is_curfew_violation) curfew += 1;
+        if (r.block_id) {
+          const b = blockOf(r.block_id);
+          b.marked = true;
+          if (r.evening_status === 'present') b.present += 1;
+          else if (r.evening_status === 'absent') b.absent += 1;
+          else if (r.evening_status === 'on_leave') b.on_leave += 1;
+        }
+      }
+
+      const denom = present + absent + on_leave + late_entry;
+      const attendance_rate = denom > 0 ? Math.round((present / denom) * 100) : 0;
+
+      const trend = new Map<string, { day: string; present: number; absent: number }>();
+      for (let i = 0; i < 7; i++) {
+        const key = addDays(weekStart, i);
+        trend.set(key, { day: weekdayLabel(key), present: 0, absent: 0 });
+      }
+      for (const r of (week.data ?? []) as { date: string; evening_status: HostelAttendanceStatus | null }[]) {
+        const t = trend.get(r.date);
+        if (!t) continue;
+        if (r.evening_status === 'present') t.present += 1;
+        else if (r.evening_status === 'absent') t.absent += 1;
+      }
+
+      return {
+        date,
+        total_hostellers: allocRows.length,
+        present,
+        absent,
+        on_leave,
+        late_entry,
+        attendance_rate,
+        curfew_violations: curfew,
+        blocks: Array.from(blocks.values()).sort((a, b) => a.name.localeCompare(b.name)),
+        weekly_trend: Array.from(trend.values()),
+      };
+    } catch (error) {
+      logger.error('campus-living/attendance', 'Unexpected error in getAttendanceDashboard', error);
       throw error;
     }
   }

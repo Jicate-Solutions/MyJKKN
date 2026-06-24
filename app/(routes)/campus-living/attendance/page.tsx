@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
-import { useHostelAttendance } from '@/hooks/campus-living/use-hostel-attendance';
+import { useAttendanceDashboard } from '@/hooks/campus-living/use-hostel-attendance';
 import { BlockSelector } from '@/components/campus-living/block-selector';
 import {
   ClipboardCheck,
@@ -30,17 +30,16 @@ export default function AttendanceDashboardPage() {
   const institutionId = profile?.institution_id ?? '';
   const [blockFilter, setBlockFilter] = useState<string>('all');
 
-  const filters = useMemo(
-    () => ({
-      block_id: blockFilter !== 'all' ? blockFilter : undefined,
-    }),
-    [blockFilter]
+  // Mark Attendance stamps rows with new Date().toISOString() — use the SAME
+  // UTC date basis here so "today" matches what was just marked.
+  const today = new Date().toISOString().split('T')[0];
+  const { data: rawStats, isLoading } = useAttendanceDashboard(
+    institutionId,
+    today,
+    blockFilter !== 'all' ? blockFilter : undefined
   );
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: rawStats, isLoading } = useHostelAttendance(institutionId, filters as any);
-  // Defensive: when staging DB has 0 rows, service returns {data: [], count: 0}
-  // which lacks the aggregate shape this page expects. Fall back to safe defaults.
+  // Defensive: while loading rawStats is undefined; fall back to safe defaults
+  // so the aggregate cards render zeros instead of crashing.
   const s = (rawStats ?? {}) as any;
   const stats = {
     date: s.date ?? new Date().toISOString(),

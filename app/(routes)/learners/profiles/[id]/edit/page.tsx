@@ -12,7 +12,8 @@
 import { use } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useLearnerProfile } from '@/hooks/use-learner-profiles';
+import { useQueryClient } from '@tanstack/react-query';
+import { useLearnerProfile, learnerProfileKeys } from '@/hooks/use-learner-profiles';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
@@ -40,8 +41,22 @@ interface LearnerEditPageProps {
 export default function LearnerEditPage({ params }: LearnerEditPageProps) {
   const { id } = use(params);
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const { data: learner, isLoading, error } = useLearnerProfile(id);
+
+  // EnquiryForm saves via LearnerProfileService directly (it bypasses the
+  // useUpdateLearnerProfile mutation hook), so nothing here invalidates the
+  // caches. Without this, the cached server-rendered profiles list and the
+  // React Query detail cache keep showing the pre-edit course/program after a
+  // successful save. Bust RQ caches + refresh the Router Cache before
+  // navigating to the detail page (mirrors the row-actions refresh pattern).
+  const handleEditSuccess = (updatedLearner: { id: string }) => {
+    queryClient.invalidateQueries({ queryKey: learnerProfileKeys.detail(updatedLearner.id) });
+    queryClient.invalidateQueries({ queryKey: learnerProfileKeys.lists() });
+    router.refresh();
+    router.push(`/learners/profiles/${updatedLearner.id}`);
+  };
 
   // Loading state
   if (isLoading) {
@@ -98,9 +113,7 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
         <Card className="p-6">
           <EnquiryForm
             learner={learner}
-            onSuccess={(updatedLearner) => {
-              router.push(`/learners/profiles/${updatedLearner.id}`);
-            }}
+            onSuccess={handleEditSuccess}
           />
         </Card>
       </div>
