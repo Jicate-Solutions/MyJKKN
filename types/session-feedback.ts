@@ -117,6 +117,26 @@ export interface EscalationFollowupRow {
   lift: number | null;
 }
 
+/** Teacher's own "topics to revisit" row. fn_scf_faculty_followups (B1).
+ *  Identical contract to EscalationFollowupRow — the principal lift RPC self-scoped
+ *  to the caller's own taught sessions — so the shared FollowupCell renders it as-is. */
+export type FacultyFollowupRow = EscalationFollowupRow;
+
+/** A learner's private "your voice this term" receipt row. fn_scf_my_impact (C3).
+ *  One row per session the learner gave feedback on. Carries the learner's OWN rating
+ *  plus a derived `improved` boolean (did the class do better next time) — never a raw
+ *  class average. `improved` is null when there is no next session yet OR responses are
+ *  below the k>=3 anonymity floor on either session. */
+export interface MyImpactRow {
+  attendance_date: string;
+  course_code: string | null;
+  course_name: string | null;
+  my_understood: number;          // the learner's own 1..5 rating for that session
+  flagged: boolean;               // my_understood <= 2
+  next_attendance_date: string | null;
+  improved: boolean | null;       // class avg rose next time; null = awaiting / masked
+}
+
 /** Per-college admin summary. fn_scf_admin_college_summary (aggregates only).
  *  Cross-college for super_admin; own-institution for institution leadership. */
 export interface AdminCollegeSummaryRow {

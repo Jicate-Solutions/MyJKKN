@@ -24,6 +24,10 @@ export const scfQueryKeys = {
     [...scfQueryKeys.all, 'escalations', from, to] as const,
   escalationFollowups: (from: string, to: string) =>
     [...scfQueryKeys.all, 'escalation-followups', from, to] as const,
+  facultyFollowups: (from: string, to: string) =>
+    [...scfQueryKeys.all, 'faculty-followups', from, to] as const,
+  myImpact: (from: string, to: string) =>
+    [...scfQueryKeys.all, 'my-impact', from, to] as const,
   adminCollegeSummary: (from: string, to: string) =>
     [...scfQueryKeys.all, 'admin-college-summary', from, to] as const,
   adminFacultySummary: (from: string, to: string) =>
@@ -106,6 +110,26 @@ export function useEscalationFollowups(from: string, to: string) {
   return useQuery({
     queryKey: scfQueryKeys.escalationFollowups(from, to),
     queryFn: () => SessionFeedbackService.getEscalationFollowups(from, to),
+    enabled: !!from && !!to,
+    staleTime: 60 * 1000,
+  });
+}
+
+/** The caller faculty's OWN low sessions + lift ("topics to revisit", B1). */
+export function useFacultyFollowups(from: string, to: string) {
+  return useQuery({
+    queryKey: scfQueryKeys.facultyFollowups(from, to),
+    queryFn: () => SessionFeedbackService.getFacultyFollowups(from, to),
+    enabled: !!from && !!to,
+    staleTime: 60 * 1000,
+  });
+}
+
+/** The learner's private "your voice this term" receipt (C3). */
+export function useMyImpact(from: string, to: string) {
+  return useQuery({
+    queryKey: scfQueryKeys.myImpact(from, to),
+    queryFn: () => SessionFeedbackService.getMyImpact(from, to),
     enabled: !!from && !!to,
     staleTime: 60 * 1000,
   });

@@ -19,6 +19,7 @@ import {
 import { usePendingSessions } from '@/hooks/use-session-feedback';
 import type { PendingSession } from '@/types/session-feedback';
 import { FeedbackDialog } from './_components/feedback-dialog';
+import { MyVoiceReceipt } from './_components/my-voice-receipt';
 
 const BRAND = '#0b6d41';
 
@@ -72,6 +73,9 @@ export default function LearnerSessionFeedbackPage() {
             </Badge>
           )}
         </div>
+
+        {/* Receipt — your participation + whether flagged classes improved (hidden until you have history) */}
+        <MyVoiceReceipt />
 
         {/* Body */}
         <Card className="bg-[#fbfbee]/30 dark:bg-card">

@@ -14,6 +14,8 @@ import type {
   PendingRosterRow,
   EscalationRow,
   EscalationFollowupRow,
+  FacultyFollowupRow,
+  MyImpactRow,
   AdminCollegeSummaryRow,
   AdminFacultySummaryRow,
   AdminTrendRow,
@@ -148,6 +150,40 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to load escalation follow-ups: ${error.message}`);
     return (data || []) as EscalationFollowupRow[];
+  }
+
+  /**
+   * The caller faculty's OWN low-understanding sessions paired with the next
+   * same-course session + lift (B1 — "topics to revisit"). Self-scoped clone of
+   * getEscalationFollowups: same row shape, but the RPC filters to the caller's
+   * own taught sessions (no role gate), so any faculty can call it.
+   */
+  static async getFacultyFollowups(
+    from: string,
+    to: string,
+  ): Promise<FacultyFollowupRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_faculty_followups', {
+      p_from: from,
+      p_to: to,
+    });
+    if (error) throw new Error(`Failed to load your topics to revisit: ${error.message}`);
+    return (data || []) as FacultyFollowupRow[];
+  }
+
+  /**
+   * The learner's private "your voice this term" receipt (C3): their own feedback
+   * rows + whether each flagged session's class improved next time. Returns only a
+   * derived `improved` boolean (k>=3 floor) — never another learner's data.
+   */
+  static async getMyImpact(from: string, to: string): Promise<MyImpactRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_my_impact', {
+      p_from: from,
+      p_to: to,
+    });
+    if (error) throw new Error(`Failed to load your feedback receipt: ${error.message}`);
+    return (data || []) as MyImpactRow[];
   }
 
   // ---------------------------------------------------------------------------
