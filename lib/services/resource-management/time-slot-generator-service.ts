@@ -235,6 +235,42 @@ export class TimeSlotGeneratorService {
   }
 
   /**
+   * Validate a free-form custom booking range. Reuses validateTimeSlot for the
+   * end>start / within-operating-hours / break-conflict checks, then adds a
+   * minimum-duration and step-alignment guard for the custom picker.
+   * NOTE: validateTimeSlot returns {valid:true} when config is undefined, so
+   * callers must pass an effective config (e.g. DEFAULT_TIME_SLOT_CONFIG) to
+   * actually enforce operating hours.
+   */
+  static validateCustomRange(
+    config: TimeSlotConfig | undefined,
+    startTime: string,
+    endTime: string,
+    opts?: { stepMinutes?: number; minMinutes?: number }
+  ): { valid: boolean; reason?: string } {
+    const base = this.validateTimeSlot(config, startTime, endTime, '');
+    if (!base.valid) return base;
+
+    const step = opts?.stepMinutes ?? 30;
+    const min = opts?.minMinutes ?? 30;
+
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    const durationMinutes = (end.getTime() - start.getTime()) / 60000;
+
+    if (durationMinutes < min) {
+      return { valid: false, reason: `Booking must be at least ${min} minutes long` };
+    }
+    if (start.getMinutes() % step !== 0 || end.getMinutes() % step !== 0) {
+      return {
+        valid: false,
+        reason: `Start and end times must align to ${step}-minute steps`,
+      };
+    }
+    return { valid: true };
+  }
+
+  /**
    * Convert HH:MM time string to minutes
    */
   private static timeToMinutes(time: string): number {
