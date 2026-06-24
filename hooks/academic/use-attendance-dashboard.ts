@@ -17,19 +17,25 @@ export function useAttendanceStats(
   academicYearId?: string
 ) {
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
 
-  // Determine which institution to query
-  // For super admin: undefined = all institutions, specific id = that institution
-  // For regular users: always their own institution
+  // Determine which institution to query.
+  // Anyone who can view all institutions — a super admin OR a role holding the
+  // academic.attendance.dashboard.view_all_institutions permission, both folded
+  // into the `canViewAllInstitutions` flag the page passes in — may query across
+  // institutions; everyone else is scoped to their own. This previously ALSO
+  // required isSuperAdmin, which silently collapsed a scope='all' custom role
+  // (e.g. Executive Admin Officer) back to its own institution even though it held
+  // view_all_institutions — BUG-004284 "can't see all colleges". RLS still
+  // enforces which institutions the caller may actually read.
   const queryInstitutionId =
-    isSuperAdmin && canViewAllInstitutions
+    canViewAllInstitutions
       ? institutionId
       : profile?.institution_id || undefined;
 
-  // For super admin with undefined institutionId, query all institutions
+  // All-institutions viewer with no specific institution picked → query across all
+  // (the service omits the institution filter; RLS scopes the rows).
   const queryAllInstitutions =
-    isSuperAdmin && canViewAllInstitutions && institutionId === undefined;
+    canViewAllInstitutions && institutionId === undefined;
 
   // Format date for query
   const dateString = selectedDate.toISOString().split('T')[0];
@@ -51,7 +57,7 @@ export function useAttendanceStats(
     queryFn: () =>
       AttendanceDashboardService.getTodayAttendanceStats(
         queryAllInstitutions ? undefined : queryInstitutionId,
-        canViewAllInstitutions && isSuperAdmin,
+        canViewAllInstitutions,
         dateString,
         academicYearId
       ),
