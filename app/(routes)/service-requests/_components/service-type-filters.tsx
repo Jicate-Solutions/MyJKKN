@@ -27,6 +27,9 @@ export type TriState = 'all' | 'yes' | 'no';
 export interface ServiceTypeFilterState {
   search: string;
   scope_level: ServiceTypeScopeLevel | 'all';
+  // Specific scope target (a single institution/degree/department/program id)
+  // to filter by once a concrete scope_level is chosen. 'all' = don't filter.
+  scope_target_id: string;
   approval_workflow_type: ApprovalWorkflowType | 'all';
   is_active: TriState;
   is_system_default: TriState;
@@ -40,6 +43,7 @@ export interface ServiceTypeFilterState {
 export const DEFAULT_SERVICE_TYPE_FILTERS: ServiceTypeFilterState = {
   search: '',
   scope_level: 'all',
+  scope_target_id: 'all',
   approval_workflow_type: 'all',
   is_active: 'all',
   is_system_default: 'all',
@@ -50,16 +54,34 @@ export const DEFAULT_SERVICE_TYPE_FILTERS: ServiceTypeFilterState = {
   sortOrder: 'asc',
 };
 
+/** Singular label + plural noun per scope, used by the adaptive target filter. */
+const SCOPE_TARGET_META: Partial<
+  Record<ServiceTypeScopeLevel, { label: string; plural: string }>
+> = {
+  institution: { label: 'Institution', plural: 'institutions' },
+  degree: { label: 'Degree', plural: 'degrees' },
+  department: { label: 'Department', plural: 'departments' },
+  program: { label: 'Program', plural: 'programs' },
+};
+
+export type ScopeTargetOption = { id: string; name: string };
+export type ScopeTargets = Partial<
+  Record<ServiceTypeScopeLevel, ScopeTargetOption[]>
+>;
+
 interface ServiceTypeFiltersProps {
   filters: ServiceTypeFilterState;
   onChange: (patch: Partial<ServiceTypeFilterState>) => void;
   availableRoles: string[];
+  /** Concrete scope targets present in the data, keyed by scope level. */
+  scopeTargets: ScopeTargets;
 }
 
 export function ServiceTypeFilters({
   filters,
   onChange,
   availableRoles,
+  scopeTargets,
 }: ServiceTypeFiltersProps) {
   const [searchValue, setSearchValue] = useState(filters.search);
   const [showFilters, setShowFilters] = useState(false);
@@ -85,12 +107,28 @@ export function ServiceTypeFilters({
 
   const hasActiveFilters =
     filters.scope_level !== 'all' ||
+    filters.scope_target_id !== 'all' ||
     filters.approval_workflow_type !== 'all' ||
     filters.is_active !== 'all' ||
     filters.is_system_default !== 'all' ||
     filters.enable_attachments !== 'all' ||
     filters.enable_priority !== 'all' ||
     filters.allowed_role !== 'all';
+
+  // Adaptive scope-target filter: when a concrete scope (institution/degree/
+  // department/program) is selected, let the user narrow to a single target.
+  const targetMeta =
+    filters.scope_level === 'all'
+      ? undefined
+      : SCOPE_TARGET_META[filters.scope_level];
+  const targetOptions =
+    filters.scope_level === 'all'
+      ? []
+      : scopeTargets[filters.scope_level] ?? [];
+  const showTargetFilter = Boolean(targetMeta);
+  const selectedTargetName =
+    targetOptions.find((o) => o.id === filters.scope_target_id)?.name ??
+    filters.scope_target_id;
 
   return (
     <div className="space-y-4">
@@ -155,7 +193,12 @@ export function ServiceTypeFilters({
                   <Select
                     value={filters.scope_level}
                     onValueChange={(value) =>
-                      onChange({ scope_level: value as ServiceTypeFilterState['scope_level'] })
+                      // Reset the target whenever the scope changes — a target id
+                      // is only meaningful under its own scope level.
+                      onChange({
+                        scope_level: value as ServiceTypeFilterState['scope_level'],
+                        scope_target_id: 'all',
+                      })
                     }
                   >
                     <SelectTrigger>
@@ -173,6 +216,38 @@ export function ServiceTypeFilters({
                     </SelectContent>
                   </Select>
                 </div>
+
+                {/* Adaptive scope target (institution / degree / department /
+                    program) — only shown once a concrete scope is selected. */}
+                {showTargetFilter && targetMeta && (
+                  <div className="space-y-2">
+                    <Label>{targetMeta.label}</Label>
+                    <Select
+                      value={filters.scope_target_id}
+                      onValueChange={(value) => onChange({ scope_target_id: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">
+                          All {targetMeta.plural}
+                        </SelectItem>
+                        {targetOptions.length === 0 ? (
+                          <SelectItem value="__none__" disabled>
+                            No {targetMeta.plural} in the current list
+                          </SelectItem>
+                        ) : (
+                          targetOptions.map((o) => (
+                            <SelectItem key={o.id} value={o.id}>
+                              {o.name}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
 
                 {/* Approval Workflow */}
                 <div className="space-y-2">
@@ -352,9 +427,21 @@ export function ServiceTypeFilters({
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => onChange({ scope_level: 'all' })}
+              onClick={() => onChange({ scope_level: 'all', scope_target_id: 'all' })}
             >
               Scope: {SERVICE_TYPE_SCOPE_CONFIG[filters.scope_level].label}
+              <X className="ml-2 h-3 w-3" />
+            </Button>
+          )}
+
+          {filters.scope_target_id !== 'all' && targetMeta && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => onChange({ scope_target_id: 'all' })}
+            >
+              {targetMeta.label}:{' '}
+              <span className="ml-1 truncate max-w-[160px]">{selectedTargetName}</span>
               <X className="ml-2 h-3 w-3" />
             </Button>
           )}

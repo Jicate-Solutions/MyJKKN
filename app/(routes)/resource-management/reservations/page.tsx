@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
-import { Plus, Calendar, Filter, Download } from 'lucide-react';
+import { Plus, Calendar, Filter, Download, Trash2, Loader2 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -37,12 +37,30 @@ import Link from 'next/link';
 import { useReservations } from '@/hooks/reservation/use-reservations';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { Reservation, ReservationStatus } from '@/types/reservation';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useDeleteReservation } from '@/hooks/reservation/use-reservation-operations';
 
 export default function ReservationsPage() {
   const router = useRouter();
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedInstitution, setSelectedInstitution] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Super admins can permanently delete any reservation (RLS:
+  // resource_reservations_delete_super_admin). The button is hidden for everyone else.
+  const { isSuperAdmin } = usePermissions();
+  const deleteReservation = useDeleteReservation();
+  const [deleteTarget, setDeleteTarget] = useState<Reservation | null>(null);
 
   // Institutions the current user can access — drives the filter dropdown.
   // RLS still gates rows server-side; this just lets the user narrow the view.
@@ -334,17 +352,30 @@ export default function ReservationsPage() {
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            <Button
-                              variant='ghost'
-                              size='sm'
-                              onClick={() =>
-                                router.push(
-                                  `/resource-management/reservations/${reservation.id}`
-                                )
-                              }
-                            >
-                              View Details
-                            </Button>
+                            <div className='flex items-center gap-1'>
+                              <Button
+                                variant='ghost'
+                                size='sm'
+                                onClick={() =>
+                                  router.push(
+                                    `/resource-management/reservations/${reservation.id}`
+                                  )
+                                }
+                              >
+                                View Details
+                              </Button>
+                              {isSuperAdmin && (
+                                <Button
+                                  variant='ghost'
+                                  size='sm'
+                                  className='text-destructive hover:text-destructive'
+                                  onClick={() => setDeleteTarget(reservation)}
+                                  aria-label='Delete reservation'
+                                >
+                                  <Trash2 className='h-4 w-4' />
+                                </Button>
+                              )}
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))
@@ -362,6 +393,56 @@ export default function ReservationsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Super-admin delete confirmation */}
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete reservation?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes the reservation
+              {deleteTarget?.resource?.name
+                ? ` for “${deleteTarget.resource.name}”`
+                : ''}
+              {deleteTarget?.user?.full_name
+                ? ` (held by ${deleteTarget.user.full_name})`
+                : ''}
+              . This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteReservation.isPending}>
+              Keep
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              disabled={deleteReservation.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                if (!deleteTarget) return;
+                deleteReservation.mutate(deleteTarget.id, {
+                  onSuccess: () => setDeleteTarget(null)
+                });
+              }}
+            >
+              {deleteReservation.isPending ? (
+                <>
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className='mr-2 h-4 w-4' />
+                  Delete
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </ContentLayout>
   );
 }
