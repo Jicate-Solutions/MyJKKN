@@ -282,6 +282,10 @@
     {
       "path": "/api/cron/session-feedback-nudge?secret=${CRON_SECRET}",
       "schedule": "13 7 * * *"
+    },
+    {
+      "path": "/api/cron/session-feedback-escalation?secret=${CRON_SECRET}",
+      "schedule": "30 7 * * 1"
     }
   ]
 }
