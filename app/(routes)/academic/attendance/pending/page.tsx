@@ -65,9 +65,20 @@ export default async function PendingAttendancePage() {
   const isHOD = profile?.role === 'hod';
   const isFaculty = profile?.role === 'faculty';
 
-  // canViewAllInstitutions mirrors the client-side canAccess check:
-  // super_admin users implicitly have all permissions.
-  const canViewAllInstitutions = isSuperAdmin;
+  // canViewAllInstitutions mirrors the client-side canAccess check.
+  // BUG-004284 follow-up (mirrors PR #1618 dashboard fix): a scope='all' custom
+  // role (e.g. Executive Admin Officer / 'eao') is NOT super_admin but holds
+  // academic.attendance.dashboard.view_all_institutions and must see the
+  // all-colleges Pending view. Read the same permission server-side via the
+  // platform's user_has_permission RPC and OR it with super_admin — this matches
+  // what the client `canAccess(...)` resolves. The student_attendance RLS policy
+  // (migration 20260624164500) is the true enforcer that bounds the readable rows
+  // to the institutions the role is actually entitled to; this flag only decides
+  // whether the institution filter is omitted so the combined view is shown.
+  const { data: canViewAll } = await supabase.rpc('user_has_permission', {
+    permission_name: 'academic.attendance.dashboard.view_all_institutions',
+  });
+  const canViewAllInstitutions = isSuperAdmin || canViewAll === true;
 
   const userInstitutionId = profile?.institution_id ?? undefined;
   const userDepartmentId = profile?.department_id ?? undefined;
