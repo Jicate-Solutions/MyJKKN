@@ -68,7 +68,11 @@ DROP POLICY IF EXISTS scf_ai_suggestions_select ON public.scf_ai_suggestions;
 CREATE POLICY scf_ai_suggestions_select ON public.scf_ai_suggestions
 FOR SELECT USING (
   is_super_admin() OR is_admin()
-  OR role_has_institution_access(institution_id)
+  -- Guard NULL: role_has_institution_access(NULL) returns TRUE, which would
+  -- over-grant course-level (NULL-institution) rows to every authenticated user.
+  -- Faculty-self rows now carry the resolved institution (see the route); only
+  -- super-admin course-level rows remain NULL → readable by super/admin only.
+  OR (institution_id IS NOT NULL AND role_has_institution_access(institution_id))
 );
 
 -- ── 2. Record a suggestion at generate time ───────────────────────────────────
