@@ -171,7 +171,7 @@ export async function POST(req: NextRequest) {
       const { data: priorData } = await admin.rpc('fn_scf_prior_suggestion', {
         p_course_code: courseCode,
         p_faculty_email: pFacultyEmail,
-        p_institution_id: pInstitutionId,
+        p_institution_id: loopInstitutionId,
       });
       const prior = Array.isArray(priorData) ? priorData[0] : priorData;
       if (prior?.suggestion) {
