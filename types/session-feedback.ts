@@ -169,6 +169,20 @@ export interface AdminTrendRow {
   avg_understood: number | null;
 }
 
+/** A carry-forward re-ask for a pending session. fn_scf_carryforward_for_learner (PR B).
+ *  Surfaced when the learner previously took the SAME course and flagged trouble
+ *  (prior_understood <= 2 OR left checklist items unchecked). prior_unmet_items are
+ *  the checklist item_keys that were false/missing in the prior row (UI maps to labels). */
+export interface CarryforwardItem {
+  timetable_id: string;
+  period_id: string;
+  course_code: string;
+  course_name: string | null;
+  prior_session_date: string;     // 'YYYY-MM-DD'
+  prior_understood: number;       // 1..5
+  prior_unmet_items: string[];    // checklist item_keys that were false/missing
+}
+
 /** A configured checklist item the learner ticks. session_feedback_checklist_config. */
 export interface ChecklistConfigItem {
   id: string;

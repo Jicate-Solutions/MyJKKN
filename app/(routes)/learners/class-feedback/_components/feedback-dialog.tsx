@@ -15,8 +15,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { BeatLoader } from 'react-spinners';
-import { CheckCircle2, ShieldCheck } from 'lucide-react';
-import { useChecklistConfig, useSubmitFeedback } from '@/hooks/use-session-feedback';
+import { CheckCircle2, ShieldCheck, History } from 'lucide-react';
+import {
+  useChecklistConfig,
+  useSubmitFeedback,
+  useCarryforward,
+} from '@/hooks/use-session-feedback';
 import type { PendingSession } from '@/types/session-feedback';
 
 const BRAND = '#0b6d41';
@@ -30,6 +34,10 @@ const UNDERSTOOD_SCALE: { value: number; label: string }[] = [
   { value: 5, label: 'Clear' },
 ];
 
+// 3-way answer to the carry-forward re-ask. Rides into p_free_text on submit.
+const CARRYFORWARD_CHOICES = ['Yes', 'Partly', 'No'] as const;
+type CarryforwardChoice = (typeof CARRYFORWARD_CHOICES)[number];
+
 interface FeedbackDialogProps {
   /** The pending session being confirmed; null = dialog closed. */
   session: PendingSession | null;
@@ -38,11 +46,13 @@ interface FeedbackDialogProps {
 
 export function FeedbackDialog({ session, onOpenChange }: FeedbackDialogProps) {
   const { data: checklistConfig, isLoading: loadingChecklist } = useChecklistConfig();
+  const { data: carryforward } = useCarryforward();
   const submit = useSubmitFeedback();
 
   const [understood, setUnderstood] = useState<number | null>(null);
   const [checklist, setChecklist] = useState<Record<string, boolean>>({});
   const [freeText, setFreeText] = useState('');
+  const [cfChoice, setCfChoice] = useState<CarryforwardChoice | null>(null);
 
   // Reset the form whenever a new session is opened.
   useEffect(() => {
@@ -50,10 +60,33 @@ export function FeedbackDialog({ session, onOpenChange }: FeedbackDialogProps) {
       setUnderstood(null);
       setChecklist({});
       setFreeText('');
+      setCfChoice(null);
     }
   }, [session]);
 
   const items = useMemo(() => checklistConfig ?? [], [checklistConfig]);
+
+  // The carry-forward re-ask for THIS session: a prior same-course session the
+  // learner flagged. Match by timetable_id + period_id + course_code.
+  const carry = useMemo(() => {
+    if (!session?.course_code) return null;
+    return (
+      (carryforward ?? []).find(
+        (c) =>
+          c.timetable_id === session.timetable_id &&
+          c.period_id === session.period_id &&
+          c.course_code === session.course_code,
+      ) ?? null
+    );
+  }, [carryforward, session]);
+
+  // Map prior unmet checklist item_keys to their human labels (fall back to key).
+  const carryItemLabels = useMemo(() => {
+    if (!carry) return [];
+    const byKey = new Map(items.map((i) => [i.item_key, i.label]));
+    return carry.prior_unmet_items.map((k) => byKey.get(k) ?? k);
+  }, [carry, items]);
+
   const open = session !== null;
 
   const courseLabel =
@@ -66,6 +99,14 @@ export function FeedbackDialog({ session, onOpenChange }: FeedbackDialogProps) {
       toast.error('Pick how well you understood the class.');
       return;
     }
+    // Ride the carry-forward answer (if any) into p_free_text as a prefixed line —
+    // keeps the fn_scf_submit_feedback signature unchanged.
+    const trimmed = freeText.trim();
+    let payloadText: string | null = trimmed ? trimmed : null;
+    if (carry && cfChoice) {
+      const prefix = `[carry-forward: ${cfChoice}] `;
+      payloadText = trimmed ? `${prefix}${trimmed}` : prefix.trim();
+    }
     try {
       await submit.mutateAsync({
         attendanceDate: session.attendance_date,
@@ -73,7 +114,7 @@ export function FeedbackDialog({ session, onOpenChange }: FeedbackDialogProps) {
         periodId: session.period_id,
         understood,
         checklist,
-        freeText: freeText.trim() ? freeText.trim() : null,
+        freeText: payloadText,
       });
       toast.success('Thanks! Your attendance for this class is now confirmed.');
       onOpenChange(false);
@@ -99,6 +140,47 @@ export function FeedbackDialog({ session, onOpenChange }: FeedbackDialogProps) {
         </DialogHeader>
 
         <div className="space-y-5 py-1">
+          {/* Carry-forward re-ask: last time you took this course, you flagged X. */}
+          {carry && (
+            <div className="rounded-md border border-[#0b6d41]/30 bg-[#fbfbee]/60 dark:bg-muted/40 p-3 space-y-2.5">
+              <div className="flex items-start gap-2">
+                <History className="mt-0.5 h-4 w-4 shrink-0" style={{ color: BRAND }} />
+                <p className="text-sm leading-snug">
+                  Last <span className="font-medium">{carry.course_name || carry.course_code}</span>
+                  {carryItemLabels.length > 0 ? (
+                    <>
+                      : you flagged{' '}
+                      <span className="font-medium">{carryItemLabels.join(', ')}</span>
+                    </>
+                  ) : (
+                    <> you said you were lost</>
+                  )}{' '}
+                  — better this time?
+                </p>
+              </div>
+              <div className="flex gap-2">
+                {CARRYFORWARD_CHOICES.map((choice) => {
+                  const selected = cfChoice === choice;
+                  return (
+                    <button
+                      key={choice}
+                      type="button"
+                      onClick={() => setCfChoice(choice)}
+                      aria-pressed={selected}
+                      className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6d41]/40 ${
+                        selected
+                          ? 'border-[#0b6d41] bg-[#0b6d41] text-white'
+                          : 'border-input bg-background hover:bg-muted'
+                      }`}
+                    >
+                      {choice}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Understanding 1–5 */}
           <div className="space-y-2">
             <Label className="text-sm font-medium">How well did you understand?</Label>
