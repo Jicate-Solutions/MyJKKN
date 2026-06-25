@@ -262,6 +262,10 @@
     {
       "path": "/api/cron/session-feedback-nudge?secret=${CRON_SECRET}",
       "schedule": "13 7 * * *"
+    },
+    {
+      "path": "/api/cron/scf-measure-outcomes?secret=${CRON_SECRET}",
+      "schedule": "47 2 * * *"
     }
   ]
 }

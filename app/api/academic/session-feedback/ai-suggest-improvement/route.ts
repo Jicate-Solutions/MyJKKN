@@ -151,6 +151,38 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // 5b) SELF-IMPROVING: fetch this class's most recent prior suggestion and
+    //     whether it actually moved understanding, so the model proposes a
+    //     BETTER adjustment instead of repeating itself. The prior is OUR OWN
+    //     past AI output (not user input) — no new injection surface.
+    let trackRecordBlock = '';
+    try {
+      const { data: priorData } = await admin.rpc('fn_scf_prior_suggestion', {
+        p_course_code: courseCode,
+        p_faculty_email: pFacultyEmail,
+        p_institution_id: pInstitutionId,
+      });
+      const prior = Array.isArray(priorData) ? priorData[0] : priorData;
+      if (prior?.suggestion) {
+        const priorSummary =
+          prior.suggestion && typeof prior.suggestion === 'object'
+            ? String(prior.suggestion.summary ?? JSON.stringify(prior.suggestion)).slice(0, 600)
+            : String(prior.suggestion).slice(0, 600);
+        const lift = prior.outcome_lift !== null && prior.outcome_lift !== undefined
+          ? Number(prior.outcome_lift)
+          : null;
+        const liftLine = prior.has_outcome
+          ? `After that advice, the next class's understanding moved ${lift !== null && lift >= 0 ? '+' : ''}${prior.outcome_lift} (from ${prior.input_avg}/5). ${lift !== null && lift >= 0.5 ? 'It helped somewhat — build on it.' : 'It did NOT meaningfully help — change the approach; do not repeat the same advice.'}`
+          : `The outcome of that advice is not measured yet.`;
+        const verdictLine = prior.human_verdict
+          ? ` The teacher marked it: ${String(prior.human_verdict)}.`
+          : '';
+        trackRecordBlock = `\n\nYOUR PREVIOUS ADVICE FOR THIS CLASS (${String(prior.generated_at).slice(0, 10)}): ${priorSummary}\n${liftLine}${verdictLine}\nUse this track record: keep what worked, and propose a DIFFERENT, more specific adjustment for anything that did not move.`;
+      }
+    } catch (priorErr) {
+      console.error('[academic/ai-suggest-improvement] prior fetch failed:', priorErr);
+    }
+
     // 6) Build the prompt + call Claude.
     const commentBlock =
       freeTexts.length > 0
@@ -163,7 +195,7 @@ Low-understanding responses (understood <= 2 of 5): ${lowResponses}
 Average understanding (1-5): ${avgUnderstood ?? 'n/a'}
 
 Anonymized student comments:
-${commentBlock}
+${commentBlock}${trackRecordBlock}
 
 Generate the teaching-improvement JSON now.`;
 
@@ -195,6 +227,28 @@ Generate the teaching-improvement JSON now.`;
       .replace(/\s*```$/i, '')
       .trim();
     const suggestion = JSON.parse(jsonStr);
+
+    // 7) SELF-IMPROVING: record this suggestion + the input state it was based on,
+    //    so the daily outcome job can attribute the next-class lift and the NEXT
+    //    suggestion can learn from it. Best-effort — a record failure must never
+    //    break the user-facing suggestion. Only the synthesized guidance is
+    //    stored; the raw free_texts are NOT.
+    try {
+      await admin.rpc('fn_scf_record_suggestion', {
+        p_institution_id: pInstitutionId,
+        p_course_code: courseCode,
+        p_faculty_email: pFacultyEmail,
+        p_window_from: from,
+        p_window_to: to,
+        p_input_responses: responses,
+        p_input_low: lowResponses,
+        p_input_avg: avgUnderstood,
+        p_suggestion: suggestion,
+        p_model: resp.model,
+      });
+    } catch (recErr) {
+      console.error('[academic/ai-suggest-improvement] record failed:', recErr);
+    }
 
     // ANONYMITY: response carries ONLY the synthesized suggestion + numeric meta.
     // freeTexts is deliberately excluded.
