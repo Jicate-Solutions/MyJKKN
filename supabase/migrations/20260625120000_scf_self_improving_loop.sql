@@ -162,12 +162,20 @@ BEGIN
       AND s.generated_at <= now() - make_interval(days => p_min_age_days)
   ),
   next_session AS (
+    -- The EARLIEST next session that has >= 3 responses. Mirroring the input-side
+    -- floor (the AI only advises at >= 3 responses) prevents a stray 1-response
+    -- session the day after from permanently locking in a false lift; the
+    -- suggestion stays unmeasured until a real (>=3) next class happens.
     SELECT c.id,
-           (SELECT min(f.attendance_date)
+           (SELECT f.attendance_date
             FROM public.session_feedback f
             WHERE f.course_code = c.course_code
               AND lower(f.faculty_email) IS NOT DISTINCT FROM c.faculty_email
-              AND f.attendance_date > c.window_to) AS next_date
+              AND f.attendance_date > c.window_to
+            GROUP BY f.attendance_date
+            HAVING count(*) >= 3
+            ORDER BY f.attendance_date ASC
+            LIMIT 1) AS next_date
     FROM candidates c
   ),
   outcome AS (
