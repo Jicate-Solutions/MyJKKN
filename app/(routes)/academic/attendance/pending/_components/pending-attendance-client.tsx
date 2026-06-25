@@ -39,7 +39,6 @@ interface PendingAttendanceClientProps {
 // ─── Component ─────────────────────────────────────────────────────────────────
 
 export function PendingAttendanceClient({
-  isSuperAdmin,
   isHOD,
   isFaculty,
   userInstitutionId,
@@ -379,7 +378,7 @@ export function PendingAttendanceClient({
         filters={filters}
         onFiltersChange={updateFilters}
         onReset={resetFilters}
-        isSuperAdmin={isSuperAdmin}
+        canViewAllInstitutions={canViewAllInstitutions}
         isHOD={isHOD}
         isFaculty={isFaculty}
         userInstitutionId={userInstitutionId}
