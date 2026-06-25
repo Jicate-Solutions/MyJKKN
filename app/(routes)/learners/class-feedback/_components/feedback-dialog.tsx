@@ -34,9 +34,11 @@ interface FeedbackDialogProps {
   /** The pending session being confirmed; null = dialog closed. */
   session: PendingSession | null;
   onOpenChange: (open: boolean) => void;
+  /** Capture channel — 'live_poll' when answering an in-class Live Pulse. Default 'async'. */
+  source?: 'async' | 'live_poll';
 }
 
-export function FeedbackDialog({ session, onOpenChange }: FeedbackDialogProps) {
+export function FeedbackDialog({ session, onOpenChange, source = 'async' }: FeedbackDialogProps) {
   const { data: checklistConfig, isLoading: loadingChecklist } = useChecklistConfig();
   const submit = useSubmitFeedback();
 
@@ -74,6 +76,7 @@ export function FeedbackDialog({ session, onOpenChange }: FeedbackDialogProps) {
         understood,
         checklist,
         freeText: freeText.trim() ? freeText.trim() : null,
+        source,
       });
       toast.success('Thanks! Your attendance for this class is now confirmed.');
       onOpenChange(false);

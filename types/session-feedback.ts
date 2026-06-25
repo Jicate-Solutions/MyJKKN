@@ -187,4 +187,59 @@ export interface SubmitFeedbackInput {
   understood: number;            // 1..5
   checklist?: Record<string, boolean>;
   freeText?: string | null;
+  /** Capture channel. 'live_poll' is honored only when a pulse is open for the
+   *  class (the RPC downgrades to 'async' otherwise). Defaults to 'async'. */
+  source?: 'async' | 'live_poll';
+}
+
+// ── Live Pulse Check — a live in-class poll that fuels the feedback loop ──────
+// Spec: specs/live-pulse-check-2026-06-25.md. Each student answer is a normal
+// feedback submit with source='live_poll'; these types cover only the live
+// lifecycle (scf_live_pulse) + the teacher's anonymized totals.
+
+/** A live pulse session (scf_live_pulse). Returned by fn_scf_open_pulse. */
+export interface LivePulseRow {
+  id: string;
+  institution_id: string | null;
+  timetable_id: string;
+  attendance_date: string;
+  period_id: string;
+  course_code: string | null;
+  course_name: string | null;
+  faculty_email: string | null;
+  is_open: boolean;
+  issued_at: string;
+  auto_close_at: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** An open pulse for a session the learner is marked Present in.
+ *  fn_scf_open_pulse_for_learner. */
+export interface OpenPulseForLearner {
+  pulse_id: string;
+  attendance_date: string;
+  timetable_id: string;
+  period_id: string;
+  course_code: string | null;
+  course_name: string | null;
+  faculty_email: string | null;
+  issued_at: string;
+  auto_close_at: string;
+  already_answered: boolean;
+}
+
+/** Anonymized live totals for the teacher (fn_scf_pulse_totals). TOTALS ONLY —
+ *  never who answered what. The understanding distribution + checklist tallies
+ *  are suppressed (null) until at least 3 responses (k-anonymity floor, #2). */
+export interface PulseTotals {
+  is_open: boolean;
+  auto_close_at: string;
+  present_count: number;
+  response_count: number;
+  suppressed: boolean;                                // true when response_count < 3
+  avg_understood: number | null;                      // null when suppressed
+  dist: Record<string, number> | null;               // {"1":n,...,"5":n} or null
+  checklist_counts: Record<string, number> | null;   // {item_key:n} or null
 }
