@@ -220,4 +220,9 @@ GRANT  EXECUTE ON FUNCTION public.fn_scf_measure_suggestion_outcomes(int) TO ser
 COMMENT ON TABLE public.scf_ai_suggestions IS
   'Self-improving loop memory: each AI teaching suggestion + the input state it was based on + the measured next-class outcome (lift) + optional human verdict. Stores synthesized guidance only (never raw student comments). Feeds fn_scf_prior_suggestion back into the next AI prompt so the model improves from its own track record.';
 COMMENT ON FUNCTION public.fn_scf_measure_suggestion_outcomes(int) IS
-  'Closes the loop: for unmeasured suggestions, sets outcome = avg understanding of the earliest next session (same course+faculty after the window) and lift = outcome - input. Run daily. service_role only.';
+  'Closes the loop: for unmeasured suggestions, sets outcome = avg understanding of the earliest next session (>=3 responses, same course+faculty after the window) and lift = outcome - input. Run daily. service_role only.';
+
+-- Reload PostgREST's schema cache so the new RPCs resolve immediately after a raw
+-- Management-API apply (which does NOT auto-reload) — otherwise the route's
+-- .rpc() calls 404 until the next reload. (feedback_exec_sql_ddl_needs_pgrst_schema_reload)
+NOTIFY pgrst, 'reload schema';
