@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS public.scf_ai_suggestions (
   institution_id           uuid,
   course_code              text NOT NULL,
   faculty_email            text,                    -- lower-cased; NULL = course-level (leadership view)
-  generated_at             timestamptz NOT NULL DEFAULT now(),
+  generated_at             timestamptz NOT NULL DEFAULT clock_timestamp(), -- wall-clock (advances within a tx) so prior-ordering is deterministic even for same-tx records
+
   window_from              date NOT NULL,
   window_to                date NOT NULL,
   -- input state the suggestion was based on (the "before")
