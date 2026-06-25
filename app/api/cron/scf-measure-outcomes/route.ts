@@ -48,9 +48,13 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // RETURNS int → supabase-js usually surfaces the scalar directly, but older
+  // shapes wrap it in an array; normalize so `measured` is always the number.
+  const measured = Array.isArray(data) ? (data[0] ?? 0) : data;
+
   return NextResponse.json({
     ok: true,
-    measured: typeof data === 'number' ? data : data,
+    measured,
     elapsed_ms: Date.now() - started,
   });
 }
