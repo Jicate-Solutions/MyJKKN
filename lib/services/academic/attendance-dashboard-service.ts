@@ -1006,7 +1006,7 @@ export class AttendanceDashboardService {
    * Useful for trend analysis
    */
   static async getAttendanceTrend(
-    institutionId: string,
+    institutionId: string | null | undefined,
     days: number = 7
   ): Promise<AttendanceTrendData[]> {
     try {
@@ -1023,12 +1023,20 @@ export class AttendanceDashboardService {
         dates.push(d.toISOString().split('T')[0]);
       }
 
-      const { data: attendanceData, error } = await this.supabase
+      // All-colleges viewer (scope='all', no institution selected) passes null/undefined:
+      // omit the .eq filter so every RLS-permitted institution's rows come back and the
+      // per-day loop below sums them into a combined overall %. A concrete institutionId
+      // still scopes to that one college. RLS keeps the no-filter branch scope-honest.
+      let query = this.supabase
         .from('student_attendance')
         .select('attendance_date, attendance_data')
-        .eq('institution_id', institutionId)
-        .in('attendance_date', dates)
-        .order('attendance_date');
+        .in('attendance_date', dates);
+
+      if (institutionId) {
+        query = query.eq('institution_id', institutionId);
+      }
+
+      const { data: attendanceData, error } = await query.order('attendance_date');
 
       if (error) throw error;
 
