@@ -246,7 +246,7 @@ Generate the teaching-improvement JSON now.`;
     //    stored; the raw free_texts are NOT.
     try {
       await admin.rpc('fn_scf_record_suggestion', {
-        p_institution_id: pInstitutionId,
+        p_institution_id: loopInstitutionId,
         p_course_code: courseCode,
         p_faculty_email: pFacultyEmail,
         p_window_from: from,
