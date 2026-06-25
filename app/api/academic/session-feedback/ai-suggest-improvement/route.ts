@@ -113,6 +113,17 @@ export async function POST(req: NextRequest) {
       pFacultyEmail = (profile?.email as string | null)?.toLowerCase() ?? null;
     }
 
+    // Institution the self-improving loop row is recorded/looked-up under. The
+    // faculty-self path scopes the AI read by email (pInstitutionId=null), but the
+    // stored suggestion MUST carry the resolved institution — otherwise the row is
+    // NULL-institution and readable by every authenticated user (the
+    // role_has_institution_access(NULL)=true gap). Super-admin course-level rows
+    // legitimately stay NULL (super/admin-only read). NOTE: the super/leadership
+    // lane records at faculty_email=NULL (course-level) while the faculty-self lane
+    // records the real email — two intentionally disjoint loop lanes.
+    const loopInstitutionId =
+      pInstitutionId ?? ((profile?.institution_id as string | null) ?? null);
+
     // 4) Read the aggregate + anonymized comments via the SERVICE-ROLE-ONLY RPC.
     const admin = createServiceRoleClient();
     const { data, error: rpcError } = await admin.rpc('fn_scf_ai_signal', {
