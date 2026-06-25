@@ -159,21 +159,26 @@ export function useActiveInstitutions(enabled: boolean = true) {
  */
 export function useAttendanceTrend(institutionId?: string, days: number = 7) {
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, canAccess } = usePermissions();
 
-  // NOTE (BUG-004284): intentionally NOT extended to view_all_institutions roles.
-  // Unlike the stats/pending services, AttendanceDashboardService.getAttendanceTrend
-  // requires a concrete institutionId — it runs `.eq('institution_id', institutionId)`
-  // unconditionally with no "all institutions" branch and no per-institution
-  // aggregation. Forcing `undefined` here would send `institution_id=eq.undefined`
-  // (zero rows / broken query), and the hook is `enabled: !!queryInstitutionId` anyway.
-  // A correct all-colleges trend needs a SERVICE-LEVEL change first (drop the eq when
-  // no institution is given AND aggregate across institutions per day). Until then a
-  // view_all_institutions viewer with no institution selected simply sees no trend —
-  // the same behaviour a super admin already gets with no institution selected.
-  const queryInstitutionId = isSuperAdmin
-    ? institutionId
-    : profile?.institution_id;
+  // A super admin OR a role holding academic.attendance.dashboard.view_all_institutions
+  // (e.g. Executive Admin Officer, institution_scope='all') may span every college —
+  // same BUG-004284 fix as the Statistics and Pending tabs. Previously this gated on
+  // isSuperAdmin alone, which silently collapsed a scope='all' custom role back to its
+  // own institution on the Trend tab.
+  const canSeeAllInstitutions =
+    isSuperAdmin || canAccess('academic.attendance.dashboard', 'view_all_institutions');
+
+  const queryInstitutionId = canSeeAllInstitutions
+    ? institutionId // may be undefined → all colleges
+    : profile?.institution_id; // scope='own' pinned to own institution
+
+  // All-colleges viewer with no specific institution picked → query across all.
+  // The service now omits the institution filter when none is given and lets
+  // student_attendance RLS scope the rows; the existing per-day loop then sums
+  // present/total across them into the combined overall %.
+  const canSeeAllUnscoped =
+    canSeeAllInstitutions && institutionId === undefined;
 
   const {
     data: trendData,
@@ -181,10 +186,10 @@ export function useAttendanceTrend(institutionId?: string, days: number = 7) {
     error,
     refetch
   } = useQuery({
-    queryKey: ['attendance-trend', queryInstitutionId, days],
+    queryKey: ['attendance-trend', queryInstitutionId, canSeeAllUnscoped, days],
     queryFn: () =>
-      AttendanceDashboardService.getAttendanceTrend(queryInstitutionId!, days),
-    enabled: !!queryInstitutionId,
+      AttendanceDashboardService.getAttendanceTrend(queryInstitutionId, days),
+    enabled: canSeeAllUnscoped || !!queryInstitutionId,
     ...QUERY_CONFIG.DASHBOARD_DATA,
     refetchInterval: 10 * 60 * 1000 // Override: 10 minutes for trend (less frequent)
   });
