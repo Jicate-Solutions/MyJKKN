@@ -60,10 +60,18 @@ export class WellnessProgramsService {
   // --------------------------------------------------------------------------
 
   static async getActivePrograms(): Promise<HealthProgram[]> {
+    // A program is "active" for learners only while it is still within its run
+    // window. Filtering on status alone left ended programs (whose status was
+    // never flipped to 'completed') showing as live indefinitely — e.g.
+    // MindSmile, end_date 2026-06-24, still surfaced days later. Drop any
+    // program whose end_date has already passed; keep open-ended ones (no
+    // end_date) and those ending today or later.
+    const today = new Date().toISOString().split('T')[0];
     const { data } = await (supabase as any)
       .from('health_programs')
       .select('*')
       .in('status', ['active', 'scheduled'])
+      .or(`end_date.is.null,end_date.gte.${today}`)
       .order('start_date', { ascending: true });
     return data || [];
   }
