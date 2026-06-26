@@ -8,6 +8,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   SessionFeedbackRow,
   PendingSession,
+  CarryforwardItem,
   ConfirmationStatusRow,
   FacultySummaryRow,
   FacultyCompletionRow,
@@ -56,6 +57,17 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to load pending sessions: ${error.message}`);
     return (data || []) as PendingSession[];
+  }
+
+  /** Carry-forward re-asks: prior same-course sessions the learner flagged, for their
+   *  current pending sessions. Powers the "better this time?" banner in the dialog. */
+  static async getCarryforward(lookbackDays = 30): Promise<CarryforwardItem[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_carryforward_for_learner', {
+      p_lookback_days: lookbackDays,
+    });
+    if (error) throw new Error(`Failed to load carry-forward: ${error.message}`);
+    return (data || []) as CarryforwardItem[];
   }
 
   /** Per-session confirmation state (present-pending vs confirmed) in a date range. */
