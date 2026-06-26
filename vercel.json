@@ -40,8 +40,6 @@
       "schedule": "52 1 * * *"
     },
     {
-=======
->>>>>>> jicate/main
       "path": "/api/cron/attendance-breach-check?secret=${CRON_SECRET}",
       "schedule": "37 21 * * *"
     },
