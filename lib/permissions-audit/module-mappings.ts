@@ -89,6 +89,10 @@ export const CATEGORY_ONLY_MODULES: ReadonlyArray<readonly [string, string]> = [
   // PERMISSION_CATEGORIES entry + sidebar routes but no tables in
   // table-module-map, so it's category-only like Documents/AI Pulse above.
   ['Calendar', 'calendar'],
+  // Feedback dashboard (/feedback, 2026-06-26): reads the universal feedback
+  // spine (feedback_events). Has the 'feedback' PERMISSION_CATEGORIES entry +
+  // sidebar route but no tables in table-module-map, so it's category-only.
+  ['Feedback', 'feedback'],
 ];
 
 /**
