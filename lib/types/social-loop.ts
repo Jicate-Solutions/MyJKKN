@@ -114,6 +114,54 @@ export interface LoopConfig {
   cycleLengthDays: number;
 }
 
+/**
+ * One comment row from feedback_events that needs a human reply.
+ * Content is capped at 160 chars server-side before sending.
+ */
+export interface VoiceNeedsReply {
+  actor_ref: string | null;
+  /** Truncated to ≤160 chars. */
+  content: string;
+  ai_topic: string | null;
+  ai_sentiment: string | null;
+  ai_draft_reply: string | null;
+}
+
+/**
+ * Voice-of-Audience dimension — derived from feedback_events rows
+ * whose target_ref matches a window post's ig_media_id.
+ * All fields are zero-safe; the object is always present on a success response.
+ */
+export interface LoopVoice {
+  /** Total AI-classified comments matched to the window. */
+  total: number;
+  sentimentBreakdown: {
+    positive: number;
+    neutral: number;
+    negative: number;
+    mixed: number;
+  };
+  /** Top ~8 ai_topic strings by count (spam excluded). */
+  topThemes: string[];
+  /** Up to ~10 comments needing human attention (complaint/question/request). */
+  needsReply: VoiceNeedsReply[];
+  /** Comments whose ai_intent='spam' — hidden from the main view. */
+  spamCount: number;
+}
+
+/**
+ * Self-grade of the last closed cycle — did the previous instruction move
+ * the needle? null when fewer than 2 closed cycles exist.
+ */
+export interface LoopLastCycleGrade {
+  /** The nextInstruction text from the most-recent closed cycle, or null. */
+  previousInstruction: string | null;
+  /** true = realSignal barToBeat rose; false = fell/same; null = cannot compute. */
+  improved: boolean | null;
+  /** Human-readable one-liner, always present. */
+  message: string;
+}
+
 /** GET /api/social/loop response shape. */
 export interface LoopResponse {
   success: boolean;
@@ -126,6 +174,16 @@ export interface LoopResponse {
   readable?: boolean;
   /** Present only when !readable — explains why engagement reads 0. */
   notReadableMessage?: string;
+  /**
+   * Voice-of-Audience from feedback_events ig_comments matched to the window.
+   * Present on success responses; absent on error shape.
+   */
+  voice?: LoopVoice;
+  /**
+   * Self-grade of the most-recent closed cycle.
+   * null when fewer than 2 cycles exist (nothing to grade against).
+   */
+  lastCycleGrade?: LoopLastCycleGrade | null;
   /** Present only on failure. */
   error?: string;
 }
