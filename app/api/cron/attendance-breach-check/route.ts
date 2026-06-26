@@ -19,7 +19,10 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from 'next/server';
-import { evaluateAttendanceTriggers } from '@/lib/services/meetings/meeting-trigger-service';
+import {
+  evaluateAttendanceTriggers,
+  evaluateMissingDataTriggers
+} from '@/lib/services/meetings/meeting-trigger-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -40,11 +43,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const dateOverride =
       request.nextUrl.searchParams.get('date') || undefined;
-    const result = await evaluateAttendanceTriggers({ date: dateOverride });
+    // Two inverse signals over the same day's attendance data: the rate trigger
+    // (low attendance) and the missing-data trigger (a working day with no marks
+    // at all). The rate trigger skips no-data days; the missing-data trigger
+    // owns them. Both share the explanation valve via reconcileExplanations.
+    const attendance = await evaluateAttendanceTriggers({ date: dateOverride });
+    const missing_data = await evaluateMissingDataTriggers({ date: dateOverride });
 
     return NextResponse.json({
       success: true,
-      ...result,
+      attendance,
+      missing_data,
       duration_ms: Date.now() - startTime
     });
   } catch (error: any) {
