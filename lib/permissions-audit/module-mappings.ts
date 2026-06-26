@@ -199,6 +199,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   // Global Calendar module (/calendar, /calendar/holidays, /calendar/settings) —
   // gated by calendar.* perms. Single prefix covers all three via longest-match.
   ['/calendar', 'Calendar'],
+  ['/feedback', 'Feedback'], // Feedback spine dashboard (feedback.view); category-only module
   ['/health', 'Health'],
   ['/ims', 'IMS'],
   ['/events', 'Events'],
