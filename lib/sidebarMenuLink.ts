@@ -1151,6 +1151,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Service Requests — All Services chip (admin/staff cross-institution view)
   '/service-requests/all-services': 'service_requests.view_all',
+
+  // Feedback Dashboard — Universal Feedback Spine (added 2026-06-26).
+  // Admin / super-admin always have access via RLS; feedback.view grants
+  // access to non-admin roles (e.g. dedicated feedback reviewers).
+  '/feedback': 'feedback.view',
 };
 
 /**
@@ -2446,6 +2451,22 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: FileDown,
           submenus: []
         },
+      ]
+    },
+    {
+      // Feedback Dashboard — Universal Feedback Spine.
+      // Added 2026-06-26: admin-level view of AI-classified feedback_events
+      // (sentiment, themes, complaints, troll-storm concentration). Gated by
+      // feedback.view; super-admin and admin always see it via RLS bypass.
+      groupLabel: 'Feedback',
+      menus: [
+        {
+          href: '/feedback',
+          label: 'Feedback',
+          active: pathname === '/feedback' || pathname.startsWith('/feedback/'),
+          icon: MessageSquare,
+          submenus: [],
+        }
       ]
     },
     {
