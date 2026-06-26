@@ -20,6 +20,10 @@
   },
   "crons": [
     {
+      "path": "/api/cron/feedback-adapter-session?secret=${CRON_SECRET}",
+      "schedule": "12 1 * * *"
+    },
+    {
       "path": "/api/cron/attendance-breach-check?secret=${CRON_SECRET}",
       "schedule": "37 21 * * *"
     },
