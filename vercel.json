@@ -24,6 +24,22 @@
       "schedule": "12 1 * * *"
     },
     {
+      "path": "/api/cron/feedback-adapter-mess?secret=${CRON_SECRET}",
+      "schedule": "22 1 * * *"
+    },
+    {
+      "path": "/api/cron/feedback-adapter-parent?secret=${CRON_SECRET}",
+      "schedule": "32 1 * * *"
+    },
+    {
+      "path": "/api/cron/feedback-adapter-ig-dm?secret=${CRON_SECRET}",
+      "schedule": "42 1 * * *"
+    },
+    {
+      "path": "/api/cron/feedback-adapter-ig-comments?secret=${CRON_SECRET}",
+      "schedule": "52 1 * * *"
+    },
+    {
       "path": "/api/cron/attendance-breach-check?secret=${CRON_SECRET}",
       "schedule": "37 21 * * *"
     },
