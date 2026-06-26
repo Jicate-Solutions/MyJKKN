@@ -284,6 +284,10 @@
       "schedule": "13 7 * * *"
     },
     {
+      "path": "/api/cron/scf-measure-outcomes?secret=${CRON_SECRET}",
+      "schedule": "47 2 * * *"
+    },
+    {
       "path": "/api/cron/session-feedback-escalation?secret=${CRON_SECRET}",
       "schedule": "30 7 * * 1"
     }
