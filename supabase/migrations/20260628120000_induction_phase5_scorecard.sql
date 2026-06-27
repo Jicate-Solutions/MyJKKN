@@ -310,10 +310,11 @@ DECLARE
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_emit_naac_evidence: not authenticated'; END IF;
 
-  SELECT ip.id AS program_id, ip.institution_id, e.start_date
+  SELECT ip.id AS program_id, ip.institution_id, e.start_date, ay.academic_year_name
     INTO v_prog
   FROM public.induction_programs ip
   JOIN public.events e ON e.id = ip.event_id
+  LEFT JOIN public.academic_years ay ON ay.id = ip.academic_year_id
   WHERE ip.event_id = p_event_id;
   IF v_prog.program_id IS NULL THEN RAISE EXCEPTION 'fn_induction_emit_naac_evidence: not an induction event'; END IF;
 
@@ -322,13 +323,17 @@ BEGIN
     RAISE EXCEPTION 'fn_induction_emit_naac_evidence: not authorized';
   END IF;
 
-  -- Indian academic-year label from the event start date (e.g. 2026-27). start_date
-  -- is timestamptz → normalise to IST before taking the year, else an induction
-  -- near the Jan boundary mislabels the year under the server TZ.
-  v_period := CASE WHEN v_prog.start_date IS NULL THEN NULL
-    ELSE extract(year FROM (v_prog.start_date AT TIME ZONE 'Asia/Kolkata'))::int::text || '-' ||
-         right((extract(year FROM (v_prog.start_date AT TIME ZONE 'Asia/Kolkata'))::int + 1)::text, 2)
-  END;
+  -- Prefer the linked academic-year LABEL (correct AY semantics — an Indian academic
+  -- year spans two calendar years, so a Jan–May induction must not be labelled by its
+  -- calendar start year). Fall back to an IST-normalised calendar-year label only when
+  -- the program has no academic_year row.
+  v_period := COALESCE(
+    NULLIF(btrim(v_prog.academic_year_name), ''),
+    CASE WHEN v_prog.start_date IS NULL THEN NULL
+      ELSE extract(year FROM (v_prog.start_date AT TIME ZONE 'Asia/Kolkata'))::int::text || '-' ||
+           right((extract(year FROM (v_prog.start_date AT TIME ZONE 'Asia/Kolkata'))::int + 1)::text, 2)
+    END
+  );
 
   -- Live rollup snapshot for the metadata (joins LIVE off the admission funnel).
   WITH freshers AS (
@@ -373,6 +378,12 @@ BEGIN
     'snapshot_at', now()
   ) INTO v_meta
   FROM comp, refs;
+
+  -- Don't write NAAC evidence for an induction that reached nobody. The UI hides the
+  -- button at enrolled=0, but a direct RPC must not emit all-zero evidence rows.
+  IF COALESCE((v_meta->>'enrolled')::int, 0) = 0 THEN
+    RETURN 0;
+  END IF;
 
   -- Upsert one evidence row per NAAC criterion (source row = the induction_programs
   -- satellite). Refresh metadata + mapped_at on conflict so re-running re-snapshots.
