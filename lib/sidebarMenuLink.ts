@@ -279,6 +279,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // have sub-permissions continue seeing the Academic sidebar row even
   // though the row now points at /academic instead of /academic/years.
   '/academic': 'academic.years.view',
+  '/induction': 'induction.view',
   '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
   '/academic/leave-calendar': 'academic.leaves.view',
@@ -1301,6 +1302,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           // Flat link — the Academic sub-pages (incl. Parent Portal Content)
           // are surfaced by the in-module tab bar (academic/nav-config.ts),
           // NOT as sidebar submenus. Adding submenus here would hide the rest.
+          submenus: []
+        },
+        {
+          // Fresher Induction — guided onboarding program per college.
+          // Gated by '/induction' -> 'induction.view' (MENU_PERMISSIONS).
+          href: '/induction',
+          label: 'Induction',
+          active: pathname === '/induction' || pathname.startsWith('/induction/'),
+          icon: Rocket,
           submenus: []
         },
         // NOTE: the learner lanes (Class Feedback /learn, My Attendance Feedback
