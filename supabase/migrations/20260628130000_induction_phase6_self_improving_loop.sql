@@ -145,8 +145,12 @@ $$;
 -- The self-improving step: next year's playbook reads last year's guidance AND
 -- whether refer+join actually improved, so the AI proposes a BETTER (still
 -- value-first) playbook from its own track record.
+-- Drop the prior single-arg overload (an earlier apply created it); the new
+-- 2-arg form below would otherwise be ambiguous with it on a 1-arg call.
+DROP FUNCTION IF EXISTS public.fn_induction_prior_loop_suggestion(uuid);
 CREATE OR REPLACE FUNCTION public.fn_induction_prior_loop_suggestion(
-  p_institution_id uuid
+  p_institution_id            uuid,
+  p_exclude_academic_year_id  uuid DEFAULT NULL   -- the cohort being generated; never feed it back to itself
 )
 RETURNS TABLE (
   generated_at      timestamptz,
@@ -172,19 +176,27 @@ AS $$
   FROM public.scf_ai_suggestions s
   WHERE s.domain = 'induction'
     AND s.institution_id = p_institution_id
+    AND s.outcome_lift IS NOT NULL                                          -- only a MEASURED prior is feedback
+    AND (p_exclude_academic_year_id IS NULL OR s.academic_year_id <> p_exclude_academic_year_id)
   ORDER BY s.generated_at DESC
   LIMIT 1;
 $$;
 
 -- ── 5. The RE-POINTED verifier — close the loop on value-balanced refer+join ───
--- For each unmeasured induction suggestion old enough, measure its cohort
--- (freshers enrolled in induction events of the suggestion's institution+year):
---   joins_per_fresher = LIVE joined referrals / enrolled freshers
+-- For each unmeasured induction suggestion whose COHORT HAS MATURED (window_to is
+-- p_min_age_days in the past — long enough for the admission cycle to produce
+-- JOINs; default 150d), measure its cohort (DISTINCT freshers enrolled in any
+-- induction event of the suggestion's institution+year):
+--   joins_per_fresher = LIVE joined referrals / DISTINCT enrolled freshers
 --   value_health      = cohort avg value_score_avg / 5
 --   score             = 100 · joins_per_fresher · value_health   (decision 13)
 --   lift              = score − prior cohort's score (0 on the first cycle)
+-- Grain is per-DISTINCT-learner so a cohort spanning >1 induction event never
+-- fan-out-inflates joins. Every mature candidate is measured exactly once
+-- (zero-enrollment → terminal score 0; missing value data → neutral lift 0) so
+-- no candidate is re-scanned forever.
 CREATE OR REPLACE FUNCTION public.fn_induction_measure_loop_outcomes(
-  p_min_age_days int DEFAULT 1
+  p_min_age_days int DEFAULT 150
 )
 RETURNS int
 LANGUAGE plpgsql
@@ -200,49 +212,55 @@ BEGIN
     WHERE s.domain = 'induction'
       AND s.outcome_lift IS NULL
       AND s.academic_year_id IS NOT NULL
-      AND s.generated_at <= now() - make_interval(days => p_min_age_days)
+      -- maturity gate is on the cohort's induction END, not the record age, so we
+      -- never freeze a near-zero outcome before the admission cycle yields joins.
+      AND s.window_to <= (now() - make_interval(days => p_min_age_days))::date
   ),
-  cohort AS (  -- one row per candidate: enrolled count + cohort value/advocacy
-    SELECT c.id,
-           count(DISTINCT ie.learner_id)              AS enrolled,
-           round(avg(comp.value_score_avg), 2)        AS value_avg,
-           round(avg(comp.advocacy_score), 2)         AS advocacy_avg
+  cohort_learners AS (  -- DISTINCT (candidate, learner) across all the year's events
+    SELECT DISTINCT c.id AS cand_id, c.institution_id, c.academic_year_id, ie.learner_id
     FROM candidates c
     JOIN public.induction_programs ip
       ON ip.institution_id = c.institution_id AND ip.academic_year_id = c.academic_year_id
     JOIN public.induction_enrollment ie ON ie.event_id = ip.event_id
-    LEFT JOIN public.induction_completion comp
-      ON comp.event_id = ie.event_id AND comp.learner_id = ie.learner_id
-    GROUP BY c.id
   ),
-  joins AS (  -- LIVE joined referrals by the cohort's freshers
-    SELECT c.id,
-           count(*) FILTER (
-             WHERE al.funnel_stage IN ('token_paid','confirmed','enrolled')
-           )::int AS joined
+  per_learner AS (  -- one row per (candidate, learner): value across the cohort's
+                    -- events; joined referrals counted ONCE (event-independent)
+    SELECT cl.cand_id, cl.learner_id,
+           (SELECT avg(comp.value_score_avg)
+              FROM public.induction_completion comp
+              JOIN public.induction_programs ip2 ON ip2.event_id = comp.event_id
+              WHERE comp.learner_id = cl.learner_id
+                AND ip2.institution_id = cl.institution_id
+                AND ip2.academic_year_id = cl.academic_year_id) AS value_avg,
+           (SELECT count(DISTINCT al.id)
+              FROM public.admission_leads al
+              WHERE al.referred_by_id = cl.learner_id
+                AND al.source = 'referral'::lead_source
+                AND al.funnel_stage IN ('token_paid','confirmed','enrolled')) AS joined
+    FROM cohort_learners cl
+  ),
+  agg AS (  -- one row per candidate (always — even zero-enrollment)
+    SELECT c.id, c.input_avg_understood,
+           (SELECT count(*)                 FROM per_learner pl WHERE pl.cand_id = c.id)         AS enrolled,
+           (SELECT COALESCE(sum(pl.joined),0) FROM per_learner pl WHERE pl.cand_id = c.id)       AS joined,
+           (SELECT avg(pl.value_avg)        FROM per_learner pl WHERE pl.cand_id = c.id)         AS value_avg
     FROM candidates c
-    JOIN public.induction_programs ip
-      ON ip.institution_id = c.institution_id AND ip.academic_year_id = c.academic_year_id
-    JOIN public.induction_enrollment ie ON ie.event_id = ip.event_id
-    LEFT JOIN public.admission_leads al
-      ON al.referred_by_id = ie.learner_id AND al.source = 'referral'::lead_source
-    GROUP BY c.id
   ),
   scored AS (
-    SELECT c.id, c.input_avg_understood,
-           co.enrolled, co.value_avg,
-           CASE WHEN COALESCE(co.enrolled, 0) = 0 THEN 0
-                ELSE round(100.0 * (j.joined::numeric / co.enrolled)
-                                 * (COALESCE(co.value_avg, 0) / 5.0), 2)
+    SELECT a.id, a.input_avg_understood, a.enrolled,
+           CASE WHEN COALESCE(a.enrolled, 0) = 0 THEN 0          -- playbook reached nobody
+                WHEN a.value_avg IS NULL        THEN NULL         -- no value signal → neutral close
+                ELSE round(100.0 * (a.joined::numeric / a.enrolled) * (a.value_avg / 5.0), 2)
            END AS score
-    FROM candidates c
-    JOIN cohort co ON co.id = c.id
-    JOIN joins  j  ON j.id  = c.id
+    FROM agg a
   )
   UPDATE public.scf_ai_suggestions s
   SET outcome_avg_understood = sc.score,
       outcome_responses      = sc.enrolled,
-      outcome_lift           = round(sc.score - COALESCE(sc.input_avg_understood, sc.score), 2),
+      -- neutral lift (0) when there is no value signal, so a no-data cohort is
+      -- measured once without injecting a spurious large negative into the loop.
+      outcome_lift           = CASE WHEN sc.score IS NULL THEN 0
+                                    ELSE round(sc.score - COALESCE(s.input_avg_understood, sc.score), 2) END,
       outcome_measured_at    = now(),
       updated_at             = now()
   FROM scored sc
@@ -256,8 +274,8 @@ $$;
 -- ── Anon-lock: induction loop fns are service-role only (cron + future AI route) ─
 REVOKE EXECUTE ON FUNCTION public.fn_induction_record_loop_suggestion(uuid,uuid,date,date,numeric,jsonb,text) FROM anon, PUBLIC, authenticated;
 GRANT  EXECUTE ON FUNCTION public.fn_induction_record_loop_suggestion(uuid,uuid,date,date,numeric,jsonb,text) TO service_role;
-REVOKE EXECUTE ON FUNCTION public.fn_induction_prior_loop_suggestion(uuid) FROM anon, PUBLIC, authenticated;
-GRANT  EXECUTE ON FUNCTION public.fn_induction_prior_loop_suggestion(uuid) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_prior_loop_suggestion(uuid,uuid) FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_prior_loop_suggestion(uuid,uuid) TO service_role;
 REVOKE EXECUTE ON FUNCTION public.fn_induction_measure_loop_outcomes(int) FROM anon, PUBLIC, authenticated;
 GRANT  EXECUTE ON FUNCTION public.fn_induction_measure_loop_outcomes(int) TO service_role;
 
