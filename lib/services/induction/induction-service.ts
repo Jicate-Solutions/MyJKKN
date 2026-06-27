@@ -95,6 +95,61 @@ export class InductionService {
     if (error) throw error;
     return (data as boolean) ?? false;
   }
+
+  // ── Attendance (roster marking + completion rollup, via gated DEFINER RPCs) ──
+
+  /** Roster for a session — enrolled learners (of the session's batch) + current mark. */
+  static async getSessionRoster(sessionId: string): Promise<RosterRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_session_roster', { p_session_id: sessionId });
+    if (error) throw error;
+    return (data as RosterRow[]) ?? [];
+  }
+
+  /** Bulk mark attendance; recomputes completion. Returns rows marked. */
+  static async markAttendance(sessionId: string, marks: AttendanceMark[]): Promise<number> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_mark_attendance', {
+      p_session_id: sessionId,
+      p_marks: marks,
+    });
+    if (error) throw error;
+    return (data as number) ?? 0;
+  }
+
+  // ── Per-session feedback (value signal; student submit + coordinator summary) ──
+
+  /** Student submits/updates their 1–5 rating (+ comment) for a session. Returns feedback id. */
+  static async submitFeedback(sessionId: string, rating: number, comment?: string | null): Promise<string> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_submit_feedback', {
+      p_session_id: sessionId,
+      p_rating: rating,
+      p_comment: comment ?? null,
+    });
+    if (error) throw error;
+    return data as string;
+  }
+
+  /** Coordinator: per-session avg rating + response count. */
+  static async getSessionFeedbackSummary(eventId: string): Promise<SessionFeedbackSummary[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_session_feedback_summary', { p_event_id: eventId });
+    if (error) throw error;
+    return (data as SessionFeedbackSummary[]) ?? [];
+  }
+}
+
+export interface SessionFeedbackSummary { session_id: string; avg_rating: number; response_count: number; }
+
+export type AttendanceStatus = 'present' | 'absent' | 'excused' | 'od';
+export interface AttendanceMark { learner_id: string; status: AttendanceStatus; }
+export interface RosterRow {
+  learner_id: string;
+  name: string;
+  register_number: string | null;
+  batch_label: string | null;
+  status: AttendanceStatus | null;
 }
 
 export interface ResourceLink { label: string; url: string; }
