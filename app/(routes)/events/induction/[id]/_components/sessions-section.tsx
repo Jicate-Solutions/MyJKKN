@@ -9,6 +9,7 @@ import {
   type InductionSessionRow,
   type ResourceLink,
 } from '@/lib/services/induction/induction-service';
+import { AttendanceDialog } from './attendance-dialog';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -251,6 +252,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                           )}
                         </div>
                         <div className="flex gap-1 shrink-0">
+                          <AttendanceDialog sessionId={s.id} sessionTitle={s.title} />
                           <Button size="icon" variant="ghost" onClick={() => openEdit(s)}><Pencil className="h-4 w-4" /></Button>
                           <Button size="icon" variant="ghost" onClick={() => remove(s)}><Trash2 className="h-4 w-4" /></Button>
                         </div>

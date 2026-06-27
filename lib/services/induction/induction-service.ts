@@ -95,6 +95,37 @@ export class InductionService {
     if (error) throw error;
     return (data as boolean) ?? false;
   }
+
+  // ── Attendance (roster marking + completion rollup, via gated DEFINER RPCs) ──
+
+  /** Roster for a session — enrolled learners (of the session's batch) + current mark. */
+  static async getSessionRoster(sessionId: string): Promise<RosterRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_session_roster', { p_session_id: sessionId });
+    if (error) throw error;
+    return (data as RosterRow[]) ?? [];
+  }
+
+  /** Bulk mark attendance; recomputes completion. Returns rows marked. */
+  static async markAttendance(sessionId: string, marks: AttendanceMark[]): Promise<number> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_mark_attendance', {
+      p_session_id: sessionId,
+      p_marks: marks,
+    });
+    if (error) throw error;
+    return (data as number) ?? 0;
+  }
+}
+
+export type AttendanceStatus = 'present' | 'absent' | 'excused' | 'od';
+export interface AttendanceMark { learner_id: string; status: AttendanceStatus; }
+export interface RosterRow {
+  learner_id: string;
+  name: string;
+  register_number: string | null;
+  batch_label: string | null;
+  status: AttendanceStatus | null;
 }
 
 export interface ResourceLink { label: string; url: string; }
