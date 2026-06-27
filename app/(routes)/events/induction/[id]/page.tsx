@@ -118,7 +118,8 @@ export default function InductionDetailPage() {
     <ContentLayout title={event.name}>
       <PageBreadcrumb items={[
         { label: 'Home', href: '/' },
-        { label: 'Induction', href: '/induction' },
+        { label: 'Events', href: '/events' },
+        { label: 'Induction', href: '/events/induction' },
         { label: event.name },
       ]} />
 
