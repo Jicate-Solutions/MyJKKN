@@ -116,7 +116,31 @@ export class InductionService {
     if (error) throw error;
     return (data as number) ?? 0;
   }
+
+  // ── Per-session feedback (value signal; student submit + coordinator summary) ──
+
+  /** Student submits/updates their 1–5 rating (+ comment) for a session. Returns feedback id. */
+  static async submitFeedback(sessionId: string, rating: number, comment?: string | null): Promise<string> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_submit_feedback', {
+      p_session_id: sessionId,
+      p_rating: rating,
+      p_comment: comment ?? null,
+    });
+    if (error) throw error;
+    return data as string;
+  }
+
+  /** Coordinator: per-session avg rating + response count. */
+  static async getSessionFeedbackSummary(eventId: string): Promise<SessionFeedbackSummary[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_session_feedback_summary', { p_event_id: eventId });
+    if (error) throw error;
+    return (data as SessionFeedbackSummary[]) ?? [];
+  }
 }
+
+export interface SessionFeedbackSummary { session_id: string; avg_rating: number; response_count: number; }
 
 export type AttendanceStatus = 'present' | 'absent' | 'excused' | 'od';
 export interface AttendanceMark { learner_id: string; status: AttendanceStatus; }

@@ -20,7 +20,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger,
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Pencil, Trash2, Clock, MapPin, User, Target, LinkIcon, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, Clock, MapPin, User, Target, LinkIcon, X, Star } from 'lucide-react';
 
 interface Batch { id: string; label: string; }
 const COMBINED = '__combined__';
@@ -38,6 +38,7 @@ function fmtTime(iso: string) {
 
 export function SessionsSection({ eventId, batches }: { eventId: string; batches: Batch[] }) {
   const [sessions, setSessions] = useState<InductionSessionRow[]>([]);
+  const [feedback, setFeedback] = useState<Record<string, { avg: number; count: number }>>({});
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<InductionSessionRow | null>(null);
@@ -56,8 +57,16 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
 
   const load = useCallback(async () => {
     setLoading(true);
-    try { setSessions(await InductionService.listSessions(eventId)); }
-    catch (e: any) { toast.error(`Couldn't load sessions: ${e.message ?? e}`); }
+    try {
+      const [rows, summary] = await Promise.all([
+        InductionService.listSessions(eventId),
+        InductionService.getSessionFeedbackSummary(eventId).catch(() => []),
+      ]);
+      setSessions(rows);
+      const fb: Record<string, { avg: number; count: number }> = {};
+      for (const s of summary) fb[s.session_id] = { avg: Number(s.avg_rating), count: s.response_count };
+      setFeedback(fb);
+    } catch (e: any) { toast.error(`Couldn't load sessions: ${e.message ?? e}`); }
     finally { setLoading(false); }
   }, [eventId]);
   useEffect(() => { load(); }, [load]);
@@ -229,6 +238,12 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="font-medium">{s.title}</span>
                             <Badge variant="secondary">{s.batch_label ? `Batch ${s.batch_label}` : 'Combined'}</Badge>
+                            {feedback[s.id] && (
+                              <Badge variant="outline" className="gap-1" title={`${feedback[s.id].count} response(s)`}>
+                                <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+                                {feedback[s.id].avg.toFixed(1)} · {feedback[s.id].count}
+                              </Badge>
+                            )}
                           </div>
                           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                             <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{fmtTime(s.start_at)}–{fmtTime(s.end_at)}</span>
