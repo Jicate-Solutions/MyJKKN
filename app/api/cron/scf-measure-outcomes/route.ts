@@ -36,25 +36,42 @@ export async function GET(request: NextRequest) {
   const ageParam = request.nextUrl.searchParams.get('min_age_days');
   const minAge = ageParam && /^\d+$/.test(ageParam) ? parseInt(ageParam, 10) : 1;
 
+  // One loop, multi-scope: measure BOTH verifiers in this single job. The session
+  // verifier closes on next-session understanding lift; the induction verifier
+  // closes on the cohort's value-balanced refer+join outcome (Phase 6 re-point).
   const { data, error } = await supabase.rpc('fn_scf_measure_suggestion_outcomes', {
     p_min_age_days: minAge,
   });
 
   if (error) {
-    console.error('[cron/scf-measure-outcomes] RPC failed:', error);
+    console.error('[cron/scf-measure-outcomes] session RPC failed:', error);
     return NextResponse.json(
       { ok: false, error: error.message, elapsed_ms: Date.now() - started },
       { status: 500 }
     );
   }
 
+  const { data: indData, error: indError } = await supabase.rpc('fn_induction_measure_loop_outcomes', {
+    p_min_age_days: minAge,
+  });
+
+  if (indError) {
+    console.error('[cron/scf-measure-outcomes] induction RPC failed:', indError);
+    return NextResponse.json(
+      { ok: false, error: indError.message, elapsed_ms: Date.now() - started },
+      { status: 500 }
+    );
+  }
+
   // RETURNS int → supabase-js usually surfaces the scalar directly, but older
-  // shapes wrap it in an array; normalize so `measured` is always the number.
+  // shapes wrap it in an array; normalize so each count is always the number.
   const measured = Array.isArray(data) ? (data[0] ?? 0) : data;
+  const measuredInduction = Array.isArray(indData) ? (indData[0] ?? 0) : indData;
 
   return NextResponse.json({
     ok: true,
     measured,
+    measured_induction: measuredInduction,
     elapsed_ms: Date.now() - started,
   });
 }
