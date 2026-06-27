@@ -22,9 +22,12 @@ import {
   InductionService,
   type MyInductionEnrollment,
   type InductionSessionRow,
+  type MyInductionReferral,
 } from '@/lib/services/induction/induction-service';
 import { SessionRatingCard } from './_components/session-rating-card';
 import { ProfileNudge } from './_components/profile-nudge';
+import { ReferralSection } from './_components/referral-section';
+import { AdvocacyCard } from './_components/advocacy-card';
 
 const BRAND = '#0b6d41';
 
@@ -46,6 +49,7 @@ export default function MyInductionPage() {
   const [enrollment, setEnrollment] = useState<MyInductionEnrollment | null>(null);
   const [sessions, setSessions] = useState<InductionSessionRow[]>([]);
   const [feedback, setFeedback] = useState<Record<string, { rating: number; comment: string | null }>>({});
+  const [referrals, setReferrals] = useState<MyInductionReferral[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
 
   const load = useCallback(async () => {
@@ -56,14 +60,16 @@ export default function MyInductionPage() {
       setEnrollment(mine);
       if (mine) {
         setLoadingSessions(true);
-        const [sess, fb] = await Promise.all([
+        const [sess, fb, refs] = await Promise.all([
           InductionService.listSessions(mine.event_id),
           InductionService.myFeedback(mine.event_id),
+          InductionService.myReferrals(mine.event_id),
         ]);
         setSessions(sess);
         const map: Record<string, { rating: number; comment: string | null }> = {};
         for (const f of fb) map[f.session_id] = { rating: f.rating, comment: f.comment };
         setFeedback(map);
+        setReferrals(refs);
         setLoadingSessions(false);
       }
     } catch (e: any) {
@@ -238,6 +244,15 @@ export default function MyInductionPage() {
                 ))}
               </div>
             )}
+
+            {/* Phase 4 — the value→advocacy→refer→join funnel (after experiencing value) */}
+            <div className="space-y-4 pt-2">
+              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                Grow JKKN
+              </h2>
+              <AdvocacyCard eventId={enrollment.event_id} initialScore={enrollment.advocacy_score} />
+              <ReferralSection eventId={enrollment.event_id} initialReferrals={referrals} />
+            </div>
           </>
         )}
       </div>
