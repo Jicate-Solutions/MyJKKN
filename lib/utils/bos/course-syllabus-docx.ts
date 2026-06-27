@@ -44,6 +44,7 @@ import type {
 	BosWebResource,
 	BosPoMapping,
 	BosPracticalTopic,
+	BosAssessmentStructure,
 } from '@/types/bos'
 
 // ── Layout (mirrors PDF dimensions) ───────────────────────────────────────────
@@ -119,6 +120,9 @@ export interface CourseSyllabusDOCXData {
 	po_mappings?: BosPoMapping[]
 	po_keys?: string[]
 	pso_keys?: string[]
+
+	// v1.2 Assessment Structure (Total 100) + Concept Applications + Capstones
+	assessment_structure?: BosAssessmentStructure
 }
 
 // ── Style helpers ─────────────────────────────────────────────────────────────
@@ -651,6 +655,110 @@ function buildPOMapping(data: CourseSyllabusDOCXData): (Paragraph | Table)[] {
 	]
 }
 
+// ── Assessment Structure (v1.2) — separate tables, own column grids ───────────
+function buildAssessmentStructure(data: CourseSyllabusDOCXData): (Paragraph | Table)[] {
+	const as = data.assessment_structure
+	if (!as) return []
+	const comps = as.components ?? []
+	const capstones = as.capstones ?? []
+	const hasNote = !!(as.concept_applications_note?.trim() || as.exhibition_note?.trim())
+	if (comps.length === 0 && capstones.length === 0 && !hasNote) return []
+
+	const out: (Paragraph | Table)[] = [
+		new Paragraph({ spacing: COMPACT_SPACING }),
+		p('ASSESSMENT STRUCTURE (TOTAL 100):', { bold: true, size: FONT_SIZE }),
+	]
+
+	// Components table — S.No | Component | Marks, with a TOTAL footer row.
+	if (comps.length > 0) {
+		const snoW = convertMillimetersToTwip(16)
+		const marksW = convertMillimetersToTwip(22)
+		const compW = TABLE_W_DXA - snoW - marksW
+		const total = comps.reduce((s, c) => s + (Number(c.marks) || 0), 0)
+		const rows: TableRow[] = [
+			new TableRow({
+				children: [
+					tc([p('S.No', { bold: true, alignment: AlignmentType.CENTER })]),
+					tc([p('Component', { bold: true, alignment: AlignmentType.CENTER })]),
+					tc([p('Marks', { bold: true, alignment: AlignmentType.CENTER })]),
+				],
+			}),
+			...comps.map((c, i) =>
+				new TableRow({
+					children: [
+						tc([p(String(c.sno ?? i + 1), { alignment: AlignmentType.CENTER })]),
+						tc([p(c.component || '')]),
+						tc([p(c.marks != null ? String(c.marks) : '–', { alignment: AlignmentType.CENTER })]),
+					],
+				}),
+			),
+			new TableRow({
+				children: [
+					tc([p('TOTAL', { bold: true, alignment: AlignmentType.RIGHT })], { columnSpan: 2 }),
+					tc([p(String(total), { bold: true, alignment: AlignmentType.CENTER })]),
+				],
+			}),
+		]
+		out.push(new Table({ width: { size: TABLE_W_DXA, type: WidthType.DXA }, columnWidths: [snoW, compW, marksW], rows }))
+	}
+
+	// Concept Applications + Public Exhibition notes — label / value grid.
+	const labelW = MC0
+	const valueW = TABLE_W_DXA - labelW
+	const noteRows: TableRow[] = []
+	if (as.concept_applications_note?.trim()) {
+		noteRows.push(new TableRow({
+			children: [
+				tc([p('Concept\nApplications', { bold: true })]),
+				tc([p(as.concept_applications_note.trim())]),
+			],
+		}))
+	}
+	if (as.exhibition_note?.trim()) {
+		noteRows.push(new TableRow({
+			children: [
+				tc([p('Public\nExhibition', { bold: true })]),
+				tc([p(as.exhibition_note.trim())]),
+			],
+		}))
+	}
+	if (noteRows.length > 0) {
+		out.push(new Table({ width: { size: TABLE_W_DXA, type: WidthType.DXA }, columnWidths: [labelW, valueW], rows: noteRows }))
+	}
+
+	// Capstones — title column + Subject/Artifacts/Give-back bold-label paragraphs.
+	if (capstones.length > 0) {
+		const titleW = convertMillimetersToTwip(48)
+		const bodyW = TABLE_W_DXA - titleW
+		const rows: TableRow[] = [
+			new TableRow({
+				children: [
+					tc([p('Capstone Projects (Principal-Agent Public Exhibition)', { bold: true, alignment: AlignmentType.CENTER })], { columnSpan: 2 }),
+				],
+			}),
+		]
+		for (const cap of capstones) {
+			const paras: Paragraph[] = []
+			const addPart = (label: string, val?: string) => {
+				if (val && val.trim()) paras.push(pRuns([run(`${label}: `, { bold: true }), run(val.trim())], { alignment: AlignmentType.JUSTIFIED }))
+			}
+			addPart('Subject', cap.subject)
+			addPart('Artifacts on display', cap.artifacts)
+			addPart('Give-back', cap.give_back)
+			if (paras.length === 0) paras.push(new Paragraph({ spacing: COMPACT_SPACING }))
+			rows.push(new TableRow({
+				children: [
+					tc([p(cap.title || '', { bold: true })], { valign: VerticalAlign.TOP }),
+					tc(paras, { valign: VerticalAlign.TOP }),
+				],
+			}))
+		}
+		out.push(new Table({ width: { size: TABLE_W_DXA, type: WidthType.DXA }, columnWidths: [titleW, bodyW], rows }))
+	}
+
+	return out
+}
+
 // ── Master table assembly ─────────────────────────────────────────────────────
 function buildMasterTable(data: CourseSyllabusDOCXData): Table {
 	const rows: TableRow[] = [
@@ -687,6 +795,7 @@ export async function generateCourseSyllabusDOCX(data: CourseSyllabusDOCXData): 
 	body.push(new Paragraph({ spacing: { line: LINE_276, lineRule: LineRuleType.AUTO, before: 0, after: 0 } }))
 	body.push(buildSignatureTable())
 	body.push(...buildPOMapping(data))
+	body.push(...buildAssessmentStructure(data))
 
 	const doc = new Document({
 		styles: {

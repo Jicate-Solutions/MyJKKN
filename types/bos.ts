@@ -366,6 +366,33 @@ export interface BosSyllabusContent {
   web_resources?: BosWebResourcesData;
   pedagogy?: BosPedagogyData;
   po_mappings?: BosPOMappingsData;
+  assessment_structure?: BosAssessmentStructure;
+}
+
+// ── Assessment Structure (v1.2) ──────────────────────────────────────────────
+// One row of the "Assessment Structure (Total 100)" table.
+export interface BosAssessmentComponent {
+  id?: string;
+  sno?: number;
+  component: string;
+  marks: number;
+}
+
+// A single Principal-Agent Public Exhibition capstone option.
+export interface BosCapstone {
+  id?: string;
+  title: string;
+  subject?: string;
+  artifacts?: string;
+  give_back?: string;
+}
+
+// Full assessment block stored as one JSONB column on bos_course_syllabi.
+export interface BosAssessmentStructure {
+  components?: BosAssessmentComponent[];
+  concept_applications_note?: string;
+  exhibition_note?: string;
+  capstones?: BosCapstone[];
 }
 
 export interface BosCourseSyllabus {
@@ -400,6 +427,7 @@ export interface BosCourseSyllabus {
   web_resources?: BosWebResourcesData;
   pedagogy?: BosPedagogyData;
   po_mappings?: BosPOMappingsData;
+  assessment_structure?: BosAssessmentStructure;
 
   // Metadata
   created_by: string; // User ID
@@ -509,6 +537,10 @@ export interface BosRegulationTaxonomy {
   id: string;
   institutions_id: string;
   regulation_id: string;
+  // COE board id (nullable, no FK). NULL = regulation-wide default that applies to
+  // any board lacking its own override; a non-null value scopes the framework to a
+  // specific board. Resolution is board-first then NULL fallback.
+  board_id?: string | null;
   taxonomy_type: 'finks' | 'blooms' | string; // Framework choice
   k_values: Record<string, string>; // {"K1": "Application", "K2": "Foundational", ...}
   // Per-programme PO definitions: { "UEN": { "PO1": "...", "PO2": "..." }, "UCM": { ... } }

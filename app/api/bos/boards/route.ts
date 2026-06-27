@@ -89,9 +89,26 @@ export async function GET(request: NextRequest) {
       throw coeErr;
     }
 
-    const boards: CoeBoard[] = Array.isArray(raw)
-      ? (raw as CoeBoard[])
-      : (((raw as { data?: CoeBoard[] })?.data) ?? []);
+    // COE's envelope has drifted between shapes over time. Extract the board
+    // array from whichever known shape arrives, and NEVER let a non-array slip
+    // through — a non-array `data` would crash every consumer that does
+    // `boardsRaw.map(...)` (the composition edit form, the service, etc.).
+    const extractBoards = (value: unknown): CoeBoard[] => {
+      if (Array.isArray(value)) return value as CoeBoard[];
+      if (value && typeof value === 'object') {
+        const obj = value as Record<string, unknown>;
+        if (Array.isArray(obj.data)) return obj.data as CoeBoard[];
+        if (Array.isArray(obj.boards)) return obj.boards as CoeBoard[];
+        // Nested one level deeper, e.g. { data: { boards: [...] } }.
+        if (obj.data && typeof obj.data === 'object') {
+          const inner = obj.data as Record<string, unknown>;
+          if (Array.isArray(inner.boards)) return inner.boards as CoeBoard[];
+        }
+      }
+      console.warn('[GET /api/bos/boards] Unexpected COE response shape for institution_code=%s', institutionCode);
+      return [];
+    };
+    const boards = extractBoards(raw);
 
     return NextResponse.json({ data: boards, count: boards.length });
   } catch (error) {

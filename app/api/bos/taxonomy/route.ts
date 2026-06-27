@@ -50,12 +50,22 @@ export async function GET(request: NextRequest) {
 
     let query = supabase
       .from('bos_regulation_taxonomies')
-      .select('id, regulation_id, taxonomy_type, institutions_id, created_at, updated_at');
+      .select('id, regulation_id, board_id, taxonomy_type, institutions_id, created_at, updated_at');
 
     if (ids.length === 1) {
       query = query.eq('institutions_id', ids[0]);
     } else if (ids.length > 1) {
       query = query.in('institutions_id', ids);
+    }
+
+    // Optional board filter. When a specific board is requested, return only that
+    // board's rows; when 'null' (or omitted) the caller wants the regulation-wide
+    // assignments (board_id IS NULL). Absent param => return all grains.
+    const boardId = searchParams.get('boardId');
+    if (boardId === 'null') {
+      query = query.is('board_id', null);
+    } else if (boardId) {
+      query = query.eq('board_id', boardId);
     }
 
     const { data, error } = await query;
