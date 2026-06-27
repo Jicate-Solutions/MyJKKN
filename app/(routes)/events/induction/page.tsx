@@ -121,7 +121,7 @@ export default function InductionLandingPage() {
 
   return (
     <ContentLayout title="Induction">
-      <PageBreadcrumb items={[{ label: 'Home', href: '/' }, { label: 'Induction' }]} />
+      <PageBreadcrumb items={[{ label: 'Home', href: '/' }, { label: 'Events', href: '/events' }, { label: 'Induction' }]} />
 
       <div className="space-y-6 mt-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
