@@ -226,10 +226,13 @@ export async function POST(request: NextRequest) {
     }
 
     // institution_id per department handle, from the social_dept_accounts
-    // registry (PR #1292). Extra-portfolio accounts have no fb_pages parent, so
-    // this is their institution source.
+    // registry (PR #1292). Department accounts have no fb_pages parent, so this
+    // is their institution source — both extra-portfolio accounts AND page-edge
+    // accounts (whose Page is now in /me/accounts but isn't seeded into
+    // fb_pages). Always loaded (not gated on extra portfolios) so page-edge
+    // dept accounts resolve their institution instead of being skipped.
     const deptInstitutionByUsername = new Map<string, string>();
-    if (extraByIgId.size > 0) {
+    {
       const { data: deptRows } = await serviceClient
         .from('social_dept_accounts')
         .select('username, institution_id')
@@ -341,6 +344,21 @@ export async function POST(request: NextRequest) {
                 username: igProfile.username || parent?.igUsername || igUserId,
                 account_type: accountType,
                 status: 'active',
+                // metrics_source routing (migration 20260610160000):
+                //   - Page-owned accounts (enumerated via /me/accounts → a
+                //     `parent`) get FULL insights from instagram-metrics-poller
+                //     → 'graph'. Setting it here flips an existing
+                //     business_discovery row to graph on the onConflict UPDATE
+                //     (an omitted column is never updated); the
+                //     ig-business-discovery poll skips 'graph', so the flip
+                //     sticks.
+                //   - Extra-portfolio accounts (owned_instagram_accounts, no
+                //     Facebook Page → graph insights 33-error) MUST stay
+                //     'business_discovery' so the discovery poll keeps polling
+                //     them. Flipping them to graph would orphan them — the
+                //     metrics poller can't read them and the discovery poll
+                //     now skips graph.
+                metrics_source: parent ? 'graph' : 'business_discovery',
                 access_token: parent?.pageToken || extra?.token || null,
                 updated_at: now,
               },
@@ -362,7 +380,14 @@ export async function POST(request: NextRequest) {
 
           // For department accounts, link the registry row so the
           // /admin/social/departments chip flips to "Monitored". Non-fatal.
-          if (extra && upserted?.id && igProfile.username) {
+          // Gate on dept-registry membership (not `extra`) so page-edge dept
+          // accounts — whose Page is in /me/accounts, so they arrive as a
+          // `parent` with no `extra` portfolio entry — also get linked.
+          if (
+            upserted?.id &&
+            igProfile.username &&
+            deptInstitutionByUsername.has(igProfile.username)
+          ) {
             const { error: linkError } = await serviceClient
               .from('social_dept_accounts')
               .update({ ig_account_id: upserted.id, updated_at: now })

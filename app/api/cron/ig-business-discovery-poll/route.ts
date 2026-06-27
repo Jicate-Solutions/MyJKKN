@@ -198,16 +198,22 @@ export async function GET(request: Request): Promise<Response> {
     return NextResponse.json({ success: false, error: deptErr.message }, { status: 500 });
   }
 
-  // Accounts upgraded to per-account Instagram Login get FULL insights from
-  // ig-login-insights-poll — skip them here, both to avoid flipping their
-  // metrics_source back via the upsert below and to keep their metric series
-  // free of public-only snapshot rows. Two skip axes: username (matches the
-  // registry handle pre-fetch) AND ig_user_id (matches the upsert conflict
-  // key, in case the stored handle drifted from the sheet handle).
+  // Skip accounts that this poll must NOT downgrade to business_discovery:
+  //   - 'instagram_login': upgraded to per-account Instagram Login, get FULL
+  //     insights from ig-login-insights-poll. Skipping here avoids flipping
+  //     their metrics_source back and keeps their series free of public-only
+  //     snapshot rows.
+  //   - 'graph': graph-readable accounts managed by the /accounts/sync route
+  //     (their Page is in /me/accounts). The business_discovery upsert below
+  //     would otherwise revert a graph dept account every hour — the exact
+  //     revert this skip prevents.
+  // Two skip axes: username (matches the registry handle pre-fetch) AND
+  // ig_user_id (matches the upsert conflict key, in case the stored handle
+  // drifted from the sheet handle).
   const { data: upgradedRows } = await supabase
     .from('ig_accounts')
     .select('username, ig_user_id')
-    .eq('metrics_source', 'instagram_login');
+    .in('metrics_source', ['instagram_login', 'graph']);
   const upgraded = new Set(
     (upgradedRows ?? []).map((r) => (r.username as string).toLowerCase())
   );
