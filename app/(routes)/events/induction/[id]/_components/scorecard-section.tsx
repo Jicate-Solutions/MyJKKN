@@ -50,7 +50,13 @@ export function ScorecardSection({ eventId }: { eventId: string }) {
     setEmitting(true);
     try {
       const n = await InductionService.emitNaacEvidence(eventId);
-      toast.success(`Recorded as NAAC evidence (${n} criterion row${n === 1 ? '' : 's'}: 5.1.3 + 7.2.1).`);
+      if (n === 0) {
+        toast.info('NAAC evidence for this induction is already curated manually — left untouched.');
+      } else {
+        toast.success(
+          `Recorded as NAAC evidence (${n} criterion row${n === 1 ? '' : 's'}${n < 2 ? '; a manually-curated row was preserved' : ': 5.1.3 + 7.2.1'}).`,
+        );
+      }
     } catch (e: any) {
       toast.error(`Couldn't record evidence: ${e.message ?? e}`);
     } finally {

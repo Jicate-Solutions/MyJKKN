@@ -209,10 +209,14 @@ BEGIN
   colleges AS (  -- institutions in scope (incl. those that ran an induction with 0 enrollees)
     SELECT DISTINCT ind.institution_id FROM ind   -- qualify: institution_id is also a RETURNS TABLE out-param
   ),
-  fresh_inst AS (  -- DISTINCT (institution, learner); attribute by the ACCESS-CHECKED program institution
-    SELECT DISTINCT ind.institution_id, ie.learner_id
+  fresh_inst AS (  -- exactly ONE institution per learner — a learner inducted at >1
+                   -- college is attributed to a single deterministic one, so their
+                   -- referrals are not double-counted across colleges. Attribute by
+                   -- the ACCESS-CHECKED program institution.
+    SELECT DISTINCT ON (ie.learner_id) ind.institution_id, ie.learner_id
     FROM ind
     JOIN public.induction_enrollment ie ON ie.event_id = ind.event_id
+    ORDER BY ie.learner_id, ind.institution_id
   ),
   comp AS (  -- each learner's completion stats, averaged across their in-scope inductions
     SELECT ind.institution_id, ie.learner_id,
@@ -292,6 +296,7 @@ DECLARE
   v_meta    JSONB;
   v_metric  TEXT;
   v_n       INTEGER := 0;
+  v_rc      INTEGER;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_emit_naac_evidence: not authenticated'; END IF;
 
@@ -372,7 +377,10 @@ BEGIN
           mapped_at    = now()
       -- never clobber a manually-curated (is_auto=false) evidence mapping for this key
       WHERE public.quality_evidence_mappings.is_auto;
-    v_n := v_n + 1;
+    -- count ACTUAL writes only: the upsert is a no-op (ROW_COUNT 0) when a manual
+    -- row blocked the update, so the caller/UI never reports a false success.
+    GET DIAGNOSTICS v_rc = ROW_COUNT;
+    v_n := v_n + v_rc;
   END LOOP;
 
   RETURN v_n;
