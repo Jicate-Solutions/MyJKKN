@@ -10,6 +10,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { InductionService } from '@/lib/services/induction/induction-service';
+import { SessionsSection } from './_components/sessions-section';
 import {
   Card, CardHeader, CardTitle, CardDescription, CardContent,
 } from '@/components/ui/card';
@@ -212,16 +213,8 @@ export default function InductionDetailPage() {
           </CardContent>
         </Card>
 
-        {/* Sessions placeholder — authoring lands in the next slice */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Sessions</CardTitle>
-            <CardDescription>
-              The day-by-day schedule (topics, speakers, venues, outcomes, resources) is coming
-              in the next update.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        {/* Day-by-day schedule editor */}
+        <SessionsSection eventId={id} batches={batches.map((b) => ({ id: b.id, label: b.label }))} />
       </div>
     </ContentLayout>
   );

@@ -55,4 +55,79 @@ export class InductionService {
     if (error) throw error;
     return (data as number) ?? 0;
   }
+
+  // ── Session authoring (event_sessions, via gated DEFINER RPCs) ──────────────
+
+  /** List sessions for an induction (coordinator: all; student: their batch + combined). */
+  static async listSessions(eventId: string): Promise<InductionSessionRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_list_sessions', { p_event_id: eventId });
+    if (error) throw error;
+    return (data as InductionSessionRow[]) ?? [];
+  }
+
+  /** Insert (sessionId null) or update a session. Returns the session id. */
+  static async upsertSession(input: UpsertSessionInput): Promise<string> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_upsert_session', {
+      p_event_id: input.eventId,
+      p_session_id: input.sessionId ?? null,
+      p_day_number: input.dayNumber ?? null,
+      p_batch_id: input.batchId ?? null,
+      p_start_at: input.startAt,
+      p_end_at: input.endAt,
+      p_title: input.title,
+      p_description: input.description ?? null,
+      p_venue_text: input.venueText ?? null,
+      p_speaker_text: input.speakerText ?? null,
+      p_outcome_text: input.outcomeText ?? null,
+      p_resource_links: input.resourceLinks ?? [],
+      p_session_order: input.sessionOrder ?? 1,
+    });
+    if (error) throw error;
+    return data as string;
+  }
+
+  /** Delete a session. */
+  static async deleteSession(sessionId: string): Promise<boolean> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_delete_session', { p_session_id: sessionId });
+    if (error) throw error;
+    return (data as boolean) ?? false;
+  }
+}
+
+export interface ResourceLink { label: string; url: string; }
+
+export interface InductionSessionRow {
+  id: string;
+  day_number: number | null;
+  session_order: number | null;
+  batch_id: string | null;
+  batch_label: string | null;
+  start_at: string;
+  end_at: string;
+  title: string;
+  description: string | null;
+  venue_text: string | null;
+  speaker_text: string | null;
+  outcome_text: string | null;
+  resource_links: ResourceLink[];
+  status: string | null;
+}
+
+export interface UpsertSessionInput {
+  eventId: string;
+  sessionId?: string | null;
+  dayNumber?: number | null;
+  batchId?: string | null;
+  startAt: string; // ISO
+  endAt: string;   // ISO
+  title: string;
+  description?: string | null;
+  venueText?: string | null;
+  speakerText?: string | null;
+  outcomeText?: string | null;
+  resourceLinks?: ResourceLink[];
+  sessionOrder?: number | null;
 }
