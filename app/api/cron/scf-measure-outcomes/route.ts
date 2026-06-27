@@ -68,6 +68,8 @@ export async function GET(request: NextRequest) {
       induction_error: inductionRes.error?.message ?? null,
       elapsed_ms: Date.now() - started,
     },
-    { status: sessionRes.error ? 500 : 200 },
+    // 5xx on EITHER failure so Vercel cron / non-2xx monitoring alerts + retries;
+    // the body still carries whichever count succeeded (both RPCs are idempotent).
+    { status: sessionRes.error || inductionRes.error ? 500 : 200 },
   );
 }

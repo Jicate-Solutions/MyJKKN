@@ -236,6 +236,10 @@ BEGIN
               FROM public.admission_leads al
               WHERE al.referred_by_id = cl.learner_id
                 AND al.source = 'referral'::lead_source
+                -- only joins INTO this cohort's OWN college count (a join fills that
+                -- college's seat); a referral that joined another tenant is not this
+                -- cohort's win — prevents cross-tenant metric bleed.
+                AND al.institution_id = cl.institution_id
                 AND al.funnel_stage IN ('token_paid','confirmed','enrolled')) AS joined
     FROM cohort_learners cl
   ),
