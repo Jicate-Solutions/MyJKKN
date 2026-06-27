@@ -96,14 +96,17 @@ BEGIN
     LEFT JOIN public.learners_profiles lp ON lp.id = ie.learner_id
     WHERE ie.event_id = p_event_id
   ),
-  refs AS (  -- per-fresher referral stats, LIVE off the admission funnel — scoped to
-             -- this induction's OWN college (joins into another tenant aren't its win)
+  refs AS (  -- per-fresher referral stats, LIVE. submitted/referred = EFFORT (a referral
+             -- to any JKKN college counts — the "refer anywhere" decision); only JOINED is
+             -- institution-scoped, since a join fills THIS college's seat.
     SELECT al.referred_by_id AS learner_id,
            count(*)::bigint AS submitted,
-           count(*) FILTER (WHERE al.funnel_stage IN ('token_paid','confirmed','enrolled'))::bigint AS joined
+           count(*) FILTER (
+             WHERE al.funnel_stage IN ('token_paid','confirmed','enrolled')
+               AND al.institution_id = v_inst
+           )::bigint AS joined
     FROM public.admission_leads al
     WHERE al.source = 'referral'::lead_source
-      AND al.institution_id = v_inst
       AND al.referred_by_id IN (SELECT learner_id FROM freshers)
     GROUP BY al.referred_by_id
   ),
@@ -229,16 +232,18 @@ BEGIN
     LEFT JOIN public.induction_completion c ON c.event_id = ie.event_id AND c.learner_id = ie.learner_id
     GROUP BY ind.institution_id, ie.learner_id
   ),
-  refs AS (  -- per (attributed college, learner), counted ONCE and scoped to joins
-             -- INTO that college only (no cross-tenant bleed, no cross-college double-count)
+  refs AS (  -- per (attributed college, learner), ONCE. submitted = EFFORT (any JKKN
+             -- college); only JOINED is scoped to the learner's own college (seat there).
     SELECT fi.institution_id, fi.learner_id,
            count(al.id)::bigint AS submitted,
-           count(al.id) FILTER (WHERE al.funnel_stage IN ('token_paid','confirmed','enrolled'))::bigint AS joined
+           count(al.id) FILTER (
+             WHERE al.funnel_stage IN ('token_paid','confirmed','enrolled')
+               AND al.institution_id = fi.institution_id
+           )::bigint AS joined
     FROM fresh_inst fi
     LEFT JOIN public.admission_leads al
       ON al.referred_by_id = fi.learner_id
      AND al.source = 'referral'::lead_source
-     AND al.institution_id = fi.institution_id
     GROUP BY fi.institution_id, fi.learner_id
   ),
   per_fresher AS (  -- exactly one row per (institution, learner)
@@ -329,16 +334,17 @@ BEGIN
   WITH freshers AS (
     SELECT ie.learner_id FROM public.induction_enrollment ie WHERE ie.event_id = p_event_id
   ),
-  refs AS (
+  refs AS (  -- submitted/referrers = EFFORT (any JKKN college); only JOINED scoped to
+             -- this college (match fn_induction_scorecard) for the NAAC evidence metadata.
     SELECT count(*) FILTER (WHERE al.id IS NOT NULL) AS submitted,
-           count(*) FILTER (WHERE al.funnel_stage IN ('token_paid','confirmed','enrolled')) AS joined,
+           count(*) FILTER (
+             WHERE al.funnel_stage IN ('token_paid','confirmed','enrolled')
+               AND al.institution_id = v_prog.institution_id
+           ) AS joined,
            count(DISTINCT al.referred_by_id) FILTER (WHERE al.id IS NOT NULL) AS referrers
     FROM freshers f
     LEFT JOIN public.admission_leads al
       ON al.referred_by_id = f.learner_id AND al.source = 'referral'::lead_source
-     -- scope to THIS college's funnel (match fn_induction_scorecard); a join into
-     -- another tenant is not this induction's NAAC evidence.
-     AND al.institution_id = v_prog.institution_id
   ),
   comp AS (
     SELECT count(*) AS enrolled,
