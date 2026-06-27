@@ -1305,11 +1305,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
-          // Fresher Induction — guided onboarding program per college.
-          // Gated by '/induction' -> 'induction.view' (MENU_PERMISSIONS).
-          href: '/induction',
+          // Fresher Induction — guided onboarding program per college. Lives
+          // under the Events module (/events/induction); kept as a sidebar
+          // shortcut for prominence (institution-wide, recurring, student-facing).
+          // Gated by '/events/induction' -> 'induction.view' (MENU_PERMISSIONS).
+          href: '/events/induction',
           label: 'Induction',
-          active: pathname === '/induction' || pathname.startsWith('/induction/'),
+          active: pathname === '/events/induction' || pathname.startsWith('/events/induction/'),
           icon: Rocket,
           submenus: []
         },
