@@ -2190,6 +2190,19 @@ export const PERMISSION_CATEGORIES = [
       { key: 'calendar.holidays.manage', label: 'Manage Common Holidays & Events' },
       { key: 'calendar.config.manage', label: 'Manage Calendar Config (Feeds, Categories)' }
     ]
+  },
+  {
+    // Added 2026-06-26 — Universal Feedback Spine dashboard (/feedback).
+    // Grants access to AI-classified feedback_events across all sources
+    // (session_feedback, mess, parent, ig_comment, etc.). Super-admin and
+    // admin always have access via RLS; this key enables non-admin roles
+    // (e.g. a dedicated feedback reviewer) to be granted view access
+    // without elevating them to full admin.
+    name: 'Feedback',
+    key: 'feedback',
+    permissions: [
+      { key: 'feedback.view', label: 'View Feedback Dashboard (AI-classified events)' }
+    ]
   }
 ];
 
