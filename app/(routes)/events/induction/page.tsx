@@ -111,7 +111,7 @@ export default function InductionLandingPage() {
       toast.success('Induction created.');
       setOpen(false);
       resetForm();
-      router.push(`/induction/${eventId}`);
+      router.push(`/events/induction/${eventId}`);
     } catch (e: any) {
       toast.error(`Couldn't create induction: ${e.message ?? e}`);
     } finally {
