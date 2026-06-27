@@ -297,6 +297,29 @@ export async function POST(request: NextRequest) {
         try {
           const parent = parentPageByIgId.get(igUserId);
           const extra = extraByIgId.get(igUserId);
+          // Ownership is known only when /me/accounts enumeration succeeded
+          // (parent presence is then authoritative) OR the account came from an
+          // extra portfolio. On an explicit-ids sync where enumeration FAILED
+          // (meAccountsError set, ig_user_ids provided), a page-owned account
+          // looks parent-less. We cannot classify such an account, so we skip
+          // it rather than upsert with guessed metadata: an INSERT would take
+          // the 'graph' NOT-NULL default (orphaning a dept account), and an
+          // UPDATE would both downgrade an existing 'graph' row and null its
+          // access_token. A later sync (once /me/accounts succeeds) classifies
+          // and writes it correctly. Past this guard, ownership is always known
+          // so metrics_source below can be written unconditionally.
+          const ownershipKnown = !meAccountsError || Boolean(extra);
+          if (!ownershipKnown) {
+            results.push({
+              ig_user_id: igUserId,
+              username: parent?.igUsername || '',
+              status: 'error',
+              error:
+                '/me/accounts enumeration failed — cannot classify account ownership; retry once enumeration succeeds',
+            });
+            failed++;
+            return;
+          }
           // Token precedence: page token (owned-via-Page) → extra-portfolio
           // token (department account) → primary system token.
           const igToken = parent?.pageToken || extra?.token || accessToken;
@@ -344,13 +367,16 @@ export async function POST(request: NextRequest) {
                 username: igProfile.username || parent?.igUsername || igUserId,
                 account_type: accountType,
                 status: 'active',
-                // This route only ever syncs accounts discovered via
-                // /me/accounts (graph-readable). Set metrics_source='graph'
-                // explicitly so the onConflict UPDATE path flips an existing
-                // business_discovery row (seeded by the dept poll) to graph —
-                // an omitted column is never updated. The ig-business-discovery
-                // poll skips graph rows, so this flip is durable.
-                metrics_source: 'graph',
+                // metrics_source routing (migration 20260610160000). Ownership
+                // is guaranteed known here (unknown accounts were skipped above):
+                //   - Page-owned (`parent`, from /me/accounts) → 'graph': full
+                //     insights via instagram-metrics-poller. Flips an existing
+                //     business_discovery row on the onConflict UPDATE; the
+                //     ig-business-discovery poll skips 'graph' so it sticks.
+                //   - Extra-portfolio (owned_instagram_accounts, no Page →
+                //     graph insights 33-error) → 'business_discovery' so the
+                //     discovery poll keeps polling them.
+                metrics_source: parent ? 'graph' : 'business_discovery',
                 access_token: parent?.pageToken || extra?.token || null,
                 updated_at: now,
               },
