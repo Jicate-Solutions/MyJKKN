@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Timer, Music, Mic2, Dumbbell, BookOpen, Users, FileText, Plus } from 'lucide-react';
+import { Timer, Music, Mic2, Dumbbell, BookOpen, Users, FileText, Plus, Rocket } from 'lucide-react';
 
 interface EventTypeCard {
   title: string;
