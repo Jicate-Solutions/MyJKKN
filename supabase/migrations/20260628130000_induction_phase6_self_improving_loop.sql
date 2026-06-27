@@ -111,6 +111,50 @@ BEGIN
 END;
 $$;
 
+-- ── 2b. The OTHER SCF reader gets the same in-domain filter ────────────────────
+-- fn_scf_prior_suggestion already filters by course_code (induction rows use
+-- course_code='induction', so they're excluded in practice), but make the domain
+-- boundary EXPLICIT so an induction row can never leak into the session feedback
+-- path even if called oddly. The two SCF functions are now the only readers of
+-- scf_ai_suggestions and both are domain-scoped; one memory, no cross-talk.
+CREATE OR REPLACE FUNCTION public.fn_scf_prior_suggestion(
+  p_course_code     text,
+  p_faculty_email   text,
+  p_institution_id  uuid DEFAULT NULL
+)
+RETURNS TABLE (
+  generated_at     timestamptz,
+  input_avg        numeric,
+  suggestion       jsonb,
+  outcome_avg      numeric,
+  outcome_lift     numeric,
+  has_outcome      boolean,
+  human_verdict    text
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT s.generated_at,
+         s.input_avg_understood::numeric    AS input_avg,
+         s.suggestion,
+         s.outcome_avg_understood::numeric  AS outcome_avg,
+         s.outcome_lift::numeric            AS outcome_lift,
+         (s.outcome_lift IS NOT NULL)       AS has_outcome,
+         s.human_verdict::text              AS human_verdict
+  FROM public.scf_ai_suggestions s
+  WHERE s.domain = 'session_feedback'                       -- <-- explicit in-domain guard
+    AND s.course_code = p_course_code
+    AND lower(s.faculty_email) IS NOT DISTINCT FROM lower(NULLIF(btrim(p_faculty_email), ''))
+    AND (p_institution_id IS NULL OR s.institution_id = p_institution_id)
+  ORDER BY s.generated_at DESC
+  LIMIT 1;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_scf_prior_suggestion(text,text,uuid) FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_scf_prior_suggestion(text,text,uuid) TO service_role;
+
 -- ── 3. Record an induction playbook suggestion (the "suggest --record-->" step) ─
 CREATE OR REPLACE FUNCTION public.fn_induction_record_loop_suggestion(
   p_institution_id    uuid,
@@ -252,8 +296,11 @@ BEGIN
   ),
   scored AS (
     SELECT a.id, a.input_avg_understood, a.enrolled,
-           CASE WHEN COALESCE(a.enrolled, 0) = 0 THEN 0          -- playbook reached nobody
-                WHEN a.value_avg IS NULL        THEN NULL         -- no value signal → neutral close
+           -- zero enrollment AND missing value are both data-absence, not a verdict:
+           -- score NULL → neutral lift 0 below (never a large spurious −prior that the
+           -- loop would learn as a bad playbook). Only a real value-backed cohort scores.
+           CASE WHEN COALESCE(a.enrolled, 0) = 0 THEN NULL        -- reached nobody (or not yet loaded)
+                WHEN a.value_avg IS NULL        THEN NULL         -- no value signal
                 ELSE round(100.0 * (a.joined::numeric / a.enrolled) * (a.value_avg / 5.0), 2)
            END AS score
     FROM agg a
