@@ -19,6 +19,7 @@ import type {
   ProjectTaskInsert,
   ProjectTaskUpdate,
   TaskStatusKey,
+  RaciRole,
 } from '@/types/projects';
 
 function getSupabase() {
@@ -34,6 +35,7 @@ export const taskKeys = {
   byProject: (projectId: string) => [...taskKeys.lists(), 'project', projectId] as const,
   details: () => [...taskKeys.all, 'detail'] as const,
   detail: (id: string) => [...taskKeys.details(), id] as const,
+  assignees: (taskId: string) => [...taskKeys.detail(taskId), 'assignees'] as const,
 };
 
 // ─── Queries ──────────────────────────────────────────────────────────────────
@@ -110,6 +112,53 @@ export function useUpdateTaskStatus() {
     }) => TaskService.updateStatus(getSupabase(), id, statusKey, isComplete ?? false),
     onSuccess: (task) => {
       invalidateTaskAndProject(queryClient, task.project_id, task.id);
+    },
+  });
+}
+
+// ─── RACI Assignment ────────────────────────────────────────────────────────────
+
+/** Assignees (with joined staff names) for one task — RACI roles. */
+export function useTaskAssignees(
+  taskId: string | null | undefined,
+  options: { enabled?: boolean } = {}
+) {
+  return useQuery({
+    queryKey: taskKeys.assignees(taskId ?? ''),
+    queryFn: () => TaskService.listAssignees(getSupabase(), taskId as string),
+    enabled: !!taskId && (options.enabled ?? true),
+  });
+}
+
+export function useAssignTask() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      taskId,
+      staffId,
+      role,
+      assignedBy,
+    }: {
+      taskId: string;
+      staffId: string;
+      role: RaciRole;
+      assignedBy?: string | null;
+    }) => TaskService.assign(getSupabase(), taskId, staffId, role, assignedBy),
+    onSuccess: (assignee) => {
+      queryClient.invalidateQueries({ queryKey: taskKeys.assignees(assignee.task_id) });
+    },
+  });
+}
+
+export function useUnassignTask() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ taskId, staffId }: { taskId: string; staffId: string }) =>
+      TaskService.unassign(getSupabase(), taskId, staffId),
+    onSuccess: (_data, { taskId }) => {
+      queryClient.invalidateQueries({ queryKey: taskKeys.assignees(taskId) });
     },
   });
 }

@@ -11,6 +11,7 @@ import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useMyBlockAccess } from '@/hooks/campus-living/use-hostel-attendance';
 import { Button } from '@/components/ui/button';
 import { UserPlus } from 'lucide-react';
 import { DataTable } from '@/components/data-table/data-table';
@@ -88,11 +89,19 @@ export function LearnersTab() {
   const canEdit = isSuperAdmin || !!permissions?.['campus_living.residents.edit'];
   const canAllocate = isSuperAdmin || !!permissions?.['campus_living.upgrades.manage'];
 
-  // Non-super-admins are pinned to their institution; super-admins use the
-  // institution_id URL filter (handled inside fetchData via filters).
-  const effectiveInstitutionId: string | undefined = isSuperAdmin
-    ? undefined
-    : (profile?.institution_id ?? undefined);
+  // Block-assigned wardens are scoped to the residents of THEIR blocks
+  // (cross-institution) — a chief warden is commonly assigned to blocks owned by
+  // other colleges, so pinning them to their own profile institution showed the
+  // wrong roster. Everyone else stays institution-pinned (super-admins use the
+  // institution_id URL filter, handled inside fetchData via filters).
+  const { data: blockGrants } = useMyBlockAccess();
+  const myBlockIds = useMemo(() => blockGrants ?? [], [blockGrants]);
+  const isBlockScoped = !isSuperAdmin && myBlockIds.length > 0;
+
+  const effectiveInstitutionId: string | undefined =
+    isSuperAdmin || isBlockScoped
+      ? undefined
+      : (profile?.institution_id ?? undefined);
 
   const instName = useMemo(() => {
     const map = new Map<string, string>();
@@ -139,6 +148,7 @@ export function LearnersTab() {
     }) => {
       const filters: LearnerHostelitesFilters = {
         ...filterParams,
+        ...(isBlockScoped ? { block_ids: myBlockIds } : {}),
         search: params.search || undefined,
         sortBy: params.sort_by || undefined,
         sortOrder: (params.sort_order as 'asc' | 'desc') || undefined,
@@ -167,7 +177,7 @@ export function LearnersTab() {
         },
       };
     },
-    [filterParams, effectiveInstitutionId],
+    [filterParams, effectiveInstitutionId, isBlockScoped, myBlockIds],
   );
 
   const columns = useMemo(

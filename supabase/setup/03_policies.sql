@@ -1669,6 +1669,34 @@ CREATE POLICY "reservations_delete_own" ON resource_reservations
         )
     );
 
+-- NOTE (2026-06-23): the live DB has since diverged from the four policies
+-- above (later migrations renamed/added resource_reservations_select_by_*,
+-- _by_approver, the per-resource home-institution SELECT, etc.). This block is
+-- kept as historical reference; the authoritative state is the migrations.
+--
+-- Migration 20260623120000 replaced the unscoped staff SELECT policy
+-- ("Staff with permission can view all reservations", which let
+-- super_admin/admin/accounts see EVERY institution's reservations) with the
+-- institution-scoped policy below. role_has_institution_access() keeps
+-- super_admin + scope='all' staff global while limiting institution-scoped
+-- staff to their accessible institutions.
+DROP POLICY IF EXISTS "Staff with permission can view all reservations"
+  ON resource_reservations;
+
+CREATE POLICY "resource_reservations_select_staff_scoped" ON resource_reservations
+    FOR SELECT TO authenticated USING (
+        EXISTS (
+            SELECT 1 FROM profiles p
+            WHERE p.id = (SELECT auth.uid())
+              AND p.role = ANY (ARRAY['super_admin', 'admin', 'accounts'])
+        )
+        AND EXISTS (
+            SELECT 1 FROM resources r
+            WHERE r.id = resource_reservations.resource_id
+              AND role_has_institution_access(r.institution_id)
+        )
+    );
+
 -- RESOURCE_APPROVALS TABLE (2 policies)
 ALTER TABLE resource_approvals ENABLE ROW LEVEL SECURITY;
 
@@ -2238,6 +2266,28 @@ CREATE POLICY "Approvers can view pending requests"
         )
     );
 
+-- Cross-institution named approvers (migration 20260624120000). Additive
+-- PERMISSIVE policies: a user explicitly listed in approver_user_ids can SEE
+-- and ACT on the request regardless of institution. Role-based approval stays
+-- institution-scoped via the policies above. Predicate is defined in
+-- 02_functions.sql (user_is_request_named_approver).
+CREATE POLICY "service_requests_named_approver_select"
+    ON service_requests FOR SELECT
+    USING (public.user_is_request_named_approver(id));
+
+CREATE POLICY "service_requests_named_approver_update"
+    ON service_requests FOR UPDATE
+    USING (public.user_is_request_named_approver(id))
+    WITH CHECK (public.user_is_request_named_approver(id));
+
+CREATE POLICY "sr_approvals_named_approver_select"
+    ON service_request_approvals FOR SELECT
+    USING (public.user_is_request_named_approver(service_request_id));
+
+CREATE POLICY "sr_timeline_named_approver_select"
+    ON service_request_timeline FOR SELECT
+    USING (public.user_is_request_named_approver(service_request_id));
+
 CREATE POLICY "Users can create service requests"
     ON service_requests FOR INSERT
     WITH CHECK (requester_id = auth.uid());
@@ -2253,6 +2303,14 @@ CREATE POLICY "Approvers can update request status"
         is_super_admin() OR is_admin()
         OR user_has_permission('service_requests.approve')
     );
+
+-- Super-admin-only hard delete. service_requests has no other DELETE policy, so
+-- this additive is_super_admin() path is the sole grant; cascades clean up
+-- approvals/timeline/attachments. (mig 20260624160000)
+CREATE POLICY "service_requests_delete_super_admin"
+    ON service_requests FOR DELETE
+    TO authenticated
+    USING (is_super_admin());
 
 CREATE POLICY "Users can view approvals for their requests"
     ON service_request_approvals FOR SELECT
@@ -6890,3 +6948,72 @@ ALTER POLICY hostel_cleaning_tasks_delete_permission ON public.hostel_cleaning_t
     OR (user_has_permission('campus_living.housekeeping.schedule')
         AND role_has_institution_access(institution_id))
   );
+
+-- =====================================================================
+-- Global Calendar module (Phase 1) — mirror of 20260623100000_calendar_module_tables.sql
+-- =====================================================================
+ALTER TABLE public.calendar_categories    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.calendar_entries       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.calendar_feed_settings ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.calendar_categories    FROM anon;
+REVOKE ALL ON public.calendar_entries       FROM anon;
+REVOKE ALL ON public.calendar_feed_settings FROM anon;
+
+DROP POLICY IF EXISTS calendar_categories_select ON public.calendar_categories;
+CREATE POLICY calendar_categories_select ON public.calendar_categories
+  FOR SELECT USING (is_super_admin() OR is_admin() OR user_has_permission('calendar.view'));
+DROP POLICY IF EXISTS calendar_categories_write ON public.calendar_categories;
+CREATE POLICY calendar_categories_write ON public.calendar_categories
+  FOR ALL USING (is_super_admin() OR is_admin() OR user_has_permission('calendar.config.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('calendar.config.manage'));
+
+DROP POLICY IF EXISTS calendar_entries_select ON public.calendar_entries;
+CREATE POLICY calendar_entries_select ON public.calendar_entries
+  FOR SELECT USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('calendar.view')
+        AND (scope_institution_ids IS NULL OR scope_institution_ids && public._user_accessible_institutions())));
+DROP POLICY IF EXISTS calendar_entries_write ON public.calendar_entries;
+CREATE POLICY calendar_entries_write ON public.calendar_entries
+  FOR ALL USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('calendar.holidays.manage')
+        AND (scope_institution_ids IS NULL OR scope_institution_ids && public._user_accessible_institutions())))
+  WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('calendar.holidays.manage')
+        AND (scope_institution_ids IS NULL OR scope_institution_ids && public._user_accessible_institutions())));
+
+DROP POLICY IF EXISTS calendar_feed_settings_select ON public.calendar_feed_settings;
+CREATE POLICY calendar_feed_settings_select ON public.calendar_feed_settings
+  FOR SELECT USING (is_super_admin() OR is_admin() OR user_has_permission('calendar.view'));
+DROP POLICY IF EXISTS calendar_feed_settings_write ON public.calendar_feed_settings;
+CREATE POLICY calendar_feed_settings_write ON public.calendar_feed_settings
+  FOR ALL USING (is_super_admin() OR is_admin() OR user_has_permission('calendar.config.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('calendar.config.manage'));
+
+-- =====================================================================
+-- 2026-06-24 — Social Loop Engine playbook table
+-- Dynamic-permission RLS: read=social.view, write=social.manage (or admins).
+-- Migration: supabase/migrations/20260624031500_social_loop_playbook.sql
+-- =====================================================================
+ALTER TABLE public.social_loop_playbook ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS social_loop_playbook_select ON public.social_loop_playbook;
+CREATE POLICY social_loop_playbook_select ON public.social_loop_playbook
+  FOR SELECT TO authenticated
+  USING (is_super_admin() OR is_admin() OR user_has_permission('social.view'));
+
+DROP POLICY IF EXISTS social_loop_playbook_insert ON public.social_loop_playbook;
+CREATE POLICY social_loop_playbook_insert ON public.social_loop_playbook
+  FOR INSERT TO authenticated
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('social.manage'));
+
+DROP POLICY IF EXISTS social_loop_playbook_update ON public.social_loop_playbook;
+CREATE POLICY social_loop_playbook_update ON public.social_loop_playbook
+  FOR UPDATE TO authenticated
+  USING (is_super_admin() OR is_admin() OR user_has_permission('social.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('social.manage'));
+
+REVOKE ALL ON public.social_loop_playbook FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON public.social_loop_playbook TO authenticated;

@@ -85,6 +85,14 @@ export const CATEGORY_ONLY_MODULES: ReadonlyArray<readonly [string, string]> = [
   // (/ai-pulse landing page) but the substrate tables ship in PR #747+.
   // CATEGORY_ONLY_MODULES until then.
   ['AI Pulse', 'system'],
+  // Global Calendar module (Phases 1-5, merged 2026-06-23): has the 'calendar'
+  // PERMISSION_CATEGORIES entry + sidebar routes but no tables in
+  // table-module-map, so it's category-only like Documents/AI Pulse above.
+  ['Calendar', 'calendar'],
+  // Feedback dashboard (/feedback, 2026-06-26): reads the universal feedback
+  // spine (feedback_events). Has the 'feedback' PERMISSION_CATEGORIES entry +
+  // sidebar route but no tables in table-module-map, so it's category-only.
+  ['Feedback', 'feedback'],
 ];
 
 /**
@@ -188,6 +196,10 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/rcltp', 'Academic'], // EKSAQ RCLTP reading-assessment module (rcltp.* perms)
   ['/faculty', 'Academic'],
   ['/billing', 'Billing'],
+  // Global Calendar module (/calendar, /calendar/holidays, /calendar/settings) —
+  // gated by calendar.* perms. Single prefix covers all three via longest-match.
+  ['/calendar', 'Calendar'],
+  ['/feedback', 'Feedback'], // Feedback spine dashboard (feedback.view); category-only module
   ['/health', 'Health'],
   ['/ims', 'IMS'],
   ['/events', 'Events'],

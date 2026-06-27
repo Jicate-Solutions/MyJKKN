@@ -78,6 +78,12 @@ export interface MarathonSponsorActivityLog {
   created_at: string;
 }
 
+// External (non-JKKN) committee member — added by name/phone, no login (decision #8).
+export interface ExternalCommitteeMember {
+  name: string;
+  phone?: string;
+}
+
 export interface MarathonCommittee {
   id: string;
   event_id: string;
@@ -87,6 +93,7 @@ export interface MarathonCommittee {
   lead_name: string | null;
   member_ids: string[];
   member_names: string[];
+  external_members?: ExternalCommitteeMember[];
   status: string;
   created_at: string;
   updated_at: string;
@@ -212,6 +219,9 @@ export interface MarathonVolunteerCheckin {
   checked_in_at: string;
   checked_out_at: string | null;
   notes: string | null;
+  // External (non-JKKN) guest volunteer markers — decision #8 (Events Platform Promotion PR4).
+  external_name?: string | null;
+  external_phone?: string | null;
 }
 
 export interface MarathonRaceTrack {
@@ -346,6 +356,21 @@ export interface CreateMarathonIncidentDto {
   lat?: number;
   lng?: number;
   bib_number?: string;
+}
+
+// Shared events-layer DTO for checking in a volunteer (Events Platform Promotion PR4).
+// `is_external` + external_name/phone flag a guest (non-JKKN) volunteer — decision #8.
+export interface CreateEventVolunteerDto {
+  event_id: string;
+  volunteer_name: string;
+  volunteer_phone?: string;
+  station: string;
+  role?: string;
+  notes?: string;
+  /** When true, this volunteer is an external (non-JKKN) guest. */
+  is_external?: boolean;
+  external_name?: string;
+  external_phone?: string;
 }
 
 export interface GPSSyncPayload {

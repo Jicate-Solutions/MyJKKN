@@ -324,6 +324,18 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/attendance/reports': 'academic.attendance.reports.view',
   '/academic/attendance/consolidation': 'academic.attendance.consolidation.view',
 
+  // Post-Class Session Feedback lanes.
+  // faculty lane: gated to academic.attendance.view (the teacher's own session
+  //   feedback = the attendance-confirmation surface). Held by faculty/hod/
+  //   principal/administrator → previously the faculty lane had NO permission key
+  //   so it was hidden from the `faculty` role (only super_admin saw it via
+  //   bypass). This key makes the faculty completion lane REACHABLE by faculty.
+  // principal lane: gated to academic.attendance.dashboard.view (held by
+  //   principal/hod, not plain faculty) — the escalation oversight audience.
+  // (admin lane is super-admin-only via requiresSuperAdmin on the menu item.)
+  '/academic/session-feedback/faculty': 'academic.attendance.view',
+  '/academic/session-feedback/principal': 'academic.attendance.dashboard.view',
+
   // Internal Marks (CIA) - Mark Entry & Reports
   '/academic/internal-marks': 'academic.internal-marks.view',
   '/academic/internal-marks/report': 'academic.internal-marks.view',
@@ -395,6 +407,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/social/attribution': 'social.attribution.view',
   '/admission/social/meta-pixel': 'social.meta_pixel.view',
   '/admission/social/meta-audiences': 'social.meta_audiences.view',
+  // 2026-06-23 — Social Governance wave (#1493/#1494/#1496) nav-wiring.
+  // Governance is now a tier-3 chip under Social (admission/nav-config.ts).
+  // Gate it to social.view — matches the page's own PermissionGuard — so the
+  // chip honours per-role social access instead of AutoTabNav's show-by-default
+  // (auto-tab-nav.tsx:150, `if (!perm) return true`). The super-admin policy
+  // editor (/admission/social/admin/policies) is intentionally NOT a chip
+  // (kept off the Social strip + in NAV_EXCLUDE; reached via the governance
+  // page's "Edit policy →" links) and self-guards as super-admin, so it needs
+  // no MENU_PERMISSIONS entry.
+  '/admission/social/governance': 'social.view',
+  '/admission/social/loop': 'social.view',
 
   // Internship Module — Policy Admin (super_admin only)
   '/internships/policy': 'super_admin',
@@ -610,6 +633,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Startup Studio
   // Added 2026-04-24 (Wave 2b PR-S2): module root for the flat sidebar row.
   '/startup-studio': 'startup_studio.analytics.view',
+  // Foundations (Level 0) — student journey reads .view; cohort admin reads .manage;
+  // the review queue reads .review. /foundations/[worksheetId] inherits the .view of
+  // its /foundations parent via the route-matcher (most-specific match wins).
+  '/startup-studio/foundations': 'startup_studio.foundations.view',
+  '/startup-studio/foundations/my-journey': 'startup_studio.foundations.view',
+  '/startup-studio/foundations/cohorts': 'startup_studio.foundations.manage',
+  '/startup-studio/foundations/review': 'startup_studio.foundations.review',
   '/startup-studio/portfolio': 'startup_studio.analytics.view',
   '/startup-studio/mentors': 'startup_studio.analytics.view',
   '/startup-studio/alumni': 'startup_studio.analytics.view',
@@ -786,6 +816,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Events — Propose (Stream C, 2026-04-26)
   '/events/propose': 'events.proposals.view',
 
+  // Global Calendar module
+  '/calendar': 'calendar.view',
+  '/calendar/holidays': 'calendar.holidays.manage',
+  '/calendar/settings': 'calendar.config.manage',
+
   // Audit Workflow Sprint 01
   '/audit': 'audit.cycle.view',
   '/audit/dashboard': 'audit.cycle.view',
@@ -937,6 +972,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/events/marathon': 'events.marathon.view',
   '/events/marathon/new': 'events.marathon.create',
 
+  // Events — Sports Tournament submenu (Sports Tournament PR1, 2026-06-22)
+  '/events/tournament': 'sports.tournaments.view',
+  '/events/tournament/new': 'sports.tournaments.create',
+
+  // Events — unified create-flow + preset hub (Events Platform Promotion PR9)
+  '/events/create': 'events.view',
+  '/events/presets': 'events.view',
+
   // Faculty — PDE faculty tree (Faculty / HOD / Mentor surface)
   '/pde/faculty': 'pde.faculty.view',
   '/pde/faculty/analytics': 'pde.faculty.analytics.view',
@@ -979,6 +1022,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/meetings/adoption': 'meetings.analytics.view',
   '/meetings/webhooks': 'meetings.webhooks.view',
   '/meetings/embed': 'meetings.embed.manage',
+  '/meetings/triggers': 'meetings.view',
 
   // CDC — module landing hub
   '/cdc': 'cdc.view',
@@ -1019,6 +1063,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/cdc/training': 'cdc.training.view',
   '/cdc/training/new': 'cdc.training.create',
   '/cdc/training/[id]': 'cdc.training.view',
+
+  // CDC — UNNATI → UDYOG application tracker
+  '/cdc/udyog': 'cdc.udyog.view',
 
   // CDC — Opportunities Bulletin
   '/cdc/bulletin': 'cdc.bulletin.view',
@@ -1104,6 +1151,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Service Requests — All Services chip (admin/staff cross-institution view)
   '/service-requests/all-services': 'service_requests.view_all',
+
+  // Feedback Dashboard — Universal Feedback Spine (added 2026-06-26).
+  // Admin / super-admin always have access via RLS; feedback.view grants
+  // access to non-admin roles (e.g. dedicated feedback reviewers).
+  '/feedback': 'feedback.view',
 };
 
 /**
@@ -1292,7 +1344,21 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/academic/session-feedback/principal'),
           icon: Activity,
           submenus: []
-        }
+        },
+        {
+          // Post-class feedback — SUPER-ADMIN all-college dashboard (L5). The
+          // cross-college rollup (submission + understanding per college / faculty
+          // / day). Cross-college reach is super-admin-only, so the sidebar entry
+          // is gated to super admin via requiresSuperAdmin (super_admin sees ALL
+          // menus via the bypass earlier in GetRoleBasedPages). The page's RPCs
+          // still authorize institution leadership if they navigate directly.
+          href: '/academic/session-feedback/admin',
+          label: 'All-College Feedback',
+          active: pathname.startsWith('/academic/session-feedback/admin'),
+          icon: BarChart,
+          requiresSuperAdmin: true,
+          submenus: []
+        } as MenuItem & { requiresSuperAdmin: boolean }
       ]
     },
     {
@@ -1657,7 +1723,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/leave/balance', label: 'Leave · Balance', active: pathname === '/hr/leave/balance' },
             { href: '/hr/leave/encashment', label: 'Leave · Encashment', active: pathname === '/hr/leave/encashment' },
             { href: '/hr/recruitment', label: 'Recruitment', active: pathname.startsWith('/hr/recruitment') },
-            { href: '/hr/recruitment/submit', label: 'Recruitment · Submit Candidate', active: pathname === '/hr/recruitment/submit' },
+            { href: '/hr/recruitment/submit', label: 'Recruitment · Apply for Jobs', active: pathname === '/hr/recruitment/submit' },
             { href: '/hr/recruitment/my', label: 'Recruitment · My Candidates', active: pathname === '/hr/recruitment/my' },
             { href: '/hr/recruitment/approvals', label: 'Recruitment · Approvals', active: pathname === '/hr/recruitment/approvals' },
           ]
@@ -2101,6 +2167,12 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/health/admin/programs', label: 'Manage Programs', active: pathname.startsWith('/health/admin/programs') },
             { href: '/health/counselor', label: 'Counselor Dashboard', active: pathname === '/health/counselor' },
             { href: '/health/programs', label: 'Wellness Programs', active: pathname === '/health/programs' || pathname.startsWith('/health/programs/') },
+            // Sports activities surfaced under Health & Wellness (Director ask, 2026-06-22).
+            // These are NAV LINKS to the events-platform modules — NOT route moves:
+            // /events/marathon & /events/tournament keep their canonical homes + permissions
+            // (each link's visibility is gated by its own MENU_PERMISSIONS entry).
+            { href: '/events/marathon', label: 'Sports Marathon', active: pathname === '/events/marathon' || pathname.startsWith('/events/marathon/') },
+            { href: '/events/tournament', label: 'Sports Tournaments', active: pathname === '/events/tournament' || pathname.startsWith('/events/tournament/') },
           ]
         }
       ]
@@ -2114,8 +2186,14 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/events' || pathname.startsWith('/events/'),
           icon: Calendar,
           submenus: [
+            // Events Platform Promotion PR9 (2026-06-23): one create flow asks format + home
+            { href: '/events/create', label: 'Create an Event', active: pathname === '/events/create' },
+            { href: '/events/presets', label: 'Event Presets', active: pathname === '/events/presets' },
             { href: '/events/marathon', label: 'Marathon · All Events', active: pathname === '/events/marathon' },
             { href: '/events/marathon/new', label: 'Marathon · New Event', active: pathname === '/events/marathon/new' },
+            // Sports Tournament PR1 (2026-06-22): conduct sports tournaments on the events platform
+            { href: '/events/tournament', label: 'Tournament · All', active: pathname === '/events/tournament' },
+            { href: '/events/tournament/new', label: 'Tournament · New', active: pathname === '/events/tournament/new' },
             // Stream C (2026-04-26): event_proposals workflow — chat-bypass propose intake
             { href: '/events/propose', label: 'Propose an Event', active: pathname === '/events/propose' || pathname.startsWith('/events/propose/') },
           ]
@@ -2226,6 +2304,18 @@ export function GetPages(pathname: string): MenuGroup[] {
             // PDE faculty entries moved to the unified 'PDE' sidebar group (PR
             // sidebar-unify, 2026-06-09). See groupLabel: 'PDE' below.
           ]
+        }
+      ]
+    },
+    {
+      groupLabel: 'Calendar',
+      menus: [
+        {
+          href: '/calendar',
+          label: 'Calendar',
+          active: pathname === '/calendar' || pathname.startsWith('/calendar/'),
+          icon: Calendar,
+          submenus: []
         }
       ]
     },
@@ -2361,6 +2451,22 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: FileDown,
           submenus: []
         },
+      ]
+    },
+    {
+      // Feedback Dashboard — Universal Feedback Spine.
+      // Added 2026-06-26: admin-level view of AI-classified feedback_events
+      // (sentiment, themes, complaints, troll-storm concentration). Gated by
+      // feedback.view; super-admin and admin always see it via RLS bypass.
+      groupLabel: 'Feedback',
+      menus: [
+        {
+          href: '/feedback',
+          label: 'Feedback',
+          active: pathname === '/feedback' || pathname.startsWith('/feedback/'),
+          icon: MessageSquare,
+          submenus: [],
+        }
       ]
     },
     {

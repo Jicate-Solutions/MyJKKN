@@ -115,6 +115,14 @@ const CDC_MODULES: ModuleCard[] = [
     color: 'text-cyan-600 bg-cyan-50',
   },
   {
+    href: '/cdc/udyog',
+    title: 'UDYOG Tracker',
+    permModule: 'cdc.udyog',
+    description: 'UNNATI learners who must apply on the external UDYOG portal. Direct them out and record their application reference number.',
+    icon: GraduationCap,
+    color: 'text-teal-600 bg-teal-50',
+  },
+  {
     href: '/cdc/career-guidance',
     title: 'AI Career Guidance',
     permModule: 'cdc',

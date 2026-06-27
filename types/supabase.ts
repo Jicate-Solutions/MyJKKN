@@ -15460,6 +15460,149 @@ export type Database = {
           },
         ]
       }
+      calendar_categories: {
+        Row: {
+          applies_to_kinds: string[]
+          color_code: string
+          created_at: string
+          icon: string | null
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          applies_to_kinds?: string[]
+          color_code?: string
+          created_at?: string
+          icon?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          applies_to_kinds?: string[]
+          color_code?: string
+          created_at?: string
+          icon?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      calendar_entries: {
+        Row: {
+          all_day: boolean
+          blocks_attendance: boolean
+          category_id: string | null
+          color_code: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          end_at: string
+          id: string
+          is_active: boolean
+          is_recurring: boolean
+          kind: string
+          location: string | null
+          meeting_url: string | null
+          recurrence_pattern: Json | null
+          scope_institution_ids: string[] | null
+          start_at: string
+          title: string
+          updated_at: string
+          visibility: string
+        }
+        Insert: {
+          all_day?: boolean
+          blocks_attendance?: boolean
+          category_id?: string | null
+          color_code?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          end_at: string
+          id?: string
+          is_active?: boolean
+          is_recurring?: boolean
+          kind?: string
+          location?: string | null
+          meeting_url?: string | null
+          recurrence_pattern?: Json | null
+          scope_institution_ids?: string[] | null
+          start_at: string
+          title: string
+          updated_at?: string
+          visibility?: string
+        }
+        Update: {
+          all_day?: boolean
+          blocks_attendance?: boolean
+          category_id?: string | null
+          color_code?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          end_at?: string
+          id?: string
+          is_active?: boolean
+          is_recurring?: boolean
+          kind?: string
+          location?: string | null
+          meeting_url?: string | null
+          recurrence_pattern?: Json | null
+          scope_institution_ids?: string[] | null
+          start_at?: string
+          title?: string
+          updated_at?: string
+          visibility?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_entries_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "calendar_categories"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      calendar_feed_settings: {
+        Row: {
+          created_at: string
+          feed_key: string
+          id: string
+          institution_id: string | null
+          is_enabled: boolean
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          feed_key: string
+          id?: string
+          institution_id?: string | null
+          is_enabled?: boolean
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          feed_key?: string
+          id?: string
+          institution_id?: string | null
+          is_enabled?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
       case_alerts: {
         Row: {
           alert_type: string
@@ -40381,6 +40524,105 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_job_applications: {
+        Row: {
+          id: string
+          job_id: string
+          institution_id: string | null
+          first_name: string
+          last_name: string
+          email: string
+          phone: string
+          current_job_title: string | null
+          current_company: string | null
+          current_job_duration_months: number | null
+          experience_months: number
+          qualification: string
+          worked_cities: string[]
+          resume_url: string
+          resume_filename: string
+          resume_size_bytes: number | null
+          drive_file_id: string | null
+          status: string
+          reviewed_by: string | null
+          reviewed_at: string | null
+          review_notes: string | null
+          applicant_user_id: string | null
+          submitted_at: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          job_id: string
+          institution_id?: string | null
+          first_name: string
+          last_name: string
+          email: string
+          phone: string
+          current_job_title?: string | null
+          current_company?: string | null
+          current_job_duration_months?: number | null
+          experience_months?: number
+          qualification: string
+          worked_cities?: string[]
+          resume_url: string
+          resume_filename: string
+          resume_size_bytes?: number | null
+          drive_file_id?: string | null
+          status?: string
+          reviewed_by?: string | null
+          reviewed_at?: string | null
+          review_notes?: string | null
+          applicant_user_id?: string | null
+          submitted_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          job_id?: string
+          institution_id?: string | null
+          first_name?: string
+          last_name?: string
+          email?: string
+          phone?: string
+          current_job_title?: string | null
+          current_company?: string | null
+          current_job_duration_months?: number | null
+          experience_months?: number
+          qualification?: string
+          worked_cities?: string[]
+          resume_url?: string
+          resume_filename?: string
+          resume_size_bytes?: number | null
+          drive_file_id?: string | null
+          status?: string
+          reviewed_by?: string | null
+          reviewed_at?: string | null
+          review_notes?: string | null
+          applicant_user_id?: string | null
+          submitted_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_job_applications_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "hr_recruitment_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_job_applications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
             referencedColumns: ["id"]
           },
         ]

@@ -501,6 +501,10 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
           <Separator />
 
           {/* Approval Steps */}
+          {/* Approvers are intentionally independent of Service Visibility:
+              any approver-eligible user can be picked here (RLS still gates
+              who's visible), and the builder offers a per-step role filter to
+              narrow the list. */}
           <ApprovalStepBuilder
             steps={approvalSteps}
             onChange={(newSteps) => {
@@ -508,7 +512,6 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
               setValue('approval_steps', newSteps, { shouldValidate: false });
             }}
             workflowType={watch('approval_workflow_type') as ApprovalWorkflowType}
-            institutionIds={scopeLevel === 'institution' ? scopeInstitutionIds : []}
           />
           {errors.approval_steps && (
             <p className="text-xs text-red-500 mt-2">{errors.approval_steps.message}</p>

@@ -489,3 +489,271 @@ body {
   flex-shrink: 0;
   margin-top: 2px;
 }
+
+/* ── react-big-calendar — theme-aware + responsive overrides ──────────────── */
+/* react-big-calendar ships only a light-mode stylesheet with hardcoded white
+   backgrounds and #ddd borders, and a desktop-density layout. These rules
+   remap it onto the app's design tokens (so dark mode works and it matches the
+   brand) and make the month grid / agenda list usable on small screens.
+   The toolbar is replaced by a custom React component (calendar-toolbar.tsx),
+   so .rbc-toolbar is intentionally not styled here. */
+.rbc-calendar {
+  max-width: 100%;
+  color: hsl(var(--foreground));
+  font-size: 0.875rem;
+}
+
+/* Grid surfaces + borders → design tokens */
+.rbc-month-view,
+.rbc-time-view,
+.rbc-agenda-view,
+.rbc-time-header.rbc-overflowing,
+.rbc-time-content,
+.rbc-month-row + .rbc-month-row,
+.rbc-header,
+.rbc-header + .rbc-header,
+.rbc-day-bg + .rbc-day-bg,
+.rbc-time-header-content,
+.rbc-timeslot-group,
+.rbc-time-content > * + * > *,
+.rbc-agenda-view table.rbc-agenda-table,
+.rbc-agenda-view table.rbc-agenda-table tbody > tr > td,
+.rbc-agenda-view table.rbc-agenda-table thead > tr > th {
+  border-color: hsl(var(--border)) !important;
+}
+
+.rbc-month-view,
+.rbc-time-view,
+.rbc-agenda-view {
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+/* Weekday header row */
+.rbc-header {
+  padding: 8px 4px;
+  font-weight: 600;
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Date numbers */
+.rbc-date-cell {
+  padding: 4px 6px;
+  font-size: 0.8rem;
+}
+.rbc-button-link {
+  color: inherit;
+}
+
+/* Today + off-range (previous/next month) days */
+.rbc-today {
+  background-color: hsl(var(--primary) / 0.08);
+}
+.rbc-off-range-bg {
+  background-color: hsl(var(--muted) / 0.4);
+}
+.rbc-off-range {
+  color: hsl(var(--muted-foreground));
+}
+
+/* Now-indicator line in week/day views */
+.rbc-current-time-indicator {
+  background-color: hsl(var(--primary));
+  height: 2px;
+}
+
+/* Event chips (background colour is set per-event via eventPropGetter) */
+.rbc-event,
+.rbc-day-slot .rbc-event {
+  padding: 2px 6px;
+  font-size: 0.78rem;
+  border-radius: 6px;
+  text-shadow: 0 1px 1px rgb(0 0 0 / 0.25);
+}
+.rbc-event:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+.rbc-event.rbc-selected {
+  filter: brightness(0.92);
+}
+
+/* "+ N more" link */
+.rbc-show-more {
+  color: hsl(var(--primary));
+  background: transparent;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+/* Month "show more" popup overlay */
+.rbc-overlay {
+  background-color: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  box-shadow: 0 10px 30px -10px rgb(0 0 0 / 0.4);
+}
+.rbc-overlay-header {
+  border-bottom: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+}
+
+/* Agenda (list) view — the primary layout on mobile */
+.rbc-agenda-view table.rbc-agenda-table thead > tr > th {
+  color: hsl(var(--muted-foreground));
+  font-weight: 600;
+}
+.rbc-agenda-empty {
+  padding: 2rem 1rem;
+  color: hsl(var(--muted-foreground));
+}
+.rbc-time-view .rbc-label,
+.rbc-agenda-time-cell {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+}
+
+/* ── Small screens (≤640px) ───────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .rbc-calendar { font-size: 0.8rem; }
+  .rbc-header { padding: 6px 2px; font-size: 0.65rem; }
+  .rbc-date-cell { padding: 2px 4px; font-size: 0.72rem; }
+  .rbc-event,
+  .rbc-day-slot .rbc-event { font-size: 0.7rem; padding: 1px 4px; }
+  .rbc-show-more { font-size: 0.65rem; }
+  .rbc-row-segment { padding: 0 1px 1px; }
+
+  /* Agenda rows breathe and wrap instead of cramming into a fixed table */
+  .rbc-agenda-view table.rbc-agenda-table tbody > tr > td { padding: 8px 6px; }
+  .rbc-agenda-time-cell { white-space: nowrap; }
+  .rbc-agenda-event-cell { white-space: normal; }
+}
+
+/* ── Week / Day (time-grid) responsiveness ───────────────────────────────── */
+/* The time-grid views (Week = 7 day columns, Day = 1) sit beside a left time
+   gutter. RBC keeps the day-header row and the time-grid body in one flex
+   column sharing the same per-column width, so they shrink together as the
+   viewport narrows — which means the fix is *density* (tighten the gutter and
+   scale text down), NOT horizontal scroll (that would desync header from body
+   and break the "content fits the viewport" rule). Phones never reach Week —
+   the toolbar drops it below 768px and defaults to Agenda — but Day on a phone
+   and Week on a tablet both rely on these rules to stay legible. */
+
+/* Keep each hour slot tall enough that a short event is still tappable. */
+.rbc-timeslot-group {
+  min-height: 42px;
+}
+
+/* Time-grid event chips hold long, multi-line titles. Keep that text wrapping
+   and clipped *inside* the colored block (instead of spilling past it into the
+   grid) so a busy Week/Day column stays readable. */
+.rbc-day-slot .rbc-event {
+  line-height: 1.2;
+}
+.rbc-day-slot .rbc-event-content {
+  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.rbc-day-slot .rbc-event-label {
+  font-size: 0.68rem;
+  opacity: 0.9;
+}
+
+@media (max-width: 1024px) {
+  .rbc-time-view .rbc-label,
+  .rbc-time-gutter,
+  .rbc-time-header-gutter {
+    font-size: 0.68rem;
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+  .rbc-time-header-content .rbc-header {
+    padding: 6px 2px;
+    font-size: 0.66rem;
+  }
+  .rbc-day-slot .rbc-event {
+    font-size: 0.7rem;
+    padding: 1px 4px;
+  }
+  /* Cap the all-day band so a busy day doesn't starve the scrollable grid. */
+  .rbc-allday-cell {
+    max-height: 72px;
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 768px) {
+  .rbc-time-view .rbc-label,
+  .rbc-time-gutter,
+  .rbc-time-header-gutter {
+    font-size: 0.62rem;
+  }
+  .rbc-time-header-content .rbc-header {
+    font-size: 0.62rem;
+  }
+  .rbc-day-slot .rbc-event {
+    font-size: 0.66rem;
+  }
+}
+
+/* ── Agenda / List view — never clip; scroll long lists; cards on phones ──── */
+/* The shared rule above gives the agenda `overflow: hidden` (for rounded
+   corners), which silently clips both a wide row AND a long list. Switch it to
+   `auto` so a tall list scrolls inside the bordered card and a tablet-width row
+   can scroll horizontally if needed — the rounded corners still clip. */
+.rbc-agenda-view {
+  overflow: auto;
+}
+
+/* Below 640px the rigid 3-column table can't fit a phone, so drop the table
+   layout entirely and stack each item into a card (skill rule: tables → card
+   layout on mobile). Tapping a card's title still fires onSelectEvent → the
+   detail dialog. */
+@media (max-width: 640px) {
+  .rbc-agenda-view table.rbc-agenda-table,
+  .rbc-agenda-view table.rbc-agenda-table tbody,
+  .rbc-agenda-view table.rbc-agenda-table tbody > tr,
+  .rbc-agenda-view table.rbc-agenda-table tbody > tr > td {
+    display: block;
+    width: 100% !important;
+  }
+  .rbc-agenda-view table.rbc-agenda-table thead {
+    display: none;
+  }
+  .rbc-agenda-view table.rbc-agenda-table tbody > tr {
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    margin-bottom: 8px;
+  }
+  .rbc-agenda-view table.rbc-agenda-table tbody > tr > td {
+    border: none !important;
+    padding: 0 !important;
+  }
+  .rbc-agenda-date-cell {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: hsl(var(--muted-foreground));
+  }
+  .rbc-agenda-time-cell {
+    font-size: 0.72rem;
+    color: hsl(var(--muted-foreground));
+    margin: 2px 0;
+    white-space: normal !important;
+  }
+  .rbc-agenda-event-cell {
+    font-size: 0.9rem;
+    font-weight: 600;
+    white-space: normal;
+  }
+}

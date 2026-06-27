@@ -819,6 +819,15 @@ export const PERMISSION_CATEGORIES = [
       // SF100 — Audit Log
       { key: 'startup_studio.sf100.audit_log.view', label: 'SF100 — View Audit Log' },
 
+      // -----------------------------------------------------------------
+      // Foundations (Level 0) — pre-Appathon founder-formation on-ramp
+      // Spec: specs/startup-studio-foundations-level0-spec-2026-06-01.md
+      // Student participation is enrollment-gated (no perm key), matching SF100.
+      // -----------------------------------------------------------------
+      { key: 'startup_studio.foundations.view', label: 'Foundations — View cohorts & worksheets' },
+      { key: 'startup_studio.foundations.manage', label: 'Foundations — Manage cohorts, worksheets & enrolment' },
+      { key: 'startup_studio.foundations.review', label: 'Foundations — Review submissions (mentor feedback)' },
+
       // NIF Pipeline (Nattraja Incubation Forum)
       { key: 'startup_studio.nif.view', label: 'NIF — View Pipeline' },
       { key: 'startup_studio.nif.manage', label: 'NIF — Manage Candidates' },
@@ -1709,7 +1718,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'events.proposals.view', label: 'View Event Proposals' },
       { key: 'events.proposals.create', label: 'Create Event Proposals' },
       { key: 'events.marathon.view', label: 'View Marathon Events' },
-      { key: 'events.marathon.create', label: 'Create Marathon Events' }
+      { key: 'events.marathon.create', label: 'Create Marathon Events' },
+      // Events Platform Promotion — shared logistics
+      { key: 'events.budget.approve', label: 'Approve Event Budgets (finance sign-off)' },
+      { key: 'events.presets.manage', label: 'Publish Official Event Presets' }
     ]
   },
   // Added 2026-04-27 — menu-coverage baseline cleanup. The /health/* tree
@@ -1731,6 +1743,21 @@ export const PERMISSION_CATEGORIES = [
       { key: 'health.counselor.view', label: 'View Counselor Dashboard' },
       { key: 'health.programs.view', label: 'View Wellness Programs' },
       { key: 'health.programs.manage', label: 'Manage Wellness Programs' }
+    ]
+  },
+  // Added 2026-06-22 — Sports Tournament Conducting (PR1). A tournament is an
+  // events row (event_type='sports_tournament') on the shared events platform;
+  // these keys gate the /events/tournament UI and the tournament_divisions RLS.
+  // Granted to the new `sports_coordinator` role (see migration
+  // 20260622110716_sports_tournament_pr1.sql).
+  {
+    name: 'Sports Tournaments',
+    key: 'sports',
+    permissions: [
+      { key: 'sports.tournaments.view', label: 'View Sports Tournaments' },
+      { key: 'sports.tournaments.create', label: 'Create Sports Tournaments' },
+      { key: 'sports.tournaments.edit', label: 'Edit Sports Tournaments' },
+      { key: 'sports.tournaments.manage', label: 'Manage Sports Tournaments (Divisions, Lifecycle)' }
     ]
   },
   // Added 2026-04-27 — IMS (Inventory Management System) module integration
@@ -2010,6 +2037,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'cdc.training.edit', label: 'Edit Training Programmes' },
       { key: 'cdc.training.delete', label: 'Delete Training Programmes' },
 
+      // UNNATI → UDYOG application tracker (BUG-004075)
+      { key: 'cdc.udyog.view', label: 'View UDYOG Application Tracker' },
+      { key: 'cdc.udyog.manage', label: 'Manage UDYOG Application Requirements' },
+
       // Opportunities Bulletin
       { key: 'cdc.bulletin.view', label: 'View Opportunities Bulletin' },
       { key: 'cdc.bulletin.create', label: 'Create Opportunities Bulletin Entries' },
@@ -2148,6 +2179,29 @@ export const PERMISSION_CATEGORIES = [
     key: 'rcltp',
     permissions: [
       { key: 'rcltp.config.manage', label: 'Manage RCLTP Config' }
+    ]
+  },
+  {
+    name: 'Calendar',
+    key: 'calendar',
+    permissions: [
+      { key: 'calendar.view', label: 'View Calendar' },
+      { key: 'calendar.people_leave.view', label: 'View Person-Level Leave on Calendar' },
+      { key: 'calendar.holidays.manage', label: 'Manage Common Holidays & Events' },
+      { key: 'calendar.config.manage', label: 'Manage Calendar Config (Feeds, Categories)' }
+    ]
+  },
+  {
+    // Added 2026-06-26 — Universal Feedback Spine dashboard (/feedback).
+    // Grants access to AI-classified feedback_events across all sources
+    // (session_feedback, mess, parent, ig_comment, etc.). Super-admin and
+    // admin always have access via RLS; this key enables non-admin roles
+    // (e.g. a dedicated feedback reviewer) to be granted view access
+    // without elevating them to full admin.
+    name: 'Feedback',
+    key: 'feedback',
+    permissions: [
+      { key: 'feedback.view', label: 'View Feedback Dashboard (AI-classified events)' }
     ]
   }
 ];

@@ -230,6 +230,9 @@ export interface LearnerHostelitesFilters {
   year_of_study?: number;
   gender?: 'Male' | 'Female' | 'Other';
   block_id?: BlockFilterValue;
+  // Block-scoped wardens: restrict to the warden's assigned blocks (cross-
+  // institution). ANDs with block_id when both are present.
+  block_ids?: string[];
   hostel_category_id?: string;
   // Academic cascade filters (parity with Learners Profiles).
   degree_id?: string;

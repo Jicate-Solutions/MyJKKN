@@ -8,13 +8,16 @@
  * Spec: specs/pm-projects-module-2026-05-26.md (F13).
  */
 
-import { AlertTriangle, CalendarDays, Lock } from 'lucide-react';
+import { useState } from 'react';
+import { AlertTriangle, CalendarDays, Lock, Users } from 'lucide-react';
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import type { ProjectPriority, ProjectTask } from '@/types/projects';
+import { TaskRaciDialog } from './task-raci-dialog';
 
 function initials(staffId: string | null): string {
   if (!staffId) return '?';
@@ -37,6 +40,7 @@ interface TaskCardProps {
 
 export function TaskCard({ task, priority, onClick, className }: TaskCardProps) {
   const due = formatDue(task.due_date);
+  const [raciOpen, setRaciOpen] = useState(false);
 
   return (
     <Card
@@ -83,14 +87,33 @@ export function TaskCard({ task, priority, onClick, className }: TaskCardProps) 
         ) : (
           <span />
         )}
-        {task.owner_staff_id && (
-          <Avatar className="h-6 w-6">
-            <AvatarFallback className="text-[10px]">
-              {initials(task.owner_staff_id)}
-            </AvatarFallback>
-          </Avatar>
-        )}
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+            title="Assign RACI (Responsible / Accountable / Consulted / Informed)"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              setRaciOpen(true);
+            }}
+          >
+            <Users className="h-3 w-3" />
+            RACI
+          </Button>
+          {task.owner_staff_id && (
+            <Avatar className="h-6 w-6">
+              <AvatarFallback className="text-[10px]">
+                {initials(task.owner_staff_id)}
+              </AvatarFallback>
+            </Avatar>
+          )}
+        </div>
       </div>
+
+      <TaskRaciDialog task={task} open={raciOpen} onOpenChange={setRaciOpen} />
     </Card>
   );
 }

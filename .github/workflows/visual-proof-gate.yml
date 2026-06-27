@@ -108,7 +108,13 @@ jobs:
           # as `__tests__/`; the paths just fell outside the regex and forced a
           # manual skip. Deliberately NOT broadened to all `*.config.ts`
           # (`tailwind.config.ts` IS visual — see the next.config note above).
-          NON_UI_REGEX='^(supabase/|scripts/|docs/|specs/|\.claude/|\.github/|lib/services/|lib/utils/|lib/db/|lib/auth/|lib/api/|lib/types/|types/|app/api/|__tests__/|e2e/|next\.config\.ts|playwright\.config\.ts|serwist\.config\.mjs|package\.json|README\.md|CHANGELOG\.md|LICENSE|\.gitignore|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig\.json|tsconfig\..*\.json)'
+          # `vercel.json` added 2026-06-22 (PR #1571 — attendance auto-meeting
+          # cron): root-level Vercel deploy config (cron schedules, headers,
+          # rewrites, function settings). Same class as next.config.ts /
+          # package.json — it changes HOW/WHEN code runs, never renders UI. A
+          # cron-only PR (one new vercel.json crons[] entry) was forcing a
+          # manual skip even though all other files were already exempt.
+          NON_UI_REGEX='^(supabase/|scripts/|docs/|specs/|\.claude/|\.github/|lib/services/|lib/utils/|lib/db/|lib/auth/|lib/api/|lib/types/|types/|app/api/|__tests__/|e2e/|next\.config\.ts|playwright\.config\.ts|serwist\.config\.mjs|package\.json|vercel\.json|README\.md|CHANGELOG\.md|LICENSE|\.gitignore|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig\.json|tsconfig\..*\.json)'
 
           # Anything outside the non-UI set means the gate applies.
           UI_TOUCHING=$(echo "$CHANGED" | grep -vE "$NON_UI_REGEX" || true)

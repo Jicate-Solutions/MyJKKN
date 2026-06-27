@@ -288,6 +288,15 @@ CREATE TRIGGER log_resource_usage_trigger AFTER INSERT ON resource_reservations
 CREATE TRIGGER update_resource_reservation_count_trigger AFTER INSERT OR UPDATE OR DELETE ON resource_reservations
     FOR EACH ROW EXECUTE FUNCTION update_resource_reservation_count();
 
+-- Pending-aware, capacity-aware slot lock (replaces tr_reservation_approved_decrement_stock)
+DROP TRIGGER IF EXISTS tr_reservation_approved_decrement_stock ON public.resource_reservations;
+DROP FUNCTION IF EXISTS public.fn_reservation_approved_decrement_stock();
+CREATE TRIGGER tr_reservation_enforce_slot_lock
+  BEFORE INSERT OR UPDATE OF start_time, end_time, quantity, resource_id, status
+  ON public.resource_reservations
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_reservation_enforce_slot_lock();
+
 -- Update category usage count
 CREATE TRIGGER update_category_usage_count_trigger AFTER INSERT OR UPDATE OR DELETE ON resources
     FOR EACH ROW EXECUTE FUNCTION update_category_usage_count();
@@ -1325,3 +1334,12 @@ CREATE TRIGGER trg_tms_fee_bill_cleanup_linked_billing
 BEFORE DELETE ON tms_fee_bill
 FOR EACH ROW
 EXECUTE FUNCTION tms_fee_bill_cleanup_linked_billing();
+
+-- Auto-derive hr_recruitment_jobs.hr_organization_id from the chosen college.
+-- Mirrors 20260625120000_hr_recruitment_jobs_autofill_org.sql.
+DROP TRIGGER IF EXISTS hr_recruitment_jobs_fill_org_biu ON public.hr_recruitment_jobs;
+CREATE TRIGGER hr_recruitment_jobs_fill_org_biu
+  BEFORE INSERT OR UPDATE OF institution_id, hr_organization_id
+  ON public.hr_recruitment_jobs
+  FOR EACH ROW
+  EXECUTE FUNCTION public.hr_recruitment_jobs_fill_org();

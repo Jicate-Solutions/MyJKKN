@@ -230,8 +230,14 @@ export function AvailablePeriodsCards({
     const recordId = periodRecordIds.get(period.timetable_slot_id);
 
     if (isMarked && recordId) {
-      // Navigate to attendance report details page
-      router.push(`/academic/attendance/reports/${recordId}`);
+      // Navigate to attendance report details page.
+      // Updated: 2026-06-19 (FIX 3) - Pass the clicked period so the report opens ON it.
+      // One semester-level student_attendance record can hold several periods; without this
+      // the report page always defaulted to the first period, so "View Details" on (e.g.)
+      // Oral Medicine showed the first period's class (Oral Surgery) instead. [BUG-003154]
+      router.push(
+        `/academic/attendance/reports/${recordId}?period=${encodeURIComponent(period.id)}`
+      );
       return;
     } else {
       // Use the original period selection behavior for unmarked periods

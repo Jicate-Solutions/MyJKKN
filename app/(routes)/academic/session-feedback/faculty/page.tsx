@@ -18,6 +18,7 @@ import {
   ClipboardCheck,
   Clock,
   CheckCircle2,
+  RotateCcw,
 } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -59,8 +60,16 @@ import {
   useFacultyFeedbackSummary,
   useFacultyCompletion,
   useSessionPendingRoster,
+  useFacultyFollowups,
 } from '@/hooks/use-session-feedback';
-import type { FacultySummaryRow, FacultyCompletionRow } from '@/types/session-feedback';
+import type {
+  FacultySummaryRow,
+  FacultyCompletionRow,
+  FacultyFollowupRow,
+} from '@/types/session-feedback';
+import { FollowupCell } from '../_components/followup-cell';
+import { AiSuggestionDialog } from '../_components/ai-suggestion-dialog';
+import { LivePulseSection } from '../_components/live-pulse-control';
 
 const BRAND_GREEN = '#0b6d41';
 
@@ -203,6 +212,122 @@ function PendingRosterDialog({ row }: { row: FacultyCompletionRow }) {
   );
 }
 
+// ── Topics to revisit (B1) ───────────────────────────────────────────────────
+// The teacher's OWN low-understanding sessions + the lift (did the next session of
+// the same course recover?) + a per-topic "AI suggested fix". Self-scoped clone of
+// the principal escalation lift — the signal finally lands on the teacher's desk.
+function TopicsToRevisitSection({ from, to }: { from: string; to: string }) {
+  const { data, isLoading, isError, error } = useFacultyFollowups(from, to);
+  // The RPC already returns worst-first (lowest avg, most recent).
+  const rows: FacultyFollowupRow[] = data ?? [];
+
+  return (
+    <Card className="mb-6">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <RotateCcw className="h-5 w-5" style={{ color: BRAND_GREEN }} />
+          <CardTitle>Topics to revisit</CardTitle>
+        </div>
+        <CardDescription>
+          Your sessions where students reported low understanding (average under 3, at
+          least 3 responses). <span className="font-medium">Follow-up</span> shows whether
+          understanding recovered the next time you taught that course — and you can ask
+          for an AI-suggested fix for any topic.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-16">
+            <BeatLoader color={BRAND_GREEN} size={10} />
+            <p className="text-sm text-muted-foreground">Loading your topics…</p>
+          </div>
+        ) : isError ? (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              {error instanceof Error
+                ? error.message
+                : 'Could not load your topics to revisit. Please try again.'}
+            </AlertDescription>
+          </Alert>
+        ) : rows.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+            <CheckCircle2 className="h-10 w-10 text-green-500/70" />
+            <p className="text-sm font-medium">Nothing to revisit right now.</p>
+            <p className="text-xs text-muted-foreground">
+              None of your recent sessions scored low on understanding. Topics appear here
+              when a class reports they didn&apos;t follow along.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Course</TableHead>
+                  <TableHead className="text-right">Responses</TableHead>
+                  <TableHead className="text-right">Avg understood</TableHead>
+                  <TableHead className="text-right">Low</TableHead>
+                  <TableHead className="text-right">Follow-up</TableHead>
+                  <TableHead className="text-right">Fix</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((r) => (
+                  <TableRow
+                    key={`${r.attendance_date}-${r.period_id}-${r.course_code ?? 'na'}`}
+                  >
+                    <TableCell className="whitespace-nowrap font-medium">
+                      {formatDate(r.attendance_date)}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span className="font-medium">{r.course_code ?? 'Unspecified'}</span>
+                        {r.course_name ? (
+                          <span className="text-xs text-muted-foreground">
+                            {r.course_name}
+                          </span>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{r.responses}</TableCell>
+                    <TableCell className="text-right">
+                      <span className="font-semibold tabular-nums text-red-600">
+                        {r.avg_understood != null ? r.avg_understood.toFixed(2) : '—'}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Badge variant="outline" className={BAND_BADGE.bad}>
+                        {r.low_understanding}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <FollowupCell row={r} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {r.course_code ? (
+                        <AiSuggestionDialog
+                          courseCode={r.course_code}
+                          courseName={r.course_name}
+                          from={from}
+                          to={to}
+                        />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function CompletionSection({ from, to }: { from: string; to: string }) {
   const { data, isLoading, isError, error } = useFacultyCompletion(from, to);
   const rows: FacultyCompletionRow[] = data ?? [];
@@ -329,6 +454,12 @@ export default function FacultySessionInsightPage() {
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
+
+      {/* Live — open an in-class pulse for today's classes (fuels the loop) */}
+      <LivePulseSection from={from} to={to} />
+
+      {/* Action — your low-understanding topics + the lift + an AI suggested fix */}
+      <TopicsToRevisitSection from={from} to={to} />
 
       {/* Coverage — who confirmed, who's pending */}
       <CompletionSection from={from} to={to} />

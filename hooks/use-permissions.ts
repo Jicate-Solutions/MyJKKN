@@ -58,10 +58,11 @@ export function usePermissions(
   const { waitForLoad = false } = options;
 
   // Fetch permissions using React Query for caching
-  const { 
-    data: permissionData, 
-    isLoading: queryLoading, 
-    error: queryError 
+  const {
+    data: permissionData,
+    isLoading: queryLoading,
+    error: queryError,
+    refetch: refetchPermissions
   } = useQuery<PermissionData>({
     queryKey: ['permissions', userProfile?.id, userProfile?.role],
     queryFn: async () => {
@@ -473,6 +474,11 @@ export function usePermissions(
     isInstitutionScoped,
     getModuleScope,
     userProfile,
+    // Refetch the permission query — used by nav surfaces to offer an explicit
+    // "Retry" when permissions fail to load, instead of silently collapsing to a
+    // Dashboard-only menu (which makes a transient load failure look like a
+    // permanent loss of access — CLAUDE.md #27).
+    refetch: refetchPermissions,
 
     // Multi-role properties
     userRoles,          // All roles assigned to the user

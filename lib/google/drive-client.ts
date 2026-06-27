@@ -1,21 +1,23 @@
 /**
- * Shared Google Drive service-account client (one Drive for the whole app).
+ * Shared Google Drive client.
  *
- * Uploads are gated by isDriveConfigured(): all GOOGLE_DRIVE_* env vars must be
- * present AND GOOGLE_DRIVE_PRIVATE_KEY must be a real PEM private key. When the
- * key is missing/placeholder, isDriveConfigured() is false so callers return a
- * clean 503 instead of crashing OpenSSL with ERR_OSSL_UNSUPPORTED.
+ * Supports two auth paths:
  *
+ * Path A — OAuth2 with refresh token (personal Gmail):
+ *   Set GOOGLE_DRIVE_OAUTH_CLIENT_ID, GOOGLE_DRIVE_OAUTH_CLIENT_SECRET,
+ *   GOOGLE_DRIVE_REFRESH_TOKEN. Files are owned by the Gmail user (uses their
+ *   storage quota). Required for personal Gmail accounts.
+ *
+ * Path B — JWT service account (Google Workspace / Shared Drive):
+ *   Set GOOGLE_DRIVE_CLIENT_EMAIL, GOOGLE_DRIVE_PRIVATE_KEY.
+ *   Files owned by the service account — only works when quota is provided
+ *   via a Workspace domain or Shared Drive membership.
+ *
+ * Both paths require GOOGLE_SHARED_DRIVE_ROOT_FOLDER_ID.
  * Node runtime only.
  */
 import { google } from 'googleapis';
 
-/**
- * Normalize the service-account private key from env:
- *  - strip a single pair of wrapping quotes (dotenv often keeps them),
- *  - convert literal `\n` sequences into real newlines (single-line .env form),
- *  - trim stray CR/whitespace.
- */
 function drivePrivateKey(): string {
   let key = process.env.GOOGLE_DRIVE_PRIVATE_KEY ?? '';
   if (
@@ -27,24 +29,39 @@ function drivePrivateKey(): string {
   return key.replace(/\\n/g, '\n').trim();
 }
 
+function hasOAuth2Credentials(): boolean {
+  return !!(
+    process.env.GOOGLE_DRIVE_REFRESH_TOKEN &&
+    process.env.GOOGLE_DRIVE_OAUTH_CLIENT_ID &&
+    process.env.GOOGLE_DRIVE_OAUTH_CLIENT_SECRET
+  );
+}
+
 export function isDriveConfigured(): boolean {
+  if (!process.env.GOOGLE_SHARED_DRIVE_ROOT_FOLDER_ID) return false;
+  if (hasOAuth2Credentials()) return true;
+  // Fallback: JWT service account
   return !!(
     process.env.GOOGLE_DRIVE_CLIENT_EMAIL &&
-    process.env.GOOGLE_SHARED_DRIVE_ROOT_FOLDER_ID &&
-    // Reject placeholders: a real key is a multi-line PEM block.
     drivePrivateKey().includes('PRIVATE KEY')
   );
 }
 
 export function createDriveClient() {
+  if (hasOAuth2Credentials()) {
+    const oauth2 = new google.auth.OAuth2(
+      process.env.GOOGLE_DRIVE_OAUTH_CLIENT_ID,
+      process.env.GOOGLE_DRIVE_OAUTH_CLIENT_SECRET,
+    );
+    oauth2.setCredentials({ refresh_token: process.env.GOOGLE_DRIVE_REFRESH_TOKEN });
+    return google.drive({ version: 'v3', auth: oauth2 });
+  }
+
+  // JWT path — Workspace / Shared Drive
   const auth = new google.auth.JWT({
     email: process.env.GOOGLE_DRIVE_CLIENT_EMAIL,
     key: drivePrivateKey(),
     scopes: ['https://www.googleapis.com/auth/drive'],
-    // Path B (domain-wide delegation): when set, the SA impersonates this real
-    // Workspace user so uploads use THAT user's Drive quota — required when the
-    // target is a My Drive folder (SAs have no storage quota of their own).
-    // Leave unset when using a Shared Drive (Path A).
     subject: process.env.GOOGLE_DRIVE_IMPERSONATE_SUBJECT || undefined,
   });
   return google.drive({ version: 'v3', auth });

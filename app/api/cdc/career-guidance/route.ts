@@ -82,6 +82,58 @@ function marksValue(v: unknown): string | null {
   return scalarText(v);
 }
 
+// GET ?learnerId=<id> → the latest SAVED career report for that learner, or
+// { saved: null } when none exists. Same CDC-staff gate + institution scope as
+// POST, applied to the stored institution_id so a counsellor can only read a
+// saved report for a learner inside their scope.
+export async function GET(req: NextRequest) {
+  try {
+    const learnerId = req.nextUrl.searchParams.get('learnerId');
+    if (!learnerId) {
+      return NextResponse.json({ error: 'learnerId is required' }, { status: 400 });
+    }
+
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
+    const { data: canView } = await supabase.rpc('user_has_permission', {
+      permission_name: 'cdc.view',
+    });
+    if (canView !== true) {
+      return NextResponse.json({ error: 'Forbidden — CDC staff only' }, { status: 403 });
+    }
+
+    const filter = await createApiInstitutionFilter(req);
+    if (!filter.isAllowed) {
+      return NextResponse.json(
+        { error: filter.reason ?? 'Not authorized' },
+        { status: filter.reason === 'User not authenticated' ? 401 : 403 }
+      );
+    }
+
+    const svc = createServiceRoleClient();
+    let query: any = svc
+      .from('cdc_career_reports')
+      .select('result, generated_at, model')
+      .eq('learner_id', learnerId);
+    // Scope by the stored institution_id (no-op for super_admin / admission).
+    query = applyInstitutionFilterToQuery(query, filter, 'institution_id');
+    const { data: row, error } = await query.maybeSingle();
+
+    if (error) {
+      console.error('[cdc/career-guidance] saved report load failed:', error);
+      return NextResponse.json({ saved: null });
+    }
+    return NextResponse.json({ saved: row?.result ?? null });
+  } catch (e) {
+    console.error('[cdc/career-guidance] GET unexpected error:', e);
+    return NextResponse.json({ saved: null });
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { learnerId } = await req.json().catch(() => ({ learnerId: undefined }));
@@ -269,6 +321,29 @@ Generate the career guidance JSON now.`;
       generatedAt: new Date().toISOString(),
       model: MODEL,
     };
+
+    // Persist the LATEST report (overwrite previous — one row per learner, per the
+    // Director's "keep latest, not history" decision). Service-role write; the
+    // cdc.view gate above is the authorization. Non-fatal: a save failure must not
+    // block returning the freshly generated guidance to the counsellor.
+    try {
+      await svc.from('cdc_career_reports').upsert(
+        {
+          learner_id: p.id as string,
+          institution_id: (p.institution_id as string | null) ?? null,
+          result,
+          completeness_pct: completenessPct,
+          model: MODEL,
+          generated_at: result.generatedAt,
+          generated_by: user.id,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'learner_id' }
+      );
+    } catch (e) {
+      console.error('[cdc/career-guidance] save report failed (non-fatal):', e);
+    }
+
     return NextResponse.json(result);
   } catch (e) {
     console.error('[cdc/career-guidance] unexpected error:', e);

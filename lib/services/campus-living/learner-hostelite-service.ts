@@ -111,11 +111,15 @@ export class LearnerHosteliteService {
   ): Promise<{ data: LearnerHostelite[]; count: number }> {
     try {
       const supabase = createClientSupabaseClient();
-      // Cast to `any` — `v_learner_hostelites` view exists on prod (PR #822 +
-      // #852 migrations) but Supabase TypeScript types weren't regenerated
-      // when the view was added. Same pattern used elsewhere in this service.
+      // Query the SCOPED view, not the base view. v_learner_hostelites bypasses
+      // RLS, so this client-side query must hit v_learner_hostelites_scoped,
+      // which re-derives the caller's scope from auth.uid() server-side
+      // (super-admin → all; block warden → their granted blocks; else →
+      // accessible institutions). This is the non-forgeable authorization
+      // boundary — see migration 20260624180000. Cast to `any` because the
+      // view isn't in the generated Supabase types (same pattern as before).
       let query = (supabase as any)
-        .from('v_learner_hostelites')
+        .from('v_learner_hostelites_scoped')
         .select(VIEW_SELECT, { count: 'exact' });
 
       // Institution scoping — non-super-admin always restricted to their inst.
@@ -145,6 +149,14 @@ export class LearnerHosteliteService {
         } else {
           query = query.eq('current_block_id', filters.block_id);
         }
+      }
+
+      // Optional client-side narrowing to a subset of blocks (UX only). This is
+      // NOT the security boundary — v_learner_hostelites_scoped already restricts
+      // block-scoped wardens to their granted blocks server-side from auth.uid().
+      // A tampered/forged block_ids list cannot widen scope past the scoped view.
+      if (filters?.block_ids && filters.block_ids.length > 0) {
+        query = query.in('current_block_id', filters.block_ids);
       }
 
       if (filters?.hostel_category_id) query = query.eq('hostel_category_id', filters.hostel_category_id);

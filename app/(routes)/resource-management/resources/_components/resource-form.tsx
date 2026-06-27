@@ -70,6 +70,7 @@ import { useApproverProfiles } from '@/hooks/organization/use-profiles';
 import { SubCategoryService } from '@/lib/services/resource-management/sub-category-service';
 import { ResourceService } from '@/lib/services/resource-management/resource-service';
 import { generateResourceCode, isValidResourceCode } from '@/lib/utils/resource-id-generator';
+import { DEFAULT_TIME_SLOT_CONFIG } from '@/lib/services/resource-management/default-slots';
 import {
   Loader2,
   Upload,
@@ -1780,18 +1781,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
         {/* Enhanced Time Slot Configuration */}
         {(bookingType === 'reservation' || bookingType === 'both') && (
           <TimeSlotConfigComponent
-            config={
-              bookingConfig.time_slot_config || {
-                operating_hours: {
-                  default: { start: '09:00', end: '17:00' }
-                },
-                slot_generation: 'automatic',
-                automatic_config: {
-                  slot_duration: 60,
-                  buffer_time: 0
-                }
-              }
-            }
+            config={bookingConfig.time_slot_config || DEFAULT_TIME_SLOT_CONFIG}
             onChange={(timeConfig: TimeSlotConfig) =>
               updateBookingConfig('time_slot_config', timeConfig)
             }

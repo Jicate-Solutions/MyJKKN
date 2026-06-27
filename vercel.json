@@ -20,6 +20,38 @@
   },
   "crons": [
     {
+      "path": "/api/cron/feedback-adapter-session?secret=${CRON_SECRET}",
+      "schedule": "12 1 * * *"
+    },
+    {
+      "path": "/api/cron/feedback-adapter-mess?secret=${CRON_SECRET}",
+      "schedule": "22 1 * * *"
+    },
+    {
+      "path": "/api/cron/feedback-adapter-parent?secret=${CRON_SECRET}",
+      "schedule": "32 1 * * *"
+    },
+    {
+      "path": "/api/cron/feedback-adapter-ig-dm?secret=${CRON_SECRET}",
+      "schedule": "42 1 * * *"
+    },
+    {
+      "path": "/api/cron/feedback-adapter-ig-comments?secret=${CRON_SECRET}",
+      "schedule": "52 1 * * *"
+    },
+    {
+      "path": "/api/cron/attendance-breach-check?secret=${CRON_SECRET}",
+      "schedule": "37 21 * * *"
+    },
+    {
+      "path": "/api/cron/meeting-trigger-reconcile?secret=${CRON_SECRET}",
+      "schedule": "23 * * * *"
+    },
+    {
+      "path": "/api/cron/project-accountability-check?secret=${CRON_SECRET}",
+      "schedule": "47 * * * *"
+    },
+    {
       "path": "/api/cron/meeting-calendar-watch-renew?secret=${CRON_SECRET}",
       "schedule": "41 */6 * * *"
     },
@@ -246,6 +278,18 @@
     {
       "path": "/api/cron/meeting-webhooks?secret=${CRON_SECRET}",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/session-feedback-nudge?secret=${CRON_SECRET}",
+      "schedule": "13 7 * * *"
+    },
+    {
+      "path": "/api/cron/scf-measure-outcomes?secret=${CRON_SECRET}",
+      "schedule": "47 2 * * *"
+    },
+    {
+      "path": "/api/cron/session-feedback-escalation?secret=${CRON_SECRET}",
+      "schedule": "30 7 * * 1"
     }
   ]
 }

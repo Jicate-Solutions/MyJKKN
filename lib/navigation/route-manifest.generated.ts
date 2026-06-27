@@ -256,6 +256,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/academic/session-feedback/admin",
+            "label": "Admin",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/academic/session-feedback/faculty",
             "label": "Faculty",
             "iconName": "FileText",
@@ -1346,6 +1352,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/social/loop",
+            "label": "Loop",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
             "path": "/admission/social/meta-audiences",
             "label": "Meta Audiences",
             "iconName": "GraduationCap",
@@ -1930,6 +1942,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "label": "Bug Leaderboard",
     "iconName": "FileText",
     "children": []
+  },
+  {
+    "path": "/calendar",
+    "label": "Calendar",
+    "iconName": "Calendar",
+    "children": [
+      {
+        "path": "/calendar/holidays",
+        "label": "Holidays",
+        "iconName": "Calendar",
+        "children": []
+      },
+      {
+        "path": "/calendar/settings",
+        "label": "Settings",
+        "iconName": "Settings",
+        "children": []
+      }
+    ]
   },
   {
     "path": "/campus-living",
@@ -2873,6 +2904,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "New",
             "iconName": "Plus",
             "children": []
+          },
+          {
+            "path": "/cdc/mentors/rollups",
+            "label": "Rollups",
+            "iconName": "UserCheck",
+            "children": []
           }
         ]
       },
@@ -2901,6 +2938,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/cdc/udyog",
+        "label": "Udyog",
+        "iconName": "FileText",
+        "children": []
       }
     ]
   },
@@ -2961,6 +3004,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "CalendarHeart",
     "children": [
       {
+        "path": "/events/create",
+        "label": "Create",
+        "iconName": "Plus",
+        "children": []
+      },
+      {
         "path": "/events/marathon",
         "label": "Marathon",
         "iconName": "CalendarHeart",
@@ -2974,6 +3023,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/events/presets",
+        "label": "Presets",
+        "iconName": "CalendarHeart",
+        "children": []
+      },
+      {
         "path": "/events/proposals",
         "label": "Proposals",
         "iconName": "CalendarHeart",
@@ -2984,6 +3039,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Propose",
         "iconName": "CalendarHeart",
         "children": []
+      },
+      {
+        "path": "/events/tournament",
+        "label": "Tournament",
+        "iconName": "CalendarHeart",
+        "children": [
+          {
+            "path": "/events/tournament/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
       }
     ]
   },
@@ -4611,6 +4679,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/meetings/triggers",
+        "label": "Auto-Meetings",
+        "iconName": "CalendarClock",
+        "children": []
+      },
+      {
         "path": "/meetings/webhooks",
         "label": "Webhooks",
         "iconName": "FileText",
@@ -5891,6 +5965,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Finance",
         "iconName": "DollarSign",
         "children": []
+      },
+      {
+        "path": "/startup-studio/foundations",
+        "label": "Foundations",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/startup-studio/foundations/cohorts",
+            "label": "Cohorts",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/startup-studio/foundations/my-journey",
+            "label": "My Journey",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/startup-studio/foundations/review",
+            "label": "Review",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/startup-studio/governance",

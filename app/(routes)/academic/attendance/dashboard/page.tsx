@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { Calendar, TrendingUp, Users, AlertCircle, ArrowRight } from 'lucide-react';
+import { Calendar, TrendingUp, Users, AlertCircle, ArrowRight, AlertTriangle, RefreshCw } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -23,7 +23,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { PermissionError } from '@/components/errors/permission-error';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { StatisticsCards } from './_components/statistics-cards';
@@ -472,9 +472,110 @@ function PendingAttendanceTableSkeleton() {
 }
 
 export default function AttendanceDashboardPage() {
+  // Re-apply the #1616 reconciliation that never landed for this page.
+  //
+  // Previously this wrapped the content in a single-state <PermissionGuard>
+  // whose `fallback` rendered "Access Denied" on ANY non-pass. That MISLABELS a
+  // transient permission-load failure (network hiccup, RLS timeout) as a real
+  // denial. Replace the all-or-nothing guard with the same explicit three-state
+  // gate menu.tsx uses, computed in the page from usePermissions() directly:
+  //   (1) LOADING          -> skeleton, NEVER "Access Denied"
+  //   (2) LOAD FAILURE     -> amber retry-friendly card with a Retry button
+  //   (3a) LOADED + grant  -> render the dashboard content
+  //   (3b) LOADED + denial -> the existing "Access Denied" message, unchanged
+  //
+  // Ordering matters: a loading or failed state must short-circuit BEFORE the
+  // deny branch, so a transient never reaches "Access Denied".
+  const {
+    isLoading: permsLoading,
+    error: permsError,
+    isSuperAdmin,
+    isStudent,
+    userProfile,
+    permissions,
+    refetch: refetchPermissions,
+    canAccess
+  } = usePermissions();
+
+  // (1) Permissions still loading — show a skeleton, never a denial.
+  if (permsLoading) {
+    return (
+      <ContentLayout title='Attendance Dashboard'>
+        <div className='space-y-6'>
+          <Skeleton className='h-6 w-48' />
+          <Skeleton className='h-32 w-full' />
+          <Skeleton className='h-64 w-full' />
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // (2) Genuine load failure — mirror menu.tsx's permissionsLoadFailed
+  // derivation verbatim. Super admins (no permission-keyed set), students
+  // (status rules deliberately empty the set), and profile-less users are all
+  // valid empty-set states, so they are excluded. A real granted role always
+  // has >=1 true permission, so this cannot false-positive an actual grant.
+  const hasAnyTruePermission = Object.values(permissions).some((v) => v === true);
+  const permissionsLoadFailed =
+    !isSuperAdmin &&
+    !isStudent &&
+    !permsLoading &&
+    !!userProfile &&
+    !!userProfile.role &&
+    (!!permsError || !hasAnyTruePermission);
+
+  if (permissionsLoadFailed) {
+    return (
+      <ContentLayout title='Attendance Dashboard'>
+        <div className='flex flex-col items-center justify-center gap-3 px-4 py-12 text-center'>
+          <AlertTriangle className='h-8 w-8 text-amber-500' aria-hidden />
+          <div className='space-y-1'>
+            <p className='text-sm font-medium text-foreground'>
+              We couldn&apos;t load your access
+            </p>
+            <p className='text-xs text-muted-foreground'>
+              Your permissions didn&apos;t load. This is almost always a
+              temporary network hiccup — your access hasn&apos;t changed.
+            </p>
+          </div>
+          <button
+            type='button'
+            onClick={() => {
+              void refetchPermissions();
+            }}
+            className='inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+          >
+            <RefreshCw className='h-3.5 w-3.5' aria-hidden />
+            Retry
+          </button>
+          <p className='text-[11px] text-muted-foreground'>
+            If this keeps happening, refresh the page or contact your
+            administrator.
+          </p>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // (3a) Permissions loaded and the user genuinely has the grant — render
+  // content. Uses the role's ACTUAL `.view` permission (not
+  // view_all_institutions), so scope='own' roles render here and their scope is
+  // still enforced downstream by AttendanceDashboardContent + RLS (#1618).
+  const canViewDashboard =
+    isSuperAdmin || canAccess('academic.attendance.dashboard', 'view');
+
+  if (canViewDashboard) {
+    return <AttendanceDashboardContent />;
+  }
+
+  // (3b) Permissions loaded and the user genuinely lacks the grant — the
+  // existing, unchanged "Access Denied" message.
   return (
-    <PermissionGuard module='academic.attendance.dashboard' action='view'>
-      <AttendanceDashboardContent />
-    </PermissionGuard>
+    <ContentLayout title='Attendance Dashboard'>
+      <PermissionError
+        message='You do not have permission to view the Attendance Dashboard. Ask your administrator to grant the "View Attendance Dashboard" permission to your role.'
+        requiredPermission='academic.attendance.dashboard.view'
+      />
+    </ContentLayout>
   );
 }

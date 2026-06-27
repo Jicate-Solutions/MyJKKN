@@ -112,6 +112,7 @@ import solutionsNav from '@/app/(routes)/solutions/nav-config';
 import accreditationNav from '@/app/(routes)/accreditation/nav-config';
 import auditNav from '@/app/(routes)/audit/nav-config';
 import hrNav from '@/app/(routes)/hr/nav-config';
+import calendarNav from '@/app/(routes)/calendar/nav-config';
 
 const NAV_CONFIG_REGISTRY: ModuleNavConfig[] = [
   campusLivingNav,
@@ -125,6 +126,7 @@ const NAV_CONFIG_REGISTRY: ModuleNavConfig[] = [
   accreditationNav,
   auditNav,
   hrNav,
+  calendarNav,
 ];
 
 const BY_MODULE = new Map(

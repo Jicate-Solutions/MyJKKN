@@ -1089,6 +1089,36 @@ export const startupStudioKeys = {
         [...startupStudioKeys.sf100.exercises.all, 'team-response', exerciseId, enrollmentId] as const,
     },
   },
+
+  foundations: {
+    all: ['startup-studio', 'foundations'] as const,
+    cohorts: {
+      all: ['startup-studio', 'foundations', 'cohorts'] as const,
+      list: (filters?: Record<string, unknown>) =>
+        [...startupStudioKeys.foundations.cohorts.all, 'list', filters] as const,
+      detail: (id: string) =>
+        [...startupStudioKeys.foundations.cohorts.all, 'detail', id] as const,
+      roster: (id: string, filters?: Record<string, unknown>) =>
+        [...startupStudioKeys.foundations.cohorts.all, 'roster', id, filters] as const,
+    },
+    worksheets: {
+      all: ['startup-studio', 'foundations', 'worksheets'] as const,
+      list: (cohortId?: string | null) =>
+        [...startupStudioKeys.foundations.worksheets.all, 'list', cohortId ?? null] as const,
+      detail: (id: string) =>
+        [...startupStudioKeys.foundations.worksheets.all, 'detail', id] as const,
+    },
+    journey: (cohortId?: string | null) =>
+      [...startupStudioKeys.foundations.all, 'journey', cohortId ?? null] as const,
+    myResponse: (worksheetId: string) =>
+      [...startupStudioKeys.foundations.all, 'my-response', worksheetId] as const,
+    myEnrollments: () =>
+      [...startupStudioKeys.foundations.all, 'my-enrollments'] as const,
+    progress: () =>
+      [...startupStudioKeys.foundations.all, 'progress'] as const,
+    reviewQueue: (filters?: Record<string, unknown>) =>
+      [...startupStudioKeys.foundations.all, 'review-queue', filters] as const,
+  },
 };
 
 // ============================================

@@ -5,6 +5,7 @@ import { TimetableTodayWidget } from '../widgets/student/timetable-today-widget'
 import { BillingWidget } from '../widgets/student/billing-widget';
 import { MyCelebrationWidget } from '../widgets/student/my-celebration-widget';
 import { CelebrationsTodayWidget } from '../widgets/shared/celebrations-today-widget';
+import { UdyogStudentCard } from '@/components/dashboard/udyog-student-card';
 import { ActionItemsWidget } from '@/components/notifications/action-items-widget';
 import { DashboardSettingsDialog } from '../dashboard-settings-dialog';
 
@@ -64,6 +65,10 @@ export default function StudentDashboard({
         />
 
         <ActionItemsWidget />
+
+        {/* UDYOG application requirement (BUG-004075). Self-hides when the
+            learner has no UDYOG obligation, so it only appears when relevant. */}
+        <UdyogStudentCard />
       </div>
     </div>
   );

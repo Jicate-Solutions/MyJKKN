@@ -18,6 +18,8 @@ export const hostelAttendanceKeys = {
   detail: (id: string) => ['hostel-attendance', 'detail', id] as const,
   markable: (institutionId: string | undefined, blockId: string | undefined) =>
     ['hostel-attendance', 'markable', institutionId, blockId] as const,
+  dashboard: (institutionId: string | undefined, date: string, blockId: string | undefined) =>
+    ['hostel-attendance', 'dashboard', institutionId, date, blockId] as const,
   myBlockAccess: ['hostel-attendance', 'my-block-access'] as const,
 };
 
@@ -39,6 +41,27 @@ export function useHostelAttendance(institutionId: string | undefined, filters?:
   return useQuery({
     queryKey: hostelAttendanceKeys.list({ institutionId, ...filters }),
     queryFn: () => HostelAttendanceService.getAttendance(isSuperAdmin ? undefined : institutionId, filters),
+    enabled: isSuperAdmin || !!institutionId,
+  });
+}
+
+// Aggregate stats for the Hostel Attendance landing page (totals, block-wise
+// breakdown, 7-day trend). Replaces the old useHostelAttendance(list) call that
+// the page mis-read as an aggregate, leaving it stuck on all-zeros.
+export function useAttendanceDashboard(
+  institutionId: string | undefined,
+  date: string,
+  blockId?: string
+) {
+  const { isSuperAdmin } = usePermissions();
+  return useQuery({
+    queryKey: hostelAttendanceKeys.dashboard(institutionId, date, blockId),
+    queryFn: () =>
+      HostelAttendanceService.getAttendanceDashboard(
+        isSuperAdmin ? undefined : institutionId,
+        date,
+        blockId
+      ),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

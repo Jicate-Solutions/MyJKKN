@@ -4402,6 +4402,34 @@ CREATE TABLE IF NOT EXISTS public.hr_recruitment_jobs (
   positions_open          int NOT NULL DEFAULT 1 CHECK (positions_open >= 0),
   positions_filled        int NOT NULL DEFAULT 0 CHECK (positions_filled >= 0),
   department_id           uuid REFERENCES public.departments(id),         -- FK if departments exist
+  -- Extended fields (2026-06-27): location + specification + salary display
+  job_code                text UNIQUE,                                    -- e.g. JOB-XYZ1234; NULLs exempt from UNIQUE
+  job_type                text CHECK (job_type IN (
+                            'full_time','part_time','contract','internship','freelance'
+                          )),
+  industry                text,
+  employer_type           text CHECK (employer_type IN (
+                            'government','private','public_sector','non_profit','educational'
+                          )),
+  country                 text DEFAULT 'India',
+  state                   text,
+  city                    text,
+  zip_code                text,
+  education_level         text CHECK (education_level IN (
+                            'high_school','diploma','bachelors','masters','phd','any'
+                          )),
+  min_experience_years    integer CHECK (min_experience_years >= 0),
+  max_experience_years    integer CHECK (max_experience_years >= 0),
+  salary_currency         text NOT NULL DEFAULT 'INR',
+  salary_duration         text NOT NULL DEFAULT 'per_month' CHECK (salary_duration IN (
+                            'per_hour','per_day','per_month','per_year'
+                          )),
+  display_salary          boolean NOT NULL DEFAULT false,
+  CONSTRAINT hr_recruitment_jobs_experience_range_chk CHECK (
+    min_experience_years IS NULL
+    OR max_experience_years IS NULL
+    OR min_experience_years <= max_experience_years
+  ),
   status                  text NOT NULL DEFAULT 'draft' CHECK (status IN (
                             'draft',
                             'open',
@@ -4431,6 +4459,12 @@ CREATE INDEX IF NOT EXISTS idx_hr_recruitment_jobs_department
   ON public.hr_recruitment_jobs(department_id);
 CREATE INDEX IF NOT EXISTS idx_hr_recruitment_jobs_posted_at
   ON public.hr_recruitment_jobs(posted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_jobs_job_type
+  ON public.hr_recruitment_jobs(job_type);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_jobs_industry
+  ON public.hr_recruitment_jobs(industry);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_jobs_city
+  ON public.hr_recruitment_jobs(city);
 
 -- ---- hr_recruitment_interviews ---------------------------------------
 -- Interview scheduling. panel_member_ids is a uuid[] of profiles.id;
@@ -5107,3 +5141,76 @@ ALTER TABLE public.hostel_categories
 
 ALTER TABLE public.mess_categories
   ADD COLUMN IF NOT EXISTS upgrades_enabled boolean NOT NULL DEFAULT false;
+
+-- =====================================================================
+-- Global Calendar module (Phase 1) — mirror of 20260623100000_calendar_module_tables.sql
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS public.calendar_categories (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name             TEXT NOT NULL,
+  slug             TEXT NOT NULL UNIQUE,
+  color_code       TEXT NOT NULL DEFAULT '#6b7280',
+  applies_to_kinds TEXT[] NOT NULL DEFAULT ARRAY['holiday','event','meeting'],
+  icon             TEXT,
+  sort_order       INTEGER NOT NULL DEFAULT 0,
+  is_active        BOOLEAN NOT NULL DEFAULT true,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.calendar_entries (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind                  TEXT NOT NULL DEFAULT 'holiday' CHECK (kind IN ('holiday','event','meeting')),
+  title                 TEXT NOT NULL,
+  description           TEXT,
+  category_id           UUID REFERENCES public.calendar_categories(id),
+  start_at              TIMESTAMPTZ NOT NULL,
+  end_at                TIMESTAMPTZ NOT NULL,
+  all_day               BOOLEAN NOT NULL DEFAULT true,
+  blocks_attendance     BOOLEAN NOT NULL DEFAULT true,
+  scope_institution_ids UUID[],                       -- NULL = common (all institutions)
+  visibility            TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public','restricted')),
+  location              TEXT,
+  meeting_url           TEXT,
+  is_recurring          BOOLEAN NOT NULL DEFAULT false,
+  recurrence_pattern    JSONB,
+  color_code            TEXT,
+  is_active             BOOLEAN NOT NULL DEFAULT true,
+  created_by            UUID REFERENCES public.profiles(id),
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT calendar_entries_end_after_start CHECK (end_at >= start_at)
+);
+CREATE INDEX IF NOT EXISTS idx_calendar_entries_active_start ON public.calendar_entries (is_active, start_at);
+CREATE INDEX IF NOT EXISTS idx_calendar_entries_kind_start   ON public.calendar_entries (kind, start_at);
+CREATE INDEX IF NOT EXISTS idx_calendar_entries_scope        ON public.calendar_entries USING GIN (scope_institution_ids);
+
+CREATE TABLE IF NOT EXISTS public.calendar_feed_settings (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  feed_key        TEXT NOT NULL,
+  institution_id  UUID REFERENCES public.institutions(id),  -- NULL = global default
+  is_enabled      BOOLEAN NOT NULL DEFAULT true,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_calendar_feed_global      ON public.calendar_feed_settings (feed_key) WHERE institution_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_calendar_feed_institution ON public.calendar_feed_settings (feed_key, institution_id) WHERE institution_id IS NOT NULL;
+
+-- 2026-06-24 — Social Loop Engine playbook table
+-- One row per closed cycle per ig account: the department innovation loop's
+-- durable memory (Read → Decide → Act → Learn). Migration:
+-- supabase/migrations/20260624031500_social_loop_playbook.sql
+CREATE TABLE IF NOT EXISTS public.social_loop_playbook (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id UUID NOT NULL REFERENCES public.ig_accounts(id) ON DELETE CASCADE,
+  cycle_no INT NOT NULL,
+  week_start DATE NOT NULL DEFAULT (now()::date),
+  read_summary JSONB NOT NULL DEFAULT '{}'::jsonb,        -- snapshot of the READ at close time
+  decide JSONB NOT NULL DEFAULT '{}'::jsonb,              -- {formatInstruction, barToBeat, nextInstruction, domainHypothesis}
+  learning TEXT,                                          -- the one human change written down
+  created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT social_loop_playbook_account_cycle_key UNIQUE (account_id, cycle_no)
+);
+CREATE INDEX IF NOT EXISTS idx_social_loop_playbook_account ON public.social_loop_playbook (account_id, cycle_no DESC);

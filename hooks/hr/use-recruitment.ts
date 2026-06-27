@@ -33,6 +33,9 @@ import type {
   InterviewMode,
   HRRecruitmentScorecard,
   HRRecruitmentScorecardInsert,
+  // Job Applications
+  HRJobApplication,
+  HRJobApplicationInsert,
 } from '@/types/hr-recruitment';
 
 const BASE = '/api/hr/recruitment';
@@ -338,7 +341,9 @@ export function useJob(id: string | undefined) {
   return useQuery({
     queryKey: ['hr-recruitment-job', id],
     queryFn: async () => {
+      if (!id) return null;
       const res = await fetch(`${BASE}/jobs/${id}`);
+      if (res.status === 404) return null;
       if (!res.ok) throw new Error(`Job fetch failed: ${res.status}`);
       return ((await res.json()).data) as HRRecruitmentJob;
     },
@@ -602,6 +607,31 @@ export function useScorecard(id: string | undefined) {
       return ((await res.json()).data) as HRRecruitmentScorecard;
     },
     enabled: !!id,
+  });
+}
+
+// =====================================================================================
+// Job Applications hooks
+// =====================================================================================
+
+export function useApplyForJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: HRJobApplicationInsert) => {
+      const res = await fetch(`${BASE}/jobs/${payload.job_id}/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Application submit failed');
+      }
+      return ((await res.json()).data) as HRJobApplication;
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-job', data.job_id] });
+    },
   });
 }
 

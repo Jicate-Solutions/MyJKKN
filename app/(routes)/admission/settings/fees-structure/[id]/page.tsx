@@ -197,6 +197,10 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
         community_category_id: structure.community_category_ids?.[0],
         admission_year_id: structure.admission_year_id,
         gender: structure.gender ?? undefined,
+        // Include accommodation so the dims-based findByDimensions path (used
+        // when no structureId is supplied) can still resolve an
+        // accommodation-specific structure instead of only NULL-accommodation ones.
+        accommodation_type_id: structure.accommodation_type_id ?? undefined,
       }
     : null;
 
@@ -421,7 +425,11 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                     Edit
                   </h2>
                   <div className="border rounded-md p-4 bg-card">
-                    <FeesStructureForm dims={dims} onChanged={handleChanged} />
+                    {/* Pass the id so the form loads THIS exact structure by id
+                        (incl. its accommodation + non-active status) instead of
+                        re-resolving it from dims via findByDimensions, which
+                        silently dropped the existing items. */}
+                    <FeesStructureForm dims={dims} structureId={id} onChanged={handleChanged} />
                   </div>
                 </section>
               ) : (

@@ -4,6 +4,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import { getErrorMessage } from '@/lib/utils';
 import { ReservationService } from '@/lib/services/reservation/reservation-service';
 import { useAuth } from '@/hooks/use-auth';
 import type {
@@ -32,6 +33,8 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['reservations'] });
       queryClient.invalidateQueries({ queryKey: ['my-reservations'] });
       queryClient.invalidateQueries({ queryKey: ['resource-availability'] });
+      queryClient.invalidateQueries({ queryKey: ['available-slots'] });
+      queryClient.invalidateQueries({ queryKey: ['month-availability'] });
       queryClient.invalidateQueries({ queryKey: ['reservation-stats'] });
       queryClient.invalidateQueries({ queryKey: ['approval-stats'] });
       queryClient.invalidateQueries({ queryKey: ['pending-approvals'] });
@@ -67,27 +70,28 @@ export function useReservationOperations() {
     },
     onError: (error: any) => {
       console.error('Error creating reservation:', error);
-      toast.error(
-        `❌ Failed to Create Reservation\n${
-          error.message || 'An unexpected error occurred. Please try again.'
-        }`,
-        {
-          duration: 5000,
-          style: {
-            background: '#ef4444',
-            color: '#fff',
-            fontSize: '14px',
-            fontWeight: '500',
-            padding: '16px',
-            borderRadius: '8px',
-            maxWidth: '500px'
-          },
-          iconTheme: {
-            primary: '#fff',
-            secondary: '#ef4444'
-          }
+      const raw = getErrorMessage(error);
+      const friendly = raw.startsWith('SLOT_LOCKED:')
+        ? `This resource is already booked for an overlapping time. ${raw
+            .replace(/^SLOT_LOCKED:\s*/, '')
+            .replace(/^this resource is /, '')}`
+        : raw || 'An unexpected error occurred. Please try again.';
+      toast.error(`❌ Failed to Create Reservation\n${friendly}`, {
+        duration: 6000,
+        style: {
+          background: '#ef4444',
+          color: '#fff',
+          fontSize: '14px',
+          fontWeight: '500',
+          padding: '16px',
+          borderRadius: '8px',
+          maxWidth: '500px'
+        },
+        iconTheme: {
+          primary: '#fff',
+          secondary: '#ef4444'
         }
-      );
+      });
     }
   });
 
@@ -100,6 +104,8 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['reservation', data.id] });
       queryClient.invalidateQueries({ queryKey: ['my-reservations'] });
       queryClient.invalidateQueries({ queryKey: ['resource-availability'] });
+      queryClient.invalidateQueries({ queryKey: ['available-slots'] });
+      queryClient.invalidateQueries({ queryKey: ['month-availability'] });
 
       toast.success(
         '✅ Reservation Updated!\nYour reservation has been updated successfully.',

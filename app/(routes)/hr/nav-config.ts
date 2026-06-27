@@ -42,7 +42,7 @@ const config: ModuleNavConfig = {
           exact: true,
         },
         {
-          label: 'Submit Candidate',
+          label: 'Apply for Jobs',
           icon: 'FilePlus',
           href: '/hr/recruitment/submit',
           matchPaths: ['/hr/recruitment/submit'],

@@ -176,9 +176,21 @@ export const createReservationSchema = z.object({
     .optional()
 });
 
+export interface SlotConflict {
+  reservation_id: string;
+  user_id: string;
+  full_name: string | null;
+  designation: string | null;
+  email: string | null;
+  start_time: string;
+  end_time: string;
+  status: string;
+  quantity: number;
+}
+
 export interface AvailabilityResult {
   is_available: boolean;
-  conflicting_reservations?: Reservation[];
+  conflicting_reservations?: SlotConflict[];
   available_slots?: TimeSlot[];
   message?: string;
 }
@@ -191,6 +203,12 @@ export interface TimeSlot {
   existing_reservation_id?: string;
   slot_name?: string; // For custom named slots
   max_capacity?: number; // For slots with capacity limits
+  // Holder info for booked slots (from fn_resource_slot_conflicts)
+  booked_by_name?: string | null;
+  booked_by_designation?: string | null;
+  booked_status?: string;
+  booked_start?: string;
+  booked_end?: string;
 }
 
 // Calendar View Data

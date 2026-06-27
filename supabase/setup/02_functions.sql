@@ -2248,8 +2248,9 @@ BEGIN
   -- Only sync if lifecycle_status changed
   IF OLD.lifecycle_status IS DISTINCT FROM NEW.lifecycle_status THEN
 
-    -- Only 'active' learners should have active profiles
-    should_be_active := (NEW.lifecycle_status = 'active');
+    -- Learners who can log in: active OR graduated.
+    -- Mirrors StudentValidationService.validateStudentAccess allow-list.
+    should_be_active := (NEW.lifecycle_status IN ('active', 'graduated'));
 
     -- Find profile by learner_id
     SELECT id INTO existing_profile_id
@@ -2277,7 +2278,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION sync_learner_status_to_profile IS
-'Auto-syncs learner lifecycle_status changes to profiles.is_active. Only active learners can log in.';
+'Auto-syncs learner lifecycle_status changes to profiles.is_active. Active and graduated learners can log in (mirrors StudentValidationService allow-list).';
 
 -- Seat analytics: stamp activated_at exactly once when status first transitions to 'active'
 CREATE OR REPLACE FUNCTION public.set_learner_activated_at()
@@ -6730,6 +6731,34 @@ BEGIN
     RETURN false;
 END;
 $function$;
+
+-- Cross-institution named approvers for Service Requests (migration
+-- 20260624120000). Boolean predicate used by the named-approver RLS policies
+-- in 03_policies.sql. SECURITY DEFINER so it can read service_requests/steps
+-- from inside service_requests' own policies without RLS recursion; it only
+-- reveals whether the CALLER (auth.uid()) is a named approver, so it is safe
+-- for the authenticated role. "Any step" keeps the UPDATE WITH CHECK satisfied
+-- when current_approval_step advances past the step the approver was named on.
+CREATE OR REPLACE FUNCTION public.user_is_request_named_approver(p_request_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+  SELECT EXISTS (
+    SELECT 1
+    FROM service_requests sr
+    JOIN service_request_approval_steps st
+      ON st.service_type_id = sr.service_type_id
+    WHERE sr.id = p_request_id
+      AND auth.uid() = ANY (st.approver_user_ids)
+  );
+$function$;
+
+REVOKE ALL ON FUNCTION public.user_is_request_named_approver(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.user_is_request_named_approver(uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.user_is_request_named_approver(uuid) TO authenticated;
 
 -- Updated: 2026-04-15 - Per-module access scope helpers (Option A).
 -- get_user_module_scope returns the most permissive scope across the user's
@@ -14845,7 +14874,12 @@ END $function$;
 -- 2) Per-learner validation preview (no category input; strict).
 -- 20260610160000: + semester_name (the cohort dimension physical-room rules reserve by).
 -- 20260610170000: + institution_name (enables Institution → Program → Semester filter).
-CREATE OR REPLACE FUNCTION public.fn_auto_allocate_candidates(p_block_id uuid)
+-- 20260615160000/170000: + p_strict (strict physical-room mode).
+-- 20260616040000: + p_floor (floor scope). 20260619150000: + institution/program/semester cohort filters.
+-- 20260622130000: gender-scope the cohort to the block's hostel_type (Boys block → only male
+--   learners, etc.) so opposite-gender students no longer surface with a misleading
+--   "different room category — fix the reservation rooms" verdict. NULL/blank gender stays visible.
+CREATE OR REPLACE FUNCTION public.fn_auto_allocate_candidates(p_block_id uuid, p_strict boolean DEFAULT false, p_floor integer DEFAULT NULL::integer, p_institution_id uuid DEFAULT NULL::uuid, p_program_id uuid DEFAULT NULL::uuid, p_semester_id uuid DEFAULT NULL::uuid)
 RETURNS TABLE(
   learner_id uuid, full_name text, email text, institution_name text,
   program_name text, semester_name text, gender text,
@@ -14860,15 +14894,28 @@ RETURNS TABLE(
 )
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
 AS $function$
-  WITH cohort AS (
+  WITH blk AS (
+    SELECT hostel_type::text AS t FROM hostel_blocks WHERE id = p_block_id
+  ),
+  cohort AS (
     SELECT lp.id, lp.institution_id, lp.degree_id, lp.department_id, lp.program_id, lp.semester_id,
            lp.academic_year_id, lp.first_name, lp.last_name,
            room_elig.cats AS room_cats, mess_elig.cats AS mess_cats
     FROM learners_profiles lp
+    CROSS JOIN blk
+    LEFT JOIN profiles gp ON gp.learner_id = lp.id
     LEFT JOIN LATERAL (SELECT array_agg(category_id) AS cats FROM fn_hostel_learner_room_categories(lp.id)) room_elig ON true
     LEFT JOIN LATERAL (SELECT array_agg(category_id) AS cats FROM fn_hostel_learner_mess_categories(lp.id)) mess_elig ON true
     WHERE lp.accommodation_type_id IN (SELECT id FROM accommodation_types WHERE code='hostel')
       AND lp.institution_id IN (SELECT institution_id FROM hostel_block_institutions WHERE block_id=p_block_id)
+      AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
+      AND (p_program_id     IS NULL OR lp.program_id     = p_program_id)
+      AND (p_semester_id    IS NULL OR lp.semester_id    = p_semester_id)
+      -- Gender-scope to the block type. NULL/blank gender or a non-gendered block keeps the row.
+      AND (blk.t IS NULL OR blk.t NOT IN ('boys','girls')
+           OR gp.gender IS NULL OR btrim(gp.gender) = ''
+           OR (blk.t = 'boys'  AND lower(btrim(gp.gender)) IN ('male','m'))
+           OR (blk.t = 'girls' AND lower(btrim(gp.gender)) IN ('female','f')))
   ),
   base AS (
     SELECT
@@ -14890,39 +14937,42 @@ AS $function$
          ORDER BY b.created_at DESC LIMIT 1) AS bill_other_year_name,
       fn_learner_current_year_academic_fee(c.id) AS current_year_fee,
       NOT EXISTS (SELECT 1 FROM hostel_allocations a WHERE a.learner_id=p.id AND a.status IN ('active','pending_approval')) AS not_allocated,
-      -- physical ACCESS (fail-open): a student room in their category they may occupy —
-      -- gender-matched, served by their institution, and either rule-matched or rule-free.
+      -- physical ACCESS: a student room in their category they may occupy — gender-matched,
+      -- served by their institution, floor-scoped, and matching the physical-room rule (p_strict).
       EXISTS (
         SELECT 1 FROM hostel_rooms rm
         JOIN hostel_categories hc ON hc.id = rm.category_id
         WHERE rm.block_id=p_block_id AND rm.room_purpose='student'
+          AND (p_floor IS NULL OR rm.floor = p_floor)
           AND rm.category_id = ANY(c.room_cats)
           AND (hc.type IS NULL
                OR (hc.type='boys'  AND lower(trim(p.gender)) IN ('male','m'))
                OR (hc.type='girls' AND lower(trim(p.gender)) IN ('female','f')))
           AND fn_room_serves_institution(rm.id, c.institution_id)
-          AND fn_learner_strictly_eligible_for_room(c.id, rm.id)
+          AND fn_learner_strictly_eligible_for_room(c.id, rm.id, p_strict)
       ) AS physical_rule_ok,
       -- Diagnostic (20260610140000): rooms they may PHYSICALLY occupy here exist, but none
       -- is in their eligible room category (reservation rooms vs fee-band conflict).
       EXISTS (
         SELECT 1 FROM hostel_rooms rm
         WHERE rm.block_id=p_block_id AND rm.room_purpose='student'
+          AND (p_floor IS NULL OR rm.floor = p_floor)
           AND NOT (rm.category_id = ANY(c.room_cats))
           AND fn_room_serves_institution(rm.id, c.institution_id)
-          AND fn_learner_strictly_eligible_for_room(c.id, rm.id)
+          AND fn_learner_strictly_eligible_for_room(c.id, rm.id, p_strict)
       ) AS physical_ok_other_category,
       EXISTS (
         SELECT 1 FROM hostel_beds bd JOIN hostel_rooms r ON r.id=bd.room_id
         JOIN hostel_categories hc ON hc.id = r.category_id
         WHERE r.block_id=p_block_id AND r.room_purpose='student' AND bd.status='available'
+          AND (p_floor IS NULL OR r.floor = p_floor)
           AND r.category_id = ANY(c.room_cats)
           AND (hc.type IS NULL
                OR (hc.type='boys'  AND lower(trim(p.gender)) IN ('male','m'))
                OR (hc.type='girls' AND lower(trim(p.gender)) IN ('female','f')))
           AND fn_room_serves_institution(r.id, c.institution_id)
           AND NOT EXISTS (SELECT 1 FROM hostel_allocations a WHERE a.bed_id=bd.id AND a.status IN ('active','pending_approval'))
-          AND fn_learner_strictly_eligible_for_room(c.id, r.id)
+          AND fn_learner_strictly_eligible_for_room(c.id, r.id, p_strict)
       ) AS bed_available
     FROM cohort c
     LEFT JOIN profiles p ON p.learner_id = c.id
@@ -14983,7 +15033,11 @@ AS $function$
         'Rooms they may occupy in this block are a different room category than their eligible '
         || COALESCE(s.resolved_room_category_name, 'category')
         || ' — fix the reservation rooms or the Category-Eligibility band'
-      WHEN NOT s.physical_rule_ok THEN 'No room they can occupy in their category — rooms here are reserved for other cohorts, or this cohort''s reserved rooms are in another block'
+      WHEN NOT s.physical_rule_ok THEN
+        CASE WHEN p_strict
+          THEN 'No physical-room rule in this block reserves a room for this cohort (strict mode)'
+          ELSE 'No room they can occupy in their category — rooms here are reserved for other cohorts, or this cohort''s reserved rooms are in another block'
+        END
       WHEN NOT s.bed_available THEN 'Their category rooms are full — no free bed'
       ELSE NULL
     END AS exclusion_reason
@@ -15016,8 +15070,8 @@ AS $function$
     EXISTS (SELECT 1 FROM hostel_room_eligibility_rules WHERE block_id=p_block_id AND is_active);
 $function$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_auto_allocate_candidates(uuid) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_auto_allocate_candidates(uuid) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_auto_allocate_candidates(uuid, boolean, integer, uuid, uuid, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_auto_allocate_candidates(uuid, boolean, integer, uuid, uuid, uuid) TO authenticated;
 REVOKE EXECUTE ON FUNCTION public.fn_auto_allocate_preview(uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_auto_allocate_preview(uuid) TO authenticated;
 REVOKE EXECUTE ON FUNCTION public.fn_auto_allocate_classic(uuid, uuid) FROM anon, PUBLIC;
@@ -18669,3 +18723,109 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.staff_distinct_tags(uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.staff_distinct_tags(uuid) TO authenticated;
+
+-- =====================================================================
+-- Resource reservation: time-window-aware approval guard + waitlist
+-- (mig 20260623170000). The approval guard no longer mutates a global
+-- current_stock_quantity counter; it checks capacity WITHIN the booking's
+-- [start_time, end_time) window so non-overlapping bookings of a
+-- single-unit resource (rooms / halls) can all be approved. The end-of-life
+-- trigger only promotes the next waitlist entry (no stock restore).
+-- =====================================================================
+CREATE OR REPLACE FUNCTION public.fn_reservation_approved_decrement_stock()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_total     int;
+  v_committed int;
+BEGIN
+  IF NEW.status = 'approved'
+     AND (OLD.status IS NULL OR OLD.status <> 'approved')
+     AND COALESCE(NEW.quantity, 0) > 0
+     AND NEW.start_time IS NOT NULL
+     AND NEW.end_time   IS NOT NULL THEN
+
+    SELECT initial_stock_quantity INTO v_total
+    FROM public.resources
+    WHERE id = NEW.resource_id;
+
+    IF v_total IS NOT NULL THEN
+      SELECT COALESCE(SUM(rr.quantity), 0) INTO v_committed
+      FROM public.resource_reservations rr
+      WHERE rr.resource_id = NEW.resource_id
+        AND rr.id <> NEW.id
+        AND rr.status = 'approved'
+        AND rr.start_time < NEW.end_time
+        AND rr.end_time   > NEW.start_time;
+
+      IF v_committed + NEW.quantity > v_total THEN
+        RAISE EXCEPTION
+          'Insufficient stock: only % unit(s) of this resource are free for the selected time window, but % unit(s) are needed to approve this reservation',
+          GREATEST(v_total - v_committed, 0), NEW.quantity
+          USING ERRCODE = 'P0001';
+      END IF;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fn_reservation_cancelled_restore_stock_and_waitlist()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  next_waitlist_id UUID;
+BEGIN
+  IF NEW.status = 'cancelled' THEN
+    SELECT id INTO next_waitlist_id
+    FROM public.event_waitlist
+    WHERE resource_reservation_id = NEW.id
+      AND status = 'waiting'
+    ORDER BY position ASC LIMIT 1;
+
+    IF next_waitlist_id IS NOT NULL THEN
+      UPDATE public.event_waitlist
+         SET status = 'promoted', promoted_at = now()
+       WHERE id = next_waitlist_id;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+-- hr_recruitment_jobs_fill_org — derive hr_organization_id from institution_id
+-- (1:1 via hr_organizations.institution_id) when left NULL. SECURITY DEFINER so
+-- it bypasses hr_organizations tenant-isolation RLS for multi-institution HR
+-- admins. Mirrors 20260625120000_hr_recruitment_jobs_autofill_org.sql.
+CREATE OR REPLACE FUNCTION public.hr_recruitment_jobs_fill_org()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.hr_organization_id IS NULL AND NEW.institution_id IS NOT NULL THEN
+    SELECT o.id
+      INTO NEW.hr_organization_id
+      FROM public.hr_organizations o
+     WHERE o.institution_id = NEW.institution_id
+     LIMIT 1;
+  END IF;
+
+  IF NEW.hr_organization_id IS NULL THEN
+    RAISE EXCEPTION
+      'No HR organization found for institution_id=%. Pick a college that has an HR organization.',
+      NEW.institution_id
+      USING ERRCODE = '23502';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;

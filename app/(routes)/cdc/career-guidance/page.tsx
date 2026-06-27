@@ -6,7 +6,7 @@
 // present vs missing (with where-to-add hints) so CDC can fill the gaps and
 // sharpen future guidance.
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -16,22 +16,33 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useLearnersForPicker } from '@/hooks/cdc/use-cdc-pickers';
-import { useGenerateCareerGuidance } from '@/hooks/cdc/use-career-guidance';
-import { Sparkles, Loader2, CheckCircle2, CircleDashed, Target, Wrench, ListChecks, Database, Compass } from 'lucide-react';
+import { useGenerateCareerGuidance, useSavedCareerGuidance } from '@/hooks/cdc/use-career-guidance';
+import { Sparkles, Loader2, CheckCircle2, CircleDashed, Target, Wrench, ListChecks, Database, Compass, History } from 'lucide-react';
 import type { CareerGuidanceResult } from '@/types/cdc/career-guidance';
 
 function CareerGuidanceContent() {
-  const { data: learnerOptions, isLoading: learnersLoading } = useLearnersForPicker();
-  const generate = useGenerateCareerGuidance();
   const [learnerId, setLearnerId] = useState('');
-  const [result, setResult] = useState<CareerGuidanceResult | null>(null);
+  // Freshly generated this session (overrides any saved report).
+  const [generated, setGenerated] = useState<CareerGuidanceResult | null>(null);
+  const { data: learnerOptions, isLoading: learnersLoading } = useLearnersForPicker();
+  const { data: savedReport, isFetching: savedLoading } = useSavedCareerGuidance(learnerId);
+  const generate = useGenerateCareerGuidance();
+
+  // New learner picked → drop the previous session's fresh result so the new
+  // learner's saved report (if any) surfaces. savedReport refetches on its own
+  // (query key carries learnerId).
+  useEffect(() => { setGenerated(null); }, [learnerId]);
 
   async function handleGenerate() {
     if (!learnerId) return;
     const r = await generate.mutateAsync(learnerId);
-    setResult(r);
+    setGenerated(r);
   }
 
+  // Derived (single source of truth): fresh generation wins, else the saved one.
+  const result = generated ?? savedReport ?? null;
+  const isSaved = !generated && !!savedReport;
+  const savedAt = isSaved && savedReport ? new Date(savedReport.generatedAt) : null;
   const missingSignals = result?.signals.filter((s) => !s.present) ?? [];
 
   return (
@@ -72,12 +83,27 @@ function CareerGuidanceContent() {
                 className="w-full"
               />
             </div>
-            <Button onClick={handleGenerate} disabled={!learnerId || generate.isPending}>
-              {generate.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
-              {generate.isPending ? 'Generating…' : 'Generate guidance'}
-            </Button>
+            <div className="flex items-center gap-3 flex-wrap">
+              <Button onClick={handleGenerate} disabled={!learnerId || generate.isPending}>
+                {generate.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                {generate.isPending ? 'Generating…' : result ? 'Regenerate guidance' : 'Generate guidance'}
+              </Button>
+              {learnerId && savedLoading && !generate.isPending && !generated && (
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Checking for a saved report…
+                </span>
+              )}
+              {savedAt && !generate.isPending && (
+                <Badge variant="outline" className="gap-1 font-normal">
+                  <History className="w-3 h-3" /> Saved report from {savedAt.toLocaleDateString()}
+                </Badge>
+              )}
+            </div>
             {generate.isPending && (
               <p className="text-xs text-muted-foreground">Reading the student&apos;s record and asking the AI — this takes a few seconds.</p>
+            )}
+            {isSaved && !generate.isPending && (
+              <p className="text-xs text-muted-foreground">Showing the last saved report. Click <span className="font-medium">Regenerate guidance</span> to refresh it from the student&apos;s current record.</p>
             )}
           </CardContent>
         </Card>

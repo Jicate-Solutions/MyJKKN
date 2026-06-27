@@ -152,12 +152,27 @@ export default async function MeetingsAvailabilityPage({
   // block the availability editor.
   const prefsState = await getIntegrationPrefs();
 
+  // Bookable meeting-type count — drives the "your link won't accept bookings
+  // until you add a meeting type" warning on the booking-page card. A booking
+  // link with zero meeting types renders the public "not accepting bookings"
+  // state (BUG-004267); warn the host before they share a dead link.
+  const { count: meetingTypeCount } = await supabase
+    .from('meeting_types')
+    .select('id', { count: 'exact', head: true })
+    .eq('host_profile_id', user.id)
+    .eq('is_active', true)
+    .eq('hidden', false);
+
   return (
     <Shell>
       <AvailabilityEditor schedule={result.data} />
       <HolidaysEditor scheduleId={result.data.scheduleId} />
       {pageState.success && pageState.data && (
-        <BookingPageCard initial={pageState.data} googleFlag={googleFlag} />
+        <BookingPageCard
+          initial={pageState.data}
+          googleFlag={googleFlag}
+          meetingTypeCount={meetingTypeCount ?? 0}
+        />
       )}
       {prefsState.success && prefsState.data && (
         <IntegrationPrefsCard initial={prefsState.data} />

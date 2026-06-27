@@ -12,6 +12,12 @@ import {
   notifyBookingApproved,
   notifyBookingRejected,
 } from '@/lib/services/reservation/reservation-notification-service';
+import { TimeSlotGeneratorService } from '@/lib/services/resource-management/time-slot-generator-service';
+import {
+  DEFAULT_TIME_SLOT_CONFIG,
+  CUSTOM_RANGE_STEP_MINUTES,
+  CUSTOM_RANGE_MIN_MINUTES,
+} from '@/lib/services/resource-management/default-slots';
 import type {
   Reservation,
   CreateReservationDto,
@@ -27,7 +33,8 @@ import type {
   RejectReservationDto,
   CancelReservationDto,
   CheckInDto,
-  CheckOutDto
+  CheckOutDto,
+  SlotConflict
 } from '@/types/reservation';
 
 export class ReservationService {
@@ -137,6 +144,52 @@ export class ReservationService {
     return data as unknown as Reservation;
   }
 
+  /** Local YYYY-MM-DD for an ISO instant (matches how generated slots are keyed). */
+  private static toLocalDateString(iso: string): string {
+    const d = new Date(iso);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  /**
+   * Guard a requested booking window. Accepts it when it exactly matches a
+   * generated slot (a default chip or an admin-configured slot, which are valid
+   * by construction); otherwise validates it as a free-form custom range within
+   * the resource's operating hours. Throws with a human-readable reason.
+   */
+  private static validateBookingRange(
+    bookingConfig: any,
+    resourceId: string,
+    startTime: string,
+    endTime: string
+  ): void {
+    const timeConfig = bookingConfig?.time_slot_config;
+    const effectiveConfig = timeConfig ?? DEFAULT_TIME_SLOT_CONFIG;
+    const bookingDate = this.toLocalDateString(startTime);
+
+    const generated = TimeSlotGeneratorService.generateSlotsForDate(
+      effectiveConfig,
+      bookingDate,
+      resourceId
+    );
+    const matchesSlot = generated.some(
+      (s) => s.start_time === startTime && s.end_time === endTime
+    );
+    if (matchesSlot) return;
+
+    const check = TimeSlotGeneratorService.validateCustomRange(
+      effectiveConfig,
+      startTime,
+      endTime,
+      { stepMinutes: CUSTOM_RANGE_STEP_MINUTES, minMinutes: CUSTOM_RANGE_MIN_MINUTES }
+    );
+    if (!check.valid) {
+      throw new Error(check.reason || 'Invalid booking time range');
+    }
+  }
+
   /**
    * Create a new reservation
    */
@@ -150,7 +203,8 @@ export class ReservationService {
     const availability = await this.checkAvailability({
       resource_id: dto.resource_id,
       start_time: dto.start_time,
-      end_time: dto.end_time
+      end_time: dto.end_time,
+      quantity: dto.quantity ?? 1
     });
 
     if (!availability.is_available) {
@@ -166,6 +220,15 @@ export class ReservationService {
       .select('approval_config, booking_config')
       .eq('id', dto.resource_id)
       .single();
+
+    // Reject out-of-bounds custom time ranges before inserting. Booked-by-slot
+    // selections (default chips / admin slots) pass through untouched.
+    this.validateBookingRange(
+      (resource as any)?.booking_config,
+      dto.resource_id,
+      dto.start_time,
+      dto.end_time
+    );
 
     // Determine initial status based on approval config
     const requiresApproval = (resource as any)?.approval_config?.enabled || false;
@@ -284,6 +347,18 @@ export class ReservationService {
             'Resource is not available for the selected time'
         );
       }
+
+      const { data: res } = await supabase
+        .from('resources')
+        .select('booking_config')
+        .eq('id', existing.resource_id)
+        .single();
+      this.validateBookingRange(
+        (res as any)?.booking_config,
+        existing.resource_id,
+        dto.start_time || existing.start_time,
+        dto.end_time || existing.end_time
+      );
     }
 
     const { data, error } = await (supabase
@@ -373,37 +448,56 @@ export class ReservationService {
   ): Promise<AvailabilityResult> {
     const supabase = createClientSupabaseClient();
 
-    // Get all reservations for this resource that might conflict
-    let query = supabase
-      .from('resource_reservations')
-      .select('*')
-      .eq('resource_id', dto.resource_id)
-      .in('status', ['pending', 'approved', 'completed'])
-      .or(`and(start_time.lt.${dto.end_time},end_time.gt.${dto.start_time})`);
-
-    // Exclude a specific reservation (for editing)
-    if (dto.exclude_reservation_id) {
-      query = query.neq('id', dto.exclude_reservation_id);
-    }
-
-    const { data: conflicts, error } = await query;
+    // Holder rows for overlapping pending/approved reservations (SECURITY DEFINER RPC).
+    const { data: conflicts, error } = await supabase.rpc(
+      'fn_resource_slot_conflicts',
+      {
+        p_resource_id: dto.resource_id,
+        p_start: dto.start_time,
+        p_end: dto.end_time,
+        p_exclude_id: dto.exclude_reservation_id ?? null
+      }
+    );
 
     if (error) {
       console.error('Error checking availability:', error);
       throw error;
     }
 
-    const is_available = !conflicts || conflicts.length === 0;
+    const holders = (conflicts ?? []) as SlotConflict[];
+
+    // Capacity = resources.initial_stock_quantity (NULL ⇒ unlimited).
+    const { data: resource, error: resourceError } = await supabase
+      .from('resources')
+      .select('initial_stock_quantity')
+      .eq('id', dto.resource_id)
+      .single();
+    if (resourceError || !resource) {
+      throw new Error('Resource not found');
+    }
+
+    const capacity = (resource as any)?.initial_stock_quantity as number | null;
+    const requested = dto.quantity ?? 1;
+    const committed = holders.reduce((sum, h) => sum + (h.quantity ?? 0), 0);
+
+    const is_available =
+      capacity == null || committed + requested <= capacity;
+
+    let message = 'Resource is available';
+    if (!is_available) {
+      const first = holders[0];
+      const who = first?.full_name || 'another user';
+      const role = first?.designation ? ` (${first.designation})` : '';
+      message = `Already held by ${who}${role}. Only ${Math.max(
+        (capacity ?? 0) - committed,
+        0
+      )} unit(s) free for this window — choose another slot or contact the requester.`;
+    }
 
     return {
       is_available,
-      // Type assertion: recurring_config is stored as Json but should be typed as RecurringConfig
-      conflicting_reservations: is_available
-        ? undefined
-        : (conflicts as unknown as Reservation[]),
-      message: is_available
-        ? 'Resource is available'
-        : `Resource is already booked for ${conflicts?.length} time slot(s)`
+      conflicting_reservations: is_available ? undefined : holders,
+      message
     };
   }
 
@@ -419,7 +513,7 @@ export class ReservationService {
     // Get resource booking configuration
     const { data: resource } = await supabase
       .from('resources')
-      .select('booking_config, status')
+      .select('booking_config, status, initial_stock_quantity')
       .eq('id', resourceId)
       .single();
 
@@ -434,12 +528,9 @@ export class ReservationService {
       return [];
     }
 
-    // Import the new services
+    // Import date-availability service (TimeSlotGeneratorService uses static top-level import)
     const { DateAvailabilityService } = await import(
       '@/lib/services/resource-management/date-availability-service'
-    );
-    const { TimeSlotGeneratorService } = await import(
-      '@/lib/services/resource-management/time-slot-generator-service'
     );
 
     const bookingConfig = (resource as any).booking_config as any;
@@ -452,9 +543,11 @@ export class ReservationService {
 
     // Step 2: Generate slots using TimeSlotGeneratorService
     const timeConfig = bookingConfig?.time_slot_config;
-    const generatedSlots = timeConfig
-      ? TimeSlotGeneratorService.generateSlotsForDate(timeConfig, date, resourceId)
-      : this.generateLegacySlots(date, bookingConfig, resourceId);
+    const generatedSlots = TimeSlotGeneratorService.generateSlotsForDate(
+      timeConfig,
+      date,
+      resourceId
+    );
 
     // Step 3: Get existing reservations for the date
     // Compute the user-local day window expressed in UTC so the query bounds
@@ -464,81 +557,49 @@ export class ReservationService {
     const startOfDay = new Date(`${date}T00:00:00`).toISOString();
     const endOfDay = new Date(`${date}T23:59:59`).toISOString();
 
-    const { data: reservations } = await supabase
-      .from('resource_reservations')
-      .select('start_time, end_time, id')
-      .eq('resource_id', resourceId)
-      .in('status', ['pending', 'approved', 'completed'])
-      .gte('start_time', startOfDay)
-      .lte('end_time', endOfDay);
+    const { data: holders, error: slotError } = await supabase.rpc('fn_resource_slot_conflicts', {
+      p_resource_id: resourceId,
+      p_start: startOfDay,
+      p_end: endOfDay,
+      p_exclude_id: null
+    });
+    if (slotError) {
+      console.error('Error fetching slot conflicts:', slotError);
+      throw slotError;
+    }
+    const holderRows = (holders ?? []) as SlotConflict[];
+    const capacity = (resource as any).initial_stock_quantity as number | null;
 
-    // Step 4: Mark booked slots
+    // Step 4: Mark booked slots (capacity-aware) and attach the first holder.
     return generatedSlots.map((slot) => {
-      const isBooked = reservations?.some((r: any) => {
-        const reservationStart = new Date(r.start_time);
-        const reservationEnd = new Date(r.end_time);
-        const slotStart = new Date(slot.start_time);
-        const slotEnd = new Date(slot.end_time);
+      const slotStart = new Date(slot.start_time);
+      const slotEnd = new Date(slot.end_time);
 
-        // Check for overlap
-        return reservationStart < slotEnd && reservationEnd > slotStart;
+      const overlapping = holderRows.filter((h) => {
+        const hStart = new Date(h.start_time);
+        const hEnd = new Date(h.end_time);
+        return hStart < slotEnd && hEnd > slotStart;
       });
+
+      const committed = overlapping.reduce((s, h) => s + (h.quantity ?? 0), 0);
+      const isBooked = capacity != null && committed >= capacity;
+      const holder = overlapping[0];
 
       return {
         start_time: slot.start_time,
         end_time: slot.end_time,
         is_available: !isBooked,
         resource_id: resourceId,
-        slot_name: slot.slot_name, // Pass through custom slot name
-        max_capacity: slot.max_capacity, // Pass through capacity
-        existing_reservation_id: isBooked
-          ? (reservations?.find((r: any) => {
-              const reservationStart = new Date(r.start_time);
-              const reservationEnd = new Date(r.end_time);
-              const slotStart = new Date(slot.start_time);
-              const slotEnd = new Date(slot.end_time);
-              return reservationStart < slotEnd && reservationEnd > slotStart;
-            }) as any)?.id
-          : undefined
+        slot_name: slot.slot_name,
+        max_capacity: slot.max_capacity,
+        existing_reservation_id: isBooked ? holder?.reservation_id : undefined,
+        booked_by_name: isBooked ? holder?.full_name ?? null : undefined,
+        booked_by_designation: isBooked ? holder?.designation ?? null : undefined,
+        booked_status: isBooked ? holder?.status : undefined,
+        booked_start: isBooked ? holder?.start_time : undefined,
+        booked_end: isBooked ? holder?.end_time : undefined
       };
     });
-  }
-
-  /**
-   * Generate legacy slots for backward compatibility
-   */
-  private static generateLegacySlots(
-    date: string,
-    bookingConfig: any,
-    resourceId: string
-  ): Array<{ start_time: string; end_time: string; is_available: boolean; resource_id: string; slot_name?: string; max_capacity?: number }> {
-    const slots = [];
-
-    // Default: 1-hour slots from 9 AM to 5 PM
-    const startHour = bookingConfig?.operating_hours?.start || 9;
-    const endHour = bookingConfig?.operating_hours?.end || 17;
-
-    for (let hour = startHour; hour < endHour; hour++) {
-      // Naive local string -> Date() parses as local -> toISOString() emits
-      // the equivalent UTC instant. This is what PostgREST expects to store
-      // and what new Date() must produce later for the overlap check at
-      // L455 to compare apples to apples.
-      const slotStart = new Date(
-        `${date}T${hour.toString().padStart(2, '0')}:00:00`
-      ).toISOString();
-      const slotEnd = new Date(
-        `${date}T${(hour + 1).toString().padStart(2, '0')}:00:00`
-      ).toISOString();
-
-      slots.push({
-        start_time: slotStart,
-        end_time: slotEnd,
-        is_available: true,
-        resource_id: resourceId
-      });
-    }
-
-    return slots;
   }
 
   /**

@@ -489,6 +489,45 @@ export class ServiceRequestService {
   }
 
   /**
+   * Permanently delete a service request (super-admin only).
+   *
+   * Authority is RLS: the additive `service_requests_delete_super_admin` policy
+   * (is_super_admin()) is the ONLY policy that permits a DELETE on this table.
+   * A non-super-admin who can SEE a request (e.g. its own requester) passes the
+   * existence check below, but the DELETE then matches 0 rows under RLS — we
+   * surface that as a 403 rather than a misleading success. Child rows
+   * (approvals, timeline, attachments) are removed via ON DELETE CASCADE.
+   */
+  static async deleteRequest(id: string): Promise<void> {
+    const supabase = await getSupabase();
+
+    const { data: existing, error: fetchError } = await supabase
+      .from('service_requests')
+      .select('id')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !existing) {
+      throw new Error('Service request not found');
+    }
+
+    const { data: deleted, error } = await supabase
+      .from('service_requests')
+      .delete()
+      .eq('id', id)
+      .select('id');
+
+    if (error) {
+      console.error('[service-requests] Failed to delete request:', error);
+      throw new Error(`Failed to delete request: ${error.message}`);
+    }
+
+    if (!deleted || deleted.length === 0) {
+      throw new Error('Only super administrators can delete service requests');
+    }
+  }
+
+  /**
    * Get a single request with full details (all joins)
    */
   static async getRequest(id: string): Promise<ServiceRequest> {

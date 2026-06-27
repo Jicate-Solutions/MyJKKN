@@ -21,6 +21,7 @@ import {
 } from '@/lib/services/meetings/public-host-service';
 import { BookingTrackingScripts } from '@/lib/services/analytics/booking-pixel-service';
 import { MeetBookingWidget } from './_components/meet-booking-widget';
+import { NotBookable } from './_components/not-bookable';
 
 export const dynamic = 'force-dynamic';
 
@@ -71,7 +72,14 @@ export async function generateMetadata({ params }: MeetPageProps): Promise<Metad
 export default async function MeetPersonPage({ params }: MeetPageProps) {
   const { handle } = await params;
   const [host, viewer] = await Promise.all([loadHost(handle), loadViewer()]);
-  if (!host || host.meetingTypes.length === 0) notFound();
+  // Unknown / private / auto-hidden / no-active-Google handle → genuine 404.
+  if (!host) notFound();
+  // Real, bookable host who simply has no meeting types yet → explicit "not
+  // ready" state instead of a confusing raw 404 (BUG-004267). The host testing
+  // their own freshly-generated link gets a clear next step.
+  if (host.meetingTypes.length === 0) {
+    return <NotBookable handle={host.handle} name={host.name} />;
+  }
 
   return (
     <>

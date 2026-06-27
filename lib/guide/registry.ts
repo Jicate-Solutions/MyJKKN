@@ -41,6 +41,12 @@ import { GUIDES as ORGANIZATIONS_GUIDES, REQUIRES as ORGANIZATIONS_REQUIRES } fr
 import { GUIDES as IMS_GUIDES, REQUIRES as IMS_REQUIRES } from "../ims/guide/content";
 import { GUIDES as BOS_GUIDES, REQUIRES as BOS_REQUIRES } from "../bos/guide/content";
 import { GUIDES as MEETINGS_GUIDES, REQUIRES as MEETINGS_REQUIRES } from "../meetings/guide/content";
+import { GUIDES as LEARNERS_GUIDES, REQUIRES as LEARNERS_REQUIRES } from "../learners/guide/content";
+import { GUIDES as LEARNERS_COUNCIL_GUIDES, REQUIRES as LEARNERS_COUNCIL_REQUIRES } from "../learners-council/guide/content";
+import { GUIDES as EVENTS_GUIDES, REQUIRES as EVENTS_REQUIRES } from "../events/guide/content";
+import { GUIDES as RESOURCES_GUIDES, REQUIRES as RESOURCES_REQUIRES } from "../resource-management/guide/content";
+import { GUIDES as VAC_GUIDES, REQUIRES as VAC_REQUIRES } from "../vac/guide/content";
+import { GUIDES as OKR_GUIDES, REQUIRES as OKR_REQUIRES } from "../okr/guide/content";
 
 /* ────────────────────────────────────────────────────────────────────────
  * PERSONA ACCESS — which permission keys grant each canonical persona (OR'd
@@ -57,10 +63,10 @@ import { GUIDES as MEETINGS_GUIDES, REQUIRES as MEETINGS_REQUIRES } from "../mee
 export const PERSONA_REQUIRES: Record<CanonicalPersona, string[]> = {
   learner: [],
   facilitator: [AI_PULSE_REQUIRES.faculty, PDE_REQUIRES.faculty, ACADEMIC_REQUIRES.faculty, STARTUP_REQUIRES.mentor, STARTUP_REQUIRES.evaluator, SOLUTIONS_REQUIRES.delivery_team, IMS_REQUIRES.cashier, BOS_REQUIRES.member],
-  "unit-lead": [AI_PULSE_REQUIRES.champion, CAMPUS_REQUIRES.warden, CAMPUS_REQUIRES.mess, IMS_REQUIRES.storekeeper, BOS_REQUIRES.chairman],
-  coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor, BILLING_REQUIRES["finance-officer"], ACADEMIC_REQUIRES.coordinator, STARTUP_REQUIRES.coordinator, SOLUTIONS_REQUIRES.sales_lead, ORGANIZATIONS_REQUIRES.viewer, IMS_REQUIRES.requester, MEETINGS_REQUIRES.host],
-  supervisor: [AI_PULSE_REQUIRES.hod, HR_REQUIRES.manager, ACADEMIC_REQUIRES.hod, ACADEMIC_REQUIRES.principal, SOLUTIONS_REQUIRES.finance_officer, IMS_REQUIRES.approver, BOS_REQUIRES.principal],
-  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin, BILLING_REQUIRES["finance-admin"], STARTUP_REQUIRES.admin, SOLUTIONS_REQUIRES.module_admin, ORGANIZATIONS_REQUIRES["registry-admin"], IMS_REQUIRES.admin, BOS_REQUIRES.coordinator, MEETINGS_REQUIRES.admin],
+  "unit-lead": [AI_PULSE_REQUIRES.champion, CAMPUS_REQUIRES.warden, CAMPUS_REQUIRES.mess, IMS_REQUIRES.storekeeper, BOS_REQUIRES.chairman, LEARNERS_COUNCIL_REQUIRES.member, EVENTS_REQUIRES.organiser],
+  coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor, BILLING_REQUIRES["finance-officer"], ACADEMIC_REQUIRES.coordinator, STARTUP_REQUIRES.coordinator, SOLUTIONS_REQUIRES.sales_lead, ORGANIZATIONS_REQUIRES.viewer, IMS_REQUIRES.requester, MEETINGS_REQUIRES.host, LEARNERS_COUNCIL_REQUIRES.coordinator, EVENTS_REQUIRES.proposer, RESOURCES_REQUIRES.requester, OKR_REQUIRES.contributor],
+  supervisor: [AI_PULSE_REQUIRES.hod, HR_REQUIRES.manager, ACADEMIC_REQUIRES.hod, ACADEMIC_REQUIRES.principal, SOLUTIONS_REQUIRES.finance_officer, IMS_REQUIRES.approver, BOS_REQUIRES.principal, LEARNERS_REQUIRES.advisor, RESOURCES_REQUIRES.approver, OKR_REQUIRES.manager],
+  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin, BILLING_REQUIRES["finance-admin"], STARTUP_REQUIRES.admin, SOLUTIONS_REQUIRES.module_admin, ORGANIZATIONS_REQUIRES["registry-admin"], IMS_REQUIRES.admin, BOS_REQUIRES.coordinator, MEETINGS_REQUIRES.admin, LEARNERS_REQUIRES.staff, RESOURCES_REQUIRES.admin, VAC_REQUIRES.admin, OKR_REQUIRES.admin],
   "platform-admin": [],
   parent: [],
   external: [],
@@ -731,7 +737,201 @@ export const meetingsGuide: ModuleGuide = {
   routes: [],
 };
 
-export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide, academicGuide, startupStudioGuide, solutionsGuide, organizationsGuide, imsGuide, bosGuide, meetingsGuide];
+/* ── Learners ────────────────────────────────────────────────────────────────
+ * student→learner (OPEN baseline — student self-service: my-profile/attendance/
+ * marks/timetable/bills/leave-onduty, the everyday things every learner does, so
+ * ungated), advisor→supervisor (watches a caseload, steps in early), staff→
+ * module-admin (full learner-records operations). Non-learner lanes section-gated
+ * by their own real key (fail-closed). advisor's key is the broad legacy
+ * `learners.view` — the advisor page actually gates by ROLE in-app (no caseload
+ * permission key exists yet); flagged in content.ts for the module owner.
+ * ────────────────────────────────────────────────────────────────────────── */
+export const learnersGuide: ModuleGuide = {
+  module: "learners",
+  basePath: "/learners",
+  lanes: {
+    learner: {
+      sections: LEARNERS_GUIDES.lanes.student.sections,
+      startHere: LEARNERS_GUIDES.lanes.student.startHere,
+      title: LEARNERS_GUIDES.lanes.student.title,
+      tagline: LEARNERS_GUIDES.lanes.student.tagline,
+    },
+    supervisor: {
+      sections: withRequires(LEARNERS_GUIDES.lanes.advisor.sections, LEARNERS_REQUIRES.advisor),
+      startHere: LEARNERS_GUIDES.lanes.advisor.startHere,
+      title: LEARNERS_GUIDES.lanes.advisor.title,
+      tagline: LEARNERS_GUIDES.lanes.advisor.tagline,
+    },
+    "module-admin": {
+      sections: withRequires(LEARNERS_GUIDES.lanes.staff.sections, LEARNERS_REQUIRES.staff),
+      startHere: LEARNERS_GUIDES.lanes.staff.startHere,
+      title: LEARNERS_GUIDES.lanes.staff.title,
+      tagline: LEARNERS_GUIDES.lanes.staff.tagline,
+    },
+  },
+  routes: [],
+};
+
+/* ── Learners Council (student governance) ────────────────────────────────────
+ * member→unit-lead (an elected office-bearer who runs a committee/vertical),
+ * coordinator→coordinator (staff advisor who sets up elections/structure/approvals).
+ * NO learner lane: the whole module is gated behind `learners_council.view` (an
+ * ordinary student never reaches election/issue screens), so council content must
+ * never surface in the open learner baseline. Both lanes gated by the ONLY real
+ * key, `learners_council.view`; the deeper member/coordinator split is enforced
+ * IN-APP via lib/learners-council/lc-roles.ts (no finer permission keys exist) —
+ * matching the BoS structural-split precedent above.
+ * ────────────────────────────────────────────────────────────────────────── */
+export const learnersCouncilGuide: ModuleGuide = {
+  module: "learners-council",
+  basePath: "/learners-council",
+  lanes: {
+    "unit-lead": {
+      sections: withRequires(LEARNERS_COUNCIL_GUIDES.lanes.member.sections, LEARNERS_COUNCIL_REQUIRES.member),
+      startHere: LEARNERS_COUNCIL_GUIDES.lanes.member.startHere,
+      title: LEARNERS_COUNCIL_GUIDES.lanes.member.title,
+      tagline: LEARNERS_COUNCIL_GUIDES.lanes.member.tagline,
+    },
+    coordinator: {
+      sections: withRequires(LEARNERS_COUNCIL_GUIDES.lanes.coordinator.sections, LEARNERS_COUNCIL_REQUIRES.coordinator),
+      startHere: LEARNERS_COUNCIL_GUIDES.lanes.coordinator.startHere,
+      title: LEARNERS_COUNCIL_GUIDES.lanes.coordinator.title,
+      tagline: LEARNERS_COUNCIL_GUIDES.lanes.coordinator.tagline,
+    },
+  },
+  routes: [],
+};
+
+/* ── Events (proposals · marathon · tournament) ───────────────────────────────
+ * organiser + ops → unit-lead (COLLAPSED — both gated `events.marathon.view`,
+ * keeping all marathon run/ops content in one lane so an organiser isn't split
+ * across two canonical tabs), proposer→coordinator (proposes & tracks events).
+ * NO learner lane: proposing and running events are staff/organiser actions, not
+ * everyday all-student actions, so events content must never surface in the open
+ * learner baseline. Finer per-page ops/budget rights are enforced in-app by role
+ * (no permission keys exist for them) — flagged in content.ts.
+ * ────────────────────────────────────────────────────────────────────────── */
+export const eventsGuide: ModuleGuide = {
+  module: "events",
+  basePath: "/events",
+  lanes: {
+    "unit-lead": {
+      // organiser + ops collapsed → each tagged with its own key (both
+      // events.marathon.view); a viewer sees the sections their key unlocks.
+      sections: [
+        ...withRequires(EVENTS_GUIDES.lanes.organiser.sections, EVENTS_REQUIRES.organiser),
+        ...withRequires(EVENTS_GUIDES.lanes.ops.sections, EVENTS_REQUIRES.ops),
+      ],
+      startHere: EVENTS_GUIDES.lanes.organiser.startHere,
+      title: EVENTS_GUIDES.lanes.organiser.title,
+      tagline: EVENTS_GUIDES.lanes.organiser.tagline,
+    },
+    coordinator: {
+      sections: withRequires(EVENTS_GUIDES.lanes.proposer.sections, EVENTS_REQUIRES.proposer),
+      startHere: EVENTS_GUIDES.lanes.proposer.startHere,
+      title: EVENTS_GUIDES.lanes.proposer.title,
+      tagline: EVENTS_GUIDES.lanes.proposer.tagline,
+    },
+  },
+  routes: [],
+};
+
+/* ── Resource Management (rooms/equipment booking) ────────────────────────────
+ * requester→coordinator (books + tracks resources; booking is permission-gated,
+ * NOT open, so it maps to a GATED canonical, not the open learner lane),
+ * approver→supervisor (reviews the reservation queue), admin→module-admin (runs
+ * the catalogue + maintenance). NOTE: route dir is `resource-management` but the
+ * permission namespace is `resources.*`. Each lane section-gated by its own real
+ * key (fail-closed).
+ * ────────────────────────────────────────────────────────────────────────── */
+export const resourceManagementGuide: ModuleGuide = {
+  module: "resource-management",
+  basePath: "/resource-management",
+  lanes: {
+    coordinator: {
+      sections: withRequires(RESOURCES_GUIDES.lanes.requester.sections, RESOURCES_REQUIRES.requester),
+      startHere: RESOURCES_GUIDES.lanes.requester.startHere,
+      title: RESOURCES_GUIDES.lanes.requester.title,
+      tagline: RESOURCES_GUIDES.lanes.requester.tagline,
+    },
+    supervisor: {
+      sections: withRequires(RESOURCES_GUIDES.lanes.approver.sections, RESOURCES_REQUIRES.approver),
+      startHere: RESOURCES_GUIDES.lanes.approver.startHere,
+      title: RESOURCES_GUIDES.lanes.approver.title,
+      tagline: RESOURCES_GUIDES.lanes.approver.tagline,
+    },
+    "module-admin": {
+      sections: withRequires(RESOURCES_GUIDES.lanes.admin.sections, RESOURCES_REQUIRES.admin),
+      startHere: RESOURCES_GUIDES.lanes.admin.startHere,
+      title: RESOURCES_GUIDES.lanes.admin.title,
+      tagline: RESOURCES_GUIDES.lanes.admin.tagline,
+    },
+  },
+  routes: [],
+};
+
+/* ── VAC (Value-Added Courses) ────────────────────────────────────────────────
+ * learner→learner (the student learning surface: catalogue, enrol, lessons,
+ * progress, certificate, CASE track) — but VAC is permission-gated by
+ * `vac.courses.view` (NOT universal like marks/fees), so its learner sections are
+ * section-gated with that key: they appear in the open learner baseline ONLY for
+ * viewers who can actually use VAC. admin→module-admin (manages courses, lessons,
+ * enrollments, analytics, CASE admin) gated by `vac.admin.view`.
+ * ────────────────────────────────────────────────────────────────────────── */
+export const vacGuide: ModuleGuide = {
+  module: "vac",
+  basePath: "/vac",
+  lanes: {
+    learner: {
+      sections: withRequires(VAC_GUIDES.lanes.learner.sections, VAC_REQUIRES.learner),
+      startHere: VAC_GUIDES.lanes.learner.startHere,
+      title: VAC_GUIDES.lanes.learner.title,
+      tagline: VAC_GUIDES.lanes.learner.tagline,
+    },
+    "module-admin": {
+      sections: withRequires(VAC_GUIDES.lanes.admin.sections, VAC_REQUIRES.admin),
+      startHere: VAC_GUIDES.lanes.admin.startHere,
+      title: VAC_GUIDES.lanes.admin.title,
+      tagline: VAC_GUIDES.lanes.admin.tagline,
+    },
+  },
+  routes: [],
+};
+
+/* ── OKR (Objectives & Key Results — staff goal-setting) ───────────────────────
+ * contributor→coordinator (sets own objectives + weekly check-ins + ABCD),
+ * manager→supervisor (department/cascade + manage + tier-2/3 objectives),
+ * admin→module-admin (org objectives + compliance + analytics). NO learner lane:
+ * OKR is a STAFF tool gated by okr.view, so it must never surface in a student's
+ * getting-started baseline. Each lane section-gated by its own okr.* key.
+ * ────────────────────────────────────────────────────────────────────────── */
+export const okrGuide: ModuleGuide = {
+  module: "okr",
+  basePath: "/okr",
+  lanes: {
+    coordinator: {
+      sections: withRequires(OKR_GUIDES.lanes.contributor.sections, OKR_REQUIRES.contributor),
+      startHere: OKR_GUIDES.lanes.contributor.startHere,
+      title: OKR_GUIDES.lanes.contributor.title,
+      tagline: OKR_GUIDES.lanes.contributor.tagline,
+    },
+    supervisor: {
+      sections: withRequires(OKR_GUIDES.lanes.manager.sections, OKR_REQUIRES.manager),
+      startHere: OKR_GUIDES.lanes.manager.startHere,
+      title: OKR_GUIDES.lanes.manager.title,
+      tagline: OKR_GUIDES.lanes.manager.tagline,
+    },
+    "module-admin": {
+      sections: withRequires(OKR_GUIDES.lanes.admin.sections, OKR_REQUIRES.admin),
+      startHere: OKR_GUIDES.lanes.admin.startHere,
+      title: OKR_GUIDES.lanes.admin.title,
+      tagline: OKR_GUIDES.lanes.admin.tagline,
+    },
+  },
+  routes: [],
+};
+
+export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide, academicGuide, startupStudioGuide, solutionsGuide, organizationsGuide, imsGuide, bosGuide, meetingsGuide, learnersGuide, learnersCouncilGuide, eventsGuide, resourceManagementGuide, vacGuide, okrGuide];
 
 /** Canonical personas at least one module contributes real sections to. A
  *  persona NOT in this set is sparse (composeLane returns the platform-overview
@@ -762,6 +962,12 @@ const MODULE_LABELS: Record<string, string> = {
   ims: "Inventory (IMS)",
   bos: "Board of Studies",
   meetings: "Meetings",
+  learners: "Learners",
+  "learners-council": "Learners Council",
+  events: "Events",
+  "resource-management": "Resource Management",
+  vac: "Value-Added Courses",
+  okr: "OKR",
 };
 
 /** Human label for a module namespace; falls back to the raw id if unknown. */
@@ -796,6 +1002,12 @@ const MODULE_GLOSSARIES: Record<string, GlossaryTerm[]> = {
   ims: IMS_GUIDES.glossary ?? [],
   bos: BOS_GUIDES.glossary ?? [],
   meetings: MEETINGS_GUIDES.glossary ?? [],
+  learners: LEARNERS_GUIDES.glossary ?? [],
+  "learners-council": LEARNERS_COUNCIL_GUIDES.glossary ?? [],
+  events: EVENTS_GUIDES.glossary ?? [],
+  "resource-management": RESOURCES_GUIDES.glossary ?? [],
+  vac: VAC_GUIDES.glossary ?? [],
+  okr: OKR_GUIDES.glossary ?? [],
 };
 
 /** "Words to know" terms for one module; empty array if module unknown. */

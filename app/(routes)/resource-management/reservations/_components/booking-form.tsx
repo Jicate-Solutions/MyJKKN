@@ -206,8 +206,33 @@ export function BookingForm({
               <Alert variant='destructive'>
                 <AlertCircle className='h-4 w-4' />
                 <AlertDescription>
-                  {availabilityCheck?.message ||
-                    'This time slot is not available'}
+                  <p className='font-medium'>
+                    {availabilityCheck?.message ||
+                      'This time slot is not available'}
+                  </p>
+                  {availabilityCheck?.conflicting_reservations?.length ? (
+                    <ul className='mt-1.5 space-y-1 text-xs'>
+                      {availabilityCheck.conflicting_reservations.map((c) => (
+                        <li key={c.reservation_id}>
+                          <span className='font-medium'>
+                            {c.full_name || 'Another user'}
+                          </span>
+                          {c.designation ? ` · ${c.designation}` : ''}
+                          {' — '}
+                          {new Date(c.start_time).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                          {'–'}
+                          {new Date(c.end_time).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                          {` (${c.status})`}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </AlertDescription>
               </Alert>
             ) : (

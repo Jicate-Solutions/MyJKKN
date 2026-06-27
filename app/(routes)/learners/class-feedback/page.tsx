@@ -19,6 +19,8 @@ import {
 import { usePendingSessions } from '@/hooks/use-session-feedback';
 import type { PendingSession } from '@/types/session-feedback';
 import { FeedbackDialog } from './_components/feedback-dialog';
+import { MyVoiceReceipt } from './_components/my-voice-receipt';
+import { LivePulseBanner } from './_components/live-pulse-banner';
 
 const BRAND = '#0b6d41';
 
@@ -42,6 +44,7 @@ function formatTime(t: string | null): string | null {
 export default function LearnerSessionFeedbackPage() {
   const { data: pending, isLoading, isError, error } = usePendingSessions(30);
   const [activeSession, setActiveSession] = useState<PendingSession | null>(null);
+  const [activeSource, setActiveSource] = useState<'async' | 'live_poll'>('async');
 
   const sessions = pending ?? [];
   const pendingCount = sessions.length;
@@ -72,6 +75,17 @@ export default function LearnerSessionFeedbackPage() {
             </Badge>
           )}
         </div>
+
+        {/* Live pulse — answer now if a teacher opened an in-class pulse for you */}
+        <LivePulseBanner
+          onAnswer={(s, src) => {
+            setActiveSource(src);
+            setActiveSession(s);
+          }}
+        />
+
+        {/* Receipt — your participation + whether flagged classes improved (hidden until you have history) */}
+        <MyVoiceReceipt />
 
         {/* Body */}
         <Card className="bg-[#fbfbee]/30 dark:bg-card">
@@ -106,7 +120,10 @@ export default function LearnerSessionFeedbackPage() {
                     <li key={`${s.attendance_date}-${s.timetable_id}-${s.period_id}`}>
                       <button
                         type="button"
-                        onClick={() => setActiveSession(s)}
+                        onClick={() => {
+                          setActiveSource('async');
+                          setActiveSession(s);
+                        }}
                         className="w-full text-left px-4 py-4 flex items-center gap-4 hover:bg-muted/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6d41]/30 focus-visible:ring-inset"
                       >
                         <div className="min-w-0 flex-1 space-y-1">
@@ -160,6 +177,7 @@ export default function LearnerSessionFeedbackPage() {
 
       <FeedbackDialog
         session={activeSession}
+        source={activeSource}
         onOpenChange={(open) => {
           if (!open) setActiveSession(null);
         }}
