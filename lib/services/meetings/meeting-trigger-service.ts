@@ -27,6 +27,8 @@ import type { ActionConfig } from '@/types/notifications';
 
 const MODULE = 'meetings/triggers';
 const ATTENDANCE_METRIC = 'attendance_rate_daily';
+/** PR3: the data-gap trigger — a working day with zero attendance recorded. */
+const MISSING_DATA_METRIC = 'attendance_missing_data';
 /** Decision #6: the Principal has 24h to explain before a meeting is scheduled. */
 const EXPLANATION_WINDOW_HOURS = 24;
 /** Re-check the last N days each run so late-marked attendance is still caught (decision E4). */
@@ -430,6 +432,198 @@ export async function evaluateAttendanceTriggers(
 }
 
 // ---------------------------------------------------------------------------
+// PR3 — missing-data (data-gap) trigger
+// ---------------------------------------------------------------------------
+
+/**
+ * Evaluate all active missing-data (data-gap) rules. A college-day is a gap when
+ * it is a working day (not Sunday, not an approved institution-wide holiday) with
+ * ZERO attendance marks — the structural inverse of evaluateAttendanceTriggers,
+ * which skips no-data days and leaves them to this trigger. The working-day +
+ * zero-marks test lives in SQL (`fn_college_is_missing_data_day`) so it stays
+ * consistent with the attendance marking gate. Idempotent per (rule, day).
+ *
+ * Unlike the attendance trigger, the 3-day window is evaluated OLDEST-first and
+ * fires on the oldest still-empty day: a college that simply marked late is not
+ * nagged about yesterday (decision E4 — late marking is the whole reason for the
+ * look-back). Shares the weekly cap with the low-attendance trigger (E8).
+ *
+ * Events written here have subject_id IS NULL, so reconcileExplanations runs the
+ * same 24h explain → escalate valve over them (no separate reconciler needed).
+ */
+export async function evaluateMissingDataTriggers(
+  opts: { date?: string; now?: Date; client?: SupabaseClient } = {}
+): Promise<TriggerEvalResult> {
+  const db = opts.client ?? createServiceRoleClient();
+  const date = opts.date ?? targetDateIST(opts.now ?? new Date());
+
+  const result: TriggerEvalResult = {
+    date,
+    evaluated: 0,
+    breaches: 0,
+    notified: 0,
+    skipped_quiet: 0,
+    skipped_cooldown: 0,
+    skipped_no_data: 0,
+    skipped_no_recipient: 0,
+    errors: []
+  };
+
+  const { data: rules, error } = await db
+    .from('meeting_trigger_rules')
+    .select('*')
+    .eq('metric_key', MISSING_DATA_METRIC)
+    .eq('active', true);
+
+  if (error) {
+    result.errors.push(`load rules: ${error.message}`);
+    return result;
+  }
+
+  // Oldest-first window: [-2, -1, target]. Fire on the oldest day that is still
+  // a gap, giving late marking the full window to land before we flag it.
+  const candidateDates = Array.from({ length: LOOKBACK_DAYS }, (_, i) =>
+    addDaysISO(date, -(LOOKBACK_DAYS - 1 - i))
+  );
+
+  for (const rule of (rules ?? []) as TriggerRule[]) {
+    if (!rule.institution_id) continue; // global rules unsupported
+    result.evaluated++;
+
+    try {
+      // Cooldown + weekly cap — once per rule, over the trailing window. Caps the
+      // rule to `cap` events/window no matter how many looked-back days are gaps.
+      const cooldownDays = rule.cooldown_days ?? 7;
+      const cap = rule.weekly_cap ?? 1;
+      const windowStart = addDaysISO(date, -(cooldownDays - 1));
+      const { data: recent } = await db
+        .from('meeting_trigger_events')
+        .select('id')
+        .eq('rule_id', rule.id)
+        .gte('breach_date', windowStart)
+        .lte('breach_date', date);
+      if ((recent?.length ?? 0) >= cap) {
+        result.skipped_cooldown++;
+        continue;
+      }
+
+      let fired = false;
+      for (const candDate of candidateDates) {
+        if (isInQuietWindow(candDate, rule.quiet_windows)) continue;
+
+        const { data: isGap, error: rpcErr } = await db.rpc(
+          'fn_college_is_missing_data_day',
+          { p_institution_id: rule.institution_id, p_date: candDate }
+        );
+        if (rpcErr) {
+          result.errors.push(
+            `rpc ${rule.institution_id} ${candDate}: ${rpcErr.message}`
+          );
+          continue;
+        }
+        // Not a gap (weekend, approved holiday, or attendance present) → skip.
+        if (isGap !== true) continue;
+
+        // Resolve recipients (principal → admin fallback).
+        const { recipientIds, createdBy, fallbackToAdmin } =
+          await resolveRecipients(db, rule.institution_id);
+        if (recipientIds.length === 0 || !createdBy) {
+          result.skipped_no_recipient++;
+          logger.warn(MODULE, 'Data gap with no resolvable recipient', {
+            institution_id: rule.institution_id,
+            date: candDate
+          });
+          break; // no one to notify for this institution — stop the window
+        }
+
+        // Record the event (idempotent per rule+day). observed_value 0 = "no
+        // marks"; threshold is the rule's nominal value (binary metric).
+        const explanationDeadline = new Date(
+          Date.now() + EXPLANATION_WINDOW_HOURS * 60 * 60 * 1000
+        ).toISOString();
+        const { data: ev, error: evErr } = await db
+          .from('meeting_trigger_events')
+          .insert({
+            rule_id: rule.id,
+            institution_id: rule.institution_id,
+            metric_key: rule.metric_key,
+            observed_value: 0,
+            threshold: rule.threshold,
+            breach_date: candDate,
+            status: 'notified',
+            explanation_deadline: explanationDeadline
+          })
+          .select('id')
+          .single();
+        if (evErr) {
+          // 23505 = already handled this rule+day → try the next day.
+          if ((evErr as any).code === '23505') continue;
+          result.errors.push(
+            `event ${rule.institution_id} ${candDate}: ${evErr.message}`
+          );
+          continue;
+        }
+
+        result.breaches++;
+
+        // Notify — supportive tone (decision E6): a gap is usually un-entered
+        // data, not a missed class. Ask for context, not blame.
+        const instName = await getInstitutionName(db, rule.institution_id);
+        const notificationId = await createBellNotification(db, {
+          recipientIds,
+          createdBy,
+          title: `Attendance not recorded — ${instName}`,
+          body:
+            `No attendance was recorded for ${instName} on ${candDate}, a working ` +
+            `day. If attendance was taken, please make sure it is entered; if the ` +
+            `day had no classes, let us know what happened. A brief note within ` +
+            `${EXPLANATION_WINDOW_HOURS} hours keeps this from being escalated.` +
+            (fallbackToAdmin
+              ? ' (No principal on record yet — routed to administration.)'
+              : ''),
+          url: '/academic/attendance',
+          category: 'missing_data:gap',
+          action: {
+            type: 'tracked',
+            deadlineHours: EXPLANATION_WINDOW_HOURS,
+            config: {
+              response_type: 'text',
+              min_text_length: MIN_EXPLANATION_LENGTH
+            }
+          },
+          metadata: {
+            rule_id: rule.id,
+            institution_id: rule.institution_id,
+            breach_date: candDate,
+            observed: 0,
+            threshold: rule.threshold,
+            source: 'cron:attendance-breach-check'
+          }
+        });
+
+        await db
+          .from('meeting_trigger_events')
+          .update({
+            notified_profile_ids: recipientIds,
+            notification_id: notificationId
+          })
+          .eq('id', (ev as any).id);
+
+        result.notified += recipientIds.length;
+        fired = true;
+        break; // one event per rule per run
+      }
+
+      if (!fired) result.skipped_no_data++;
+    } catch (e: any) {
+      result.errors.push(`rule ${rule.id}: ${e?.message ?? String(e)}`);
+    }
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // PR1b — explanation valve: reconcile responses + Director judgment
 // ---------------------------------------------------------------------------
 
@@ -511,14 +705,24 @@ export async function reconcileExplanations(
             await createBellNotification(db, {
               recipientIds: admins,
               createdBy: admins[0],
-              title: `Attendance explanation — ${instName}`,
+              title:
+                ev.metric_key === MISSING_DATA_METRIC
+                  ? `Data-gap explanation — ${instName}`
+                  : `Attendance explanation — ${instName}`,
               body:
-                `${instName} (${ev.observed_value ?? '—'}% on ${ev.breach_date}, ` +
-                `below ${ev.threshold}%) submitted an explanation:\n\n` +
-                `"${r.text_response}"\n\n` +
-                `Decide whether to skip or still hold a review meeting.`,
+                ev.metric_key === MISSING_DATA_METRIC
+                  ? `${instName} (no attendance recorded on ${ev.breach_date}) ` +
+                    `submitted an explanation:\n\n"${r.text_response}"\n\n` +
+                    `Decide whether to skip or still hold a review meeting.`
+                  : `${instName} (${ev.observed_value ?? '—'}% on ${ev.breach_date}, ` +
+                    `below ${ev.threshold}%) submitted an explanation:\n\n` +
+                    `"${r.text_response}"\n\n` +
+                    `Decide whether to skip or still hold a review meeting.`,
               url: '/academic/attendance',
-              category: 'attendance:breach-explained',
+              category:
+                ev.metric_key === MISSING_DATA_METRIC
+                  ? 'missing_data:gap-explained'
+                  : 'attendance:breach-explained',
               metadata: {
                 event_id: ev.id,
                 institution_id: ev.institution_id,
@@ -547,12 +751,19 @@ export async function reconcileExplanations(
             createdBy: admins[0],
             title: `Review meeting warranted — ${instName}`,
             body:
-              `${instName} recorded ${ev.observed_value ?? '—'}% on ${ev.breach_date} ` +
-              `(below ${ev.threshold}%) and no explanation was given within ` +
-              `${EXPLANATION_WINDOW_HOURS} hours. A review meeting with the ` +
-              `Director is warranted.`,
+              ev.metric_key === MISSING_DATA_METRIC
+                ? `${instName} had no attendance recorded on ${ev.breach_date} and ` +
+                  `no explanation was given within ${EXPLANATION_WINDOW_HOURS} hours. ` +
+                  `A review meeting with the Director is warranted.`
+                : `${instName} recorded ${ev.observed_value ?? '—'}% on ${ev.breach_date} ` +
+                  `(below ${ev.threshold}%) and no explanation was given within ` +
+                  `${EXPLANATION_WINDOW_HOURS} hours. A review meeting with the ` +
+                  `Director is warranted.`,
             url: '/academic/attendance',
-            category: 'attendance:breach-escalated',
+            category:
+              ev.metric_key === MISSING_DATA_METRIC
+                ? 'missing_data:gap-escalated'
+                : 'attendance:breach-escalated',
             metadata: {
               event_id: ev.id,
               institution_id: ev.institution_id,
