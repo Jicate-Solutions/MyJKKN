@@ -1807,6 +1807,16 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // Fresher induction — the student's own induction view (their batch
+          // schedule + per-session 1–5 rating + a Day-10 profile-completion
+          // nudge). Auto student-visible via isStudentPortalRoute (/learners/my-).
+          href: '/learners/my-induction',
+          label: 'My Induction',
+          active: pathname.startsWith('/learners/my-induction'),
+          icon: Rocket,
+          submenus: []
+        },
+        {
           href: '/learners/my-marks',
           label: 'My Marks',
           active: pathname.startsWith('/learners/my-marks'),
