@@ -40528,6 +40528,105 @@ export type Database = {
           },
         ]
       }
+      hr_job_applications: {
+        Row: {
+          id: string
+          job_id: string
+          institution_id: string | null
+          first_name: string
+          last_name: string
+          email: string
+          phone: string
+          current_job_title: string | null
+          current_company: string | null
+          current_job_duration_months: number | null
+          experience_months: number
+          qualification: string
+          worked_cities: string[]
+          resume_url: string
+          resume_filename: string
+          resume_size_bytes: number | null
+          drive_file_id: string | null
+          status: string
+          reviewed_by: string | null
+          reviewed_at: string | null
+          review_notes: string | null
+          applicant_user_id: string | null
+          submitted_at: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          job_id: string
+          institution_id?: string | null
+          first_name: string
+          last_name: string
+          email: string
+          phone: string
+          current_job_title?: string | null
+          current_company?: string | null
+          current_job_duration_months?: number | null
+          experience_months?: number
+          qualification: string
+          worked_cities?: string[]
+          resume_url: string
+          resume_filename: string
+          resume_size_bytes?: number | null
+          drive_file_id?: string | null
+          status?: string
+          reviewed_by?: string | null
+          reviewed_at?: string | null
+          review_notes?: string | null
+          applicant_user_id?: string | null
+          submitted_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          job_id?: string
+          institution_id?: string | null
+          first_name?: string
+          last_name?: string
+          email?: string
+          phone?: string
+          current_job_title?: string | null
+          current_company?: string | null
+          current_job_duration_months?: number | null
+          experience_months?: number
+          qualification?: string
+          worked_cities?: string[]
+          resume_url?: string
+          resume_filename?: string
+          resume_size_bytes?: number | null
+          drive_file_id?: string | null
+          status?: string
+          reviewed_by?: string | null
+          reviewed_at?: string | null
+          review_notes?: string | null
+          applicant_user_id?: string | null
+          submitted_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_job_applications_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "hr_recruitment_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_job_applications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hr_faculty_workload: {
         Row: {
           academic_year: string

@@ -4402,6 +4402,34 @@ CREATE TABLE IF NOT EXISTS public.hr_recruitment_jobs (
   positions_open          int NOT NULL DEFAULT 1 CHECK (positions_open >= 0),
   positions_filled        int NOT NULL DEFAULT 0 CHECK (positions_filled >= 0),
   department_id           uuid REFERENCES public.departments(id),         -- FK if departments exist
+  -- Extended fields (2026-06-27): location + specification + salary display
+  job_code                text UNIQUE,                                    -- e.g. JOB-XYZ1234; NULLs exempt from UNIQUE
+  job_type                text CHECK (job_type IN (
+                            'full_time','part_time','contract','internship','freelance'
+                          )),
+  industry                text,
+  employer_type           text CHECK (employer_type IN (
+                            'government','private','public_sector','non_profit','educational'
+                          )),
+  country                 text DEFAULT 'India',
+  state                   text,
+  city                    text,
+  zip_code                text,
+  education_level         text CHECK (education_level IN (
+                            'high_school','diploma','bachelors','masters','phd','any'
+                          )),
+  min_experience_years    integer CHECK (min_experience_years >= 0),
+  max_experience_years    integer CHECK (max_experience_years >= 0),
+  salary_currency         text NOT NULL DEFAULT 'INR',
+  salary_duration         text NOT NULL DEFAULT 'per_month' CHECK (salary_duration IN (
+                            'per_hour','per_day','per_month','per_year'
+                          )),
+  display_salary          boolean NOT NULL DEFAULT false,
+  CONSTRAINT hr_recruitment_jobs_experience_range_chk CHECK (
+    min_experience_years IS NULL
+    OR max_experience_years IS NULL
+    OR min_experience_years <= max_experience_years
+  ),
   status                  text NOT NULL DEFAULT 'draft' CHECK (status IN (
                             'draft',
                             'open',
@@ -4431,6 +4459,12 @@ CREATE INDEX IF NOT EXISTS idx_hr_recruitment_jobs_department
   ON public.hr_recruitment_jobs(department_id);
 CREATE INDEX IF NOT EXISTS idx_hr_recruitment_jobs_posted_at
   ON public.hr_recruitment_jobs(posted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_jobs_job_type
+  ON public.hr_recruitment_jobs(job_type);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_jobs_industry
+  ON public.hr_recruitment_jobs(industry);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_jobs_city
+  ON public.hr_recruitment_jobs(city);
 
 -- ---- hr_recruitment_interviews ---------------------------------------
 -- Interview scheduling. panel_member_ids is a uuid[] of profiles.id;

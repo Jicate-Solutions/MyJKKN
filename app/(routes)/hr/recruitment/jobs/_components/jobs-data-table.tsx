@@ -9,6 +9,7 @@
 // ============================================================================
 
 import { useCallback, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Plus, Loader2, Trash2 } from 'lucide-react';
 
@@ -41,7 +42,6 @@ import {
 } from '@/types/hr-recruitment';
 
 import { getJobColumns } from './jobs-columns';
-import { JobDetailDialog } from './job-detail-dialog';
 import { JobsFilters, type JobsFilterState } from './jobs-filters';
 import { ROLE_CATEGORY_OPTIONS } from './labels';
 
@@ -211,6 +211,7 @@ function rowToFormValues(row: HRRecruitmentJob): Record<string, unknown> {
 }
 
 export function JobsDataTable() {
+  const router = useRouter();
   const supabase = useMemo(() => createClientSupabaseClient(), []);
 
   // -------- Reference data: institutions + departments --------
@@ -257,7 +258,6 @@ export function JobsDataTable() {
   // -------- Dialog state --------
   const [formOpen, setFormOpen] = useState(false);
   const [editingRow, setEditingRow] = useState<HRRecruitmentJob | null>(null);
-  const [viewingRow, setViewingRow] = useState<HRRecruitmentJob | null>(null);
   const [deletingRows, setDeletingRows] = useState<HRRecruitmentJob[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -311,16 +311,11 @@ export function JobsDataTable() {
 
   // -------- Row action handlers --------
   const openCreate = useCallback(() => {
-    setEditingRow(null);
-    setFormOpen(true);
-  }, []);
+    router.push('/hr/recruitment/jobs/new');
+  }, [router]);
   const openEdit = useCallback((row: HRRecruitmentJob) => {
-    setViewingRow(null);
     setEditingRow(row);
     setFormOpen(true);
-  }, []);
-  const openView = useCallback((row: HRRecruitmentJob) => {
-    setViewingRow(row);
   }, []);
   const openDeleteOne = useCallback((row: HRRecruitmentJob) => {
     setDeleteResetFn(null);
@@ -332,11 +327,10 @@ export function JobsDataTable() {
       getJobColumns({
         institutionNameById,
         departmentNameById,
-        onView: openView,
         onEdit: openEdit,
         onDelete: openDeleteOne,
       }),
-    [institutionNameById, departmentNameById, openView, openEdit, openDeleteOne],
+    [institutionNameById, departmentNameById, openEdit, openDeleteOne],
   );
 
   // -------- Save (create or update) --------
@@ -513,21 +507,6 @@ export function JobsDataTable() {
           columnResizingTableId: 'hr-recruitment-jobs',
         }}
         renderToolbarContent={renderToolbar}
-      />
-
-      <JobDetailDialog
-        open={viewingRow !== null}
-        onOpenChange={(open) => {
-          if (!open) setViewingRow(null);
-        }}
-        job={viewingRow}
-        institutionName={
-          institutionNameById.get(viewingRow?.institution_id ?? '') ?? ''
-        }
-        departmentName={
-          departmentNameById.get(viewingRow?.department_id ?? '') ?? ''
-        }
-        onEdit={openEdit}
       />
 
       <PolicyFormShell

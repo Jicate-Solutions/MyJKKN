@@ -1723,7 +1723,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/leave/balance', label: 'Leave · Balance', active: pathname === '/hr/leave/balance' },
             { href: '/hr/leave/encashment', label: 'Leave · Encashment', active: pathname === '/hr/leave/encashment' },
             { href: '/hr/recruitment', label: 'Recruitment', active: pathname.startsWith('/hr/recruitment') },
-            { href: '/hr/recruitment/submit', label: 'Recruitment · Submit Candidate', active: pathname === '/hr/recruitment/submit' },
+            { href: '/hr/recruitment/submit', label: 'Recruitment · Apply for Jobs', active: pathname === '/hr/recruitment/submit' },
             { href: '/hr/recruitment/my', label: 'Recruitment · My Candidates', active: pathname === '/hr/recruitment/my' },
             { href: '/hr/recruitment/approvals', label: 'Recruitment · Approvals', active: pathname === '/hr/recruitment/approvals' },
           ]

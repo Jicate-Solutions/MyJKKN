@@ -22,6 +22,7 @@ import type {
   JobFilters,
   JobListResponse,
   JobStatus,
+  SalaryDuration,
 } from '@/types/hr-recruitment';
 
 // =====================================================================================
@@ -51,6 +52,8 @@ export class RecruitmentJobsService {
       'positions_filled',
       'posted_at',
       'created_at',
+      'job_type',
+      'city',
     ]);
     const sortBy = filters.sortBy && SORTABLE.has(filters.sortBy)
       ? filters.sortBy
@@ -149,6 +152,21 @@ export class RecruitmentJobsService {
       positions_open: payload.positions_open ?? 1,
       positions_filled: payload.positions_filled ?? 0,
       department_id: payload.department_id ?? null,
+      // Extended fields (2026-06-27)
+      job_code: payload.job_code ?? null,
+      job_type: payload.job_type ?? null,
+      industry: payload.industry ?? null,
+      employer_type: payload.employer_type ?? null,
+      country: payload.country ?? null,
+      state: payload.state ?? null,
+      city: payload.city ?? null,
+      zip_code: payload.zip_code ?? null,
+      education_level: payload.education_level ?? null,
+      min_experience_years: payload.min_experience_years ?? null,
+      max_experience_years: payload.max_experience_years ?? null,
+      salary_currency: payload.salary_currency ?? 'INR',
+      salary_duration: (payload.salary_duration ?? 'per_month') as SalaryDuration,
+      display_salary: payload.display_salary ?? false,
       status: payload.status ?? 'draft',
       is_public: payload.is_public ?? false,
       posted_at: payload.posted_at ?? null,

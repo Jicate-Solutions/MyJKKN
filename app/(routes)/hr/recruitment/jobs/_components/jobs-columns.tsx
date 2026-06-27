@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Eye, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 
@@ -21,13 +22,9 @@ import { ROLE_CATEGORY_LABELS } from './labels';
 interface JobColumnHelpers {
   institutionNameById: ReadonlyMap<string, string>;
   departmentNameById: ReadonlyMap<string, string>;
-  onView: (row: HRRecruitmentJob) => void;
   onEdit: (row: HRRecruitmentJob) => void;
   onDelete: (row: HRRecruitmentJob) => void;
 }
-
-const inr = (n: number | null) =>
-  n == null ? null : new Intl.NumberFormat('en-IN').format(n);
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'outline'> = {
   open: 'default',
@@ -40,7 +37,6 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'outline'> = {
 export function getJobColumns({
   institutionNameById,
   departmentNameById,
-  onView,
   onEdit,
   onDelete,
 }: JobColumnHelpers): ColumnDef<HRRecruitmentJob>[] {
@@ -73,7 +69,12 @@ export function getJobColumns({
         <DataTableColumnHeader column={column} title='Job title' />
       ),
       cell: ({ row }) => (
-        <div className='font-medium'>{row.original.title}</div>
+        <Link
+          href={`/hr/recruitment/jobs/${row.original.id}`}
+          className='font-medium hover:underline hover:text-primary transition-colors'
+        >
+          {row.original.title}
+        </Link>
       ),
       size: 260,
       minSize: 180,
@@ -138,20 +139,6 @@ export function getJobColumns({
       maxSize: 140,
     },
     {
-      accessorKey: 'is_public',
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title='Public' />
-      ),
-      cell: ({ row }) => (
-        <span className='text-xs text-muted-foreground'>
-          {row.original.is_public ? 'On /careers' : 'Hidden'}
-        </span>
-      ),
-      size: 100,
-      minSize: 80,
-      maxSize: 130,
-    },
-    {
       accessorKey: 'positions_filled',
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title='Filled' />
@@ -166,36 +153,11 @@ export function getJobColumns({
       maxSize: 120,
     },
     {
-      id: 'salary',
-      header: 'Salary (INR / month)',
-      cell: ({ row }) => {
-        const { min_monthly_salary, max_monthly_salary } = row.original;
-        if (min_monthly_salary == null && max_monthly_salary == null) {
-          return (
-            <span className='text-xs italic text-muted-foreground'>
-              Not disclosed
-            </span>
-          );
-        }
-        return (
-          <span className='text-xs tabular-nums'>
-            {inr(min_monthly_salary) ?? '—'} – {inr(max_monthly_salary) ?? '—'}
-          </span>
-        );
-      },
-      enableSorting: false,
-      size: 170,
-      minSize: 130,
-      maxSize: 220,
-    },
-    {
       accessorKey: 'posted_at',
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title='Posted' />
       ),
       cell: ({ row }) => {
-        // posted_at is only stamped on publish; fall back to created_at so the
-        // column always shows a date (drafts are flagged as "(created)").
         const posted = row.original.posted_at;
         const date = posted ?? row.original.created_at;
         if (!date) return <span className='text-xs text-muted-foreground'>—</span>;
@@ -232,9 +194,11 @@ export function getJobColumns({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align='end' className='w-[160px]'>
-              <DropdownMenuItem onClick={() => onView(row.original)}>
-                <Eye className='mr-2 h-4 w-4' />
-                View details
+              <DropdownMenuItem asChild>
+                <Link href={`/hr/recruitment/jobs/${row.original.id}`}>
+                  <Eye className='mr-2 h-4 w-4' />
+                  View details
+                </Link>
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onEdit(row.original)}>
                 <Pencil className='mr-2 h-4 w-4' />
