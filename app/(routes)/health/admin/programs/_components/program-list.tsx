@@ -73,9 +73,11 @@ function isEndedByDate(program: HealthProgram): boolean {
     return false; // draft / completed / archived keep their explicit status
   }
   // end_date is a DATE ('YYYY-MM-DD'); compare ISO date strings to dodge
-  // timezone drift. Ended = end date is strictly before today (local).
-  const todayISO = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
-  return program.end_date.slice(0, 10) < todayISO;
+  // Date-parse timezone drift. Use the SAME UTC basis as getActivePrograms()
+  // (toISOString) so the admin badge and the learner-facing window can never
+  // disagree at the day boundary. Ended = end date strictly before today.
+  const todayUTC = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+  return program.end_date.slice(0, 10) < todayUTC;
 }
 
 function ProgramCard({ program }: { program: HealthProgram }) {
