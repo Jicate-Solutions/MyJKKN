@@ -206,29 +206,40 @@ BEGIN
       AND (p_institution_id IS NULL OR ip.institution_id = p_institution_id)
       AND (is_super_admin() OR is_admin() OR role_has_institution_access(ip.institution_id))
   ),
-  freshers AS (
-    SELECT ie.event_id, ie.institution_id, ie.learner_id
-    FROM public.induction_enrollment ie
-    JOIN ind ON ind.event_id = ie.event_id
+  colleges AS (  -- institutions in scope (incl. those that ran an induction with 0 enrollees)
+    SELECT DISTINCT ind.institution_id FROM ind   -- qualify: institution_id is also a RETURNS TABLE out-param
   ),
-  refs AS (  -- per-fresher referral stats, LIVE
+  fresh_inst AS (  -- DISTINCT (institution, learner); attribute by the ACCESS-CHECKED program institution
+    SELECT DISTINCT ind.institution_id, ie.learner_id
+    FROM ind
+    JOIN public.induction_enrollment ie ON ie.event_id = ind.event_id
+  ),
+  comp AS (  -- each learner's completion stats, averaged across their in-scope inductions
+    SELECT ind.institution_id, ie.learner_id,
+           avg(c.value_score_avg) AS value_avg,
+           avg(c.advocacy_score)  AS advocacy_avg
+    FROM ind
+    JOIN public.induction_enrollment ie ON ie.event_id = ind.event_id
+    LEFT JOIN public.induction_completion c ON c.event_id = ie.event_id AND c.learner_id = ie.learner_id
+    GROUP BY ind.institution_id, ie.learner_id
+  ),
+  refs AS (  -- per DISTINCT learner, ONCE (LIVE) — no double-count across multi-induction learners
     SELECT al.referred_by_id AS learner_id,
            count(*)::bigint AS submitted,
            count(*) FILTER (WHERE al.funnel_stage IN ('token_paid','confirmed','enrolled'))::bigint AS joined
     FROM public.admission_leads al
     WHERE al.source = 'referral'::lead_source
-      AND al.referred_by_id IN (SELECT learner_id FROM freshers)
+      AND al.referred_by_id IN (SELECT learner_id FROM fresh_inst)
     GROUP BY al.referred_by_id
   ),
-  per_fresher AS (
-    SELECT f.institution_id, f.learner_id,
-           c.value_score_avg, c.advocacy_score,
+  per_fresher AS (  -- exactly one row per (institution, learner)
+    SELECT fi.institution_id, fi.learner_id,
+           cm.value_avg, cm.advocacy_avg,
            COALESCE(r.submitted, 0) AS submitted,
            COALESCE(r.joined, 0)    AS joined
-    FROM freshers f
-    LEFT JOIN public.induction_completion c
-      ON c.event_id = f.event_id AND c.learner_id = f.learner_id
-    LEFT JOIN refs r ON r.learner_id = f.learner_id
+    FROM fresh_inst fi
+    LEFT JOIN comp cm ON cm.institution_id = fi.institution_id AND cm.learner_id = fi.learner_id
+    LEFT JOIN refs r  ON r.learner_id = fi.learner_id
   ),
   vac AS (  -- vacant seats per college for the year (sanctioned − actual, floored at 0)
     SELECT ih.institution_id,
@@ -238,23 +249,24 @@ BEGIN
       AND (p_institution_id IS NULL OR ih.institution_id = p_institution_id)
     GROUP BY ih.institution_id
   )
-  SELECT pf.institution_id::uuid,
+  SELECT col.institution_id::uuid,
          i.name::text,
-         (SELECT count(DISTINCT x.event_id) FROM ind x WHERE x.institution_id = pf.institution_id)::integer,
+         (SELECT count(DISTINCT x.event_id) FROM ind x WHERE x.institution_id = col.institution_id)::integer,
          count(DISTINCT pf.learner_id)::integer,
-         round(avg(pf.value_score_avg), 2)::numeric,
-         round(avg(pf.advocacy_score), 2)::numeric,
-         count(*) FILTER (WHERE pf.advocacy_score >= 9)::integer,
+         round(avg(pf.value_avg), 2)::numeric,
+         round(avg(pf.advocacy_avg), 2)::numeric,
+         count(*) FILTER (WHERE pf.advocacy_avg >= 9)::integer,
          count(*) FILTER (WHERE pf.submitted >= 1)::integer,
          COALESCE(sum(pf.submitted), 0)::bigint,
          COALESCE(sum(pf.joined), 0)::bigint,
          COALESCE(v.vacant_seats, 0)::integer,
          CASE WHEN COALESCE(v.vacant_seats, 0) = 0 THEN NULL
-              ELSE round(100.0 * sum(pf.joined) / v.vacant_seats, 2) END::numeric
-  FROM per_fresher pf
-  JOIN public.institutions i ON i.id = pf.institution_id
-  LEFT JOIN vac v ON v.institution_id = pf.institution_id
-  GROUP BY pf.institution_id, i.name, v.vacant_seats
+              ELSE round(100.0 * COALESCE(sum(pf.joined), 0) / v.vacant_seats, 2) END::numeric
+  FROM colleges col
+  JOIN public.institutions i ON i.id = col.institution_id
+  LEFT JOIN per_fresher pf ON pf.institution_id = col.institution_id
+  LEFT JOIN vac v ON v.institution_id = col.institution_id
+  GROUP BY col.institution_id, i.name, v.vacant_seats
   ORDER BY i.name;
 END $$;
 
@@ -295,10 +307,12 @@ BEGIN
     RAISE EXCEPTION 'fn_induction_emit_naac_evidence: not authorized';
   END IF;
 
-  -- Indian academic-year label from the event start date (e.g. 2026-27).
+  -- Indian academic-year label from the event start date (e.g. 2026-27). start_date
+  -- is timestamptz → normalise to IST before taking the year, else an induction
+  -- near the Jan boundary mislabels the year under the server TZ.
   v_period := CASE WHEN v_prog.start_date IS NULL THEN NULL
-    ELSE extract(year FROM v_prog.start_date)::int::text || '-' ||
-         right((extract(year FROM v_prog.start_date)::int + 1)::text, 2)
+    ELSE extract(year FROM (v_prog.start_date AT TIME ZONE 'Asia/Kolkata'))::int::text || '-' ||
+         right((extract(year FROM (v_prog.start_date AT TIME ZONE 'Asia/Kolkata'))::int + 1)::text, 2)
   END;
 
   -- Live rollup snapshot for the metadata (joins LIVE off the admission funnel).
@@ -355,7 +369,9 @@ BEGIN
           metadata     = EXCLUDED.metadata,
           mapped_by    = EXCLUDED.mapped_by,
           is_auto      = true,
-          mapped_at    = now();
+          mapped_at    = now()
+      -- never clobber a manually-curated (is_auto=false) evidence mapping for this key
+      WHERE public.quality_evidence_mappings.is_auto;
     v_n := v_n + 1;
   END LOOP;
 

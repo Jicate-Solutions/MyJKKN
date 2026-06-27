@@ -17,6 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   InductionService, type ScorecardRow,
 } from '@/lib/services/induction/induction-service';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   Users, Star, Megaphone, UserPlus, Send, GraduationCap, ShieldCheck, RefreshCw,
 } from 'lucide-react';
@@ -29,6 +30,8 @@ export function ScorecardSection({ eventId }: { eventId: string }) {
   const [rows, setRows] = useState<ScorecardRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [emitting, setEmitting] = useState(false);
+  const { can } = usePermissions();
+  const canManage = can('induction.manage'); // only managers may write NAAC evidence
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -79,10 +82,12 @@ export function ScorecardSection({ eventId }: { eventId: string }) {
             funnel. A join into a seat is the programme&apos;s success metric.
           </CardDescription>
         </div>
-        <Button size="sm" variant="outline" onClick={handleEmit} disabled={emitting || !total || total.enrolled === 0}>
-          <ShieldCheck className="h-4 w-4 mr-1" />
-          {emitting ? 'Recording…' : 'Record as NAAC evidence'}
-        </Button>
+        {canManage && (
+          <Button size="sm" variant="outline" onClick={handleEmit} disabled={emitting || !total || total.enrolled === 0}>
+            <ShieldCheck className="h-4 w-4 mr-1" />
+            {emitting ? 'Recording…' : 'Record as NAAC evidence'}
+          </Button>
+        )}
       </CardHeader>
 
       <CardContent className="space-y-6">
