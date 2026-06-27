@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Copy, Eye, EyeOff, Instagram, Check, Link2, Unlink } from 'lucide-react';
+import { Copy, Instagram, Check, Link2, Unlink } from 'lucide-react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -49,7 +49,6 @@ interface DeptAccountRow {
   department_name_raw: string;
   username: string;
   login_email: string | null;
-  login_password: string | null;
   content_studio_connected: boolean | null;
   business_suite_connected: boolean | null;
   ig_account_id: string | null;
@@ -104,48 +103,6 @@ function connChip(value: boolean | null) {
   if (value === true) return <Badge variant="default">Connected</Badge>;
   if (value === false) return <Badge variant="outline">Not connected</Badge>;
   return <span className="text-muted-foreground">—</span>;
-}
-
-function PasswordCell({ password }: { password: string | null }) {
-  const [visible, setVisible] = useState(false);
-  const [copied, setCopied] = useState(false);
-
-  if (!password) return <span className="text-muted-foreground">—</span>;
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(password);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // clipboard unavailable (non-secure context) — reveal instead
-      setVisible(true);
-    }
-  };
-
-  return (
-    <div className="flex items-center gap-1 font-mono text-xs">
-      <span className="min-w-[7rem]">{visible ? password : '••••••••••'}</span>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-6 w-6"
-        onClick={() => setVisible((v) => !v)}
-        aria-label={visible ? 'Hide password' : 'Show password'}
-      >
-        {visible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-6 w-6"
-        onClick={copy}
-        aria-label="Copy password"
-      >
-        {copied ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
-      </Button>
-    </div>
-  );
 }
 
 /**
@@ -295,7 +252,7 @@ export default function SocialDepartmentAccountsPage() {
     supabase
       .from('social_dept_accounts')
       .select(
-        'id, platform, college_label, department_name_raw, username, login_email, login_password, content_studio_connected, business_suite_connected, ig_account_id, notes, institutions(name), departments(department_name)'
+        'id, platform, college_label, department_name_raw, username, login_email, content_studio_connected, business_suite_connected, ig_account_id, notes, institutions(name), departments(department_name)'
       )
       .order('college_label')
       .order('department_name_raw')
@@ -460,8 +417,6 @@ export default function SocialDepartmentAccountsPage() {
                     <TableHead>Department</TableHead>
                     <TableHead>Handle</TableHead>
                     <TableHead>Login email</TableHead>
-                    <TableHead>Password</TableHead>
-                    <TableHead>Content Studio</TableHead>
                     <TableHead>Business Suite</TableHead>
                     <TableHead>Monitoring</TableHead>
                     <TableHead>IG Login</TableHead>
@@ -484,10 +439,6 @@ export default function SocialDepartmentAccountsPage() {
                         </a>
                       </TableCell>
                       <TableCell className="text-sm">{r.login_email ?? '—'}</TableCell>
-                      <TableCell>
-                        <PasswordCell password={r.login_password} />
-                      </TableCell>
-                      <TableCell>{connChip(r.content_studio_connected)}</TableCell>
                       <TableCell>{connChip(r.business_suite_connected)}</TableCell>
                       <TableCell>
                         {r.ig_account_id ? (
