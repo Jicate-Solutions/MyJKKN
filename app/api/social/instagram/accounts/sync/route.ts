@@ -226,10 +226,13 @@ export async function POST(request: NextRequest) {
     }
 
     // institution_id per department handle, from the social_dept_accounts
-    // registry (PR #1292). Extra-portfolio accounts have no fb_pages parent, so
-    // this is their institution source.
+    // registry (PR #1292). Department accounts have no fb_pages parent, so this
+    // is their institution source — both extra-portfolio accounts AND page-edge
+    // accounts (whose Page is now in /me/accounts but isn't seeded into
+    // fb_pages). Always loaded (not gated on extra portfolios) so page-edge
+    // dept accounts resolve their institution instead of being skipped.
     const deptInstitutionByUsername = new Map<string, string>();
-    if (extraByIgId.size > 0) {
+    {
       const { data: deptRows } = await serviceClient
         .from('social_dept_accounts')
         .select('username, institution_id')
@@ -341,6 +344,13 @@ export async function POST(request: NextRequest) {
                 username: igProfile.username || parent?.igUsername || igUserId,
                 account_type: accountType,
                 status: 'active',
+                // This route only ever syncs accounts discovered via
+                // /me/accounts (graph-readable). Set metrics_source='graph'
+                // explicitly so the onConflict UPDATE path flips an existing
+                // business_discovery row (seeded by the dept poll) to graph —
+                // an omitted column is never updated. The ig-business-discovery
+                // poll skips graph rows, so this flip is durable.
+                metrics_source: 'graph',
                 access_token: parent?.pageToken || extra?.token || null,
                 updated_at: now,
               },
@@ -362,7 +372,14 @@ export async function POST(request: NextRequest) {
 
           // For department accounts, link the registry row so the
           // /admin/social/departments chip flips to "Monitored". Non-fatal.
-          if (extra && upserted?.id && igProfile.username) {
+          // Gate on dept-registry membership (not `extra`) so page-edge dept
+          // accounts — whose Page is in /me/accounts, so they arrive as a
+          // `parent` with no `extra` portfolio entry — also get linked.
+          if (
+            upserted?.id &&
+            igProfile.username &&
+            deptInstitutionByUsername.has(igProfile.username)
+          ) {
             const { error: linkError } = await serviceClient
               .from('social_dept_accounts')
               .update({ ig_account_id: upserted.id, updated_at: now })
