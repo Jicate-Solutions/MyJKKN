@@ -228,7 +228,7 @@ export default function InductionLandingPage() {
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {rows.map((r) => (
-              <Link key={r.id} href={`/induction/${r.id}`} className="block">
+              <Link key={r.id} href={`/events/induction/${r.id}`} className="block">
                 <Card className="h-full transition-colors hover:border-primary">
                   <CardHeader>
                     <div className="flex items-center justify-between gap-2">
