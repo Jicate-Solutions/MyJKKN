@@ -251,10 +251,14 @@ export class BosSyllabusService {
   // ── Taxonomy Management ────────────────────────────────────────────
 
   /**
-   * Fetch taxonomy for a regulation.
+   * Fetch taxonomy for a regulation, optionally scoped to a board. The server
+   * resolves board-first then falls back to the regulation-wide (board_id NULL) row.
    */
-  static async getTaxonomy(regulationId: string, institutionsId?: string): Promise<BosRegulationTaxonomy> {
-    const qs = institutionsId ? `?institutionsId=${encodeURIComponent(institutionsId)}` : '';
+  static async getTaxonomy(regulationId: string, institutionsId?: string, boardId?: string): Promise<BosRegulationTaxonomy> {
+    const params = new URLSearchParams();
+    if (institutionsId) params.set('institutionsId', institutionsId);
+    if (boardId) params.set('boardId', boardId);
+    const qs = params.toString() ? `?${params.toString()}` : '';
     const res = await fetch(`/api/bos/taxonomy/${regulationId}${qs}`);
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Taxonomy not found' }));

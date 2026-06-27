@@ -128,6 +128,7 @@ export async function POST(
       web_resources: body.updated_content.web_resources ?? currentSyllabus.web_resources,
       pedagogy: body.updated_content.pedagogy ?? currentSyllabus.pedagogy,
       po_mappings: body.updated_content.po_mappings ?? currentSyllabus.po_mappings,
+      assessment_structure: body.updated_content.assessment_structure ?? currentSyllabus.assessment_structure,
       notes: body.updated_content.notes ?? currentSyllabus.notes,
       created_by: user.id,
     };

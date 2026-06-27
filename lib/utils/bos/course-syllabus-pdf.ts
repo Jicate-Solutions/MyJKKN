@@ -8,6 +8,7 @@ import type {
 	BosTextbook,
 	BosWebResource,
 	BosPoMapping,
+	BosAssessmentStructure,
 } from '@/types/bos'
 
 // ── Layout ────────────────────────────────────────────────────────────────────
@@ -422,6 +423,9 @@ export interface CourseSyllabusPDFData {
 	po_keys?: string[]
 	/** Ordered PSO keys from taxonomy (e.g. ["PSO1","PSO2","PSO3"]) */
 	pso_keys?: string[]
+
+	// v1.2 Assessment Structure (Total 100) + Concept Applications + Capstones
+	assessment_structure?: BosAssessmentStructure
 }
 
 // ── Main generator ────────────────────────────────────────────────────────────
@@ -895,6 +899,78 @@ export function renderCourseSyllabusPDF(
 		doc.setFontSize(10)
 		doc.setTextColor(0, 0, 0)
 		doc.text('H–High;  M–Medium;  L–Low', MARGIN, y)
+	}
+
+	// ── SECTION 9: Assessment Structure (v1.2) ───────────────────────────────
+	const as = data.assessment_structure
+	if (as) {
+		const comps = as.components ?? []
+		const capstones = as.capstones ?? []
+		const hasNote = !!(as.concept_applications_note?.trim() || as.exhibition_note?.trim())
+		if (comps.length > 0 || capstones.length > 0 || hasNote) {
+			// Spacing / page-break before the heading.
+			if (y + 40 > A4_H - 15) { doc.addPage(); y = MARGIN } else { y += 10 }
+			doc.setFont('times', 'bold')
+			doc.setFontSize(12)
+			doc.setTextColor(0, 0, 0)
+			doc.text('ASSESSMENT STRUCTURE (TOTAL 100):', MARGIN, y)
+			y += 6
+
+			// Components table — S.No | Component | Marks, with a TOTAL footer.
+			if (comps.length > 0) {
+				const snoW = 16, marksW = 22, compW = TABLE_W - snoW - marksW
+				const total = comps.reduce((s, c) => s + (Number(c.marks) || 0), 0)
+				const rows: object[][] = [
+					[bold('S.No', { halign: 'center' }), bold('Component', { halign: 'center' }), bold('Marks', { halign: 'center' })],
+					...comps.map((c, i) => [
+						cell(String(c.sno ?? i + 1), { halign: 'center' }),
+						cell(sanitize(c.component || '')),
+						cell(c.marks != null ? String(c.marks) : '–', { halign: 'center' }),
+					]),
+					[{ ...span('TOTAL', 2, { fontStyle: 'bold', halign: 'right' }) }, bold(String(total), { halign: 'center' })],
+				]
+				y = table(doc, y, rows, { 0: { cellWidth: snoW }, 1: { cellWidth: compW }, 2: { cellWidth: marksW } })
+			}
+
+			// Concept Applications note.
+			if (as.concept_applications_note?.trim()) {
+				y = table(doc, y, [
+					[bold('Concept\nApplications', { valign: 'top' }), cell(sanitize(as.concept_applications_note).trim(), { halign: 'left' })],
+				], { 0: { cellWidth: LABEL_W }, 1: { cellWidth: TABLE_W - LABEL_W } })
+			}
+
+			// Principal-Agent Public Exhibition note.
+			if (as.exhibition_note?.trim()) {
+				y = table(doc, y, [
+					[bold('Public\nExhibition', { valign: 'top' }), cell(sanitize(as.exhibition_note).trim(), { halign: 'left' })],
+				], { 0: { cellWidth: LABEL_W }, 1: { cellWidth: TABLE_W - LABEL_W } })
+			}
+
+			// Capstones — title column + Subject/Artifacts/Give-back as bold-label lines.
+			if (capstones.length > 0) {
+				const titleW = LABEL_W * 1.6
+				const bodyW = TABLE_W - titleW
+				const bodyMaxText = bodyW - 4
+				const capRows: AnyCell[][] = [
+					[{ ...span('Capstone Projects (Principal-Agent Public Exhibition)', 2, { fontStyle: 'bold', halign: 'center' }) }],
+				]
+				for (const cap of capstones) {
+					const lines: BosMixedLine[] = []
+					const addPart = (label: string, val?: string) => {
+						if (val && val.trim()) lines.push(...wrapBoldPrefixRest(doc, `${label}: `, sanitize(val).trim(), bodyMaxText))
+					}
+					addPart('Subject', cap.subject)
+					addPart('Artifacts on display', cap.artifacts)
+					addPart('Give-back', cap.give_back)
+					if (lines.length === 0) lines.push({ text: '', prefixEnd: 0 })
+					capRows.push([
+						bold(sanitize(cap.title || ''), { valign: 'top' }),
+						{ content: lines.map(l => l.text).join('\n'), _bosMixed: { lines }, styles: { valign: 'top' } },
+					])
+				}
+				y = table(doc, y, capRows, { 0: { cellWidth: titleW }, 1: { cellWidth: bodyW } })
+			}
+		}
 	}
 
 }

@@ -47,7 +47,13 @@ async function downloadSyllabusPdf(course: BosCourseMaster, institutionName?: st
 
   if (syllabus.regulation_id) {
     try {
-      const taxRes = await fetch(`/api/bos/taxonomy/${syllabus.regulation_id}`);
+      // Board-aware + institution-scoped so the legend resolves the SAME framework
+      // the syllabus CO panel uses (per-board override, falling back to the
+      // regulation-wide default).
+      const taxParams = new URLSearchParams();
+      if (syllabus.institutions_id) taxParams.set('institutionsId', syllabus.institutions_id);
+      if (syllabus.board_id) taxParams.set('boardId', syllabus.board_id);
+      const taxRes = await fetch(`/api/bos/taxonomy/${syllabus.regulation_id}?${taxParams.toString()}`);
       if (taxRes.ok) {
         const taxonomy = await taxRes.json();
         kValues = taxonomy.k_values;
