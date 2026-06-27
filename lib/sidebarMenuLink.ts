@@ -279,7 +279,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // have sub-permissions continue seeing the Academic sidebar row even
   // though the row now points at /academic instead of /academic/years.
   '/academic': 'academic.years.view',
-  '/induction': 'induction.view',
+  '/events/induction': 'induction.view',
   '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
   '/academic/leave-calendar': 'academic.leaves.view',
