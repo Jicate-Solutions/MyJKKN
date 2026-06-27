@@ -1334,3 +1334,12 @@ CREATE TRIGGER trg_tms_fee_bill_cleanup_linked_billing
 BEFORE DELETE ON tms_fee_bill
 FOR EACH ROW
 EXECUTE FUNCTION tms_fee_bill_cleanup_linked_billing();
+
+-- Auto-derive hr_recruitment_jobs.hr_organization_id from the chosen college.
+-- Mirrors 20260625120000_hr_recruitment_jobs_autofill_org.sql.
+DROP TRIGGER IF EXISTS hr_recruitment_jobs_fill_org_biu ON public.hr_recruitment_jobs;
+CREATE TRIGGER hr_recruitment_jobs_fill_org_biu
+  BEFORE INSERT OR UPDATE OF institution_id, hr_organization_id
+  ON public.hr_recruitment_jobs
+  FOR EACH ROW
+  EXECUTE FUNCTION public.hr_recruitment_jobs_fill_org();

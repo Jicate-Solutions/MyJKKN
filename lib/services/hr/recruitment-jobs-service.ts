@@ -40,10 +40,27 @@ export class RecruitmentJobsService {
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
 
+    // Whitelist sortable columns; anything else falls back to created_at so a
+    // bad/spoofed sort_by can't reach the query builder.
+    const SORTABLE = new Set([
+      'title',
+      'role_category',
+      'status',
+      'is_public',
+      'positions_open',
+      'positions_filled',
+      'posted_at',
+      'created_at',
+    ]);
+    const sortBy = filters.sortBy && SORTABLE.has(filters.sortBy)
+      ? filters.sortBy
+      : 'created_at';
+    const ascending = filters.sortOrder === 'asc';
+
     let q = supabase
       .from('hr_recruitment_jobs')
       .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false })
+      .order(sortBy, { ascending })
       .range(from, to);
 
     if (filters.hr_organization_id) {
@@ -119,7 +136,9 @@ export class RecruitmentJobsService {
     }
 
     const insertPayload: Record<string, unknown> = {
-      hr_organization_id: payload.hr_organization_id,
+      // null lets the hr_recruitment_jobs_fill_org trigger derive it from
+      // institution_id; an explicit value (legacy callers) is respected.
+      hr_organization_id: payload.hr_organization_id ?? null,
       institution_id: payload.institution_id ?? null,
       title: payload.title.trim(),
       role_category: payload.role_category,

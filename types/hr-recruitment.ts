@@ -346,7 +346,11 @@ export interface HRRecruitmentJob {
 }
 
 export interface HRRecruitmentJobInsert {
-  hr_organization_id: string;
+  /**
+   * Optional: when omitted, a DB trigger (hr_recruitment_jobs_fill_org)
+   * derives it from institution_id (1:1 via hr_organizations.institution_id).
+   */
+  hr_organization_id?: string | null;
   institution_id?: string | null;
   title: string;
   role_category: RoleCategory;
@@ -393,6 +397,9 @@ export interface JobFilters {
   search?: string;
   page?: number;
   pageSize?: number;
+  /** Whitelisted column name; falls back to created_at. */
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }
 
 export interface JobListResponse {

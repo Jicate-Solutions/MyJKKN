@@ -18799,3 +18799,33 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+-- hr_recruitment_jobs_fill_org — derive hr_organization_id from institution_id
+-- (1:1 via hr_organizations.institution_id) when left NULL. SECURITY DEFINER so
+-- it bypasses hr_organizations tenant-isolation RLS for multi-institution HR
+-- admins. Mirrors 20260625120000_hr_recruitment_jobs_autofill_org.sql.
+CREATE OR REPLACE FUNCTION public.hr_recruitment_jobs_fill_org()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.hr_organization_id IS NULL AND NEW.institution_id IS NOT NULL THEN
+    SELECT o.id
+      INTO NEW.hr_organization_id
+      FROM public.hr_organizations o
+     WHERE o.institution_id = NEW.institution_id
+     LIMIT 1;
+  END IF;
+
+  IF NEW.hr_organization_id IS NULL THEN
+    RAISE EXCEPTION
+      'No HR organization found for institution_id=%. Pick a college that has an HR organization.',
+      NEW.institution_id
+      USING ERRCODE = '23502';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
