@@ -57,6 +57,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_scf_induction_cohort
   ON public.scf_ai_suggestions (institution_id, academic_year_id)
   WHERE domain = 'induction';
 
+-- Constrain domain to the known values so a typo can't create a row invisible to
+-- BOTH verifiers' filters (silently never measured). Idempotent add.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'scf_ai_suggestions_domain_check') THEN
+    ALTER TABLE public.scf_ai_suggestions
+      ADD CONSTRAINT scf_ai_suggestions_domain_check
+      CHECK (domain IN ('session_feedback','induction'));
+  END IF;
+END $$;
+
 -- ── 2. Re-point ONLY the SCF verifier''s candidate scan to its own domain ───────
 -- Additive WHERE filter so induction rows are never picked up by the session
 -- verifier (and vice-versa). Body otherwise identical to 20260625120000.
@@ -159,6 +169,9 @@ AS $$
   LIMIT 1;
 $$;
 
+-- NB: these grants are IDENTICAL to the original 20260625120000 definition
+-- (fn_scf_prior_suggestion was already service_role-only) — re-stated here only to
+-- satisfy the anon-lock gate on the CREATE OR REPLACE. This is NOT a privilege change.
 REVOKE EXECUTE ON FUNCTION public.fn_scf_prior_suggestion(text,text,uuid) FROM anon, PUBLIC, authenticated;
 GRANT  EXECUTE ON FUNCTION public.fn_scf_prior_suggestion(text,text,uuid) TO service_role;
 
@@ -180,6 +193,11 @@ SET search_path = public
 AS $$
 DECLARE v_id uuid;
 BEGIN
+  -- a NULL cohort key would slip past the partial unique index (NULLs are distinct)
+  -- AND the verifier's academic_year_id IS NOT NULL filter → an orphan, never measured.
+  IF p_institution_id IS NULL OR p_academic_year_id IS NULL THEN
+    RAISE EXCEPTION 'fn_induction_record_loop_suggestion: institution_id and academic_year_id are required';
+  END IF;
   INSERT INTO public.scf_ai_suggestions (
     domain, institution_id, academic_year_id, course_code, faculty_email,
     window_from, window_to, input_avg_understood, suggestion, model
@@ -187,15 +205,20 @@ BEGIN
     'induction', p_institution_id, p_academic_year_id, 'induction', NULL,
     p_window_from, p_window_to, p_input_score, p_suggestion, p_model
   )
-  -- idempotent per cohort: a re-record refreshes the playbook in place (outcome_*
-  -- left intact) rather than inserting a duplicate the verifier would double-measure.
+  -- idempotent per cohort: a re-record refreshes the playbook in place rather than
+  -- inserting a duplicate. RESET the outcome_* fields so the refreshed playbook is
+  -- re-measured (otherwise a stale prior lift would linger, never re-scored).
   ON CONFLICT (institution_id, academic_year_id) WHERE domain = 'induction'
-  DO UPDATE SET window_from          = EXCLUDED.window_from,
-                window_to            = EXCLUDED.window_to,
-                input_avg_understood = EXCLUDED.input_avg_understood,
-                suggestion           = EXCLUDED.suggestion,
-                model                = EXCLUDED.model,
-                updated_at           = now()
+  DO UPDATE SET window_from            = EXCLUDED.window_from,
+                window_to              = EXCLUDED.window_to,
+                input_avg_understood   = EXCLUDED.input_avg_understood,
+                suggestion             = EXCLUDED.suggestion,
+                model                  = EXCLUDED.model,
+                outcome_avg_understood = NULL,
+                outcome_responses      = NULL,
+                outcome_lift           = NULL,
+                outcome_measured_at    = NULL,
+                updated_at             = now()
   RETURNING id INTO v_id;
   RETURN v_id;
 END;
@@ -276,7 +299,8 @@ BEGIN
       AND s.academic_year_id IS NOT NULL
       -- maturity gate is on the cohort's induction END, not the record age, so we
       -- never freeze a near-zero outcome before the admission cycle yields joins.
-      AND s.window_to <= (now() - make_interval(days => p_min_age_days))::date
+      -- current_date (a date) keeps the boundary TZ-stable (no timestamptz→date cast).
+      AND s.window_to <= current_date - p_min_age_days
   ),
   cohort_learners AS (  -- DISTINCT (candidate, learner) across all the year's events
     SELECT DISTINCT c.id AS cand_id, c.institution_id, c.academic_year_id, ie.learner_id

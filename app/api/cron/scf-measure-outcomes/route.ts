@@ -69,8 +69,10 @@ export async function GET(request: NextRequest) {
       induction_error: inductionRes.error?.message ?? null,
       elapsed_ms: Date.now() - started,
     },
-    // 5xx on EITHER failure so Vercel cron / non-2xx monitoring alerts + retries;
-    // the body still carries whichever count succeeded (both RPCs are idempotent).
-    { status: sessionRes.error || inductionRes.error ? 500 : 200 },
+    // 5xx only on the SESSION (daily, critical) failure — that's what should alert +
+    // retry. The induction verifier runs effectively once per cohort/year and is
+    // idempotent, so a transient failure self-heals on the next daily run; surface it
+    // in `induction_error` (monitor that field) rather than 500-ing the whole job daily.
+    { status: sessionRes.error ? 500 : 200 },
   );
 }
