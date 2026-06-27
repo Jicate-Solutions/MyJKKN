@@ -100,7 +100,7 @@ export default function InductionDetailPage() {
   if (!event) {
     return (
       <ContentLayout title="Induction">
-        <PageBreadcrumb items={[{ label: 'Home', href: '/' }, { label: 'Induction', href: '/induction' }, { label: 'Not found' }]} />
+        <PageBreadcrumb items={[{ label: 'Home', href: '/' }, { label: 'Events', href: '/events' }, { label: 'Induction', href: '/events/induction' }, { label: 'Not found' }]} />
         <Card className="mt-4">
           <CardHeader>
             <CardTitle>Induction not found</CardTitle>
