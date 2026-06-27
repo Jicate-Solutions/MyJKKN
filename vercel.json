@@ -232,6 +232,10 @@
       "schedule": "43 2 * * *"
     },
     {
+      "path": "/api/cron/ig-accounts-sync?secret=${CRON_SECRET}",
+      "schedule": "11 5 * * *"
+    },
+    {
       "path": "/api/cron/instagram-monthly-audit?secret=${CRON_SECRET}",
       "schedule": "0 6 1 * *"
     },
