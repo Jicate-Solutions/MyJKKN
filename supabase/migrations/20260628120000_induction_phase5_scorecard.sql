@@ -96,12 +96,14 @@ BEGIN
     LEFT JOIN public.learners_profiles lp ON lp.id = ie.learner_id
     WHERE ie.event_id = p_event_id
   ),
-  refs AS (  -- per-fresher referral stats, LIVE off the admission funnel
+  refs AS (  -- per-fresher referral stats, LIVE off the admission funnel — scoped to
+             -- this induction's OWN college (joins into another tenant aren't its win)
     SELECT al.referred_by_id AS learner_id,
            count(*)::bigint AS submitted,
            count(*) FILTER (WHERE al.funnel_stage IN ('token_paid','confirmed','enrolled'))::bigint AS joined
     FROM public.admission_leads al
     WHERE al.source = 'referral'::lead_source
+      AND al.institution_id = v_inst
       AND al.referred_by_id IN (SELECT learner_id FROM freshers)
     GROUP BY al.referred_by_id
   ),
@@ -227,14 +229,17 @@ BEGIN
     LEFT JOIN public.induction_completion c ON c.event_id = ie.event_id AND c.learner_id = ie.learner_id
     GROUP BY ind.institution_id, ie.learner_id
   ),
-  refs AS (  -- per DISTINCT learner, ONCE (LIVE) — no double-count across multi-induction learners
-    SELECT al.referred_by_id AS learner_id,
-           count(*)::bigint AS submitted,
-           count(*) FILTER (WHERE al.funnel_stage IN ('token_paid','confirmed','enrolled'))::bigint AS joined
-    FROM public.admission_leads al
-    WHERE al.source = 'referral'::lead_source
-      AND al.referred_by_id IN (SELECT learner_id FROM fresh_inst)
-    GROUP BY al.referred_by_id
+  refs AS (  -- per (attributed college, learner), counted ONCE and scoped to joins
+             -- INTO that college only (no cross-tenant bleed, no cross-college double-count)
+    SELECT fi.institution_id, fi.learner_id,
+           count(al.id)::bigint AS submitted,
+           count(al.id) FILTER (WHERE al.funnel_stage IN ('token_paid','confirmed','enrolled'))::bigint AS joined
+    FROM fresh_inst fi
+    LEFT JOIN public.admission_leads al
+      ON al.referred_by_id = fi.learner_id
+     AND al.source = 'referral'::lead_source
+     AND al.institution_id = fi.institution_id
+    GROUP BY fi.institution_id, fi.learner_id
   ),
   per_fresher AS (  -- exactly one row per (institution, learner)
     SELECT fi.institution_id, fi.learner_id,
@@ -243,7 +248,7 @@ BEGIN
            COALESCE(r.joined, 0)    AS joined
     FROM fresh_inst fi
     LEFT JOIN comp cm ON cm.institution_id = fi.institution_id AND cm.learner_id = fi.learner_id
-    LEFT JOIN refs r  ON r.learner_id = fi.learner_id
+    LEFT JOIN refs r  ON r.institution_id = fi.institution_id AND r.learner_id = fi.learner_id
   ),
   vac AS (  -- vacant seats per college for the year (sanctioned − actual, floored at 0)
     SELECT ih.institution_id,
