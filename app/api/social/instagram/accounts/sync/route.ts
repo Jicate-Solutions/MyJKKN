@@ -45,6 +45,7 @@ interface MeAccountsPage {
 
 interface MeAccountsResponse {
   data?: MeAccountsPage[];
+  paging?: { next?: string };
   error?: { message?: string; code?: number; type?: string };
 }
 
@@ -76,6 +77,73 @@ async function writeLog(
     });
   } catch (err: unknown) {
     console.warn('[ig-sync] Log write failed:', err);
+  }
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+// Alert super admins when /me/accounts enumeration fails persistently (after
+// retries). A degraded enumeration means accounts whose ownership can't be
+// determined are skipped this run, so a human should know to check Meta
+// connectivity. Fail-silent — an alert failure must never break the sync.
+//
+// Delivery requires TWO writes (there is no DB trigger that fans out): a shared
+// `notifications` row, then per-recipient `user_notifications` rows — that
+// fan-out is what surfaces the alert in each admin's bell / inbox / push (the
+// pattern every notify path in the repo follows, e.g. work-pulse/notify).
+// kind:'announcement' additionally surfaces it on the /admin/notifications page.
+// Deduped per-day via a pre-check on idempotency_key so a repeatedly-failing
+// run alerts at most once a day.
+async function alertEnumerationFailure(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  errorMessage: string
+) {
+  try {
+    const { data: admins } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('is_super_admin', true);
+    const adminIds = (admins ?? [])
+      .map((a) => a.id as string)
+      .filter(Boolean);
+    if (adminIds.length === 0) return;
+
+    const idempKey = `ig-sync-enum-fail-${new Date().toISOString().slice(0, 10)}`;
+    const { data: existing } = await supabase
+      .from('notifications')
+      .select('id')
+      .eq('idempotency_key', idempKey)
+      .maybeSingle();
+    if (existing) return; // already alerted today
+
+    const { data: notif } = await supabase
+      .from('notifications')
+      .insert({
+        title: 'Instagram sync: Meta enumeration failing',
+        body: `The Instagram account sync could not list Facebook Pages from Meta after retries (${errorMessage}). Accounts that could not be classified were skipped this run and will be retried on the next sync. Check Meta API connectivity / token validity if this persists.`,
+        created_by: adminIds[0],
+        targeting: { user_ids: adminIds },
+        category: 'Alert',
+        kind: 'announcement',
+        idempotency_key: idempKey,
+        metadata: {
+          source: 'ig-accounts-sync',
+          event: 'enumeration_failed',
+          error: errorMessage,
+        },
+      })
+      .select('id')
+      .single();
+    if (!notif) return;
+
+    // Fan out so the alert reaches each super admin's notification surfaces.
+    const links = adminIds.map((uid) => ({
+      notification_id: notif.id,
+      user_id: uid,
+    }));
+    await supabase.from('user_notifications').insert(links);
+  } catch (err) {
+    console.warn('[ig-sync] enumeration-failure alert failed:', err);
   }
 }
 
@@ -174,33 +242,84 @@ export async function POST(request: NextRequest) {
     const parentPageByIgId = new Map<string, ParentPageInfo>();
     let meAccountsError: string | null = null;
 
-    try {
-      const meAccountsUrl =
-        `${GRAPH_API}/me/accounts` +
-        `?fields=id,name,access_token,instagram_business_account{id,username}` +
+    {
+      const PAGE_FIELDS =
+        'id,name,access_token,instagram_business_account{id,username}';
+      const MAX_PAGES = 50; // safety cap: 50 × 100 = 5000 Pages
+      const MAX_ATTEMPTS = 3; // per-request retries on transient failure
+      let nextUrl: string | null =
+        `${GRAPH_API}/me/accounts?fields=${encodeURIComponent(PAGE_FIELDS)}` +
         `&limit=100&access_token=${encodeURIComponent(accessToken)}`;
-      const meRes = await fetch(meAccountsUrl, { cache: 'no-store' });
-      const meJson = (await meRes.json()) as MeAccountsResponse;
-      if (!meRes.ok || meJson.error) {
-        meAccountsError =
-          meJson.error?.message ?? `Meta /me/accounts returned HTTP ${meRes.status}`;
-      } else {
-        for (const page of meJson.data ?? []) {
-          const igId = page.instagram_business_account?.id;
-          if (!igId) continue;
-          parentPageByIgId.set(igId, {
-            pageId: page.id,
-            pageToken: page.access_token || null,
-            igUsername: page.instagram_business_account?.username || null,
-          });
+      let pageCount = 0;
+
+      // Follow paging.next so the Page set is COMPLETE — a truncated list would
+      // make a parent-less account on a later page look unowned and misroute it.
+      // Each request is retried a few times on transient failure (HTTP 429 /
+      // 5xx / network) before the run is marked failed.
+      while (nextUrl && pageCount < MAX_PAGES && !meAccountsError) {
+        pageCount++;
+        let followUrl: string | null = null; // next page, set when this one succeeds
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+          try {
+            // 15s timeout so a hung connection aborts (→ throws → retried as
+            // transient) instead of stalling the whole sync inside the loop.
+            const meRes = await fetch(nextUrl, {
+              cache: 'no-store',
+              signal: AbortSignal.timeout(15000),
+            });
+            const meJson = (await meRes.json()) as MeAccountsResponse;
+            if (!meRes.ok || meJson.error) {
+              const msg =
+                meJson.error?.message ??
+                `Meta /me/accounts returned HTTP ${meRes.status}`;
+              // Retry only transient failures; a hard 4xx (other than 429)
+              // won't recover, so fail fast without burning retries.
+              if (
+                (meRes.status === 429 || meRes.status >= 500) &&
+                attempt < MAX_ATTEMPTS
+              ) {
+                await sleep(attempt * 500);
+                continue;
+              }
+              meAccountsError = msg;
+              break;
+            }
+            for (const page of meJson.data ?? []) {
+              const igId = page.instagram_business_account?.id;
+              if (!igId) continue;
+              parentPageByIgId.set(igId, {
+                pageId: page.id,
+                pageToken: page.access_token || null,
+                igUsername: page.instagram_business_account?.username || null,
+              });
+            }
+            followUrl = meJson.paging?.next ?? null;
+            break;
+          } catch (err) {
+            if (attempt < MAX_ATTEMPTS) {
+              await sleep(attempt * 500);
+              continue;
+            }
+            meAccountsError =
+              err instanceof Error ? err.message : 'Failed to call /me/accounts';
+            break;
+          }
         }
+        nextUrl = followUrl;
       }
-    } catch (err) {
-      meAccountsError = err instanceof Error ? err.message : 'Failed to call /me/accounts';
+
+      // Hit the safety cap with pages still remaining → treat enumeration as
+      // incomplete so unclassifiable accounts are skipped, not misrouted.
+      if (pageCount >= MAX_PAGES && nextUrl) {
+        meAccountsError =
+          meAccountsError ??
+          `/me/accounts exceeded ${MAX_PAGES}-page safety cap; enumeration incomplete`;
+      }
     }
 
     if (meAccountsError) {
       console.warn('[ig-sync] /me/accounts enumeration failed:', meAccountsError);
+      await alertEnumerationFailure(serviceClient, meAccountsError);
     }
 
     // Step 1b: extra portfolios. Department accounts are owned by OTHER
@@ -299,16 +418,18 @@ export async function POST(request: NextRequest) {
           const extra = extraByIgId.get(igUserId);
           // Ownership is known only when /me/accounts enumeration succeeded
           // (parent presence is then authoritative) OR the account came from an
-          // extra portfolio. On an explicit-ids sync where enumeration FAILED
-          // (meAccountsError set, ig_user_ids provided), a page-owned account
-          // looks parent-less. We cannot classify such an account, so we skip
-          // it rather than upsert with guessed metadata: an INSERT would take
-          // the 'graph' NOT-NULL default (orphaning a dept account), and an
-          // UPDATE would both downgrade an existing 'graph' row and null its
+          // extra portfolio. A found `parent` is itself authoritative — even if
+          // enumeration later failed mid-pagination, an account we DID resolve a
+          // Page for is known to be page-owned. The unknown case is: enumeration
+          // failed AND this account has neither a found parent nor an extra
+          // entry (e.g. an explicit-ids sync where /me/accounts never returned
+          // its Page). We skip such an account rather than guess: an INSERT
+          // would take the 'graph' NOT-NULL default (orphaning a dept account),
+          // and an UPDATE would downgrade an existing 'graph' row and null its
           // access_token. A later sync (once /me/accounts succeeds) classifies
-          // and writes it correctly. Past this guard, ownership is always known
-          // so metrics_source below can be written unconditionally.
-          const ownershipKnown = !meAccountsError || Boolean(extra);
+          // it. Past this guard, ownership is always known so metrics_source
+          // below can be written unconditionally.
+          const ownershipKnown = !meAccountsError || Boolean(parent) || Boolean(extra);
           if (!ownershipKnown) {
             results.push({
               ig_user_id: igUserId,
