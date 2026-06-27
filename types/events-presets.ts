@@ -13,7 +13,7 @@
 //   presets (a coordinator copies an official one and tweaks, scope='personal').
 //   Persisted in the `event_presets` table (created in PR1). See event-preset-service.ts.
 
-import { Trophy, Mic2, Timer, Music, GraduationCap } from 'lucide-react';
+import { Trophy, Mic2, Timer, Music, GraduationCap, Rocket } from 'lucide-react';
 import type { ComponentType } from 'react';
 
 // ── FORMAT: how the event runs ───────────────────────────────────────────────
@@ -22,7 +22,8 @@ export type EventFormat =
   | 'lecture-talk' // a talk, seminar, workshop, guest lecture
   | 'race' // a marathon / run / timed race
   | 'cultural' // a cultural night / fest / performance
-  | 'convocation'; // a graduation / convocation ceremony
+  | 'convocation' // a graduation / convocation ceremony
+  | 'induction'; // a fresher induction program (multi-day, cohort + batches)
 
 export interface EventFormatDef {
   value: EventFormat;
@@ -85,6 +86,14 @@ export const EVENT_FORMATS: EventFormatDef[] = [
     eventType: 'convocation',
     dedicatedCreatePath: null,
   },
+  {
+    value: 'induction',
+    label: 'Fresher Induction',
+    description: 'A multi-day onboarding program for new students — cohort enrolment, batches, sessions, and completion tracking.',
+    icon: Rocket,
+    eventType: 'induction',
+    dedicatedCreatePath: '/events/induction/new',
+  },
 ];
 
 export function getFormatDef(value: EventFormat): EventFormatDef | undefined {
@@ -128,6 +137,7 @@ export const DEFAULT_HOME_FOR_FORMAT: Record<EventFormat, EventHome> = {
   'lecture-talk': 'cdc',
   cultural: 'cultural',
   convocation: 'events',
+  induction: 'academic',
 };
 
 // ── PRESET: a saveable event config ──────────────────────────────────────────

@@ -280,6 +280,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // though the row now points at /academic instead of /academic/years.
   '/academic': 'academic.years.view',
   '/events/induction': 'induction.view',
+  '/events/induction/new': 'induction.manage',
   '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
   '/academic/leave-calendar': 'academic.leaves.view',
