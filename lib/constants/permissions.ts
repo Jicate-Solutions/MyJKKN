@@ -160,6 +160,18 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    // Added 2026-06-27 — Fresher Induction module (Phase 1). Keys referenced by
+    // RLS on induction_* tables + the SECURITY DEFINER engine RPCs
+    // (fn_induction_create_program / auto_enroll / auto_split_batches). Grant
+    // 'induction.manage' to induction coordinators; super_admin/admin bypass.
+    name: 'Induction',
+    key: 'induction',
+    permissions: [
+      { key: 'induction.view', label: 'View Induction Programs' },
+      { key: 'induction.manage', label: 'Manage Induction (create, enroll, batches, attendance)' }
+    ]
+  },
+  {
     name: 'Application Hub',
     key: 'application_hub',
     permissions: [
