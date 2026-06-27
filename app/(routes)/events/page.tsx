@@ -38,6 +38,14 @@ const EVENT_TYPES: EventTypeCard[] = [
     href: '/events/marathon',
     icon: Timer,
     available: true,
+  },
+  {
+    title: 'Induction',
+    description:
+      "Run a college's fresher induction: build the schedule, auto-enroll new students, split into batches, and track who completes.",
+    href: '/events/induction',
+    icon: Rocket,
+    available: true,
   }
 ];
 
