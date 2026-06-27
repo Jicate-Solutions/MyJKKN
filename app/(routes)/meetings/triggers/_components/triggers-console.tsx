@@ -45,6 +45,7 @@ const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
 const DECIDABLE = new Set(['notified', 'explained', 'meeting_pending']);
 
 const ATTENDANCE_METRIC = 'attendance_rate_daily';
+const MISSING_DATA_METRIC = 'attendance_missing_data';
 
 /** Friendly labels for the project-accountability metrics (RACI-driven). */
 const PROJECT_METRIC: Record<
@@ -79,6 +80,9 @@ function eventDetail(ev: {
   if (ev.metric_key === 'project_at_risk') {
     return `risk level ${ev.observed_value ?? '—'} (≥ ${ev.threshold})`;
   }
+  if (ev.metric_key === MISSING_DATA_METRIC) {
+    return 'no attendance recorded';
+  }
   return `${ev.observed_value ?? '—'}% (below ${ev.threshold}%)`;
 }
 
@@ -95,7 +99,13 @@ export function TriggersConsole({
   const [decidingId, setDecidingId] = useState<string | null>(null);
 
   const attendanceRules = rules.filter((r) => r.metric_key === ATTENDANCE_METRIC);
-  const projectRules = rules.filter((r) => r.metric_key !== ATTENDANCE_METRIC);
+  const missingDataRules = rules.filter(
+    (r) => r.metric_key === MISSING_DATA_METRIC
+  );
+  const projectRules = rules.filter(
+    (r) =>
+      r.metric_key !== ATTENDANCE_METRIC && r.metric_key !== MISSING_DATA_METRIC
+  );
 
   function patchLocal(id: string, patch: Partial<TriggerRuleWithRate>) {
     setRules((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -281,6 +291,115 @@ export function TriggersConsole({
           </Table>
         </CardContent>
       </Card>
+
+      {/* ---- Missing-data (data-gap) rules ---- */}
+      {missingDataRules.length > 0 && (
+        <Card className="rounded-2xl border-neutral-200 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base">
+              Missing attendance (data gaps)
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              These flag a college when a working day has{' '}
+              <strong>no attendance recorded — or far less than usual</strong>{' '}
+              (below the % of that college&apos;s normal day set here) — on a day
+              that isn&apos;t a Sunday or an approved holiday. The Principal is
+              asked to explain within 24h, otherwise a short review meeting is
+              booked. Capped to once a week. Rules stay off until you switch them
+              on.
+            </p>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>College</TableHead>
+                  <TableHead className="w-28 text-right">
+                    Gap if below %
+                  </TableHead>
+                  <TableHead className="w-20 text-right">Cooldown</TableHead>
+                  <TableHead className="w-20 text-right">Weekly cap</TableHead>
+                  <TableHead className="w-20 text-center">Active</TableHead>
+                  <TableHead className="w-20" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {missingDataRules.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell className="font-medium">
+                      {r.college_name}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={r.threshold}
+                          onChange={(e) =>
+                            patchLocal(r.id, {
+                              threshold: Number(e.target.value)
+                            })
+                          }
+                          className="h-8 w-16 text-right tabular-nums"
+                        />
+                        <span className="text-xs text-muted-foreground">%</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Input
+                        type="number"
+                        min={0}
+                        value={r.cooldown_days}
+                        onChange={(e) =>
+                          patchLocal(r.id, {
+                            cooldown_days: Number(e.target.value)
+                          })
+                        }
+                        className="h-8 w-16 text-right tabular-nums"
+                      />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Input
+                        type="number"
+                        min={1}
+                        value={r.weekly_cap}
+                        onChange={(e) =>
+                          patchLocal(r.id, {
+                            weekly_cap: Number(e.target.value)
+                          })
+                        }
+                        className="h-8 w-16 text-right tabular-nums"
+                      />
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Switch
+                        checked={r.active}
+                        onCheckedChange={(v) => patchLocal(r.id, { active: v })}
+                        aria-label={`Activate missing-data for ${r.college_name}`}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => saveRule(r)}
+                        disabled={savingId === r.id}
+                      >
+                        {savingId === r.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Save className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ---- Project accountability rules (RACI-driven) ---- */}
       {projectRules.length > 0 && (

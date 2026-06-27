@@ -8,6 +8,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   SessionFeedbackRow,
   PendingSession,
+  CarryforwardItem,
   ConfirmationStatusRow,
   FacultySummaryRow,
   FacultyCompletionRow,
@@ -21,6 +22,9 @@ import type {
   AdminTrendRow,
   ChecklistConfigItem,
   SubmitFeedbackInput,
+  LivePulseRow,
+  OpenPulseForLearner,
+  PulseTotals,
 } from '@/types/session-feedback';
 
 // Untyped client — session_feedback tables are not in the generated types yet.
@@ -58,6 +62,17 @@ export class SessionFeedbackService {
     return (data || []) as PendingSession[];
   }
 
+  /** Carry-forward re-asks: prior same-course sessions the learner flagged, for their
+   *  current pending sessions. Powers the "better this time?" banner in the dialog. */
+  static async getCarryforward(lookbackDays = 30): Promise<CarryforwardItem[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_carryforward_for_learner', {
+      p_lookback_days: lookbackDays,
+    });
+    if (error) throw new Error(`Failed to load carry-forward: ${error.message}`);
+    return (data || []) as CarryforwardItem[];
+  }
+
   /** Per-session confirmation state (present-pending vs confirmed) in a date range. */
   static async getConfirmationStatus(from: string, to: string): Promise<ConfirmationStatusRow[]> {
     const supabase = getSupabase();
@@ -69,7 +84,9 @@ export class SessionFeedbackService {
     return (data || []) as ConfirmationStatusRow[];
   }
 
-  /** Submit (or update) feedback for a session. The only write path. */
+  /** Submit (or update) feedback for a session. The only write path.
+   *  source defaults to 'async'; pass 'live_poll' for in-class Live Pulse answers
+   *  (the RPC downgrades to 'async' if no pulse is open for the class). */
   static async submitFeedback(input: SubmitFeedbackInput): Promise<SessionFeedbackRow> {
     const supabase = getSupabase();
     const { data, error } = await supabase.rpc('fn_scf_submit_feedback', {
@@ -79,6 +96,7 @@ export class SessionFeedbackService {
       p_understood: input.understood,
       p_checklist: input.checklist ?? {},
       p_free_text: input.freeText ?? null,
+      p_source: input.source ?? 'async',
     });
     if (error) throw new Error(`Failed to submit feedback: ${error.message}`);
     return data as SessionFeedbackRow;
@@ -229,5 +247,48 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to load understanding trend: ${error.message}`);
     return (data || []) as AdminTrendRow[];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Live Pulse Check — a live in-class poll over the SAME write path. Each
+  // student answer is a normal submitFeedback({ source: 'live_poll' }); these
+  // RPCs add only the live lifecycle + the teacher's anonymized totals.
+  // ---------------------------------------------------------------------------
+
+  /** Teacher (assigned faculty) or an HOD/admin of the class's institution opens a
+   *  live pulse for a class. Idempotent — returns the already-open pulse if one exists. */
+  static async openPulse(
+    attendanceDate: string,
+    timetableId: string,
+    periodId: string,
+  ): Promise<LivePulseRow> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_open_pulse', {
+      p_attendance_date: attendanceDate,
+      p_timetable_id: timetableId,
+      p_period_id: periodId,
+    });
+    if (error) throw new Error(`Failed to open pulse: ${error.message}`);
+    return data as LivePulseRow;
+  }
+
+  /** Open pulses for sessions the caller learner was marked Present in. */
+  static async getOpenPulsesForLearner(): Promise<OpenPulseForLearner[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_open_pulse_for_learner');
+    if (error) throw new Error(`Failed to load open pulses: ${error.message}`);
+    return (data || []) as OpenPulseForLearner[];
+  }
+
+  /** Anonymized live totals for ONE pulse (the pulse's faculty, or an HOD/admin of
+   *  that institution). Returns a single row, or null if the pulse is unknown. */
+  static async getPulseTotals(pulseId: string): Promise<PulseTotals | null> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_pulse_totals', {
+      p_pulse_id: pulseId,
+    });
+    if (error) throw new Error(`Failed to load pulse totals: ${error.message}`);
+    const rows = (data || []) as PulseTotals[];
+    return rows.length > 0 ? rows[0] : null;
   }
 }

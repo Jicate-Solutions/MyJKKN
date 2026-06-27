@@ -69,6 +69,7 @@ import type {
 } from '@/types/session-feedback';
 import { FollowupCell } from '../_components/followup-cell';
 import { AiSuggestionDialog } from '../_components/ai-suggestion-dialog';
+import { LivePulseSection } from '../_components/live-pulse-control';
 
 const BRAND_GREEN = '#0b6d41';
 
@@ -453,6 +454,9 @@ export default function FacultySessionInsightPage() {
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
+
+      {/* Live — open an in-class pulse for today's classes (fuels the loop) */}
+      <LivePulseSection from={from} to={to} />
 
       {/* Action — your low-understanding topics + the lift + an AI suggested fix */}
       <TopicsToRevisitSection from={from} to={to} />

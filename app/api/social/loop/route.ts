@@ -37,6 +37,8 @@ import type {
   LoopAccount,
   FormatTypeStat,
   FormatLever,
+  LoopVoice,
+  LoopLastCycleGrade,
 } from '@/lib/types/social-loop';
 
 // ── Documented code defaults (fire until the policy keys are seeded) ──────────
@@ -76,6 +78,165 @@ interface IgPostMetricRow {
   comments: number | null;
   likes: number | null;
   plays: number | null;
+}
+
+/** feedback_events row shape (columns we read for voice). */
+interface FeedbackEventVoiceRow {
+  actor_ref: string | null;
+  content: string | null;
+  ai_sentiment: string | null;
+  ai_intent: string | null;
+  ai_topic: string | null;
+  ai_draft_reply: string | null;
+}
+
+const VOICE_CONTENT_MAX = 160;
+const VOICE_NEEDS_REPLY_MAX = 10;
+const VOICE_TOP_THEMES_MAX = 8;
+const NEEDS_REPLY_INTENTS = new Set(['complaint', 'question', 'request']);
+
+/**
+ * Build a LoopVoice from feedback_events rows matching the window's posts.
+ * Uses the same SupabaseClient as the rest of the route — mirrors the
+ * untyped table access pattern from the rest of this file.
+ * Never throws; returns a zero-voice on any failure or empty window.
+ */
+async function buildVoice(
+  db: SupabaseClient,
+  windowMediaIds: string[]
+): Promise<LoopVoice> {
+  const zero: LoopVoice = {
+    total: 0,
+    sentimentBreakdown: { positive: 0, neutral: 0, negative: 0, mixed: 0 },
+    topThemes: [],
+    needsReply: [],
+    spamCount: 0,
+  };
+
+  if (windowMediaIds.length === 0) return zero;
+
+  const { data: rows, error } = await db
+    .from('feedback_events')
+    .select('actor_ref, content, ai_sentiment, ai_intent, ai_topic, ai_draft_reply')
+    .eq('source', 'ig_comment')
+    .eq('target_type', 'ig_post')
+    .in('target_ref', windowMediaIds)
+    .not('ai_processed_at', 'is', null);
+
+  if (error) {
+    console.warn('[social-loop] voice query failed (non-fatal):', error.message);
+    return zero;
+  }
+
+  const allRows = (rows as FeedbackEventVoiceRow[]) ?? [];
+  if (allRows.length === 0) return zero;
+
+  const sentimentBreakdown = { positive: 0, neutral: 0, negative: 0, mixed: 0 };
+  const themeCounts = new Map<string, number>();
+  const needsReplyRows: FeedbackEventVoiceRow[] = [];
+  let spamCount = 0;
+
+  for (const r of allRows) {
+    // Sentiment breakdown — all rows including spam
+    const s = r.ai_sentiment as keyof typeof sentimentBreakdown | null;
+    if (s && s in sentimentBreakdown) {
+      sentimentBreakdown[s] += 1;
+    }
+
+    // Spam tracking
+    if (r.ai_intent === 'spam') {
+      spamCount += 1;
+      continue; // exclude spam from themes and needsReply
+    }
+
+    // Theme counting (non-spam only)
+    if (r.ai_topic && r.ai_topic.trim().length > 0) {
+      const t = r.ai_topic.trim();
+      themeCounts.set(t, (themeCounts.get(t) ?? 0) + 1);
+    }
+
+    // Needs-reply collection
+    if (r.ai_intent && NEEDS_REPLY_INTENTS.has(r.ai_intent)) {
+      needsReplyRows.push(r);
+    }
+  }
+
+  // Top themes sorted by count desc, capped
+  const topThemes = [...themeCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, VOICE_TOP_THEMES_MAX)
+    .map(([theme]) => theme);
+
+  // needsReply — cap content length, take up to max
+  const needsReply = needsReplyRows.slice(0, VOICE_NEEDS_REPLY_MAX).map((r) => ({
+    actor_ref: r.actor_ref,
+    content: r.content
+      ? r.content.length > VOICE_CONTENT_MAX
+        ? r.content.slice(0, VOICE_CONTENT_MAX)
+        : r.content
+      : '',
+    ai_topic: r.ai_topic,
+    ai_sentiment: r.ai_sentiment,
+    ai_draft_reply: r.ai_draft_reply,
+  }));
+
+  return {
+    total: allRows.length,
+    sentimentBreakdown,
+    topThemes,
+    needsReply,
+    spamCount,
+  };
+}
+
+/**
+ * Compute the self-grade: did the previous closed cycle's instruction move
+ * the barToBeat? Requires at least 2 playbook entries to grade.
+ * Never throws — returns a "no prior cycle" message when not enough data.
+ */
+function computeLastCycleGrade(
+  playbook: Array<{ read_summary: { barToBeat?: number } | null; decide: { nextInstruction?: string } | null }>,
+  currentBarToBeat: number
+): LoopLastCycleGrade | null {
+  if (playbook.length < 1) return null;
+
+  // playbook is sorted newest-first (cycle_no desc) — [0] is the most recent closed cycle
+  const lastEntry = playbook[0];
+  const previousInstruction = lastEntry?.decide?.nextInstruction ?? null;
+
+  // To grade the last cycle we need: the bar when that cycle was closed (lastEntry.read_summary.barToBeat)
+  // and the current bar. If only 1 entry: compare last recorded bar vs current.
+  const lastBar =
+    lastEntry?.read_summary && typeof lastEntry.read_summary.barToBeat === 'number'
+      ? lastEntry.read_summary.barToBeat
+      : null;
+
+  if (lastBar === null) {
+    return {
+      previousInstruction,
+      improved: null,
+      message: previousInstruction
+        ? `Last cycle's advice: "${previousInstruction}" — no prior signal recorded to grade against.`
+        : 'No prior cycle to grade.',
+    };
+  }
+
+  const improved = currentBarToBeat > lastBar;
+  const pct =
+    lastBar > 0
+      ? Math.round(Math.abs(currentBarToBeat - lastBar) / lastBar * 100)
+      : null;
+  const arrow = improved ? '↑' : currentBarToBeat === lastBar ? '→' : '↓';
+  const changeText = pct !== null ? `${arrow} ${pct}%` : arrow;
+
+  const prevText = previousInstruction ? `"${previousInstruction}"` : "last cycle's advice";
+  const message = improved
+    ? `Last cycle's advice: ${prevText} → real signal rose ${changeText} ✓`
+    : currentBarToBeat === lastBar
+      ? `Last cycle's advice: ${prevText} → real signal held steady ${changeText}`
+      : `Last cycle's advice: ${prevText} → real signal fell ${changeText}`;
+
+  return { previousInstruction, improved, message };
 }
 
 /**
@@ -388,14 +549,34 @@ export async function GET(request: Request) {
       );
     }
 
+    // ── Voice of Audience: feedback_events ig_comments matched to the window ──
+    // Collect non-null ig_media_ids from the window so we can join by target_ref.
+    const windowMediaIds = (read.posts ?? [])
+      .map((p) => p.ig_media_id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+    const voice = await buildVoice(db, windowMediaIds);
+
+    // ── Self-grade: did the previous cycle's instruction move the needle? ─────
+    const playbook = playbookRaw ?? [];
+    const lastCycleGrade = computeLastCycleGrade(
+      playbook as Array<{
+        read_summary: { barToBeat?: number } | null;
+        decide: { nextInstruction?: string } | null;
+      }>,
+      read.barToBeat
+    );
+
     return NextResponse.json({
       success: true,
       account,
       read,
       decide,
-      playbook: playbookRaw ?? [],
+      playbook,
       config,
       readable,
+      voice,
+      lastCycleGrade: lastCycleGrade ?? null,
       ...(notReadableMessage ? { notReadableMessage } : {}),
     });
   } catch (err) {
