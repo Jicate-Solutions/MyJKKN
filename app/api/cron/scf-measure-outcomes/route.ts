@@ -37,10 +37,11 @@ export async function GET(request: NextRequest) {
   const minAge = ageParam && /^\d+$/.test(ageParam) ? parseInt(ageParam, 10) : 1;
 
   // Induction verifier matures on a MUCH longer horizon — a cohort's admission
-  // cycle takes months to produce JOINs — so it defaults to 150 days (gated on
-  // the induction's window_to). ?induction_min_age_days= overrides.
+  // cycle runs ~a full year — so it defaults to 300 days (gated on the induction's
+  // window_to) so the single terminal measurement captures essentially all JOINs.
+  // ?induction_min_age_days= overrides for backfill.
   const indAgeParam = request.nextUrl.searchParams.get('induction_min_age_days');
-  const indMinAge = indAgeParam && /^\d+$/.test(indAgeParam) ? parseInt(indAgeParam, 10) : 150;
+  const indMinAge = indAgeParam && /^\d+$/.test(indAgeParam) ? parseInt(indAgeParam, 10) : 300;
 
   // RETURNS int → supabase-js usually surfaces the scalar directly, but older
   // shapes wrap it in an array; normalize so each count is always the number.

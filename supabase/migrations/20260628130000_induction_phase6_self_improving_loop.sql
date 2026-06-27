@@ -50,6 +50,13 @@ COMMENT ON COLUMN public.scf_ai_suggestions.domain IS
 COMMENT ON COLUMN public.scf_ai_suggestions.academic_year_id IS
   'Induction-domain cohort key (NULL for session_feedback rows). With institution_id it identifies the cohort the verifier measures: freshers enrolled in induction events of that institution+year.';
 
+-- At most ONE loop suggestion per induction cohort — a double-submit from the cron
+-- or AI route can't create duplicate rows the verifier would measure twice and
+-- prior-feed would pick arbitrarily. Partial so it only constrains induction rows.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_scf_induction_cohort
+  ON public.scf_ai_suggestions (institution_id, academic_year_id)
+  WHERE domain = 'induction';
+
 -- ── 2. Re-point ONLY the SCF verifier''s candidate scan to its own domain ───────
 -- Additive WHERE filter so induction rows are never picked up by the session
 -- verifier (and vice-versa). Body otherwise identical to 20260625120000.
@@ -180,6 +187,15 @@ BEGIN
     'induction', p_institution_id, p_academic_year_id, 'induction', NULL,
     p_window_from, p_window_to, p_input_score, p_suggestion, p_model
   )
+  -- idempotent per cohort: a re-record refreshes the playbook in place (outcome_*
+  -- left intact) rather than inserting a duplicate the verifier would double-measure.
+  ON CONFLICT (institution_id, academic_year_id) WHERE domain = 'induction'
+  DO UPDATE SET window_from          = EXCLUDED.window_from,
+                window_to            = EXCLUDED.window_to,
+                input_avg_understood = EXCLUDED.input_avg_understood,
+                suggestion           = EXCLUDED.suggestion,
+                model                = EXCLUDED.model,
+                updated_at           = now()
   RETURNING id INTO v_id;
   RETURN v_id;
 END;
@@ -228,9 +244,11 @@ $$;
 
 -- ── 5. The RE-POINTED verifier — close the loop on value-balanced refer+join ───
 -- For each unmeasured induction suggestion whose COHORT HAS MATURED (window_to is
--- p_min_age_days in the past — long enough for the admission cycle to produce
--- JOINs; default 150d), measure its cohort (DISTINCT freshers enrolled in any
--- induction event of the suggestion's institution+year):
+-- p_min_age_days in the past), measure its cohort. The default is 300d ≈ a FULL
+-- admission cycle, so JOINs are essentially complete and the single (terminal)
+-- measurement is not frozen biased-low while joins are still accruing — then it
+-- feeds the next year's playbook. Measures DISTINCT freshers enrolled in any
+-- induction event of the suggestion's institution+year:
 --   joins_per_fresher = LIVE joined referrals / DISTINCT enrolled freshers
 --   value_health      = cohort avg value_score_avg / 5
 --   score             = 100 · joins_per_fresher · value_health   (decision 13)
@@ -240,7 +258,7 @@ $$;
 -- (zero-enrollment → terminal score 0; missing value data → neutral lift 0) so
 -- no candidate is re-scanned forever.
 CREATE OR REPLACE FUNCTION public.fn_induction_measure_loop_outcomes(
-  p_min_age_days int DEFAULT 150
+  p_min_age_days int DEFAULT 300   -- ≈ a full admission cycle; measure once, joins complete
 )
 RETURNS int
 LANGUAGE plpgsql
