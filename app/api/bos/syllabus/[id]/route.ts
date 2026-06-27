@@ -197,6 +197,7 @@ export async function PUT(
         web_resources: body.web_resources,
         pedagogy: body.pedagogy,
         po_mappings: body.po_mappings,
+        assessment_structure: body.assessment_structure,
         notes: body.notes,
         last_modified_by: user.id,
         last_modified_at: new Date().toISOString(),

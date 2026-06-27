@@ -45,19 +45,105 @@ const DEFAULT_K_VALUES: Record<string, string> = {
   K6: 'Create',
 };
 
+// v1.2 Assessment Structure (Total 100) — seeded for new syllabi. Editable.
+const DEFAULT_ASSESSMENT_STRUCTURE = {
+  components: [
+    { sno: 1, component: 'Continuous Internal Assessment (CIA) — written tests, formative quizzes, attendance', marks: 15 },
+    { sno: 2, component: 'Concept Application activities (Mode-mapped per v1.2 Spec) — 5 CAs, one per Unit', marks: 5 },
+    { sno: 3, component: 'Principal-Agent Public Exhibition (choose ONE of FIVE Capstones)', marks: 10 },
+    { sno: 4, component: 'External (End-Semester Examination)', marks: 70 },
+  ],
+  concept_applications_note: '',
+  exhibition_note: '',
+  capstones: [] as Array<{ title: string; subject?: string; artifacts?: string; give_back?: string }>,
+};
+
 interface SyllabusFormProps {
   syllabusId?: string;
   syllabus?: BosCourseSyllabus;
   isEditing?: boolean;
+  /**
+   * Source syllabus to duplicate. When set, the form opens in "Duplicate to
+   * Regulation" mode: it pre-fills the content sections + institution /
+   * composition / board / regulation from this source, blanks the course code
+   * (so the user picks a NEW one — which auto-fills name / hours / credits from
+   * the COE course master), and submits via the normal create path as a fresh
+   * v1 row. `revised_from_syllabus_id` is stamped with the source id to record
+   * provenance (mirrors the reference duplicate SQL).
+   */
+  duplicateFrom?: BosCourseSyllabus;
+  /**
+   * Compact clone mode (popup): render ONLY the Basic Info / Course Information
+   * card — no tabs, no content editors. Submitting posts the Basic Info to the
+   * server clone endpoint, which copies every content section from the source.
+   * Only meaningful together with `duplicateFrom`.
+   */
+  compact?: boolean;
+  /**
+   * Set when rendering inside a Radix Dialog so the cascade's SearchableSelect
+   * popovers portal into the dialog (otherwise their clicks die — see
+   * SearchableSelect.modal).
+   */
+  modal?: boolean;
   onSuccess?: (syllabus: BosCourseSyllabus) => void;
+}
+
+/**
+ * Build the initial form state for "Duplicate to Regulation". Copies every
+ * content section verbatim from the source and defaults the identity fields to
+ * the source's, but intentionally leaves the course code (and its derived
+ * name / hours / credits) blank so the user must pick a new course — the SQL's
+ * "insert with new course code" intent, done through the form's native
+ * course-code dropdown.
+ */
+function buildDuplicateSeed(src: BosCourseSyllabus): Partial<BosCourseSyllabus> {
+  return {
+    institutions_id: src.institutions_id,
+    composition_id: src.composition_id,
+    board_id: src.board_id,
+    regulation_id: src.regulation_id,
+    // Course identity is intentionally blank — picking a new code repopulates
+    // course_name / total_hours / contact_hours / course_credits from COE.
+    course_code: '',
+    course_name: '',
+    course_id: undefined,
+    total_hours: undefined,
+    contact_hours: undefined,
+    course_credits: undefined,
+    stream: src.stream,
+    notes: src.notes,
+    // Content sections copied as-is from the source syllabus.
+    course_objectives: src.course_objectives ?? { objectives: [] },
+    course_learning_outcomes: src.course_learning_outcomes ?? { clos: [] },
+    course_content: src.course_content ?? { units: [] },
+    textbooks: src.textbooks ?? { primary: [], references: [] },
+    web_resources: src.web_resources ?? { resources: [] },
+    pedagogy: src.pedagogy ?? { methods: [] },
+    po_mappings: src.po_mappings ?? { mappings: [] },
+    assessment_structure: src.assessment_structure ?? undefined,
+    // Provenance: which syllabus this copy was duplicated from.
+    revised_from_syllabus_id: src.id,
+  };
 }
 
 export function SyllabusForm({
   syllabusId,
   syllabus: syllabusProp,
   isEditing: isEditingProp = false,
+  duplicateFrom,
+  compact = false,
+  modal = false,
   onSuccess,
 }: SyllabusFormProps) {
+  // Duplicate mode pre-fills like an edit but submits like a create. Identity
+  // fields seeded from the source must survive the on-mount fetch effects
+  // (which otherwise clear composition/meeting on the create path).
+  const isDuplicate = !!duplicateFrom;
+  const preserveSeededIdentity = isEditingProp || isDuplicate;
+  // Compact clone popup: only the Basic Info card, submit hits the clone endpoint.
+  const isCloneMode = compact && isDuplicate;
+  const [cloning, setCloning] = useState(false);
+
   // If the caller already loaded the syllabus (edit page), skip the fetch.
   const { data: fetchedSyllabus } = useBosSyllabus(syllabusProp ? undefined : syllabusId);
   const existingSyllabus = syllabusProp ?? fetchedSyllabus;
@@ -113,30 +199,43 @@ export function SyllabusForm({
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState<Partial<BosCourseSyllabus>>(
-    existingSyllabus || {
-      institutions_id: userProfile?.institution_id || '',
-      board_id: '',
-      regulation_id: '',
-      course_objectives: { objectives: [] },
-      course_learning_outcomes: { clos: [] },
-      course_content: { units: [] },
-      textbooks: { primary: [], references: [] },
-      web_resources: { resources: [] },
-      pedagogy: { methods: [] },
-      po_mappings: { mappings: [] },
-    }
+    duplicateFrom
+      ? buildDuplicateSeed(duplicateFrom)
+      : existingSyllabus || {
+          institutions_id: userProfile?.institution_id || '',
+          board_id: '',
+          regulation_id: '',
+          course_objectives: { objectives: [] },
+          course_learning_outcomes: { clos: [] },
+          course_content: { units: [] },
+          textbooks: { primary: [], references: [] },
+          web_resources: { resources: [] },
+          pedagogy: { methods: [] },
+          po_mappings: { mappings: [] },
+          assessment_structure: DEFAULT_ASSESSMENT_STRUCTURE,
+        }
   );
 
-  // Initialize with passed ID, or fall back to syllabusProp.id (edit page passes syllabus but not syllabusId)
+  // Initialize with passed ID, or fall back to syllabusProp.id (edit page passes
+  // syllabus but not syllabusId). Never seed from duplicateFrom — a duplicate
+  // must submit as a NEW create, not update the source row.
   const [currentUpdateId, setCurrentUpdateId] = useState<string>(syllabusId || syllabusProp?.id || '');
   const updateMutation = useUpdateBosSyllabus(currentUpdateId);
 
-  // Seed composition picker when an existing syllabus is passed directly as prop.
+  // Seed composition picker from the directly-passed source (edit prop or the
+  // duplicate source) so the cascade starts on the right board/composition.
   useEffect(() => {
-    if (syllabusProp?.composition_id) setSelectedCompositionId(syllabusProp.composition_id);
-  }, [syllabusProp?.composition_id]);
+    const seedCompositionId = (syllabusProp ?? duplicateFrom)?.composition_id;
+    if (seedCompositionId) setSelectedCompositionId(seedCompositionId);
+  }, [syllabusProp?.composition_id, duplicateFrom]);
 
-  const { data: taxonomy } = useBosTaxonomy(formData.regulation_id || '', formData.institutions_id || undefined);
+  // Board-aware: resolves the selected board's framework, falling back to the
+  // regulation-wide taxonomy (board_id NULL) when the board has no override.
+  const { data: taxonomy } = useBosTaxonomy(
+    formData.regulation_id || '',
+    formData.institutions_id || undefined,
+    formData.board_id || undefined,
+  );
 
   // Update mutation's ID when we get one from creation
   const currentSyllabusId = syllabusId || formData.id;
@@ -178,7 +277,7 @@ export function SyllabusForm({
   // Read sessionStorage handoff from the list page Import button — runs once
   // on mount, consume-and-delete so a refresh doesn't replay the data.
   useEffect(() => {
-    if (isEditingProp || syllabusProp) return;
+    if (isEditingProp || syllabusProp || duplicateFrom) return;
     if (typeof window === 'undefined') return;
     const raw = sessionStorage.getItem('bos.syllabus.import.handoff');
     if (!raw) return;
@@ -338,18 +437,20 @@ export function SyllabusForm({
     }
   };
 
-  // Populate form when the syllabus loads via hook (edit-by-id path)
+  // Populate form when the syllabus loads via hook (edit-by-id path). Never on
+  // the duplicate path — that seeds from duplicateFrom and must stay a create.
   useEffect(() => {
-    if (fetchedSyllabus && !syllabusProp) {
+    if (fetchedSyllabus && !syllabusProp && !duplicateFrom) {
       setFormData(fetchedSyllabus);
       setCurrentUpdateId(fetchedSyllabus.id);
       if (fetchedSyllabus.composition_id) setSelectedCompositionId(fetchedSyllabus.composition_id);
     }
-  }, [fetchedSyllabus, syllabusProp]);
+  }, [fetchedSyllabus, syllabusProp, duplicateFrom]);
 
-  // Auto-seed institution for regular users on new-form path
+  // Auto-seed institution for regular users on new-form path. Duplicate mode
+  // already seeds the source's institution, so skip it there too.
   useEffect(() => {
-    if (isSuperAdmin || isEditingProp || syllabusProp || !institutionCtx) return;
+    if (isSuperAdmin || isEditingProp || syllabusProp || isDuplicate || !institutionCtx) return;
     setFormData((prev) => ({
       ...prev,
       institutions_id: prev.institutions_id || institutionCtx.myjkkn_id,
@@ -436,9 +537,9 @@ export function SyllabusForm({
           // UUIDs from the COE MDM (Aided + Self for CAS) without client juggling.
           url.searchParams.set('institutionCode', institutionCtx.institution_code);
         }
-        // In edit mode fetch all compositions (including inactive) so the linked
-        // one is always visible in the dropdown regardless of its current status.
-        if (!isEditingProp) {
+        // In edit/duplicate mode fetch all compositions (including inactive) so
+        // the seeded one is always visible in the dropdown regardless of status.
+        if (!preserveSeededIdentity) {
           url.searchParams.set('isActive', 'true');
         }
         url.searchParams.set('limit', '100');
@@ -458,8 +559,8 @@ export function SyllabusForm({
       if (!isSuperAdmin && institutionCtx === undefined) return;
       fetchCompositions();
     }
-    // In edit mode the composition is pre-seeded from the loaded syllabus — don't clear it.
-    if (!isEditingProp) {
+    // In edit/duplicate mode the composition is pre-seeded from the source — don't clear it.
+    if (!preserveSeededIdentity) {
       setSelectedCompositionId('');
       setMeetings([]);
     }
@@ -474,8 +575,8 @@ export function SyllabusForm({
   // even though every other field is fine. Fetch the linked composition by ID
   // and merge it in so the dropdown can always render the saved value.
   useEffect(() => {
-    if (!isEditingProp) return;
-    const linkedId = existingSyllabus?.composition_id;
+    if (!preserveSeededIdentity) return;
+    const linkedId = (existingSyllabus ?? duplicateFrom)?.composition_id;
     if (!linkedId) return;
     if (compositions.some((c) => c.id === linkedId)) return;
     let cancelled = false;
@@ -507,7 +608,7 @@ export function SyllabusForm({
     return () => {
       cancelled = true;
     };
-  }, [isEditingProp, existingSyllabus?.composition_id, compositions]);
+  }, [preserveSeededIdentity, existingSyllabus?.composition_id, duplicateFrom, compositions]);
 
   // Step 2: fetch meetings for the selected composition.
   // Filtering by compositionId avoids CAS institution-UUID mismatch entirely.
@@ -571,12 +672,13 @@ export function SyllabusForm({
         } else if (formData.institutions_id) {
           url.searchParams.set('institutionId', formData.institutions_id);
         }
-        // On edit, ensure the dedup-by-code in /api/bos/regulations keeps the
-        // exact row this syllabus already references (CAS Aided+Self share
-        // codes, otherwise the dropdown shows the placeholder). Use the
-        // original syllabus value so this stays stable across user edits.
-        if (isEditingProp && existingSyllabus?.regulation_id) {
-          url.searchParams.set('preferId', existingSyllabus.regulation_id);
+        // On edit/duplicate, ensure the dedup-by-code in /api/bos/regulations
+        // keeps the exact row the source syllabus references (CAS Aided+Self
+        // share codes, otherwise the dropdown shows the placeholder). Use the
+        // source value so this stays stable across user edits.
+        const preferRegulationId = (existingSyllabus ?? duplicateFrom)?.regulation_id;
+        if (preserveSeededIdentity && preferRegulationId) {
+          url.searchParams.set('preferId', preferRegulationId);
         }
         const res = await fetch(url.toString());
         if (res.ok) {
@@ -623,8 +725,50 @@ export function SyllabusForm({
   }, [formData.composition_id, formData.regulation_id, compositions, regulations]);
 
 
+  // Clone popup submit: send ONLY Basic Info to the clone endpoint, which copies
+  // every content section from the source server-side.
+  const handleCloneSubmit = async () => {
+    if (!duplicateFrom) return;
+    setCloning(true);
+    try {
+      const payload = {
+        institutions_id: formData.institutions_id,
+        board_id: formData.board_id || null,
+        regulation_id: formData.regulation_id,
+        composition_id: formData.composition_id || null,
+        course_id: formData.course_id || null,
+        course_code: formData.course_code,
+        course_name: formData.course_name,
+        course_credits: formData.course_credits,
+        total_hours: formData.total_hours,
+        contact_hours: formData.contact_hours,
+        stream: formData.stream || null,
+        notes: formData.notes || null,
+      };
+      const res = await fetch(`/api/bos/syllabus/${duplicateFrom.id}/clone`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || 'Failed to clone syllabus');
+      toast.success(`Cloned to ${formData.course_code}`);
+      onSuccess?.(json as BosCourseSyllabus);
+    } catch (error) {
+      console.error('Failed to clone syllabus:', error);
+      toast.error((error as Error).message || 'Failed to clone syllabus');
+    } finally {
+      setCloning(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (isCloneMode) {
+      await handleCloneSubmit();
+      return;
+    }
 
     try {
       if (isEditing && currentSyllabusId) {
@@ -709,20 +853,25 @@ export function SyllabusForm({
       )}
       <fieldset disabled={isSupersededVersion} className='contents'>
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-7">
-          <TabsTrigger value="basic">Basic Info</TabsTrigger>
-          <TabsTrigger value="objectives">Objectives</TabsTrigger>
-          <TabsTrigger value="clo">Course Outcomes</TabsTrigger>
-          <TabsTrigger value="content">Content</TabsTrigger>
-          <TabsTrigger value="resources">Resources</TabsTrigger>
-          <TabsTrigger value="pedagogy">Pedagogy</TabsTrigger>
-          <TabsTrigger value="mappings">PO Mappings</TabsTrigger>
-        </TabsList>
+        {/* Clone popup shows only Basic Info — hide the tab chrome entirely. */}
+        {!compact && (
+          <TabsList className="grid w-full grid-cols-8">
+            <TabsTrigger value="basic">Basic Info</TabsTrigger>
+            <TabsTrigger value="objectives">Objectives</TabsTrigger>
+            <TabsTrigger value="clo">Course Outcomes</TabsTrigger>
+            <TabsTrigger value="content">Content</TabsTrigger>
+            <TabsTrigger value="resources">Resources</TabsTrigger>
+            <TabsTrigger value="pedagogy">Pedagogy</TabsTrigger>
+            <TabsTrigger value="mappings">PO Mappings</TabsTrigger>
+            <TabsTrigger value="assessment">Assessment</TabsTrigger>
+          </TabsList>
+        )}
 
         {/* Basic Information */}
         <TabsContent value="basic" className="space-y-4">
-          {/* ── Import from Document — create flow only; hidden on edit ── */}
-          {!isEditing && (
+          {/* ── Import from Document — fresh-create flow only; hidden on edit
+               and on duplicate (the content is already seeded from the source) ── */}
+          {!isEditing && !isDuplicate && (
             <Card className="border-dashed border-primary/30 bg-primary/5">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
@@ -825,6 +974,7 @@ export function SyllabusForm({
                     options={institutions.map((inst) => ({ value: inst.id, label: inst.name }))}
                     placeholder='Select institution'
                     searchPlaceholder='Search institution…'
+                    modal={modal}
                     className='w-full'
                   />
                 </div>
@@ -848,6 +998,7 @@ export function SyllabusForm({
                     }))}
                     placeholder={formData.institutions_id ? 'Select composition' : 'Select institution first'}
                     searchPlaceholder='Search composition…'
+                    modal={modal}
                     disabled={!formData.institutions_id}
                     className='w-full'
                   />
@@ -876,6 +1027,7 @@ export function SyllabusForm({
                     }))}
                     placeholder={selectedCompositionId ? 'Select meeting' : 'Select composition first'}
                     searchPlaceholder='Search meeting…'
+                    modal={modal}
                     disabled={!selectedCompositionId}
                     className='w-full'
                   />
@@ -892,6 +1044,7 @@ export function SyllabusForm({
                     options={regulations.map((reg) => ({ value: reg.id, label: reg.title }))}
                     placeholder={formData.institutions_id ? 'Select regulation' : 'Select institution first'}
                     searchPlaceholder='Search regulation…'
+                    modal={modal}
                     disabled={!formData.institutions_id}
                     className='w-full'
                   />
@@ -916,6 +1069,7 @@ export function SyllabusForm({
                           }))}
                           placeholder='Select board'
                           searchPlaceholder='Search board…'
+                          modal={modal}
                           className='w-full'
                         />
                       );
@@ -982,6 +1136,7 @@ export function SyllabusForm({
                     })()}
                     placeholder={formData.institutions_id && regulation_code ? 'Select course' : 'Select institution & regulation first'}
                     searchPlaceholder='Search by code or name…'
+                    modal={modal}
                     loading={coursesLoading}
                     disabled={isEditing || !formData.institutions_id || !regulation_code}
                     className={`w-full${courseCodeError ? ' border-red-500' : ''}`}
@@ -1051,20 +1206,36 @@ export function SyllabusForm({
               </div>
 
               <div className="flex justify-end gap-2 pt-4 border-t">
-                <Button
-                  type="button"
-                  onClick={() => handleSaveAndNext('objectives')}
-                  disabled={!formData.course_code || !formData.course_name || !formData.institutions_id || !formData.regulation_id || !formData.composition_id || !formData.board_id || !!courseCodeError || isLoading}
-                  title={!formData.composition_id ? 'Select a meeting first' : undefined}
-                  className="bg-green-600 hover:bg-green-700"
-                >
-                  {isLoading ? 'Saving...' : 'Save & Next'}
-                </Button>
+                {compact ? (
+                  // Clone popup: a single submit that posts Basic Info to the
+                  // clone endpoint (content is copied from the source server-side).
+                  <Button
+                    type="submit"
+                    disabled={!formData.course_code || !formData.course_name || !formData.institutions_id || !formData.regulation_id || !formData.composition_id || !formData.board_id || !!courseCodeError || cloning}
+                    title={!formData.composition_id ? 'Select a meeting first' : undefined}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    {cloning ? 'Cloning...' : 'Clone'}
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    onClick={() => handleSaveAndNext('objectives')}
+                    disabled={!formData.course_code || !formData.course_name || !formData.institutions_id || !formData.regulation_id || !formData.composition_id || !formData.board_id || !!courseCodeError || isLoading}
+                    title={!formData.composition_id ? 'Select a meeting first' : undefined}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    {isLoading ? 'Saving...' : 'Save & Next'}
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
+        {/* Content tabs are hidden in the compact clone popup — every content
+            section is copied from the source syllabus server-side. */}
+        {!compact && (<>
         {/* Course Objectives */}
         <TabsContent value="objectives" className="space-y-4">
           <Card>
@@ -1261,16 +1432,55 @@ export function SyllabusForm({
                   Back
                 </Button>
                 <Button
-                  type="submit"
+                  type="button"
+                  onClick={() => handleSaveAndNext('assessment')}
                   disabled={isLoading}
                   className="bg-green-600 hover:bg-green-700"
                 >
-                  {isLoading ? 'Saving...' : isEditing ? 'Update Syllabus' : 'Create Syllabus'}
+                  {isLoading ? 'Saving...' : 'Save & Next'}
                 </Button>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Assessment Structure (v1.2) */}
+        <TabsContent value="assessment" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Assessment Structure</CardTitle>
+              <CardDescription>
+                Components (Total 100), Concept Applications, and Principal-Agent
+                Public Exhibition capstones
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <AssessmentEditor
+                assessment={formData.assessment_structure as any}
+                onChange={(val) => updateField('assessment_structure', val)}
+              />
+              <div className="flex justify-end gap-2 pt-4 border-t">
+                <Button type="button" variant="outline" onClick={() => setActiveTab('mappings')}>
+                  Back
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isLoading}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  {isLoading
+                    ? 'Saving...'
+                    : isEditing
+                      ? 'Update Syllabus'
+                      : isDuplicate
+                        ? 'Create Clone'
+                        : 'Create Syllabus'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        </>)}
       </Tabs>
       </fieldset>
 
@@ -1289,6 +1499,202 @@ export function SyllabusForm({
         summary={importCounts}
       />
     </form>
+  );
+}
+
+// ── AssessmentEditor: v1.2 Assessment Structure (Total 100) ──────────────────
+function AssessmentEditor({ assessment, onChange }: {
+  assessment?: {
+    components?: Array<{ id?: string; sno?: number; component: string; marks: number }>;
+    concept_applications_note?: string;
+    exhibition_note?: string;
+    capstones?: Array<{ id?: string; title: string; subject?: string; artifacts?: string; give_back?: string }>;
+  };
+  onChange: (val: any) => void;
+}) {
+  const data = assessment ?? {};
+  const components = data.components ?? [];
+  const capstones = data.capstones ?? [];
+  const total = components.reduce((s, c) => s + (Number(c.marks) || 0), 0);
+
+  const update = (patch: any) => onChange({ ...data, ...patch });
+
+  const addComponent = () =>
+    update({ components: [...components, { sno: components.length + 1, component: '', marks: 0 }] });
+  const updateComponent = (idx: number, field: 'component' | 'marks', value: string) =>
+    update({
+      components: components.map((c, i) =>
+        i === idx ? { ...c, [field]: field === 'marks' ? Number(value) || 0 : value } : c,
+      ),
+    });
+  const removeComponent = (idx: number) =>
+    update({
+      components: components.filter((_, i) => i !== idx).map((c, i) => ({ ...c, sno: i + 1 })),
+    });
+
+  const addCapstone = () =>
+    update({ capstones: [...capstones, { title: '', subject: '', artifacts: '', give_back: '' }] });
+  const updateCapstone = (idx: number, field: 'title' | 'subject' | 'artifacts' | 'give_back', value: string) =>
+    update({ capstones: capstones.map((c, i) => (i === idx ? { ...c, [field]: value } : c)) });
+  const removeCapstone = (idx: number) =>
+    update({ capstones: capstones.filter((_, i) => i !== idx) });
+
+  return (
+    <div className="space-y-6">
+      {/* Components table (Total 100) */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Assessment Structure (Total 100)
+          </h4>
+          <Button type="button" variant="outline" size="sm" onClick={addComponent} className="gap-1">
+            <Plus className="h-3.5 w-3.5" /> Add Component
+          </Button>
+        </div>
+        <div className="rounded-md border divide-y">
+          <div className="flex items-center gap-2 px-3 py-2 bg-muted/40 text-xs font-medium text-muted-foreground">
+            <span className="w-8 shrink-0">S.No</span>
+            <span className="flex-1">Component</span>
+            <span className="w-20 shrink-0 text-right">Marks</span>
+            <span className="w-8 shrink-0" />
+          </div>
+          {components.map((c, idx) => (
+            <div key={c.id ?? idx} className="flex items-start gap-2 px-3 py-2">
+              <span className="w-8 shrink-0 pt-2 text-sm text-muted-foreground">{c.sno ?? idx + 1}</span>
+              <Textarea
+                value={c.component}
+                onChange={(e) => updateComponent(idx, 'component', e.target.value)}
+                placeholder="Component description"
+                rows={2}
+                className="flex-1"
+              />
+              <Input
+                type="number"
+                value={c.marks ?? ''}
+                onChange={(e) => updateComponent(idx, 'marks', e.target.value)}
+                className="w-20 shrink-0"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => removeComponent(idx)}
+                className="h-8 w-8 shrink-0 text-red-500 hover:text-red-600"
+                aria-label="Remove component"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+          {components.length === 0 && (
+            <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+              No components yet — add one.
+            </div>
+          )}
+          <div className="flex items-center justify-end gap-2 px-3 py-2 bg-muted/30">
+            <span className="text-xs font-medium text-muted-foreground">Total</span>
+            <span className={`text-sm font-semibold ${total === 100 ? 'text-green-600' : 'text-amber-600'}`}>
+              {total}
+            </span>
+            {total !== 100 && (
+              <span className="text-xs text-amber-600">(should be 100)</span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Concept Applications note */}
+      <div>
+        <label className="block text-sm font-medium mb-1">Concept Applications (Mode-Mapped per v1.2 Spec)</label>
+        <Textarea
+          value={data.concept_applications_note ?? ''}
+          onChange={(e) => update({ concept_applications_note: e.target.value })}
+          placeholder="e.g., Five Fink's-shaped Concept Applications, one per Unit. CA-I locked to Mode 1, CA-III to Mode 3…"
+          rows={3}
+        />
+      </div>
+
+      {/* Exhibition note */}
+      <div>
+        <label className="block text-sm font-medium mb-1">Principal-Agent Public Exhibition</label>
+        <Textarea
+          value={data.exhibition_note ?? ''}
+          onChange={(e) => update({ exhibition_note: e.target.value })}
+          placeholder="e.g., choose ONE of FIVE Capstones — see below."
+          rows={2}
+        />
+      </div>
+
+      {/* Capstones */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Capstone Projects
+          </h4>
+          <Button type="button" variant="outline" size="sm" onClick={addCapstone} className="gap-1">
+            <Plus className="h-3.5 w-3.5" /> Add Capstone
+          </Button>
+        </div>
+        <div className="space-y-3">
+          {capstones.map((cap, idx) => (
+            <Card key={cap.id ?? idx} className="border-muted">
+              <CardContent className="pt-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={cap.title}
+                    onChange={(e) => updateCapstone(idx, 'title', e.target.value)}
+                    placeholder="Capstone title — e.g., The Graph in My Town"
+                    className="flex-1 font-medium"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeCapstone(idx)}
+                    className="h-8 w-8 shrink-0 text-red-500 hover:text-red-600"
+                    aria-label="Remove capstone"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Subject</label>
+                  <Textarea
+                    value={cap.subject ?? ''}
+                    onChange={(e) => updateCapstone(idx, 'subject', e.target.value)}
+                    placeholder="What the student models / does"
+                    rows={2}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Artifacts on display</label>
+                  <Textarea
+                    value={cap.artifacts ?? ''}
+                    onChange={(e) => updateCapstone(idx, 'artifacts', e.target.value)}
+                    placeholder="e.g., 3 best CAs + adjacency-matrix Excel + 1500-word essay + 500-word reflection"
+                    rows={2}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Give-back (Hook 3)</label>
+                  <Textarea
+                    value={cap.give_back ?? ''}
+                    onChange={(e) => updateCapstone(idx, 'give_back', e.target.value)}
+                    placeholder="Hand findings back to the people in the system and record their response"
+                    rows={2}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+          {capstones.length === 0 && (
+            <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground text-center">
+              No capstones yet — add the FIVE exhibition options (or just the chosen one).
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
