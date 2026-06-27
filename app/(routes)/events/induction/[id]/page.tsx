@@ -11,6 +11,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { InductionService } from '@/lib/services/induction/induction-service';
 import { SessionsSection } from './_components/sessions-section';
+import { ScorecardSection } from './_components/scorecard-section';
 import {
   Card, CardHeader, CardTitle, CardDescription, CardContent,
 } from '@/components/ui/card';
@@ -215,6 +216,9 @@ export default function InductionDetailPage() {
 
         {/* Day-by-day schedule editor */}
         <SessionsSection eventId={id} batches={batches.map((b) => ({ id: b.id, label: b.label }))} />
+
+        {/* Value → advocacy → referral → JOIN funnel + NAAC evidence */}
+        <ScorecardSection eventId={id} />
       </div>
     </ContentLayout>
   );

@@ -157,9 +157,77 @@ export class InductionService {
     if (error) throw error;
     return (data as MyInductionFeedback[]) ?? [];
   }
+
+  // ── Scorecard (coordinator/leadership funnel + joins-vs-vacancy; NAAC evidence) ──
+
+  /** One induction's value→advocacy→referred→submitted→JOINED funnel, broken out
+   *  by department + batch + a program total. Coordinator scope. `joined` is LIVE. */
+  static async getScorecard(eventId: string): Promise<ScorecardRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_scorecard', { p_event_id: eventId });
+    if (error) throw error;
+    return (data as ScorecardRow[]) ?? [];
+  }
+
+  /** Cross-college funnel + joins-vs-vacancy for an academic year (one college,
+   *  or all the caller may access when institutionId is omitted). Leadership scope. */
+  static async getLeadershipScorecard(
+    academicYearId: string,
+    institutionId?: string | null,
+  ): Promise<LeadershipScorecardRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_scorecard_leadership', {
+      p_academic_year_id: academicYearId,
+      p_institution_id: institutionId ?? null,
+    });
+    if (error) throw error;
+    return (data as LeadershipScorecardRow[]) ?? [];
+  }
+
+  /** Record/refresh this induction as NAAC Criterion 5 + 7 evidence in the canonical
+   *  quality_evidence_mappings junction (with the live rollup in metadata). Returns
+   *  the number of evidence rows upserted (2). Coordinator action (induction.manage). */
+  static async emitNaacEvidence(eventId: string): Promise<number> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_emit_naac_evidence', { p_event_id: eventId });
+    if (error) throw error;
+    return (data as number) ?? 0;
+  }
 }
 
 export interface SessionFeedbackSummary { session_id: string; avg_rating: number; response_count: number; }
+
+/** One row of fn_induction_scorecard — a funnel slice (total / a department / a batch). */
+export interface ScorecardRow {
+  dimension: 'total' | 'department' | 'batch';
+  group_id: string | null;
+  group_label: string;
+  enrolled: number;
+  value_rated: number;
+  value_avg: number | null;
+  advocacy_given: number;
+  advocacy_avg: number | null;
+  promoters: number;
+  referred: number;
+  referrals_submitted: number;
+  referrals_joined: number;
+}
+
+/** One row of fn_induction_scorecard_leadership — a college's funnel + joins-vs-vacancy. */
+export interface LeadershipScorecardRow {
+  institution_id: string;
+  institution_name: string;
+  inductions: number;
+  enrolled: number;
+  value_avg: number | null;
+  advocacy_avg: number | null;
+  promoters: number;
+  referred: number;
+  referrals_submitted: number;
+  referrals_joined: number;
+  vacant_seats: number;
+  joins_vs_vacancy_pct: number | null;
+}
 
 export interface MyInductionEnrollment {
   event_id: string;
