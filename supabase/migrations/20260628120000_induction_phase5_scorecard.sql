@@ -336,6 +336,9 @@ BEGIN
     FROM freshers f
     LEFT JOIN public.admission_leads al
       ON al.referred_by_id = f.learner_id AND al.source = 'referral'::lead_source
+     -- scope to THIS college's funnel (match fn_induction_scorecard); a join into
+     -- another tenant is not this induction's NAAC evidence.
+     AND al.institution_id = v_prog.institution_id
   ),
   comp AS (
     SELECT count(*) AS enrolled,
