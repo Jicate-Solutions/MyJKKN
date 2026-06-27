@@ -301,10 +301,12 @@ export function TriggersConsole({
             </CardTitle>
             <p className="text-xs text-muted-foreground">
               These flag a college when a working day has{' '}
-              <strong>no attendance recorded at all</strong> — not a Sunday and
-              not an approved holiday. The Principal is asked to explain within
-              24h, otherwise a short review meeting is booked. Capped to once a
-              week. Rules stay off until you switch them on.
+              <strong>no attendance recorded — or far less than usual</strong>{' '}
+              (below the % of that college&apos;s normal day set here) — on a day
+              that isn&apos;t a Sunday or an approved holiday. The Principal is
+              asked to explain within 24h, otherwise a short review meeting is
+              booked. Capped to once a week. Rules stay off until you switch them
+              on.
             </p>
           </CardHeader>
           <CardContent className="overflow-x-auto">
@@ -312,6 +314,9 @@ export function TriggersConsole({
               <TableHeader>
                 <TableRow>
                   <TableHead>College</TableHead>
+                  <TableHead className="w-28 text-right">
+                    Gap if below %
+                  </TableHead>
                   <TableHead className="w-20 text-right">Cooldown</TableHead>
                   <TableHead className="w-20 text-right">Weekly cap</TableHead>
                   <TableHead className="w-20 text-center">Active</TableHead>
@@ -323,6 +328,23 @@ export function TriggersConsole({
                   <TableRow key={r.id}>
                     <TableCell className="font-medium">
                       {r.college_name}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={r.threshold}
+                          onChange={(e) =>
+                            patchLocal(r.id, {
+                              threshold: Number(e.target.value)
+                            })
+                          }
+                          className="h-8 w-16 text-right tabular-nums"
+                        />
+                        <span className="text-xs text-muted-foreground">%</span>
+                      </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <Input

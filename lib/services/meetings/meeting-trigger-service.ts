@@ -58,6 +58,8 @@ interface TriggerRule {
   quiet_windows: Array<{ start: string; end: string }> | null;
   notify_role: string;
   active: boolean;
+  /** Optional: when the college has no Principal, route this rule's alert here. */
+  alert_owner_staff_id?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +136,8 @@ interface Recipients {
  */
 async function resolveRecipients(
   db: SupabaseClient,
-  institutionId: string
+  institutionId: string,
+  alertOwnerStaffId?: string | null
 ): Promise<Recipients> {
   const { data: principals } = await db
     .from('profiles')
@@ -145,6 +148,14 @@ async function resolveRecipients(
 
   let ids = (principals ?? []).map((r: any) => r.id).filter(Boolean);
   let fallbackToAdmin = false;
+
+  // No Principal but a designated alert owner is set on the rule → route to that
+  // one person instead of fanning out to every super-admin (Director 2026-06-27).
+  if (ids.length === 0 && alertOwnerStaffId) {
+    const ownerMap = await mapStaffToProfiles(db, [alertOwnerStaffId]);
+    const ownerProfile = ownerMap.get(alertOwnerStaffId);
+    if (ownerProfile) ids = [ownerProfile];
+  }
 
   if (ids.length === 0) {
     const { data: admins } = await db
@@ -437,11 +448,13 @@ export async function evaluateAttendanceTriggers(
 
 /**
  * Evaluate all active missing-data (data-gap) rules. A college-day is a gap when
- * it is a working day (not Sunday, not an approved institution-wide holiday) with
- * ZERO attendance marks — the structural inverse of evaluateAttendanceTriggers,
- * which skips no-data days and leaves them to this trigger. The working-day +
- * zero-marks test lives in SQL (`fn_college_is_missing_data_day`) so it stays
- * consistent with the attendance marking gate. Idempotent per (rule, day).
+ * it is a working day AND attendance is either ZERO or near-empty (below the
+ * rule's % of the college's recent normal) — the structural inverse of
+ * evaluateAttendanceTriggers, which skips no-data days and leaves them here. The
+ * working-day + gap test lives in SQL (`fn_college_data_gap_check`), which
+ * composes the canonical `is_institution_holiday` (the same source the timetable
+ * working-day engine uses) rather than re-querying institution_leaves. Idempotent
+ * per (rule, day).
  *
  * Unlike the attendance trigger, the 3-day window is evaluated OLDEST-first and
  * fires on the oldest still-empty day: a college that simply marked late is not
@@ -511,9 +524,17 @@ export async function evaluateMissingDataTriggers(
       for (const candDate of candidateDates) {
         if (isInQuietWindow(candDate, rule.quiet_windows)) continue;
 
-        const { data: isGap, error: rpcErr } = await db.rpc(
-          'fn_college_is_missing_data_day',
-          { p_institution_id: rule.institution_id, p_date: candDate }
+        // Canonical working-day + zero-OR-near-empty check. Returns the verdict
+        // plus the day's mark count and the college's recent normal, so we can
+        // record observed_value and word the message accurately. p_min_pct comes
+        // from the rule's threshold (Director: 25% of normal).
+        const { data: gapRows, error: rpcErr } = await db.rpc(
+          'fn_college_data_gap_check',
+          {
+            p_institution_id: rule.institution_id,
+            p_date: candDate,
+            p_min_pct: Number(rule.threshold) || 25
+          }
         );
         if (rpcErr) {
           result.errors.push(
@@ -521,12 +542,19 @@ export async function evaluateMissingDataTriggers(
           );
           continue;
         }
-        // Not a gap (weekend, approved holiday, or attendance present) → skip.
-        if (isGap !== true) continue;
+        const gap = Array.isArray(gapRows) ? gapRows[0] : gapRows;
+        // Not a gap (weekend, approved holiday, or enough attendance) → skip.
+        if (!gap || gap.is_gap !== true) continue;
+        const marks = Number(gap.marks ?? 0);
+        const normal = gap.normal != null ? Number(gap.normal) : null;
 
-        // Resolve recipients (principal → admin fallback).
+        // Resolve recipients (principal → rule's alert owner → admin fallback).
         const { recipientIds, createdBy, fallbackToAdmin } =
-          await resolveRecipients(db, rule.institution_id);
+          await resolveRecipients(
+            db,
+            rule.institution_id,
+            rule.alert_owner_staff_id
+          );
         if (recipientIds.length === 0 || !createdBy) {
           result.skipped_no_recipient++;
           logger.warn(MODULE, 'Data gap with no resolvable recipient', {
@@ -536,8 +564,8 @@ export async function evaluateMissingDataTriggers(
           break; // no one to notify for this institution — stop the window
         }
 
-        // Record the event (idempotent per rule+day). observed_value 0 = "no
-        // marks"; threshold is the rule's nominal value (binary metric).
+        // Record the event (idempotent per rule+day). observed_value = the day's
+        // mark count (0 for a total gap); threshold = the near-empty % line.
         const explanationDeadline = new Date(
           Date.now() + EXPLANATION_WINDOW_HOURS * 60 * 60 * 1000
         ).toISOString();
@@ -547,7 +575,7 @@ export async function evaluateMissingDataTriggers(
             rule_id: rule.id,
             institution_id: rule.institution_id,
             metric_key: rule.metric_key,
-            observed_value: 0,
+            observed_value: marks,
             threshold: rule.threshold,
             breach_date: candDate,
             status: 'notified',
@@ -569,18 +597,34 @@ export async function evaluateMissingDataTriggers(
         // Notify — supportive tone (decision E6): a gap is usually un-entered
         // data, not a missed class. Ask for context, not blame.
         const instName = await getInstitutionName(db, rule.institution_id);
+        const adminNote = fallbackToAdmin
+          ? ' (No principal on record yet — routed to administration.)'
+          : '';
+        const gapTitle =
+          marks === 0
+            ? `Attendance not recorded — ${instName}`
+            : `Attendance looks incomplete — ${instName}`;
+        const gapBody =
+          marks === 0
+            ? `No attendance was recorded for ${instName} on ${candDate}, a working ` +
+              `day. If attendance was taken, please make sure it is entered; if the ` +
+              `day had no classes, let us know what happened. A brief note within ` +
+              `${EXPLANATION_WINDOW_HOURS} hours keeps this from being escalated.` +
+              adminNote
+            : `Only ${marks} attendance ${marks === 1 ? 'mark was' : 'marks were'} ` +
+              `recorded for ${instName} on ${candDate}` +
+              (normal
+                ? `, far below its usual ~${Math.round(normal)} for a working day`
+                : '') +
+              `. If more was taken, please make sure it is entered; otherwise let ` +
+              `us know what happened. A brief note within ${EXPLANATION_WINDOW_HOURS} ` +
+              `hours keeps this from being escalated.` +
+              adminNote;
         const notificationId = await createBellNotification(db, {
           recipientIds,
           createdBy,
-          title: `Attendance not recorded — ${instName}`,
-          body:
-            `No attendance was recorded for ${instName} on ${candDate}, a working ` +
-            `day. If attendance was taken, please make sure it is entered; if the ` +
-            `day had no classes, let us know what happened. A brief note within ` +
-            `${EXPLANATION_WINDOW_HOURS} hours keeps this from being escalated.` +
-            (fallbackToAdmin
-              ? ' (No principal on record yet — routed to administration.)'
-              : ''),
+          title: gapTitle,
+          body: gapBody,
           url: '/academic/attendance',
           category: 'missing_data:gap',
           action: {
@@ -595,7 +639,8 @@ export async function evaluateMissingDataTriggers(
             rule_id: rule.id,
             institution_id: rule.institution_id,
             breach_date: candDate,
-            observed: 0,
+            observed: marks,
+            normal: normal,
             threshold: rule.threshold,
             source: 'cron:attendance-breach-check'
           }
@@ -711,7 +756,7 @@ export async function reconcileExplanations(
                   : `Attendance explanation — ${instName}`,
               body:
                 ev.metric_key === MISSING_DATA_METRIC
-                  ? `${instName} (no attendance recorded on ${ev.breach_date}) ` +
+                  ? `${instName} (${Number(ev.observed_value ?? 0) === 0 ? 'no attendance recorded' : `only ${ev.observed_value} attendance marks`} on ${ev.breach_date}) ` +
                     `submitted an explanation:\n\n"${r.text_response}"\n\n` +
                     `Decide whether to skip or still hold a review meeting.`
                   : `${instName} (${ev.observed_value ?? '—'}% on ${ev.breach_date}, ` +
@@ -752,7 +797,7 @@ export async function reconcileExplanations(
             title: `Review meeting warranted — ${instName}`,
             body:
               ev.metric_key === MISSING_DATA_METRIC
-                ? `${instName} had no attendance recorded on ${ev.breach_date} and ` +
+                ? `${instName} ${Number(ev.observed_value ?? 0) === 0 ? 'had no attendance recorded' : `recorded only ${ev.observed_value} attendance marks`} on ${ev.breach_date} and ` +
                   `no explanation was given within ${EXPLANATION_WINDOW_HOURS} hours. ` +
                   `A review meeting with the Director is warranted.`
                 : `${instName} recorded ${ev.observed_value ?? '—'}% on ${ev.breach_date} ` +
@@ -870,7 +915,12 @@ function ragLevel(rag: string | null): number {
   return 0;
 }
 
-/** Map staff ids -> profile ids (assignee.staff_id / owner_staff_id -> staff.profile_id). */
+/**
+ * Map staff ids -> profile ids, ACTIVE staff only. Anyone who has left the
+ * institution (is_active = false) is intentionally omitted, so a departed
+ * Accountable / owner / informee drops out and the caller's fallback chain takes
+ * over (Director 2026-06-27: "if the owner left, escalate to the project owner").
+ */
 async function mapStaffToProfiles(
   db: SupabaseClient,
   staffIds: Array<string | null | undefined>
@@ -878,9 +928,12 @@ async function mapStaffToProfiles(
   const ids = [...new Set(staffIds.filter(Boolean))] as string[];
   const map = new Map<string, string>();
   if (ids.length === 0) return map;
-  const { data } = await db.from('staff').select('id, profile_id').in('id', ids);
+  const { data } = await db
+    .from('staff')
+    .select('id, profile_id, is_active')
+    .in('id', ids);
   for (const r of (data ?? []) as any[]) {
-    if (r.profile_id) map.set(r.id, r.profile_id);
+    if (r.profile_id && r.is_active) map.set(r.id, r.profile_id);
   }
   return map;
 }
@@ -1075,7 +1128,7 @@ export async function evaluateProjectTriggers(
       const { data: tasks, error } = await db
         .from('project_tasks')
         .select(
-          'id, title, due_date, project_id, owner_staff_id, projects!inner(institution_id, title)'
+          'id, title, due_date, project_id, owner_staff_id, projects!inner(institution_id, title, owner_staff_id)'
         )
         .is('completed_at', null)
         .not('due_date', 'is', null)
@@ -1107,13 +1160,23 @@ export async function evaluateProjectTriggers(
             if (a.role in buckets && a.staff_id) buckets[a.role].push(a.staff_id);
           }
 
-          const accountableStaff = buckets.accountable[0] ?? t.owner_staff_id ?? null;
+          const accountableStaff = buckets.accountable[0] ?? null;
+          // No Accountable, or the Accountable has left → the project owner
+          // answers (Director 2026-06-27). The active-only staff map below makes
+          // a departed Accountable fall through automatically.
+          // [Fast-follow: also escalate when the Accountable is on approved leave
+          //  today — pending confirmation of the staff <-> hr employee link.]
+          const projectOwnerStaff = t.projects?.owner_staff_id ?? null;
           const otherStaff = [
             ...buckets.responsible,
             ...buckets.consulted,
             ...buckets.informed
           ];
-          const staffMap = await mapStaffToProfiles(db, [accountableStaff, ...otherStaff]);
+          const staffMap = await mapStaffToProfiles(db, [
+            accountableStaff,
+            projectOwnerStaff,
+            ...otherStaff
+          ]);
 
           const head = institutionId
             ? await resolveRecipients(db, institutionId)
@@ -1121,7 +1184,9 @@ export async function evaluateProjectTriggers(
           const headIds = head.recipientIds;
 
           let accountableProfile =
-            (accountableStaff ? staffMap.get(accountableStaff) : null) ?? null;
+            (accountableStaff ? staffMap.get(accountableStaff) : null) ??
+            (projectOwnerStaff ? staffMap.get(projectOwnerStaff) : null) ??
+            null;
           if (!accountableProfile) accountableProfile = admins[0] ?? null;
           if (!accountableProfile) {
             result.skipped_no_recipient++;
@@ -1369,7 +1434,7 @@ export async function listTriggerRulesWithRates(
   const { data: rules } = await db
     .from('meeting_trigger_rules')
     .select(
-      'id, metric_key, institution_id, comparator, threshold, cooldown_days, weekly_cap, active, notes'
+      'id, metric_key, institution_id, comparator, threshold, cooldown_days, weekly_cap, active, notes, alert_owner_staff_id'
     )
     .order('threshold', { ascending: true });
 
@@ -1408,6 +1473,7 @@ export async function updateTriggerRule(opts: {
     active?: boolean;
     cooldown_days?: number;
     weekly_cap?: number;
+    alert_owner_staff_id?: string | null;
   };
   client?: SupabaseClient;
 }): Promise<{ ok: boolean; error?: string }> {
@@ -1421,6 +1487,10 @@ export async function updateTriggerRule(opts: {
     update.cooldown_days = p.cooldown_days;
   if (typeof p.weekly_cap === 'number' && p.weekly_cap >= 1)
     update.weekly_cap = p.weekly_cap;
+  // null clears the owner; a uuid sets it. undefined leaves it untouched.
+  if (p.alert_owner_staff_id === null) update.alert_owner_staff_id = null;
+  else if (typeof p.alert_owner_staff_id === 'string')
+    update.alert_owner_staff_id = p.alert_owner_staff_id;
   if (Object.keys(update).length === 0)
     return { ok: false, error: 'No valid fields to update' };
 
