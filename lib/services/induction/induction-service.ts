@@ -138,9 +138,54 @@ export class InductionService {
     if (error) throw error;
     return (data as SessionFeedbackSummary[]) ?? [];
   }
+
+  // ── Student-facing reads (the fresher's "my induction") ─────────────────────
+
+  /** The calling learner's induction enrollment(s) + completion rollup + profile
+   *  snapshot. Empty when the caller isn't a learner / isn't enrolled. */
+  static async myEnrollments(): Promise<MyInductionEnrollment[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_my_enrollments');
+    if (error) throw error;
+    return (data as MyInductionEnrollment[]) ?? [];
+  }
+
+  /** The caller's OWN prior per-session ratings for one induction (pre-fill). */
+  static async myFeedback(eventId: string): Promise<MyInductionFeedback[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_my_feedback', { p_event_id: eventId });
+    if (error) throw error;
+    return (data as MyInductionFeedback[]) ?? [];
+  }
 }
 
 export interface SessionFeedbackSummary { session_id: string; avg_rating: number; response_count: number; }
+
+export interface MyInductionEnrollment {
+  event_id: string;
+  event_name: string;
+  institution_id: string;
+  institution_name: string;
+  start_date: string | null;
+  end_date: string | null;
+  status: string | null;
+  batch_id: string | null;
+  batch_label: string | null;
+  sessions_total: number;
+  sessions_attended: number;
+  attendance_pct: number;
+  participation_complete: boolean;
+  value_score_avg: number | null;
+  is_profile_complete: boolean;
+  profile_fields_total: number;
+  profile_fields_filled: number;
+}
+
+export interface MyInductionFeedback {
+  session_id: string;
+  rating: number;
+  comment: string | null;
+}
 
 export type AttendanceStatus = 'present' | 'absent' | 'excused' | 'od';
 export interface AttendanceMark { learner_id: string; status: AttendanceStatus; }
