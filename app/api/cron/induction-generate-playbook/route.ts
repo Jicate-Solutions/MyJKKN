@@ -51,6 +51,7 @@ const SYSTEM_PROMPT = `You are an induction-programme strategist for an Indian h
 Your job: propose next cohort's induction PLAYBOOK so the value-balanced join score improves.
 HARD RULE (Decision 13): NEVER trade educational value for referral pressure. Do not propose nagging, quotas-as-pressure, guilt, or anything that would lift joins while dropping the value freshers feel. Joins must come as a by-product of a cohort that genuinely experienced JKKN's value and chose to advocate. If the prior playbook lifted joins but you suspect it did so via pressure, reject that approach.
 Ground every recommendation in the data provided. Be concrete and India-context aware.
+CAUSAL HUMILITY (drift qualifier): the value-balanced join score compares DIFFERENT cohorts a year apart, so a single year's change may reflect the admission market, cohort size, or chance — NOT your playbook. Do NOT claim a playbook "worked" from one uncontrolled cohort. Treat a prior change as real signal only when the prior playbook was actually ADOPTED (an IGNORED or unrecorded playbook's change is a drift baseline, not evidence) and the pattern holds across cohorts. When the signal is weak, uncontrolled, or based on few cohorts, prioritise durable educational value over chasing the number.
 Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exactly:
 { "summary": "...", "valueFirstPriorities": ["..."], "playbookAdjustments": [{"title":"...","how":"..."}], "referralApproach": "...", "whatToWatchNext": "..." }
 Give 2-4 valueFirstPriorities and 3-5 playbookAdjustments. whatToWatchNext must reference next cohort's value-balanced join score (the loop's verifier).`;
@@ -104,16 +105,29 @@ async function buildTrackRecordBlock(
         ? String(prior.suggestion.summary ?? JSON.stringify(prior.suggestion)).slice(0, 700)
         : String(prior.suggestion).slice(0, 700);
 
-    // verdict drives the model toward keeping vs changing the approach
+    // The adoption verdict gates attribution: a lift only counts as (weak) evidence
+    // about the advice if the prior playbook was ACTUALLY adopted. An ignored or
+    // unrecorded playbook's lift is drift, so the model must not credit it.
+    const verdict = prior.human_verdict ? String(prior.human_verdict) : null;
+    const adoptionLine =
+      verdict === 'adopted'
+        ? 'This playbook was ADOPTED, so its change is weak single-cohort evidence about the advice itself.'
+        : verdict === 'partial'
+          ? 'This playbook was only PARTIALLY adopted — attribute its change cautiously.'
+          : verdict === 'ignored'
+            ? 'This playbook was NOT adopted, so its change reflects external factors (market, cohort, chance), NOT the advice — treat it as a drift baseline and propose fresh value-first ideas.'
+            : 'Adoption of this playbook is unrecorded, so its change cannot be attributed to the advice — treat it as a drift baseline.';
+
+    const directionLine =
+      verdict === 'adopted' && lift !== null && lift >= 5
+        ? 'Since it was adopted and the score rose, build on what worked — but keep prioritising value over the number.'
+        : verdict === 'adopted' && lift !== null && lift <= -1
+          ? 'It was adopted yet the score DROPPED — change the approach; if joins fell because value fell, prioritise value.'
+          : 'Propose a DIFFERENT, more specific value-first approach rather than repeating the prior advice.';
+
     const movedLine =
       lift !== null
-        ? `That playbook produced a value-balanced join score of ${prior.outcome_score} (a change of ${lift >= 0 ? '+' : ''}${prior.outcome_lift} vs the cohort before it). ${
-            lift >= 5
-              ? 'It helped — build on what worked, push further on value.'
-              : lift <= -1
-                ? 'The score DROPPED — change the approach; do not repeat that playbook. If joins fell because value fell, prioritise value.'
-                : 'It did NOT meaningfully move the score — propose a DIFFERENT, more specific value-first approach; do not repeat the same advice.'
-          }`
+        ? `That playbook produced a value-balanced join score of ${prior.outcome_score} (a change of ${lift >= 0 ? '+' : ''}${prior.outcome_lift} vs the cohort before it). ${adoptionLine} ${directionLine}`
         : 'The outcome of that playbook is not measured yet.';
 
     return {
