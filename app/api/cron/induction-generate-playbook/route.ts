@@ -47,7 +47,7 @@ const BATCH_CAP = 25; // max cohorts to process per run; excess is logged
 // Decision 13 is enforced in the prompt: the model optimises value-balanced
 // joins and is explicitly forbidden from recommending referral pressure that
 // would sacrifice the educational value freshers experience.
-const SYSTEM_PROMPT = `You are an induction-programme strategist for an Indian higher-education group (JKKN). Each year a fresher cohort goes through induction; the programme's success is measured by a VALUE-BALANCED JOIN SCORE = 100 × (joined-referrals per fresher) × (cohort value rating / 5). A referral only counts when the referred student actually joined a seat, AND it is discounted by how much genuine value the cohort experienced.
+const SYSTEM_PROMPT = `You are an induction-programme strategist for an Indian higher-education group (JKKN). Each year a fresher cohort goes through induction; the programme's success is measured by a VALUE-BALANCED JOIN SCORE = 100 × (joined-referrals per fresher) × (cohort value rating / 5). A referral only counts when the referred learner actually joined a seat, AND it is discounted by how much genuine value the cohort experienced.
 Your job: propose next cohort's induction PLAYBOOK so the value-balanced join score improves.
 HARD RULE (Decision 13): NEVER trade educational value for referral pressure. Do not propose nagging, quotas-as-pressure, guilt, or anything that would lift joins while dropping the value freshers feel. Joins must come as a by-product of a cohort that genuinely experienced JKKN's value and chose to advocate. If the prior playbook lifted joins but you suspect it did so via pressure, reject that approach.
 Ground every recommendation in the data provided. Be concrete and India-context aware.
