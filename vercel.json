@@ -298,6 +298,10 @@
     {
       "path": "/api/cron/scf-generate-suggestions?secret=${CRON_SECRET}",
       "schedule": "47 5 * * *"
+    },
+    {
+      "path": "/api/cron/induction-generate-playbook?secret=${CRON_SECRET}",
+      "schedule": "23 4 * * 1"
     }
   ]
 }
