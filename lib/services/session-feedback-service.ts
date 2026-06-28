@@ -204,6 +204,28 @@ export class SessionFeedbackService {
     return (data || []) as MyImpactRow[];
   }
 
+  /**
+   * Self-improving loop — the HUMAN verdict channel. Records the teacher's own
+   * read on whether an AI suggestion actually helped, against the recorded
+   * suggestion row (id returned by the ai-suggest-improvement route). This is the
+   * signal fn_scf_prior_suggestion feeds back into the next prompt — without it,
+   * human_verdict is always null. fn_scf_set_verdict is SECURITY DEFINER and
+   * authorizes the caller against the suggestion's own scope, so a faculty can
+   * only verdict their own suggestions. Returns true when the verdict was applied.
+   */
+  static async setSuggestionVerdict(
+    suggestionId: string,
+    verdict: 'tried_helped' | 'tried_no_change' | 'not_tried',
+  ): Promise<boolean> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_set_verdict', {
+      p_suggestion_id: suggestionId,
+      p_verdict: verdict,
+    });
+    if (error) throw new Error(`Failed to save your verdict: ${error.message}`);
+    return data === true;
+  }
+
   // ---------------------------------------------------------------------------
   // Super-admin / institution-leadership all-college dashboard (aggregates only).
   // The RPCs raise for non-authorized callers; all three return ONLY aggregates

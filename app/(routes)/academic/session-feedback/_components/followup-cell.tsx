@@ -27,15 +27,21 @@ export function FollowupCell({ row }: { row: EscalationFollowupRow }) {
   }
 
   const lift = row.lift; // next_avg - escalated_avg
-  const improved = lift != null && lift > 0;
-  const worse = lift != null && lift < 0;
+  // Noise band: a lift this small is sampling noise on a tiny class, not a real
+  // change in understanding — showing it as a number reads to the teacher like a
+  // verdict on their teaching. Collapse |lift| < 0.5 into a neutral "about the
+  // same" (no number); only show a signed one-decimal figure once it clears the band.
+  const NOISE_BAND = 0.5;
+  const meaningful = lift != null && Math.abs(lift) >= NOISE_BAND;
+  const improved = meaningful && (lift as number) > 0;
+  const worse = meaningful && (lift as number) < 0;
   const liftColor = improved
     ? 'text-green-600'
     : worse
       ? 'text-red-600'
       : 'text-muted-foreground';
   const LiftArrow = improved ? ArrowUp : worse ? ArrowDown : Minus;
-  const liftLabel = improved ? 'improved' : worse ? 'worse' : 'no change';
+  const liftLabel = improved ? 'improved' : worse ? 'worse' : 'about the same';
 
   return (
     <div className="flex flex-col items-end gap-0.5">
@@ -47,8 +53,14 @@ export function FollowupCell({ row }: { row: EscalationFollowupRow }) {
       </span>
       <span className={`flex items-center gap-1 text-xs font-medium ${liftColor}`}>
         <LiftArrow className="h-3.5 w-3.5" aria-hidden />
-        {lift != null ? (lift > 0 ? '+' : '') + lift.toFixed(2) : '—'}
-        <span className="font-normal">{liftLabel}</span>
+        {meaningful ? (
+          <>
+            {((lift as number) > 0 ? '+' : '') + (lift as number).toFixed(1)}
+            <span className="font-normal">{liftLabel}</span>
+          </>
+        ) : (
+          <span className="font-normal">{liftLabel}</span>
+        )}
       </span>
       <span className="text-[11px] text-muted-foreground">
         next on {row.next_attendance_date}
