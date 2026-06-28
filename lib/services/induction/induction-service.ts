@@ -192,6 +192,44 @@ export class InductionService {
     const { data, error } = await supabase.rpc('fn_induction_emit_naac_evidence', { p_event_id: eventId });
     if (error) throw error;
     return (data as number) ?? 0;
+=======
+  // ── Phase 4: referral + advocacy (the value→advocacy→refer→join funnel) ──────
+
+  /** Refer a prospect into the admission funnel (source='referral', referral_type
+   *  ='learner', referred_by_id=me). Recomputes the effort gate. */
+  static async submitReferral(eventId: string, input: ReferralInput): Promise<SubmitReferralResult> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_submit_referral', {
+      p_event_id: eventId,
+      p_first_name: input.firstName,
+      p_phone: input.phone,
+      p_last_name: input.lastName ?? null,
+      p_email: input.email ?? null,
+      p_program_id: input.programId ?? null,
+      p_note: input.note ?? null,
+    });
+    if (error) throw error;
+    return data as SubmitReferralResult;
+  }
+
+  /** The fresher's own referrals + live join status. */
+  static async myReferrals(eventId: string): Promise<MyInductionReferral[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_my_referrals', { p_event_id: eventId });
+    if (error) throw error;
+    return (data as MyInductionReferral[]) ?? [];
+  }
+
+  /** End-of-induction advocacy / NPS (0–10) → induction_completion.advocacy_score. */
+  static async submitAdvocacy(eventId: string, score: number): Promise<number> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_submit_advocacy', {
+      p_event_id: eventId,
+      p_score: score,
+    });
+    if (error) throw error;
+    return data as number;
+>>>>>>> jicate/main
   }
 }
 
@@ -244,6 +282,7 @@ export interface MyInductionEnrollment {
   attendance_pct: number;
   participation_complete: boolean;
   value_score_avg: number | null;
+  advocacy_score: number | null;
   is_profile_complete: boolean;
   profile_fields_total: number;
   profile_fields_filled: number;
@@ -253,6 +292,32 @@ export interface MyInductionFeedback {
   session_id: string;
   rating: number;
   comment: string | null;
+}
+
+export interface ReferralInput {
+  firstName: string;
+  phone: string;
+  lastName?: string | null;
+  email?: string | null;
+  programId?: string | null;
+  note?: string | null;
+}
+
+export interface SubmitReferralResult {
+  lead_id: string;
+  action: 'created' | 'duplicate';
+  referrals_submitted: number;
+  outcome_complete: boolean;
+}
+
+export interface MyInductionReferral {
+  lead_id: string;
+  full_name: string | null;
+  phone: string | null;
+  program_id: string | null;
+  funnel_stage: string | null;
+  joined: boolean;
+  submitted_at: string;
 }
 
 export type AttendanceStatus = 'present' | 'absent' | 'excused' | 'od';
