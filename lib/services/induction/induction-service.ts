@@ -192,7 +192,8 @@ export class InductionService {
     const { data, error } = await supabase.rpc('fn_induction_emit_naac_evidence', { p_event_id: eventId });
     if (error) throw error;
     return (data as number) ?? 0;
-=======
+  }
+
   // ── Phase 4: referral + advocacy (the value→advocacy→refer→join funnel) ──────
 
   /** Refer a prospect into the admission funnel (source='referral', referral_type
