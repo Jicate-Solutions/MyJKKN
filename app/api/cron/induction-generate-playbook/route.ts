@@ -34,6 +34,7 @@
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+export const maxDuration = 300;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
@@ -87,7 +88,15 @@ async function buildTrackRecordBlock(
     });
     const prior = Array.isArray(priorData) ? priorData[0] : priorData;
     // Only a MEASURED prior (has_outcome) is a usable feed-forward signal.
-    if (!prior?.suggestion || !prior.has_outcome) {
+    // A zero-enrollment / no-data prior cohort has outcome_lift=0 (non-null, so
+    // has_outcome=true) but outcome_score=null — skip it too, or it renders
+    // 'score of null' into the prompt and leaks a null input_score downstream.
+    if (
+      !prior?.suggestion ||
+      !prior.has_outcome ||
+      prior.outcome_score === null ||
+      prior.outcome_score === undefined
+    ) {
       return { block: '', priorScore: null };
     }
 
@@ -156,12 +165,15 @@ Success metric: value-balanced join score = 100 × (joined-referrals per fresher
 Generate the value-first induction playbook JSON for this cohort now.`;
 
   try {
-    const resp = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userPrompt }],
-    });
+    const resp = await anthropic.messages.create(
+      {
+        model: MODEL,
+        max_tokens: 1024,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userPrompt }],
+      },
+      { timeout: 60000 }
+    );
     const text = resp.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
       .map((b) => b.text)
@@ -203,13 +215,19 @@ export async function GET(request: NextRequest) {
     .from('induction_programs')
     .select('institution_id, academic_year_id, event_id, referral_required_min')
     .not('academic_year_id', 'is', null)
-    .not('institution_id', 'is', null);
+    .not('institution_id', 'is', null)
+    .limit(5000);
 
   if (progErr) {
     console.error('[cron/induction-generate-playbook] programs read failed:', progErr);
     return NextResponse.json(
       { ok: false, error: progErr.message, elapsed_ms: Date.now() - started },
       { status: 500 }
+    );
+  }
+  if (programs && programs.length === 5000) {
+    console.warn(
+      '[cron/induction-generate-playbook] read hit 5000-row cap — cohorts may be truncated; add pagination'
     );
   }
 
@@ -239,7 +257,13 @@ export async function GET(request: NextRequest) {
   const { data: existing } = await admin
     .from('scf_ai_suggestions')
     .select('institution_id, academic_year_id')
-    .eq('domain', 'induction');
+    .eq('domain', 'induction')
+    .limit(5000);
+  if (existing && existing.length === 5000) {
+    console.warn(
+      '[cron/induction-generate-playbook] read hit 5000-row cap — cohorts may be truncated; add pagination'
+    );
+  }
   const hasPlaybook = new Set(
     (existing ?? []).map((r) => `${r.institution_id}|${r.academic_year_id}`)
   );
