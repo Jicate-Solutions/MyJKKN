@@ -8,8 +8,8 @@ import {
   InductionService,
   type InductionSessionRow,
   type ResourceLink,
-  type DirectoryUser,
 } from '@/lib/services/induction/induction-service';
+import { InductionSpeakersService, type DirectoryUser } from '@/lib/services/induction/induction-speakers-service';
 import { AttendanceDialog } from './attendance-dialog';
 import { SessionSpeakerPicker } from './session-speaker-picker';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -89,7 +89,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
     setTitle(s.title); setSpeaker(s.speaker_text ?? ''); setVenue(s.venue_text ?? '');
     setOutcome(s.outcome_text ?? ''); setLinks(s.resource_links ?? []);
     setSpeakers([]);
-    InductionService.getSessionSpeakers(s.id).then(setSpeakers).catch(() => setSpeakers([]));
+    InductionSpeakersService.getSessionSpeakers(s.id).then(setSpeakers).catch(() => setSpeakers([]));
     setOpen(true);
   };
 
@@ -113,7 +113,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
         resourceLinks: links.filter((l) => l.url.trim()),
       });
       // link the chosen resource persons to real user records (replace-set)
-      await InductionService.setSessionSpeakers(sid, speakers.map((u) => u.id));
+      await InductionSpeakersService.setSessionSpeakers(sid, speakers.map((u) => u.id));
       toast.success(editing ? 'Session updated.' : 'Session added.');
       setOpen(false); resetForm(); await load();
     } catch (e: any) {

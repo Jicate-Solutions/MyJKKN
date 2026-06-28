@@ -6,14 +6,14 @@
 // clutters a fresher's view.
 import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { InductionService, type SessionLedRow } from '@/lib/services/induction/induction-service';
+import { InductionSpeakersService, type SessionLedRow } from '@/lib/services/induction/induction-speakers-service';
 import { Mic, CalendarDays, MapPin } from 'lucide-react';
 
 export function SessionsLedCard() {
   const [rows, setRows] = useState<SessionLedRow[] | null>(null);
 
   useEffect(() => {
-    InductionService.getSessionsLed().then(setRows).catch(() => setRows([]));
+    InductionSpeakersService.getSessionsLed().then(setRows).catch(() => setRows([]));
   }, []);
 
   // nothing led (or still loading) → render nothing

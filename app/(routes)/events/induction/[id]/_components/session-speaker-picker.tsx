@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { InductionService, type DirectoryUser } from '@/lib/services/induction/induction-service';
+import { InductionSpeakersService, type DirectoryUser } from '@/lib/services/induction/induction-speakers-service';
 import { X, Search, UserPlus } from 'lucide-react';
 
 export function SessionSpeakerPicker({
@@ -38,7 +38,7 @@ export function SessionSpeakerPicker({
     timer.current = setTimeout(async () => {
       setSearching(true);
       try {
-        const rows = await InductionService.searchUsers(q);
+        const rows = await InductionSpeakersService.searchUsers(q);
         setResults(rows.filter((r) => !selectedIds.has(r.id)));
         setOpenList(true);
       } catch (e: any) {
