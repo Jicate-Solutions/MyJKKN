@@ -32,11 +32,15 @@ export class InductionSpeakersService {
   static async searchUsers(query: string): Promise<DirectoryUser[]> {
     const q = query.trim();
     if (q.length < 2) return [];
+    // Strip PostgREST filter metachars (comma/paren/star/backslash) so a search
+    // term can't inject extra .or() filter terms. Keep . @ _ - for name/email.
+    const safe = q.replace(/[,()*\\]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (safe.length < 2) return [];
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('profiles')
       .select('id, full_name, role, email')
-      .or(`full_name.ilike.%${q}%,email.ilike.%${q}%`)
+      .or(`full_name.ilike.%${safe}%,email.ilike.%${safe}%`)
       .order('full_name')
       .limit(20);
     if (error) throw error;

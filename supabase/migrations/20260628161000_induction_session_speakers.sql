@@ -1,6 +1,6 @@
 -- ============================================================================
 -- Fresher Induction — link session resource-persons to real MyJKKN users
--- File: 20260628160000_induction_session_speakers.sql | Date: 2026-06-28
+-- File: 20260628161000_induction_session_speakers.sql | Date: 2026-06-28
 --
 -- Today a session's resource person is FREE TEXT (event_sessions.speaker_text),
 -- so "Mr.K.Ranjith" or a student presenter is just a string — not tied to the
@@ -90,7 +90,10 @@ BEGIN
   INSERT INTO public.event_session_speakers (session_id, profile_id, source_label, created_by)
   SELECT p_session_id, pid, p_source_label, auth.uid()
   FROM unnest(COALESCE(p_profile_ids, ARRAY[]::uuid[])) AS pid
-  WHERE EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = pid)   -- only real users
+  -- only real users the caller can access: prevents linking a profile from an
+  -- institution the coordinator has no access to (cross-tenant link injection).
+  WHERE EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = pid
+                AND (is_super_admin() OR is_admin() OR role_has_institution_access(p.institution_id)))
   ON CONFLICT (session_id, profile_id) DO NOTHING;
 
   GET DIAGNOSTICS v_count = ROW_COUNT;
