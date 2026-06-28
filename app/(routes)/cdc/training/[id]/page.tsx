@@ -11,7 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { useCdcProgramme, useCdcEnrollments, useUpdateCdcEnrollment, useSyncTrainingAttendance } from '@/hooks/cdc/use-cdc-training';
 import { useAuth } from '@/hooks/use-auth';
-import { ArrowLeft, Calendar, BookOpen, Users, Building2, Plus, CheckCircle2, XCircle, Upload, RefreshCw, Loader2 } from 'lucide-react';
+import { ArrowLeft, Calendar, BookOpen, Users, Building2, Plus, CheckCircle2, XCircle, Upload, RefreshCw, Loader2, Pencil } from 'lucide-react';
 import Link from 'next/link';
 import { AddEnrollmentDialog } from './_components/add-enrollment-dialog';
 import { BulkEnrollDialog } from './_components/bulk-enroll-dialog';
@@ -113,6 +113,13 @@ function TrainingProgrammeDetailContent({ params }: Props) {
               </p>
             )}
           </div>
+          {canManage && (
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/cdc/training/${id}/edit`}>
+                <Pencil className="w-4 h-4 mr-2" /> Edit
+              </Link>
+            </Button>
+          )}
         </div>
 
         {/* Details card */}
