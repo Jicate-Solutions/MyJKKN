@@ -24,6 +24,7 @@ import {
   type LearnerAttendanceSummary,
   type LearnerVacateRequestSummary,
   type LearnerLeaveSummary,
+  type UnallocatedCandidate,
 } from '@/types/campus-living';
 
 const VIEW_SELECT = [
@@ -594,6 +595,30 @@ export class LearnerHosteliteService {
     } catch (err) {
       logger.error('campus-living/learner-hostelite', 'getBillsForStudent unexpected', err);
       return [];
+    }
+  }
+
+  // ── Unallocated hostelites with block-independent readiness check ────────
+  // Calls fn_hostel_unallocated_candidates (SECURITY DEFINER, STABLE). Returns
+  // every active hostelite who does NOT have an active/pending-approval bed,
+  // annotated with readiness flags and a human-readable missing_items list so
+  // the admin can see at a glance why each student isn't placed yet.
+  // ~231 rows today; loaded in full and filtered client-side.
+  static async listUnallocated(institutionId?: string): Promise<UnallocatedCandidate[]> {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await (supabase as any).rpc(
+        'fn_hostel_unallocated_candidates',
+        { p_institution_id: institutionId ?? null },
+      );
+      if (error) {
+        logger.error('campus-living/learner-hostelite', 'listUnallocated failed', error);
+        throw error;
+      }
+      return (data ?? []) as UnallocatedCandidate[];
+    } catch (error) {
+      logger.error('campus-living/learner-hostelite', 'listUnallocated unexpected', error);
+      throw error;
     }
   }
 

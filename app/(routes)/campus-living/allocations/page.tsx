@@ -7,6 +7,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -28,6 +29,7 @@ import {
   allocationMatchesFilters,
 } from './_components/allocation-filters';
 import { TransferDialog } from './_components/transfer-dialog';
+import { NotAllocatedTab } from './_components/not-allocated-tab';
 import {
   Plus, BedDouble, Loader2, Users, ArrowRightLeft, LogOut, UserCheck,
   MoreHorizontal, Eye, ChevronDown, ChevronUp, RotateCcw,
@@ -67,6 +69,7 @@ export default function AllocationsPage() {
   // keys are mass-granted to every role, so we gate on upgrades.manage.
   const canTransfer = isSuperAdmin || !!permissions?.['campus_living.upgrades.manage'];
 
+  const [activeTab, setActiveTab] = useState<'allocated' | 'not-allocated'>('allocated');
   const [statusFilter, setStatusFilter] = useState<string>('active');
   const [hostelTypeFilter, setHostelTypeFilter] = useState<string>('all');
   const [blockFilter, setBlockFilter] = useState<string>('all');
@@ -275,103 +278,123 @@ export default function AllocationsPage() {
           </div>
         </div>
 
-        {/* Summary cards — true totals over the full set */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <SummaryCard icon={<UserCheck className="h-8 w-8 text-green-600" />} value={counts.active} label="Active" />
-          <SummaryCard icon={<ArrowRightLeft className="h-8 w-8 text-blue-600" />} value={counts.transfers} label="Transfers" />
-          <SummaryCard icon={<LogOut className="h-8 w-8 text-amber-600" />} value={counts.vacated} label="Vacated" />
-          <SummaryCard icon={<BedDouble className="h-8 w-8 text-purple-600" />} value={counts.feePending} label="Fee Pending" />
-        </div>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="allocated">
+              Allocated
+              <Badge variant="secondary" className="ml-2 text-xs">{counts.active}</Badge>
+            </TabsTrigger>
+            <TabsTrigger value="not-allocated">
+              Not Allocated
+            </TabsTrigger>
+          </TabsList>
 
-        {/* Status quick-filters stay above the table. */}
-        <div className="flex gap-2 flex-wrap">
-          {['all', 'active', 'vacated', 'transferred', 'suspended'].map((s) => (
-            <Button key={s} variant={statusFilter === s ? 'default' : 'outline'} size="sm" onClick={() => setStatusFilter(s)}>
-              {s === 'all' ? 'All' : statusConfig[s]?.label ?? s}
-            </Button>
-          ))}
-        </div>
-
-        {/* Advanced Filters — profiles-style collapsible grid (same idiom as
-            learners/profiles ProfilesFilters). Every dropdown lives here: the
-            Type → Block → Floor cascade plus the academic filters. Filtering is
-            in-memory and instant — each select re-runs fetchData immediately —
-            so there's a Clear-all button but no Search button. */}
-        <Collapsible open={showAdvancedFilters} onOpenChange={setShowAdvancedFilters}>
-          <CollapsibleTrigger asChild>
-            <Button variant="outline" className="w-full justify-between">
-              Advanced Filters
-              {showAdvancedFilters ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="space-y-4 pt-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {hostelTypes.length > 1 && (
-                <Select
-                  value={hostelTypeFilter}
-                  onValueChange={(v) => { setHostelTypeFilter(v); setBlockFilter('all'); setFloorFilter('all'); }}
-                >
-                  <SelectTrigger><SelectValue placeholder="All Types" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Types</SelectItem>
-                    {hostelTypes.map((t) => (
-                      <SelectItem key={t} value={t} className="capitalize">{t}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              <Select value={blockFilter} onValueChange={(v) => { setBlockFilter(v); setFloorFilter('all'); }}>
-                <SelectTrigger><SelectValue placeholder="All Blocks" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Blocks</SelectItem>
-                  {blockNames.map((bn) => <SelectItem key={bn} value={bn}>{bn}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              {blockFilter !== 'all' && floorOptions.length > 0 && (
-                <Select value={floorFilter} onValueChange={setFloorFilter}>
-                  <SelectTrigger><SelectValue placeholder="All Floors" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Floors</SelectItem>
-                    {floorOptions.map((f) => <SelectItem key={f} value={String(f)}>{floorLabel(f)}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              )}
-              <AllocationAcademicFilterSelects rows={allocations} value={advancedFilters} onChange={setAdvancedFilters} />
+          {/* ── Allocated tab ─────────────────────────────────────────── */}
+          <TabsContent value="allocated" className="space-y-4">
+            {/* Summary cards — true totals over the full set */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <SummaryCard icon={<UserCheck className="h-8 w-8 text-green-600" />} value={counts.active} label="Active" />
+              <SummaryCard icon={<ArrowRightLeft className="h-8 w-8 text-blue-600" />} value={counts.transfers} label="Transfers" />
+              <SummaryCard icon={<LogOut className="h-8 w-8 text-amber-600" />} value={counts.vacated} label="Vacated" />
+              <SummaryCard icon={<BedDouble className="h-8 w-8 text-purple-600" />} value={counts.feePending} label="Fee Pending" />
             </div>
-            <div className="flex justify-end pt-2">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setHostelTypeFilter('all');
-                  setBlockFilter('all');
-                  setFloorFilter('all');
-                  setAdvancedFilters(EMPTY_ALLOCATION_FILTERS);
-                }}
-              >
-                <RotateCcw className="mr-2 h-4 w-4" /> Clear All Filters
+
+            {/* Status quick-filters */}
+            <div className="flex gap-2 flex-wrap">
+              {['all', 'active', 'vacated', 'transferred', 'suspended'].map((s) => (
+                <Button key={s} variant={statusFilter === s ? 'default' : 'outline'} size="sm" onClick={() => setStatusFilter(s)}>
+                  {s === 'all' ? 'All' : statusConfig[s]?.label ?? s}
+                </Button>
+              ))}
+            </div>
+
+            {/* Advanced Filters */}
+            <Collapsible open={showAdvancedFilters} onOpenChange={setShowAdvancedFilters}>
+              <CollapsibleTrigger asChild>
+                <Button variant="outline" className="w-full justify-between">
+                  Advanced Filters
+                  {showAdvancedFilters ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="space-y-4 pt-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {hostelTypes.length > 1 && (
+                    <Select
+                      value={hostelTypeFilter}
+                      onValueChange={(v) => { setHostelTypeFilter(v); setBlockFilter('all'); setFloorFilter('all'); }}
+                    >
+                      <SelectTrigger><SelectValue placeholder="All Types" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Types</SelectItem>
+                        {hostelTypes.map((t) => (
+                          <SelectItem key={t} value={t} className="capitalize">{t}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <Select value={blockFilter} onValueChange={(v) => { setBlockFilter(v); setFloorFilter('all'); }}>
+                    <SelectTrigger><SelectValue placeholder="All Blocks" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Blocks</SelectItem>
+                      {blockNames.map((bn) => <SelectItem key={bn} value={bn}>{bn}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  {blockFilter !== 'all' && floorOptions.length > 0 && (
+                    <Select value={floorFilter} onValueChange={setFloorFilter}>
+                      <SelectTrigger><SelectValue placeholder="All Floors" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Floors</SelectItem>
+                        {floorOptions.map((f) => <SelectItem key={f} value={String(f)}>{floorLabel(f)}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <AllocationAcademicFilterSelects rows={allocations} value={advancedFilters} onChange={setAdvancedFilters} />
+                </div>
+                <div className="flex justify-end pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setHostelTypeFilter('all');
+                      setBlockFilter('all');
+                      setFloorFilter('all');
+                      setAdvancedFilters(EMPTY_ALLOCATION_FILTERS);
+                    }}
+                  >
+                    <RotateCcw className="mr-2 h-4 w-4" /> Clear All Filters
+                  </Button>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+
+            <div className="pinned-actions-col">
+              <DataTable
+                fetchDataFn={fetchData}
+                getColumns={() => columns}
+                idField="id"
+                exportConfig={{ entityName: 'hostel-allocations', columnMapping: {}, columnWidths: [], headers: [] }}
+                config={{ enableUrlState: false, enableDateFilter: false, enableExport: true, enableRowSelection: false }}
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/campus-living/allocations/waitlist"><Users className="mr-2 h-4 w-4" /> View Waitlist</Link>
               </Button>
             </div>
-          </CollapsibleContent>
-        </Collapsible>
+          </TabsContent>
 
-        {/* Advanced data table — paginated, sortable, exportable.
-            .pinned-actions-col keeps the row-action column pinned to the right
-            edge when the table overflows horizontally. */}
-        <div className="pinned-actions-col">
-          <DataTable
-            fetchDataFn={fetchData}
-            getColumns={() => columns}
-            idField="id"
-            exportConfig={{ entityName: 'hostel-allocations', columnMapping: {}, columnWidths: [], headers: [] }}
-            config={{ enableUrlState: false, enableDateFilter: false, enableExport: true, enableRowSelection: false }}
-          />
-        </div>
-
-        <div className="flex gap-3">
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/campus-living/allocations/waitlist"><Users className="mr-2 h-4 w-4" /> View Waitlist</Link>
-          </Button>
-        </div>
+          {/* ── Not Allocated tab ──────────────────────────────────────── */}
+          <TabsContent value="not-allocated" className="space-y-4">
+            <div>
+              <p className="text-sm text-muted-foreground">
+                Active hostelites who have not yet been assigned a bed. Shows
+                block-independent readiness checks so you can see exactly what
+                data is missing before allocation can proceed.
+              </p>
+            </div>
+            {activeTab === 'not-allocated' && <NotAllocatedTab />}
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Manual room/bed reassignment. The mutation invalidates the

@@ -246,6 +246,39 @@ export interface LearnerHostelitesFilters {
   sortOrder?: 'asc' | 'desc';
 }
 
+// ─── Unallocated candidate (fn_hostel_unallocated_candidates) ────────────
+// Returned by the RPC for every active hostelite who does NOT yet have an
+// active or pending-approval bed. Includes block-independent readiness flags
+// so the admin UI can surface exactly what data is missing per student.
+export interface UnallocatedCandidate {
+  learner_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  full_name: string | null;
+  email: string | null;
+  gender: string | null;
+  institution_id: string;
+  institution_name: string | null;
+  program_name: string | null;
+  semester_name: string | null;
+  academic_year_id: string | null;
+  academic_year_name: string | null;
+  // Readiness flags (block-independent)
+  has_profile: boolean;
+  gender_set: boolean;
+  academic_year_set: boolean;
+  room_category_resolved: boolean;
+  mess_category_resolved: boolean;
+  resolved_room_category_name: string | null;
+  resolved_mess_category_name: string | null;
+  // 'matched'|'different_year'|'untagged'|'none'
+  bill_state: 'matched' | 'different_year' | 'untagged' | 'none';
+  // 'ready' = all blocking conditions pass; 'incomplete' = something missing
+  readiness: 'ready' | 'incomplete';
+  // Human-readable list of what is blocking placement (empty when ready)
+  missing_items: string[];
+}
+
 // ─── Detail drawer bundle (BUG-003326) ────────────────────────────────
 // Bundled fetch for the click-anywhere-on-row detail drawer. 4 parallel
 // queries — learner record, hostel profile, current allocation, recent
