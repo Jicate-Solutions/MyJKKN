@@ -230,7 +230,6 @@ export class InductionService {
     });
     if (error) throw error;
     return data as number;
->>>>>>> jicate/main
   }
 }
 
