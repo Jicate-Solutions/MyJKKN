@@ -75,6 +75,10 @@ interface FieldChange {
 interface PreviewResult {
   exists: boolean;
   isActive: boolean;
+  // 2026-06-29: eligibility under the requested lifecycle scope. Active flow
+  // requires active; the enquiry (non-active) flow requires NOT active. The
+  // active routes ignore this field and keep reading `isActive`.
+  eligible?: boolean;
   hasAccess: boolean;
   learnerName?: string;
   changes: FieldChange[];
@@ -150,7 +154,8 @@ export class BulkLearnerEditService {
     learnerId: string,
     uploadedData: any,
     userInstitutionId?: string,
-    isSuperAdmin: boolean = false
+    isSuperAdmin: boolean = false,
+    requireActive: boolean = true
   ): Promise<PreviewResult> {
     // Validate learner exists and is active
     const learnerCheck = await LearnerValidationService.validateActiveLearner(learnerId);
@@ -159,15 +164,20 @@ export class BulkLearnerEditService {
       return {
         exists: false,
         isActive: false,
+        eligible: false,
         hasAccess: false,
         changes: []
       };
     }
 
-    if (!learnerCheck.isActive) {
+    // 2026-06-29: eligibility scope. Active flow requires active; the enquiry
+    // (non-active) flow requires NOT active.
+    const isEligible = requireActive ? learnerCheck.isActive : !learnerCheck.isActive;
+    if (!isEligible) {
       return {
         exists: true,
-        isActive: false,
+        isActive: learnerCheck.isActive,
+        eligible: false,
         hasAccess: false,
         learnerName: 'Unknown',
         changes: []
@@ -181,7 +191,8 @@ export class BulkLearnerEditService {
     if (!hasAccess) {
       return {
         exists: true,
-        isActive: true,
+        isActive: learnerCheck.isActive,
+        eligible: true,
         hasAccess: false,
         learnerName: 'Unknown',
         changes: []
@@ -198,7 +209,8 @@ export class BulkLearnerEditService {
     if (error || !existingLearner) {
       return {
         exists: true,
-        isActive: true,
+        isActive: learnerCheck.isActive,
+        eligible: true,
         hasAccess: true,
         learnerName: 'Unknown',
         changes: []
@@ -248,7 +260,8 @@ export class BulkLearnerEditService {
 
     return {
       exists: true,
-      isActive: true,
+      isActive: learnerCheck.isActive,
+      eligible: true,
       hasAccess: true,
       learnerName,
       changes
@@ -263,7 +276,8 @@ export class BulkLearnerEditService {
     rows: BulkEditRow[],
     userInstitutionId?: string,
     isSuperAdmin: boolean = false,
-    userId?: string
+    userId?: string,
+    requireActive: boolean = true
   ): Promise<BulkEditResult> {
     const result: BulkEditResult = {
       success: true,
@@ -312,11 +326,16 @@ export class BulkLearnerEditService {
           continue;
         }
 
-        if (!learnerCheck.isActive) {
+        // 2026-06-29: eligibility scope. Active flow requires active; the
+        // enquiry (non-active) flow requires NOT active.
+        const isEligible = requireActive ? learnerCheck.isActive : !learnerCheck.isActive;
+        if (!isEligible) {
           result.errors.push({
             row: row.rowNumber,
             id: learnerId,
-            error: 'Learner is not in active status'
+            error: requireActive
+              ? 'Learner is not in active status'
+              : 'Learner is an active student — edit it from the Profiles page'
           });
           result.failed++;
           continue;
@@ -418,12 +437,17 @@ export class BulkLearnerEditService {
         // Update timestamp
         updateData.updated_at = new Date().toISOString();
 
-        // Perform update
-        const { data: updatedLearner, error: updateError } = await supabaseAdmin
+        // Perform update.
+        // Extra safety: never cross the active boundary. The active flow pins to
+        // active; the enquiry (non-active) flow pins to everything-but-active.
+        let updateQuery = supabaseAdmin
           .from('learners_profiles')
           .update(updateData)
-          .eq('id', learnerId)
-          .eq('lifecycle_status', 'active') // Extra safety check
+          .eq('id', learnerId);
+        updateQuery = requireActive
+          ? updateQuery.eq('lifecycle_status', 'active')
+          : updateQuery.neq('lifecycle_status', 'active');
+        const { data: updatedLearner, error: updateError } = await updateQuery
           .select('id, first_name, last_name')
           .single();
 
@@ -496,7 +520,8 @@ export class BulkLearnerEditService {
     departmentId?: string,
     programId?: string,
     semesterId?: string,
-    sectionId?: string
+    sectionId?: string,
+    lifecycleScope: 'active' | 'non_active' = 'active'
   ): Promise<any[]> {
     console.log('[bulk-edit] Export parameters:', {
       institutionId,
@@ -531,8 +556,16 @@ export class BulkLearnerEditService {
           community_ref:community_categories!community_category_id(code),
           caste_ref:castes!caste_id(name),
           accommodation_ref:accommodation_types!accommodation_type_id(name)
-        `)
-        .eq('lifecycle_status', 'active');
+        `);
+
+      // 2026-06-29: scope by lifecycle status. 'active' = Profiles page (default,
+      // unchanged). 'non_active' = Enquiries page (every admission lifecycle stage
+      // except active).
+      if (lifecycleScope === 'non_active') {
+        query = query.neq('lifecycle_status', 'active');
+      } else {
+        query = query.eq('lifecycle_status', 'active');
+      }
 
       // Filter by institution if specified
       if (institutionId) {
@@ -564,8 +597,10 @@ export class BulkLearnerEditService {
         query = query.eq('section_id', sectionId);
       }
 
-      // Filter by profile completeness if requested (include NULL as incomplete)
-      if (!includeComplete) {
+      // Filter by profile completeness if requested (include NULL as incomplete).
+      // Only meaningful for the active scope; enquiries are inherently incomplete
+      // and are always returned in full.
+      if (lifecycleScope === 'active' && !includeComplete) {
         query = query.or('is_profile_complete.eq.false,is_profile_complete.is.null');
       }
 
