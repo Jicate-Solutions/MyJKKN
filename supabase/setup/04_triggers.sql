@@ -477,7 +477,11 @@ BEGIN
     -- Only proceed if this is a NEW profile without learner_id
     IF TG_OP = 'INSERT' AND NEW.learner_id IS NULL AND NEW.email IS NOT NULL THEN
 
-        -- Check if there's an approved/active/graduated learner with matching college_email
+        -- Match an eligible learner by college_email. 'approved'/'active'/
+        -- 'graduated' = full access; the 4 induction statuses = pre-onboarding
+        -- induction-only access (scoped by proxy.ts). Keep in sync with
+        -- INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES + the OAuth callback lookup.
+        -- (20260629100000_induction_only_access_widen_provisioning.sql)
         SELECT
             id,
             first_name,
@@ -488,7 +492,10 @@ BEGIN
         INTO v_learner_record
         FROM learners_profiles
         WHERE LOWER(college_email) = LOWER(NEW.email)
-        AND lifecycle_status IN ('approved', 'active', 'graduated')
+        AND lifecycle_status IN (
+            'approved', 'active', 'graduated',
+            'admitted', 'reserved', 'enquiry_submitted', 'enquiry'
+        )
         LIMIT 1;
 
         -- If learner found, link it to this profile

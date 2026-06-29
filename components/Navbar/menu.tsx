@@ -13,7 +13,7 @@ import {
   TooltipProvider
 } from '@/components/ui/tooltip';
 import { motion, AnimatePresence } from 'motion/react';
-import { GetRoleBasedPages, RolePermissionData, MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
+import { GetRoleBasedPages, RolePermissionData, MENU_PERMISSIONS, filterToInductionOnlyMenu } from '@/lib/sidebarMenuLink';
 import { getModulesBySection } from '@/lib/navigation/modules';
 import { getPageRegistry, getPageByPath } from '@/lib/navigation/page-registry';
 import { filterByPermissions } from '@/lib/navigation/permission-filter';
@@ -29,6 +29,7 @@ import {
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
 import { useCommitteeMembership } from '@/hooks/events/marathon/use-committee-membership';
 import { useIsHosteler } from '@/hooks/campus-living/use-is-hosteler';
+import { useIsInductionOnly } from '@/hooks/use-my-lifecycle-status';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
 import { FavoritesSidebarSection } from '@/components/Favorites/FavoritesSidebarSection';
 import { FavoriteStar } from '@/components/Favorites/FavoriteStar';
@@ -91,6 +92,9 @@ export function Menu({ isOpen }: MenuProps) {
   // residents (learners_profiles accommodation = hostel), not every student.
   const isStudentRole = userProfile?.role === 'student';
   const { data: isHosteler } = useIsHosteler(isStudentRole);
+  // Pre-onboarding (induction-only) learners: scope the sidebar to My Induction +
+  // My Profile. Proxy.ts is the real gate; this hides links that would only redirect.
+  const isInductionOnly = useIsInductionOnly(isStudentRole);
 
   // Build RolePermissionData from usePermissions (multi-role merged)
   const roleData = useMemo((): RolePermissionData | null => {
@@ -167,7 +171,8 @@ export function Menu({ isOpen }: MenuProps) {
   // since `MODULES` deliberately does not carry submenu data — same trade-off as
   // bottom-navbar.tsx. Sections with zero accessible menus (after permission
   // filtering) are dropped, exactly as before.
-  const pagesRaw = GetRoleBasedPages(pathname, roleData);
+  const pagesRawBase = GetRoleBasedPages(pathname, roleData);
+  const pagesRaw = isInductionOnly ? filterToInductionOnlyMenu(pagesRawBase) : pagesRawBase;
 
   // Adapt menu labels based on institution type (school → classes/terms, college → programs/semesters)
   const pagesAdapted = useMemo(

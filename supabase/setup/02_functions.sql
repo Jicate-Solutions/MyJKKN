@@ -12718,6 +12718,27 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.get_my_learner_id() TO authenticated;
 
+-- fn_my_lifecycle_status(): the caller's own learners_profiles.lifecycle_status.
+-- Used by the client nav to scope pre-onboarding (induction-only) learners to the
+-- My Induction + My Profile entries. SECURITY DEFINER (reads past RLS) but only
+-- ever returns the CALLER's own row. proxy.ts is the real access gate.
+-- (20260629100000_induction_only_access_widen_provisioning.sql)
+CREATE OR REPLACE FUNCTION public.fn_my_lifecycle_status()
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+  SELECT lp.lifecycle_status::text
+  FROM profiles p
+  JOIN learners_profiles lp ON lp.id = p.learner_id
+  WHERE p.id = auth.uid();
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_my_lifecycle_status() FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_my_lifecycle_status() TO authenticated;
+
 -- user_is_hosteler(): true when the current user's learner record has
 -- accommodation type = hostel. Built on get_my_learner_id() (existing).
 -- Clean signal: accommodation_types.code='hostel'; fallback: dirty text.

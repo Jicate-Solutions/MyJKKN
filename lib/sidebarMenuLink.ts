@@ -2550,6 +2550,28 @@ export function isStudentPortalRoute(href: string): boolean {
   );
 }
 
+// Pre-onboarding (induction-only) learners may navigate to ONLY these two pages
+// (mirrors the proxy.ts whitelist). Second-stage filter applied AFTER
+// GetRoleBasedPages in the nav consumers (menu.tsx, bottom-navbar.tsx) so the
+// sidebar shows only what they can actually reach. The proxy is the real gate.
+// Spec: specs/pre-onboarding-induction-access-2026-06-29.md
+const INDUCTION_ONLY_NAV_HREFS = new Set<string>([
+  '/learners/my-induction',
+  '/learners/my-profile',
+]);
+
+/** Keep only the My Induction + My Profile menu entries; drop everything else. */
+export function filterToInductionOnlyMenu(groups: MenuGroup[]): MenuGroup[] {
+  return groups
+    .map((group) => ({
+      ...group,
+      menus: group.menus
+        .filter((menu) => INDUCTION_ONLY_NAV_HREFS.has(menu.href))
+        .map((menu) => ({ ...menu, submenus: [] })),
+    }))
+    .filter((group) => group.menus.length > 0);
+}
+
 // New function to filter menus based on user role permissions
 export function GetRoleBasedPages(
   pathname: string,

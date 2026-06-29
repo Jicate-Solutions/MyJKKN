@@ -26,13 +26,14 @@ import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useBottomNav, useBottomNavHydration } from '@/hooks/use-bottom-nav';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
-import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
+import { GetRoleBasedPages, RolePermissionData, filterToInductionOnlyMenu } from '@/lib/sidebarMenuLink';
 import { adaptMenuLabels, adaptLabel } from '@/lib/utils/school-label-adapter';
 import { useAuth } from '@/providers/auth-provider';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionType } from '@/hooks/use-institution-type';
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
 import { useIsHosteler } from '@/hooks/campus-living/use-is-hosteler';
+import { useIsInductionOnly } from '@/hooks/use-my-lifecycle-status';
 import { usePageFavorites } from '@/hooks/use-page-favorites';
 import { ICON_MAP } from '@/lib/navigation/page-registry';
 import { MODULES, getModulesBySection } from '@/lib/navigation/modules';
@@ -179,6 +180,9 @@ export function BottomNavbar() {
   // sidebar and mobile bottom-nav stay in lock-step.
   const isStudentRole = userProfile?.role === 'student';
   const { data: isHosteler } = useIsHosteler(isStudentRole);
+  // Pre-onboarding (induction-only) learners: scope the bottom nav to My Induction
+  // + My Profile (matches the desktop sidebar + proxy whitelist).
+  const isInductionOnly = useIsInductionOnly(isStudentRole);
 
   // Build RolePermissionData from usePermissions (multi-role merged)
   const roleData = useMemo((): RolePermissionData | null => {
@@ -225,7 +229,8 @@ export function BottomNavbar() {
 
   // Get filtered pages based on merged permissions and institution type
   const filteredPages = useMemo(() => {
-    const pages = GetRoleBasedPages(pathname, roleData);
+    const rawPages = GetRoleBasedPages(pathname, roleData);
+    const pages = isInductionOnly ? filterToInductionOnlyMenu(rawPages) : rawPages;
 
     // Apply label adaptation for schools (Degrees → Streams, etc.)
     // NOTE: Do NOT filter by entity type like filterMenuByEntityType does.
@@ -233,7 +238,7 @@ export function BottomNavbar() {
     // The sidebar approach (adapt labels, don't hide menus) is correct.
     const entityType = (institutionType ?? 'institution') as any;
     return adaptMenuLabels(pages, entityType);
-  }, [pathname, roleData, institutionType]);
+  }, [pathname, roleData, institutionType, isInductionOnly]);
 
   // Transform filtered pages into bottom nav groups.
   //

@@ -117,6 +117,26 @@ const isPublicPath = (path: string): boolean => {
   return false;
 };
 
+// Pre-onboarding (induction-only) learners — admission-funnel statuses (enquiry,
+// enquiry_submitted, reserved, admitted) — may reach ONLY these authenticated
+// paths; everything else redirects to /learners/my-induction. Mirrors the
+// guest/driver scoping pattern below. NOTE: /auth/* and /auth/complete-profile are
+// already public (short-circuit in isPublicPath above), so they don't need listing
+// here. Spec: specs/pre-onboarding-induction-access-2026-06-29.md
+const INDUCTION_ONLY_EXACT_PATHS = new Set([
+  '/learners/my-profile', // profile completion — the My Induction nudge target
+  '/unauthorized',
+  '/error'
+]);
+const INDUCTION_ONLY_PREFIXES = ['/learners/my-induction'];
+const isInductionOnlyAllowedPath = (path: string): boolean => {
+  if (INDUCTION_ONLY_EXACT_PATHS.has(path)) return true;
+  for (const prefix of INDUCTION_ONLY_PREFIXES) {
+    if (path === prefix || path.startsWith(prefix + '/')) return true;
+  }
+  return false;
+};
+
 // Legacy drip-sequence routes relocated to /automations/ (2026-05-12).
 // Keep these 301s for at least one release cycle / 90 days so external
 // bookmarks and stale links resolve.
@@ -373,7 +393,18 @@ export async function proxy(request: NextRequest) {
           isGraduated: validation.isGraduated
         });
 
-        if (!validation.allowed) {
+        if (validation.accessTier === 'induction_only') {
+          // Pre-onboarding learner — RESTRICTED to the induction whitelist. They
+          // are legitimately logged in (do NOT sign out); just scope them down to
+          // My Induction (+ feedback) + profile completion, redirecting everything
+          // else. Same shape as the guest/driver redirect below.
+          if (!isInductionOnlyAllowedPath(currentPath)) {
+            console.log('[Proxy] 🎓 Induction-only learner - redirecting', currentPath, '→ /learners/my-induction');
+            return NextResponse.redirect(new URL('/learners/my-induction', request.url));
+          }
+          console.log('[Proxy] 🎓 Induction-only learner - allowing:', currentPath);
+          // Whitelisted path — fall through and let the middleware continue.
+        } else if (!validation.allowed) {
           // Student blocked due to lifecycle status
           console.log('[Proxy] ❌ Student BLOCKED - reason:', validation.reason);
 
