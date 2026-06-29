@@ -40,6 +40,23 @@ export interface PreviewEnrollResult {
   sample: Array<{ name: string; status: string }>;
 }
 
+/** A currently-appointed induction coordinator (with their college). */
+export interface InductionCoordinator {
+  user_id: string;
+  full_name: string;
+  email: string;
+  institution_id: string;
+  institution_name: string;
+}
+
+/** A staff member who can be appointed as a coordinator. */
+export interface AssignableStaff {
+  id: string;
+  full_name: string;
+  email: string;
+  role: string;
+}
+
 export class InductionService {
   /** Create the induction (events row event_type='induction' + satellite). Returns event_id. */
   static async createProgram(input: CreateInductionInput): Promise<string> {
@@ -103,6 +120,46 @@ export class InductionService {
     });
     if (error) throw error;
     return (data as number) ?? 0;
+  }
+
+  // ── Coordinator management (Induction Lead / super-admin only) ──────────────
+  // Appoint each college's Induction Coordinator from inside the induction module
+  // instead of the global Role Management page.
+
+  /** Can the current user manage coordinators (super-admin or induction_lead)? */
+  static async canManageCoordinators(): Promise<boolean> {
+    const { data, error } = await getSupabase().rpc('fn_induction_can_manage_coordinators');
+    if (error) return false;
+    return !!data;
+  }
+
+  /** List current induction coordinators (with their college). */
+  static async listCoordinators(): Promise<InductionCoordinator[]> {
+    const { data, error } = await getSupabase().rpc('fn_induction_list_coordinators');
+    if (error) throw error;
+    return (data as InductionCoordinator[]) ?? [];
+  }
+
+  /** Search assignable staff of a college (to pick a coordinator). */
+  static async assignableStaff(institutionId: string, query: string): Promise<AssignableStaff[]> {
+    const { data, error } = await getSupabase().rpc('fn_induction_assignable_staff', {
+      p_institution_id: institutionId,
+      p_query: query || null,
+    });
+    if (error) throw error;
+    return (data as AssignableStaff[]) ?? [];
+  }
+
+  /** Appoint a coordinator (grants induction_coordinator; their college = their profile). */
+  static async assignCoordinator(userId: string): Promise<void> {
+    const { error } = await getSupabase().rpc('fn_induction_assign_coordinator', { p_user_id: userId });
+    if (error) throw error;
+  }
+
+  /** Remove a coordinator (revokes the role). */
+  static async removeCoordinator(userId: string): Promise<void> {
+    const { error } = await getSupabase().rpc('fn_induction_remove_coordinator', { p_user_id: userId });
+    if (error) throw error;
   }
 
   // ── Session authoring (event_sessions, via gated DEFINER RPCs) ──────────────
