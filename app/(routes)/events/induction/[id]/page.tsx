@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Users, Layers, Building2, CalendarDays, UserPlus, Split, GraduationCap, MapPin } from 'lucide-react';
+import type { ComponentType } from 'react';
 
 interface EventRow {
   id: string; name: string; status: string | null;
@@ -133,6 +134,12 @@ export default function InductionDetailPage() {
 
   const assigned = batches.reduce((s, b) => s + b.count, 0);
   const unbatched = Math.max(0, enrolled - assigned);
+  const dateRange = event.start_date
+    ? `${new Date(event.start_date).toLocaleDateString()}${event.end_date ? ` – ${new Date(event.end_date).toLocaleDateString()}` : ''}`
+    : null;
+  const scopeLabel = enrollScope === 'group'
+    ? 'All colleges (group)'
+    : enrollScope === 'institution' ? 'This college only' : null;
 
   return (
     <ContentLayout title={event.name}>
@@ -144,101 +151,94 @@ export default function InductionDetailPage() {
       ]} />
 
       <div className="space-y-6 mt-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold py-1">{event.name}</h1>
-            <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1.5"><Building2 className="h-3.5 w-3.5" />{event.institutions?.name ?? '—'}</span>
-              {event.start_date && (
-                <span className="flex items-center gap-1.5">
-                  <CalendarDays className="h-3.5 w-3.5" />
-                  {new Date(event.start_date).toLocaleDateString()}
-                  {event.end_date ? ` – ${new Date(event.end_date).toLocaleDateString()}` : ''}
-                </span>
-              )}
-              {admissionYear && (
-                <span className="flex items-center gap-1.5">
-                  <GraduationCap className="h-3.5 w-3.5" /> Admission year {admissionYear}
-                </span>
-              )}
-              {enrollScope && (
-                <span className="flex items-center gap-1.5">
-                  <Users className="h-3.5 w-3.5" />
-                  {enrollScope === 'group' ? 'All colleges (group)' : 'This college only'}
-                </span>
-              )}
-              {venueName && (
-                <span className="flex items-center gap-1.5">
-                  <MapPin className="h-3.5 w-3.5" /> {venueName}
-                </span>
-              )}
+        {/* Program header — identity + at-a-glance meta */}
+        <section className="rounded-xl border bg-card p-5 sm:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 space-y-1">
+              <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <Rocket className="h-3.5 w-3.5 text-primary" aria-hidden /> Fresher Induction
+              </div>
+              <h1 className="text-2xl font-bold leading-tight">{event.name}</h1>
             </div>
+            <Badge variant={event.status === 'live' ? 'default' : 'secondary'} className="capitalize shrink-0">
+              {event.status ?? 'draft'}
+            </Badge>
           </div>
-          <Badge variant={event.status === 'live' ? 'default' : 'secondary'}>{event.status ?? 'draft'}</Badge>
+
+          <div className="mt-5 grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+            <MetaItem icon={Building2} label="Institution" value={event.institutions?.name} />
+            {dateRange && <MetaItem icon={CalendarDays} label="Dates" value={dateRange} />}
+            {admissionYear != null && <MetaItem icon={GraduationCap} label="Admission year" value={admissionYear} />}
+            {scopeLabel && <MetaItem icon={Users} label="Enrollment" value={scopeLabel} />}
+            {venueName && <MetaItem icon={MapPin} label="Main venue" value={venueName} />}
+          </div>
+        </section>
+
+        {/* KPI strip — cohort at a glance */}
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard icon={Users} label="Enrolled freshers" value={enrolled} />
+          <StatCard icon={Layers} label="Batched" value={assigned} />
+          <StatCard icon={Layers} label="Unbatched" value={unbatched} muted={unbatched === 0} />
+          <StatCard icon={Layers} label="Batches" value={batches.length} />
         </div>
 
-        {/* Signature: the cohort funnel — enrolled → batches */}
+        {/* Cohort engine — enroll then split */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Cohort</CardTitle>
+            <CardTitle className="text-base">Cohort engine</CardTitle>
             <CardDescription>
               {admissionYear
                 ? `Auto-enroll adds reserved, admitted & account learners of admission year ${admissionYear}${enrollScope === 'group' ? ' across all colleges' : ' in this college'}, then split them into batches by department (classmates stay together).`
                 : 'Enroll the joining cohort, then split them into batches by department (classmates stay together).'}
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="flex flex-wrap items-stretch gap-3">
-              {/* Enrolled */}
-              <div className="flex-1 min-w-[160px] rounded-lg border p-4">
-                <div className="flex items-center gap-2 text-muted-foreground text-sm">
-                  <Users className="h-4 w-4" /> Enrolled freshers
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              {/* Enroll */}
+              <div className="flex flex-col gap-3 rounded-lg border p-4">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <UserPlus className="h-4 w-4 text-primary" aria-hidden /> Enroll freshers
                 </div>
-                <div className="text-3xl font-bold mt-1">{enrolled}</div>
-                <Button size="sm" className="mt-3" onClick={handleEnroll} disabled={enrolling}>
-                  <UserPlus className="h-4 w-4 mr-1" />
+                <p className="text-xs text-muted-foreground">
+                  Pulls the joining cohort into this induction. Safe to re-run — it only adds new learners.
+                </p>
+                <Button size="sm" className="mt-auto w-fit" onClick={handleEnroll} disabled={enrolling}>
+                  <UserPlus className="h-4 w-4 mr-1" aria-hidden />
                   {enrolling ? 'Enrolling…' : enrolled > 0 ? 'Re-run auto-enroll' : 'Auto-enroll freshers'}
                 </Button>
               </div>
 
-              {/* Batches */}
-              <div className="flex-[2] min-w-[220px] rounded-lg border p-4">
+              {/* Split */}
+              <div className="flex flex-col gap-3 rounded-lg border p-4">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 text-muted-foreground text-sm">
-                    <Layers className="h-4 w-4" /> Batches
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Split className="h-4 w-4 text-primary" aria-hidden /> Split into batches
                   </div>
                   <div className="flex items-center gap-2">
                     <Label htmlFor="numb" className="text-xs text-muted-foreground">Count</Label>
                     <Input id="numb" type="number" min={1} max={12} value={numBatches}
                       onChange={(e) => setNumBatches(Math.max(1, Math.min(12, Number(e.target.value) || 1)))}
                       className="h-8 w-16" />
-                    <Button size="sm" variant="outline" onClick={handleSplit}
-                      disabled={splitting || enrolled === 0}>
-                      <Split className="h-4 w-4 mr-1" />
-                      {splitting ? 'Splitting…' : 'Auto-split'}
-                    </Button>
                   </div>
                 </div>
                 {batches.length === 0 ? (
-                  <p className="text-sm text-muted-foreground mt-3">
+                  <p className="text-xs text-muted-foreground">
                     {enrolled === 0 ? 'Enroll freshers first, then split into batches.' : 'Not split yet.'}
                   </p>
                 ) : (
-                  <div className="mt-3 flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2">
                     {batches.map((b) => (
-                      <div key={b.id} className="rounded-md bg-muted px-3 py-2 min-w-[88px]">
-                        <div className="text-xs text-muted-foreground">Batch {b.label}</div>
-                        <div className="text-xl font-semibold">{b.count}</div>
+                      <div key={b.id} className="rounded-md bg-muted px-3 py-1.5 min-w-[72px] transition-colors hover:bg-muted/70">
+                        <div className="text-[11px] text-muted-foreground">Batch {b.label}</div>
+                        <div className="text-base font-semibold tabular-nums">{b.count}</div>
                       </div>
                     ))}
-                    {unbatched > 0 && (
-                      <div className="rounded-md border border-dashed px-3 py-2 min-w-[88px]">
-                        <div className="text-xs text-muted-foreground">Unbatched</div>
-                        <div className="text-xl font-semibold">{unbatched}</div>
-                      </div>
-                    )}
                   </div>
                 )}
+                <Button size="sm" variant="outline" className="mt-auto w-fit" onClick={handleSplit} disabled={splitting || enrolled === 0}>
+                  <Split className="h-4 w-4 mr-1" aria-hidden />
+                  {splitting ? 'Splitting…' : 'Auto-split'}
+                </Button>
               </div>
             </div>
             {!hasProgram && (
@@ -259,5 +259,39 @@ export default function InductionDetailPage() {
         <LoopPlaybookSection institutionId={event?.institution_id ?? null} academicYearId={academicYearId} />
       </div>
     </ContentLayout>
+  );
+}
+
+// Labelled meta cell for the program header grid.
+function MetaItem({ icon: Icon, label, value }: {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  value: string | number | null | undefined;
+}) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <Icon className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+      <div className="min-w-0">
+        <div className="text-xs text-muted-foreground">{label}</div>
+        <div className="font-medium truncate">{value ?? '—'}</div>
+      </div>
+    </div>
+  );
+}
+
+// KPI card for the cohort-at-a-glance strip.
+function StatCard({ icon: Icon, label, value, muted }: {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  value: number;
+  muted?: boolean;
+}) {
+  return (
+    <div className="rounded-xl border bg-card p-4 transition-colors hover:border-primary/40">
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Icon className="h-3.5 w-3.5" /> {label}
+      </div>
+      <div className={`mt-1 text-2xl font-bold tabular-nums ${muted ? 'text-muted-foreground' : ''}`}>{value}</div>
+    </div>
   );
 }
