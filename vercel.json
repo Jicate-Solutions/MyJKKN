@@ -302,6 +302,10 @@
     {
       "path": "/api/cron/induction-generate-playbook?secret=${CRON_SECRET}",
       "schedule": "23 4 * * 1"
+    },
+    {
+      "path": "/api/cron/induction-session-effectiveness?secret=${CRON_SECRET}",
+      "schedule": "43 */4 * * *"
     }
   ]
 }
