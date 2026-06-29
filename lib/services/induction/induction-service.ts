@@ -22,6 +22,9 @@ export interface CreateInductionInput {
   /** 'group' enrolls freshers across ALL colleges (e.g. a Main-Office induction);
    *  'institution' (default) enrolls only this program's institution. */
   enrollScope?: 'institution' | 'group';
+  /** Main venue picked from Resource Management (events.venue_resource_id). When
+   *  set, venueText is the custom/off-campus fallback only. */
+  venueResourceId?: string | null;
 }
 
 export class InductionService {
@@ -34,10 +37,11 @@ export class InductionService {
       p_name: input.name,
       p_start_date: input.startDate,
       p_end_date: input.endDate,
-      p_venue_text: input.venueText ?? 'Campus',
+      p_venue_text: input.venueText ?? null,
       p_description: input.description ?? null,
       p_admission_year: input.admissionYear ?? null,
       p_enroll_scope: input.enrollScope ?? 'institution',
+      p_venue_resource_id: input.venueResourceId ?? null,
     });
     if (error) throw error;
     return data as string;
