@@ -20,6 +20,7 @@ import type {
   AdminCollegeSummaryRow,
   AdminFacultySummaryRow,
   AdminTrendRow,
+  FacilitatorCoverageRow,
   ChecklistConfigItem,
   SubmitFeedbackInput,
   LivePulseRow,
@@ -269,6 +270,23 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to load understanding trend: ${error.message}`);
     return (data || []) as AdminTrendRow[];
+  }
+
+  /** Per-learning-facilitator FEEDBACK coverage: (distinct taught sessions with >=1
+   *  feedback) / (distinct taught sessions). Drivers first, 0% non-drivers last.
+   *  Denominator comes from student_attendance, so facilitators who taught but got
+   *  no feedback surface at 0% — invisible to the session_feedback-only summaries. */
+  static async getFacilitatorFeedbackCoverage(
+    from: string,
+    to: string,
+  ): Promise<FacilitatorCoverageRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_facilitator_feedback_coverage', {
+      p_from: from,
+      p_to: to,
+    });
+    if (error) throw new Error(`Failed to load facilitator coverage: ${error.message}`);
+    return (data || []) as FacilitatorCoverageRow[];
   }
 
   // ---------------------------------------------------------------------------

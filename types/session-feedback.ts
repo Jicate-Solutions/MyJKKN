@@ -176,6 +176,26 @@ export interface AdminTrendRow {
   avg_understood: number | null;
 }
 
+/** Per-learning-facilitator FEEDBACK coverage. fn_scf_facilitator_feedback_coverage.
+ *  Denominator (taught_sessions) = distinct sessions the facilitator TAUGHT (attendance
+ *  marked), drawn from student_attendance — NOT from session_feedback — so facilitators
+ *  who taught but received zero feedback appear with coverage_pct = 0 (the whole point).
+ *  Aggregates only: never per-student understood / checklist / free_text. */
+export interface FacilitatorCoverageRow {
+  institution_id: string;
+  institution_name: string | null;
+  staff_id: string;
+  facilitator_name: string | null;
+  designation: string | null;
+  department_name: string | null;
+  taught_sessions: number;
+  covered_sessions: number;
+  coverage_pct: number;
+  responses: number;
+  last_taught: string | null;
+  last_feedback: string | null;
+}
+
 /** A carry-forward re-ask for a pending session. fn_scf_carryforward_for_learner (PR B).
  *  Surfaced when the learner previously took the SAME course and flagged trouble
  *  (prior_understood <= 2 OR left checklist items unchecked). prior_unmet_items are
