@@ -40,10 +40,26 @@ function NewInductionForm() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [venue, setVenue] = useState('');
+  const [admissionYear, setAdmissionYear] = useState('');
+  const [admissionYears, setAdmissionYears] = useState<number[]>([]);
+  const [enrollScope, setEnrollScope] = useState<'institution' | 'group'>('institution');
 
   useEffect(() => {
     supabase.from('institutions').select('id,name').order('name')
       .then(({ data }) => setInstitutions((data as any) ?? []));
+  }, []);
+
+  // Distinct admission years (the joining cohort year) — auto-enroll targets
+  // reserved/admitted/account learners of the chosen year. Default to the latest.
+  useEffect(() => {
+    supabase.from('admission_years').select('year').order('year', { ascending: false })
+      .then(({ data }) => {
+        const years = Array.from(
+          new Set(((data as any[]) ?? []).map((r) => r.year).filter((y) => y != null))
+        ) as number[];
+        setAdmissionYears(years);
+        setAdmissionYear((prev) => prev || (years[0] != null ? String(years[0]) : ''));
+      });
   }, []);
 
   useEffect(() => {
@@ -67,6 +83,8 @@ function NewInductionForm() {
         startDate: startDate || new Date().toISOString(),
         endDate: endDate || startDate || new Date().toISOString(),
         venueText: venue || 'Campus',
+        admissionYear: admissionYear ? Number(admissionYear) : null,
+        enrollScope,
       });
       toast.success('Induction created.');
       router.push(`/events/induction/${eventId}`);
@@ -99,7 +117,7 @@ function NewInductionForm() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Details</CardTitle>
-            <CardDescription>The academic year is the joining cohort — auto-enroll uses it to find this year&apos;s freshers.</CardDescription>
+            <CardDescription>Auto-enroll uses the <strong>admission year</strong> (the joining cohort) to find this year&apos;s freshers — across all colleges for a group induction.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="space-y-1.5">
@@ -119,7 +137,7 @@ function NewInductionForm() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Academic year (the joining cohort)</Label>
+              <Label>Academic year (optional)</Label>
               <Select value={academicYearId} onValueChange={setAcademicYearId} disabled={!institutionId}>
                 <SelectTrigger>
                   <SelectValue placeholder={institutionId ? 'Select year' : 'Pick a college first'} />
@@ -131,6 +149,33 @@ function NewInductionForm() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Admission year (cohort to enroll)</Label>
+                <Select value={admissionYear} onValueChange={setAdmissionYear}>
+                  <SelectTrigger><SelectValue placeholder="Select year" /></SelectTrigger>
+                  <SelectContent>
+                    {admissionYears.map((y) => (
+                      <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Enroll</Label>
+                <Select value={enrollScope} onValueChange={(v) => setEnrollScope(v as 'institution' | 'group')}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="institution">This college only</SelectItem>
+                    <SelectItem value="group">All colleges (group)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground -mt-1">
+              Auto-enroll adds reserved, admitted &amp; account learners of the chosen admission
+              year{enrollScope === 'group' ? ' across every college' : ' in this college'}.
+            </p>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="ind-start">Start date</Label>

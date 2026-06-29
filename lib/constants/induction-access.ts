@@ -13,6 +13,10 @@ export const INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES = [
   'reserved',
   'enquiry_submitted',
   'enquiry',
+  // 'account' = login created during the account-transition (pre-active). Included
+  // so learners auto-enrolled into a group induction (reserved/admitted/account)
+  // can actually log in and reach My Induction. Spec: specs/pre-onboarding-induction-access-2026-06-29.md
+  'account',
 ] as const;
 
 export type InductionEligibleStatus =

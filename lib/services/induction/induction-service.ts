@@ -16,6 +16,12 @@ export interface CreateInductionInput {
   endDate: string;   // ISO
   venueText?: string;
   description?: string | null;
+  /** Cohort admission YEAR (e.g. 2026) — auto-enroll targets reserved/admitted/
+   *  account learners of this admission year. */
+  admissionYear?: number | null;
+  /** 'group' enrolls freshers across ALL colleges (e.g. a Main-Office induction);
+   *  'institution' (default) enrolls only this program's institution. */
+  enrollScope?: 'institution' | 'group';
 }
 
 export class InductionService {
@@ -30,6 +36,8 @@ export class InductionService {
       p_end_date: input.endDate,
       p_venue_text: input.venueText ?? 'Campus',
       p_description: input.description ?? null,
+      p_admission_year: input.admissionYear ?? null,
+      p_enroll_scope: input.enrollScope ?? 'institution',
     });
     if (error) throw error;
     return data as string;

@@ -494,7 +494,7 @@ BEGIN
         WHERE LOWER(college_email) = LOWER(NEW.email)
         AND lifecycle_status IN (
             'approved', 'active', 'graduated',
-            'admitted', 'reserved', 'enquiry_submitted', 'enquiry'
+            'admitted', 'reserved', 'enquiry_submitted', 'enquiry', 'account'
         )
         LIMIT 1;
 
