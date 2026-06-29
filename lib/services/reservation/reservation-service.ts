@@ -230,9 +230,22 @@ export class ReservationService {
       dto.end_time
     );
 
-    // Determine initial status based on approval config
-    const requiresApproval = (resource as any)?.approval_config?.enabled || false;
+    // Determine initial status: caller override (booking spine) wins, else the
+    // resource's own approval_config rule. 'auto' = approve now (e.g. an event
+    // booking a same-college room); 'require' = force pending + seed approvers.
+    const approvalMode = dto.approvalMode ?? 'config';
+    const requiresApproval =
+      approvalMode === 'require'
+        ? true
+        : approvalMode === 'auto'
+          ? false
+          : (resource as any)?.approval_config?.enabled || false;
     const initialStatus = requiresApproval ? 'pending' : 'approved';
+
+    // Approvers to seed/notify: caller override (e.g. the cross-college room's
+    // caretaker) else the resource's own configured chain.
+    const approversToSeed: { user_id: string; level?: number }[] =
+      dto.approvers ?? (resource as any)?.approval_config?.approvers ?? [];
 
     const reservationData = {
       resource_id: dto.resource_id,
@@ -247,7 +260,12 @@ export class ReservationService {
       is_recurring: dto.is_recurring || false,
       recurring_config: dto.recurring_config,
       status: initialStatus,
-      approved_at: requiresApproval ? null : new Date().toISOString()
+      approved_at: requiresApproval ? null : new Date().toISOString(),
+      // Booking-spine links — only set when the caller provides them.
+      ...(dto.event_id ? { event_id: dto.event_id } : {}),
+      ...(dto.session_id ? { session_id: dto.session_id } : {}),
+      ...(dto.bundle_id ? { bundle_id: dto.bundle_id } : {}),
+      ...(dto.session_label ? { session_label: dto.session_label } : {})
     };
 
     const { data, error } = await (supabase
@@ -267,12 +285,10 @@ export class ReservationService {
       throw error;
     }
 
-    // If approval is required, create approval records
-    if (requiresApproval && (resource as any)?.approval_config?.approvers) {
-      await this.createApprovalRecords(
-        (data as any).id,
-        (resource as any).approval_config.approvers
-      );
+    // If approval is required, create approval records (caller-supplied chain
+    // when given, e.g. a cross-college room's caretaker; else the resource's own).
+    if (requiresApproval && approversToSeed.length > 0) {
+      await this.createApprovalRecords((data as any).id, approversToSeed);
     }
 
     // Update resource usage count
@@ -284,10 +300,9 @@ export class ReservationService {
     // Fire-and-forget notifications — never block the booking return path.
     if (requiresApproval) {
       const requesterName = (reservation as any).user?.full_name || 'A user';
-      const approverIds: string[] =
-        ((resource as any)?.approval_config?.approvers ?? []).map(
-          (a: any) => a.user_id
-        );
+      const approverIds: string[] = approversToSeed
+        .map((a) => a.user_id)
+        .filter(Boolean);
       void notifyBookingSubmitted(reservation, resourceName).catch(console.error);
       void notifyApproversPendingBooking(
         approverIds,
