@@ -218,7 +218,13 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                 </div>
                 <div className="space-y-1.5">
                   <Label>Resource persons (linked users)</Label>
-                  <SessionSpeakerPicker value={speakers} onChange={setSpeakers} disabled={saving} />
+                  <SessionSpeakerPicker
+                    value={speakers}
+                    onChange={setSpeakers}
+                    disabled={saving}
+                    sessionStart={start}
+                    sessionEnd={end}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="s-outcome">Outcome (what this session aims to achieve)</Label>
