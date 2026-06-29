@@ -76,6 +76,17 @@ AS $function$
   );
 $function$;
 
+-- Anon-lock the redefined CDC role checks. CREATE OR REPLACE does not reset
+-- grants, and these were anon-callable already (pre-existing); make the lock
+-- explicit per the platform anon-revoke policy. They only read auth.uid() so
+-- anon got `false`, never data — but they should not be reachable unauthenticated.
+-- RLS evaluates these internally (not via a direct grant), so revoking anon is safe;
+-- authenticated keeps EXECUTE for any direct server-side call.
+REVOKE EXECUTE ON FUNCTION public.is_cdc_staff()        FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.is_cdc_head_or_super() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.is_cdc_staff()        TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.is_cdc_head_or_super() TO authenticated;
+
 -- ───────────────────────────────────────────────────────────────────────────
 -- 2. Institution resolvers for child tables (keep policy expressions readable).
 --    SECURITY DEFINER so the policy can resolve the parent's institution
