@@ -170,12 +170,17 @@ ${commentBlock}${trackRecord}
 ${closingLine}`;
 
   try {
-    const resp = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-    });
+    const resp = await anthropic.messages.create(
+      {
+        model: MODEL,
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
+      },
+      // Bound each call so one hung request can't eat the whole batch's wall-clock
+      // (sequential calls, capped at BATCH_CAP, under the Vercel function limit).
+      { timeout: 25_000 }
+    );
 
     const text = resp.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
@@ -316,7 +321,12 @@ export async function GET(request: NextRequest) {
         ? Number(signal.avg_understood)
         : null;
 
-    const freeTextCount = signal?.free_texts?.length ?? 0;
+    // Count only non-blank comments. fn_scf_ai_signal already filters blank
+    // free_text, but trim defensively so a whitespace-only comment can't trip the
+    // success gate into a paid generation on a window with no real feedback.
+    const freeTextCount = (signal?.free_texts ?? []).filter(
+      (t) => String(t ?? '').trim().length > 0
+    ).length;
 
     // Classify the window:
     //   below the response floor / no avg  → skip (not enough signal)
