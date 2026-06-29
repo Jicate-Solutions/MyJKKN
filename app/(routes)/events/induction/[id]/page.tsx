@@ -20,7 +20,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Users, Layers, Building2, CalendarDays, UserPlus, Split, GraduationCap, MapPin } from 'lucide-react';
+import { Users, Layers, Building2, CalendarDays, UserPlus, Split, GraduationCap, MapPin, Rocket } from 'lucide-react';
 import type { ComponentType } from 'react';
 
 interface EventRow {
