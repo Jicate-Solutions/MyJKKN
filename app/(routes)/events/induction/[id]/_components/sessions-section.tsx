@@ -23,7 +23,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger,
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Pencil, Trash2, Clock, MapPin, User, Target, LinkIcon, X, Star } from 'lucide-react';
+import { Plus, Pencil, Trash2, MapPin, User, Target, LinkIcon, X, Star, CalendarDays } from 'lucide-react';
 
 interface Batch { id: string; label: string; }
 const COMBINED = '__combined__';
@@ -174,7 +174,14 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
           <div>
-            <CardTitle className="text-base">Sessions</CardTitle>
+            <CardTitle className="text-base flex items-center gap-2">
+              Sessions
+              {sessions.length > 0 && (
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground tabular-nums">
+                  {sessions.length}
+                </span>
+              )}
+            </CardTitle>
             <CardDescription>The day-by-day schedule — topics, speakers, venues, outcomes, and resources.</CardDescription>
           </div>
           <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) resetForm(); }}>
@@ -282,19 +289,48 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
       </CardHeader>
       <CardContent>
         {loading ? (
-          <p className="text-sm text-muted-foreground">Loading sessions…</p>
+          <div className="space-y-2" aria-busy="true">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-16 rounded-lg border bg-muted/40 animate-pulse" />
+            ))}
+          </div>
         ) : sessions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No sessions yet. Add the first one to start building the schedule.</p>
+          <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-10 text-center">
+            <CalendarDays className="h-8 w-8 text-muted-foreground/50" aria-hidden />
+            <p className="mt-3 text-sm font-medium">No sessions yet</p>
+            <p className="text-xs text-muted-foreground">Add the first one to start building the day-by-day schedule.</p>
+            <Button size="sm" variant="outline" className="mt-4" onClick={openCreate}>
+              <Plus className="h-4 w-4 mr-1" /> Add session
+            </Button>
+          </div>
         ) : (
-          <div className="space-y-5">
-            {days.map((d) => (
-              <div key={d}>
-                <h3 className="text-sm font-semibold mb-2">{d === 0 ? 'Unscheduled' : `Day ${d}`}</h3>
-                <div className="space-y-2">
-                  {byDay.get(d)!.map((s) => (
-                    <div key={s.id} className="rounded-lg border p-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
+          <div className="space-y-6">
+            {days.map((d) => {
+              const daySessions = byDay.get(d)!;
+              return (
+                <div key={d} className="space-y-2">
+                  {/* Day header band */}
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex h-7 items-center rounded-full bg-primary/10 px-3 text-xs font-semibold text-primary">
+                      {d === 0 ? 'Unscheduled' : `Day ${d}`}
+                    </span>
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {daySessions.length} session{daySessions.length === 1 ? '' : 's'}
+                    </span>
+                    <div className="h-px flex-1 bg-border" />
+                  </div>
+
+                  {/* Agenda rows — time gutter + session card */}
+                  <div className="space-y-2">
+                    {daySessions.map((s) => (
+                      <div key={s.id} className="group flex gap-3 rounded-lg border p-3 transition-colors hover:border-primary/40 hover:bg-muted/30">
+                        {/* time gutter */}
+                        <div className="w-14 shrink-0 pt-0.5 text-right">
+                          <div className="text-sm font-semibold leading-tight tabular-nums">{fmtTime(s.start_at)}</div>
+                          <div className="text-[11px] text-muted-foreground tabular-nums">{fmtTime(s.end_at)}</div>
+                        </div>
+                        {/* content */}
+                        <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="font-medium">{s.title}</span>
                             <Badge variant="secondary">{s.batch_label ? `Batch ${s.batch_label}` : 'Combined'}</Badge>
@@ -306,7 +342,6 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                             )}
                           </div>
                           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                            <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{fmtTime(s.start_at)}–{fmtTime(s.end_at)}</span>
                             {s.venue_text && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{s.venue_text}</span>}
                             {s.speaker_text && <span className="flex items-center gap-1"><User className="h-3 w-3" />{s.speaker_text}</span>}
                           </div>
@@ -326,17 +361,18 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                             </div>
                           )}
                         </div>
+                        {/* actions */}
                         <div className="flex gap-1 shrink-0">
                           <AttendanceDialog sessionId={s.id} sessionTitle={s.title} />
                           <Button size="icon" variant="ghost" onClick={() => openEdit(s)}><Pencil className="h-4 w-4" /></Button>
                           <Button size="icon" variant="ghost" onClick={() => remove(s)}><Trash2 className="h-4 w-4" /></Button>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </CardContent>
