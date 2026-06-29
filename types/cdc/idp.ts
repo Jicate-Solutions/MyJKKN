@@ -81,7 +81,21 @@ export interface IdpListResponse {
 // learner's existing data; hydrates the NEW IDP form so it starts pre-filled
 // instead of blank. Create-only — never used to re-fill an existing plan.
 export interface PrefilledIdpDraft {
-  learner: { id: string; name: string; register_number: string | null };
+  learner: {
+    id: string;
+    name: string;
+    register_number: string | null;
+    // Contact + academic enrichment for the IDP Learner card (BUG-004264).
+    // Read from learners_profiles; each is null when the underlying field is blank.
+    // Academic performance (CGPA / backlogs) is intentionally absent — MyJKKN stores
+    // no per-learner CGPA/backlog anywhere (only drive-side eligibility thresholds),
+    // matching this route's existing "OBE marks are empty in prod" note.
+    email: string | null;
+    mobile: string | null;
+    program: string | null;
+    department: string | null;
+    semester: string | null;
+  };
   interests: string[];
   skills: string[];               // → skills_self_attribution
   academicStrengths: string;      // self-reported carry-forward (D1)

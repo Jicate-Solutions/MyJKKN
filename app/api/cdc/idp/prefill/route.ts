@@ -40,6 +40,18 @@ function toStringList(v: unknown): string[] {
     .filter((s): s is string => !!s);
 }
 
+// Pull a display name out of a PostgREST embedded resource. To-one embeds normally
+// come back as an object, but the codebase's array-or-object gotcha means we
+// defensively unwrap a one-element array too (BUG-004264).
+function embeddedName(v: unknown, key: string): string | null {
+  const o = Array.isArray(v) ? v[0] : v;
+  if (o && typeof o === 'object') {
+    const name = (o as Record<string, unknown>)[key];
+    return typeof name === 'string' && name.trim() ? name.trim() : null;
+  }
+  return null;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const learnerId = req.nextUrl.searchParams.get('learner_id');
@@ -63,7 +75,13 @@ export async function GET(req: NextRequest) {
     // Profile — scope-checked exactly like the picker (no cross-tenant prefill).
     let pq: any = svc
       .from('learners_profiles')
-      .select('id, first_name, last_name, register_number, institution_id')
+      .select(
+        `id, first_name, last_name, register_number, institution_id,
+         student_email, college_email, student_mobile, father_mobile,
+         program:programs!fk_learners_profiles_program(program_name),
+         department:departments!fk_learners_profiles_department(department_name),
+         semester:semesters!fk_learners_profiles_semester(semester_name)`
+      )
       .eq('id', learnerId);
     pq = applyInstitutionFilterToQuery(pq, filter, 'institution_id');
     const { data: profile, error: profErr } = await pq.maybeSingle();
@@ -99,6 +117,13 @@ export async function GET(req: NextRequest) {
         id: p.id as string,
         name: [p.first_name, p.last_name].filter(Boolean).join(' ').trim() || 'the learner',
         register_number: (p.register_number as string | null) ?? null,
+        // Contact + academic enrichment (BUG-004264). Prefer the learner's own
+        // email/mobile, falling back to college email / father's mobile when blank.
+        email: ((p.student_email as string | null) || (p.college_email as string | null)) ?? null,
+        mobile: ((p.student_mobile as string | null) || (p.father_mobile as string | null)) ?? null,
+        program: embeddedName(p.program, 'program_name'),
+        department: embeddedName(p.department, 'department_name'),
+        semester: embeddedName(p.semester, 'semester_name'),
       },
       interests: toStringList(prior?.interests),
       skills: toStringList(prior?.skills_self_attribution),
