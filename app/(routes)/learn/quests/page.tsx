@@ -72,7 +72,7 @@ const SOURCE_TYPE_LABELS: Record<QuestSourceType, string> = {
   nif: 'NIF',
   industry: 'Industry',
   community: 'Community',
-  faculty: 'Senior Learner',
+  faculty: 'Learning Facilitator',
   learner: 'Learner-Proposed',
 };
 

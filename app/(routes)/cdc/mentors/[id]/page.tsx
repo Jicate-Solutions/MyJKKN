@@ -104,7 +104,7 @@ function MentorPairingDetailContent({ params }: PageProps) {
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <User className="w-4 h-4 text-blue-500" /> Mentor (Senior Learner)
+              <User className="w-4 h-4 text-blue-500" /> Peer Mentor
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm">

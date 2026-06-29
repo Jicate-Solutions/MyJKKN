@@ -260,7 +260,7 @@ export const CANDIDATE_STATUS_LABELS: Record<CandidateStatus, string> = {
 };
 
 export const ROLE_CATEGORY_LABELS: Record<RoleCategory, string> = {
-  teaching_faculty: 'Senior Learner (Teaching Faculty)',
+  teaching_faculty: 'Learning Facilitator (Teaching Faculty)',
   medical: 'Medical / Clinical',
   non_teaching: 'Non-Teaching Staff',
   senior_leadership: 'Senior Leadership',

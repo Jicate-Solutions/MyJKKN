@@ -333,7 +333,7 @@ export default function CASEGraduationTrackerPage() {
           <div>
             <h1 className="text-2xl font-bold">CASE Graduation Tracker</h1>
             <p className="text-sm text-muted-foreground">
-              Complete all 6 tracks to achieve Senior Learner status
+              Complete all 6 tracks to achieve Peer Mentor status
             </p>
           </div>
           <Button variant="outline" asChild>
