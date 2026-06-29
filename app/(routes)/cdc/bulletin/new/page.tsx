@@ -29,6 +29,7 @@ export default function NewBulletinOpportunityPage() {
 
   const [form, setForm] = useState<CreateOpportunityDto>({
     title: '',
+    description: '',
     source_organisation: null,
     category: null,
     mode: 'offline',
@@ -106,7 +107,7 @@ export default function NewBulletinOpportunityPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.title.trim()) return;
+    if (!form.title.trim() || !form.description.trim()) return;
     // When 'other' is chosen, submit the typed custom category instead of the literal 'other'.
     const resolvedCategory =
       categoryChoice === 'other' ? categoryOther.trim() || null : form.category;
@@ -158,6 +159,19 @@ export default function NewBulletinOpportunityPage() {
                   value={form.source_organisation ?? ''}
                   onChange={(e) => set('source_organisation', e.target.value || null)}
                   placeholder="e.g. Ministry of Education, AICTE"
+                />
+              </div>
+
+              {/* Description (BUG-004065) — required body describing the opportunity */}
+              <div className="space-y-1.5">
+                <Label htmlFor="description">Description *</Label>
+                <Textarea
+                  id="description"
+                  value={form.description}
+                  onChange={(e) => set('description', e.target.value)}
+                  placeholder="Describe the opportunity — what it is, who it's for, and why a learner should apply."
+                  rows={4}
+                  required
                 />
               </div>
 
@@ -357,7 +371,7 @@ export default function NewBulletinOpportunityPage() {
               </div>
 
               <div className="flex gap-3 pt-2">
-                <Button type="submit" disabled={createMutation.isPending || uploading || !form.title.trim()}>
+                <Button type="submit" disabled={createMutation.isPending || uploading || !form.title.trim() || !form.description.trim()}>
                   {createMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                   Post to Bulletin
                 </Button>
