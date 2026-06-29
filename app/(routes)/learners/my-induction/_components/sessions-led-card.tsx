@@ -22,6 +22,7 @@ import {
   type MySessionFeedbackRow,
   type SessionCommentRow,
 } from '@/lib/services/induction/induction-speakers-service';
+import { SessionPulseControl } from './session-pulse-control';
 import {
   Mic, CalendarDays, MapPin, Star, MessageSquare, ChevronDown, ChevronUp,
 } from 'lucide-react';
@@ -174,6 +175,11 @@ export function SessionsLedCard({ showEmptyState = false }: { showEmptyState?: b
                   )}
                 </div>
               )}
+
+              {/* resource-person live pulse control (open / live totals / close) */}
+              <div className="mt-2">
+                <SessionPulseControl sessionId={s.session_id} />
+              </div>
             </div>
           );
         })}

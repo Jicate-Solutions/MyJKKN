@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { SessionsLedCard } from './_components/sessions-led-card';
+import { InductionPulseBanner } from './_components/induction-pulse-banner';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -127,6 +128,9 @@ export default function MyInductionPage() {
           </Card>
         ) : (
           <>
+            {/* Live pulse — a resource person is collecting feedback right now */}
+            <InductionPulseBanner />
+
             {/* Header — induction + my completion */}
             <Card>
               <CardHeader>
@@ -196,7 +200,7 @@ export default function MyInductionPage() {
                       {day > 0 ? `Day ${day}` : 'Schedule'}
                     </h2>
                     {daySessions.map((s) => (
-                      <Card key={s.id}>
+                      <Card key={s.id} id={`isession-${s.id}`} className="transition-shadow">
                         <CardContent className="pt-5 space-y-3">
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <div className="min-w-0">
