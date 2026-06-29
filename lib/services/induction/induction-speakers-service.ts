@@ -64,6 +64,29 @@ export interface SessionCommentRow {
   created_at: string;
 }
 
+/** The AI improvement-tip JSON the loop generates for a weak topic. */
+export interface SessionTipSuggestion {
+  summary?: string;
+  likelyCauses?: string[];
+  improvements?: { title: string; how: string }[];
+  watchNext?: string;
+}
+
+/** A session-effectiveness loop row: the tip for a weak topic + its honest
+ *  (regression-to-the-mean-corrected) measured effect on re-run. */
+export interface SessionLoopTip {
+  topic_key: string;
+  first_session_id: string | null;
+  input_avg: number | null;
+  input_responses: number | null;
+  suggestion: SessionTipSuggestion | null;
+  rerun_avg: number | null;
+  raw_lift: number | null;
+  rtm_expected_avg: number | null;
+  net_effect: number | null;
+  measure_status: 'pending' | 'measured' | 'insufficient_rtm_data';
+}
+
 export class InductionSpeakersService {
   /** Typeahead over the MyJKKN directory (staff + students). Email/role shown so
    *  the coordinator picks the RIGHT person among same-name users. RLS allows any
@@ -172,5 +195,17 @@ export class InductionSpeakersService {
     });
     if (error) throw error;
     return (data as SessionCommentRow[]) ?? [];
+  }
+
+  /** Session-effectiveness loop rows for an event (the AI tips for weak topics +
+   *  their RTM-corrected net_effect). Server-gated: a resource person sees only
+   *  rows for sessions they led; a coordinator/admin sees all. */
+  static async getSessionLoopTips(eventId: string): Promise<SessionLoopTip[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_session_loop_summary', {
+      p_event_id: eventId,
+    });
+    if (error) throw error;
+    return (data as SessionLoopTip[]) ?? [];
   }
 }

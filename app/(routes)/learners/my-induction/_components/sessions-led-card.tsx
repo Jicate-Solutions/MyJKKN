@@ -21,8 +21,10 @@ import {
   InductionSpeakersService,
   type MySessionFeedbackRow,
   type SessionCommentRow,
+  type SessionLoopTip,
 } from '@/lib/services/induction/induction-speakers-service';
 import { SessionPulseControl } from './session-pulse-control';
+import { SessionLoopTipCard } from './session-loop-tip';
 import {
   Mic, CalendarDays, MapPin, Star, MessageSquare, ChevronDown, ChevronUp,
 } from 'lucide-react';
@@ -33,9 +35,27 @@ export function SessionsLedCard({ showEmptyState = false }: { showEmptyState?: b
   const [rows, setRows] = useState<MySessionFeedbackRow[] | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [comments, setComments] = useState<Record<string, CommentState>>({});
+  const [tips, setTips] = useState<Record<string, SessionLoopTip>>({});
 
   useEffect(() => {
-    InductionSpeakersService.getMySessionsFeedback().then(setRows).catch(() => setRows([]));
+    InductionSpeakersService.getMySessionsFeedback()
+      .then(async (sessions) => {
+        setRows(sessions);
+        // load the loop tips per distinct event, keyed by the weak session they apply to
+        const eventIds = [...new Set(sessions.map((s) => s.event_id))];
+        const map: Record<string, SessionLoopTip> = {};
+        await Promise.all(
+          eventIds.map((eid) =>
+            InductionSpeakersService.getSessionLoopTips(eid)
+              .then((ts) => {
+                for (const t of ts) if (t.first_session_id) map[t.first_session_id] = t;
+              })
+              .catch(() => {})
+          )
+        );
+        setTips(map);
+      })
+      .catch(() => setRows([]));
   }, []);
 
   async function toggleComments(sessionId: string) {
@@ -180,6 +200,13 @@ export function SessionsLedCard({ showEmptyState = false }: { showEmptyState?: b
               <div className="mt-2">
                 <SessionPulseControl sessionId={s.session_id} />
               </div>
+
+              {/* session-effectiveness loop: AI tip + honest measured effect */}
+              {tips[s.session_id] && (
+                <div className="mt-2">
+                  <SessionLoopTipCard tip={tips[s.session_id]} />
+                </div>
+              )}
             </div>
           );
         })}
