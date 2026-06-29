@@ -26,19 +26,33 @@ STABLE
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
-  SELECT
-    f.institution_id,
-    f.course_code,
-    lower(NULLIF(btrim(f.faculty_email), '')) AS faculty_email
-  FROM public.session_feedback f
-  WHERE f.attendance_date BETWEEN p_from AND p_to
-    AND f.course_code IS NOT NULL
-    AND f.understood IS NOT NULL          -- mirror fn_scf_ai_signal's scoreable-row basis
-  GROUP BY f.institution_id, f.course_code, lower(NULLIF(btrim(f.faculty_email), ''))
-  HAVING count(*) >= 3                    -- mirrors MIN_RESPONSES in the cron + fn_scf_ai_signal
-  ORDER BY f.institution_id, f.course_code;  -- deterministic batch-cap coverage (not full
-                                             -- round-robin fairness; a cursor is the follow-up
-                                             -- if daily candidates ever exceed BATCH_CAP=25)
+  SELECT c.institution_id, c.course_code, c.faculty_email
+  FROM (
+    SELECT
+      f.institution_id,
+      f.course_code,
+      lower(NULLIF(btrim(f.faculty_email), '')) AS faculty_email
+    FROM public.session_feedback f
+    WHERE f.attendance_date BETWEEN p_from AND p_to
+      AND f.course_code IS NOT NULL
+      AND f.understood IS NOT NULL          -- mirror fn_scf_ai_signal's scoreable-row basis
+    GROUP BY f.institution_id, f.course_code, lower(NULLIF(btrim(f.faculty_email), ''))
+    HAVING count(*) >= 3                    -- mirrors MIN_RESPONSES in the cron + fn_scf_ai_signal
+  ) c
+  LEFT JOIN LATERAL (
+    SELECT max(s.generated_at) AS last_at
+    FROM public.scf_ai_suggestions s
+    WHERE s.domain = 'session_feedback'
+      AND s.course_code     = c.course_code
+      AND s.institution_id IS NOT DISTINCT FROM c.institution_id
+      AND s.faculty_email  IS NOT DISTINCT FROM c.faculty_email
+  ) la ON true
+  -- FAIR ROTATION: order by least-recently-suggested (never-suggested NULLS FIRST,
+  -- then longest-ago) so the BATCH_CAP slice always favours the neediest courses.
+  -- A fixed alphabetical sort would let early-sorting tenants permanently starve
+  -- later ones once daily candidates exceed BATCH_CAP=25; this self-rotates —
+  -- once a course is suggested it sorts last until the others catch up.
+  ORDER BY la.last_at ASC NULLS FIRST, c.institution_id, c.course_code;
 $function$;
 
 -- LOCK: service_role ONLY. This is SECURITY DEFINER and returns (institution,
