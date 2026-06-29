@@ -54,7 +54,7 @@ const STANDOUT_THRESHOLD = 4.5;
 // Stop taking NEW targets once the batch has run this long, so the function
 // finishes (incl. the outcome-measurement step) within maxDuration regardless of
 // how slow individual Claude calls are. Headroom below the 300s maxDuration.
-const BATCH_DEADLINE_MS = 270_000;
+const BATCH_DEADLINE_MS = 240_000;
 
 // Replicated verbatim from ai-suggest-improvement/route.ts so the model's
 // output shape is identical — the record RPC stores the same JSON structure.
@@ -302,6 +302,7 @@ export async function GET(request: NextRequest) {
   let generatedImprovement = 0;
   let generatedSuccess = 0;
   let skipped = 0;
+  let guardErrors = 0; // regen-guard query failures — surfaced so a fail-closed stall is visible
 
   for (const target of targets) {
     // Stop taking new targets near the function time limit (the measure-outcomes
@@ -400,6 +401,7 @@ export async function GET(request: NextRequest) {
         `[cron/scf-generate-suggestions] regen-guard check failed for ${target.course_code} — skipping to avoid re-spend:`,
         recentErr
       );
+      guardErrors++;
       skipped++;
       continue;
     }
@@ -486,6 +488,7 @@ export async function GET(request: NextRequest) {
     generated_improvement: generatedImprovement,
     generated_success: generatedSuccess,
     skipped,
+    guard_errors: guardErrors, // >0 with generated=0 signals a fail-closed regen-guard stall
     measured,
     ai_available: Boolean(anthropic),
     elapsed_ms: Date.now() - started,
