@@ -231,6 +231,59 @@ export class InductionService {
     if (error) throw error;
     return data as number;
   }
+
+  /**
+   * The induction loop's current playbook for a cohort (+ its adoption verdict),
+   * or null if the generator hasn't produced one yet. Browser read — RLS scopes
+   * scf_ai_suggestions induction rows to super/admin/institution.
+   */
+  static async getLoopPlaybook(
+    institutionId: string,
+    academicYearId: string,
+  ): Promise<InductionLoopPlaybook | null> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('scf_ai_suggestions')
+      .select(
+        'suggestion, human_verdict, input_avg_understood, outcome_avg_understood, outcome_lift, generated_at',
+      )
+      .eq('domain', 'induction')
+      .eq('institution_id', institutionId)
+      .eq('academic_year_id', academicYearId)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as InductionLoopPlaybook | null) ?? null;
+  }
+
+  /**
+   * Record whether the coordinator ADOPTED / partially adopted / IGNORED the
+   * cohort's playbook. This is the loop's counterfactual arm: ignored cohorts are
+   * the control that lets the year-over-year lift be falsified (drift vs causal).
+   * Manager-gated inside the SECURITY DEFINER RPC (induction.manage + inst access).
+   */
+  static async setPlaybookVerdict(
+    institutionId: string,
+    academicYearId: string,
+    verdict: 'adopted' | 'partial' | 'ignored',
+  ): Promise<boolean> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_set_playbook_verdict', {
+      p_institution_id: institutionId,
+      p_academic_year_id: academicYearId,
+      p_verdict: verdict,
+    });
+    if (error) throw error;
+    return data as boolean;
+  }
+}
+
+export interface InductionLoopPlaybook {
+  suggestion: Record<string, unknown> | null;
+  human_verdict: 'adopted' | 'partial' | 'ignored' | null;
+  input_avg_understood: number | null;
+  outcome_avg_understood: number | null;
+  outcome_lift: number | null;
+  generated_at: string;
 }
 
 export interface SessionFeedbackSummary { session_id: string; avg_rating: number; response_count: number; }

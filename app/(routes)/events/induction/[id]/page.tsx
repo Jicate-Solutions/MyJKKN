@@ -12,6 +12,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { InductionService } from '@/lib/services/induction/induction-service';
 import { SessionsSection } from './_components/sessions-section';
 import { ScorecardSection } from './_components/scorecard-section';
+import { LoopPlaybookSection } from './_components/loop-playbook-section';
 import {
   Card, CardHeader, CardTitle, CardDescription, CardContent,
 } from '@/components/ui/card';
@@ -36,6 +37,7 @@ export default function InductionDetailPage() {
 
   const [event, setEvent] = useState<EventRow | null>(null);
   const [hasProgram, setHasProgram] = useState(false);
+  const [academicYearId, setAcademicYearId] = useState<string | null>(null);
   const [enrolled, setEnrolled] = useState(0);
   const [batches, setBatches] = useState<BatchCount[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,12 +50,13 @@ export default function InductionDetailPage() {
     setLoading(true);
     const [{ data: ev }, { data: prog }, { count }, { data: batchRows }] = await Promise.all([
       supabase.from('events').select('id,name,status,start_date,end_date,institution_id,institutions(name)').eq('id', id).maybeSingle(),
-      supabase.from('induction_programs').select('event_id').eq('event_id', id).maybeSingle(),
+      supabase.from('induction_programs').select('event_id, academic_year_id').eq('event_id', id).maybeSingle(),
       supabase.from('induction_enrollment').select('id', { count: 'exact', head: true }).eq('event_id', id),
       supabase.from('induction_batches').select('id,label').eq('event_id', id).order('label'),
     ]);
     setEvent((ev as any) ?? null);
     setHasProgram(!!prog);
+    setAcademicYearId((prog as any)?.academic_year_id ?? null);
     setEnrolled(count ?? 0);
 
     const bs = (batchRows as any[]) ?? [];
@@ -219,6 +222,9 @@ export default function InductionDetailPage() {
 
         {/* Value → advocacy → referral → JOIN funnel + NAAC evidence */}
         <ScorecardSection eventId={id} />
+
+        {/* Self-improving loop playbook + adoption-verdict (counterfactual) control */}
+        <LoopPlaybookSection institutionId={event?.institution_id ?? null} academicYearId={academicYearId} />
       </div>
     </ContentLayout>
   );
