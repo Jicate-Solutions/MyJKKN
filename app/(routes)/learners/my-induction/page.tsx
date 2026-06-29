@@ -9,6 +9,7 @@
 // is the per-session rating.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { SessionsLedCard } from './_components/sessions-led-card';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -112,6 +113,9 @@ export default function MyInductionPage() {
             Your batch&apos;s day-by-day schedule. Rate each session so we can make induction better.
           </p>
         </div>
+
+        {/* Presenter credit — shows only if you led any session */}
+        <SessionsLedCard />
 
         {!enrollment ? (
           <Card>

@@ -2,14 +2,16 @@
 
 // Induction sessions — day-by-day schedule editor. All reads/writes go through
 // the gated DEFINER RPCs via InductionService (event_sessions RLS is admin-only).
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   InductionService,
   type InductionSessionRow,
   type ResourceLink,
 } from '@/lib/services/induction/induction-service';
+import { InductionSpeakersService, type DirectoryUser } from '@/lib/services/induction/induction-speakers-service';
 import { AttendanceDialog } from './attendance-dialog';
+import { SessionSpeakerPicker } from './session-speaker-picker';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -54,6 +56,13 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
   const [venue, setVenue] = useState('');
   const [outcome, setOutcome] = useState('');
   const [links, setLinks] = useState<ResourceLink[]>([]);
+  const [speakers, setSpeakers] = useState<DirectoryUser[]>([]);
+  // Guard: never write the speaker set until existing links have loaded, so a
+  // save before/without a successful load can't silently wipe them.
+  const [speakersLoaded, setSpeakersLoaded] = useState(false);
+  // Retry-safe create: holds the id of a session created this open, so a retry
+  // after a failed speaker-write updates the same row instead of duplicating it.
+  const lastCreatedIdRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -73,11 +82,17 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
 
   const resetForm = () => {
     setDay('1'); setBatchId(COMBINED); setStart(''); setEnd('');
-    setTitle(''); setSpeaker(''); setVenue(''); setOutcome(''); setLinks([]);
+    setTitle(''); setSpeaker(''); setVenue(''); setOutcome(''); setLinks([]); setSpeakers([]);
+    setSpeakersLoaded(false);
+    lastCreatedIdRef.current = null;
     setEditing(null);
   };
 
-  const openCreate = () => { resetForm(); setOpen(true); };
+  const openCreate = () => {
+    resetForm();
+    setSpeakersLoaded(true);   // new session has no speakers → safe to write
+    setOpen(true);
+  };
   const openEdit = (s: InductionSessionRow) => {
     setEditing(s);
     setDay(String(s.day_number ?? 1));
@@ -85,6 +100,11 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
     setStart(isoToLocal(s.start_at)); setEnd(isoToLocal(s.end_at));
     setTitle(s.title); setSpeaker(s.speaker_text ?? ''); setVenue(s.venue_text ?? '');
     setOutcome(s.outcome_text ?? ''); setLinks(s.resource_links ?? []);
+    setSpeakers([]);
+    setSpeakersLoaded(false);
+    InductionSpeakersService.getSessionSpeakers(s.id)
+      .then((r) => { setSpeakers(r); setSpeakersLoaded(true); })
+      .catch(() => setSpeakers([]));   // leave speakersLoaded false → save won't wipe
     setOpen(true);
   };
 
@@ -94,9 +114,12 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
     if (new Date(end) <= new Date(start)) { toast.error('End must be after start.'); return; }
     setSaving(true);
     try {
-      await InductionService.upsertSession({
+      // On a retry after a failed speaker-write, reuse the just-created id so we
+      // update the same session instead of inserting a duplicate.
+      const sessionId = editing?.id ?? lastCreatedIdRef.current;
+      const sid = await InductionService.upsertSession({
         eventId,
-        sessionId: editing?.id ?? null,
+        sessionId,
         dayNumber: Number(day) || null,
         batchId: batchId === COMBINED ? null : batchId,
         startAt: new Date(start).toISOString(),
@@ -107,6 +130,12 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
         outcomeText: outcome.trim() || null,
         resourceLinks: links.filter((l) => l.url.trim()),
       });
+      lastCreatedIdRef.current = sid;   // remember before the speaker write can fail
+      // link the chosen resource persons to real user records (replace-set) —
+      // only if existing links loaded, else a wipe-before-load is silent data loss
+      if (speakersLoaded) {
+        await InductionSpeakersService.setSessionSpeakers(sid, speakers.map((u) => u.id));
+      }
       toast.success(editing ? 'Session updated.' : 'Session added.');
       setOpen(false); resetForm(); await load();
     } catch (e: any) {
@@ -179,13 +208,17 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <Label htmlFor="s-speaker">Resource person</Label>
+                    <Label htmlFor="s-speaker">Group / note (optional)</Label>
                     <Input id="s-speaker" placeholder="e.g. English Department" value={speaker} onChange={(e) => setSpeaker(e.target.value)} />
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="s-venue">Venue</Label>
                     <Input id="s-venue" placeholder="e.g. Senthuraj Hall" value={venue} onChange={(e) => setVenue(e.target.value)} />
                   </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Resource persons (linked users)</Label>
+                  <SessionSpeakerPicker value={speakers} onChange={setSpeakers} disabled={saving} />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="s-outcome">Outcome (what this session aims to achieve)</Label>
