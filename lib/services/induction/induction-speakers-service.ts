@@ -25,6 +25,20 @@ export interface SessionLedRow {
   venue_text: string | null;
 }
 
+/** A session I led, with its anonymous feedback summary (k>=3 floor). */
+export interface MySessionFeedbackRow extends SessionLedRow {
+  response_count: number;
+  avg_rating: number | null; // NULL when suppressed (< 3 responses)
+  suppressed: boolean;
+}
+
+/** One anonymized feedback comment on a session I led. */
+export interface SessionCommentRow {
+  rating: number;
+  comment: string | null;
+  created_at: string;
+}
+
 export class InductionSpeakersService {
   /** Typeahead over the MyJKKN directory (staff + students). Email/role shown so
    *  the coordinator picks the RIGHT person among same-name users. RLS allows any
@@ -80,5 +94,26 @@ export class InductionSpeakersService {
     });
     if (error) throw error;
     return (data as SessionLedRow[]) ?? [];
+  }
+
+  /** Sessions I led, each with its anonymous feedback summary (avg + count).
+   *  Self-scoped to the caller's credited sessions; k>=3 floor suppresses the
+   *  avg below 3 responses. Needs NO induction.view. */
+  static async getMySessionsFeedback(): Promise<MySessionFeedbackRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_my_sessions_feedback');
+    if (error) throw error;
+    return (data as MySessionFeedbackRow[]) ?? [];
+  }
+
+  /** Anonymized comments for ONE of my sessions. Speakership-gated server-side;
+   *  returns [] when fewer than 3 responses (anonymity floor). */
+  static async getMySessionComments(sessionId: string): Promise<SessionCommentRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_my_session_comments', {
+      p_session_id: sessionId,
+    });
+    if (error) throw error;
+    return (data as SessionCommentRow[]) ?? [];
   }
 }
