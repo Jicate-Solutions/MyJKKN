@@ -8,7 +8,7 @@
 // (notifications + user_notifications fan-out) for each.
 //
 // Recipient resolution per spec §8 Round 2.4 (`wa_byow.disconnect_notify_roles`):
-//   - profile.role IN ('admin','staff') resolves to LC role 'senior_learner_advisor'
+//   - profile.role IN ('admin','staff') resolves to LC role 'learning_facilitator_advisor'
 //     (lib/learners-council/lc-roles.ts:38).
 //   - profile.role = 'hod' is also explicitly named in the policy.
 //
@@ -50,7 +50,7 @@ export async function dispatchByowStaleNotification(
     hoursSinceInbound,
   } = args;
 
-  // Resolve recipients: admin/staff → senior_learner_advisor, plus hod.
+  // Resolve recipients: admin/staff → learning_facilitator_advisor, plus hod.
   const { data: recipients, error: recipientsErr } = await supabase
     .from('profiles')
     .select('id, email, full_name')

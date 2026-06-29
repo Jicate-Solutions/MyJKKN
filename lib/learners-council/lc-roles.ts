@@ -8,7 +8,7 @@ export type LCRole =
   | 'md'
   | 'principal'
   | 'hod'
-  | 'senior_learner_advisor'
+  | 'learning_facilitator_advisor'
   | 'lc_executive'
   | 'lc_member'
   | 'yuva_chair'
@@ -35,7 +35,7 @@ export function getLCRole(profileRole: string | null, membership: LCMembershipIn
   if (profileRole === 'super_admin') return 'md';
   if (profileRole === 'principal') return 'principal';
   if (profileRole === 'hod') return 'hod';
-  if (profileRole === 'admin' || profileRole === 'staff') return 'senior_learner_advisor';
+  if (profileRole === 'admin' || profileRole === 'staff') return 'learning_facilitator_advisor';
 
   // LC roles from lc_members/lc_positions lookup
   if (membership) {
@@ -54,7 +54,7 @@ export function getLCRole(profileRole: string | null, membership: LCMembershipIn
 
 /** Check if a role is a staff/admin role */
 export function isStaffRole(role: LCRole): boolean {
-  return ['md', 'principal', 'hod', 'senior_learner_advisor'].includes(role);
+  return ['md', 'principal', 'hod', 'learning_facilitator_advisor'].includes(role);
 }
 
 /** Check if the profile.role is a staff role (quick check without LC membership) */
@@ -64,7 +64,7 @@ export function isStaffOrAdminRole(profileRole: string | null): boolean {
 
 /** Check if a role can create announcements */
 export function canCreateAnnouncements(role: LCRole): boolean {
-  return ['md', 'principal', 'hod', 'senior_learner_advisor', 'lc_executive', 'yuva_chair'].includes(role);
+  return ['md', 'principal', 'hod', 'learning_facilitator_advisor', 'lc_executive', 'yuva_chair'].includes(role);
 }
 
 /** Check if a role can manage elections */
