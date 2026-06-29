@@ -225,23 +225,21 @@ export async function GET(request: NextRequest) {
   const windowTo = isoDate(today);
   const windowFrom = isoDate(new Date(today.getTime() - windowDays * 24 * 60 * 60 * 1000));
 
-  // 2) Find courses with any fresh feedback window (low OR standout).
-  //    We query the underlying session feedback data to find (institution_id,
-  //    course_code, faculty_email) tuples that received feedback in the window;
-  //    fn_scf_ai_signal then computes the per-course signal so we can classify
-  //    each as a low ('improvement') or standout ('success') window.
-  //    Source = public.session_feedback (the canonical feedback table, the same
-  //    table fn_scf_ai_signal reads). NOTE: an earlier version read a relation
-  //    'scf_sessions' that does not exist — the listing 500'd on every run, so
-  //    the generator never produced a suggestion. Fixed 2026-06-30.
-  //    Direct table read is safe here: service-role bypasses RLS, and we only
-  //    read aggregate-level columns (no free_texts exposed in this listing).
-  const { data: candidates, error: listErr } = await admin
-    .from('session_feedback')
-    .select('institution_id, course_code, faculty_email')
-    .gte('attendance_date', windowFrom)
-    .lte('attendance_date', windowTo)
-    .not('understood', 'is', null);
+  // 2) Find courses with a fresh feedback window via fn_scf_candidate_windows,
+  //    which returns DISTINCT (institution_id, course_code, faculty_email) tuples
+  //    that have >=3 responses in the window. Aggregating in the DB (instead of
+  //    reading every session_feedback response row and de-duping in JS) avoids
+  //    PostgREST's default ~1000-row cap, which would otherwise SILENTLY drop
+  //    courses — and whole tenants — once a window exceeds 1000 responses. The
+  //    >=3 floor mirrors fn_scf_ai_signal's HAVING, so we only list tuples the
+  //    signal function would actually score.
+  //    NOTE: an earlier version read a relation 'scf_sessions' that does not
+  //    exist — the listing 500'd on every run, so the generator never produced a
+  //    suggestion. Fixed 2026-06-30.
+  const { data: candidates, error: listErr } = await admin.rpc('fn_scf_candidate_windows', {
+    p_from: windowFrom,
+    p_to: windowTo,
+  });
 
   if (listErr) {
     console.error('[cron/scf-generate-suggestions] listing failed:', listErr);
@@ -336,6 +334,44 @@ export async function GET(request: NextRequest) {
       kind = 'success';
     }
     if (kind === null) {
+      skipped++;
+      continue;
+    }
+
+    // Regen guard: skip if a same-kind suggestion for this course was already
+    // generated within the lookback window. The cron runs daily over a rolling
+    // 7-day window, so without this a persistently-low or persistently-standout
+    // course would be re-sent to Claude on every run (the upsert only dedupes
+    // identical window dates, which shift daily). Caps spend to ~once per window
+    // per kind. faculty_email is normalised to match how the record fn stores it.
+    const recentSince = isoDate(new Date(today.getTime() - windowDays * 24 * 60 * 60 * 1000));
+    const normFaculty = target.faculty_email
+      ? target.faculty_email.trim().toLowerCase() || null
+      : null;
+    let recentQuery = admin
+      .from('scf_ai_suggestions')
+      .select('id')
+      .eq('course_code', target.course_code)
+      .eq('kind', kind)
+      .eq('domain', 'session_feedback')
+      .gte('generated_at', recentSince)
+      .limit(1);
+    recentQuery = target.institution_id
+      ? recentQuery.eq('institution_id', target.institution_id)
+      : recentQuery.is('institution_id', null);
+    recentQuery = normFaculty
+      ? recentQuery.eq('faculty_email', normFaculty)
+      : recentQuery.is('faculty_email', null);
+    const { data: recentRows, error: recentErr } = await recentQuery;
+    if (recentErr) {
+      // The guard is a cost optimisation, not a correctness gate — fail OPEN and
+      // let generation proceed (the upsert still prevents duplicate rows). Skipping
+      // on error could silently stall all generation.
+      console.error(
+        `[cron/scf-generate-suggestions] regen-guard check failed for ${target.course_code}:`,
+        recentErr
+      );
+    } else if (recentRows && recentRows.length > 0) {
       skipped++;
       continue;
     }
