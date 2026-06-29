@@ -3010,6 +3010,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/events/induction",
+        "label": "Induction",
+        "iconName": "CalendarHeart",
+        "children": [
+          {
+            "path": "/events/induction/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/events/marathon",
         "label": "Marathon",
         "iconName": "CalendarHeart",
@@ -3092,6 +3105,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       }
     ]
+  },
+  {
+    "path": "/feedback",
+    "label": "Feedback",
+    "iconName": "MessageCircle",
+    "children": []
   },
   {
     "path": "/guide",
@@ -3905,7 +3924,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/hr/recruitment/jobs",
             "label": "Jobs",
             "iconName": "UserSearch",
-            "children": []
+            "children": [
+              {
+                "path": "/hr/recruitment/jobs/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
           },
           {
             "path": "/hr/recruitment/my",
@@ -4398,6 +4424,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/learners/my-induction",
+        "label": "My Induction",
+        "iconName": "GraduationCap",
+        "children": []
+      },
+      {
         "path": "/learners/my-marks",
         "label": "My Marks",
         "iconName": "GraduationCap",
@@ -4720,6 +4752,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
   {
     "path": "/my-bug-reports",
     "label": "My Bug Reports",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
+    "path": "/my-induction-sessions",
+    "label": "My Induction Sessions",
     "iconName": "FileText",
     "children": []
   },

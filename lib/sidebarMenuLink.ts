@@ -1316,6 +1316,18 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: Rocket,
           submenus: []
         },
+        {
+          // "My Induction Sessions" — a CREDITED resource person's own lane on
+          // their session feedback. UNGATED on purpose (no MENU_PERMISSIONS entry):
+          // a resource person needs NO induction.view, and the page self-scopes to
+          // the sessions you led (non-presenters see an empty state). Distinct from
+          // the gated coordinator console above.
+          href: '/my-induction-sessions',
+          label: 'My Induction Sessions',
+          active: pathname.startsWith('/my-induction-sessions'),
+          icon: MessageSquare,
+          submenus: []
+        },
         // NOTE: the learner lanes (Class Feedback /learn, My Attendance Feedback
         // /me) were moved OUT of this admin/faculty "Academic" group into the
         // student "Learners" group below — students never see "Academic", so they
