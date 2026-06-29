@@ -82,7 +82,7 @@ export default function MentorRollupsPage() {
               {/* ── Mentors ── */}
               <TabsContent value="mentors" className="space-y-6">
                 <section>
-                  <h2 className="text-sm font-semibold text-gray-700 mb-2">Peer / Senior-Learner Mentors</h2>
+                  <h2 className="text-sm font-semibold text-gray-700 mb-2">Peer Mentors</h2>
                   <Card>
                     <CardContent className="p-0">
                       <Table>

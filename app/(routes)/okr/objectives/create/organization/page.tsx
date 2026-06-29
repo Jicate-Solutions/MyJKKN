@@ -685,7 +685,7 @@ export default function OrganizationOKRCreatePage() {
                             <FormLabel>Group-wide Impact</FormLabel>
                             <FormControl>
                               <Textarea
-                                placeholder="How will this impact each of the 9 institutions? Who benefits - Learners, Learning Senior Learners, staff, community?"
+                                placeholder="How will this impact each of the 9 institutions? Who benefits - Learners, Learning Facilitators, staff, community?"
                                 rows={3}
                                 {...field}
                               />

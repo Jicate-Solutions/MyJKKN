@@ -6,7 +6,7 @@
 // flow is unchanged. Facilitators filter by institution + department; learners by
 // the institution → degree → department → program → semester → section cascade.
 // Only people WITH a login account appear (resource persons = active staff +
-// senior-learner mentors). Spec: specs/pre-onboarding-induction-access-2026-06-29.md
+// peer mentors). Spec: specs/pre-onboarding-induction-access-2026-06-29.md
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { createClientSupabaseClient } from '@/lib/supabase/client';

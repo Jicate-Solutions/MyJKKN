@@ -1,5 +1,5 @@
 // types/cdc/mentors.ts
-// CDC Mentor Pairings (senior-learner ↔ fresher-learner) — type definitions from live DB
+// CDC Mentor Pairings (peer mentor ↔ fresher-learner) — type definitions from live DB
 
 export type MentoringStatus = 'active' | 'concluded' | 'paused';
 

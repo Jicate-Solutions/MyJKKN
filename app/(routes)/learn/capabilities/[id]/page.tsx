@@ -361,7 +361,7 @@ export default function CapabilityDetailPage({
                   size="sm"
                   className="bg-amber-500 hover:bg-amber-600"
                   onClick={() => {
-                    alert('Demonstration feature coming soon. For now, contact your Senior Learner to verify your capability.');
+                    alert('Demonstration feature coming soon. For now, contact your Learning Facilitator to verify your capability.');
                   }}
                 >
                   <FileCheck className="h-4 w-4 mr-2" />
