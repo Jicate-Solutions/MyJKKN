@@ -36,6 +36,8 @@ export const scfQueryKeys = {
     [...scfQueryKeys.all, 'admin-faculty-summary', from, to] as const,
   adminTrend: (from: string, to: string) =>
     [...scfQueryKeys.all, 'admin-trend', from, to] as const,
+  facilitatorCoverage: (from: string, to: string) =>
+    [...scfQueryKeys.all, 'facilitator-coverage', from, to] as const,
   openPulsesForLearner: () => [...scfQueryKeys.all, 'open-pulses-learner'] as const,
   pulseTotals: (pulseId: string) => [...scfQueryKeys.all, 'pulse-totals', pulseId] as const,
 };
@@ -173,6 +175,16 @@ export function useAdminTrend(from: string, to: string) {
   return useQuery({
     queryKey: scfQueryKeys.adminTrend(from, to),
     queryFn: () => SessionFeedbackService.getAdminTrend(from, to),
+    enabled: !!from && !!to,
+    staleTime: 60 * 1000,
+  });
+}
+
+/** All-college per-learning-facilitator FEEDBACK coverage (drivers first, 0% last). */
+export function useFacilitatorFeedbackCoverage(from: string, to: string) {
+  return useQuery({
+    queryKey: scfQueryKeys.facilitatorCoverage(from, to),
+    queryFn: () => SessionFeedbackService.getFacilitatorFeedbackCoverage(from, to),
     enabled: !!from && !!to,
     staleTime: 60 * 1000,
   });
