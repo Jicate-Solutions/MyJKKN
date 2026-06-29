@@ -32,6 +32,9 @@
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+// Sequential AI calls; bound the function so a slow batch can't run unbounded.
+// Paired with BATCH_DEADLINE_MS below, which stops taking new targets before this.
+export const maxDuration = 300;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
@@ -48,6 +51,10 @@ const LOW_UNDERSTOOD_THRESHOLD = 3; // avg_understood < this → 'improvement' s
 // STANDOUT only (not every 4/5) so we don't generate ~125 rows of noise + Claude
 // cost — capturing what worked is only worth it when a class clearly excelled.
 const STANDOUT_THRESHOLD = 4.5;
+// Stop taking NEW targets once the batch has run this long, so the function
+// finishes (incl. the outcome-measurement step) within maxDuration regardless of
+// how slow individual Claude calls are. Headroom below the 300s maxDuration.
+const BATCH_DEADLINE_MS = 270_000;
 
 // Replicated verbatim from ai-suggest-improvement/route.ts so the model's
 // output shape is identical — the record RPC stores the same JSON structure.
@@ -297,6 +304,16 @@ export async function GET(request: NextRequest) {
   let skipped = 0;
 
   for (const target of targets) {
+    // Stop taking new targets near the function time limit (the measure-outcomes
+    // step below still runs, so the loop closes cleanly). Leftover candidates are
+    // picked up next run — the fair-rotation order means they sort first.
+    if (Date.now() - started > BATCH_DEADLINE_MS) {
+      console.warn(
+        `[cron/scf-generate-suggestions] batch deadline reached (${generated} generated) — stopping early, remainder deferred to next run`
+      );
+      break;
+    }
+
     const { data: signalData, error: signalErr } = await admin.rpc('fn_scf_ai_signal', {
       p_course_code: target.course_code,
       p_from: target.window_from,
@@ -374,14 +391,19 @@ export async function GET(request: NextRequest) {
       : recentQuery.is('faculty_email', null);
     const { data: recentRows, error: recentErr } = await recentQuery;
     if (recentErr) {
-      // The guard is a cost optimisation, not a correctness gate — fail OPEN and
-      // let generation proceed (the upsert still prevents duplicate rows). Skipping
-      // on error could silently stall all generation.
+      // Fail CLOSED: this guard caps paid Claude spend, so on a query error we
+      // SKIP generation rather than risk re-billing every candidate on every run
+      // (a transient PostgREST error would otherwise defeat the once-per-window
+      // cap). The error is logged for ops; the next run recovers. A persistent
+      // error stalls generation — preferable to unbounded spend in a broken state.
       console.error(
-        `[cron/scf-generate-suggestions] regen-guard check failed for ${target.course_code}:`,
+        `[cron/scf-generate-suggestions] regen-guard check failed for ${target.course_code} — skipping to avoid re-spend:`,
         recentErr
       );
-    } else if (recentRows && recentRows.length > 0) {
+      skipped++;
+      continue;
+    }
+    if (recentRows && recentRows.length > 0) {
       skipped++;
       continue;
     }
