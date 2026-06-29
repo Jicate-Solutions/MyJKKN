@@ -3,11 +3,17 @@
 // =====================================================================
 // Fixes loop gap #3: the "improve" step previously only fired when a human
 // clicked "suggest improvement" in the UI — the loop was NOT autonomous.
-// This daily cron scans for courses that had a low-understanding window in
-// the last 7 days (>=3 responses, avg understood < 3) and generates an AI
-// teaching-improvement suggestion for each one that doesn't already have
-// one for that window. It then triggers outcome measurement so matured
-// prior suggestions get their lift attributed.
+// This daily cron scans for courses that had a feedback window in the last 7
+// days (>=3 responses) and, per course, generates ONE of:
+//   * a teaching-IMPROVEMENT suggestion  (avg understood < 3)            kind='improvement'
+//   * a teaching-SUCCESS / what-worked   (avg >= 4.5 with >=1 comment)   kind='success'
+// Middling windows (3 <= avg < 4.5) get nothing. It then triggers outcome
+// measurement so matured prior suggestions get their lift attributed.
+//
+// 2026-06-30: added the standout 'success' branch (learn from positive, not
+// only from struggle) AND fixed the candidate listing, which read a relation
+// 'scf_sessions' that never existed — the generator had been 500-ing on every
+// scheduled run and producing zero suggestions. Now reads public.session_feedback.
 //
 // Pattern mirrors /api/cron/session-feedback-escalation and
 // /api/cron/scf-measure-outcomes (auth, client, response shape, logging).
@@ -35,9 +41,13 @@ import Anthropic from '@anthropic-ai/sdk';
 
 const MODEL = 'claude-sonnet-4-6';
 const BATCH_CAP = 25; // max courses to process per run; excess is logged
-const WINDOW_DAYS = 7; // look back 7 days for fresh low-understanding windows
+const WINDOW_DAYS = 7; // look back 7 days for fresh windows (low OR standout)
 const MIN_RESPONSES = 3; // floor below which we skip AI (same as interactive route)
-const LOW_UNDERSTOOD_THRESHOLD = 3; // avg_understood < this → flagged for suggestion
+const LOW_UNDERSTOOD_THRESHOLD = 3; // avg_understood < this → 'improvement' suggestion
+// avg_understood >= this AND >=1 written comment → 'success' suggestion. Gated to
+// STANDOUT only (not every 4/5) so we don't generate ~125 rows of noise + Claude
+// cost — capturing what worked is only worth it when a class clearly excelled.
+const STANDOUT_THRESHOLD = 4.5;
 
 // Replicated verbatim from ai-suggest-improvement/route.ts so the model's
 // output shape is identical — the record RPC stores the same JSON structure.
@@ -46,6 +56,16 @@ Use ONLY the data provided; ground every suggestion in it. Be concrete and India
 Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exactly:
 { "summary": "...", "likelyCauses": ["..."], "suggestedAdjustments": [{"title":"...","how":"..."}], "quickWin": "...", "whatToWatchNext": "..." }
 Give 2-4 likelyCauses and 3-5 suggestedAdjustments. whatToWatchNext must reference the next session's understanding score (the loop's verifier).`;
+
+// The POSITIVE flip-side: when a class lands exceptionally well, capture WHAT
+// WORKED as a reusable success pattern (replicate it, share with peers) instead
+// of only patching failure. Different JSON shape (success-oriented), stored with
+// kind='success'. Proven by a controlled demo before shipping (2026-06-30).
+const SUCCESS_SYSTEM_PROMPT = `You are a teaching-excellence assistant for an Indian higher-education institution. A class's students gave anonymous post-class feedback, and this session landed exceptionally well (high understanding, positive comments). You receive ONLY aggregate signals and anonymized comment text — never any student identity.
+Your job: capture WHAT WORKED so the facilitator can deliberately repeat it and peers teaching the same course can learn from it. Use ONLY the data provided; ground every point in it. Be concrete and India-context aware. NEVER quote a comment verbatim and NEVER refer to an individual student — speak only in aggregate themes so no student can be identified.
+Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exactly:
+{ "whatWorked": "...", "whyItLanded": ["..."], "replicateIn": [{"context":"...","how":"..."}], "shareWithPeers": "...", "watchNext": "..." }
+Give 2-4 whyItLanded and 2-3 replicateIn. watchNext must reference sustaining this in the next session's understanding score (the loop's verifier).`;
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -114,6 +134,7 @@ async function buildTrackRecordBlock(
 // missing API key) so the cron can still record outcomes and continue the batch.
 async function generateSuggestion(
   anthropic: Anthropic | null,
+  kind: 'improvement' | 'success',
   courseCode: string,
   signal: SignalRow,
   windowFrom: string,
@@ -128,6 +149,15 @@ async function generateSuggestion(
       ? freeTexts.map((t) => `- ${String(t).trim()}`).join('\n')
       : '- (no written comments — use the numeric signals)';
 
+  // Branch on kind: the low path patches what failed; the success path captures
+  // what worked. Same aggregate signal, different system prompt + closing line +
+  // JSON shape. trackRecord (prior-advice feedback) only applies to improvement.
+  const systemPrompt = kind === 'success' ? SUCCESS_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  const closingLine =
+    kind === 'success'
+      ? 'Capture what worked as reusable success-pattern JSON now.'
+      : 'Generate the teaching-improvement JSON now.';
+
   const userPrompt = `Course: ${courseCode}
 Window: ${windowFrom} to ${windowTo}
 Responses: ${signal.responses}
@@ -137,13 +167,13 @@ Average understanding (1-5): ${signal.avg_understood ?? 'n/a'}
 Anonymized student comments:
 ${commentBlock}${trackRecord}
 
-Generate the teaching-improvement JSON now.`;
+${closingLine}`;
 
   try {
     const resp = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 1024,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
     });
 
@@ -195,18 +225,22 @@ export async function GET(request: NextRequest) {
   const windowTo = isoDate(today);
   const windowFrom = isoDate(new Date(today.getTime() - windowDays * 24 * 60 * 60 * 1000));
 
-  // 2) Find courses with a fresh low-understanding window.
+  // 2) Find courses with any fresh feedback window (low OR standout).
   //    We query the underlying session feedback data to find (institution_id,
-  //    course_code, faculty_email) tuples that have low avg understanding in
-  //    the window. fn_scf_ai_signal is the canonical signal reader, but it
-  //    operates per-course — we need a listing first.
+  //    course_code, faculty_email) tuples that received feedback in the window;
+  //    fn_scf_ai_signal then computes the per-course signal so we can classify
+  //    each as a low ('improvement') or standout ('success') window.
+  //    Source = public.session_feedback (the canonical feedback table, the same
+  //    table fn_scf_ai_signal reads). NOTE: an earlier version read a relation
+  //    'scf_sessions' that does not exist — the listing 500'd on every run, so
+  //    the generator never produced a suggestion. Fixed 2026-06-30.
   //    Direct table read is safe here: service-role bypasses RLS, and we only
-  //    read aggregate-level data (no free_texts exposed in this listing).
+  //    read aggregate-level columns (no free_texts exposed in this listing).
   const { data: candidates, error: listErr } = await admin
-    .from('scf_sessions')
+    .from('session_feedback')
     .select('institution_id, course_code, faculty_email')
-    .gte('session_date', windowFrom)
-    .lte('session_date', windowTo)
+    .gte('attendance_date', windowFrom)
+    .lte('attendance_date', windowTo)
     .not('understood', 'is', null);
 
   if (listErr) {
@@ -252,8 +286,11 @@ export async function GET(request: NextRequest) {
     console.warn('[cron/scf-generate-suggestions] no API key — will skip generation but measure outcomes');
   }
 
-  // 5) For each target: read signal, check threshold + existing suggestion, generate.
+  // 5) For each target: read signal, classify the window (low / standout / skip),
+  //    generate the matching suggestion, record it with its kind.
   let generated = 0;
+  let generatedImprovement = 0;
+  let generatedSuccess = 0;
   let skipped = 0;
 
   for (const target of targets) {
@@ -281,28 +318,44 @@ export async function GET(request: NextRequest) {
         ? Number(signal.avg_understood)
         : null;
 
-    // Below floor or above threshold → skip.
-    if (
-      responses < MIN_RESPONSES ||
-      avgUnderstood === null ||
-      avgUnderstood >= LOW_UNDERSTOOD_THRESHOLD
-    ) {
+    const freeTextCount = signal?.free_texts?.length ?? 0;
+
+    // Classify the window:
+    //   below the response floor / no avg  → skip (not enough signal)
+    //   avg < LOW_UNDERSTOOD_THRESHOLD      → 'improvement' (patch what failed)
+    //   avg >= STANDOUT_THRESHOLD + comment → 'success'     (capture what worked)
+    //   otherwise (a middling window)       → skip (nothing actionable to generate)
+    if (responses < MIN_RESPONSES || avgUnderstood === null) {
+      skipped++;
+      continue;
+    }
+    let kind: 'improvement' | 'success' | null = null;
+    if (avgUnderstood < LOW_UNDERSTOOD_THRESHOLD) {
+      kind = 'improvement';
+    } else if (avgUnderstood >= STANDOUT_THRESHOLD && freeTextCount >= 1) {
+      kind = 'success';
+    }
+    if (kind === null) {
       skipped++;
       continue;
     }
 
-    // fn_scf_record_suggestion is idempotent on (course_code, faculty_email,
-    // window_from, window_to) — a duplicate call is safe. We still prefer to
-    // call AI + record only when there's new work, but a repeat is not harmful.
-    const trackRecord = await buildTrackRecordBlock(
-      admin,
-      target.course_code,
-      target.faculty_email,
-      target.institution_id
-    );
+    // The 'improvement' path feeds the prior-advice track record back into the
+    // prompt (self-improving). The 'success' path has no prior-advice loop — it
+    // captures a fresh standout — so it skips the track-record fetch.
+    const trackRecord =
+      kind === 'improvement'
+        ? await buildTrackRecordBlock(
+            admin,
+            target.course_code,
+            target.faculty_email,
+            target.institution_id
+          )
+        : '';
 
     const { suggestion, modelUsed } = await generateSuggestion(
       anthropic,
+      kind,
       target.course_code,
       signal as SignalRow,
       target.window_from,
@@ -310,7 +363,8 @@ export async function GET(request: NextRequest) {
       trackRecord
     );
 
-    // Record the suggestion (or a null placeholder if AI was unavailable).
+    // Record the suggestion. fn_scf_record_suggestion upserts on
+    // (institution, course, faculty, window, domain) — a duplicate call is safe.
     // Best-effort — a record failure must not abort the batch.
     if (suggestion !== null) {
       try {
@@ -325,8 +379,11 @@ export async function GET(request: NextRequest) {
           p_input_avg: avgUnderstood,
           p_suggestion: suggestion,
           p_model: modelUsed,
+          p_kind: kind,
         });
         generated++;
+        if (kind === 'success') generatedSuccess++;
+        else generatedImprovement++;
       } catch (recErr) {
         console.error(
           `[cron/scf-generate-suggestions] record failed for ${target.course_code}:`,
@@ -358,6 +415,8 @@ export async function GET(request: NextRequest) {
     candidates: uniqueTargets.length,
     capped: cappedCount,
     generated,
+    generated_improvement: generatedImprovement,
+    generated_success: generatedSuccess,
     skipped,
     measured,
     ai_available: Boolean(anthropic),
