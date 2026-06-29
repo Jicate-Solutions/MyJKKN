@@ -112,6 +112,9 @@ function BulletinOpportunityDetailContent({ params }: Props) {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
+            {opp.description && (
+              <p className="text-muted-foreground whitespace-pre-line">{opp.description}</p>
+            )}
             {opp.category && (
               <div>
                 <span className="font-medium">Category: </span>

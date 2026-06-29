@@ -83,6 +83,9 @@ export class InductionService {
       p_outcome_text: input.outcomeText ?? null,
       p_resource_links: input.resourceLinks ?? [],
       p_session_order: input.sessionOrder ?? 1,
+      // STRICT venue: the chosen Resource Management room. The RPC derives
+      // venue_text from this resource's name server-side (no free-text path).
+      p_venue_resource_id: input.venueResourceId ?? null,
     });
     if (error) throw error;
     return data as string;
@@ -231,6 +234,59 @@ export class InductionService {
     if (error) throw error;
     return data as number;
   }
+
+  /**
+   * The induction loop's current playbook for a cohort (+ its adoption verdict),
+   * or null if the generator hasn't produced one yet. Browser read — RLS scopes
+   * scf_ai_suggestions induction rows to super/admin/institution.
+   */
+  static async getLoopPlaybook(
+    institutionId: string,
+    academicYearId: string,
+  ): Promise<InductionLoopPlaybook | null> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('scf_ai_suggestions')
+      .select(
+        'suggestion, human_verdict, input_avg_understood, outcome_avg_understood, outcome_lift, generated_at',
+      )
+      .eq('domain', 'induction')
+      .eq('institution_id', institutionId)
+      .eq('academic_year_id', academicYearId)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as InductionLoopPlaybook | null) ?? null;
+  }
+
+  /**
+   * Record whether the coordinator ADOPTED / partially adopted / IGNORED the
+   * cohort's playbook. This is the loop's counterfactual arm: ignored cohorts are
+   * the control that lets the year-over-year lift be falsified (drift vs causal).
+   * Manager-gated inside the SECURITY DEFINER RPC (induction.manage + inst access).
+   */
+  static async setPlaybookVerdict(
+    institutionId: string,
+    academicYearId: string,
+    verdict: 'adopted' | 'partial' | 'ignored',
+  ): Promise<boolean> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_set_playbook_verdict', {
+      p_institution_id: institutionId,
+      p_academic_year_id: academicYearId,
+      p_verdict: verdict,
+    });
+    if (error) throw error;
+    return data as boolean;
+  }
+}
+
+export interface InductionLoopPlaybook {
+  suggestion: Record<string, unknown> | null;
+  human_verdict: 'adopted' | 'partial' | 'ignored' | null;
+  input_avg_understood: number | null;
+  outcome_avg_understood: number | null;
+  outcome_lift: number | null;
+  generated_at: string;
 }
 
 export interface SessionFeedbackSummary { session_id: string; avg_rating: number; response_count: number; }
@@ -343,6 +399,8 @@ export interface InductionSessionRow {
   title: string;
   description: string | null;
   venue_text: string | null;
+  /** Resource Management room id (STRICT venue), or null for legacy/none. */
+  venue_resource_id: string | null;
   speaker_text: string | null;
   outcome_text: string | null;
   resource_links: ResourceLink[];
@@ -359,6 +417,9 @@ export interface UpsertSessionInput {
   title: string;
   description?: string | null;
   venueText?: string | null;
+  /** Chosen Resource Management room id (STRICT venue). The RPC derives
+   *  venue_text from it server-side; pass null to clear the venue. */
+  venueResourceId?: string | null;
   speakerText?: string | null;
   outcomeText?: string | null;
   resourceLinks?: ResourceLink[];

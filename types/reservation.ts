@@ -88,6 +88,30 @@ export interface CreateReservationDto {
   attachments?: string[];
   is_recurring?: boolean;
   recurring_config?: RecurringConfig;
+
+  // ── Booking-spine links + approval override (2026-06-28) ──────────────────
+  // Other modules (events, …) call this ONE service instead of copying it. These
+  // optional fields let a caller link the reservation to what it was made for and
+  // override the approval decision. All optional ⇒ existing callers are unaffected.
+  /** The event this booking is for (resource_reservations.event_id). */
+  event_id?: string;
+  /** The event session this booking is for (resource_reservations.session_id). */
+  session_id?: string;
+  /** Resource-bundle this booking belongs to (resource_reservations.bundle_id). */
+  bundle_id?: string;
+  /** Human label for the slot (resource_reservations.session_label). */
+  session_label?: string;
+  /**
+   * Approval decision override. 'config' (default) = use the resource's own
+   * approval_config rule. 'auto' = approve immediately (e.g. events booking a
+   * same-college room). 'require' = force pending + seed `approvers`.
+   */
+  approvalMode?: 'config' | 'auto' | 'require';
+  /**
+   * Approver chain to seed when approval is required (e.g. the room's caretaker
+   * for a cross-college event). Falls back to the resource's approval_config.
+   */
+  approvers?: { user_id: string; level?: number }[];
 }
 
 export interface UpdateReservationDto {

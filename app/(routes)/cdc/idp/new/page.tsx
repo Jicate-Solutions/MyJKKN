@@ -160,6 +160,38 @@ export default function NewIdpPage() {
                 </div>
               )}
 
+              {/* Learner detail (BUG-004264) — contact + academic pulled from the
+                  learner's MyJKKN profile so coordinators don't switch tabs to look
+                  them up. Academic performance (CGPA/backlogs) is not shown because
+                  MyJKKN records none per learner. Each field renders only when present. */}
+              {prefilled && prefill?.learner && (
+                prefill.learner.email || prefill.learner.mobile || prefill.learner.program ||
+                prefill.learner.department || prefill.learner.semester
+              ) && (
+                <div className="rounded-md border bg-muted/30 px-3 py-3 text-sm">
+                  <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+                    {prefill.learner.register_number && (
+                      <div><span className="text-xs text-muted-foreground">Register No.</span><div className="font-medium">{prefill.learner.register_number}</div></div>
+                    )}
+                    {prefill.learner.email && (
+                      <div><span className="text-xs text-muted-foreground">Email</span><div className="font-medium break-all">{prefill.learner.email}</div></div>
+                    )}
+                    {prefill.learner.mobile && (
+                      <div><span className="text-xs text-muted-foreground">Phone</span><div className="font-medium">{prefill.learner.mobile}</div></div>
+                    )}
+                    {prefill.learner.program && (
+                      <div><span className="text-xs text-muted-foreground">Program</span><div className="font-medium">{prefill.learner.program}</div></div>
+                    )}
+                    {prefill.learner.department && (
+                      <div><span className="text-xs text-muted-foreground">Department</span><div className="font-medium">{prefill.learner.department}</div></div>
+                    )}
+                    {prefill.learner.semester && (
+                      <div><span className="text-xs text-muted-foreground">Semester</span><div className="font-medium">{prefill.learner.semester}</div></div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-1">
                 <Label htmlFor="academic_year">Academic Year</Label>
                 <Select value={academicYear} onValueChange={setAcademicYear}>

@@ -35,13 +35,14 @@ const POLICY_PREFIX = 'internship.policy.' as const;
 const PLATFORM_POLICIES_TABLE = 'platform_policies' as const;
 const OVERRIDES_TABLE = 'internship_college_notification_overrides' as const;
 
-// The 8 internship config tables — used for the admin dashboard row-count view.
+// The 7 internship config tables — used for the admin dashboard row-count view.
+// (Vehicles moved onto the booking spine as Transport `resources` — Limb 3 —
+// so `internship_vehicles` is retired and no longer counted here.)
 const INTERNSHIP_CONFIG_TABLES = [
   'internship_posting_cycles',
   'internship_external_sites',
   'internship_site_contacts',
   'internship_preceptors',
-  'internship_vehicles',
   'internship_incidents',
   'internship_evaluations',
   'internship_certificates',

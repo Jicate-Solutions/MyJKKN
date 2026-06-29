@@ -1,20 +1,16 @@
 'use client';
 
 /**
- * VenueRoomPicker — single-select, searchable picker for a Resource Management
- * "Spaces & Venues" room, used by the Manage Meeting Types form for in-person
- * meetings (venue-from-resource PR1).
+ * VenueRoomPicker (events) — single-select, searchable picker for a Resource
+ * Management "Spaces & Venues" room, used by the Create-an-Event flow to link an
+ * on-campus event to a real room (the booking-spine room core, 2026-06-28).
  *
- * - Reads the canonical registry via ResourceService (browser client, RLS) so a
- *   host sees ALL JKKN rooms (the resources SELECT policy is org-wide for any
- *   authenticated user) — no institution restriction, per the Director's spec.
- * - Each row shows the room name + a muted directions line + its institution, so
- *   same-named rooms across colleges are distinguishable.
- * - Selecting a room sets the resource id; "Custom place instead" clears it so
- *   the host can type a free-text location (the fallback handled by the parent).
- *
- * Combobox shape mirrors app/(routes)/cdc/bulletin/new/_components/audience-multi-select.tsx
- * (Popover + cmdk Command), reduced to single-select.
+ * This is an events-local copy of the proven meetings picker
+ * (app/(routes)/meetings/manage/_components/venue-room-picker.tsx) so the events
+ * module doesn't import another route's private _components. Behaviour is
+ * identical: reads the canonical registry via ResourceService (browser/RLS), so
+ * the organiser sees ALL JKKN rooms; selecting a room sets its resource id;
+ * "Custom place instead" clears it so the parent can fall back to free text.
  */
 
 import * as React from 'react';
@@ -46,7 +42,6 @@ interface RoomOption {
   name: string;
   directions: string | null;
   institutionName: string | null;
-  /** Searchable haystack (name + directions + institution). */
   search: string;
 }
 
@@ -57,16 +52,9 @@ interface VenueRoomPickerProps {
   /** Name to show before the room list has loaded (round-tripped on edit). */
   initialName?: string | null;
   disabled?: boolean;
-  /**
-   * STRICT mode (e.g. induction sessions): there is no free-text fallback, so the
-   * clear option reads "Clear venue (no room)" instead of "Custom place instead".
-   * Selecting it still clears to '' — a record may legitimately have no venue.
-   * Defaults to false to preserve the Meetings (custom-place-fallback) behavior.
-   */
-  strict?: boolean;
 }
 
-export function VenueRoomPicker({ value, onChange, initialName, disabled, strict = false }: VenueRoomPickerProps) {
+export function VenueRoomPicker({ value, onChange, initialName, disabled }: VenueRoomPickerProps) {
   const [open, setOpen] = React.useState(false);
   const [rooms, setRooms] = React.useState<RoomOption[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -76,8 +64,6 @@ export function VenueRoomPicker({ value, onChange, initialName, disabled, strict
     let cancelled = false;
     (async () => {
       try {
-        // Resolve the "Spaces & Venues" category id by name (robust to reseeds),
-        // then pull every room in it (limit high enough for the full registry).
         const cats = await ParentCategoryService.getParentCategories({
           search: SPACES_VENUES_CATEGORY_NAME,
           status: 'all',
@@ -100,7 +86,16 @@ export function VenueRoomPicker({ value, onChange, initialName, disabled, strict
           sortOrder: 'asc',
         });
         if (cancelled) return;
-        const opts: RoomOption[] = (res.data ?? []).map((r: Resource) => {
+        const opts: RoomOption[] = (res.data ?? [])
+          // Only offer rooms the booking spine can actually hold — exclude
+          // walk-in-only and non-reservable rooms (they'd be rejected after the
+          // event is created). Defensive: today all venue rooms are reservable.
+          .filter(
+            (r: Resource) =>
+              (r as { is_reservable?: boolean }).is_reservable !== false &&
+              (r as { booking_type?: string }).booking_type !== 'walk_in',
+          )
+          .map((r: Resource) => {
           const directions = formatVenueDirections(r);
           const institutionName = r.institution?.name ?? null;
           return {
@@ -115,7 +110,7 @@ export function VenueRoomPicker({ value, onChange, initialName, disabled, strict
         setLoading(false);
       } catch (err) {
         if (!cancelled) {
-          console.error('[venue-room-picker] load failed:', err);
+          console.error('[events/venue-room-picker] load failed:', err);
           setLoadError('Could not load the venue list.');
           setLoading(false);
         }
@@ -131,7 +126,6 @@ export function VenueRoomPicker({ value, onChange, initialName, disabled, strict
     [rooms, value],
   );
 
-  // Label on the trigger: the loaded room, else the round-tripped name, else placeholder.
   const triggerLabel = selected?.name ?? (value ? initialName ?? null : null);
 
   return (
@@ -183,7 +177,7 @@ export function VenueRoomPicker({ value, onChange, initialName, disabled, strict
                     }}
                     className="text-muted-foreground"
                   >
-                    {strict ? 'Clear venue (no room)' : 'Custom place instead (type the location)'}
+                    Custom place instead (type the location)
                   </CommandItem>
                 </CommandGroup>
               )}
@@ -226,7 +220,7 @@ export function VenueRoomPicker({ value, onChange, initialName, disabled, strict
       {loadError && <p className="text-xs text-destructive">{loadError}</p>}
       {selected?.directions && (
         <p className="text-xs text-muted-foreground">
-          Visitors will see: {selected.directions}
+          Where: {selected.directions}
           {selected.institutionName ? ` · ${selected.institutionName}` : ''}
         </p>
       )}
