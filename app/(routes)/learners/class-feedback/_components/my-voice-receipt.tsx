@@ -2,16 +2,19 @@
 
 // "Your voice this term" — the learner's private feedback receipt (C3).
 // First-person ledger of the learner's OWN participation: how many classes they
-// confirmed, how many they flagged as hard to follow, and — the loop-close — how
-// many of those flagged classes the cohort understood better next time.
+// confirmed, how many they flagged as hard to follow, and — the honest loop-close
+// — how many of those flagged classes produced a REAL, recorded follow-up from
+// their teacher (a suggestion issued for that class, traceable to this learner's
+// own flag). We never claim "your feedback improved the class" off a cohort average.
 //
 // PRIVACY: reads fn_scf_my_impact, which returns only the learner's own ratings +
-// a derived `improved` boolean (gated to a k>=3 responses floor). No other
-// learner's rating or identity is ever shown. Renders nothing until the learner
-// has given at least one piece of feedback (no empty-receipt clutter).
+// per flagged session a discrete action signal (action_kind/detail) sourced from a
+// real scf_ai_suggestions row whose window contains that session. No other learner's
+// rating or identity is ever shown, and no class average is exposed. Renders nothing
+// until the learner has given at least one piece of feedback (no empty-receipt clutter).
 
 import { useMemo } from 'react';
-import { Heart, CheckCircle2, Flag, TrendingUp } from 'lucide-react';
+import { Heart, CheckCircle2, Flag, Sparkles } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useMyImpact } from '@/hooks/use-session-feedback';
@@ -71,12 +74,14 @@ export function MyVoiceReceipt() {
   const { data, isLoading } = useMyImpact(from, to);
   const rows = data ?? [];
 
-  const { confirmed, flagged, improved, flaggedRows } = useMemo(() => {
+  const { confirmed, flagged, acted, flaggedRows } = useMemo(() => {
     const flaggedRows = rows.filter((r) => r.flagged);
     return {
       confirmed: rows.length,
       flagged: flaggedRows.length,
-      improved: flaggedRows.filter((r) => r.improved === true).length,
+      // "Acted on" counts only flagged classes with a REAL recorded follow-up —
+      // never a cohort-average movement.
+      acted: flaggedRows.filter((r) => r.action_taken === true).length,
       flaggedRows,
     };
   }, [rows]);
@@ -109,9 +114,9 @@ export function MyVoiceReceipt() {
             tone="amber"
           />
           <StatTile
-            icon={<TrendingUp className="h-4 w-4" />}
-            value={improved}
-            label="Improved next time"
+            icon={<Sparkles className="h-4 w-4" />}
+            value={acted}
+            label="Acted on"
             tone="green"
           />
         </div>
@@ -120,37 +125,47 @@ export function MyVoiceReceipt() {
           Every class you confirm marks your attendance and gives your teachers an honest
           signal.{' '}
           {flagged > 0
-            ? improved > 0
-              ? `You flagged ${flagged} ${flagged === 1 ? 'class' : 'classes'} as hard to follow — and ${improved} got clearer the next time. Your feedback moved the needle.`
-              : `You flagged ${flagged} ${flagged === 1 ? 'class' : 'classes'} as hard to follow. Watch this space — we’ll show when one improves next time.`
-            : 'When you flag a class as hard to follow, we’ll show here whether it got clearer next time.'}
+            ? acted > 0
+              ? `You flagged ${flagged} ${flagged === 1 ? 'class' : 'classes'} as hard to follow — and for ${acted} of them, a real follow-up reached your teacher (shown below).`
+              : `You flagged ${flagged} ${flagged === 1 ? 'class' : 'classes'} as hard to follow. We’ll show here the moment a teacher acts on one — only real follow-ups, never a guess.`
+            : 'When you flag a class as hard to follow, we’ll show here what your teacher does next for it.'}
         </p>
 
         {flaggedRows.length > 0 ? (
           <ul className="divide-y rounded-md border bg-background/40">
             {flaggedRows.slice(0, 5).map((r, i) => {
               const status =
-                r.improved === true
-                  ? { label: 'Improved next time', cls: 'border-green-200 bg-green-100 text-green-800' }
-                  : r.improved === false
-                    ? { label: 'About the same', cls: 'border-border bg-muted text-muted-foreground' }
-                    : { label: 'Awaiting next class', cls: 'border-border bg-muted text-muted-foreground' };
+                r.action_kind === 'verdict_worked'
+                  ? { label: 'Teacher revisited it', cls: 'border-green-200 bg-green-100 text-green-800' }
+                  : r.action_kind === 'suggestion_issued'
+                    ? { label: 'Follow-up sent to teacher', cls: 'border-blue-200 bg-blue-100 text-blue-800' }
+                    : { label: 'Awaiting follow-up', cls: 'border-border bg-muted text-muted-foreground' };
               return (
                 <li
                   key={`${r.attendance_date}-${r.course_code ?? 'na'}-${i}`}
-                  className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                  className="px-3 py-2 text-sm"
                 >
-                  <div className="min-w-0">
-                    <span className="font-medium">
-                      {r.course_name || r.course_code || 'Class session'}
-                    </span>
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      {formatDate(r.attendance_date)}
-                    </span>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <span className="font-medium">
+                        {r.course_name || r.course_code || 'Class session'}
+                      </span>
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {formatDate(r.attendance_date)}
+                      </span>
+                    </div>
+                    <Badge variant="outline" className={status.cls}>
+                      {status.label}
+                    </Badge>
                   </div>
-                  <Badge variant="outline" className={status.cls}>
-                    {status.label}
-                  </Badge>
+                  {r.action_taken && r.action_detail ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">
+                        What your teacher did next:{' '}
+                      </span>
+                      {r.action_detail}
+                    </p>
+                  ) : null}
                 </li>
               );
             })}

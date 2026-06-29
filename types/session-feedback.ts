@@ -124,17 +124,24 @@ export type FacultyFollowupRow = EscalationFollowupRow;
 
 /** A learner's private "your voice this term" receipt row. fn_scf_my_impact (C3).
  *  One row per session the learner gave feedback on. Carries the learner's OWN rating
- *  plus a derived `improved` boolean (did the class do better next time) — never a raw
- *  class average. `improved` is null when there is no next session yet OR responses are
- *  below the k>=3 anonymity floor on either session. */
+ *  plus — for sessions they FLAGGED — whether a DISCRETE, recorded downstream faculty
+ *  action exists that is traceable to their own voice: an AI suggestion issued to the
+ *  teacher whose generation window CONTAINS this session (so the learner's flag was part
+ *  of the signal that produced it). NEVER a class-average lift — a cohort effect is never
+ *  attributed to one learner. action_* stay null/false until such an action exists. */
 export interface MyImpactRow {
   attendance_date: string;
   course_code: string | null;
   course_name: string | null;
   my_understood: number;          // the learner's own 1..5 rating for that session
   flagged: boolean;               // my_understood <= 2
-  next_attendance_date: string | null;
-  improved: boolean | null;       // class avg rose next time; null = awaiting / masked
+  // The single discrete downstream action recorded for this flagged class, traceable to
+  // the learner's own flag. 'verdict_worked' = teacher attested it helped; 'suggestion_issued'
+  // = a follow-up suggestion was issued to the teacher; null = nothing yet (no causal claim).
+  action_taken: boolean;
+  action_kind: 'verdict_worked' | 'suggestion_issued' | null;
+  action_detail: string | null;  // the concrete thing the teacher was advised to do
+  action_date: string | null;    // when that suggestion was generated
 }
 
 /** Per-college admin summary. fn_scf_admin_college_summary (aggregates only).
