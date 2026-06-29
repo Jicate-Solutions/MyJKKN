@@ -4,7 +4,7 @@
 // First-person ledger of the learner's OWN participation: how many classes they
 // confirmed, how many they flagged as hard to follow, and — the honest loop-close
 // — how many of those flagged classes produced a REAL, recorded follow-up from
-// their teacher (a suggestion issued for that class, traceable to this learner's
+// their learning facilitator (a suggestion issued for that class, traceable to this learner's
 // own flag). We never claim "your feedback improved the class" off a cohort average.
 //
 // PRIVACY: reads fn_scf_my_impact, which returns only the learner's own ratings +
@@ -122,13 +122,13 @@ export function MyVoiceReceipt() {
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Every class you confirm marks your attendance and gives your teachers an honest
-          signal.{' '}
+          Every class you confirm records your attendance and gives your learning facilitators
+          an honest signal.{' '}
           {flagged > 0
             ? acted > 0
-              ? `You flagged ${flagged} ${flagged === 1 ? 'class' : 'classes'} as hard to follow — and for ${acted} of them, a real follow-up reached your teacher (shown below).`
-              : `You flagged ${flagged} ${flagged === 1 ? 'class' : 'classes'} as hard to follow. We’ll show here the moment a teacher acts on one — only real follow-ups, never a guess.`
-            : 'When you flag a class as hard to follow, we’ll show here what your teacher does next for it.'}
+              ? `You flagged ${flagged} ${flagged === 1 ? 'class' : 'classes'} as hard to follow — and for ${acted} of them, a real follow-up reached your learning facilitator (shown below).`
+              : `You flagged ${flagged} ${flagged === 1 ? 'class' : 'classes'} as hard to follow. We’ll show here the moment a learning facilitator acts on one — only real follow-ups, never a guess.`
+            : 'When you flag a class as hard to follow, we’ll show here what your learning facilitator does next for it.'}
         </p>
 
         {flaggedRows.length > 0 ? (
@@ -136,9 +136,9 @@ export function MyVoiceReceipt() {
             {flaggedRows.slice(0, 5).map((r, i) => {
               const status =
                 r.action_kind === 'verdict_worked'
-                  ? { label: 'Teacher revisited it', cls: 'border-green-200 bg-green-100 text-green-800' }
+                  ? { label: 'Revisited — it helped', cls: 'border-green-200 bg-green-100 text-green-800' }
                   : r.action_kind === 'suggestion_issued'
-                    ? { label: 'Follow-up sent to teacher', cls: 'border-blue-200 bg-blue-100 text-blue-800' }
+                    ? { label: 'Follow-up sent', cls: 'border-blue-200 bg-blue-100 text-blue-800' }
                     : { label: 'Awaiting follow-up', cls: 'border-border bg-muted text-muted-foreground' };
               return (
                 <li
@@ -161,7 +161,7 @@ export function MyVoiceReceipt() {
                   {r.action_taken && r.action_detail ? (
                     <p className="mt-1 text-xs text-muted-foreground">
                       <span className="font-medium text-foreground">
-                        What your teacher did next:{' '}
+                        What your learning facilitator did next:{' '}
                       </span>
                       {r.action_detail}
                     </p>
