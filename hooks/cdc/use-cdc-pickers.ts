@@ -66,6 +66,25 @@ export function useStaffForPicker() {
   });
 }
 
+/**
+ * Distinct semester labels for a training programme's target department, so the
+ * "Add semester" dialog populates from real MyJKKN data instead of free text.
+ * Pass the programme's target_department_id; when null/undefined the route falls
+ * back to the caller's institution-wide distinct semesters so the field is never
+ * empty. Label === value === the cleaned semester name we store in semester_label.
+ */
+export function useSemestersForDepartmentPicker(departmentId?: string | null) {
+  return useQuery<PickerOption[]>({
+    queryKey: ['cdc-picker-semesters', departmentId ?? 'all'],
+    queryFn: () =>
+      fetchPickerOptions(
+        `/api/cdc/pickers/semesters${departmentId ? `?department_id=${encodeURIComponent(departmentId)}` : ''}`,
+        'semesters'
+      ),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 // Learner with program / department / batch dimensions, for UIs that FILTER and
 // select-all (e.g. the training bulk-enroll "Filter & select" mode, BUG-004199).
 export interface DetailedLearnerOption {

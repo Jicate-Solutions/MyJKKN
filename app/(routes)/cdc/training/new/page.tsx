@@ -17,6 +17,7 @@ import { useAcademicYears } from '@/hooks/use-academic-years';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import type { CreateTrainingProgrammeDto, TrainingProgrammeStatus } from '@/types/cdc/training';
+import { TrainerPicker } from '../_components/trainer-picker';
 
 export default function NewTrainingProgrammePage() {
   const router = useRouter();
@@ -40,6 +41,7 @@ export default function NewTrainingProgrammePage() {
     status: 'planned',
     external_provider: null,
     trainer_name: null,
+    trainer_staff_id: null,
     target_department_id: null,   // BUG-004073
     academic_year_label: null,    // BUG-004073
   });
@@ -229,14 +231,19 @@ export default function NewTrainingProgrammePage() {
                 />
               </div>
 
-              {/* Trainer Name — BUG-004076 */}
+              {/* Trainer — BUG-004076 + data-driven picker (staff or external) */}
               <div className="space-y-1.5">
-                <Label htmlFor="trainer_name">Trainer Name</Label>
-                <Input
+                <Label htmlFor="trainer_name">Trainer</Label>
+                <TrainerPicker
                   id="trainer_name"
-                  value={form.trainer_name ?? ''}
-                  onChange={(e) => set('trainer_name', e.target.value || null)}
-                  placeholder="e.g. Dr. R. Kannan"
+                  value={{ trainerStaffId: form.trainer_staff_id ?? null, trainerName: form.trainer_name ?? null }}
+                  onChange={(next) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      trainer_staff_id: next.trainerStaffId,
+                      trainer_name: next.trainerName,
+                    }))
+                  }
                 />
               </div>
 
