@@ -116,7 +116,7 @@ function NewInductionForm() {
         { label: 'New' },
       ]} />
 
-      <div className="max-w-xl space-y-6 mt-4">
+      <div className="max-w-full space-y-6 mt-4">
         <div>
           <h1 className="text-2xl font-bold py-1 flex items-center gap-2">
             <Rocket className="h-6 w-6 text-primary" /> New induction

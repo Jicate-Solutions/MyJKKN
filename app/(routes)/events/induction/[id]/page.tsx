@@ -20,12 +20,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Users, Layers, Building2, CalendarDays, UserPlus, Split } from 'lucide-react';
+import { Users, Layers, Building2, CalendarDays, UserPlus, Split, GraduationCap, MapPin } from 'lucide-react';
 
 interface EventRow {
   id: string; name: string; status: string | null;
   start_date: string | null; end_date: string | null;
   institution_id: string; institutions?: { name: string } | null;
+  venue_text?: string | null; venue_resource_id?: string | null;
 }
 interface BatchCount { id: string; label: string; count: number; }
 
@@ -38,6 +39,9 @@ export default function InductionDetailPage() {
   const [event, setEvent] = useState<EventRow | null>(null);
   const [hasProgram, setHasProgram] = useState(false);
   const [academicYearId, setAcademicYearId] = useState<string | null>(null);
+  const [admissionYear, setAdmissionYear] = useState<number | null>(null);
+  const [enrollScope, setEnrollScope] = useState<string | null>(null);
+  const [venueName, setVenueName] = useState<string | null>(null);
   const [enrolled, setEnrolled] = useState(0);
   const [batches, setBatches] = useState<BatchCount[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,15 +53,26 @@ export default function InductionDetailPage() {
     if (!id) return;
     setLoading(true);
     const [{ data: ev }, { data: prog }, { count }, { data: batchRows }] = await Promise.all([
-      supabase.from('events').select('id,name,status,start_date,end_date,institution_id,institutions(name)').eq('id', id).maybeSingle(),
-      supabase.from('induction_programs').select('event_id, academic_year_id').eq('event_id', id).maybeSingle(),
+      supabase.from('events').select('id,name,status,start_date,end_date,institution_id,venue_text,venue_resource_id,institutions(name)').eq('id', id).maybeSingle(),
+      supabase.from('induction_programs').select('event_id, academic_year_id, admission_year, enroll_scope').eq('event_id', id).maybeSingle(),
       supabase.from('induction_enrollment').select('id', { count: 'exact', head: true }).eq('event_id', id),
       supabase.from('induction_batches').select('id,label').eq('event_id', id).order('label'),
     ]);
     setEvent((ev as any) ?? null);
     setHasProgram(!!prog);
     setAcademicYearId((prog as any)?.academic_year_id ?? null);
+    setAdmissionYear((prog as any)?.admission_year ?? null);
+    setEnrollScope((prog as any)?.enroll_scope ?? null);
     setEnrolled(count ?? 0);
+
+    // Resolve the main venue — a Resource-Management room (preferred) or custom text.
+    const vrid = (ev as any)?.venue_resource_id ?? null;
+    if (vrid) {
+      const { data: room } = await supabase.from('resources').select('name').eq('id', vrid).maybeSingle();
+      setVenueName((room as any)?.name ?? (ev as any)?.venue_text ?? null);
+    } else {
+      setVenueName((ev as any)?.venue_text ?? null);
+    }
 
     const bs = (batchRows as any[]) ?? [];
     const withCounts = await Promise.all(bs.map(async (b) => {
@@ -141,6 +156,22 @@ export default function InductionDetailPage() {
                   {event.end_date ? ` – ${new Date(event.end_date).toLocaleDateString()}` : ''}
                 </span>
               )}
+              {admissionYear && (
+                <span className="flex items-center gap-1.5">
+                  <GraduationCap className="h-3.5 w-3.5" /> Admission year {admissionYear}
+                </span>
+              )}
+              {enrollScope && (
+                <span className="flex items-center gap-1.5">
+                  <Users className="h-3.5 w-3.5" />
+                  {enrollScope === 'group' ? 'All colleges (group)' : 'This college only'}
+                </span>
+              )}
+              {venueName && (
+                <span className="flex items-center gap-1.5">
+                  <MapPin className="h-3.5 w-3.5" /> {venueName}
+                </span>
+              )}
             </div>
           </div>
           <Badge variant={event.status === 'live' ? 'default' : 'secondary'}>{event.status ?? 'draft'}</Badge>
@@ -151,8 +182,9 @@ export default function InductionDetailPage() {
           <CardHeader>
             <CardTitle className="text-base">Cohort</CardTitle>
             <CardDescription>
-              Enroll this year&apos;s freshers, then split them into batches by department
-              (classmates stay together).
+              {admissionYear
+                ? `Auto-enroll adds reserved, admitted & account learners of admission year ${admissionYear}${enrollScope === 'group' ? ' across all colleges' : ' in this college'}, then split them into batches by department (classmates stay together).`
+                : 'Enroll the joining cohort, then split them into batches by department (classmates stay together).'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
