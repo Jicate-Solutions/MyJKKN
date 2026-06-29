@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { InductionService } from '@/lib/services/induction/induction-service';
+import { InductionService, type PreviewEnrollResult } from '@/lib/services/induction/induction-service';
 import { SessionsSection } from './_components/sessions-section';
 import { ScorecardSection } from './_components/scorecard-section';
 import { LoopPlaybookSection } from './_components/loop-playbook-section';
@@ -20,7 +20,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Users, Layers, Building2, CalendarDays, UserPlus, Split, GraduationCap, MapPin, Rocket } from 'lucide-react';
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogFooter,
+  AlertDialogTitle, AlertDialogDescription, AlertDialogAction, AlertDialogCancel,
+} from '@/components/ui/alert-dialog';
+import { Users, Layers, Building2, CalendarDays, UserPlus, Split, GraduationCap, MapPin, Rocket, AlertTriangle } from 'lucide-react';
 import type { ComponentType } from 'react';
 
 interface EventRow {
@@ -42,11 +46,16 @@ export default function InductionDetailPage() {
   const [academicYearId, setAcademicYearId] = useState<string | null>(null);
   const [admissionYear, setAdmissionYear] = useState<number | null>(null);
   const [enrollScope, setEnrollScope] = useState<string | null>(null);
+  const [degreeFilter, setDegreeFilter] = useState<string | null>(null);
   const [venueName, setVenueName] = useState<string | null>(null);
   const [enrolled, setEnrolled] = useState(0);
   const [batches, setBatches] = useState<BatchCount[]>([]);
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState(false);
+  // Preview-before-enroll confirm gate (the actual enroll INSERT).
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [preview, setPreview] = useState<PreviewEnrollResult | null>(null);
+  const [previewing, setPreviewing] = useState(false);
   const [splitting, setSplitting] = useState(false);
   const [numBatches, setNumBatches] = useState(2);
 
@@ -55,7 +64,7 @@ export default function InductionDetailPage() {
     setLoading(true);
     const [{ data: ev }, { data: prog }, { count }, { data: batchRows }] = await Promise.all([
       supabase.from('events').select('id,name,status,start_date,end_date,institution_id,venue_text,venue_resource_id,institutions(name)').eq('id', id).maybeSingle(),
-      supabase.from('induction_programs').select('event_id, academic_year_id, admission_year, enroll_scope').eq('event_id', id).maybeSingle(),
+      supabase.from('induction_programs').select('event_id, academic_year_id, admission_year, enroll_scope, degree_type_filter').eq('event_id', id).maybeSingle(),
       supabase.from('induction_enrollment').select('id', { count: 'exact', head: true }).eq('event_id', id),
       supabase.from('induction_batches').select('id,label').eq('event_id', id).order('label'),
     ]);
@@ -64,6 +73,7 @@ export default function InductionDetailPage() {
     setAcademicYearId((prog as any)?.academic_year_id ?? null);
     setAdmissionYear((prog as any)?.admission_year ?? null);
     setEnrollScope((prog as any)?.enroll_scope ?? null);
+    setDegreeFilter((prog as any)?.degree_type_filter ?? null);
     setEnrolled(count ?? 0);
 
     // Resolve the main venue — a Resource-Management room (preferred) or custom text.
@@ -89,7 +99,33 @@ export default function InductionDetailPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Step 1 — open the confirm gate and fetch the preview of who WOULD be enrolled.
   const handleEnroll = async () => {
+    if (!event || admissionYear == null) {
+      toast.error('Induction has no admission year set — cannot enroll.');
+      return;
+    }
+    setConfirmOpen(true);
+    setPreview(null);
+    setPreviewing(true);
+    try {
+      const res = await InductionService.previewEnroll({
+        institutionId: event.institution_id,
+        admissionYear,
+        enrollScope: (enrollScope as 'institution' | 'group') ?? 'institution',
+        degreeTypeFilter: (degreeFilter as 'ug' | 'pg' | null) ?? null,
+      });
+      setPreview(res);
+    } catch (e: any) {
+      toast.error(`Couldn't load preview: ${e.message ?? e}`);
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  // Step 2 — confirmed: run the actual auto-enroll INSERT.
+  const confirmEnroll = async () => {
+    setConfirmOpen(false);
     setEnrolling(true);
     try {
       const n = await InductionService.autoEnroll(id);
@@ -258,6 +294,65 @@ export default function InductionDetailPage() {
         {/* Self-improving loop playbook + adoption-verdict (counterfactual) control */}
         <LoopPlaybookSection institutionId={event?.institution_id ?? null} academicYearId={academicYearId} />
       </div>
+
+      {/* Preview-before-enroll confirm gate — shows exactly who will be enrolled
+          (count + per-program/per-college breakdown) before the INSERT runs. */}
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm who gets enrolled</AlertDialogTitle>
+            <AlertDialogDescription>
+              {enrolled > 0
+                ? 'Re-running auto-enroll adds any new matching freshers (existing ones are kept). Review the matched set before continuing.'
+                : 'Review the matched freshers before enrolling. The breakdown below should match who you intend to enroll.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+            {previewing && (
+              <div className="text-muted-foreground">Loading preview…</div>
+            )}
+            {!previewing && preview && (
+              <div className="space-y-2">
+                <div className={`font-semibold ${preview.total === 0 ? 'text-destructive flex items-center gap-1.5' : ''}`}>
+                  {preview.total === 0 && <AlertTriangle className="h-4 w-4" />}
+                  {preview.total} learner{preview.total === 1 ? '' : 's'}{' '}match this induction&apos;s scope
+                  {degreeFilter ? ` (${degreeFilter.toUpperCase()} only)` : ''}
+                </div>
+                {preview.by_program.length > 0 && (
+                  <ul className="grid grid-cols-1 gap-y-0.5 text-xs max-h-56 overflow-auto">
+                    {preview.by_program.map((p, i) => (
+                      <li key={i} className="flex justify-between gap-2 tabular-nums">
+                        <span className="truncate">{p.program} <span className="uppercase text-muted-foreground">[{p.degree_type ?? '—'}]</span></span>
+                        <span className="font-medium">{p.count}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {enrollScope === 'group' && preview.by_institution.length > 1 && (
+                  <div className="text-xs border-t pt-1.5">
+                    <div className="text-muted-foreground mb-0.5">Across colleges:</div>
+                    <ul className="space-y-0.5">
+                      {preview.by_institution.map((i, idx) => (
+                        <li key={idx} className="flex justify-between gap-2 tabular-nums">
+                          <span className="truncate">{i.institution}</span><span className="font-medium">{i.count}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={enrolling}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmEnroll} disabled={previewing || enrolling || (preview?.total ?? 0) === 0}>
+              {enrolling ? 'Enrolling…' : `Enroll ${preview?.total ?? ''} fresher${(preview?.total ?? 0) === 1 ? '' : 's'}`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </ContentLayout>
   );
 }

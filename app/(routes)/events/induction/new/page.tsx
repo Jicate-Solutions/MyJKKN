@@ -17,7 +17,7 @@ import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { InductionService } from '@/lib/services/induction/induction-service';
+import { InductionService, type PreviewEnrollResult } from '@/lib/services/induction/induction-service';
 import { useGroupAdmissionYears } from '@/hooks/admission/use-group-admission-years';
 import { VenueRoomPicker } from '@/components/events/venue/venue-room-picker';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -27,7 +27,7 @@ import { Label } from '@/components/ui/label';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Rocket } from 'lucide-react';
+import { Rocket, Eye, Loader2, Users, AlertTriangle } from 'lucide-react';
 
 interface Institution { id: string; name: string; }
 
@@ -48,6 +48,12 @@ function NewInductionForm() {
   const [venueCustom, setVenueCustom] = useState('');
   const [admissionYear, setAdmissionYear] = useState('');
   const [enrollScope, setEnrollScope] = useState<'institution' | 'group'>('institution');
+  const [degreeTypeFilter, setDegreeTypeFilter] = useState<'' | 'ug' | 'pg'>('');
+
+  // Preview-before-enroll: who WOULD be enrolled for the chosen scope. Cleared
+  // whenever the scope changes so a stale preview can't mislead the Confirm.
+  const [preview, setPreview] = useState<PreviewEnrollResult | null>(null);
+  const [previewing, setPreviewing] = useState(false);
 
   useEffect(() => {
     supabase.from('institutions').select('id,name').order('name')
@@ -76,6 +82,33 @@ function NewInductionForm() {
 
   const yearPickerDisabled = enrollScope === 'institution' && !institutionId;
 
+  // Any scope change invalidates a prior preview.
+  useEffect(() => { setPreview(null); }, [institutionId, admissionYear, enrollScope, degreeTypeFilter]);
+
+  const canPreview = !!institutionId && !!admissionYear;
+
+  const handlePreview = async () => {
+    if (!canPreview) {
+      toast.error('Pick an institution and admission year first.');
+      return;
+    }
+    setPreviewing(true);
+    try {
+      const res = await InductionService.previewEnroll({
+        institutionId,
+        admissionYear: Number(admissionYear),
+        enrollScope,
+        degreeTypeFilter: degreeTypeFilter || null,
+      });
+      setPreview(res);
+      if (res.total === 0) toast.warning('This scope matches 0 learners — check the filters.');
+    } catch (e: any) {
+      toast.error(`Couldn't preview: ${e.message ?? e}`);
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
   const handleCreate = async () => {
     if (!name.trim() || !institutionId) {
       toast.error('Name and institution are required.');
@@ -98,6 +131,7 @@ function NewInductionForm() {
         venueText: venueResourceId ? null : (venueCustom.trim() || null),
         admissionYear: Number(admissionYear),
         enrollScope,
+        degreeTypeFilter: degreeTypeFilter || null,
       });
       toast.success('Induction created.');
       router.push(`/events/induction/${eventId}`);
@@ -149,7 +183,7 @@ function NewInductionForm() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label>Admission year (cohort to enroll)</Label>
                 <Select value={admissionYear} onValueChange={setAdmissionYear} disabled={yearPickerDisabled}>
@@ -179,11 +213,74 @@ function NewInductionForm() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-1.5">
+                <Label>Degrees</Label>
+                <Select value={degreeTypeFilter || 'all'} onValueChange={(v) => setDegreeTypeFilter(v === 'all' ? '' : v as 'ug' | 'pg')}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All degrees</SelectItem>
+                    <SelectItem value="ug">Undergraduate (UG) only</SelectItem>
+                    <SelectItem value="pg">Postgraduate (PG) only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <p className="text-xs text-muted-foreground -mt-1">
               Auto-enroll adds reserved, admitted &amp; account learners of the chosen admission
-              year{enrollScope === 'group' ? ' across every college' : ' in the selected college'}.
+              year{enrollScope === 'group' ? ' across every college' : ' in the selected college'}
+              {degreeTypeFilter === 'ug' ? ', undergraduate only' : degreeTypeFilter === 'pg' ? ', postgraduate only' : ''}.
             </p>
+
+            {/* Preview-before-enroll: see exactly who the scope matches before creating. */}
+            <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Users className="h-4 w-4 text-primary" /> Preview who will be enrolled
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={handlePreview} disabled={!canPreview || previewing}>
+                  {previewing ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Checking…</> : <><Eye className="h-3.5 w-3.5 mr-1.5" /> Preview</>}
+                </Button>
+              </div>
+              {!preview && (
+                <p className="text-xs text-muted-foreground">
+                  Run a preview to confirm the matched freshers before creating — this catches a
+                  wrong scope (extra colleges, or PG mixed into a UG induction) before anyone is enrolled.
+                </p>
+              )}
+              {preview && (
+                <div className="space-y-2">
+                  <div className={`flex items-center gap-2 text-sm font-semibold ${preview.total === 0 ? 'text-destructive' : ''}`}>
+                    {preview.total === 0 && <AlertTriangle className="h-4 w-4" />}
+                    {preview.total} learner{preview.total === 1 ? '' : 's'} match this scope
+                  </div>
+                  {preview.by_program.length > 0 && (
+                    <div className="text-xs">
+                      <div className="text-muted-foreground mb-1">By program:</div>
+                      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5">
+                        {preview.by_program.map((p, i) => (
+                          <li key={i} className="flex justify-between gap-2 tabular-nums">
+                            <span className="truncate">{p.program} <span className="uppercase text-muted-foreground">[{p.degree_type ?? '—'}]</span></span>
+                            <span className="font-medium">{p.count}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {enrollScope === 'group' && preview.by_institution.length > 1 && (
+                    <div className="text-xs">
+                      <div className="text-muted-foreground mb-1">By college:</div>
+                      <ul className="space-y-0.5">
+                        {preview.by_institution.map((i, idx) => (
+                          <li key={idx} className="flex justify-between gap-2 tabular-nums">
+                            <span className="truncate">{i.institution}</span><span className="font-medium">{i.count}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="ind-start">Start date</Label>
