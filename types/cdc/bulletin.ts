@@ -8,6 +8,7 @@
 export interface CdcExternalOpportunity {
   id: string;
   title: string;
+  description: string | null;        // opportunity body — required on the form, nullable in DB for legacy rows (BUG-004065)
   source_organisation: string | null;
   category: string | null;           // 'hackathon' | 'conference' | 'scholarship' | 'internship' | 'competition' | 'other'
   mode: BulletinMode | null;         // 'online' | 'offline' | 'hybrid' — mode of participation (BUG-004067)
@@ -65,6 +66,7 @@ export interface TargetAudience {
 
 export interface CreateOpportunityDto {
   title: string;
+  description: string;               // required at create time (form-enforced); DB column is nullable for legacy rows (BUG-004065)
   source_organisation?: string | null;
   category?: string | null;
   mode?: BulletinMode | null;
