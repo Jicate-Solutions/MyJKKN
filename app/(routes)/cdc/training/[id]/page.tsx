@@ -164,7 +164,7 @@ function TrainingProgrammeDetailContent({ params }: Props) {
         </Card>
 
         {/* Semester Schedule (BUG-004200) */}
-        <SemesterScheduleCard programmeId={id} />
+        <SemesterScheduleCard programmeId={id} targetDepartmentId={programme.target_department_id} />
 
         <Separator />
 
