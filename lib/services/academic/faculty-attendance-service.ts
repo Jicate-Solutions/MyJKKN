@@ -333,7 +333,27 @@ export class FacultyAttendanceService {
               subSlot.staff_ids.includes(staffId)
             );
 
-          if (!isAssignedToSlot && !isAssignedToSubSlot) continue;
+          // Added: 2026-06-29 - Practical periods (period_mode='practical') store
+          // their staff per BATCH inside practical_config.batches[].staff_mapping —
+          // an object keyed by course_id whose VALUES are arrays of staff_ids — NOT
+          // in staff_ids / primary_staff_id / sub_slots. Without this check a
+          // practical period never matched its assigned faculty and silently
+          // vanished from "My Classes" while standard periods in the same timetable
+          // showed correctly.
+          const practicalBatches =
+            slot.period_mode === 'practical' &&
+            slot.practical_config && Array.isArray(slot.practical_config.batches)
+              ? slot.practical_config.batches
+              : [];
+          const isAssignedToPractical = practicalBatches.some((batch: any) => {
+            const mapping = batch?.staff_mapping;
+            if (!mapping || typeof mapping !== 'object') return false;
+            return Object.values(mapping).some(
+              (list: any) => Array.isArray(list) && list.includes(staffId)
+            );
+          });
+
+          if (!isAssignedToSlot && !isAssignedToSubSlot && !isAssignedToPractical) continue;
 
           // Capture the academic year from the first timetable the staff teaches.
           if (!resolvedAcademicYearId) {
@@ -423,6 +443,48 @@ export class FacultyAttendanceService {
               course: slot.course_id ? { id: slot.course_id } : undefined,
               sections: [{ id: resolvedSectionId, name: (timetable.sections as any)?.section_name || '' }],
               section_ids: slot.section_ids || (resolvedSectionId ? [resolvedSectionId] : []),
+              degree_name: (timetable.degrees as any)?.degree_name,
+              program_name: (timetable.programs as any)?.program_name,
+              department_name: (timetable.departments as any)?.department_name,
+              semester_name: (timetable.semesters as any)?.semester_name,
+              section_name: (timetable.sections as any)?.section_name || ''
+            } as any);
+          } else if (isAssignedToPractical) {
+            // Practical period — emit ONE card (mirrors the admin search path).
+            // The mark page reads practical_config from the slot and drives
+            // batch/course selection at runtime, so we carry period_mode +
+            // practical_config to switch the UI into practical mode. The course
+            // shown is the one this staff teaches (first matching batch mapping),
+            // enriched with code/name by the batch fetch below.
+            const timetableSlotId = slot.slot_id || `${timetable.id}_${dayOfWeek}_${periodId}`;
+
+            let practicalCourseId: string | undefined;
+            for (const batch of practicalBatches) {
+              const mapping = batch?.staff_mapping || {};
+              for (const [courseId, list] of Object.entries(mapping)) {
+                if (Array.isArray(list) && list.includes(staffId)) {
+                  practicalCourseId = courseId;
+                  break;
+                }
+              }
+              if (practicalCourseId) break;
+            }
+            if (practicalCourseId) courseIds.add(practicalCourseId);
+
+            facultyPeriods.push({
+              id: timetableSlotId,
+              timetable_slot_id: timetableSlotId,
+              timetable_id: timetable.id,
+              institution_id: staffData.institution_id,
+              period_name: periodDef.period_name,
+              start_time: this.formatTo12Hour(periodDef.start_time || ''),
+              end_time: this.formatTo12Hour(periodDef.end_time || ''),
+              period_type: 'regular',
+              period_mode: 'practical',
+              practical_config: slot.practical_config,
+              course: practicalCourseId ? { id: practicalCourseId } : undefined,
+              sections: [],
+              section_ids: [],
               degree_name: (timetable.degrees as any)?.degree_name,
               program_name: (timetable.programs as any)?.program_name,
               department_name: (timetable.departments as any)?.department_name,

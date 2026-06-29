@@ -1472,6 +1472,30 @@ export class AttendanceService {
                 }
               }
 
+              // Added: 2026-06-29 - Practical periods (period_mode='practical') assign
+              // staff per BATCH in practical_config.batches[].staff_mapping (an object
+              // keyed by course_id whose values are staff_id arrays), NOT in
+              // staff_ids/staff_members/sub_slots. Without this the assigned faculty's
+              // practical period was filtered out of the search results too. Mirrors the
+              // getFacultyTodayPeriods practical fix.
+              if (
+                slot.period_mode === 'practical' &&
+                slot.practical_config &&
+                Array.isArray(slot.practical_config.batches)
+              ) {
+                const inPracticalBatch = slot.practical_config.batches.some(
+                  (batch: any) => {
+                    const mapping = batch?.staff_mapping;
+                    if (!mapping || typeof mapping !== 'object') return false;
+                    return Object.values(mapping).some(
+                      (list: any) =>
+                        Array.isArray(list) && list.includes(staffIdForFiltering)
+                    );
+                  }
+                );
+                if (inPracticalBatch) return true;
+              }
+
               return false;
             });
 

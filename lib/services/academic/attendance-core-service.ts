@@ -1073,6 +1073,29 @@ export class AttendanceCoreService {
         }
       }
 
+      // Added: 2026-06-29 - Practical periods (period_mode='practical') assign staff
+      // per BATCH in practical_config.batches[].staff_mapping (course_id -> staff_id[]),
+      // NOT in staff_members/sub_slots. Recognize them here so a practical-assigned
+      // faculty counts as "specifically assigned" (tier 1 of canMarkAttendanceForSlot)
+      // and can mark even without the broad faculty permission — same as a regular
+      // assigned slot. Mirrors the getFacultyTodayPeriods practical fix.
+      if (
+        targetSlot.period_mode === 'practical' &&
+        targetSlot.practical_config &&
+        Array.isArray(targetSlot.practical_config.batches)
+      ) {
+        const inPracticalBatch = targetSlot.practical_config.batches.some(
+          (batch: any) => {
+            const mapping = batch?.staff_mapping;
+            if (!mapping || typeof mapping !== 'object') return false;
+            return Object.values(mapping).some(
+              (list: any) => Array.isArray(list) && list.includes(staffId)
+            );
+          }
+        );
+        if (inPracticalBatch) return true;
+      }
+
       return false;
     } catch (error) {
       logger.error('academic/attendance', 'Error checking staff assignment to slot', error);
