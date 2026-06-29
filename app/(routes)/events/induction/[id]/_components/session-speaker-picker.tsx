@@ -155,7 +155,12 @@ export function SessionSpeakerPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey, startIso, endIso, hasWindow]);
 
-  const conflictedSelected = value.filter((u) => conflicts[u.id]?.length);
+  // Tiered policy: a meeting OR event-speaking clash is a HARD block (a person
+  // truly can't be in two of those at once); a teaching/class clash is a SOFT
+  // advisory (often covered by a substitute). The save handler enforces the block.
+  const isHardConflict = (c: PersonConflict) => c.source === 'meeting' || c.source === 'event';
+  const hardConflicted = value.filter((u) => (conflicts[u.id] ?? []).some(isHardConflict));
+  const softConflicted = value.filter((u) => (conflicts[u.id] ?? []).some((c) => !isHardConflict(c)));
 
   // Filtered candidate search (debounced) — by type + filters + name.
   useEffect(() => {
@@ -204,9 +209,19 @@ export function SessionSpeakerPicker({
             <Badge
               key={u.id}
               variant="secondary"
-              className={`gap-1 pr-1 ${conflicts[u.id]?.length ? 'ring-1 ring-amber-400' : ''}`}
+              className={`gap-1 pr-1 ${
+                (conflicts[u.id] ?? []).some(isHardConflict)
+                  ? 'ring-1 ring-red-400'
+                  : conflicts[u.id]?.length
+                    ? 'ring-1 ring-amber-400'
+                    : ''
+              }`}
             >
-              {conflicts[u.id]?.length ? <AlertTriangle className="h-3 w-3 text-amber-500" /> : null}
+              {(conflicts[u.id] ?? []).some(isHardConflict) ? (
+                <AlertTriangle className="h-3 w-3 text-red-500" />
+              ) : conflicts[u.id]?.length ? (
+                <AlertTriangle className="h-3 w-3 text-amber-500" />
+              ) : null}
               <span>{u.full_name || u.email || u.id.slice(0, 8)}</span>
               {u.role && <span className="text-[10px] text-muted-foreground">· {u.role}</span>}
               {!disabled && (
@@ -219,21 +234,39 @@ export function SessionSpeakerPicker({
         </div>
       )}
 
-      {/* availability warning — advisory */}
-      {hasWindow && conflictedSelected.length > 0 && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-200">
+      {/* HARD conflict (meeting / event) — blocks the save (admins can override). */}
+      {hasWindow && hardConflicted.length > 0 && (
+        <div className="rounded-md border border-red-300 bg-red-50 p-2 text-[11px] text-red-900 dark:border-red-700/50 dark:bg-red-950/40 dark:text-red-200">
           <div className="mb-1 flex items-center gap-1 font-medium">
-            <AlertTriangle className="h-3.5 w-3.5" /> Already busy at this time
+            <AlertTriangle className="h-3.5 w-3.5" /> Double-booked — can&apos;t be assigned at this time
           </div>
           <ul className="space-y-0.5">
-            {conflictedSelected.map((u) => (
+            {hardConflicted.map((u) => (
               <li key={u.id}>
                 <span className="font-medium">{u.full_name || u.email}</span>:{' '}
-                {conflicts[u.id].map((c) => c.label + (fmtRange(c) ? ` (${fmtRange(c)})` : '')).join('; ')}
+                {(conflicts[u.id] ?? []).filter(isHardConflict).map((c) => c.label + (fmtRange(c) ? ` (${fmtRange(c)})` : '')).join('; ')}
               </li>
             ))}
           </ul>
-          <p className="mt-1 text-amber-700 dark:text-amber-300/80">You can still assign them — this is just a heads-up.</p>
+          <p className="mt-1 text-red-700 dark:text-red-300/80">A meeting or another event clashes — pick another time, or an admin can force it when saving.</p>
+        </div>
+      )}
+
+      {/* SOFT conflict (teaching) — advisory only, never blocks. */}
+      {hasWindow && softConflicted.length > 0 && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-200">
+          <div className="mb-1 flex items-center gap-1 font-medium">
+            <AlertTriangle className="h-3.5 w-3.5" /> Teaching a class at this time
+          </div>
+          <ul className="space-y-0.5">
+            {softConflicted.map((u) => (
+              <li key={u.id}>
+                <span className="font-medium">{u.full_name || u.email}</span>:{' '}
+                {(conflicts[u.id] ?? []).filter((c) => !isHardConflict(c)).map((c) => c.label + (fmtRange(c) ? ` (${fmtRange(c)})` : '')).join('; ')}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-amber-700 dark:text-amber-300/80">You can still assign them — a class overlap is often covered by a substitute.</p>
         </div>
       )}
 

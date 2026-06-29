@@ -10,6 +10,8 @@ import {
   type ResourceLink,
 } from '@/lib/services/induction/induction-service';
 import { InductionSpeakersService, type DirectoryUser } from '@/lib/services/induction/induction-speakers-service';
+import { PersonAvailabilityService } from '@/lib/services/availability/person-availability';
+import { useAuth } from '@/hooks/use-auth';
 import { AttendanceDialog } from './attendance-dialog';
 import { SessionSpeakerPicker } from './session-speaker-picker';
 import { VenueRoomPicker } from '@/app/(routes)/meetings/manage/_components/venue-room-picker';
@@ -40,6 +42,7 @@ function fmtTime(iso: string) {
 }
 
 export function SessionsSection({ eventId, batches }: { eventId: string; batches: Batch[] }) {
+  const { profile } = useAuth();
   const [sessions, setSessions] = useState<InductionSessionRow[]>([]);
   const [feedback, setFeedback] = useState<Record<string, { avg: number; count: number }>>({});
   const [loading, setLoading] = useState(true);
@@ -121,6 +124,34 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
     if (!title.trim()) { toast.error('Title is required.'); return; }
     if (!start || !end) { toast.error('Start and end time are required.'); return; }
     if (new Date(end) <= new Date(start)) { toast.error('End must be after start.'); return; }
+
+    // Tiered double-booking guard (availability spine, Limb 2): a meeting OR
+    // event-speaking clash BLOCKS (a person can't be in two of those at once);
+    // a teaching/class clash is advisory (shown as a warning in the picker, not
+    // blocked). A super-admin may force past a hard block.
+    if (speakers.length && start && end) {
+      try {
+        const rows = await PersonAvailabilityService.getPeopleConflicts(
+          speakers.map((s) => s.id),
+          new Date(start).toISOString(),
+          new Date(end).toISOString(),
+        );
+        const hard = rows.filter((r) => r.source === 'meeting' || r.source === 'event');
+        if (hard.length) {
+          const nameById = new Map(speakers.map((s) => [s.id, s.full_name || s.email || 'Someone']));
+          const who = [...new Set(hard.map((h) => (h.profile_id ? nameById.get(h.profile_id) : null) ?? 'Someone'))].join(', ');
+          if (profile?.is_super_admin) {
+            if (!window.confirm(`${who} already has a meeting or another event at this time. Force the assignment anyway? (admin override)`)) return;
+          } else {
+            toast.error(`Can't assign — ${who} already has a meeting or event at this time. Pick another time, or remove them.`);
+            return;
+          }
+        }
+      } catch {
+        /* availability check failed — don't block the save on a transient hiccup */
+      }
+    }
+
     setSaving(true);
     try {
       // On a retry after a failed speaker-write, reuse the just-created id so we
