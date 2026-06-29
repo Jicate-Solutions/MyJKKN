@@ -37,12 +37,15 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select';
-import { ArrowLeft, ArrowRight, Loader2, Check } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { ArrowLeft, ArrowRight, Loader2, Check, MapPin } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { EventBaseService } from '@/lib/services/events/core/event-base-service';
 import { PresetManager } from '@/components/events/shared/preset-manager';
+import { VenueRoomPicker } from '@/components/events/venue/venue-room-picker';
+import { holdEventVenue, isEventVenueFree } from '@/lib/services/events/venue/event-venue';
 import {
   EVENT_FORMATS,
   EVENT_HOMES,
@@ -84,6 +87,13 @@ export default function CreateEventPage() {
   const update = (field: keyof typeof form, value: string) =>
     setForm((prev) => ({ ...prev, [field]: value }));
 
+  // Venue / booking-spine state. On-campus events MUST pick a real room (held via
+  // the booking spine); off-campus events type a free-text place (no hold).
+  const [offCampus, setOffCampus] = useState(false);
+  const [venueResourceId, setVenueResourceId] = useState('');
+  const [startAt, setStartAt] = useState(''); // datetime-local — needed to hold the room
+  const [endAt, setEndAt] = useState('');
+
   const formatDef = useMemo(() => (format ? getFormatDef(format) : undefined), [format]);
   const eventType = formatDef?.eventType ?? '';
 
@@ -121,9 +131,44 @@ export default function CreateEventPage() {
       return;
     }
 
+    // Venue validation (booking spine). On-campus events MUST pick a real room
+    // AND give a start/end time so the room can be held; off-campus events just
+    // type a place (no hold).
+    let startIso: string | undefined;
+    let endIso: string | undefined;
+    if (!offCampus) {
+      if (!venueResourceId) {
+        toast.error('Pick a room for this on-campus event — or switch on "Off-campus".');
+        return;
+      }
+      if (!startAt || !endAt) {
+        toast.error('Set a start and end time so the room can be held.');
+        return;
+      }
+      startIso = new Date(startAt).toISOString();
+      endIso = new Date(endAt).toISOString();
+      if (new Date(endIso) <= new Date(startIso)) {
+        toast.error('End time must be after the start time.');
+        return;
+      }
+    } else if (!form.venue.trim()) {
+      toast.error('Type the venue for this off-campus event.');
+      return;
+    }
+
     // Other formats create a base events row directly, filed under the chosen home.
     setCreating(true);
     try {
+      // Hard-stop on a clash BEFORE creating the event, so a taken room never
+      // leaves an orphan event row (the spine answers "is it free?").
+      if (!offCampus && venueResourceId && startIso && endIso) {
+        const avail = await isEventVenueFree(venueResourceId, startIso, endIso);
+        if (!avail.free) {
+          toast.error(avail.message || 'That room is already booked for this time. Pick another room or time.');
+          return;
+        }
+      }
+
       const slug = await EventBaseService.generateUniqueSlug(
         form.name,
         new Date().getFullYear()
@@ -136,7 +181,11 @@ export default function CreateEventPage() {
         slug,
         description: form.description.trim() || undefined,
         event_date: form.event_date || undefined,
-        venue: form.venue.trim() || undefined,
+        // On-campus: link the real room + store the window in start_date/end_date
+        // (the same window used to hold the room). Off-campus: free-text place.
+        ...(offCampus
+          ? { venue: form.venue.trim() || undefined }
+          : { venue_resource_id: venueResourceId, start_date: startIso, end_date: endIso }),
         year: new Date().getFullYear(),
         is_public: false,
         config: {
@@ -156,7 +205,45 @@ export default function CreateEventPage() {
         },
       };
       const created = await EventBaseService.createEvent(dto);
-      toast.success(`"${created.name}" created`);
+
+      // Hold the room via the ONE booking spine (events policy decides approval:
+      // same-college auto, cross-college pings the room's caretaker).
+      if (!offCampus && venueResourceId && startIso && endIso) {
+        const hold = await holdEventVenue({
+          resourceId: venueResourceId,
+          eventId: created.id,
+          eventInstitutionId: institutionId,
+          userId: profile?.id ?? '',
+          purpose: `Event: ${created.name}`,
+          startIso,
+          endIso,
+        });
+        if (hold.held && hold.requiresApproval) {
+          toast.success(`"${created.name}" created — room requested; the owning college will approve it.`);
+        } else if (hold.held) {
+          toast.success(`"${created.name}" created and the room is held.`);
+        } else {
+          // The event was created, but the room was NOT held. Be honest about why
+          // — never report success for an un-held room (the event still carries
+          // the intended venue, but it is not reserved).
+          const why =
+            hold.reason === 'taken'
+              ? 'the room was just taken for that time'
+              : hold.reason === 'no_approver'
+                ? "that room's owning college has no approver set"
+                : hold.reason === 'walk_in'
+                  ? 'that room is walk-in only (not reservable)'
+                  : hold.reason === 'not_reservable'
+                    ? 'that room is not reservable'
+                    : hold.message || 'the time may be outside the room’s bookable hours';
+          toast(
+            `"${created.name}" created, but the room was NOT held — ${why}. Pick another time/room, or book it in Resource Management.`,
+            { icon: '⚠️', duration: 7000 },
+          );
+        }
+      } else {
+        toast.success(`"${created.name}" created`);
+      }
       router.push('/events');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to create event');
@@ -383,25 +470,83 @@ export default function CreateEventPage() {
                 </p>
               ) : (
                 <>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="event_date">Date</Label>
-                      <Input
-                        id="event_date"
-                        type="date"
-                        value={form.event_date}
-                        onChange={(e) => update('event_date', e.target.value)}
-                      />
+                  <div className="space-y-2">
+                    <Label htmlFor="event_date">Date</Label>
+                    <Input
+                      id="event_date"
+                      type="date"
+                      value={form.event_date}
+                      onChange={(e) => update('event_date', e.target.value)}
+                    />
+                  </div>
+
+                  {/* Venue — booking spine. On-campus picks a real room from
+                      Resource Management (held so it can't be double-booked);
+                      off-campus types a free-text place (no hold). */}
+                  <div className="space-y-3 rounded-lg border p-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="flex items-center gap-1.5">
+                        <MapPin className="h-4 w-4 opacity-60" /> Venue
+                      </Label>
+                      <label
+                        htmlFor="off-campus"
+                        className="flex items-center gap-2 text-xs text-muted-foreground"
+                      >
+                        Off-campus
+                        <Switch
+                          id="off-campus"
+                          checked={offCampus}
+                          onCheckedChange={setOffCampus}
+                        />
+                      </label>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="venue">Venue (optional)</Label>
+
+                    {offCampus ? (
                       <Input
                         id="venue"
-                        placeholder="e.g. Main Auditorium"
+                        placeholder="e.g. City Convention Centre, or an online link"
                         value={form.venue}
                         onChange={(e) => update('venue', e.target.value)}
                       />
-                    </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <VenueRoomPicker
+                          value={venueResourceId}
+                          onChange={setVenueResourceId}
+                        />
+                        {venueResourceId && (
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div className="space-y-1.5">
+                              <Label htmlFor="start_at" className="text-xs">
+                                Starts
+                              </Label>
+                              <Input
+                                id="start_at"
+                                type="datetime-local"
+                                value={startAt}
+                                onChange={(e) => setStartAt(e.target.value)}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="end_at" className="text-xs">
+                                Ends
+                              </Label>
+                              <Input
+                                id="end_at"
+                                type="datetime-local"
+                                value={endAt}
+                                onChange={(e) => setEndAt(e.target.value)}
+                              />
+                            </div>
+                          </div>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          {venueResourceId
+                            ? "This room will be held for your event. If it's already booked then, you'll be told to pick another."
+                            : 'Pick a campus room — it gets held so no one else can book it at the same time.'}
+                        </p>
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="description">Description (optional)</Label>
