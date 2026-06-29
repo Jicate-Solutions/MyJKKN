@@ -12,6 +12,7 @@ import {
 import { InductionSpeakersService, type DirectoryUser } from '@/lib/services/induction/induction-speakers-service';
 import { AttendanceDialog } from './attendance-dialog';
 import { SessionSpeakerPicker } from './session-speaker-picker';
+import { VenueRoomPicker } from '@/app/(routes)/meetings/manage/_components/venue-room-picker';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -53,7 +54,12 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
   const [end, setEnd] = useState('');
   const [title, setTitle] = useState('');
   const [speaker, setSpeaker] = useState('');
-  const [venue, setVenue] = useState('');
+  // STRICT venue: a Resource Management room id (no free text). venueInitialName
+  // holds the stored venue_text so the picker trigger shows the real room name
+  // before the room list loads (and even if the room is no longer listed); for a
+  // legacy session it also surfaces the pre-existing typed venue to prompt linking.
+  const [venueResourceId, setVenueResourceId] = useState('');
+  const [venueInitialName, setVenueInitialName] = useState('');
   const [outcome, setOutcome] = useState('');
   const [links, setLinks] = useState<ResourceLink[]>([]);
   const [speakers, setSpeakers] = useState<DirectoryUser[]>([]);
@@ -82,7 +88,8 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
 
   const resetForm = () => {
     setDay('1'); setBatchId(COMBINED); setStart(''); setEnd('');
-    setTitle(''); setSpeaker(''); setVenue(''); setOutcome(''); setLinks([]); setSpeakers([]);
+    setTitle(''); setSpeaker(''); setVenueResourceId(''); setVenueInitialName('');
+    setOutcome(''); setLinks([]); setSpeakers([]);
     setSpeakersLoaded(false);
     lastCreatedIdRef.current = null;
     setEditing(null);
@@ -98,7 +105,9 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
     setDay(String(s.day_number ?? 1));
     setBatchId(s.batch_id ?? COMBINED);
     setStart(isoToLocal(s.start_at)); setEnd(isoToLocal(s.end_at));
-    setTitle(s.title); setSpeaker(s.speaker_text ?? ''); setVenue(s.venue_text ?? '');
+    setTitle(s.title); setSpeaker(s.speaker_text ?? '');
+    setVenueResourceId(s.venue_resource_id ?? '');
+    setVenueInitialName(s.venue_text ?? '');
     setOutcome(s.outcome_text ?? ''); setLinks(s.resource_links ?? []);
     setSpeakers([]);
     setSpeakersLoaded(false);
@@ -126,7 +135,9 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
         endAt: new Date(end).toISOString(),
         title: title.trim(),
         speakerText: speaker.trim() || null,
-        venueText: venue.trim() || null,
+        // STRICT: send only the chosen room id — the RPC derives venue_text from
+        // the registry name (or clears it when no room is chosen). No free text.
+        venueResourceId: venueResourceId || null,
         outcomeText: outcome.trim() || null,
         resourceLinks: links.filter((l) => l.url.trim()),
       });
@@ -206,15 +217,25 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                   <Label htmlFor="s-title">Topic / activity</Label>
                   <Input id="s-title" placeholder="e.g. Unmute Yourself" value={title} onChange={(e) => setTitle(e.target.value)} />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="s-speaker">Group / note (optional)</Label>
-                    <Input id="s-speaker" placeholder="e.g. English Department" value={speaker} onChange={(e) => setSpeaker(e.target.value)} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="s-venue">Venue</Label>
-                    <Input id="s-venue" placeholder="e.g. Senthuraj Hall" value={venue} onChange={(e) => setVenue(e.target.value)} />
-                  </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="s-speaker">Group / note (optional)</Label>
+                  <Input id="s-speaker" placeholder="e.g. English Department" value={speaker} onChange={(e) => setSpeaker(e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Venue</Label>
+                  <VenueRoomPicker
+                    value={venueResourceId}
+                    onChange={setVenueResourceId}
+                    initialName={venueInitialName || null}
+                    disabled={saving}
+                    strict
+                  />
+                  {!venueResourceId && venueInitialName && (
+                    <p className="text-xs text-amber-600 dark:text-amber-500">
+                      Current venue “{venueInitialName}” was typed in, not linked to a room. Pick the matching
+                      room from the list to link it — saving without picking will clear the venue.
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <Label>Resource persons (linked users)</Label>

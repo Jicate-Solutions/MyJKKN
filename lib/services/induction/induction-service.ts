@@ -83,6 +83,9 @@ export class InductionService {
       p_outcome_text: input.outcomeText ?? null,
       p_resource_links: input.resourceLinks ?? [],
       p_session_order: input.sessionOrder ?? 1,
+      // STRICT venue: the chosen Resource Management room. The RPC derives
+      // venue_text from this resource's name server-side (no free-text path).
+      p_venue_resource_id: input.venueResourceId ?? null,
     });
     if (error) throw error;
     return data as string;
@@ -396,6 +399,8 @@ export interface InductionSessionRow {
   title: string;
   description: string | null;
   venue_text: string | null;
+  /** Resource Management room id (STRICT venue), or null for legacy/none. */
+  venue_resource_id: string | null;
   speaker_text: string | null;
   outcome_text: string | null;
   resource_links: ResourceLink[];
@@ -412,6 +417,9 @@ export interface UpsertSessionInput {
   title: string;
   description?: string | null;
   venueText?: string | null;
+  /** Chosen Resource Management room id (STRICT venue). The RPC derives
+   *  venue_text from it server-side; pass null to clear the venue. */
+  venueResourceId?: string | null;
   speakerText?: string | null;
   outcomeText?: string | null;
   resourceLinks?: ResourceLink[];
