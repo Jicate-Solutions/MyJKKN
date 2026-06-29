@@ -33,12 +33,21 @@ AS $function$
   FROM public.session_feedback f
   WHERE f.attendance_date BETWEEN p_from AND p_to
     AND f.course_code IS NOT NULL
+    AND f.understood IS NOT NULL          -- mirror fn_scf_ai_signal's scoreable-row basis
   GROUP BY f.institution_id, f.course_code, lower(NULLIF(btrim(f.faculty_email), ''))
-  HAVING count(*) >= 3;
+  HAVING count(*) >= 3                    -- mirrors MIN_RESPONSES in the cron + fn_scf_ai_signal
+  ORDER BY f.institution_id, f.course_code;  -- deterministic batch-cap coverage (not full
+                                             -- round-robin fairness; a cursor is the follow-up
+                                             -- if daily candidates ever exceed BATCH_CAP=25)
 $function$;
 
--- Mandatory anon lock (Supabase grants anon EXECUTE on every new function by default).
-REVOKE EXECUTE ON FUNCTION public.fn_scf_candidate_windows(date, date) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_scf_candidate_windows(date, date) TO authenticated;
+-- LOCK: service_role ONLY. This is SECURITY DEFINER and returns (institution,
+-- course, faculty) tuples across ALL tenants with no per-caller scoping; its only
+-- caller is the server-side cron (createServiceRoleClient). Granting `authenticated`
+-- would let any logged-in user enumerate cross-tenant data — a deliberate, more
+-- restrictive deviation from the usual "GRANT authenticated" anon-lock template,
+-- which is only safe for RPCs that scope to auth.uid()/auth.jwt() internally.
+REVOKE EXECUTE ON FUNCTION public.fn_scf_candidate_windows(date, date) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_scf_candidate_windows(date, date) TO service_role;
 
 NOTIFY pgrst, 'reload schema';
