@@ -25,6 +25,19 @@ export interface CreateInductionInput {
   /** Main venue picked from Resource Management (events.venue_resource_id). When
    *  set, venueText is the custom/off-campus fallback only. */
   venueResourceId?: string | null;
+  /** Restrict the joining cohort by degree level: 'ug' / 'pg' / null (all degrees).
+   *  e.g. an M.Pharm-only induction is 'pg' at the Pharmacy college. */
+  degreeTypeFilter?: 'ug' | 'pg' | null;
+}
+
+/** Result of fn_induction_preview_enroll — who WOULD be enrolled (no insert). */
+export interface PreviewEnrollResult {
+  total: number;
+  scope: 'institution' | 'group';
+  degree_type_filter: 'ug' | 'pg' | null;
+  by_institution: Array<{ institution: string; count: number }>;
+  by_program: Array<{ program: string; degree_type: string | null; count: number }>;
+  sample: Array<{ name: string; status: string }>;
 }
 
 export class InductionService {
@@ -42,9 +55,33 @@ export class InductionService {
       p_admission_year: input.admissionYear ?? null,
       p_enroll_scope: input.enrollScope ?? 'institution',
       p_venue_resource_id: input.venueResourceId ?? null,
+      p_degree_type_filter: input.degreeTypeFilter ?? null,
     });
     if (error) throw error;
     return data as string;
+  }
+
+  /** Preview the joining cohort for a scope WITHOUT enrolling — count + per-program
+   *  / per-institution breakdown + name sample. The breakdown is the over-pull
+   *  catcher: it surfaces a wrong scope (e.g. extra colleges or PG mixed into a UG
+   *  induction) before any enroll INSERT. */
+  static async previewEnroll(params: {
+    institutionId: string;
+    admissionYear: number;
+    enrollScope?: 'institution' | 'group';
+    degreeTypeFilter?: 'ug' | 'pg' | null;
+    programIds?: string[] | null;
+  }): Promise<PreviewEnrollResult> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_preview_enroll', {
+      p_institution_id: params.institutionId,
+      p_admission_year: params.admissionYear,
+      p_enroll_scope: params.enrollScope ?? 'institution',
+      p_degree_type_filter: params.degreeTypeFilter ?? null,
+      p_program_ids: params.programIds ?? null,
+    });
+    if (error) throw error;
+    return data as PreviewEnrollResult;
   }
 
   /** Auto-enroll the joining cohort (first-years + laterals). Returns count enrolled. */
