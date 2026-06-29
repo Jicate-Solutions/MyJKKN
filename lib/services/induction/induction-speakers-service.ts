@@ -15,6 +15,31 @@ export interface DirectoryUser {
   email: string | null;
 }
 
+/** One filtered, account-resolved resource-person candidate. `id` is the
+ *  profiles.id that event_session_speakers links to. */
+export interface ResourcePersonResult {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  sub_label: string | null; // staff_id (facilitator) or roll/register (learner)
+}
+
+export interface FacilitatorFilters {
+  institutionId?: string | null;
+  departmentId?: string | null;
+  query?: string;
+}
+
+export interface LearnerSpeakerFilters {
+  institutionId?: string | null;
+  degreeId?: string | null;
+  departmentId?: string | null;
+  programId?: string | null;
+  semesterId?: string | null;
+  sectionId?: string | null;
+  query?: string;
+}
+
 export interface SessionLedRow {
   session_id: string;
   event_id: string;
@@ -45,6 +70,38 @@ export class InductionSpeakersService {
       .limit(20);
     if (error) throw error;
     return (data as DirectoryUser[]) ?? [];
+  }
+
+  /** Facilitators = staff with a login account, filtered by institution + department + name. */
+  static async searchFacilitators(f: FacilitatorFilters): Promise<ResourcePersonResult[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_search_facilitators', {
+      p_institution_id: f.institutionId ?? null,
+      p_department_id: f.departmentId ?? null,
+      p_query: f.query?.trim() || null,
+    });
+    if (error) throw error;
+    return ((data as any[]) ?? []).map((r) => ({
+      id: r.profile_id, full_name: r.full_name, email: r.email, sub_label: r.sub_label,
+    }));
+  }
+
+  /** Learners = learners_profiles with a login account, via the institution→section cascade + name. */
+  static async searchLearnerSpeakers(f: LearnerSpeakerFilters): Promise<ResourcePersonResult[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_search_learner_speakers', {
+      p_institution_id: f.institutionId ?? null,
+      p_degree_id: f.degreeId ?? null,
+      p_department_id: f.departmentId ?? null,
+      p_program_id: f.programId ?? null,
+      p_semester_id: f.semesterId ?? null,
+      p_section_id: f.sectionId ?? null,
+      p_query: f.query?.trim() || null,
+    });
+    if (error) throw error;
+    return ((data as any[]) ?? []).map((r) => ({
+      id: r.profile_id, full_name: r.full_name, email: r.email, sub_label: r.sub_label,
+    }));
   }
 
   /** The user(s) currently linked as a session's resource persons (for edit-load). */
