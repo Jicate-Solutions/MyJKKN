@@ -10,6 +10,7 @@ export default function SettingsPage() {
   const { isSuperAdmin } = usePermissions();
 
   const settingsPages = [
+    { title: 'Allocations & Eligibility', desc: 'Unified config — categories, program eligibility & physical room rules on one page, with a live resolver that shows what the allocation engine will do', href: '/campus-living/settings/allocations', icon: ListChecks },
     { title: 'General Settings', desc: 'Basic campus living configuration, academic year, hostel names', href: '/campus-living/settings/general', icon: Settings },
     { title: 'Hostel Rooms Categories', desc: 'Manage hostel rooms categories — Boys, Girls, Mixed hostels', href: '/campus-living/settings/categories', icon: LayoutGrid },
     { title: 'Program Eligibility', desc: 'Set allowed room & mess categories per program — institution default plus per-program overrides', href: '/campus-living/settings/program-eligibility', icon: ListChecks },
