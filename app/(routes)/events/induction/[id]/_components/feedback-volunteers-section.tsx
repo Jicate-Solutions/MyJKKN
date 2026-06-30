@@ -70,8 +70,17 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
   const autobalance = async () => {
     setBalancing(true);
     try {
-      const n = await InductionVolunteerService.autobalanceVolunteers(eventId, capacity);
-      toast.success(`Assigned ${n} fresher${n === 1 ? '' : 's'} across ${activeCount} mentor${activeCount === 1 ? '' : 's'}.`);
+      const r = await InductionVolunteerService.autobalanceVolunteers(eventId, capacity);
+      const mentors = `${activeCount} mentor${activeCount === 1 ? '' : 's'}`;
+      if (r.unassigned > 0) {
+        // Surface the coverage TRUTH — don't imply full coverage when freshers are unowned.
+        toast.warning(
+          `Assigned ${r.assigned} of ${r.enrolled} freshers across ${mentors}. ` +
+          `${r.unassigned} fresher${r.unassigned === 1 ? ' has' : 's have'} NO mentor — raise the per-mentor cap or appoint more mentors.`,
+        );
+      } else {
+        toast.success(`Assigned all ${r.assigned} fresher${r.assigned === 1 ? '' : 's'} across ${mentors}.`);
+      }
       load();
     } catch (e: any) {
       toast.error(`Couldn't auto-balance: ${e.message ?? e}`);
