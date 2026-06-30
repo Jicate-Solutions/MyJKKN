@@ -4756,6 +4756,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "children": []
   },
   {
+    "path": "/my-induction-feedback",
+    "label": "My Induction Feedback",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
     "path": "/my-induction-sessions",
     "label": "My Induction Sessions",
     "iconName": "FileText",

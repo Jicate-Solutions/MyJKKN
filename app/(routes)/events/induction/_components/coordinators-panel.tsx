@@ -5,9 +5,8 @@
 // global Role Management page. Hidden for everyone else. Backed by the gated RPCs
 // in 20260630010000_induction_coordinators_management.sql.
 import { useEffect, useState, useCallback } from 'react';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
-  InductionService, type InductionCoordinator, type AssignableStaff,
+  InductionService, type InductionCoordinator, type AssignableStaff, type InductionCollege,
 } from '@/lib/services/induction/induction-service';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -19,12 +18,9 @@ import {
 import { Building2, UserCog, UserPlus, X, Loader2, Search } from 'lucide-react';
 import { toast } from 'sonner';
 
-const supabase = createClientSupabaseClient();
-interface Inst { id: string; name: string; }
-
 export function CoordinatorsPanel() {
   const [canManage, setCanManage] = useState<boolean | null>(null);
-  const [institutions, setInstitutions] = useState<Inst[]>([]);
+  const [institutions, setInstitutions] = useState<InductionCollege[]>([]);
   const [coords, setCoords] = useState<InductionCoordinator[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -34,11 +30,11 @@ export function CoordinatorsPanel() {
     setCanManage(can);
     if (!can) { setLoading(false); return; }
     try {
-      const [{ data: insts }, c] = await Promise.all([
-        supabase.from('institutions').select('id,name').order('name'),
+      const [insts, c] = await Promise.all([
+        InductionService.runningColleges(),
         InductionService.listCoordinators(),
       ]);
-      setInstitutions((insts as any) ?? []);
+      setInstitutions(insts);
       setCoords(c);
     } catch (e: any) {
       toast.error(`Couldn't load coordinators: ${e.message ?? e}`);
@@ -105,14 +101,16 @@ export function CoordinatorsPanel() {
           </div>
         ))}
         {institutions.length === 0 && (
-          <p className="text-sm text-muted-foreground">No colleges visible.</p>
+          <p className="text-sm text-muted-foreground">
+            No college is running an induction yet — once a college has an induction program, it appears here.
+          </p>
         )}
       </CardContent>
     </Card>
   );
 }
 
-function AssignDialog({ inst, onAssigned }: { inst: Inst; onAssigned: () => void }) {
+function AssignDialog({ inst, onAssigned }: { inst: InductionCollege; onAssigned: () => void }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<AssignableStaff[]>([]);
@@ -158,7 +156,7 @@ function AssignDialog({ inst, onAssigned }: { inst: Inst; onAssigned: () => void
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Assign coordinator — {inst.name}</DialogTitle>
-          <DialogDescription>Pick a staff member of this college to run its induction.</DialogDescription>
+          <DialogDescription>Pick a staff member of {inst.name} to run its induction.</DialogDescription>
         </DialogHeader>
         <div className="relative">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -169,7 +167,7 @@ function AssignDialog({ inst, onAssigned }: { inst: Inst; onAssigned: () => void
           {searching ? (
             <p className="text-sm text-muted-foreground py-2">Searching…</p>
           ) : results.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-2">No staff found in this college.</p>
+            <p className="text-sm text-muted-foreground py-2">No staff found in {inst.name}.</p>
           ) : (
             results.map((s) => (
               <button key={s.id} type="button" onClick={() => assign(s)} disabled={!!assigning}

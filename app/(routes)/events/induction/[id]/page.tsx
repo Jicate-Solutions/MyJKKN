@@ -11,6 +11,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { InductionService, type PreviewEnrollResult } from '@/lib/services/induction/induction-service';
 import { SessionsSection } from './_components/sessions-section';
+import { FeedbackVolunteersSection } from './_components/feedback-volunteers-section';
 import { ScorecardSection } from './_components/scorecard-section';
 import { LoopPlaybookSection } from './_components/loop-playbook-section';
 import {
@@ -287,6 +288,9 @@ export default function InductionDetailPage() {
 
         {/* Day-by-day schedule editor */}
         <SessionsSection eventId={id} batches={batches.map((b) => ({ id: b.id, label: b.label }))} />
+
+        {/* Peer-mentor feedback scale layer — appoint mentors, auto-balance, coverage */}
+        <FeedbackVolunteersSection eventId={id} />
 
         {/* Value → advocacy → referral → JOIN funnel + NAAC evidence */}
         <ScorecardSection eventId={id} />
