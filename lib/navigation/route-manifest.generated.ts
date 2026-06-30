@@ -2353,6 +2353,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/campus-living/mess/menu-loop",
+            "label": "Menu Loop",
+            "iconName": "Utensils",
+            "children": []
+          },
+          {
             "path": "/campus-living/mess/policies",
             "label": "Mess Policies",
             "iconName": "Settings",
@@ -2571,6 +2577,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/campus-living/settings/allocations",
+            "label": "Allocations",
+            "iconName": "PackageCheck",
+            "children": []
+          },
+          {
             "path": "/campus-living/settings/amenities",
             "label": "Amenities",
             "iconName": "FileText",
@@ -2619,6 +2631,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/campus-living/settings/fees-economics",
+            "label": "Fees Economics",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/campus-living/settings/general",
             "label": "General",
             "iconName": "FileText",
@@ -2649,6 +2667,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/campus-living/settings/mess-services",
+            "label": "Mess Services",
+            "iconName": "Utensils",
+            "children": []
+          },
+          {
             "path": "/campus-living/settings/notification-rules",
             "label": "Notification Rules",
             "iconName": "FileText",
@@ -2657,6 +2681,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/campus-living/settings/packages",
             "label": "Packages",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/campus-living/settings/policies-workflows",
+            "label": "Policies Workflows",
             "iconName": "FileText",
             "children": []
           },
