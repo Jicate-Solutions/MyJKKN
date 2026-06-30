@@ -136,25 +136,11 @@ export function GroupCaptureDialog({
                   </p>
                 ) : (
                   <>
-                    <div className="flex gap-1.5">
-                      {VALUE_SCALE.map((opt) => {
-                        const selected = current === opt.value;
-                        return (
-                          <button
-                            key={opt.value}
-                            type="button"
-                            onClick={() => setRating(m.learner_id, opt.value)}
-                            aria-pressed={selected}
-                            className={`flex-1 flex flex-col items-center justify-center gap-0.5 rounded-md border px-1 py-1.5 text-xs transition-colors ${
-                              selected ? 'border-[#0b6d41] bg-[#0b6d41] text-white' : 'border-input bg-background hover:bg-muted'
-                            }`}
-                          >
-                            <span className="text-sm font-semibold leading-none">{opt.value}</span>
-                            <span className={selected ? 'text-white/90' : 'text-muted-foreground'}>{opt.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <RatingScale
+                      value={current}
+                      onChange={(v) => setRating(m.learner_id, v)}
+                      size="sm"
+                    />
                     {current !== null && (
                       <Input
                         value={comments[m.learner_id] ?? ''}
