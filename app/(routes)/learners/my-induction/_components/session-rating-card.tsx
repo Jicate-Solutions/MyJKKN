@@ -11,16 +11,9 @@ import { Label } from '@/components/ui/label';
 import { CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { InductionService } from '@/lib/services/induction/induction-service';
+import { RatingScale } from './rating-scale';
 
 const BRAND = '#0b6d41';
-
-const VALUE_SCALE: { value: number; label: string }[] = [
-  { value: 1, label: 'Poor' },
-  { value: 2, label: 'Fair' },
-  { value: 3, label: 'Okay' },
-  { value: 4, label: 'Good' },
-  { value: 5, label: 'Excellent' },
-];
 
 interface Props {
   sessionId: string;
@@ -69,27 +62,7 @@ export function SessionRatingCard({ sessionId, initialRating, initialComment, on
         )}
       </div>
 
-      <div className="flex gap-2">
-        {VALUE_SCALE.map((opt) => {
-          const selected = rating === opt.value;
-          return (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => setRating(opt.value)}
-              aria-pressed={selected}
-              className={`flex-1 flex flex-col items-center justify-center gap-0.5 rounded-md border px-1 py-2 text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6d41]/40 ${
-                selected
-                  ? 'border-[#0b6d41] bg-[#0b6d41] text-white'
-                  : 'border-input bg-background hover:bg-muted'
-              }`}
-            >
-              <span className="text-base font-semibold leading-none">{opt.value}</span>
-              <span className={selected ? 'text-white/90' : 'text-muted-foreground'}>{opt.label}</span>
-            </button>
-          );
-        })}
-      </div>
+      <RatingScale value={rating} onChange={setRating} />
 
       <Textarea
         value={comment}

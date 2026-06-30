@@ -57,6 +57,12 @@ export interface AssignableStaff {
   role: string;
 }
 
+/** An induction-running college (institution with a non-blueprint induction program). */
+export interface InductionCollege {
+  id: string;
+  name: string;
+}
+
 export class InductionService {
   /** Create the induction (events row event_type='induction' + satellite). Returns event_id. */
   static async createProgram(input: CreateInductionInput): Promise<string> {
@@ -131,6 +137,15 @@ export class InductionService {
     const { data, error } = await getSupabase().rpc('fn_induction_can_manage_coordinators');
     if (error) return false;
     return !!data;
+  }
+
+  /** Colleges that are actually running an induction (have a non-blueprint
+   *  induction_programs row) — the only institutions the coordinators panel lists,
+   *  not every institution the (scope=all) viewer could otherwise see. */
+  static async runningColleges(): Promise<InductionCollege[]> {
+    const { data, error } = await getSupabase().rpc('fn_induction_running_colleges');
+    if (error) throw error;
+    return (data as InductionCollege[]) ?? [];
   }
 
   /** List current induction coordinators (with their college). */
@@ -246,6 +261,42 @@ export class InductionService {
     const { data, error } = await supabase.rpc('fn_induction_session_feedback_summary', { p_event_id: eventId });
     if (error) throw error;
     return (data as SessionFeedbackSummary[]) ?? [];
+  }
+
+  // ── No-smartphone kiosk capture (volunteer/coordinator proxy on a shared device) ──
+
+  /** Existing per-learner feedback for ONE session — powers the kiosk dialog's
+   *  "rated" + "self — locked" badges (is_self = the fresher's own-login row). */
+  static async getSessionFeedbackRoster(sessionId: string): Promise<SessionFeedbackRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_session_feedback_roster', { p_session_id: sessionId });
+    if (error) throw error;
+    return (data as SessionFeedbackRow[]) ?? [];
+  }
+
+  /** Coordinator/volunteer bulk-submits freshers' own ratings on a shared device.
+   *  Never overwrites a fresher's own-login submission (the server silently skips
+   *  it). Returns the number of rows written. */
+  static async submitFeedbackProxy(sessionId: string, marks: ProxyFeedbackMark[]): Promise<number> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_submit_feedback_proxy', {
+      p_session_id: sessionId,
+      p_marks: marks,
+    });
+    if (error) throw error;
+    return (data as number) ?? 0;
+  }
+
+  /** Coverage + method-mix for an induction (response rate, phone vs kiosk, the
+   *  no-account ceiling, and a bias flag the loop reads to know its sample is thin
+   *  or single-method). THROWS if the event has no induction program or the caller
+   *  lacks induction.view (the RPC RAISEs); the null is only a defensive fallback. */
+  static async getFeedbackMethodMix(eventId: string): Promise<FeedbackMethodMix | null> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_feedback_method_mix', { p_event_id: eventId });
+    if (error) throw error;
+    const row = Array.isArray(data) ? data[0] : data;
+    return (row as FeedbackMethodMix) ?? null;
   }
 
   // ── Student-facing reads (the fresher's "my induction") ─────────────────────
@@ -396,6 +447,30 @@ export interface InductionLoopPlaybook {
 }
 
 export interface SessionFeedbackSummary { session_id: string; avg_rating: number; response_count: number; }
+
+/** One picked fresher's rating in a kiosk batch (proxy writer payload row). */
+export interface ProxyFeedbackMark { learner_id: string; rating: number; comment?: string | null; }
+
+/** Existing feedback for one learner in a session (kiosk dialog pre-fill + badges).
+ *  is_self = own-login submission (capture_method 'phone') — locked from overwrite. */
+export interface SessionFeedbackRow {
+  learner_id: string;
+  rating: number;
+  comment: string | null;
+  capture_method: 'phone' | 'volunteer_kiosk';
+  is_self: boolean;
+}
+
+/** Coverage + method-mix for an induction's feedback (bias awareness for the loop). */
+export interface FeedbackMethodMix {
+  enrolled: number;
+  responders: number;
+  response_rate: number;     // 0..1
+  n_phone: number;
+  n_volunteer_kiosk: number;
+  no_account_enrolled: number;
+  bias_flag: boolean;
+}
 
 /** One row of fn_induction_scorecard — a funnel slice (total / a department / a batch). */
 export interface ScorecardRow {
