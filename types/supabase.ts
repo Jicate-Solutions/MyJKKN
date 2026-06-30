@@ -48997,6 +48997,123 @@ export type Database = {
           },
         ]
       }
+      induction_session_poll: {
+        Row: {
+          auto_close_at: string | null
+          created_at: string
+          created_by: string | null
+          event_id: string
+          id: string
+          institution_id: string
+          issued_at: string | null
+          session_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          auto_close_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          event_id: string
+          id?: string
+          institution_id: string
+          issued_at?: string | null
+          session_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          auto_close_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          event_id?: string
+          id?: string
+          institution_id?: string
+          issued_at?: string | null
+          session_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      induction_session_poll_option: {
+        Row: {
+          created_at: string
+          id: string
+          label: string
+          position: number
+          question_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label: string
+          position?: number
+          question_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string
+          position?: number
+          question_id?: string
+        }
+        Relationships: []
+      }
+      induction_session_poll_question: {
+        Row: {
+          created_at: string
+          id: string
+          kind: string
+          poll_id: string
+          position: number
+          prompt: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kind?: string
+          poll_id: string
+          position?: number
+          prompt: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kind?: string
+          poll_id?: string
+          position?: number
+          prompt?: string
+        }
+        Relationships: []
+      }
+      induction_session_poll_vote: {
+        Row: {
+          created_at: string
+          id: string
+          learner_id: string
+          option_id: string
+          poll_id: string
+          question_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          learner_id: string
+          option_id: string
+          poll_id: string
+          question_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          learner_id?: string
+          option_id?: string
+          poll_id?: string
+          question_id?: string
+        }
+        Relationships: []
+      }
       industry_mentors: {
         Row: {
           availability: Json | null
