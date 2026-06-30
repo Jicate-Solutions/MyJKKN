@@ -84,52 +84,44 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-DECLARE v_inst uuid; v_super boolean; v_allowed boolean; v_dept uuid; v_inst_wide boolean;
+DECLARE v_inst uuid; v_super boolean; v_allowed boolean;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_scf_learner_trajectory: not authenticated'; END IF;
+  -- AUDIENCE (Director decision 2026-06-30 via AskUserQuestion): the NAMED per-learner
+  -- slider list is restricted to INSTITUTION LEADERSHIP ONLY — principal / dean /
+  -- institution-admin / super_admin. Department heads (hod) and coordinators are
+  -- intentionally EXCLUDED: they keep the aggregate dashboards (loop-activity, coverage,
+  -- strengths) but NOT the named at-risk list. This is the narrowest-leadership option
+  -- — the fewest eyes on candid-derived per-learner trends — chosen over both the broader
+  -- dept-head audience and the de-identified counts-only variant.
   SELECT p.institution_id,
          (p.role = 'super_admin' OR p.is_super_admin = true),
-         (p.role = ANY (ARRAY['super_admin','administrator','institution_admin','dean','hod','principal','coordinator']) OR p.is_super_admin = true),
-         p.department_id,
          (p.role = ANY (ARRAY['super_admin','administrator','institution_admin','dean','principal']) OR p.is_super_admin = true)
-    INTO v_inst, v_super, v_allowed, v_dept, v_inst_wide
+    INTO v_inst, v_super, v_allowed
   FROM public.profiles p WHERE p.id = auth.uid();
   IF NOT COALESCE(v_allowed, false) THEN
     RAISE EXCEPTION 'fn_scf_learner_trajectory: not authorized';
   END IF;
-  -- DEPT SCOPE (review #1684 #1): named per-learner sliders are more sensitive than the
-  -- aggregate dashboards. Institution-wide leaders (principal/dean/admin/super) see all
-  -- departments in their institution; a department head (hod/coordinator) sees ONLY their
-  -- OWN department's sliding learners — not other departments'. A dept-scoped caller with
-  -- no department resolves to no rows. Honours the Director's "named to leadership"
-  -- ratification while tightening each leader to the learners they can actually act on.
-  IF NOT COALESCE(v_inst_wide, false) AND v_dept IS NULL THEN RETURN; END IF;
 
   -- Defensive: never let a caller drop the privacy floor below 3.
   IF p_min_sessions < 3 THEN p_min_sessions := 3; END IF;
-  -- PRIVACY CLAMP (review #1684 HIGH): p_slope_threshold is caller-supplied. Left
-  -- unclamped, a leader could pass a positive/near-zero value to pull the FULL named
-  -- roster (improving + stable learners), defeating the Director-ratified "sliding
-  -- learners only / minimal disclosure" mitigation. Force it to a genuinely-declining
-  -- ceiling: any value above -0.05 is reset to the -0.15 default.
-  -- Cap at the -0.15 minimal-disclosure floor AND never wider: a caller cannot pass
-  -- -0.06..-0.14 to widen the named-slider roster past the intended floor. LEAST also
-  -- handles NULL → -0.15. Only a STEEPER (more-declining) threshold is honoured.
-  p_slope_threshold := LEAST(COALESCE(p_slope_threshold, -0.15), -0.15);
+  -- SENSITIVITY (Director decision 2026-06-30): catch SLOW slides, not only steep drops —
+  -- the whole point is an EARLY warning, and the prior steep -0.15 floor showed nobody even
+  -- while real learners gently declined. Default to a gentle -0.05 decline. A caller may
+  -- only make it STEEPER, never wider than -0.03 (LEAST + NULL→-0.05), so the list still
+  -- requires a genuine downward trend — never near-flat or improving learners.
+  p_slope_threshold := LEAST(COALESCE(p_slope_threshold, -0.05), -0.03);
 
   RETURN QUERY
   WITH per_date AS (
     -- One understood value per (learner, course, institution, attendance_date). Same-day
     -- async+live_poll rows must not inflate the session count or the regr_slope x-axis;
     -- without this the k>=3 floor could be met by <3 distinct class dates, weakening the
-    -- "no single candid rating reconstructable" guarantee. Also applies the dept filter:
-    -- a dept-scoped caller (hod/coordinator) sees only their own department's learners.
+    -- "no single candid rating reconstructable" guarantee.
     SELECT DISTINCT ON (f.student_id, f.course_code, f.institution_id, f.attendance_date)
            f.student_id, f.course_code, f.institution_id, f.attendance_date, f.understood
     FROM public.session_feedback f
-    JOIN public.learners_profiles lp ON lp.id = f.student_id
     WHERE (v_super OR f.institution_id = v_inst)
-      AND (v_inst_wide OR lp.department_id = v_dept)   -- dept heads: own department only
       AND f.attendance_date BETWEEN p_from AND p_to
       AND f.course_code IS NOT NULL
       AND f.understood IS NOT NULL                     -- count, slope + avg all over the SAME real ratings,
