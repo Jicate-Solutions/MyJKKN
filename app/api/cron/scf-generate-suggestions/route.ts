@@ -53,8 +53,9 @@ const LOW_UNDERSTOOD_THRESHOLD = 3; // avg_understood < this → 'improvement' s
 const STANDOUT_THRESHOLD = 4.5;
 // Stop taking NEW targets once the batch has run this long, so the function
 // finishes (incl. the outcome-measurement step) within maxDuration regardless of
-// how slow individual Claude calls are. Headroom below the 300s maxDuration.
-const BATCH_DEADLINE_MS = 240_000;
+// how slow individual Claude calls are. 210s leaves ~90s headroom for a final
+// in-flight call (<=2x25s with maxRetries:1) plus the measure step under 300s.
+const BATCH_DEADLINE_MS = 210_000;
 
 // Replicated verbatim from ai-suggest-improvement/route.ts so the model's
 // output shape is identical — the record RPC stores the same JSON structure.
@@ -184,9 +185,10 @@ ${closingLine}`;
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
       },
-      // Bound each call so one hung request can't eat the whole batch's wall-clock
-      // (sequential calls, capped at BATCH_CAP, under the Vercel function limit).
-      { timeout: 25_000 }
+      // Bound each call so one hung request can't eat the whole batch's wall-clock.
+      // maxRetries:1 caps a stall at 2x25s=50s (the SDK default of 2 retries would
+      // make it 3x=75s and risk overrunning maxDuration before the measure step).
+      { timeout: 25_000, maxRetries: 1 }
     );
 
     const text = resp.content
@@ -258,6 +260,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       { ok: false, error: listErr.message, elapsed_ms: Date.now() - started },
       { status: 500 }
+    );
+  }
+
+  // Observability: fn_scf_candidate_windows is a SETOF RPC, so PostgREST's
+  // db-max-rows (~1000) cap still bounds its result. At >=1000 distinct candidate
+  // tuples the set may be truncated — the fair-rotation ORDER BY drops the
+  // least-needy first (served on later runs), but log so the situation is visible.
+  if ((candidates?.length ?? 0) >= 1000) {
+    console.warn(
+      `[cron/scf-generate-suggestions] candidate set at/near the PostgREST row cap (${candidates?.length}) — some courses may be deferred to later runs`
     );
   }
 
