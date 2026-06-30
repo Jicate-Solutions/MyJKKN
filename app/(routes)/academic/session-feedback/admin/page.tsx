@@ -55,6 +55,7 @@ import {
 import { LoopActivityCard } from '../_components/loop-activity-card';
 import { FacilitatorStrengthsCard } from '../_components/facilitator-strengths-card';
 import { LearnerTrajectoryCard } from '../_components/learner-trajectory-card';
+import { StrugglingNotesSentCard } from '../_components/struggling-notes-sent-card';
 import type {
   AdminCollegeSummaryRow,
   AdminFacultySummaryRow,
@@ -438,6 +439,8 @@ export default function AdminFeedbackDashboardPage() {
       <LoopActivityCard from={from} to={to} />
       <FacilitatorStrengthsCard from={from} to={to} />
       <LearnerTrajectoryCard from={from} to={to} />
+      {/* "A support note went out" — leadership sees that a note was sent, never its text (#2 visibility). */}
+      <StrugglingNotesSentCard from={from} to={to} />
 
       {/* Faculty Summary */}
       <Card className="mb-6">

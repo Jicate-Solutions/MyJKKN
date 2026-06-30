@@ -15,13 +15,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { BeatLoader } from 'react-spinners';
-import { CheckCircle2, ShieldCheck, History, TrendingDown } from 'lucide-react';
+import { CheckCircle2, ShieldCheck, History } from 'lucide-react';
 import {
   useChecklistConfig,
   useSubmitFeedback,
   useCarryforward,
 } from '@/hooks/use-session-feedback';
-import { useDownwardTrend, isDownTrendFor } from '@/hooks/use-learner-loop';
 import type { PendingSession } from '@/types/session-feedback';
 
 const BRAND = '#0b6d41';
@@ -68,7 +67,6 @@ interface FeedbackDialogProps {
 export function FeedbackDialog({ session, onOpenChange, source = 'async' }: FeedbackDialogProps) {
   const { data: checklistConfig, isLoading: loadingChecklist } = useChecklistConfig();
   const { data: carryforward } = useCarryforward();
-  const { data: trendRows } = useDownwardTrend();
   const submit = useSubmitFeedback();
 
   const [understood, setUnderstood] = useState<number | null>(null);
@@ -112,15 +110,6 @@ export function FeedbackDialog({ session, onOpenChange, source = 'async' }: Feed
   // The learner's OWN prior rating + when, for the personalised re-ask. (#2)
   const priorWord = carry ? UNDERSTOOD_WORD[carry.prior_understood] ?? null : null;
   const priorDate = formatPriorDate(carry?.prior_session_date);
-
-  // #2 AI-reserve trigger: is THIS learner on a 3-session downward trend for this course?
-  // Drives an empathetic TEMPLATE line today (cheap, honest). The AI-written per-learner note
-  // is intentionally STUBBED — it must be generated server-side with a real key; see
-  // hooks/use-learner-loop.ts (useDownwardTrend) for the documented seam.
-  const downTrend = useMemo(
-    () => isDownTrendFor(trendRows, session?.course_code),
-    [trendRows, session],
-  );
 
   const open = session !== null;
 
@@ -206,19 +195,6 @@ export function FeedbackDialog({ session, onOpenChange, source = 'async' }: Feed
                 </p>
               </div>
 
-              {/* #2 AI-reserve path: a 3-session downward trend gets an empathetic line now.
-                  An AI-written, per-learner note (stubbed server-side) would render in place
-                  of this template once the cron seam in useDownwardTrend is wired. */}
-              {downTrend && (
-                <p className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
-                  <TrendingDown className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span>
-                    This is the 3rd {carry.course_name || carry.course_code} class in a row
-                    that&apos;s felt harder for you — your honest answer here helps us get you the
-                    right support.
-                  </span>
-                </p>
-              )}
               <div className="flex gap-2">
                 {CARRYFORWARD_CHOICES.map((choice) => {
                   const selected = cfChoice === choice;

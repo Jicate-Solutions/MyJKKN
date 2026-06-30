@@ -25,14 +25,13 @@ export interface LoopClosureRow {
   my_delta: number | null;            // my_next_understood - my_prior_understood (null until a later session)
 }
 
-/** fn_scf_downward_trend_for_learner — courses where the learner's last 3 ratings trend down.
- *  This is the TRIGGER that reserves an AI-written support note for a genuinely struggling
- *  learner. The note generation itself is stubbed server-side; the template path renders today. */
-export interface DownwardTrendRow {
+/** fn_scf_my_struggling_note — the calling learner's most-recent AI-written support note.
+ *  Generated server-side by the scf-learner-notes cron for learners on a 3-session downward
+ *  trend. The learner sees it ONLY when one exists (no template fallback). The `note` text is
+ *  private to the learner; leadership only ever sees that a note was sent, never the wording. */
+export interface StrugglingNoteRow {
   course_code: string;
   course_name: string | null;
-  ratings: number[];      // last 3 ratings, OLDEST -> NEWEST
-  rated_on: string[];     // their dates, aligned to ratings ('YYYY-MM-DD')
-  net_decline: number;    // ratings[0] - ratings[2] (>0 = dropped)
-  is_downward: boolean;   // always true for returned rows
+  note: string;          // the AI-written supportive note (shown to the learner only)
+  generated_at: string;  // ISO timestamp the note was generated
 }

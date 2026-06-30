@@ -8,7 +8,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { LoopClosureRow, DownwardTrendRow } from '@/types/scf-learner-loop';
+import type { LoopClosureRow, StrugglingNoteRow } from '@/types/scf-learner-loop';
 
 const getSupabase = () => createClientSupabaseClient();
 
@@ -16,7 +16,7 @@ export const scfLearnerLoopKeys = {
   all: ['scf-learner-loop'] as const,
   loopClosure: (from: string, to: string) =>
     [...scfLearnerLoopKeys.all, 'loop-closure', from, to] as const,
-  downwardTrend: () => [...scfLearnerLoopKeys.all, 'downward-trend'] as const,
+  strugglingNote: () => [...scfLearnerLoopKeys.all, 'struggling-note'] as const,
 };
 
 /**
@@ -41,36 +41,24 @@ export function useLoopClosure(from: string, to: string) {
 }
 
 /**
- * #2 trigger — courses where the calling learner's last 3 ratings trend down.
- * Used today to render an empathetic TEMPLATE line in the carry-forward re-ask. A future
- * server cron will read the same signal to decide who receives an AI-written note.
- *
- * AI-NOTE STUB (intentional, per brief): the per-learner generated note is NOT wired here.
- * It must be produced server-side with a real API key (a Max/Pro subscription cannot power
- * production AI — see memory feedback_subscription_cannot_power_production_app_ai). The seam:
- *   1. a cron reads fn_scf_downward_trend_for_learner() per struggling learner,
- *   2. calls Claude to draft a short supportive note,
- *   3. persists it (future column/table) for this hook to surface.
- * Until that exists, isDownTrendFor() drives the cheap, honest template message.
+ * #2 — the AI-written support note for the calling learner, if one exists.
+ * The scf-learner-notes cron drafts a short, warm, PRIVATE note (server-side, on the real
+ * API key — a Max/Pro subscription cannot power production AI, see memory
+ * feedback_subscription_cannot_power_production_app_ai) for learners on a 3-session downward
+ * trend, and persists it to scf_learner_notes. This hook surfaces the learner's most-recent
+ * note via fn_scf_my_struggling_note (SECURITY DEFINER, self-scoped). Returns null when no
+ * note exists — the UI then shows NOTHING (no template fallback, per Director decision).
  */
-export function useDownwardTrend() {
+export function useStrugglingNote() {
   return useQuery({
-    queryKey: scfLearnerLoopKeys.downwardTrend(),
-    queryFn: async (): Promise<DownwardTrendRow[]> => {
+    queryKey: scfLearnerLoopKeys.strugglingNote(),
+    queryFn: async (): Promise<StrugglingNoteRow | null> => {
       const supabase = getSupabase();
-      const { data, error } = await supabase.rpc('fn_scf_downward_trend_for_learner');
-      if (error) throw new Error(`Failed to load your trend: ${error.message}`);
-      return (data || []) as DownwardTrendRow[];
+      const { data, error } = await supabase.rpc('fn_scf_my_struggling_note');
+      if (error) throw new Error(`Failed to load your note: ${error.message}`);
+      const rows = (data || []) as StrugglingNoteRow[];
+      return rows.length > 0 ? rows[0] : null;
     },
     staleTime: 60_000,
   });
-}
-
-/** Convenience: is the learner on a downward trend for a given course_code? */
-export function isDownTrendFor(
-  rows: DownwardTrendRow[] | undefined,
-  courseCode: string | null | undefined,
-): DownwardTrendRow | null {
-  if (!rows || !courseCode) return null;
-  return rows.find((r) => r.course_code === courseCode) ?? null;
 }
