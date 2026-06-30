@@ -591,6 +591,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/settings/program-eligibility'],
         },
         {
+          label: 'Allocations & Eligibility',
+          icon: 'ListChecks',
+          href: '/campus-living/settings/allocations',
+          matchPaths: ['/campus-living/settings/allocations'],
+        },
+        {
           label: 'Amenities',
           icon: 'Wifi',
           href: '/campus-living/settings/amenities',
