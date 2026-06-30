@@ -29,6 +29,7 @@ export default function SettingsPage() {
     { title: 'Maintenance SLA', desc: 'Set SLA targets by category and priority level', href: '/campus-living/settings/maintenance-sla', icon: Wrench },
     { title: 'Notification Rules', desc: 'Email, SMS, and push notification preferences', href: '/campus-living/settings/notification-rules', icon: Bell },
     { title: 'Approval Chains', desc: 'Configure approval workflows for leave, curfew, visitors', href: '/campus-living/settings/approval-chains', icon: GitBranch },
+    { title: 'Policies & Workflows', desc: 'One page to manage curfew, leave types, approval chains, notification rules and general defaults', href: '/campus-living/settings/policies-workflows', icon: ListChecks },
   ];
 
   return (

@@ -675,6 +675,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/settings/approval-chains'],
         },
         {
+          label: 'Policies & Workflows',
+          icon: 'Sliders',
+          href: '/campus-living/settings/policies-workflows',
+          matchPaths: ['/campus-living/settings/policies-workflows'],
+        },
+        {
           label: 'Maintenance SLA',
           icon: 'Timer',
           href: '/campus-living/settings/maintenance-sla',
