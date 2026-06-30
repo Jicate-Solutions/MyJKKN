@@ -633,12 +633,6 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/settings/choose-your-menu'],
         },
         {
-          label: 'Menu Loop',
-          icon: 'RefreshCw',
-          href: '/campus-living/mess/menu-loop',
-          matchPaths: ['/campus-living/mess/menu-loop'],
-        },
-        {
           label: 'Fee Config',
           icon: 'Coins',
           href: '/campus-living/settings/fee-config',
@@ -649,6 +643,12 @@ const config: ModuleNavConfig = {
           icon: 'CalendarOff',
           href: '/campus-living/settings/leave-types',
           matchPaths: ['/campus-living/settings/leave-types'],
+        },
+        {
+          label: 'Menu Loop',
+          icon: 'RefreshCw',
+          href: '/campus-living/mess/menu-loop',
+          matchPaths: ['/campus-living/mess/menu-loop'],
         },
         {
           label: 'Approval Chains',
