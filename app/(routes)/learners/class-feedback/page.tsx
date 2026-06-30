@@ -22,6 +22,7 @@ import { FeedbackDialog } from './_components/feedback-dialog';
 import { MyVoiceReceipt } from './_components/my-voice-receipt';
 import { LivePulseBanner } from './_components/live-pulse-banner';
 import { LoopClosureCard } from './_components/loop-closure-card';
+import { StrugglingNoteCard } from './_components/struggling-note-card';
 
 const BRAND = '#0b6d41';
 
@@ -84,6 +85,9 @@ export default function LearnerSessionFeedbackPage() {
             setActiveSession(s);
           }}
         />
+
+        {/* A warm, private support note if you've found a course harder lately (hidden until a real AI note exists) */}
+        <StrugglingNoteCard />
 
         {/* Loop closed — the specific change your feedback caused + your own before/after (hidden until a real chain exists) */}
         <LoopClosureCard />
