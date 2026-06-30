@@ -31,12 +31,17 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
   const [vols, setVols] = useState<FeedbackVolunteer[]>([]);
   const [capacity, setCapacity] = useState(20);
   const [balancing, setBalancing] = useState(false);
+  const [mix, setMix] = useState<FeedbackMethodMix | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const v = await InductionVolunteerService.listVolunteers(eventId);
+      const [v, m] = await Promise.all([
+        InductionVolunteerService.listVolunteers(eventId),
+        InductionService.getFeedbackMethodMix(eventId).catch(() => null),
+      ]);
       setVols(v);
+      setMix(m);
     } catch {
       // not authorized for this college → hide the whole section
       setHidden(true);
