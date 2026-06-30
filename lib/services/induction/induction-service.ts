@@ -28,6 +28,9 @@ export interface CreateInductionInput {
   /** Restrict the joining cohort by degree level: 'ug' / 'pg' / null (all degrees).
    *  e.g. an M.Pharm-only induction is 'pg' at the Pharmacy college. */
   degreeTypeFilter?: 'ug' | 'pg' | null;
+  institutionIds?: string[];   // multi-target; when set, drives create + owning institution = [0]
+  degreeIds?: string[];        // optional
+  departmentIds?: string[];    // optional
 }
 
 /** Result of fn_induction_preview_enroll — who WOULD be enrolled (no insert). */
@@ -37,6 +40,7 @@ export interface PreviewEnrollResult {
   degree_type_filter: 'ug' | 'pg' | null;
   by_institution: Array<{ institution: string; count: number }>;
   by_program: Array<{ program: string; degree_type: string | null; count: number }>;
+  by_department: { department: string; count: number }[];
   sample: Array<{ name: string; status: string }>;
 }
 
@@ -68,7 +72,7 @@ export class InductionService {
   static async createProgram(input: CreateInductionInput): Promise<string> {
     const supabase = getSupabase();
     const { data, error } = await supabase.rpc('fn_induction_create_program', {
-      p_institution_id: input.institutionId,
+      p_institution_id: input.institutionId ?? input.institutionIds?.[0] ?? null,
       p_academic_year_id: input.academicYearId,
       p_name: input.name,
       p_start_date: input.startDate,
@@ -79,6 +83,9 @@ export class InductionService {
       p_enroll_scope: input.enrollScope ?? 'institution',
       p_venue_resource_id: input.venueResourceId ?? null,
       p_degree_type_filter: input.degreeTypeFilter ?? null,
+      p_institution_ids: input.institutionIds ?? null,
+      p_degree_ids: input.degreeIds ?? null,
+      p_department_ids: input.departmentIds ?? null,
     });
     if (error) throw error;
     return data as string;
@@ -94,14 +101,20 @@ export class InductionService {
     enrollScope?: 'institution' | 'group';
     degreeTypeFilter?: 'ug' | 'pg' | null;
     programIds?: string[] | null;
+    institutionIds?: string[];
+    degreeIds?: string[];
+    departmentIds?: string[];
   }): Promise<PreviewEnrollResult> {
     const supabase = getSupabase();
     const { data, error } = await supabase.rpc('fn_induction_preview_enroll', {
-      p_institution_id: params.institutionId,
+      p_institution_id: params.institutionId ?? params.institutionIds?.[0] ?? null,
       p_admission_year: params.admissionYear,
       p_enroll_scope: params.enrollScope ?? 'institution',
       p_degree_type_filter: params.degreeTypeFilter ?? null,
       p_program_ids: params.programIds ?? null,
+      p_institution_ids: params.institutionIds ?? null,
+      p_degree_ids: params.degreeIds ?? null,
+      p_department_ids: params.departmentIds ?? null,
     });
     if (error) throw error;
     return data as PreviewEnrollResult;
