@@ -49,7 +49,7 @@ BEGIN
   END IF;
 
   RETURN QUERY
-  SELECT lp.id,
+  SELECT DISTINCT lp.id,   -- DISTINCT: a learner with >1 profile in the college appears once (review #1694)
          btrim(coalesce(lp.first_name,'') || ' ' || coalesce(lp.last_name,''))::text,
          lp.register_number::text
   FROM public.learners_profiles lp
@@ -94,6 +94,14 @@ BEGIN
   IF EXISTS (SELECT 1 FROM public.induction_enrollment ie
              WHERE ie.event_id = p_event_id AND ie.learner_id = p_learner_id) THEN
     RAISE EXCEPTION 'fn_induction_appoint_feedback_volunteer: that learner is a fresher in this induction';
+  END IF;
+  -- guard: the learner must be a MEMBER of this college (a profile in v_inst).
+  -- Don't trust the client-supplied id — mirror the assignable query's JOIN so an
+  -- out-of-college learner can't be appointed and then read this college's roster PII
+  -- via fn_induction_my_feedback_group. (Closes the cross-tenant gap; review #1694.)
+  IF NOT EXISTS (SELECT 1 FROM public.profiles p
+                 WHERE p.learner_id = p_learner_id AND p.institution_id = v_inst) THEN
+    RAISE EXCEPTION 'fn_induction_appoint_feedback_volunteer: that learner is not a member of this college';
   END IF;
 
   INSERT INTO public.induction_feedback_volunteers
@@ -183,13 +191,15 @@ GRANT  EXECUTE ON FUNCTION public.fn_induction_list_feedback_volunteers(UUID) TO
 --    capacity pressure), round-robin balanced, capacity-capped, idempotent
 --    (full deterministic rebalance: clear then reassign).
 -- ----------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.fn_induction_autobalance_feedback_volunteers(
+-- DROP needed: return type changes INTEGER → TABLE (Postgres forbids CREATE OR REPLACE across that).
+DROP FUNCTION IF EXISTS public.fn_induction_autobalance_feedback_volunteers(UUID, INTEGER);
+CREATE FUNCTION public.fn_induction_autobalance_feedback_volunteers(
   p_event_id UUID, p_capacity INTEGER DEFAULT 20
 )
-RETURNS INTEGER
+RETURNS TABLE (enrolled INTEGER, assigned INTEGER, unassigned INTEGER)
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public
 AS $$
-DECLARE v_inst UUID; v_nvol INTEGER; v_cap INTEGER; v_n INTEGER;
+DECLARE v_inst UUID; v_nvol INTEGER; v_enrolled INTEGER; v_assigned INTEGER;
 BEGIN
   SELECT institution_id INTO v_inst FROM public.induction_programs WHERE event_id = p_event_id;
   IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_autobalance_feedback_volunteers: not an induction event'; END IF;
@@ -197,7 +207,6 @@ BEGIN
           OR (user_has_permission('induction.manage') AND role_has_institution_access(v_inst))) THEN
     RAISE EXCEPTION 'fn_induction_autobalance_feedback_volunteers: not authorized';
   END IF;
-  v_cap := GREATEST(COALESCE(p_capacity, 20), 1);
 
   SELECT count(*) INTO v_nvol
   FROM public.induction_feedback_volunteers
@@ -206,20 +215,41 @@ BEGIN
     RAISE EXCEPTION 'fn_induction_autobalance_feedback_volunteers: no active feedback volunteers — appoint at least one first';
   END IF;
 
+  -- When a capacity is supplied, set EVERY active mentor's capacity to it (uniform
+  -- "set all to N" convenience). Balancing below reads each mentor's OWN capacity
+  -- column, so a per-mentor cap edited in the UI actually drives balancing
+  -- (review #1694: the displayed per-mentor cap must not be cosmetic).
+  IF p_capacity IS NOT NULL THEN
+    UPDATE public.induction_feedback_volunteers
+       SET capacity = GREATEST(p_capacity, 1), updated_at = now()
+     WHERE event_id = p_event_id AND is_active;
+  END IF;
+
   -- full deterministic rebalance
   DELETE FROM public.induction_feedback_volunteer_group WHERE event_id = p_event_id;
 
   WITH active_vols AS (
-    SELECT id, (row_number() OVER (ORDER BY created_at, id) - 1) AS vidx
+    SELECT id, GREATEST(capacity, 1) AS capacity,
+           (row_number() OVER (ORDER BY created_at, id) - 1) AS vord
     FROM public.induction_feedback_volunteers
     WHERE event_id = p_event_id AND is_active
+  ),
+  -- each mentor contributes `capacity` slots; deal round-robin (round, then mentor
+  -- order) so a mentor with capacity 1 takes exactly one fresher.
+  ordered_slots AS (
+    SELECT v.id AS volunteer_id,
+           (row_number() OVER (ORDER BY gs.n, v.vord) - 1) AS slot_idx
+    FROM active_vols v
+    CROSS JOIN LATERAL generate_series(1, v.capacity) AS gs(n)
   ),
   ranked AS (
     SELECT ie.learner_id,
            (row_number() OVER (
               ORDER BY
-                -- no-account (false sorts first) → silent freshers get owners first
-                (EXISTS (SELECT 1 FROM public.profiles p WHERE p.learner_id = ie.learner_id)),
+                -- no-account FIRST (institution-scoped: a profile in ANOTHER college
+                -- does NOT count as "has account" here — review #1694)
+                (EXISTS (SELECT 1 FROM public.profiles p
+                         WHERE p.learner_id = ie.learner_id AND p.institution_id = v_inst)),
                 ie.batch_id NULLS FIRST,
                 lp.first_name, lp.last_name, ie.learner_id
             ) - 1) AS rn
@@ -228,17 +258,27 @@ BEGIN
     WHERE ie.event_id = p_event_id
   ),
   assign AS (
-    SELECT r.learner_id, av.id AS volunteer_id
+    -- fresher rn → slot rn; freshers with rn >= total slots stay UNASSIGNED (surfaced below)
+    SELECT r.learner_id, s.volunteer_id
     FROM ranked r
-    JOIN active_vols av ON av.vidx = (r.rn % v_nvol)   -- round-robin across mentors
-    WHERE (r.rn / v_nvol) < v_cap                      -- capacity cap per mentor
+    JOIN ordered_slots s ON s.slot_idx = r.rn
   )
   INSERT INTO public.induction_feedback_volunteer_group (volunteer_id, event_id, learner_id)
   SELECT a.volunteer_id, p_event_id, a.learner_id FROM assign a
   ON CONFLICT (event_id, learner_id) DO UPDATE SET
     volunteer_id = EXCLUDED.volunteer_id, updated_at = now();
-  GET DIAGNOSTICS v_n = ROW_COUNT;
-  RETURN v_n;
+  GET DIAGNOSTICS v_assigned = ROW_COUNT;
+
+  SELECT count(*) INTO v_enrolled
+  FROM public.induction_enrollment WHERE event_id = p_event_id;
+
+  -- Surface the coverage TRUTH: if capacity×mentors < enrolled, some freshers have NO
+  -- owner. The UI warns when unassigned > 0 instead of implying full coverage
+  -- (review #1694 HIGH: silent coverage gap).
+  enrolled   := v_enrolled;
+  assigned   := v_assigned;
+  unassigned := v_enrolled - v_assigned;
+  RETURN NEXT;
 END $$;
 REVOKE EXECUTE ON FUNCTION public.fn_induction_autobalance_feedback_volunteers(UUID, INTEGER) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_induction_autobalance_feedback_volunteers(UUID, INTEGER) TO authenticated;

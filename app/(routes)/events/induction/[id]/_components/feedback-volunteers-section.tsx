@@ -14,6 +14,7 @@ import {
   type FeedbackVolunteer,
   type AssignablePeerMentor,
 } from '@/lib/services/induction/induction-volunteer-service';
+import { InductionService, type FeedbackMethodMix } from '@/lib/services/induction/induction-service';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,7 +23,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger,
 } from '@/components/ui/dialog';
-import { MessagesSquare, UserPlus, X, Loader2, Search, Scale, GraduationCap } from 'lucide-react';
+import { MessagesSquare, UserPlus, X, Loader2, Search, Scale, GraduationCap, AlertTriangle } from 'lucide-react';
 
 export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
   const [hidden, setHidden] = useState(false);

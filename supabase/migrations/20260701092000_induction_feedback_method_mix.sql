@@ -47,12 +47,15 @@ BEGIN
   SELECT count(*) INTO v_enrolled
   FROM public.induction_enrollment e WHERE e.event_id = p_event_id;
 
-  -- enrolled freshers with no login account at all (no profiles row linked to their
-  -- learner_id) — the structural exclusion ceiling for the own-phone path.
+  -- enrolled freshers with no login account IN THIS COLLEGE — the structural exclusion
+  -- ceiling for the own-phone path. Institution-scoped: a profile in ANOTHER college
+  -- does not let them self-submit here, so it must not count as "has account"
+  -- (review #1694: cross-tenant no_account misclassification).
   SELECT count(*) INTO v_no_account
   FROM public.induction_enrollment e
   WHERE e.event_id = p_event_id
-    AND NOT EXISTS (SELECT 1 FROM public.profiles p WHERE p.learner_id = e.learner_id);
+    AND NOT EXISTS (SELECT 1 FROM public.profiles p
+                    WHERE p.learner_id = e.learner_id AND p.institution_id = v_inst);
 
   -- one row per distinct responder, attributed to phone if they EVER self-submitted.
   WITH per_learner AS (

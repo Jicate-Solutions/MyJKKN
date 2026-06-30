@@ -60,6 +60,13 @@ export interface VolunteerFeedbackMark {
   comment?: string | null;
 }
 
+/** Result of an auto-balance — surfaces the coverage truth (unassigned > 0 = capacity too low). */
+export interface AutobalanceResult {
+  enrolled: number;
+  assigned: number;
+  unassigned: number;
+}
+
 export class InductionVolunteerService {
   // ── Manage (Induction Lead / college coordinator) ──────────────────────────
 
@@ -102,14 +109,21 @@ export class InductionVolunteerService {
     return (data as FeedbackVolunteer[]) ?? [];
   }
 
-  /** Auto-balance every enrolled fresher across active mentors (no-account first). Returns assigned count. */
-  static async autobalanceVolunteers(eventId: string, capacity = 20): Promise<number> {
+  /** Auto-balance every enrolled fresher across active mentors (no-account first,
+   *  capacity-capped per mentor). Returns {enrolled, assigned, unassigned} so the UI
+   *  can warn when capacity is too low to cover everyone. */
+  static async autobalanceVolunteers(eventId: string, capacity = 20): Promise<AutobalanceResult> {
     const { data, error } = await getSupabase().rpc('fn_induction_autobalance_feedback_volunteers', {
       p_event_id: eventId,
       p_capacity: capacity,
     });
     if (error) throw error;
-    return (data as number) ?? 0;
+    const row = (Array.isArray(data) ? data[0] : data) ?? {};
+    return {
+      enrolled: row?.enrolled ?? 0,
+      assigned: row?.assigned ?? 0,
+      unassigned: row?.unassigned ?? 0,
+    };
   }
 
   // ── Mentor (a senior student on their phone) ────────────────────────────────
