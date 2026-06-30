@@ -262,28 +262,56 @@ export function BottomNavbar() {
       if (g.groupLabel) filteredByLabel.set(g.groupLabel, g);
     }
 
-    // Walk MODULES section order; emit a BottomNavGroup for each section
+    // Build a BottomNavGroup from a section label + its permission-filtered
+    // menu group. Icon prefers the MODULES section icon (via getSectionIcon);
+    // for leftover sections whose groupLabel isn't in MODULES it falls back to
+    // the first menu item's own icon so the More drawer never shows a bare Home.
+    const inModules = (label: string) => MODULES.some((m) => m.section === label);
+    const toNavGroup = (
+      label: string,
+      matched: (typeof filteredPages)[number]
+    ): BottomNavGroup => ({
+      id: label.toLowerCase().replace(/\s+/g, '-') || 'default',
+      groupLabel: label,
+      icon: inModules(label) ? getSectionIcon(label) : (matched.menus[0]?.icon ?? getSectionIcon(label)),
+      menus: flattenMenuItems(matched.menus),
+      // Top-level peers BEFORE submenu flatten — used by More drawer for
+      // chevron disclosure + drill-down list. Already permission-filtered
+      // because `matched` came from `filteredPages`. See BottomNavGroup
+      // type docstring.
+      topLevelPeers: matched.menus.map((m) => ({
+        href: REDIRECT_ROUTES[m.href] || m.href,
+        label: m.label,
+        icon: m.icon,
+        active: m.active,
+      })),
+    });
+
+    // 1) Walk MODULES section order; emit a BottomNavGroup for each section
     // that has at least one accessible menu in `filteredPages`.
     const groups: BottomNavGroup[] = [];
+    const matchedLabels = new Set<string>();
     for (const [section] of getModulesBySection()) {
       const matched = filteredByLabel.get(section);
       if (!matched || matched.menus.length === 0) continue;
-      groups.push({
-        id: section.toLowerCase().replace(/\s+/g, '-') || 'default',
-        groupLabel: section,
-        icon: getSectionIcon(section),
-        menus: flattenMenuItems(matched.menus),
-        // Top-level peers BEFORE submenu flatten — used by More drawer for
-        // chevron disclosure + drill-down list. Already permission-filtered
-        // because `matched` came from `filteredPages`. See BottomNavGroup
-        // type docstring.
-        topLevelPeers: matched.menus.map((m) => ({
-          href: REDIRECT_ROUTES[m.href] || m.href,
-          label: m.label,
-          icon: m.icon,
-          active: m.active,
-        })),
-      });
+      groups.push(toNavGroup(section, matched));
+      matchedLabels.add(section);
+    }
+
+    // 2) Forward-compat safety net — MIRRORS menu.tsx:205-213 so the mobile
+    // bottom-nav stays in true lock-step with the desktop sidebar. Any labeled
+    // group that exists in the permission-filtered set but is NOT matched by a
+    // MODULES section still surfaces (trailing) instead of being silently
+    // dropped. Without this, a sidebar groupLabel that drifts from its MODULES
+    // section name — or a section with no MODULES entry at all — vanishes from
+    // the bottom bar while still rendering on desktop (the asymmetry that hid
+    // Employee Management, IMS, Meetings/Scheduling, PDE, Calendar, CDC and
+    // Feedback from mobile). Drop is impossible — surfacing the gap visibly.
+    for (const g of filteredPages) {
+      if (g.groupLabel && !matchedLabels.has(g.groupLabel) && g.menus.length > 0) {
+        groups.push(toNavGroup(g.groupLabel, g));
+        matchedLabels.add(g.groupLabel);
+      }
     }
     return groups;
   }, [filteredPages]);

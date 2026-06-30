@@ -15,15 +15,34 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { BeatLoader } from 'react-spinners';
-import { CheckCircle2, ShieldCheck, History } from 'lucide-react';
+import { CheckCircle2, ShieldCheck, History, TrendingDown } from 'lucide-react';
 import {
   useChecklistConfig,
   useSubmitFeedback,
   useCarryforward,
 } from '@/hooks/use-session-feedback';
+import { useDownwardTrend, isDownTrendFor } from '@/hooks/use-learner-loop';
 import type { PendingSession } from '@/types/session-feedback';
 
 const BRAND = '#0b6d41';
+
+// Words for a 1..5 understanding rating, matching UNDERSTOOD_SCALE — so the personalised
+// carry-forward re-ask shows the learner the SAME label they tapped last time.
+const UNDERSTOOD_WORD: Record<number, string> = {
+  1: 'Lost',
+  2: 'Shaky',
+  3: 'OK',
+  4: 'Good',
+  5: 'Clear',
+};
+
+/** Short, human date like "Tue 24 Jun" for the prior-session reference. */
+function formatPriorDate(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+}
 
 // 1–5 understanding scale. Lowest = "Lost", highest = "Crystal clear".
 const UNDERSTOOD_SCALE: { value: number; label: string }[] = [
@@ -49,6 +68,7 @@ interface FeedbackDialogProps {
 export function FeedbackDialog({ session, onOpenChange, source = 'async' }: FeedbackDialogProps) {
   const { data: checklistConfig, isLoading: loadingChecklist } = useChecklistConfig();
   const { data: carryforward } = useCarryforward();
+  const { data: trendRows } = useDownwardTrend();
   const submit = useSubmitFeedback();
 
   const [understood, setUnderstood] = useState<number | null>(null);
@@ -88,6 +108,19 @@ export function FeedbackDialog({ session, onOpenChange, source = 'async' }: Feed
     const byKey = new Map(items.map((i) => [i.item_key, i.label]));
     return carry.prior_unmet_items.map((k) => byKey.get(k) ?? k);
   }, [carry, items]);
+
+  // The learner's OWN prior rating + when, for the personalised re-ask. (#2)
+  const priorWord = carry ? UNDERSTOOD_WORD[carry.prior_understood] ?? null : null;
+  const priorDate = formatPriorDate(carry?.prior_session_date);
+
+  // #2 AI-reserve trigger: is THIS learner on a 3-session downward trend for this course?
+  // Drives an empathetic TEMPLATE line today (cheap, honest). The AI-written per-learner note
+  // is intentionally STUBBED — it must be generated server-side with a real key; see
+  // hooks/use-learner-loop.ts (useDownwardTrend) for the documented seam.
+  const downTrend = useMemo(
+    () => isDownTrendFor(trendRows, session?.course_code),
+    [trendRows, session],
+  );
 
   const open = session !== null;
 
@@ -150,17 +183,42 @@ export function FeedbackDialog({ session, onOpenChange, source = 'async' }: Feed
                 <History className="mt-0.5 h-4 w-4 shrink-0" style={{ color: BRAND }} />
                 <p className="text-sm leading-snug">
                   Last <span className="font-medium">{carry.course_name || carry.course_code}</span>
+                  {priorDate ? (
+                    <> on <span className="font-medium">{priorDate}</span></>
+                  ) : null}
+                  {priorWord ? (
+                    <>
+                      , you rated it{' '}
+                      <span className="font-medium">
+                        {carry.prior_understood}/5 · {priorWord}
+                      </span>
+                    </>
+                  ) : null}
                   {carryItemLabels.length > 0 ? (
                     <>
-                      : you flagged{' '}
+                      {priorWord ? ' and flagged ' : ': you flagged '}
                       <span className="font-medium">{carryItemLabels.join(', ')}</span>
                     </>
-                  ) : (
+                  ) : !priorWord ? (
                     <> you said you were lost</>
-                  )}{' '}
-                  — better this time?
+                  ) : null}
+                  {' '}— clearer for you this time?
                 </p>
               </div>
+
+              {/* #2 AI-reserve path: a 3-session downward trend gets an empathetic line now.
+                  An AI-written, per-learner note (stubbed server-side) would render in place
+                  of this template once the cron seam in useDownwardTrend is wired. */}
+              {downTrend && (
+                <p className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+                  <TrendingDown className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    This is the 3rd {carry.course_name || carry.course_code} class in a row
+                    that&apos;s felt harder for you — your honest answer here helps us get you the
+                    right support.
+                  </span>
+                </p>
+              )}
               <div className="flex gap-2">
                 {CARRYFORWARD_CHOICES.map((choice) => {
                   const selected = cfChoice === choice;

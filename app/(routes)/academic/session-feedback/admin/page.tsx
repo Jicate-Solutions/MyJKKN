@@ -52,6 +52,9 @@ import {
   useAdminTrend,
   useFacilitatorFeedbackCoverage,
 } from '@/hooks/use-session-feedback';
+import { LoopActivityCard } from '../_components/loop-activity-card';
+import { FacilitatorStrengthsCard } from '../_components/facilitator-strengths-card';
+import { LearnerTrajectoryCard } from '../_components/learner-trajectory-card';
 import type {
   AdminCollegeSummaryRow,
   AdminFacultySummaryRow,
@@ -428,6 +431,13 @@ export default function AdminFeedbackDashboardPage() {
           </TableShell>
         </CardContent>
       </Card>
+
+      {/* SCF self-improving-loop intelligence — streams #2–#4 (orchestrator-wired).
+          Loop Activity panel (#4) · Facilitator Strengths board (#3c) · Learner
+          Trajectory at-risk early-warning (#3a). from/to share the dashboard window. */}
+      <LoopActivityCard from={from} to={to} />
+      <FacilitatorStrengthsCard from={from} to={to} />
+      <LearnerTrajectoryCard from={from} to={to} />
 
       {/* Faculty Summary */}
       <Card className="mb-6">

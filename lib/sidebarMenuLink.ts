@@ -1716,8 +1716,12 @@ export function GetPages(pathname: string): MenuGroup[] {
     },
 
     {
-      // Wave 2 merged 'Employee Management' into 'Human Resources'.
-      groupLabel: 'Human Resources',
+      // Section renamed to 'Employee Management' on 2026-05-09 (product
+      // decision) to unify /staff + /hr. This groupLabel MUST stay in lock-step
+      // with the MODULES `section` string in lib/navigation/modules.ts — the
+      // mobile bottom-nav matches sections by exact groupLabel===section string,
+      // so any drift silently drops the whole section from the bottom bar.
+      groupLabel: 'Employee Management',
       menus: [
         {
           href: '/staff',

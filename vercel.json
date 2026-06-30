@@ -28,6 +28,10 @@
       "schedule": "22 1 * * *"
     },
     {
+      "path": "/api/cron/mess-menu-loop?secret=${CRON_SECRET}",
+      "schedule": "37 2 * * 1"
+    },
+    {
       "path": "/api/cron/feedback-adapter-parent?secret=${CRON_SECRET}",
       "schedule": "32 1 * * *"
     },
