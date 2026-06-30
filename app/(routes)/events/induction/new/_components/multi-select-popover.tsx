@@ -33,7 +33,7 @@ export function MultiSelectPopover({ options, value, onChange, placeholder, disa
         ) : options.map((o) => (
           <button type="button" key={o.id} onClick={() => toggle(o.id)}
             className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-left hover:bg-accent">
-            <Checkbox checked={value.includes(o.id)} className="pointer-events-none" />
+            <Checkbox checked={value.includes(o.id)} onCheckedChange={() => {}} className="pointer-events-none" />
             <span className="truncate">{o.name}</span>
           </button>
         ))}
