@@ -312,6 +312,22 @@ export class InductionService {
     return (row as FeedbackMethodMix) ?? null;
   }
 
+  /** Cross-college session catalog (the curated "best sessions" reference library).
+   *  Ranked server-side: value_score DESC (where a live run was rated) then adoption
+   *  (distinct colleges that ran it). Optional theme/search filters. THROWS if the
+   *  caller lacks induction.view (the RPC RAISEs). */
+  static async getTopicCatalog(
+    theme?: string | null,
+    search?: string | null
+  ): Promise<InductionTopicCatalogEntry[]> {
+    const { data, error } = await getSupabase().rpc('fn_induction_topic_catalog', {
+      p_theme: theme ?? null,
+      p_search: search ?? null,
+    });
+    if (error) throw error;
+    return (data as InductionTopicCatalogEntry[]) ?? [];
+  }
+
   // ── Student-facing reads (the fresher's "my induction") ─────────────────────
 
   /** The calling learner's induction enrollment(s) + completion rollup + profile
@@ -483,6 +499,21 @@ export interface FeedbackMethodMix {
   n_volunteer_kiosk: number;
   no_account_enrolled: number;
   bias_flag: boolean;
+}
+
+/** One catalog topic (fn_induction_topic_catalog) — a reusable session idea with its
+ *  cross-college adoption and, where a live run was rated, its fresher value score. */
+export interface InductionTopicCatalogEntry {
+  topic_id: string;
+  canonical_title: string;
+  theme: string;
+  colleges: string[] | null;
+  years: string | null;
+  adoption: number;           // distinct colleges that have run it
+  value_score: number | null; // avg fresher rating where a live run was rated; null = not yet rated
+  score_responses: number;
+  runs_rated: number;
+  needs_review: boolean;
 }
 
 /** One row of fn_induction_scorecard — a funnel slice (total / a department / a batch). */

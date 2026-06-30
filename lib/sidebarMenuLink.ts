@@ -281,6 +281,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic': 'academic.years.view',
   '/events/induction': 'induction.view',
   '/events/induction/new': 'induction.manage',
+  '/events/induction/catalog': 'induction.view',
   '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
   '/academic/leave-calendar': 'academic.leaves.view',
