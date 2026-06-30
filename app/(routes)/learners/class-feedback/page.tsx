@@ -21,6 +21,7 @@ import type { PendingSession } from '@/types/session-feedback';
 import { FeedbackDialog } from './_components/feedback-dialog';
 import { MyVoiceReceipt } from './_components/my-voice-receipt';
 import { LivePulseBanner } from './_components/live-pulse-banner';
+import { LoopClosureCard } from './_components/loop-closure-card';
 
 const BRAND = '#0b6d41';
 
@@ -83,6 +84,9 @@ export default function LearnerSessionFeedbackPage() {
             setActiveSession(s);
           }}
         />
+
+        {/* Loop closed — the specific change your feedback caused + your own before/after (hidden until a real chain exists) */}
+        <LoopClosureCard />
 
         {/* Receipt — your participation + whether flagged classes improved (hidden until you have history) */}
         <MyVoiceReceipt />

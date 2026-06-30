@@ -1,0 +1,38 @@
+// types/scf-learner-loop.ts
+// SCF self-improving loop · LEARNER LANE types (#2 trigger + #3b loop-closure).
+// Kept OUT of the orchestrator-owned types/session-feedback.ts so the lanes don't collide.
+// Shapes mirror the RETURNS TABLE of the two learner-scoped RPCs added in
+// 20260630181000_scf_loop_closure_for_learner.sql and
+// 20260630182000_scf_downward_trend_for_learner.sql.
+
+/** fn_scf_loop_closure_for_learner — one row per flagged class the learner's feedback moved.
+ *  HONESTY: my_prior_understood / my_next_understood / my_delta are THIS learner's own 1..5
+ *  ratings. cohort_lift is a CLASS-WIDE mean — render only with an explicit "across the class"
+ *  label, never as the learner's number. */
+export interface LoopClosureRow {
+  attendance_date: string;            // 'YYYY-MM-DD' — the flagged class
+  course_code: string;
+  course_name: string | null;
+  my_prior_understood: number;        // the learner's own rating in the flagged class (1..2)
+  input_theme: string[];              // checklist item_keys they left false (UI maps key -> label)
+  the_change: string | null;          // what the facilitator was advised / did (suggestion summary)
+  action_kind: 'verdict_worked' | 'suggestion_issued' | null;
+  action_date: string | null;        // 'YYYY-MM-DD' when the suggestion was generated
+  cohort_lift: number | null;         // class-wide mean lift — secondary, explicitly labelled only
+  my_next_understood: number | null;  // the learner's own rating in their next same-course session
+  my_next_date: string | null;        // 'YYYY-MM-DD'
+  my_understanding_rose: boolean;     // my_next_understood > my_prior_understood (the learner's OWN win)
+  my_delta: number | null;            // my_next_understood - my_prior_understood (null until a later session)
+}
+
+/** fn_scf_downward_trend_for_learner — courses where the learner's last 3 ratings trend down.
+ *  This is the TRIGGER that reserves an AI-written support note for a genuinely struggling
+ *  learner. The note generation itself is stubbed server-side; the template path renders today. */
+export interface DownwardTrendRow {
+  course_code: string;
+  course_name: string | null;
+  ratings: number[];      // last 3 ratings, OLDEST -> NEWEST
+  rated_on: string[];     // their dates, aligned to ratings ('YYYY-MM-DD')
+  net_decline: number;    // ratings[0] - ratings[2] (>0 = dropped)
+  is_downward: boolean;   // always true for returned rows
+}
