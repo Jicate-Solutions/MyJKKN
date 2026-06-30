@@ -19296,13 +19296,14 @@ GRANT  EXECUTE ON FUNCTION public.fn_induction_session_poll_totals(uuid) TO auth
 -- #8: the gate helper is internal-only (called by the DEFINER answer/submit fns).
 REVOKE EXECUTE ON FUNCTION public._fn_induction_learner_can_answer_poll(uuid, uuid) FROM authenticated;
 
--- ── Induction multi-target enrollment engine (2026-06-30) — supersedes earlier fn_induction_* above ──
+-- ── Induction multi-target enrollment engine (2026-06-30) — first appearance of fn_induction_* in this file ──
 -- Migration: 20260630220100_induction_multi_target_rpcs.sql
 
 -- helper: does the caller have induction.manage access to EVERY institution in arr?
 CREATE OR REPLACE FUNCTION public._fn_induction_can_target_institutions(p_ids uuid[])
 RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
 BEGIN
+  IF coalesce(array_length(p_ids,1),0) = 0 THEN RETURN false; END IF;
   IF is_super_admin() OR is_admin() THEN RETURN true; END IF;
   IF NOT user_has_permission('induction.manage') THEN RETURN false; END IF;
   RETURN NOT EXISTS (

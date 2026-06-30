@@ -4,6 +4,7 @@
 CREATE OR REPLACE FUNCTION public._fn_induction_can_target_institutions(p_ids uuid[])
 RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
 BEGIN
+  IF coalesce(array_length(p_ids,1),0) = 0 THEN RETURN false; END IF;
   IF is_super_admin() OR is_admin() THEN RETURN true; END IF;
   IF NOT user_has_permission('induction.manage') THEN RETURN false; END IF;
   RETURN NOT EXISTS (
