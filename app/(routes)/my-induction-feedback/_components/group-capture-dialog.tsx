@@ -18,15 +18,9 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger,
 } from '@/components/ui/dialog';
 import { MessageSquarePlus, CheckCircle2, Lock } from 'lucide-react';
-
-const BRAND = '#0b6d41';
-const VALUE_SCALE: { value: number; label: string }[] = [
-  { value: 1, label: 'Poor' },
-  { value: 2, label: 'Fair' },
-  { value: 3, label: 'Okay' },
-  { value: 4, label: 'Good' },
-  { value: 5, label: 'Excellent' },
-];
+// Reuse PR1's shared scale instead of re-inlining it, so the own-phone form and this
+// kiosk dialog can never drift (review #1694).
+import { RatingScale, RATING_BRAND as BRAND } from '@/app/(routes)/learners/my-induction/_components/rating-scale';
 
 export function GroupCaptureDialog({
   sessionId, sessionTitle, onSaved,
