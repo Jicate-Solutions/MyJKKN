@@ -106,10 +106,10 @@ BEGIN
 
   INSERT INTO public.induction_feedback_volunteers
     (event_id, learner_id, institution_id, capacity, is_active, appointed_by)
-  VALUES (p_event_id, p_learner_id, v_inst, GREATEST(COALESCE(p_capacity, 20), 1), true, auth.uid())
+  VALUES (p_event_id, p_learner_id, v_inst, LEAST(GREATEST(COALESCE(p_capacity, 20), 1), 200), true, auth.uid())
   ON CONFLICT (event_id, learner_id) DO UPDATE SET
     is_active = true,
-    capacity  = GREATEST(COALESCE(p_capacity, 20), 1),
+    capacity  = LEAST(GREATEST(COALESCE(p_capacity, 20), 1), 200),
     updated_at = now()
   RETURNING id INTO v_id;
   RETURN v_id;
@@ -215,21 +215,17 @@ BEGIN
     RAISE EXCEPTION 'fn_induction_autobalance_feedback_volunteers: no active feedback volunteers — appoint at least one first';
   END IF;
 
-  -- p_capacity, WHEN PROVIDED, uniformly sets every active mentor's cap for this run
-  -- (the UI exposes a single cap input). When NULL, each mentor keeps its stored
-  -- capacity, so per-mentor caps can genuinely differ. Balancing below always reads
-  -- the stored capacity column (review #1694 round 2: no false per-mentor claim).
-  IF p_capacity IS NOT NULL THEN
-    UPDATE public.induction_feedback_volunteers
-       SET capacity = GREATEST(p_capacity, 1), updated_at = now()
-     WHERE event_id = p_event_id AND is_active;
-  END IF;
-
   -- full deterministic rebalance
   DELETE FROM public.induction_feedback_volunteer_group WHERE event_id = p_event_id;
 
   WITH active_vols AS (
-    SELECT id, GREATEST(capacity, 1) AS capacity,
+    -- Effective per-mentor cap, clamped to [1,200] to bound slot generation: a direct
+    -- RPC call with a huge p_capacity would otherwise materialize billions of slots →
+    -- self-DoS (review #1694 r3 MEDIUM). p_capacity, WHEN PROVIDED, overrides per-run
+    -- WITHOUT persisting (a per-mentor cap set elsewhere is never clobbered — r3 LOW);
+    -- WHEN NULL, each mentor's own stored capacity drives balancing.
+    SELECT id,
+           LEAST(GREATEST(COALESCE(p_capacity, capacity), 1), 200) AS capacity,
            (row_number() OVER (ORDER BY created_at, id) - 1) AS vord
     FROM public.induction_feedback_volunteers
     WHERE event_id = p_event_id AND is_active
@@ -438,23 +434,30 @@ BEGIN
     RAISE EXCEPTION 'fn_induction_volunteer_submit_feedback: a fresher in the payload is not in your assigned group';
   END IF;
 
+  -- DISTINCT ON dedupes a learner repeated in the payload (else ON CONFLICT "cannot
+  -- affect row a second time" aborts the save — review #1694 r3). The upfront group
+  -- check already RAISEd on any out-of-group id (authz), so this only drops benign dups.
+  WITH valid AS (
+    SELECT DISTINCT ON ((e->>'learner_id')::uuid)
+           (e->>'learner_id')::uuid AS learner_id,
+           (e->>'rating')::int       AS rating,
+           NULLIF(btrim(coalesce(e->>'comment','')), '') AS comment
+    FROM jsonb_array_elements(p_marks) e
+    WHERE (e->>'rating') IS NOT NULL
+      AND (e->>'rating')::int BETWEEN 1 AND 5
+      AND EXISTS (   -- in my group
+        SELECT 1 FROM public.induction_feedback_volunteer_group g
+        WHERE g.volunteer_id = v_vol AND g.learner_id = (e->>'learner_id')::uuid)
+      AND EXISTS (   -- enrolled + (if batch-specific) in the session's batch
+        SELECT 1 FROM public.induction_enrollment ie
+        WHERE ie.event_id = v_event AND ie.learner_id = (e->>'learner_id')::uuid
+          AND (v_sbatch IS NULL OR ie.batch_id IS NOT DISTINCT FROM v_sbatch))
+    ORDER BY (e->>'learner_id')::uuid
+  )
   INSERT INTO public.event_session_feedback
     (session_id, learner_id, event_id, institution_id, rating, comment, capture_method, submitted_by)
-  SELECT p_session_id, (e->>'learner_id')::uuid, v_event, v_inst,
-         (e->>'rating')::int, NULLIF(btrim(coalesce(e->>'comment','')), ''),
-         'volunteer_kiosk', auth.uid()
-  FROM jsonb_array_elements(p_marks) e
-  WHERE (e->>'rating') IS NOT NULL
-    AND (e->>'rating')::int BETWEEN 1 AND 5
-    -- in my group
-    AND EXISTS (
-      SELECT 1 FROM public.induction_feedback_volunteer_group g
-      WHERE g.volunteer_id = v_vol AND g.learner_id = (e->>'learner_id')::uuid)
-    -- enrolled + (if batch-specific) in the session's batch
-    AND EXISTS (
-      SELECT 1 FROM public.induction_enrollment ie
-      WHERE ie.event_id = v_event AND ie.learner_id = (e->>'learner_id')::uuid
-        AND (v_sbatch IS NULL OR ie.batch_id IS NOT DISTINCT FROM v_sbatch))
+  SELECT p_session_id, v.learner_id, v_event, v_inst, v.rating, v.comment, 'volunteer_kiosk', auth.uid()
+  FROM valid v
   ON CONFLICT (session_id, learner_id) DO UPDATE SET
     rating = EXCLUDED.rating, comment = EXCLUDED.comment,
     capture_method = 'volunteer_kiosk', submitted_by = EXCLUDED.submitted_by, updated_at = now()

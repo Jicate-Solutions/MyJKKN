@@ -32,9 +32,11 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
   const [capacity, setCapacity] = useState(20);
   const [balancing, setBalancing] = useState(false);
   const [mix, setMix] = useState<FeedbackMethodMix | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const [v, m] = await Promise.all([
         InductionVolunteerService.listVolunteers(eventId),
@@ -42,9 +44,15 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
       ]);
       setVols(v);
       setMix(m);
-    } catch {
-      // not authorized for this college → hide the whole section
-      setHidden(true);
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      // Only a genuine authorization denial hides the panel for good. A transient
+      // network/500 keeps it visible with a Retry (review #1694 r3 — don't hide on flake).
+      if (/not authorized|permission denied|forbidden/i.test(msg)) {
+        setHidden(true);
+      } else {
+        setLoadError(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -103,6 +111,12 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {loadError && (
+          <div className="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
+            <span className="min-w-0 truncate">Couldn&apos;t load: {loadError}</span>
+            <Button size="sm" variant="outline" onClick={load} disabled={loading} className="shrink-0">Retry</Button>
+          </div>
+        )}
         {/* Auto-balance controls + at-a-glance coverage */}
         <div className="flex flex-wrap items-end justify-between gap-3 rounded-lg border p-3">
           <div className="flex items-end gap-3">

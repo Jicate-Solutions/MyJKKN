@@ -289,7 +289,8 @@ export class InductionService {
 
   /** Coverage + method-mix for an induction (response rate, phone vs kiosk, the
    *  no-account ceiling, and a bias flag the loop reads to know its sample is thin
-   *  or single-method). Returns null if the event has no induction program. */
+   *  or single-method). THROWS if the event has no induction program or the caller
+   *  lacks induction.view (the RPC RAISEs); the null is only a defensive fallback. */
   static async getFeedbackMethodMix(eventId: string): Promise<FeedbackMethodMix | null> {
     const supabase = getSupabase();
     const { data, error } = await supabase.rpc('fn_induction_feedback_method_mix', { p_event_id: eventId });

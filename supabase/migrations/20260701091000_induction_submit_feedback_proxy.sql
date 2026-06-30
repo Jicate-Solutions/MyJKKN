@@ -46,36 +46,36 @@ BEGIN
     RAISE EXCEPTION 'fn_induction_submit_feedback_proxy: not authorized';
   END IF;
 
-  -- every rating must be 1–5
-  IF EXISTS (
-    SELECT 1 FROM jsonb_array_elements(p_marks) m
-    WHERE (m->>'rating') IS NULL
-       OR (m->>'rating')::int < 1 OR (m->>'rating')::int > 5
-  ) THEN
-    RAISE EXCEPTION 'fn_induction_submit_feedback_proxy: each rating must be 1-5';
-  END IF;
-
-  -- every picked fresher must be enrolled AND the session must apply to their batch
-  IF EXISTS (
-    SELECT 1
+  -- FILTER (don't abort): a row with an invalid rating / un-enrolled learner / wrong
+  -- batch is silently skipped, so one stale pick on a SHARED device never loses the
+  -- rest of the batch. DISTINCT ON dedupes a learner repeated in the payload (else
+  -- ON CONFLICT "cannot affect row a second time" would abort the whole save). #1694 r3.
+  WITH cleaned AS (
+    SELECT (m->>'learner_id')::uuid AS learner_id,
+           (m->>'rating')::int       AS rating,
+           NULLIF(btrim(m->>'comment'), '') AS comment
     FROM jsonb_array_elements(p_marks) m
-    LEFT JOIN public.induction_enrollment ie
-      ON ie.event_id = v_event AND ie.learner_id = (m->>'learner_id')::uuid
-    WHERE ie.learner_id IS NULL
-       OR (v_sbatch IS NOT NULL AND v_sbatch IS DISTINCT FROM ie.batch_id)
-  ) THEN
-    RAISE EXCEPTION 'fn_induction_submit_feedback_proxy: a selected learner is not enrolled, or the session is not for their batch';
-  END IF;
-
-  -- bulk upsert. ANTI-CLOBBER: the ON CONFLICT UPDATE only fires for rows whose
-  -- EXISTING submitted_by IS NOT NULL (a prior kiosk row). When the existing row is
-  -- a fresher's own-login submission (submitted_by IS NULL) the predicate is false
-  -- and Postgres SILENTLY SKIPS the update — a self-vote is never overwritten.
+    WHERE (m->>'learner_id') IS NOT NULL
+      AND (m->>'rating') IS NOT NULL
+      AND (m->>'rating')::int BETWEEN 1 AND 5
+  ),
+  valid AS (
+    SELECT DISTINCT ON (c.learner_id) c.learner_id, c.rating, c.comment
+    FROM cleaned c
+    WHERE EXISTS (   -- enrolled + (batch-specific session → only its batch)
+      SELECT 1 FROM public.induction_enrollment ie
+      WHERE ie.event_id = v_event AND ie.learner_id = c.learner_id
+        AND (v_sbatch IS NULL OR ie.batch_id IS NOT DISTINCT FROM v_sbatch)
+    )
+    ORDER BY c.learner_id
+  )
+  -- ANTI-CLOBBER: the ON CONFLICT UPDATE only fires when the EXISTING submitted_by IS
+  -- NOT NULL (a prior kiosk row). A fresher's own-login row (submitted_by IS NULL)
+  -- makes the predicate false → Postgres silently skips it; a self-vote is never lost.
   INSERT INTO public.event_session_feedback
     (session_id, learner_id, event_id, institution_id, rating, comment, capture_method, submitted_by)
-  SELECT p_session_id, (m->>'learner_id')::uuid, v_event, v_inst,
-         (m->>'rating')::int, NULLIF(btrim(m->>'comment'), ''), 'volunteer_kiosk', auth.uid()
-  FROM jsonb_array_elements(p_marks) m
+  SELECT p_session_id, v.learner_id, v_event, v_inst, v.rating, v.comment, 'volunteer_kiosk', auth.uid()
+  FROM valid v
   ON CONFLICT (session_id, learner_id) DO UPDATE SET
     rating = EXCLUDED.rating, comment = EXCLUDED.comment,
     capture_method = 'volunteer_kiosk', submitted_by = EXCLUDED.submitted_by, updated_at = now()
@@ -88,7 +88,10 @@ BEGIN
   SELECT v_event, picked.learner_id, v_inst,
          (SELECT round(avg(f.rating), 2) FROM public.event_session_feedback f
             WHERE f.event_id = v_event AND f.learner_id = picked.learner_id), now()
-  FROM (SELECT DISTINCT (m->>'learner_id')::uuid AS learner_id FROM jsonb_array_elements(p_marks) m) picked
+  FROM (SELECT DISTINCT (m->>'learner_id')::uuid AS learner_id
+        FROM jsonb_array_elements(p_marks) m
+        WHERE EXISTS (SELECT 1 FROM public.induction_enrollment ie
+                      WHERE ie.event_id = v_event AND ie.learner_id = (m->>'learner_id')::uuid)) picked
   ON CONFLICT (event_id, learner_id) DO UPDATE SET
     value_score_avg = EXCLUDED.value_score_avg, updated_at = now();
 
