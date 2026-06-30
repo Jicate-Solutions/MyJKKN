@@ -88,10 +88,17 @@ BEGIN
   SELECT v_event, picked.learner_id, v_inst,
          (SELECT round(avg(f.rating), 2) FROM public.event_session_feedback f
             WHERE f.event_id = v_event AND f.learner_id = picked.learner_id), now()
+  -- #1694 r6 (MEDIUM): refresh value_score_avg ONLY for learners that actually have a
+  -- feedback row for this event. An enrolled-but-FILTERED pick (invalid rating / wrong
+  -- batch, dropped from `valid`) with no feedback row would otherwise upsert
+  -- value_score_avg = NULL (avg over an empty set) — polluting the leading metric and
+  -- creating a spurious completion row. The feedback-row EXISTS re-aligns `picked` with `valid`.
   FROM (SELECT DISTINCT (m->>'learner_id')::uuid AS learner_id
         FROM jsonb_array_elements(p_marks) m
         WHERE EXISTS (SELECT 1 FROM public.induction_enrollment ie
-                      WHERE ie.event_id = v_event AND ie.learner_id = (m->>'learner_id')::uuid)) picked
+                      WHERE ie.event_id = v_event AND ie.learner_id = (m->>'learner_id')::uuid)
+          AND EXISTS (SELECT 1 FROM public.event_session_feedback f
+                      WHERE f.event_id = v_event AND f.learner_id = (m->>'learner_id')::uuid)) picked
   ON CONFLICT (event_id, learner_id) DO UPDATE SET
     value_score_avg = EXCLUDED.value_score_avg, updated_at = now();
 

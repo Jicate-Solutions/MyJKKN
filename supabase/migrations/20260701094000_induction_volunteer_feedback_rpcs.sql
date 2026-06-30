@@ -363,6 +363,10 @@ BEGIN
   FROM public.event_sessions s WHERE s.id = p_session_id;
   IF v_event IS NULL THEN RAISE EXCEPTION 'fn_induction_my_feedback_group: session not found'; END IF;
   SELECT institution_id INTO v_inst FROM public.induction_programs WHERE event_id = v_event;
+  -- #1694 r6 (LOW): guard NULL like the sibling RPCs. Without it, has_account's
+  -- institution-scoped EXISTS (... institution_id = v_inst) is false for everyone,
+  -- mislabeling every fresher as 'no account'. Fail closed on a missing-program session.
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_my_feedback_group: not an induction session'; END IF;
 
   v_my_learner := get_my_learner_id();
   IF v_my_learner IS NULL THEN RAISE EXCEPTION 'fn_induction_my_feedback_group: not a learner'; END IF;
@@ -474,6 +478,12 @@ BEGIN
     WHERE (e->>'rating') IS NOT NULL
       AND EXISTS (SELECT 1 FROM public.induction_feedback_volunteer_group g
                   WHERE g.volunteer_id = v_vol AND g.learner_id = (e->>'learner_id')::uuid)
+      -- #1694 r6 (MEDIUM): only learners with an actual feedback row for this event get a
+      -- value_score_avg refresh. A grouped, rating-present-but-FILTERED fresher (batch
+      -- mismatch, dropped from `valid`) with no feedback row would otherwise upsert NULL,
+      -- polluting the metric. The feedback-row EXISTS re-aligns `picked` with `valid`.
+      AND EXISTS (SELECT 1 FROM public.event_session_feedback f
+                  WHERE f.event_id = v_event AND f.learner_id = (e->>'learner_id')::uuid)
   ) picked
   ON CONFLICT (event_id, learner_id) DO UPDATE SET
     value_score_avg = EXCLUDED.value_score_avg, updated_at = now();
