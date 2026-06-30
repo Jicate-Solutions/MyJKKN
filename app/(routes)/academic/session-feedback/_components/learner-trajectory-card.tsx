@@ -142,9 +142,12 @@ export function LearnerTrajectoryCard({ from, to }: { from?: string; to?: string
                     <TableCell className="font-mono text-xs">{r.course_code}</TableCell>
                     <TableCell className="text-right tabular-nums">{r.sessions}</TableCell>
                     <TableCell className="text-right">
-                      <span className="inline-flex items-center justify-end gap-1 font-semibold tabular-nums text-red-600">
+                      <span className="inline-flex items-center justify-end gap-1 font-semibold text-red-600">
                         <TrendingDown className="h-3.5 w-3.5" aria-hidden />
-                        {r.slope.toFixed(2)}
+                        {/* Coarse band, NOT the 2dp slope: at exactly 3 sessions a precise
+                            slope equals (last−first)/2 and would leak the exact rating delta.
+                            The band conveys severity without reconstructing candid ratings. */}
+                        {r.slope <= -1 ? 'Steep' : r.slope <= -0.5 ? 'Moderate' : 'Gentle'}
                       </span>
                     </TableCell>
                     <TableCell className="text-center">

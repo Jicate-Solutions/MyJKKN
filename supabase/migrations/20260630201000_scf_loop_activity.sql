@@ -94,7 +94,7 @@ BEGIN
     FROM public.scf_ai_suggestions s
     WHERE (v_super OR s.institution_id = v_inst)
       AND s.domain = 'session_feedback'
-      AND s.generated_at::date BETWEEN p_from AND p_to
+      AND (s.generated_at AT TIME ZONE 'Asia/Kolkata')::date BETWEEN p_from AND p_to  -- IST local date, matches attendance keys
   ),
   sug_agg AS (
     SELECT

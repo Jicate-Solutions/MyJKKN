@@ -108,7 +108,7 @@ BEGIN
               ORDER BY (s.human_verdict = 'tried_helped') DESC NULLS LAST, s.generated_at DESC
             ))[1] AS the_change,
            (array_agg(
-              s.generated_at::date
+              (s.generated_at AT TIME ZONE 'Asia/Kolkata')::date   -- IST local date, matches attendance_date keys
               ORDER BY (s.human_verdict = 'tried_helped') DESC NULLS LAST, s.generated_at DESC
             ))[1] AS action_date,
            (array_agg(
@@ -154,6 +154,7 @@ BEGIN
     FROM public.session_feedback f2
     WHERE f2.student_id = v_lp
       AND f2.course_code = t.course_code
+      AND f2.understood IS NOT NULL    -- a null next rating must not read as a real later session ("awaiting")
       AND f2.attendance_date > GREATEST(t.attendance_date, COALESCE(a.action_date, t.attendance_date))
     ORDER BY f2.attendance_date ASC, f2.created_at ASC
     LIMIT 1

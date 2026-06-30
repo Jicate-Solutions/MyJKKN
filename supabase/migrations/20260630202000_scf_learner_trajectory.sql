@@ -112,9 +112,10 @@ BEGIN
   -- roster (improving + stable learners), defeating the Director-ratified "sliding
   -- learners only / minimal disclosure" mitigation. Force it to a genuinely-declining
   -- ceiling: any value above -0.05 is reset to the -0.15 default.
-  IF p_slope_threshold IS NULL OR p_slope_threshold > -0.05 THEN
-    p_slope_threshold := -0.15;
-  END IF;
+  -- Cap at the -0.15 minimal-disclosure floor AND never wider: a caller cannot pass
+  -- -0.06..-0.14 to widen the named-slider roster past the intended floor. LEAST also
+  -- handles NULL → -0.15. Only a STEEPER (more-declining) threshold is honoured.
+  p_slope_threshold := LEAST(COALESCE(p_slope_threshold, -0.15), -0.15);
 
   RETURN QUERY
   WITH per_date AS (
@@ -131,6 +132,8 @@ BEGIN
       AND (v_inst_wide OR lp.department_id = v_dept)   -- dept heads: own department only
       AND f.attendance_date BETWEEN p_from AND p_to
       AND f.course_code IS NOT NULL
+      AND f.understood IS NOT NULL                     -- count, slope + avg all over the SAME real ratings,
+                                                       -- so the k>=3 floor can't be met by null-rating rows
     ORDER BY f.student_id, f.course_code, f.institution_id, f.attendance_date, f.understood ASC
   ),
   ordered AS (
