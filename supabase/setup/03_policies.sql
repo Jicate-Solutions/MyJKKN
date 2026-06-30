@@ -7051,3 +7051,191 @@ ALTER TABLE public.induction_session_poll_option ENABLE ROW LEVEL SECURITY;
 CREATE POLICY induction_session_poll_option_super_admin ON public.induction_session_poll_option FOR ALL TO authenticated USING (is_super_admin()) WITH CHECK (is_super_admin());
 ALTER TABLE public.induction_session_poll_vote ENABLE ROW LEVEL SECURITY;
 CREATE POLICY induction_session_poll_vote_super_admin ON public.induction_session_poll_vote FOR ALL TO authenticated USING (is_super_admin()) WITH CHECK (is_super_admin());
+-- =====================================================================
+-- 2026-06-30 — Schools Network module (DB substrate, Agent A)
+-- Migration: supabase/migrations/20260630120000_schools_network_substrate.sql
+-- Spec: /tmp/schools-network-spec.md
+-- Canonical pattern: is_super_admin() OR is_admin() OR
+--   (user_has_permission('schools_network.X') AND school-scope helper).
+-- 30 policies across 10 tables. Anon locked out + authenticated GRANTed.
+-- =====================================================================
+
+-- Master tables: read-open to authenticated, admin-write
+DROP POLICY IF EXISTS school_session_types_select_authed ON public.school_session_types;
+CREATE POLICY school_session_types_select_authed ON public.school_session_types
+  FOR SELECT TO authenticated USING (TRUE);
+DROP POLICY IF EXISTS school_session_types_admin_write ON public.school_session_types;
+CREATE POLICY school_session_types_admin_write ON public.school_session_types
+  FOR ALL TO authenticated
+  USING      (is_super_admin() OR is_admin() OR user_has_permission('schools_network.master.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('schools_network.master.manage'));
+
+DROP POLICY IF EXISTS program_partner_types_select_authed ON public.program_partner_types;
+CREATE POLICY program_partner_types_select_authed ON public.program_partner_types
+  FOR SELECT TO authenticated USING (TRUE);
+DROP POLICY IF EXISTS program_partner_types_admin_write ON public.program_partner_types;
+CREATE POLICY program_partner_types_admin_write ON public.program_partner_types
+  FOR ALL TO authenticated
+  USING      (is_super_admin() OR is_admin() OR user_has_permission('schools_network.master.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('schools_network.master.manage'));
+
+DROP POLICY IF EXISTS school_contact_roles_select_authed ON public.school_contact_roles;
+CREATE POLICY school_contact_roles_select_authed ON public.school_contact_roles
+  FOR SELECT TO authenticated USING (TRUE);
+DROP POLICY IF EXISTS school_contact_roles_admin_write ON public.school_contact_roles;
+CREATE POLICY school_contact_roles_admin_write ON public.school_contact_roles
+  FOR ALL TO authenticated
+  USING      (is_super_admin() OR is_admin() OR user_has_permission('schools_network.master.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('schools_network.master.manage'));
+
+-- schools
+DROP POLICY IF EXISTS schools_select ON public.schools;
+CREATE POLICY schools_select ON public.schools FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('schools_network.schools.view')
+      AND (user_owns_school(id) OR user_leads_partner_for_school(id)
+           OR (ownership = 'internal' AND role_has_institution_access(institution_id))))
+  OR is_school_portal_user_for(id)
+);
+DROP POLICY IF EXISTS schools_insert ON public.schools;
+CREATE POLICY schools_insert ON public.schools FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin() OR user_has_permission('schools_network.schools.create')
+);
+DROP POLICY IF EXISTS schools_update ON public.schools;
+CREATE POLICY schools_update ON public.schools FOR UPDATE
+  USING (is_super_admin() OR is_admin()
+    OR (user_has_permission('schools_network.schools.edit')
+        AND (user_owns_school(id) OR user_leads_partner_for_school(id))))
+  WITH CHECK (is_super_admin() OR is_admin()
+    OR (user_has_permission('schools_network.schools.edit')
+        AND (user_owns_school(id) OR user_leads_partner_for_school(id))));
+DROP POLICY IF EXISTS schools_delete ON public.schools;
+CREATE POLICY schools_delete ON public.schools FOR DELETE USING (is_super_admin() OR is_admin());
+
+-- school_contacts
+DROP POLICY IF EXISTS school_contacts_select ON public.school_contacts;
+CREATE POLICY school_contacts_select ON public.school_contacts FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('schools_network.contacts.view')
+      AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id)))
+  OR is_school_portal_user_for(school_id)
+);
+DROP POLICY IF EXISTS school_contacts_insert ON public.school_contacts;
+CREATE POLICY school_contacts_insert ON public.school_contacts FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('schools_network.contacts.create')
+      AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id)))
+);
+DROP POLICY IF EXISTS school_contacts_update ON public.school_contacts;
+CREATE POLICY school_contacts_update ON public.school_contacts FOR UPDATE
+  USING (is_super_admin() OR is_admin()
+    OR (user_has_permission('schools_network.contacts.edit')
+        AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id))))
+  WITH CHECK (is_super_admin() OR is_admin()
+    OR (user_has_permission('schools_network.contacts.edit')
+        AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id))));
+DROP POLICY IF EXISTS school_contacts_delete ON public.school_contacts;
+CREATE POLICY school_contacts_delete ON public.school_contacts FOR DELETE USING (is_super_admin() OR is_admin());
+
+-- school_sessions
+DROP POLICY IF EXISTS school_sessions_select ON public.school_sessions;
+CREATE POLICY school_sessions_select ON public.school_sessions FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('schools_network.sessions.view')
+      AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id)))
+  OR is_school_portal_user_for(school_id)
+);
+DROP POLICY IF EXISTS school_sessions_insert ON public.school_sessions;
+CREATE POLICY school_sessions_insert ON public.school_sessions FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('schools_network.sessions.create')
+      AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id)))
+);
+DROP POLICY IF EXISTS school_sessions_update ON public.school_sessions;
+CREATE POLICY school_sessions_update ON public.school_sessions FOR UPDATE
+  USING (is_super_admin() OR is_admin()
+    OR (user_has_permission('schools_network.sessions.edit')
+        AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id))))
+  WITH CHECK (is_super_admin() OR is_admin()
+    OR (user_has_permission('schools_network.sessions.edit')
+        AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id))));
+DROP POLICY IF EXISTS school_sessions_delete ON public.school_sessions;
+CREATE POLICY school_sessions_delete ON public.school_sessions FOR DELETE USING (is_super_admin() OR is_admin());
+
+-- school_contributions
+DROP POLICY IF EXISTS school_contributions_select ON public.school_contributions;
+CREATE POLICY school_contributions_select ON public.school_contributions FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('schools_network.contributions.view')
+      AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id)))
+  OR is_school_portal_user_for(school_id)
+);
+DROP POLICY IF EXISTS school_contributions_insert ON public.school_contributions;
+CREATE POLICY school_contributions_insert ON public.school_contributions FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('schools_network.contributions.create')
+      AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id)))
+);
+DROP POLICY IF EXISTS school_contributions_update ON public.school_contributions;
+CREATE POLICY school_contributions_update ON public.school_contributions FOR UPDATE
+  USING (is_super_admin() OR is_admin()
+    OR (user_has_permission('schools_network.contributions.edit')
+        AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id))))
+  WITH CHECK (is_super_admin() OR is_admin()
+    OR (user_has_permission('schools_network.contributions.edit')
+        AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id))));
+DROP POLICY IF EXISTS school_contributions_delete ON public.school_contributions;
+CREATE POLICY school_contributions_delete ON public.school_contributions FOR DELETE USING (is_super_admin() OR is_admin());
+
+-- school_jkkn_owners
+DROP POLICY IF EXISTS school_jkkn_owners_select ON public.school_jkkn_owners;
+CREATE POLICY school_jkkn_owners_select ON public.school_jkkn_owners FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR jkkn_user_id = auth.uid()
+  OR (user_has_permission('schools_network.owners.view') AND user_owns_school(school_id))
+);
+DROP POLICY IF EXISTS school_jkkn_owners_admin_write ON public.school_jkkn_owners;
+CREATE POLICY school_jkkn_owners_admin_write ON public.school_jkkn_owners FOR ALL
+  USING (is_super_admin() OR is_admin() OR user_has_permission('schools_network.owners.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('schools_network.owners.manage'));
+
+-- program_partners + program_partner_grants
+DROP POLICY IF EXISTS program_partners_select ON public.program_partners;
+CREATE POLICY program_partners_select ON public.program_partners FOR SELECT USING (
+  is_super_admin() OR is_admin() OR user_has_permission('schools_network.partners.view')
+);
+DROP POLICY IF EXISTS program_partners_admin_write ON public.program_partners;
+CREATE POLICY program_partners_admin_write ON public.program_partners FOR ALL
+  USING (is_super_admin() OR is_admin() OR user_has_permission('schools_network.partners.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('schools_network.partners.manage'));
+
+DROP POLICY IF EXISTS program_partner_grants_select ON public.program_partner_grants;
+CREATE POLICY program_partner_grants_select ON public.program_partner_grants FOR SELECT USING (
+  is_super_admin() OR is_admin() OR user_has_permission('schools_network.grants.view')
+);
+DROP POLICY IF EXISTS program_partner_grants_admin_write ON public.program_partner_grants;
+CREATE POLICY program_partner_grants_admin_write ON public.program_partner_grants FOR ALL
+  USING (is_super_admin() OR is_admin() OR user_has_permission('schools_network.grants.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('schools_network.grants.manage'));
+
+-- Anon lockdown + authenticated grants (defense-in-depth on top of policies)
+REVOKE ALL ON public.school_session_types     FROM anon;
+REVOKE ALL ON public.program_partner_types    FROM anon;
+REVOKE ALL ON public.school_contact_roles     FROM anon;
+REVOKE ALL ON public.schools                  FROM anon;
+REVOKE ALL ON public.school_contacts          FROM anon;
+REVOKE ALL ON public.school_jkkn_owners       FROM anon;
+REVOKE ALL ON public.school_sessions          FROM anon;
+REVOKE ALL ON public.school_contributions     FROM anon;
+REVOKE ALL ON public.program_partners         FROM anon;
+REVOKE ALL ON public.program_partner_grants   FROM anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.school_session_types     TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.program_partner_types    TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.school_contact_roles     TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.schools                  TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.school_contacts          TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.school_jkkn_owners       TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.school_sessions          TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.school_contributions     TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.program_partners         TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.program_partner_grants   TO authenticated;
