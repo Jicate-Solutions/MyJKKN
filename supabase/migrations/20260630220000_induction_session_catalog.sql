@@ -55,6 +55,11 @@ CREATE INDEX IF NOT EXISTS idx_catalog_live_link_session ON public.induction_top
 ALTER TABLE public.induction_topic_catalog           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.induction_topic_catalog_live_link ENABLE ROW LEVEL SECURITY;
 
+-- Defense-in-depth: RLS already denies anon (no anon-satisfiable policy), but strip
+-- Supabase's default anon table grants too so the lock-out doesn't rely on RLS alone.
+REVOKE ALL ON public.induction_topic_catalog           FROM anon;
+REVOKE ALL ON public.induction_topic_catalog_live_link FROM anon;
+
 -- Reads go through the DEFINER RPC; direct table reads limited to induction.view holders.
 -- No write policy → only migrations / service role seed it.
 DROP POLICY IF EXISTS catalog_select ON public.induction_topic_catalog;
@@ -243,7 +248,11 @@ BEGIN
   ) agg ON true
   WHERE (p_theme  IS NULL OR c.theme = p_theme)
     AND (p_search IS NULL OR c.canonical_title ILIKE '%' || p_search || '%')
-  ORDER BY agg.value_score DESC NULLS LAST,
+  -- Confidence floor: a score only drives the ranking once it has >= 5 ratings, so a
+  -- thin-sample topper (e.g. one 5.0 vote) can't outrank a well-rated one (4.14 / 202).
+  -- Below the floor a topic ranks by adoption (treated as not-yet-confidently-rated),
+  -- though its provisional score is still returned for display.
+  ORDER BY (CASE WHEN coalesce(agg.score_responses, 0) >= 5 THEN agg.value_score END) DESC NULLS LAST,
            coalesce(array_length(c.colleges, 1), 0) DESC,
            c.canonical_title;
 END $$;

@@ -21,6 +21,10 @@ import { Library, Search, Star, Building2, ArrowUpDown, AlertTriangle, Loader2 }
 
 type SortMode = 'rated' | 'adopted';
 
+// A score only drives the "Top rated" sort once it has this many ratings (matches
+// the RPC's server-side confidence floor) — a 1-vote 5.0 shouldn't top a 202-vote 4.1.
+const MIN_CONFIDENT_RATINGS = 5;
+
 export default function InductionCatalogPage() {
   const [all, setAll] = useState<InductionTopicCatalogEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,8 +65,11 @@ export default function InductionCatalogPage() {
         if (b.adoption !== a.adoption) return b.adoption - a.adoption;
         return (b.value_score ?? -1) - (a.value_score ?? -1);
       }
-      // 'rated': score desc (nulls last), then adoption
-      const av = a.value_score ?? -1, bv = b.value_score ?? -1;
+      // 'rated': confident score (>= MIN_CONFIDENT_RATINGS) desc, then adoption. A
+      // thin-sample score doesn't drive the sort — mirrors the RPC's server-side floor.
+      const conf = (t: InductionTopicCatalogEntry) =>
+        t.value_score != null && t.score_responses >= MIN_CONFIDENT_RATINGS ? t.value_score : -1;
+      const av = conf(a), bv = conf(b);
       if (bv !== av) return bv - av;
       return b.adoption - a.adoption;
     });
@@ -161,13 +168,22 @@ export default function InductionCatalogPage() {
                 <CardHeader className="pb-2">
                   <div className="flex items-start justify-between gap-2">
                     <CardTitle className="text-sm leading-snug">{t.canonical_title}</CardTitle>
-                    {t.value_score != null ? (
+                    {t.value_score == null ? (
+                      <Badge className="shrink-0" variant="secondary">not yet rated</Badge>
+                    ) : t.score_responses >= MIN_CONFIDENT_RATINGS ? (
                       <Badge className="shrink-0 gap-1" variant="default">
                         <Star className="h-3 w-3 fill-current" />
                         {Number(t.value_score).toFixed(1)}
                       </Badge>
                     ) : (
-                      <Badge className="shrink-0" variant="secondary">not yet rated</Badge>
+                      <Badge
+                        className="shrink-0 gap-1"
+                        variant="outline"
+                        title="Early signal — fewer than 5 ratings"
+                      >
+                        <Star className="h-3 w-3" />
+                        {Number(t.value_score).toFixed(1)} <span className="opacity-70">early</span>
+                      </Badge>
                     )}
                   </div>
                 </CardHeader>
