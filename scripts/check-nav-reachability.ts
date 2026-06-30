@@ -53,6 +53,10 @@ const SIDEBAR = 'lib/sidebarMenuLink.ts';
  * etc.). This mirrors `NAV_EXCLUDE` in the predecessor script.
  */
 const NAV_EXCLUDE = new Set<string>([
+  // Induction Session Catalog — the curated cross-college "best sessions" library.
+  // Reached via the "Session catalog" button on the chip-reachable /events/induction
+  // landing page (not a tier-strip destination). Gated induction.view in MENU_PERMISSIONS.
+  '/events/induction/catalog',
   // Top-bar avatar / bell targets
   '/profile',
   '/notifications',
