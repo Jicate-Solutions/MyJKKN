@@ -96,7 +96,7 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
           <MessagesSquare className="h-4 w-4 text-primary" /> Feedback peer mentors
         </CardTitle>
         <CardDescription>
-          Appoint senior students as peer mentors and auto-balance the cohort across them.
+          Appoint peer mentors and auto-balance the cohort across them.
           Each mentor walks their assigned freshers — including those with no phone — and the
           fresher taps their own 1–5 rating on the mentor&apos;s phone (a fresher&apos;s own-login
           rating always wins and can&apos;t be overwritten).
