@@ -17,6 +17,7 @@
 //   • Renders nothing until at least one real chain exists, to keep the page's primary job clean.
 
 import { useMemo } from 'react';
+import { format, subDays } from 'date-fns';
 import { Sparkles, ArrowRight, TrendingUp, Clock3, MessageSquareQuote, Wand2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -50,11 +51,12 @@ function formatDate(iso: string | null): string {
 export function LoopClosureCard() {
   // "This term" — the last 120 days, matching MyVoiceReceipt's window.
   const { from, to } = useMemo(() => {
+    // Local-date formatting (date-fns), not UTC toISOString — avoids an off-by-one
+    // at the window boundary for IST users near midnight.
     const today = new Date();
-    const start = new Date(today.getTime() - 120 * 24 * 60 * 60 * 1000);
     return {
-      from: start.toISOString().slice(0, 10),
-      to: today.toISOString().slice(0, 10),
+      from: format(subDays(today, 120), 'yyyy-MM-dd'),
+      to: format(today, 'yyyy-MM-dd'),
     };
   }, []);
 

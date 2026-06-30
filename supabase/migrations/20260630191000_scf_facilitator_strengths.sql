@@ -98,16 +98,17 @@ BEGIN
   WITH success_rows AS (
     SELECT
       sg.institution_id AS inst_id,
-      sg.faculty_email,
+      lower(sg.faculty_email) AS faculty_email,    -- normalise so the staff-name lookup matches
       sg.course_code,
       sg.input_avg_understood,
       sg.generated_at,
       sg.suggestion
     FROM public.scf_ai_suggestions sg
     WHERE sg.kind = 'success'
-      AND sg.faculty_email IS NOT NULL          -- per-facilitator board needs a key
+      AND sg.domain = 'session_feedback'           -- SCF success rows only, not other modules' rows
+      AND sg.faculty_email IS NOT NULL             -- per-facilitator board needs a key
       AND sg.window_from <= p_to
-      AND sg.window_to   >= p_from               -- window overlaps [p_from, p_to]
+      AND sg.window_to   >= p_from                 -- window overlaps [p_from, p_to]
       AND (v_super OR sg.institution_id = v_inst)
   ),
   per_fac AS (
@@ -163,8 +164,11 @@ BEGIN
       COALESCE(d.department_name,'Unknown')::text AS department_name
     FROM public.staff s
     LEFT JOIN public.departments d ON d.id = s.department_id
-    WHERE lower(s.email) = pf.faculty_email
-       OR lower(s.institution_email) = pf.faculty_email
+    WHERE (lower(s.email) = pf.faculty_email
+        OR lower(s.institution_email) = pf.faculty_email)
+      -- Scope the name lookup to the row's institution so a same-email staff in
+      -- another institution can't supply the wrong name (NULL-inst rows: best-effort).
+      AND (pf.inst_id IS NULL OR s.institution_id = pf.inst_id)
     LIMIT 1
   ) st ON true
   LEFT JOIN public.institutions i ON i.id = pf.inst_id

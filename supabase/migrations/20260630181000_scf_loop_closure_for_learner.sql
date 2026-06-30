@@ -59,7 +59,12 @@ BEGIN
   WITH
   -- The learner's OWN flagged classes (understood <= 2) in the window.
   mine AS (
-    SELECT f.institution_id,
+    -- One row per flagged class. A learner can have >1 feedback row for the same
+    -- class (e.g. async + live_poll, both understood<=2); without DISTINCT ON they
+    -- would multiply into duplicate loop-closure cards. Keep the most-flagged
+    -- (lowest understood), earliest.
+    SELECT DISTINCT ON (f.institution_id, f.attendance_date, f.course_code)
+           f.institution_id,
            f.attendance_date,
            f.course_code,
            f.course_name,
@@ -71,6 +76,7 @@ BEGIN
       AND f.attendance_date BETWEEN p_from AND p_to
       AND f.understood <= 2
       AND f.course_code IS NOT NULL
+    ORDER BY f.institution_id, f.attendance_date, f.course_code, f.understood ASC, f.created_at ASC
   ),
   -- Their input theme: the active checklist items they left false on the flagged row.
   themed AS (
@@ -111,7 +117,8 @@ BEGIN
             ))[1] AS cohort_lift
     FROM themed t
     JOIN public.scf_ai_suggestions s
-      ON  s.institution_id       = t.institution_id
+      ON  s.domain               = 'session_feedback'   -- SCF suggestions only, not other modules' rows
+      AND s.institution_id       = t.institution_id
       AND s.course_code          = t.course_code
       AND lower(s.faculty_email) = t.faculty
       AND t.attendance_date BETWEEN s.window_from AND s.window_to

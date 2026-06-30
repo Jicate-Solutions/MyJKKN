@@ -28,9 +28,12 @@
 --   3. MINIMAL DISCLOSURE. Only SLIDING learners (slope <= p_slope_threshold) are
 --      returned — not a full roster of everyone's trend. Improving/stable learners are
 --      intentionally invisible: this is a help list, not a surveillance list.
--- This exception is scoped to academic early-warning. If the orchestrator/Director does
--- NOT want any per-learner understanding signal exposed to staff, do not mount the card
--- (the RPC then simply goes uncalled). Flagged for ratification at mount time.
+-- This exception is scoped to academic early-warning. RATIFIED by the Director on
+-- 2026-06-30 (PR #1684): ship as built — named sliding learners visible to institution
+-- leadership, with the three mitigations above. The de-identified (counts-only) and
+-- hold-for-signoff alternatives were considered and declined. The caller-supplied
+-- p_slope_threshold is clamped server-side (below) so the "sliding-only" mitigation
+-- cannot be bypassed.
 -- ─────────────────────────────────────────────────────────────────────────────
 --
 -- SLOPE = regr_slope(understood, session_ordinal): understood points gained/lost per
@@ -95,6 +98,14 @@ BEGIN
 
   -- Defensive: never let a caller drop the privacy floor below 3.
   IF p_min_sessions < 3 THEN p_min_sessions := 3; END IF;
+  -- PRIVACY CLAMP (review #1684 HIGH): p_slope_threshold is caller-supplied. Left
+  -- unclamped, a leader could pass a positive/near-zero value to pull the FULL named
+  -- roster (improving + stable learners), defeating the Director-ratified "sliding
+  -- learners only / minimal disclosure" mitigation. Force it to a genuinely-declining
+  -- ceiling: any value above -0.05 is reset to the -0.15 default.
+  IF p_slope_threshold IS NULL OR p_slope_threshold > -0.05 THEN
+    p_slope_threshold := -0.15;
+  END IF;
 
   RETURN QUERY
   WITH ordered AS (
@@ -154,7 +165,13 @@ BEGIN
   WHERE st.slope_raw <= p_slope_threshold          -- sliding only (minimal disclosure)
   ORDER BY (COALESCE(rc.recent_avg, 5) < 3.0) DESC,  -- at-risk first
            st.slope_raw ASC                          -- steepest decline first
-  LIMIT 100;
+  -- Cap the board (review #1684 #9). Because the ORDER BY surfaces at-risk-then-
+  -- steepest first, the cap can only ever drop the LEAST-declining tail — the
+  -- genuinely-critical sliders are always within it, so the truncation is safe by
+  -- construction (not arbitrary). Raised from 100 to 200 for headroom; a per-
+  -- institution paginated view is a documented follow-up if any college ever
+  -- exceeds it (today the whole platform has 3 sliders).
+  LIMIT 200;
 END;
 $$;
 
