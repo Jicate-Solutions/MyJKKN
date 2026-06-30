@@ -118,6 +118,9 @@ BEGIN
     FROM themed t
     JOIN public.scf_ai_suggestions s
       ON  s.domain               = 'session_feedback'   -- SCF suggestions only, not other modules' rows
+      AND s.kind                 = 'improvement'         -- only the "here's how to fix it" path has a `summary`;
+                                                         -- a success row's the_change would be NULL → a hollow
+                                                         -- "you changed this class" with no actual change.
       AND s.institution_id       = t.institution_id
       AND s.course_code          = t.course_code
       AND lower(s.faculty_email) = t.faculty

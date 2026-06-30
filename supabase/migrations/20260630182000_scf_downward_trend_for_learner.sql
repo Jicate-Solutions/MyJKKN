@@ -39,20 +39,33 @@ BEGIN
   IF v_lp IS NULL THEN RETURN; END IF;
 
   RETURN QUERY
-  WITH ranked AS (
-    -- The learner's own rated sessions per course, newest first.
-    SELECT f.course_code,
+  WITH per_date AS (
+    -- One understood value per (course, attendance_date). Same-day async+live_poll
+    -- rows must NOT supply 2 of the "3 classes in a row that felt harder" — collapse
+    -- to one row per class date first (keep the most-flagged, earliest).
+    SELECT DISTINCT ON (f.course_code, f.attendance_date)
+           f.course_code,
            f.course_name,
            f.understood,
            f.attendance_date,
-           ROW_NUMBER() OVER (
-             PARTITION BY f.course_code
-             ORDER BY f.attendance_date DESC, f.created_at DESC
-           ) AS rn
+           f.created_at
     FROM public.session_feedback f
     WHERE f.student_id = v_lp
       AND f.course_code IS NOT NULL
       AND f.understood IS NOT NULL
+    ORDER BY f.course_code, f.attendance_date, f.understood ASC, f.created_at ASC
+  ),
+  ranked AS (
+    -- The learner's own rated CLASS-DATES per course, newest first.
+    SELECT pd.course_code,
+           pd.course_name,
+           pd.understood,
+           pd.attendance_date,
+           ROW_NUMBER() OVER (
+             PARTITION BY pd.course_code
+             ORDER BY pd.attendance_date DESC, pd.created_at DESC
+           ) AS rn
+    FROM per_date pd
   ),
   last3 AS (
     -- Keep courses with at least 3 rated sessions; collapse the latest 3 (oldest->newest)

@@ -84,17 +84,26 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-DECLARE v_inst uuid; v_super boolean; v_allowed boolean;
+DECLARE v_inst uuid; v_super boolean; v_allowed boolean; v_dept uuid; v_inst_wide boolean;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_scf_learner_trajectory: not authenticated'; END IF;
   SELECT p.institution_id,
          (p.role = 'super_admin' OR p.is_super_admin = true),
-         (p.role = ANY (ARRAY['super_admin','administrator','institution_admin','dean','hod','principal','coordinator']) OR p.is_super_admin = true)
-    INTO v_inst, v_super, v_allowed
+         (p.role = ANY (ARRAY['super_admin','administrator','institution_admin','dean','hod','principal','coordinator']) OR p.is_super_admin = true),
+         p.department_id,
+         (p.role = ANY (ARRAY['super_admin','administrator','institution_admin','dean','principal']) OR p.is_super_admin = true)
+    INTO v_inst, v_super, v_allowed, v_dept, v_inst_wide
   FROM public.profiles p WHERE p.id = auth.uid();
   IF NOT COALESCE(v_allowed, false) THEN
     RAISE EXCEPTION 'fn_scf_learner_trajectory: not authorized';
   END IF;
+  -- DEPT SCOPE (review #1684 #1): named per-learner sliders are more sensitive than the
+  -- aggregate dashboards. Institution-wide leaders (principal/dean/admin/super) see all
+  -- departments in their institution; a department head (hod/coordinator) sees ONLY their
+  -- OWN department's sliding learners — not other departments'. A dept-scoped caller with
+  -- no department resolves to no rows. Honours the Director's "named to leadership"
+  -- ratification while tightening each leader to the learners they can actually act on.
+  IF NOT COALESCE(v_inst_wide, false) AND v_dept IS NULL THEN RETURN; END IF;
 
   -- Defensive: never let a caller drop the privacy floor below 3.
   IF p_min_sessions < 3 THEN p_min_sessions := 3; END IF;
@@ -108,14 +117,27 @@ BEGIN
   END IF;
 
   RETURN QUERY
-  WITH ordered AS (
-    SELECT f.student_id, f.course_code, f.institution_id, f.attendance_date, f.understood,
-           row_number() OVER (PARTITION BY f.student_id, f.course_code, f.institution_id
-                              ORDER BY f.attendance_date, f.id) AS ord
+  WITH per_date AS (
+    -- One understood value per (learner, course, institution, attendance_date). Same-day
+    -- async+live_poll rows must not inflate the session count or the regr_slope x-axis;
+    -- without this the k>=3 floor could be met by <3 distinct class dates, weakening the
+    -- "no single candid rating reconstructable" guarantee. Also applies the dept filter:
+    -- a dept-scoped caller (hod/coordinator) sees only their own department's learners.
+    SELECT DISTINCT ON (f.student_id, f.course_code, f.institution_id, f.attendance_date)
+           f.student_id, f.course_code, f.institution_id, f.attendance_date, f.understood
     FROM public.session_feedback f
+    JOIN public.learners_profiles lp ON lp.id = f.student_id
     WHERE (v_super OR f.institution_id = v_inst)
+      AND (v_inst_wide OR lp.department_id = v_dept)   -- dept heads: own department only
       AND f.attendance_date BETWEEN p_from AND p_to
       AND f.course_code IS NOT NULL
+    ORDER BY f.student_id, f.course_code, f.institution_id, f.attendance_date, f.understood ASC
+  ),
+  ordered AS (
+    SELECT pd.student_id, pd.course_code, pd.institution_id, pd.attendance_date, pd.understood,
+           row_number() OVER (PARTITION BY pd.student_id, pd.course_code, pd.institution_id
+                              ORDER BY pd.attendance_date) AS ord
+    FROM per_date pd
   ),
   stats AS (
     SELECT o.student_id, o.course_code, o.institution_id,
