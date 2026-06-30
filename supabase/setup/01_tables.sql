@@ -5214,3 +5214,238 @@ CREATE TABLE IF NOT EXISTS public.social_loop_playbook (
   CONSTRAINT social_loop_playbook_account_cycle_key UNIQUE (account_id, cycle_no)
 );
 CREATE INDEX IF NOT EXISTS idx_social_loop_playbook_account ON public.social_loop_playbook (account_id, cycle_no DESC);
+
+-- =====================================================================
+-- 2026-06-30 — Schools Network module (DB substrate, Agent A)
+-- Migration: supabase/migrations/20260630120000_schools_network_substrate.sql
+-- Spec: /tmp/schools-network-spec.md
+-- 5 enum types + 3 master tables (seeded) + 7 core entity tables.
+-- =====================================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'school_ownership') THEN
+    CREATE TYPE public.school_ownership AS ENUM ('external', 'internal');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'school_status') THEN
+    CREATE TYPE public.school_status AS ENUM ('active', 'sustaining', 'dormant', 'inactive');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'school_owner_role') THEN
+    CREATE TYPE public.school_owner_role AS ENUM ('outreach_coordinator', 'program_lead');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'school_contribution_kind') THEN
+    CREATE TYPE public.school_contribution_kind AS ENUM (
+      'device', 'branding', 'website', 'fund', 'training_kit', 'other'
+    );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'program_partner_status') THEN
+    CREATE TYPE public.program_partner_status AS ENUM ('active', 'sustaining', 'dormant');
+  END IF;
+END $$;
+
+-- Master value-list tables
+CREATE TABLE IF NOT EXISTS public.school_session_types (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code          TEXT NOT NULL UNIQUE,
+  label         TEXT NOT NULL,
+  description   TEXT,
+  is_system     BOOLEAN NOT NULL DEFAULT FALSE,
+  display_order INTEGER NOT NULL DEFAULT 100,
+  is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE public.school_session_types ENABLE ROW LEVEL SECURITY;
+INSERT INTO public.school_session_types (code, label, description, is_system, display_order) VALUES
+  ('visit',       'School Visit',        'In-person visit by JKKN team',                TRUE, 10),
+  ('orientation', 'Orientation Session', 'Career / program orientation for students',   TRUE, 20),
+  ('training',    'Teacher Training',    'Capacity-building session for school staff',  TRUE, 30),
+  ('event',       'Event / Workshop',    'On-campus or partner-led event',              TRUE, 40),
+  ('drop_by',     'Drop-by / Informal',  'Quick informal contact',                      TRUE, 50)
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS public.program_partner_types (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code          TEXT NOT NULL UNIQUE,
+  label         TEXT NOT NULL,
+  description   TEXT,
+  is_system     BOOLEAN NOT NULL DEFAULT FALSE,
+  display_order INTEGER NOT NULL DEFAULT 100,
+  is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE public.program_partner_types ENABLE ROW LEVEL SECURITY;
+INSERT INTO public.program_partner_types (code, label, description, is_system, display_order) VALUES
+  ('csr',             'CSR Partner',        'Corporate CSR arm (HP, NIIT, etc.)', TRUE, 10),
+  ('grant',           'Grant / Foundation', 'Philanthropic foundation grant',     TRUE, 20),
+  ('corporate',       'Corporate Sponsor',  'Direct corporate sponsorship',       TRUE, 30),
+  ('govt_foundation', 'Govt. Foundation',   'Government / quasi-govt foundation', TRUE, 40)
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS public.school_contact_roles (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code                TEXT NOT NULL UNIQUE,
+  label               TEXT NOT NULL,
+  description         TEXT,
+  is_system           BOOLEAN NOT NULL DEFAULT FALSE,
+  display_order       INTEGER NOT NULL DEFAULT 100,
+  is_active           BOOLEAN NOT NULL DEFAULT TRUE,
+  can_login_to_portal BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE public.school_contact_roles ENABLE ROW LEVEL SECURITY;
+INSERT INTO public.school_contact_roles
+  (code, label, description, is_system, display_order, can_login_to_portal) VALUES
+  ('hm',        'Headmaster',      'Headmaster / school head',        TRUE, 10, TRUE),
+  ('principal', 'Principal',       'Principal (if distinct from HM)', TRUE, 20, TRUE),
+  ('teacher',   'Teacher / Staff', 'Subject teacher or coordinator',  TRUE, 30, FALSE),
+  ('alt',       'Alternate',       'Alternate point-of-contact',      TRUE, 40, FALSE)
+ON CONFLICT (code) DO NOTHING;
+
+-- program_partners FIRST (school_jkkn_owners FKs to it)
+CREATE TABLE IF NOT EXISTS public.program_partners (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name           TEXT NOT NULL,
+  type_id        UUID NOT NULL REFERENCES public.program_partner_types(id) ON DELETE RESTRICT,
+  contact_email  TEXT,
+  contact_phone  TEXT,
+  contact_person TEXT,
+  website_url    TEXT,
+  status         program_partner_status NOT NULL DEFAULT 'active',
+  notes          TEXT,
+  metadata       JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS program_partners_type_idx   ON public.program_partners (type_id);
+CREATE INDEX IF NOT EXISTS program_partners_status_idx ON public.program_partners (status);
+ALTER TABLE public.program_partners ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.schools (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name              TEXT NOT NULL,
+  ownership         school_ownership NOT NULL,
+  institution_id    UUID REFERENCES public.institutions(id) ON DELETE SET NULL,
+  district          TEXT,
+  state             TEXT,
+  pincode           TEXT,
+  address           TEXT,
+  latitude          NUMERIC(10, 7),
+  longitude         NUMERIC(10, 7),
+  intake_year       INTEGER,
+  status            school_status NOT NULL DEFAULT 'active',
+  status_changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  metadata          JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_by        UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT schools_internal_requires_institution CHECK (
+    (ownership = 'external' AND institution_id IS NULL) OR
+    (ownership = 'internal' AND institution_id IS NOT NULL)
+  )
+);
+CREATE INDEX IF NOT EXISTS schools_ownership_idx      ON public.schools (ownership);
+CREATE INDEX IF NOT EXISTS schools_status_idx         ON public.schools (status);
+CREATE INDEX IF NOT EXISTS schools_district_state_idx ON public.schools (state, district);
+CREATE INDEX IF NOT EXISTS schools_institution_id_idx ON public.schools (institution_id) WHERE institution_id IS NOT NULL;
+ALTER TABLE public.schools ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.school_contacts (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id  UUID NOT NULL REFERENCES public.schools(id) ON DELETE CASCADE,
+  role_id    UUID NOT NULL REFERENCES public.school_contact_roles(id) ON DELETE RESTRICT,
+  name       TEXT NOT NULL,
+  phone      TEXT,
+  email      TEXT,
+  is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+  notes      TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT school_contacts_email_or_phone CHECK (email IS NOT NULL OR phone IS NOT NULL)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS school_contacts_one_primary_per_school
+  ON public.school_contacts (school_id) WHERE is_primary = TRUE;
+CREATE INDEX IF NOT EXISTS school_contacts_school_id_idx ON public.school_contacts (school_id);
+CREATE INDEX IF NOT EXISTS school_contacts_email_idx     ON public.school_contacts (lower(email)) WHERE email IS NOT NULL;
+ALTER TABLE public.school_contacts ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.school_jkkn_owners (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id          UUID NOT NULL REFERENCES public.schools(id) ON DELETE CASCADE,
+  jkkn_user_id       UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  role               school_owner_role NOT NULL,
+  program_partner_id UUID REFERENCES public.program_partners(id) ON DELETE SET NULL,
+  assigned_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  assigned_by        UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  is_active          BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT school_jkkn_owners_program_lead_has_partner CHECK (
+    role <> 'program_lead' OR program_partner_id IS NOT NULL
+  )
+);
+CREATE UNIQUE INDEX IF NOT EXISTS school_jkkn_owners_unique_active
+  ON public.school_jkkn_owners (school_id, jkkn_user_id, role, COALESCE(program_partner_id::text, ''))
+  WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS school_jkkn_owners_user_idx    ON public.school_jkkn_owners (jkkn_user_id) WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS school_jkkn_owners_school_idx  ON public.school_jkkn_owners (school_id) WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS school_jkkn_owners_partner_idx ON public.school_jkkn_owners (program_partner_id) WHERE program_partner_id IS NOT NULL;
+ALTER TABLE public.school_jkkn_owners ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.school_sessions (
+  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id            UUID NOT NULL REFERENCES public.schools(id) ON DELETE CASCADE,
+  session_type_id      UUID NOT NULL REFERENCES public.school_session_types(id) ON DELETE RESTRICT,
+  conducted_at         TIMESTAMPTZ NOT NULL,
+  conducted_by_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  program_partner_id   UUID REFERENCES public.program_partners(id) ON DELETE SET NULL,
+  attendee_count       INTEGER NOT NULL DEFAULT 0 CHECK (attendee_count >= 0),
+  topic                TEXT,
+  notes                TEXT,
+  attachments          JSONB NOT NULL DEFAULT '[]'::jsonb,
+  metadata             JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS school_sessions_school_id_idx    ON public.school_sessions (school_id, conducted_at DESC);
+CREATE INDEX IF NOT EXISTS school_sessions_type_idx         ON public.school_sessions (session_type_id);
+CREATE INDEX IF NOT EXISTS school_sessions_partner_idx      ON public.school_sessions (program_partner_id) WHERE program_partner_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS school_sessions_conducted_by_idx ON public.school_sessions (conducted_by_user_id);
+ALTER TABLE public.school_sessions ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.school_contributions (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id          UUID NOT NULL REFERENCES public.schools(id) ON DELETE CASCADE,
+  kind               school_contribution_kind NOT NULL,
+  description        TEXT NOT NULL,
+  value_inr          NUMERIC(14, 2) CHECK (value_inr IS NULL OR value_inr >= 0),
+  delivered_at       DATE,
+  program_partner_id UUID REFERENCES public.program_partners(id) ON DELETE SET NULL,
+  evidence_url       TEXT,
+  metadata           JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_by         UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS school_contributions_school_idx  ON public.school_contributions (school_id, delivered_at DESC);
+CREATE INDEX IF NOT EXISTS school_contributions_kind_idx    ON public.school_contributions (kind);
+CREATE INDEX IF NOT EXISTS school_contributions_partner_idx ON public.school_contributions (program_partner_id) WHERE program_partner_id IS NOT NULL;
+ALTER TABLE public.school_contributions ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.program_partner_grants (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  program_partner_id UUID NOT NULL REFERENCES public.program_partners(id) ON DELETE CASCADE,
+  amount_inr         NUMERIC(14, 2) NOT NULL CHECK (amount_inr > 0),
+  received_at        DATE NOT NULL,
+  designated_for     TEXT NOT NULL,
+  invoice_url        TEXT,
+  receipt_no         TEXT,
+  notes              TEXT,
+  created_by         UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS program_partner_grants_partner_idx
+  ON public.program_partner_grants (program_partner_id, received_at DESC);
+ALTER TABLE public.program_partner_grants ENABLE ROW LEVEL SECURITY;
