@@ -340,6 +340,15 @@ const NAV_EXCLUDE = new Set<string>([
   '/consultant-portal/profile',
   '/consultant-portal/rewards',
 
+  // Schools Network HM portal — external (headmaster/principal) persona
+  // reached via magic-link email, NOT the staff sidebar. No staff chip
+  // surface by design (HMs are not auth.users).
+  '/schools-portal',
+  '/schools-portal/login',
+  '/schools-portal/verify',
+  '/schools-portal/dashboard',
+  '/schools-portal/update-contact',
+
   // 2026-06-10 admin-cluster relocation — consultants. Super-admin policy
   // pages relocated from /admin/consultants/* ("one module = one URL
   // prefix"). Under /admin they were chip-reachable only via manifest
