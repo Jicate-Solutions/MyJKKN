@@ -20,7 +20,6 @@
  */
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -32,7 +31,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus, Wrench, ArrowRight } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PermissionError } from '@/components/errors/permission-error';
 
@@ -45,6 +44,9 @@ import { HousekeepingPolicyForm } from '../housekeeping/_components/housekeeping
 // Reuse — Amenities catalog editor (self-fetching table + create/edit dialog)
 import { AmenitiesDataTable } from '../amenities/_components/amenities-data-table';
 import { AmenityFormDialog } from '../amenities/_components/amenity-form-dialog';
+
+// Inline — the extracted chrome-less Maintenance SLA editor (renders its own heading + grid)
+import { MaintenanceSlaSection } from '../maintenance-sla/_components/-maintenance-sla-section';
 
 function SectionHeader({
   title,
@@ -152,25 +154,11 @@ export default function MessServicesConfigPage() {
             </CardContent>
           </Card>
 
-          {/* Section 4 — Maintenance SLA. The existing page renders its own full ContentLayout
-              shell and exposes no extracted inner component, so it is not cleanly reusable
-              inline; link to it as a last resort (rather than nest a page in a page). */}
-          <Card>
-            <CardContent className='p-6'>
-              <SectionHeader
-                title='Maintenance SLA'
-                description='Resolution-time targets (hours) per maintenance category and priority. Opens the dedicated SLA grid editor — it carries its own page layout and cannot be embedded inline here.'
-                action={
-                  <Button asChild variant='outline'>
-                    <Link href='/campus-living/settings/maintenance-sla'>
-                      <Wrench className='h-4 w-4 mr-2' /> Open SLA editor
-                      <ArrowRight className='h-4 w-4 ml-2' />
-                    </Link>
-                  </Button>
-                }
-              />
-            </CardContent>
-          </Card>
+          {/* Section 4 — Maintenance SLA (inline; the extracted section brings its own
+              heading + Save + the resolution-time grid). */}
+          <div className='border-t pt-6'>
+            <MaintenanceSlaSection />
+          </div>
 
           {/* Dialog for the Amenities "Add amenity" action */}
           <AmenityFormDialog
