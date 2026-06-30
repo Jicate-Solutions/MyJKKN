@@ -122,6 +122,26 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
           </div>
         </div>
 
+        {/* Feedback coverage + bias meter — the loop must KNOW when its sample is thin or single-method */}
+        {mix && (
+          <div className={`rounded-lg border p-3 text-xs ${mix.bias_flag ? 'border-amber-400 bg-amber-50 dark:border-amber-500/60 dark:bg-amber-950/30' : ''}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-medium">
+                Feedback coverage: {Math.round(mix.response_rate * 100)}% ({mix.responders}/{mix.enrolled} freshers)
+              </span>
+              <span className="text-muted-foreground tabular-nums">
+                {mix.n_phone} phone · {mix.n_volunteer_kiosk} kiosk · {mix.no_account_enrolled} no-account
+              </span>
+            </div>
+            {mix.bias_flag && (
+              <div className="mt-1.5 flex items-start gap-1.5 text-amber-700 dark:text-amber-400">
+                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>Biased sample — the loop is learning from a thin or single-method slice. Treat its suggestions with caution until coverage improves.</span>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Mentor list */}
         {loading ? (
           <p className="text-sm text-muted-foreground py-2">Loading mentors…</p>
