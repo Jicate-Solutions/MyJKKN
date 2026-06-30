@@ -639,6 +639,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/settings/fee-config'],
         },
         {
+          label: 'Fees & Economics',
+          icon: 'Sliders',
+          href: '/campus-living/settings/fees-economics',
+          matchPaths: ['/campus-living/settings/fees-economics'],
+        },
+        {
           label: 'Leave Types',
           icon: 'CalendarOff',
           href: '/campus-living/settings/leave-types',
