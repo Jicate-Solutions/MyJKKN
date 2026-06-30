@@ -5214,3 +5214,34 @@ CREATE TABLE IF NOT EXISTS public.social_loop_playbook (
   CONSTRAINT social_loop_playbook_account_cycle_key UNIQUE (account_id, cycle_no)
 );
 CREATE INDEX IF NOT EXISTS idx_social_loop_playbook_account ON public.social_loop_playbook (account_id, cycle_no DESC);
+
+-- ── Induction session polls (2026-06-30) — see migration 20260630210000 ──
+CREATE TABLE IF NOT EXISTS public.induction_session_poll (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id uuid NOT NULL UNIQUE REFERENCES public.event_sessions(id) ON DELETE CASCADE,
+  event_id uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  institution_id uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','open','closed')),
+  issued_at timestamptz, auto_close_at timestamptz, created_by uuid,
+  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS public.induction_session_poll_question (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  poll_id uuid NOT NULL REFERENCES public.induction_session_poll(id) ON DELETE CASCADE,
+  prompt text NOT NULL, kind text NOT NULL DEFAULT 'single' CHECK (kind IN ('single','multi')),
+  position int NOT NULL DEFAULT 0, created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS public.induction_session_poll_option (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  question_id uuid NOT NULL REFERENCES public.induction_session_poll_question(id) ON DELETE CASCADE,
+  label text NOT NULL, position int NOT NULL DEFAULT 0, created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS public.induction_session_poll_vote (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  poll_id uuid NOT NULL REFERENCES public.induction_session_poll(id) ON DELETE CASCADE,
+  question_id uuid NOT NULL REFERENCES public.induction_session_poll_question(id) ON DELETE CASCADE,
+  option_id uuid NOT NULL REFERENCES public.induction_session_poll_option(id) ON DELETE CASCADE,
+  learner_id uuid NOT NULL REFERENCES public.learners_profiles(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (question_id, option_id, learner_id)
+);

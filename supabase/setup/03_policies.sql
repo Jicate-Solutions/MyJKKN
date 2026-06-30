@@ -7017,3 +7017,13 @@ CREATE POLICY social_loop_playbook_update ON public.social_loop_playbook
 
 REVOKE ALL ON public.social_loop_playbook FROM anon, PUBLIC;
 GRANT SELECT, INSERT, UPDATE ON public.social_loop_playbook TO authenticated;
+
+-- ── Induction session polls (2026-06-30) — super_admin-only direct access; rest via DEFINER RPCs ──
+ALTER TABLE public.induction_session_poll ENABLE ROW LEVEL SECURITY;
+CREATE POLICY induction_session_poll_super_admin ON public.induction_session_poll FOR ALL TO authenticated USING (is_super_admin()) WITH CHECK (is_super_admin());
+ALTER TABLE public.induction_session_poll_question ENABLE ROW LEVEL SECURITY;
+CREATE POLICY induction_session_poll_question_super_admin ON public.induction_session_poll_question FOR ALL TO authenticated USING (is_super_admin()) WITH CHECK (is_super_admin());
+ALTER TABLE public.induction_session_poll_option ENABLE ROW LEVEL SECURITY;
+CREATE POLICY induction_session_poll_option_super_admin ON public.induction_session_poll_option FOR ALL TO authenticated USING (is_super_admin()) WITH CHECK (is_super_admin());
+ALTER TABLE public.induction_session_poll_vote ENABLE ROW LEVEL SECURITY;
+CREATE POLICY induction_session_poll_vote_super_admin ON public.induction_session_poll_vote FOR ALL TO authenticated USING (is_super_admin()) WITH CHECK (is_super_admin());
