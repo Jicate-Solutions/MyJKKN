@@ -36,7 +36,7 @@ export interface CreateInductionInput {
 /** Result of fn_induction_preview_enroll — who WOULD be enrolled (no insert). */
 export interface PreviewEnrollResult {
   total: number;
-  scope: 'institution' | 'group';
+  scope: 'institution' | 'group' | 'targeted';
   degree_type_filter: 'ug' | 'pg' | null;
   by_institution: Array<{ institution: string; count: number }>;
   by_program: Array<{ program: string; degree_type: string | null; count: number }>;

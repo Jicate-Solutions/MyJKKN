@@ -61,7 +61,10 @@ function NewInductionForm() {
 
   useEffect(() => {
     supabase.from('institutions').select('id,name').order('name')
-      .then(({ data }) => setInstitutions((data as any) ?? []));
+      .then(({ data, error }) => {
+        if (error) { toast.error(`Couldn't load institutions: ${error.message}`); }
+        setInstitutions((data as any) ?? []);
+      });
   }, []);
 
   // Admission years across the selected institutions (hook already takes an array).
@@ -82,9 +85,15 @@ function NewInductionForm() {
   useEffect(() => {
     if (!institutionIds.length) { setDegrees([]); setDepartments([]); return; }
     supabase.from('degrees').select('id,degree_name').in('institution_id', institutionIds).order('degree_name')
-      .then(({ data }) => setDegrees((data ?? []).map((d: any) => ({ id: d.id, name: d.degree_name }))));
+      .then(({ data, error }) => {
+        if (error) { toast.error(`Couldn't load degrees: ${error.message}`); }
+        setDegrees((data ?? []).map((d: any) => ({ id: d.id, name: d.degree_name })));
+      });
     supabase.from('departments').select('id,department_name').in('institution_id', institutionIds).order('department_name')
-      .then(({ data }) => setDepartments((data ?? []).map((d: any) => ({ id: d.id, name: d.department_name }))));
+      .then(({ data, error }) => {
+        if (error) { toast.error(`Couldn't load departments: ${error.message}`); }
+        setDepartments((data ?? []).map((d: any) => ({ id: d.id, name: d.department_name })));
+      });
   }, [institutionIds]);
 
   // Prune degree/department picks whose institution was deselected.
@@ -106,7 +115,7 @@ function NewInductionForm() {
     setPreviewing(true);
     try {
       const res = await InductionService.previewEnroll({
-        institutionId: institutionIds[0] ?? '',
+        institutionId: institutionIds[0] ?? null,
         admissionYear: Number(admissionYear),
         institutionIds,
         degreeIds: degreeIds.length ? degreeIds : undefined,
@@ -133,7 +142,7 @@ function NewInductionForm() {
     setCreating(true);
     try {
       const eventId = await InductionService.createProgram({
-        institutionId: institutionIds[0] ?? '',
+        institutionId: institutionIds[0] ?? null,
         institutionIds,
         academicYearId: null,
         name: name.trim(),
