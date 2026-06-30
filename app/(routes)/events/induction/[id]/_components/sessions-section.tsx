@@ -13,6 +13,7 @@ import { InductionSpeakersService, type DirectoryUser } from '@/lib/services/ind
 import { PersonAvailabilityService } from '@/lib/services/availability/person-availability';
 import { useAuth } from '@/hooks/use-auth';
 import { AttendanceDialog } from './attendance-dialog';
+import { SessionPollDialog } from './session-poll-dialog';
 import { SessionSpeakerPicker } from './session-speaker-picker';
 import { VenueRoomPicker } from '@/app/(routes)/meetings/manage/_components/venue-room-picker';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -395,6 +396,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                         {/* actions */}
                         <div className="flex gap-1 shrink-0">
                           <AttendanceDialog sessionId={s.id} sessionTitle={s.title} />
+                          <SessionPollDialog sessionId={s.id} sessionTitle={s.title} />
                           <Button size="icon" variant="ghost" onClick={() => openEdit(s)}><Pencil className="h-4 w-4" /></Button>
                           <Button size="icon" variant="ghost" onClick={() => remove(s)}><Trash2 className="h-4 w-4" /></Button>
                         </div>
