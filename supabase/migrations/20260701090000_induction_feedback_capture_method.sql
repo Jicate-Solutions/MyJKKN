@@ -26,4 +26,17 @@ UPDATE public.event_session_feedback SET capture_method = 'phone' WHERE capture_
 CREATE INDEX IF NOT EXISTS idx_esf_capture_method
   ON public.event_session_feedback(event_id, capture_method);
 
+-- DB-enforce the load-bearing invariant (submitted_by IS NULL ⟺ capture_method='phone')
+-- so a drifted row can never make the proxy/volunteer anti-clobber misclassify an
+-- own-login row as overwritable (review #1694 r4). Idempotent.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                 WHERE conname = 'event_session_feedback_submitter_method_chk') THEN
+    ALTER TABLE public.event_session_feedback
+      ADD CONSTRAINT event_session_feedback_submitter_method_chk
+      CHECK ((submitted_by IS NULL) = (capture_method = 'phone'));
+  END IF;
+END $$;
+
 NOTIFY pgrst, 'reload schema';

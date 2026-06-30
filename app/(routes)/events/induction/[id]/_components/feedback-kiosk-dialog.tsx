@@ -32,15 +32,26 @@ export function FeedbackKioskDialog({ sessionId, sessionTitle }: { sessionId: st
   const [comments, setComments] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [feedbackError, setFeedbackError] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setFeedbackError(false);
     try {
-      const [r, fb] = await Promise.all([
-        InductionService.getSessionRoster(sessionId),
-        InductionService.getSessionFeedbackRoster(sessionId).catch(() => []),
-      ]);
+      const r = await InductionService.getSessionRoster(sessionId);
       setRoster(r);
+      // The existing-feedback roster tells us which rows are SELF-LOCKED. If it fails we
+      // must NOT fall back to "empty" — every fresher would look unlocked, and a re-rate
+      // of a self-rated fresher would be silently anti-clobber-dropped. Surface it and
+      // block saving until a successful reload. (review #1694 r4 MEDIUM)
+      let fb: { learner_id: string; rating: number; comment: string | null; is_self: boolean }[];
+      try {
+        fb = await InductionService.getSessionFeedbackRoster(sessionId);
+      } catch {
+        setFeedbackError(true);
+        setExisting({}); setRatings({}); setComments({});
+        return;
+      }
       const ex: Record<string, ExistingFeedback> = {};
       const initRatings: Record<string, number> = {};
       const initComments: Record<string, string> = {};
@@ -87,7 +98,12 @@ export function FeedbackKioskDialog({ sessionId, sessionTitle }: { sessionId: st
     setSaving(true);
     try {
       const n = await InductionService.submitFeedbackProxy(sessionId, payload);
-      toast.success(`Saved ${n} rating${n === 1 ? '' : 's'}.`);
+      const skipped = payload.length - n;
+      // The proxy filters/anti-clobber-skips ineligible or self-rated rows — surface
+      // that instead of implying every tap saved (review #1694 r4 MEDIUM).
+      toast.success(
+        `Saved ${n} rating${n === 1 ? '' : 's'}${skipped > 0 ? ` · ${skipped} not saved (already self-rated or no longer eligible)` : ''}.`,
+      );
       setOpen(false);
     } catch (e: any) {
       toast.error(`Couldn't save ratings: ${e.message ?? e}`);
@@ -116,6 +132,13 @@ export function FeedbackKioskDialog({ sessionId, sessionTitle }: { sessionId: st
           <span>{roster.length} enrolled · {ratedCount} rated · {lockedCount} self</span>
           {dirtyIds.length > 0 && <span>{dirtyIds.length} to save</span>}
         </div>
+
+        {feedbackError && (
+          <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
+            <span className="min-w-0">Couldn&apos;t load existing ratings — saving is disabled so a self-rated fresher isn&apos;t accidentally overwritten.</span>
+            <Button size="sm" variant="outline" onClick={load} disabled={loading} className="shrink-0">Retry</Button>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto divide-y">
           {loading ? (
@@ -172,7 +195,7 @@ export function FeedbackKioskDialog({ sessionId, sessionTitle }: { sessionId: st
 
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>Cancel</Button>
-          <Button onClick={save} disabled={saving || dirtyIds.length === 0}>
+          <Button onClick={save} disabled={saving || dirtyIds.length === 0 || feedbackError}>
             {saving ? 'Saving…' : 'Save ratings'}
           </Button>
         </DialogFooter>

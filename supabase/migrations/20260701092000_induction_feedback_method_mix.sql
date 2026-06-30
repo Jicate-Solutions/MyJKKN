@@ -62,6 +62,10 @@ BEGIN
     SELECT f.learner_id, bool_or(f.capture_method = 'phone') AS has_phone
     FROM public.event_session_feedback f
     WHERE f.event_id = p_event_id
+      -- only still-enrolled learners (a since-unenrolled learner's old feedback must not
+      -- push responders > enrolled / response_rate > 1.0 — review #1694 r4)
+      AND EXISTS (SELECT 1 FROM public.induction_enrollment ie
+                  WHERE ie.event_id = p_event_id AND ie.learner_id = f.learner_id)
     GROUP BY f.learner_id
   )
   SELECT count(*)::int,

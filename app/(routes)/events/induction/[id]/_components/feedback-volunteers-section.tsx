@@ -40,7 +40,10 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
     try {
       const [v, m] = await Promise.all([
         InductionVolunteerService.listVolunteers(eventId),
-        InductionService.getFeedbackMethodMix(eventId).catch(() => null),
+        // Don't swallow a transient mix error — let it flow to the catch (Retry), else the
+        // bias/coverage meter silently vanishes, defeating "the loop must KNOW its sample
+        // is biased" (review #1694 r4). Both RPCs need induction.view, so they fail together.
+        InductionService.getFeedbackMethodMix(eventId),
       ]);
       setVols(v);
       setMix(m);
