@@ -7,6 +7,10 @@ import { routeMatcher } from './lib/auth/route-matcher';
 import { FEATURE_FLAGS } from './lib/config/feature-flags';
 import { StudentValidationService } from './lib/services/auth/student-validation-service';
 import { PARENT_SESSION_COOKIE, verifyParentSession } from './lib/auth/parent-jwt';
+import {
+  SCHOOL_PORTAL_SESSION_COOKIE,
+  verifySchoolPortalSession,
+} from './lib/auth/school-portal-jwt';
 
 // Parent Portal pages that are reachable WITHOUT a parent_session (the auth
 // funnel). Everything else under /parent/* requires a valid parent_session JWT.
@@ -40,6 +44,49 @@ async function handleParentPortal(request: NextRequest, currentPath: string) {
 
   if (!claims && !PARENT_PUBLIC_PATHS.has(currentPath)) {
     const url = new URL('/parent/login', request.url);
+    url.searchParams.set('redirectedFrom', currentPath);
+    return NextResponse.redirect(url);
+  }
+
+  const res = NextResponse.next();
+  res.headers.set('Cache-Control', 'no-store, must-revalidate');
+  res.headers.set('X-Content-Type-Options', 'nosniff');
+  res.headers.set('X-Frame-Options', 'SAMEORIGIN');
+  return res;
+}
+
+// Schools Network HM Portal — same dual-auth shape as the parent portal:
+// HMs are NOT in auth.users, so /schools-portal/* must be reachable without
+// a Supabase session. The login + verify pages are unauthenticated; the
+// dashboard / update-contact pages require a school_portal_session JWT.
+//
+// API auth for /api/schools-portal/* is enforced in-route via
+// resolveHmSession() (see lib/services/schools-portal/session-guard.ts) —
+// /api/* paths short-circuit isPublicPath() and don't need a per-route
+// gate in this proxy.
+const SCHOOL_PORTAL_PUBLIC_PATHS = new Set([
+  '/schools-portal',
+  '/schools-portal/login',
+  '/schools-portal/verify',
+]);
+
+const SCHOOL_PORTAL_REDIRECT_WHEN_AUTHED = new Set([
+  '/schools-portal',
+  '/schools-portal/login',
+]);
+
+async function handleSchoolsPortal(request: NextRequest, currentPath: string) {
+  const token = request.cookies.get(SCHOOL_PORTAL_SESSION_COOKIE)?.value;
+  const claims = await verifySchoolPortalSession(token);
+
+  if (claims && SCHOOL_PORTAL_REDIRECT_WHEN_AUTHED.has(currentPath)) {
+    return NextResponse.redirect(
+      new URL('/schools-portal/dashboard', request.url),
+    );
+  }
+
+  if (!claims && !SCHOOL_PORTAL_PUBLIC_PATHS.has(currentPath)) {
+    const url = new URL('/schools-portal/login', request.url);
     url.searchParams.set('redirectedFrom', currentPath);
     return NextResponse.redirect(url);
   }
@@ -166,6 +213,16 @@ export async function proxy(request: NextRequest) {
     // staff /auth/login).
     if (currentPath === '/parent' || currentPath.startsWith('/parent/')) {
       return handleParentPortal(request, currentPath);
+    }
+
+    // Schools Network HM Portal — same dual-auth shape as the parent portal.
+    // HMs sign in via magic link (no Supabase session). Gate /schools-portal/*
+    // with the school_portal_session JWT before the staff Supabase flow runs.
+    if (
+      currentPath === '/schools-portal' ||
+      currentPath.startsWith('/schools-portal/')
+    ) {
+      return handleSchoolsPortal(request, currentPath);
     }
 
     // NOTE: /api/parent/* (and every other /api/*) is handled by the
@@ -565,6 +622,7 @@ export const config = {
     '/guest/:path*',
     '/driver/:path*',
     '/parent/:path*',
+    '/schools-portal/:path*',
     // Match all paths except public ones
     '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|auth/test-login|auth/lti-login|auth/audit-login|auth/dev-login|icons|pwa-test.html).*)'
   ]
