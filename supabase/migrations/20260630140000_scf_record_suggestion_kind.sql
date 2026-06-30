@@ -87,12 +87,17 @@ BEGIN
 END;
 $function$;
 
--- Mandatory anon lock (Supabase grants anon EXECUTE on every new function by default).
+-- LOCK: service_role ONLY (consistent with 150000/160000). This is SECURITY
+-- DEFINER and writes ANY tenant's suggestion row with no per-caller scoping; its
+-- only callers are server-side service-role (the cron + the ai-suggest-improvement
+-- route's createServiceRoleClient). Granting `authenticated` would be a cross-tenant
+-- forge/overwrite primitive — so this migration leaves the function safe on its own
+-- rather than relying on the downstream 160000 to revoke a too-broad grant.
 REVOKE EXECUTE ON FUNCTION public.fn_scf_record_suggestion(
   uuid, text, text, date, date, integer, integer, numeric, jsonb, text, uuid, text
-) FROM anon, PUBLIC;
+) FROM anon, authenticated, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_scf_record_suggestion(
   uuid, text, text, date, date, integer, integer, numeric, jsonb, text, uuid, text
-) TO authenticated;
+) TO service_role;
 
 NOTIFY pgrst, 'reload schema';
