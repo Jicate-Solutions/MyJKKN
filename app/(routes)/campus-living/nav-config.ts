@@ -633,6 +633,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/settings/choose-your-menu'],
         },
         {
+          label: 'Mess & Daily Services',
+          icon: 'Sliders',
+          href: '/campus-living/settings/mess-services',
+          matchPaths: ['/campus-living/settings/mess-services'],
+        },
+        {
           label: 'Fee Config',
           icon: 'Coins',
           href: '/campus-living/settings/fee-config',
