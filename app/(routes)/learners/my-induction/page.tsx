@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { SessionsLedCard } from './_components/sessions-led-card';
 import { InductionPulseBanner } from './_components/induction-pulse-banner';
+import { SessionPollBanner } from './_components/session-poll-banner';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -130,6 +131,8 @@ export default function MyInductionPage() {
           <>
             {/* Live pulse — a resource person is collecting feedback right now */}
             <InductionPulseBanner />
+            {/* Session poll — answer open opinion polls for this induction */}
+            <SessionPollBanner />
 
             {/* Header — induction + my completion */}
             <Card>
