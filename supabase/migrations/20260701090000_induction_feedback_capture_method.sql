@@ -15,9 +15,17 @@
 ALTER TABLE public.event_session_feedback
   ADD COLUMN IF NOT EXISTS capture_method TEXT NOT NULL DEFAULT 'phone'
     CHECK (capture_method IN ('phone','volunteer_kiosk')),
-  ADD COLUMN IF NOT EXISTS submitted_by UUID REFERENCES public.profiles(id);
+  ADD COLUMN IF NOT EXISTS submitted_by UUID;
     -- NULL  → student self-submit on their own login ('phone', authoritative).
     -- set   → the volunteer/coordinator who entered a 'volunteer_kiosk' row.
+    -- NO FK to profiles: this holds auth.uid(), and the sibling marked_by/appointed_by
+    -- audit columns are deliberately FK-less for auth.uid()-valued columns. An FK here
+    -- would fail-CLOSED for any authenticated actor lacking a profiles row (review #1694 r5 HIGH).
+
+-- Remove the FK the ORIGINAL column-add created on prod (idempotent; no-op on a fresh DB
+-- where the column above is now created without it).
+ALTER TABLE public.event_session_feedback
+  DROP CONSTRAINT IF EXISTS event_session_feedback_submitted_by_fkey;
 
 -- The existing rows are all student self-submits → already 'phone' via DEFAULT.
 -- (No real backfill needed, but assert it explicitly for the audit trail.)

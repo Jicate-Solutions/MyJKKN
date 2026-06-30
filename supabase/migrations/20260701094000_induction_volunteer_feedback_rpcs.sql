@@ -423,20 +423,13 @@ BEGIN
   WHERE v.event_id = v_event AND v.learner_id = v_my_learner AND v.is_active;
   IF v_vol IS NULL THEN RAISE EXCEPTION 'fn_induction_volunteer_submit_feedback: not an assigned feedback volunteer'; END IF;
 
-  -- SCOPE: every rated entry must be a fresher in MY group (YIP requireJurySession shape).
-  IF EXISTS (
-    SELECT 1 FROM jsonb_array_elements(p_marks) e
-    WHERE (e->>'rating') IS NOT NULL
-      AND NOT EXISTS (
-        SELECT 1 FROM public.induction_feedback_volunteer_group g
-        WHERE g.volunteer_id = v_vol AND g.learner_id = (e->>'learner_id')::uuid)
-  ) THEN
-    RAISE EXCEPTION 'fn_induction_volunteer_submit_feedback: a fresher in the payload is not in your assigned group';
-  END IF;
-
-  -- DISTINCT ON dedupes a learner repeated in the payload (else ON CONFLICT "cannot
-  -- affect row a second time" aborts the save — review #1694 r3). The upfront group
-  -- check already RAISEd on any out-of-group id (authz), so this only drops benign dups.
+  -- SCOPE + FILTER (don't abort): the in-group / enrolled / batch / range checks below
+  -- SKIP ineligible rows rather than RAISE-aborting the whole batch — if an autobalance
+  -- or removal moves one fresher between the mentor's load and save, the rest of the
+  -- collected kiosk ratings still save (review #1694 r5; matches the proxy writer). A
+  -- mentor still cannot write outside their group: the in-group EXISTS filters it out.
+  -- DISTINCT ON also dedupes a learner repeated in the payload (else ON CONFLICT "cannot
+  -- affect row a second time" would abort the save).
   WITH valid AS (
     SELECT DISTINCT ON ((e->>'learner_id')::uuid)
            (e->>'learner_id')::uuid AS learner_id,
@@ -466,17 +459,22 @@ BEGIN
   WHERE public.event_session_feedback.submitted_by IS NOT NULL;
   GET DIAGNOSTICS v_n = ROW_COUNT;
 
-  -- refresh the leading metric for every touched fresher (same as the phone/self RPC)
+  -- refresh the leading metric for every touched fresher (same as the phone/self RPC).
+  -- DISTINCT source: a learner repeated in the payload must not yield two completion rows
+  -- for the same (event,learner) → ON CONFLICT "cannot affect row a second time" would
+  -- abort the save (review #1694 r5 MEDIUM; matches the proxy writer's deduped refresh).
   INSERT INTO public.induction_completion (event_id, learner_id, institution_id, value_score_avg, updated_at)
-  SELECT v_event, (e->>'learner_id')::uuid, v_inst,
+  SELECT v_event, picked.learner_id, v_inst,
          (SELECT round(avg(f.rating), 2) FROM public.event_session_feedback f
-            WHERE f.event_id = v_event AND f.learner_id = (e->>'learner_id')::uuid),
+            WHERE f.event_id = v_event AND f.learner_id = picked.learner_id),
          now()
-  FROM jsonb_array_elements(p_marks) e
-  WHERE (e->>'rating') IS NOT NULL
-    AND EXISTS (
-      SELECT 1 FROM public.induction_feedback_volunteer_group g
-      WHERE g.volunteer_id = v_vol AND g.learner_id = (e->>'learner_id')::uuid)
+  FROM (
+    SELECT DISTINCT (e->>'learner_id')::uuid AS learner_id
+    FROM jsonb_array_elements(p_marks) e
+    WHERE (e->>'rating') IS NOT NULL
+      AND EXISTS (SELECT 1 FROM public.induction_feedback_volunteer_group g
+                  WHERE g.volunteer_id = v_vol AND g.learner_id = (e->>'learner_id')::uuid)
+  ) picked
   ON CONFLICT (event_id, learner_id) DO UPDATE SET
     value_score_avg = EXCLUDED.value_score_avg, updated_at = now();
 
