@@ -5,24 +5,15 @@
  *
  * Consolidates the scattered policy/workflow settings surfaces — curfew, leave
  * types, approval chains, notification rules and general settings — into ONE page
- * of stacked sections. Follows the live-verified PR #1683 pattern (Allocations &
- * Eligibility): same page shell, same `campus_living.settings.view` gate, no new
- * permission key, and it REUSES the existing section editors rather than rewriting
- * them.
+ * of stacked, INLINE sections. Follows the live-verified PR #1683 pattern.
  *
- * Reuse strategy (one section per sub-domain):
- *  - Leave Types — INLINED. Reuses the self-fetching <HostelLeaveTypesDataTable/>
- *    + <HostelLeaveTypeFormDialog/> exactly like the pilot reused the categories
- *    and eligibility editors.
- *  - Curfew, Approval Chains, Notification Rules, General — LINKED. Each of these is
- *    a bespoke full-page editor that wraps its OWN ContentLayout / chrome and exports
- *    only its page component (no reusable sub-component). Embedding it inline would
- *    double-wrap the page chrome, so each gets a labelled section that opens the
- *    existing editor in place. No editor is rewritten.
+ * Each sub-domain's editor body was extracted into a reusable chrome-less Section
+ * component (the …Section exports below); this page embeds them directly so every
+ * editor is inline on one page. Leave Types stays a self-fetching table + dialog.
+ * No editor logic is rewritten; same `campus_living.settings.view` gate, no new key.
  */
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -34,13 +25,19 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus, ArrowRight } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PermissionError } from '@/components/errors/permission-error';
 
 // Reuse — leave types editor (self-fetching table + form dialog)
 import { HostelLeaveTypesDataTable } from '../leave-types/_components/hostel-leave-types-data-table';
 import { HostelLeaveTypeFormDialog } from '../leave-types/_components/hostel-leave-type-form-dialog';
+
+// Inline — the extracted chrome-less section editors (each renders its own heading + cards)
+import { CurfewSection } from '../curfew/_components/-curfew-section';
+import { ApprovalChainsSection } from '../approval-chains/_components/-approval-chains-section';
+import { NotificationRulesSection } from '../notification-rules/_components/-notification-rules-section';
+import { GeneralSettingsSection } from '../general/_components/-general-settings-section';
 
 function SectionHeader({
   title,
@@ -62,37 +59,9 @@ function SectionHeader({
   );
 }
 
-/**
- * A linked section — for bespoke full-page editors that own their page chrome and
- * can't be embedded inline without double-wrapping. Renders the section header plus
- * an "Open" button that navigates to the existing editor.
- */
-function LinkedSection({
-  title,
-  description,
-  href,
-}: {
-  title: string;
-  description: string;
-  href: string;
-}) {
-  return (
-    <Card>
-      <CardContent className='p-6'>
-        <SectionHeader
-          title={title}
-          description={description}
-          action={
-            <Button asChild variant='outline'>
-              <Link href={href}>
-                Open <ArrowRight className='ml-2 h-4 w-4' />
-              </Link>
-            </Button>
-          }
-        />
-      </CardContent>
-    </Card>
-  );
+/** A divider so each inline editor reads as a distinct section of the page. */
+function SectionDivider() {
+  return <div className='border-t' />;
 }
 
 export default function PoliciesWorkflowsConfigPage() {
@@ -114,7 +83,7 @@ export default function PoliciesWorkflowsConfigPage() {
       }
     >
       <ContentLayout title='Policies & Workflows'>
-        <div className='space-y-6'>
+        <div className='space-y-8'>
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
@@ -139,19 +108,17 @@ export default function PoliciesWorkflowsConfigPage() {
             <h1 className='text-xl font-semibold tracking-tight'>Policies &amp; Workflows</h1>
             <p className='mt-1 max-w-3xl text-sm text-muted-foreground'>
               One place to configure the rules and approvals that govern hostel life —
-              curfew, leave, approval chains, notifications and general defaults. Each
-              section reuses its existing editor; changes apply live, no deploy needed.
+              curfew, leave, approval chains, notifications and general defaults. Every
+              section is inline and reuses its existing editor; changes apply live.
             </p>
           </div>
 
-          {/* Section 1 — Curfew (linked: bespoke full-page editor with a live resolver) */}
-          <LinkedSection
-            title='Curfew policies'
-            description='Entry and exit curfew times by institution, gender and day of week — the strictest active rule wins per direction.'
-            href='/campus-living/settings/curfew'
-          />
+          {/* Curfew — inline */}
+          <CurfewSection />
 
-          {/* Section 2 — Leave types (INLINED: self-fetching table + form dialog) */}
+          <SectionDivider />
+
+          {/* Leave types — inline (self-fetching table + form dialog) */}
           <Card>
             <CardContent className='p-6 space-y-6'>
               <SectionHeader
@@ -167,26 +134,20 @@ export default function PoliciesWorkflowsConfigPage() {
             </CardContent>
           </Card>
 
-          {/* Section 3 — Approval chains (linked: bespoke full-page editor) */}
-          <LinkedSection
-            title='Approval chains'
-            description='Who approves what — the multi-step approval workflow for leave, curfew exemptions and visitor requests.'
-            href='/campus-living/settings/approval-chains'
-          />
+          <SectionDivider />
 
-          {/* Section 4 — Notification rules (linked: bespoke full-page editor) */}
-          <LinkedSection
-            title='Notification rules'
-            description='When and how residents and wardens are alerted — the email, SMS and push rules that fire per hostel event.'
-            href='/campus-living/settings/notification-rules'
-          />
+          {/* Approval chains — inline */}
+          <ApprovalChainsSection />
 
-          {/* Section 5 — General settings (linked: bespoke single-form editor) */}
-          <LinkedSection
-            title='General settings'
-            description='Foundational campus-living configuration — academic year, hostel names and basic operational defaults.'
-            href='/campus-living/settings/general'
-          />
+          <SectionDivider />
+
+          {/* Notification rules — inline */}
+          <NotificationRulesSection />
+
+          <SectionDivider />
+
+          {/* General settings — inline */}
+          <GeneralSettingsSection />
 
           {/* Dialogs */}
           <HostelLeaveTypeFormDialog
