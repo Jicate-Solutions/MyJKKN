@@ -42,6 +42,9 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
 
   async function refresh(pid: string) {
     try { const t = await InductionPollService.getTotals(pid); setTotals(t);
+      // Lock destructive edits the moment the first vote lands (don't wait for a
+      // dialog re-open): response_count > 0 means votes exist.
+      if (t && t.response_count > 0) setHasVotes(true);
       if (t && t.status !== 'open') { stop(); setStatus(t.status); } } catch { /* keep last */ }
   }
   function startPoll(pid: string) { stop(); timer.current = setInterval(() => refresh(pid), 8000); }

@@ -21,7 +21,13 @@ export function SessionPollBanner() {
   const load = useCallback(async () => {
     try { setPolls(await InductionPollService.getMyOpenPolls()); } catch { /* silent */ }
   }, []);
-  useEffect(() => { load(); }, [load]);
+  // Poll discovery every 15s (mirrors induction-pulse-banner) so a fresher who has
+  // the page open sees a poll appear when the host opens it, without a manual reload.
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 15000);
+    return () => clearInterval(t);
+  }, [load]);
 
   const openForm = async (pollId: string) => {
     try { const f = await InductionPollService.getForAnswering(pollId); setActive(f); setPicks(f?.my_answers ?? {}); }
@@ -34,8 +40,14 @@ export function SessionPollBanner() {
   });
   const submit = async () => {
     if (!active) return;
-    const answers = active.questions.map((q) => ({ question_id: q.id, option_ids: picks[q.id] ?? [] }))
-      .filter((a) => a.option_ids.length);
+    // Submit single-choice only when exactly one is picked (the RPC rejects 0);
+    // submit multi-choice ALWAYS — including empty — so deselecting all clears the
+    // prior ballot ("change while open"). Untouched questions keep their pre-filled
+    // my_answers, so re-submitting them is a harmless no-op.
+    const answers = active.questions
+      .map((q) => ({ q, option_ids: picks[q.id] ?? [] }))
+      .filter(({ q, option_ids }) => q.kind === 'multi' || option_ids.length === 1)
+      .map(({ q, option_ids }) => ({ question_id: q.id, option_ids }));
     setBusy(true);
     try { await InductionPollService.submit(active.poll_id, answers); toast.success('Submitted — you can change your answers while the poll is open.'); setActive(null); await load(); }
     catch (e: any) { toast.error(e?.message ?? 'Could not submit'); } finally { setBusy(false); }
