@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
-import { Settings, IndianRupee, CalendarDays, Wrench, Bell, GitBranch, ArrowRight, LayoutGrid, CalendarRange, Wifi, Wind, ListChecks, Package, Calculator, Sparkles, UtensilsCrossed } from 'lucide-react';
+import { Settings, IndianRupee, CalendarDays, Wrench, Bell, GitBranch, ArrowRight, LayoutGrid, CalendarRange, Wifi, Wind, ListChecks, Package, Calculator, Sparkles, UtensilsCrossed, RefreshCw } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 
 export default function SettingsPage() {
@@ -22,6 +22,7 @@ export default function SettingsPage() {
     { title: 'Housekeeping Booking', desc: 'Slot length, daily window, capacity, advance booking, cancellation cutoff, and per-tier weekly quotas — with a live plain-English preview', href: '/campus-living/settings/housekeeping', icon: Sparkles, superAdminOnly: true },
     { title: 'Choose Your Menu', desc: 'Per-mode × per-tier toggles for menu personalization, voting, and special-day proposals — with a live plain-English preview of what residents experience', href: '/campus-living/settings/choose-your-menu', icon: UtensilsCrossed, superAdminOnly: true },
     { title: 'Leave Types', desc: 'Configure leave types, max days, parent consent requirements', href: '/campus-living/settings/leave-types', icon: CalendarDays },
+    { title: 'Menu Loop', desc: 'Review the self-improving loop’s menu proposals — accept, reject, or mark edited — and read the causal-validity guard that proves measured lift is real, not regression to the mean', href: '/campus-living/mess/menu-loop', icon: RefreshCw, superAdminOnly: true },
     { title: 'Maintenance SLA', desc: 'Set SLA targets by category and priority level', href: '/campus-living/settings/maintenance-sla', icon: Wrench },
     { title: 'Notification Rules', desc: 'Email, SMS, and push notification preferences', href: '/campus-living/settings/notification-rules', icon: Bell },
     { title: 'Approval Chains', desc: 'Configure approval workflows for leave, curfew, visitors', href: '/campus-living/settings/approval-chains', icon: GitBranch },

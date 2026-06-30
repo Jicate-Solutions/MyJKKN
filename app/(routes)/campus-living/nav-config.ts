@@ -645,6 +645,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/settings/leave-types'],
         },
         {
+          label: 'Menu Loop',
+          icon: 'RefreshCw',
+          href: '/campus-living/mess/menu-loop',
+          matchPaths: ['/campus-living/mess/menu-loop'],
+        },
+        {
           label: 'Approval Chains',
           icon: 'GitBranch',
           href: '/campus-living/settings/approval-chains',
