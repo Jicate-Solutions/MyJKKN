@@ -30,10 +30,10 @@ import { useDepartments } from '@/hooks/organization/use-departments';
 import { usePrograms } from '@/hooks/organization/use-programs';
 import { useSemesters } from '@/hooks/organization/use-semesters';
 import { useSections } from '@/hooks/organization/use-sections';
-import { X, Search, UserPlus, AlertTriangle, GraduationCap, Briefcase } from 'lucide-react';
+import { X, Search, UserPlus, AlertTriangle, GraduationCap, Briefcase, Users } from 'lucide-react';
 
 const ANY = '__any__';
-type PersonType = 'facilitator' | 'learner';
+type PersonType = 'facilitator' | 'learner' | 'anyone';
 
 // '<input type=datetime-local>' string (local) -> ISO; '' if missing/invalid.
 function toIso(local?: string): string {
@@ -168,13 +168,16 @@ export function SessionSpeakerPicker({
     timer.current = setTimeout(async () => {
       setSearching(true);
       try {
-        const rows = type === 'facilitator'
-          ? await InductionSpeakersService.searchFacilitators({
-              institutionId, departmentId, query,
-            })
-          : await InductionSpeakersService.searchLearnerSpeakers({
-              institutionId, degreeId, departmentId, programId, semesterId, sectionId, query,
-            });
+        const rows =
+          type === 'facilitator'
+            ? await InductionSpeakersService.searchFacilitators({
+                institutionId, departmentId, query,
+              })
+            : type === 'learner'
+              ? await InductionSpeakersService.searchLearnerSpeakers({
+                  institutionId, degreeId, departmentId, programId, semesterId, sectionId, query,
+                })
+              : await InductionSpeakersService.searchDirectory({ institutionId, query });
         setResults(rows);
       } catch (e: any) {
         toast.error(`Search failed: ${e.message ?? e}`);
@@ -195,7 +198,7 @@ export function SessionSpeakerPicker({
       id: r.id,
       full_name: r.full_name,
       email: r.email,
-      role: type === 'learner' ? 'Learner' : 'Facilitator',
+      role: type === 'learner' ? 'Learner' : type === 'facilitator' ? 'Facilitator' : (r.sub_label || 'Resource person'),
     }]);
   };
   const remove = (id: string) => onChange(value.filter((u) => u.id !== id));
@@ -272,7 +275,7 @@ export function SessionSpeakerPicker({
 
       {/* type toggle */}
       <div className="inline-flex rounded-md border p-0.5">
-        {([['facilitator', 'Facilitator', Briefcase], ['learner', 'Learner', GraduationCap]] as const).map(([t, lbl, Icon]) => (
+        {([['facilitator', 'Facilitator', Briefcase], ['learner', 'Learner', GraduationCap], ['anyone', 'Anyone', Users]] as const).map(([t, lbl, Icon]) => (
           <button
             key={t}
             type="button"
@@ -295,8 +298,10 @@ export function SessionSpeakerPicker({
           <FilterSelect label="Degree" value={degreeId} onChange={onDegree} disabled={disabled}
             placeholder="Any degree" options={(degrees as any[]).map((d) => ({ id: d.id, name: d.degree_name }))} />
         )}
-        <FilterSelect label="Department" value={departmentId} onChange={onDepartment} disabled={disabled}
-          placeholder="Any department" options={(departments as any[]).map((d) => ({ id: d.id, name: d.department_name }))} />
+        {type !== 'anyone' && (
+          <FilterSelect label="Department" value={departmentId} onChange={onDepartment} disabled={disabled}
+            placeholder="Any department" options={(departments as any[]).map((d) => ({ id: d.id, name: d.department_name }))} />
+        )}
         {type === 'learner' && (
           <>
             <FilterSelect label="Program" value={programId} onChange={onProgram} disabled={disabled}
@@ -316,7 +321,7 @@ export function SessionSpeakerPicker({
           value={query}
           disabled={disabled}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={type === 'learner' ? 'Search learners by name or roll no…' : 'Search staff by name or staff id…'}
+          placeholder={type === 'learner' ? 'Search learners by name or roll no…' : type === 'anyone' ? 'Search all users by name or email…' : 'Search staff by name or staff id…'}
           className="border-0 focus-visible:ring-0 px-0 h-9"
         />
       </div>
@@ -327,7 +332,9 @@ export function SessionSpeakerPicker({
           <div className="p-2 space-y-1"><Skeleton className="h-8 w-full" /><Skeleton className="h-8 w-full" /></div>
         ) : visibleResults.length === 0 ? (
           <p className="p-3 text-xs text-muted-foreground">
-            No matching {type === 'learner' ? 'learners' : 'staff'}. Narrow the filters or check the name.
+            {type === 'anyone'
+              ? 'No matching users. Type a name/email or pick an institution.'
+              : `No matching ${type === 'learner' ? 'learners' : 'staff'}. Narrow the filters or check the name.`}
           </p>
         ) : (
           visibleResults.map((r) => (
@@ -350,7 +357,7 @@ export function SessionSpeakerPicker({
       </div>
 
       <p className="text-[11px] text-muted-foreground">
-        Pick the actual people who led this session. Only staff and learners with a login account appear — a department isn&apos;t a speaker.
+        Pick the actual people who led this session. Only people with a login account appear — a department isn&apos;t a speaker.
       </p>
     </div>
   );
