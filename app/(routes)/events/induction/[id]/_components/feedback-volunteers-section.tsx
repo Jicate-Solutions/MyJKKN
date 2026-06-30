@@ -147,7 +147,7 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
           <p className="text-sm text-muted-foreground py-2">Loading mentors…</p>
         ) : vols.length === 0 ? (
           <p className="text-sm text-muted-foreground py-2">
-            No peer mentors yet. Appoint a few senior students, then auto-balance the cohort across them.
+            No peer mentors yet. Appoint a few, then auto-balance the cohort across them.
           </p>
         ) : (
           <div className="space-y-2">
