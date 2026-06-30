@@ -48,6 +48,9 @@ export default function InductionDetailPage() {
   const [admissionYear, setAdmissionYear] = useState<number | null>(null);
   const [enrollScope, setEnrollScope] = useState<string | null>(null);
   const [degreeFilter, setDegreeFilter] = useState<string | null>(null);
+  const [targetInstitutionIds, setTargetInstitutionIds] = useState<string[] | null>(null);
+  const [targetDegreeIds, setTargetDegreeIds] = useState<string[] | null>(null);
+  const [targetDepartmentIds, setTargetDepartmentIds] = useState<string[] | null>(null);
   const [venueName, setVenueName] = useState<string | null>(null);
   const [enrolled, setEnrolled] = useState(0);
   const [batches, setBatches] = useState<BatchCount[]>([]);
@@ -65,7 +68,7 @@ export default function InductionDetailPage() {
     setLoading(true);
     const [{ data: ev }, { data: prog }, { count }, { data: batchRows }] = await Promise.all([
       supabase.from('events').select('id,name,status,start_date,end_date,institution_id,venue_text,venue_resource_id,institutions(name)').eq('id', id).maybeSingle(),
-      supabase.from('induction_programs').select('event_id, academic_year_id, admission_year, enroll_scope, degree_type_filter').eq('event_id', id).maybeSingle(),
+      supabase.from('induction_programs').select('event_id, academic_year_id, admission_year, enroll_scope, degree_type_filter, target_institution_ids, target_degree_ids, target_department_ids').eq('event_id', id).maybeSingle(),
       supabase.from('induction_enrollment').select('id', { count: 'exact', head: true }).eq('event_id', id),
       supabase.from('induction_batches').select('id,label').eq('event_id', id).order('label'),
     ]);
@@ -75,6 +78,9 @@ export default function InductionDetailPage() {
     setAdmissionYear((prog as any)?.admission_year ?? null);
     setEnrollScope((prog as any)?.enroll_scope ?? null);
     setDegreeFilter((prog as any)?.degree_type_filter ?? null);
+    setTargetInstitutionIds((prog as any)?.target_institution_ids ?? null);
+    setTargetDegreeIds((prog as any)?.target_degree_ids ?? null);
+    setTargetDepartmentIds((prog as any)?.target_department_ids ?? null);
     setEnrolled(count ?? 0);
 
     // Resolve the main venue — a Resource-Management room (preferred) or custom text.
@@ -110,12 +116,12 @@ export default function InductionDetailPage() {
     setPreview(null);
     setPreviewing(true);
     try {
-      const res = await InductionService.previewEnroll({
-        institutionId: event.institution_id,
-        admissionYear,
-        enrollScope: (enrollScope as 'institution' | 'group') ?? 'institution',
-        degreeTypeFilter: (degreeFilter as 'ug' | 'pg' | null) ?? null,
-      });
+      const isMulti = (targetInstitutionIds?.length ?? 0) > 0;
+      const res = await InductionService.previewEnroll(
+        isMulti
+          ? { admissionYear, institutionIds: targetInstitutionIds!, degreeIds: targetDegreeIds ?? undefined, departmentIds: targetDepartmentIds ?? undefined }
+          : { institutionId: event.institution_id, admissionYear, enrollScope: (enrollScope as 'institution' | 'group') ?? 'institution', degreeTypeFilter: (degreeFilter as 'ug' | 'pg' | null) ?? null }
+      );
       setPreview(res);
     } catch (e: any) {
       toast.error(`Couldn't load preview: ${e.message ?? e}`);
@@ -174,8 +180,10 @@ export default function InductionDetailPage() {
   const dateRange = event.start_date
     ? `${new Date(event.start_date).toLocaleDateString()}${event.end_date ? ` – ${new Date(event.end_date).toLocaleDateString()}` : ''}`
     : null;
-  const scopeLabel = enrollScope === 'group'
-    ? 'All colleges (group)'
+  const isMultiTarget = (targetInstitutionIds?.length ?? 0) > 0;
+  const scopeLabel = isMultiTarget
+    ? `${targetInstitutionIds!.length} college${targetInstitutionIds!.length === 1 ? '' : 's'} targeted`
+    : enrollScope === 'group' ? 'All colleges (group)'
     : enrollScope === 'institution' ? 'This college only' : null;
 
   return (
@@ -225,7 +233,7 @@ export default function InductionDetailPage() {
             <CardTitle className="text-base">Cohort engine</CardTitle>
             <CardDescription>
               {admissionYear
-                ? `Auto-enroll adds reserved, admitted & account learners of admission year ${admissionYear}${enrollScope === 'group' ? ' across all colleges' : ' in this college'}, then split them into batches by department (classmates stay together).`
+                ? `Auto-enroll adds reserved, admitted & account learners of admission year ${admissionYear}${isMultiTarget ? ` across ${targetInstitutionIds!.length} targeted colleges` : enrollScope === 'group' ? ' across all colleges' : ' in this college'}, then split them into batches by department (classmates stay together).`
                 : 'Enroll the joining cohort, then split them into batches by department (classmates stay together).'}
             </CardDescription>
           </CardHeader>
@@ -333,7 +341,7 @@ export default function InductionDetailPage() {
                     ))}
                   </ul>
                 )}
-                {enrollScope === 'group' && preview.by_institution.length > 1 && (
+                {preview.by_institution.length > 1 && (
                   <div className="text-xs border-t pt-1.5">
                     <div className="text-muted-foreground mb-0.5">Across colleges:</div>
                     <ul className="space-y-0.5">

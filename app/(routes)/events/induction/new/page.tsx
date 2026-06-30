@@ -6,12 +6,13 @@
 // events row (event_type='induction') + the induction_programs satellite via
 // InductionService.createProgram. Reachable directly from /events/induction too.
 //
-// Institution-wise + admission-year based: pick the owning institution, the
-// cohort admission YEAR (from the admission-year module via useGroupAdmissionYears),
-// and whether to enroll only this college or all colleges (group). The main venue
-// is a Resource-Management room (VenueRoomPicker). No academic year — enrollment
-// is driven by admission year. Spec: specs/pre-onboarding-induction-access-2026-06-29.md
-import { Suspense, useEffect, useMemo, useState } from 'react';
+// Multi-institution targeting: pick one or more owning institutions, an optional
+// subset of degrees, and an optional subset of departments. The joining cohort is
+// identified by admission year (from the admission-year module via
+// useGroupAdmissionYears). The main venue is a Resource-Management room
+// (VenueRoomPicker). No academic year — enrollment is driven by admission year.
+// Spec: specs/pre-onboarding-induction-access-2026-06-29.md
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -28,6 +29,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Rocket, Eye, Loader2, Users, AlertTriangle } from 'lucide-react';
+import { MultiSelectPopover } from './_components/multi-select-popover';
 
 interface Institution { id: string; name: string; }
 
@@ -41,14 +43,16 @@ function NewInductionForm() {
   const [creating, setCreating] = useState(false);
 
   const [name, setName] = useState(search.get('name') ?? '');
-  const [institutionId, setInstitutionId] = useState('');
+  const [institutionIds, setInstitutionIds] = useState<string[]>([]);
+  const [degreeIds, setDegreeIds] = useState<string[]>([]);
+  const [departmentIds, setDepartmentIds] = useState<string[]>([]);
+  const [degrees, setDegrees] = useState<{ id: string; name: string }[]>([]);
+  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [venueResourceId, setVenueResourceId] = useState('');
   const [venueCustom, setVenueCustom] = useState('');
   const [admissionYear, setAdmissionYear] = useState('');
-  const [enrollScope, setEnrollScope] = useState<'institution' | 'group'>('institution');
-  const [degreeTypeFilter, setDegreeTypeFilter] = useState<'' | 'ug' | 'pg'>('');
 
   // Preview-before-enroll: who WOULD be enrolled for the chosen scope. Cleared
   // whenever the scope changes so a stale preview can't mislead the Confirm.
@@ -57,20 +61,17 @@ function NewInductionForm() {
 
   useEffect(() => {
     supabase.from('institutions').select('id,name').order('name')
-      .then(({ data }) => setInstitutions((data as any) ?? []));
+      .then(({ data, error }) => {
+        if (error) { toast.error(`Couldn't load institutions: ${error.message}`); }
+        setInstitutions((data as any) ?? []);
+      });
   }, []);
 
-  // Admission years from the admission-year module. Scope follows the enroll
-  // choice: "this college only" → the selected institution's cohorts; "all
-  // colleges" → every institution's cohorts (deduped by year). Stores the YEAR int.
-  const yearScopeIds = useMemo<string[] | null>(
-    () => (enrollScope === 'group' ? null : institutionId ? [institutionId] : []),
-    [enrollScope, institutionId],
-  );
+  // Admission years across the selected institutions (hook already takes an array).
   const { data: admissionYearOptions = [], isLoading: yearsLoading } =
-    useGroupAdmissionYears(yearScopeIds);
+    useGroupAdmissionYears(institutionIds.length ? institutionIds : []);
 
-  // Keep the selected year valid as the option set changes (scope/institution).
+  // Keep the selected year valid as the option set changes (institution selection).
   useEffect(() => {
     if (!admissionYearOptions.length) return;
     setAdmissionYear((prev) =>
@@ -80,25 +81,45 @@ function NewInductionForm() {
     );
   }, [admissionYearOptions]);
 
-  const yearPickerDisabled = enrollScope === 'institution' && !institutionId;
+  // Cascade: load degrees/departments for selected institutions.
+  useEffect(() => {
+    if (!institutionIds.length) { setDegrees([]); setDepartments([]); return; }
+    supabase.from('degrees').select('id,degree_name').in('institution_id', institutionIds).order('degree_name')
+      .then(({ data, error }) => {
+        if (error) { toast.error(`Couldn't load degrees: ${error.message}`); }
+        setDegrees((data ?? []).map((d: any) => ({ id: d.id, name: d.degree_name })));
+      });
+    supabase.from('departments').select('id,department_name').in('institution_id', institutionIds).order('department_name')
+      .then(({ data, error }) => {
+        if (error) { toast.error(`Couldn't load departments: ${error.message}`); }
+        setDepartments((data ?? []).map((d: any) => ({ id: d.id, name: d.department_name })));
+      });
+  }, [institutionIds]);
 
-  // Any scope change invalidates a prior preview.
-  useEffect(() => { setPreview(null); }, [institutionId, admissionYear, enrollScope, degreeTypeFilter]);
+  // Prune degree/department picks whose institution was deselected.
+  useEffect(() => { setDegreeIds((p) => p.filter((id) => degrees.some((d) => d.id === id))); }, [degrees]);
+  useEffect(() => { setDepartmentIds((p) => p.filter((id) => departments.some((d) => d.id === id))); }, [departments]);
 
-  const canPreview = !!institutionId && !!admissionYear;
+  // Invalidate preview on any targeting change.
+  useEffect(() => { setPreview(null); }, [institutionIds, admissionYear, degreeIds, departmentIds]);
+
+  const yearPickerDisabled = !institutionIds.length;
+
+  const canPreview = institutionIds.length > 0 && !!admissionYear;
 
   const handlePreview = async () => {
     if (!canPreview) {
-      toast.error('Pick an institution and admission year first.');
+      toast.error('Pick at least one institution and an admission year first.');
       return;
     }
     setPreviewing(true);
     try {
       const res = await InductionService.previewEnroll({
-        institutionId,
+        institutionId: institutionIds[0] ?? null,
         admissionYear: Number(admissionYear),
-        enrollScope,
-        degreeTypeFilter: degreeTypeFilter || null,
+        institutionIds,
+        degreeIds: degreeIds.length ? degreeIds : undefined,
+        departmentIds: departmentIds.length ? departmentIds : undefined,
       });
       setPreview(res);
       if (res.total === 0) toast.warning('This scope matches 0 learners — check the filters.');
@@ -110,8 +131,8 @@ function NewInductionForm() {
   };
 
   const handleCreate = async () => {
-    if (!name.trim() || !institutionId) {
-      toast.error('Name and institution are required.');
+    if (!name.trim() || !institutionIds.length) {
+      toast.error('Name and at least one institution are required.');
       return;
     }
     if (!admissionYear) {
@@ -121,7 +142,8 @@ function NewInductionForm() {
     setCreating(true);
     try {
       const eventId = await InductionService.createProgram({
-        institutionId,
+        institutionId: institutionIds[0] ?? null,
+        institutionIds,
         academicYearId: null,
         name: name.trim(),
         startDate: startDate || new Date().toISOString(),
@@ -130,8 +152,8 @@ function NewInductionForm() {
         venueResourceId: venueResourceId || null,
         venueText: venueResourceId ? null : (venueCustom.trim() || null),
         admissionYear: Number(admissionYear),
-        enrollScope,
-        degreeTypeFilter: degreeTypeFilter || null,
+        degreeIds: degreeIds.length ? degreeIds : undefined,
+        departmentIds: departmentIds.length ? departmentIds : undefined,
       });
       toast.success('Induction created.');
       router.push(`/events/induction/${eventId}`);
@@ -164,7 +186,7 @@ function NewInductionForm() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Details</CardTitle>
-            <CardDescription>Auto-enroll uses the <strong>admission year</strong> (the joining cohort) to find this year&apos;s freshers — across all colleges for a group induction.</CardDescription>
+            <CardDescription>Auto-enroll uses the <strong>admission year</strong> (the joining cohort) to find this year&apos;s freshers — across all selected colleges for a multi-institution induction.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="space-y-1.5">
@@ -173,15 +195,13 @@ function NewInductionForm() {
                 value={name} onChange={(e) => setName(e.target.value)} />
             </div>
             <div className="space-y-1.5">
-              <Label>Institution</Label>
-              <Select value={institutionId} onValueChange={setInstitutionId}>
-                <SelectTrigger><SelectValue placeholder="Select an institution" /></SelectTrigger>
-                <SelectContent>
-                  {institutions.map((i) => (
-                    <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Institutions <span className="text-destructive text-xs">*</span></Label>
+              <MultiSelectPopover
+                options={institutions}
+                value={institutionIds}
+                onChange={setInstitutionIds}
+                placeholder="Select institutions"
+              />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
@@ -204,31 +224,31 @@ function NewInductionForm() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Enroll</Label>
-                <Select value={enrollScope} onValueChange={(v) => setEnrollScope(v as 'institution' | 'group')}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="institution">This college only</SelectItem>
-                    <SelectItem value="group">All colleges (group)</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label>Degrees <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                <MultiSelectPopover
+                  options={degrees}
+                  value={degreeIds}
+                  onChange={setDegreeIds}
+                  placeholder="All degrees"
+                  disabled={!institutionIds.length}
+                />
               </div>
               <div className="space-y-1.5">
-                <Label>Degrees</Label>
-                <Select value={degreeTypeFilter || 'all'} onValueChange={(v) => setDegreeTypeFilter(v === 'all' ? '' : v as 'ug' | 'pg')}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All degrees</SelectItem>
-                    <SelectItem value="ug">Undergraduate (UG) only</SelectItem>
-                    <SelectItem value="pg">Postgraduate (PG) only</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label>Departments <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                <MultiSelectPopover
+                  options={departments}
+                  value={departmentIds}
+                  onChange={setDepartmentIds}
+                  placeholder="All departments"
+                  disabled={!institutionIds.length}
+                />
               </div>
             </div>
             <p className="text-xs text-muted-foreground -mt-1">
               Auto-enroll adds reserved, admitted &amp; account learners of the chosen admission
-              year{enrollScope === 'group' ? ' across every college' : ' in the selected college'}
-              {degreeTypeFilter === 'ug' ? ', undergraduate only' : degreeTypeFilter === 'pg' ? ', postgraduate only' : ''}.
+              year{institutionIds.length > 1 ? ` across ${institutionIds.length} colleges` : ''}.
+              {degreeIds.length > 0 ? ` Restricted to ${degreeIds.length} selected degree(s).` : ''}
+              {departmentIds.length > 0 ? ` Restricted to ${departmentIds.length} selected department(s).` : ''}
             </p>
 
             {/* Preview-before-enroll: see exactly who the scope matches before creating. */}
@@ -266,7 +286,20 @@ function NewInductionForm() {
                       </ul>
                     </div>
                   )}
-                  {enrollScope === 'group' && preview.by_institution.length > 1 && (
+                  {preview.by_department && preview.by_department.length > 0 && (
+                    <div className="text-xs">
+                      <div className="text-muted-foreground mb-1">By department:</div>
+                      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5">
+                        {preview.by_department.map((d, i) => (
+                          <li key={i} className="flex justify-between gap-2 tabular-nums">
+                            <span className="truncate">{d.department}</span>
+                            <span className="font-medium">{d.count}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {preview.by_institution.length > 1 && (
                     <div className="text-xs">
                       <div className="text-muted-foreground mb-1">By college:</div>
                       <ul className="space-y-0.5">
