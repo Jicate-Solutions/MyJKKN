@@ -1240,6 +1240,30 @@ CREATE POLICY "student_attendance_update_by_role" ON student_attendance
         )
     );
 
+-- UPDATE policy mirroring the INSERT grant: anyone allowed to MARK attendance can
+-- UPDATE the consolidated row. Required because student_attendance keys one row per
+-- (institution, timetable, section, date) holding all periods in attendance_data JSONB:
+-- the 1st period of a section-day is an INSERT, every later period is an UPDATE. Without
+-- this, a marker on a custom role (e.g. staff_counselor) could mark the 1st period but
+-- got a silent 0-row UPDATE ("Save result null") on the 2nd+ period. Keyed on
+-- user_has_permission (robust resolver), not an inline custom_roles role_name join.
+CREATE POLICY "student_attendance_update_marker" ON student_attendance
+    FOR UPDATE TO authenticated
+    USING (
+        institution_id IN (
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
+        )
+        AND user_has_permission('academic.attendance.mark')
+    )
+    WITH CHECK (
+        institution_id IN (
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
+        )
+        AND user_has_permission('academic.attendance.mark')
+    );
+
 CREATE POLICY "student_attendance_delete_admin" ON student_attendance
     FOR DELETE USING (
         institution_id IN (
