@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
+import { useImsDeptScope } from '@/hooks/ims/use-ims-dept-scope';
 import { useCreateImsIndent } from '@/hooks/ims/use-ims-indents';
 import { useImsItemsForSelect } from '@/hooks/ims/use-ims-inventory';
 import { useImsDepartmentsForSelect } from '@/hooks/ims/use-ims-departments';
@@ -55,6 +56,9 @@ function NewIndentPageInner() {
   const router = useRouter();
   const { profile } = useAuth();
   const { storeId, institutionId } = useImsStoreContext();
+  // Department scope resolved by the SAME RLS helper the DB insert is gated on,
+  // so the form can never offer a department the server will reject.
+  const { data: deptScope } = useImsDeptScope();
 
   const [departmentId, setDepartmentId] = useState('');
   const [requiredDate, setRequiredDate] = useState('');
@@ -73,6 +77,21 @@ function NewIndentPageInner() {
   const { data: itemsForSelect, isLoading: itemsLoading } =
     useImsItemsForSelect(storeId ?? '', institutionId);
   const createIndent = useCreateImsIndent();
+
+  // For department-scoped users (e.g. lab_assistant), the RLS insert policy
+  // only accepts an indent whose department_id equals their OWN department.
+  // Pin the field to that department so a wrong pick — and the resulting
+  // opaque "row violates row-level security policy" error — is impossible.
+  const isDeptLocked = !!deptScope?.isScoped;
+  const noDeptAssigned = !!deptScope?.scopedNoDept;
+
+  // Derive the department actually submitted: scoped users are pinned to their
+  // own department (mirrors the RLS insert check); everyone else uses the
+  // dropdown selection. Derived during render — no effect, no cascading renders.
+  const effectiveDepartmentId =
+    isDeptLocked && deptScope?.departmentId
+      ? deptScope.departmentId
+      : departmentId;
 
   const handleAddItem = () => {
     setItems((prev) => [
@@ -105,11 +124,20 @@ function NewIndentPageInner() {
       toast.error('User session not ready. Please refresh and try again.');
       return;
     }
+    // Fail-closed: a department-scoped user with no department on their profile
+    // can never satisfy the insert policy. Block here with a clear message
+    // instead of letting the DB throw an opaque RLS violation.
+    if (noDeptAssigned) {
+      toast.error(
+        'No department is assigned to your profile. Please contact an administrator before raising an indent.'
+      );
+      return;
+    }
 
     // Collect ALL field errors at once so every problem is visible simultaneously
     const errors: Record<string, string> = {};
 
-    if (!departmentId) errors.department = 'Please select a department';
+    if (!effectiveDepartmentId) errors.department = 'Please select a department';
     if (!purpose.trim()) errors.purpose = 'Please enter the purpose';
     if (items.length === 0) {
       errors.items = 'Please add at least one item';
@@ -133,7 +161,7 @@ function NewIndentPageInner() {
     try {
       await createIndent.mutateAsync({
         data: {
-          department_id: departmentId,
+          department_id: effectiveDepartmentId,
           required_date: requiredDate || undefined,
           purpose,
           urgency,
@@ -188,12 +216,17 @@ function NewIndentPageInner() {
               <div className="space-y-2">
                 <Label htmlFor="department">Department *</Label>
                 <Select
-                  value={departmentId}
+                  value={effectiveDepartmentId}
                   onValueChange={(val) => {
                     setDepartmentId(val);
                     setFieldErrors((e) => ({ ...e, department: '' }));
                   }}
-                  disabled={departmentsLoading || departmentsError}
+                  disabled={
+                    departmentsLoading ||
+                    departmentsError ||
+                    isDeptLocked ||
+                    noDeptAssigned
+                  }
                 >
                   <SelectTrigger
                     id="department"
@@ -222,6 +255,18 @@ function NewIndentPageInner() {
                 {departmentsError && (
                   <p className="text-sm text-destructive">
                     Could not load departments. Check your connection or contact an admin.
+                  </p>
+                )}
+                {isDeptLocked && (
+                  <p className="text-sm text-muted-foreground">
+                    You can only raise indents for your own department, so this is
+                    locked to it.
+                  </p>
+                )}
+                {noDeptAssigned && (
+                  <p className="text-sm text-destructive">
+                    No department is assigned to your profile. Please contact an
+                    administrator before raising an indent.
                   </p>
                 )}
                 {!departmentsError && fieldErrors.department && (
@@ -468,7 +513,7 @@ function NewIndentPageInner() {
           >
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting}>
+          <Button onClick={handleSubmit} disabled={isSubmitting || noDeptAssigned}>
             {isSubmitting ? (
               <BeatLoader color="white" size={8} />
             ) : (
