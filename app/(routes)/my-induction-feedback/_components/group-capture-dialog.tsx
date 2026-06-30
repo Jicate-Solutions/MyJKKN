@@ -67,8 +67,10 @@ export function GroupCaptureDialog({
     try {
       const n = await InductionVolunteerService.submitFeedback(sessionId, marks);
       const skipped = marks.length - n;
+      // The RPC skips a row for anti-clobber (already self-rated) OR ineligibility
+      // (not in group / batch mismatch). Don't claim all skips are self-rated (review #1694 r2).
       toast.success(
-        `Saved ${n} rating${n === 1 ? '' : 's'}${skipped > 0 ? ` · ${skipped} already rated on own login` : ''}.`,
+        `Saved ${n} rating${n === 1 ? '' : 's'}${skipped > 0 ? ` · ${skipped} not saved (already self-rated or no longer eligible)` : ''}.`,
       );
       setOpen(false);
       onSaved?.();

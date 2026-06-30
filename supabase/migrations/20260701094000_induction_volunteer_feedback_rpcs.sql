@@ -194,7 +194,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_induction_list_feedback_volunteers(UUID) TO
 -- DROP needed: return type changes INTEGER → TABLE (Postgres forbids CREATE OR REPLACE across that).
 DROP FUNCTION IF EXISTS public.fn_induction_autobalance_feedback_volunteers(UUID, INTEGER);
 CREATE FUNCTION public.fn_induction_autobalance_feedback_volunteers(
-  p_event_id UUID, p_capacity INTEGER DEFAULT 20
+  p_event_id UUID, p_capacity INTEGER DEFAULT NULL
 )
 RETURNS TABLE (enrolled INTEGER, assigned INTEGER, unassigned INTEGER)
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public
@@ -215,10 +215,10 @@ BEGIN
     RAISE EXCEPTION 'fn_induction_autobalance_feedback_volunteers: no active feedback volunteers — appoint at least one first';
   END IF;
 
-  -- When a capacity is supplied, set EVERY active mentor's capacity to it (uniform
-  -- "set all to N" convenience). Balancing below reads each mentor's OWN capacity
-  -- column, so a per-mentor cap edited in the UI actually drives balancing
-  -- (review #1694: the displayed per-mentor cap must not be cosmetic).
+  -- p_capacity, WHEN PROVIDED, uniformly sets every active mentor's cap for this run
+  -- (the UI exposes a single cap input). When NULL, each mentor keeps its stored
+  -- capacity, so per-mentor caps can genuinely differ. Balancing below always reads
+  -- the stored capacity column (review #1694 round 2: no false per-mentor claim).
   IF p_capacity IS NOT NULL THEN
     UPDATE public.induction_feedback_volunteers
        SET capacity = GREATEST(p_capacity, 1), updated_at = now()
@@ -324,12 +324,16 @@ BEGIN
               ON ie.event_id = v.event_id AND ie.learner_id = g.learner_id
             WHERE g.volunteer_id = v.id
               AND (s.batch_id IS NULL OR ie.batch_id = s.batch_id)),
-         -- of those, how many already have a rating for this session
+         -- of those (within the session's batch), how many already have a rating —
+         -- same batch guard as group_size so captured can never exceed it (review #1694 r2)
          (SELECT count(*)::int
             FROM public.induction_feedback_volunteer_group g
+            JOIN public.induction_enrollment ie
+              ON ie.event_id = v.event_id AND ie.learner_id = g.learner_id
             JOIN public.event_session_feedback f
               ON f.session_id = s.id AND f.learner_id = g.learner_id
-            WHERE g.volunteer_id = v.id)
+            WHERE g.volunteer_id = v.id
+              AND (s.batch_id IS NULL OR ie.batch_id = s.batch_id))
   FROM public.induction_feedback_volunteers v
   JOIN public.events ev ON ev.id = v.event_id
   LEFT JOIN public.institutions inst ON inst.id = v.institution_id
@@ -356,12 +360,13 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public
 AS $$
-DECLARE v_event UUID; v_sbatch UUID; v_my_learner UUID; v_vol UUID;
+DECLARE v_event UUID; v_sbatch UUID; v_my_learner UUID; v_vol UUID; v_inst UUID;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_my_feedback_group: not authenticated'; END IF;
   SELECT s.event_id, s.batch_id INTO v_event, v_sbatch
   FROM public.event_sessions s WHERE s.id = p_session_id;
   IF v_event IS NULL THEN RAISE EXCEPTION 'fn_induction_my_feedback_group: session not found'; END IF;
+  SELECT institution_id INTO v_inst FROM public.induction_programs WHERE event_id = v_event;
 
   v_my_learner := get_my_learner_id();
   IF v_my_learner IS NULL THEN RAISE EXCEPTION 'fn_induction_my_feedback_group: not a learner'; END IF;
@@ -375,18 +380,20 @@ BEGIN
          btrim(coalesce(lp.first_name,'') || ' ' || coalesce(lp.last_name,''))::text,
          lp.register_number::text,
          b.label::text,
-         (p.id IS NOT NULL) AS has_account,
+         -- has_account institution-scoped via EXISTS (no profiles JOIN → no duplicate
+         -- rows, and a profile in ANOTHER college doesn't count — review #1694 round 2).
+         EXISTS (SELECT 1 FROM public.profiles p
+                 WHERE p.learner_id = lp.id AND p.institution_id = v_inst) AS has_account,
          (f.id IS NOT NULL) AS captured,
          f.capture_method::text
   FROM public.induction_feedback_volunteer_group g
   JOIN public.learners_profiles lp ON lp.id = g.learner_id
   JOIN public.induction_enrollment ie ON ie.event_id = v_event AND ie.learner_id = g.learner_id
   LEFT JOIN public.induction_batches b ON b.id = ie.batch_id
-  LEFT JOIN public.profiles p ON p.learner_id = lp.id
   LEFT JOIN public.event_session_feedback f ON f.session_id = p_session_id AND f.learner_id = g.learner_id
   WHERE g.volunteer_id = v_vol
     AND (v_sbatch IS NULL OR ie.batch_id = v_sbatch)   -- batch-specific session → only its batch
-  ORDER BY (p.id IS NOT NULL), (f.id IS NOT NULL), 2;  -- no-account first, then uncaptured, then name
+  ORDER BY 5, 6, 2;  -- no-account first (col5 has_account), then uncaptured (col6), then name (col2)
 END $$;
 REVOKE EXECUTE ON FUNCTION public.fn_induction_my_feedback_group(UUID) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_induction_my_feedback_group(UUID) TO authenticated;
