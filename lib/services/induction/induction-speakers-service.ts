@@ -8,6 +8,15 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 const getSupabase = (): any => createClientSupabaseClient();
 
+// Normalize an optional UUID filter coming from form state. An unselected Shadcn
+// <Select> yields '' (not undefined), and `?? null` does NOT catch '' — so the
+// empty string reaches a `uuid` RPC parameter and Postgres throws 22P02
+// "invalid input syntax for type uuid". Coerce empty/whitespace → null.
+const uuidOrNull = (v?: string | null): string | null => {
+  const t = (v ?? '').trim();
+  return t.length ? t : null;
+};
+
 export interface DirectoryUser {
   id: string;
   full_name: string | null;
@@ -37,6 +46,11 @@ export interface LearnerSpeakerFilters {
   programId?: string | null;
   semesterId?: string | null;
   sectionId?: string | null;
+  query?: string;
+}
+
+export interface DirectoryFilters {
+  institutionId?: string | null;
   query?: string;
 }
 
@@ -113,8 +127,8 @@ export class InductionSpeakersService {
   static async searchFacilitators(f: FacilitatorFilters): Promise<ResourcePersonResult[]> {
     const supabase = getSupabase();
     const { data, error } = await supabase.rpc('fn_induction_search_facilitators', {
-      p_institution_id: f.institutionId ?? null,
-      p_department_id: f.departmentId ?? null,
+      p_institution_id: uuidOrNull(f.institutionId),
+      p_department_id: uuidOrNull(f.departmentId),
       p_query: f.query?.trim() || null,
     });
     if (error) throw error;
@@ -127,17 +141,47 @@ export class InductionSpeakersService {
   static async searchLearnerSpeakers(f: LearnerSpeakerFilters): Promise<ResourcePersonResult[]> {
     const supabase = getSupabase();
     const { data, error } = await supabase.rpc('fn_induction_search_learner_speakers', {
-      p_institution_id: f.institutionId ?? null,
-      p_degree_id: f.degreeId ?? null,
-      p_department_id: f.departmentId ?? null,
-      p_program_id: f.programId ?? null,
-      p_semester_id: f.semesterId ?? null,
-      p_section_id: f.sectionId ?? null,
+      p_institution_id: uuidOrNull(f.institutionId),
+      p_degree_id: uuidOrNull(f.degreeId),
+      p_department_id: uuidOrNull(f.departmentId),
+      p_program_id: uuidOrNull(f.programId),
+      p_semester_id: uuidOrNull(f.semesterId),
+      p_section_id: uuidOrNull(f.sectionId),
       p_query: f.query?.trim() || null,
     });
     if (error) throw error;
     return ((data as any[]) ?? []).map((r) => ({
       id: r.profile_id, full_name: r.full_name, email: r.email, sub_label: r.sub_label,
+    }));
+  }
+
+  /** "Anyone" = the WHOLE profiles directory (staff + learners + admins +
+   *  external), including users with NO institution. RLS lets any authenticated
+   *  user read profiles, so this is a direct browser query — no DEFINER RPC.
+   *  Requires a name/email query OR an institution filter so it never dumps the
+   *  full directory. `id` is the profiles.id event_session_speakers links to. */
+  static async searchDirectory(f: DirectoryFilters): Promise<ResourcePersonResult[]> {
+    const supabase = getSupabase();
+    const inst = uuidOrNull(f.institutionId);
+    const q = (f.query ?? '').trim();
+    // Strip PostgREST filter metachars so the term can't inject extra .or() terms.
+    const safe = q.replace(/[,()*\\]/g, ' ').replace(/\s+/g, ' ').trim();
+    // Guard: need a usable name query OR an institution — otherwise return nothing
+    // rather than loading thousands of rows.
+    if (safe.length < 2 && !inst) return [];
+
+    let builder = supabase
+      .from('profiles')
+      .select('id, full_name, email, role')
+      .order('full_name')
+      .limit(50);
+    if (inst) builder = builder.eq('institution_id', inst);
+    if (safe.length >= 2) builder = builder.or(`full_name.ilike.%${safe}%,email.ilike.%${safe}%`);
+
+    const { data, error } = await builder;
+    if (error) throw error;
+    return ((data as any[]) ?? []).map((r) => ({
+      id: r.id, full_name: r.full_name, email: r.email, sub_label: r.role,
     }));
   }
 
