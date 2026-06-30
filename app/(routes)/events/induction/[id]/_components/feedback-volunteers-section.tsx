@@ -233,7 +233,7 @@ function AppointMentorDialog({ eventId, onAppointed }: { eventId: string; onAppo
         <DialogHeader>
           <DialogTitle>Appoint a peer mentor</DialogTitle>
           <DialogDescription>
-            Pick a senior student of this college (they need a login). Freshers being inducted here can&apos;t be appointed.
+            Pick a member of this college with a login to act as a peer mentor. Freshers being inducted here can&apos;t be appointed.
           </DialogDescription>
         </DialogHeader>
         <div className="relative">
