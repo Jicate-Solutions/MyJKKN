@@ -577,6 +577,22 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/referrals': 'admission.consultants.referrals.view',
   '/admission/consultants/rewards': 'admission.consultants.rewards.view',
 
+  // Schools Network (2026-06-30) — track external K-12 schools the org engages
+  // with + JKKN's own Matric/CBSE schools. Sessions conducted, contributions
+  // made, JKKN ownership, and program-partner (CSR/grant/corporate) funding
+  // chains. Keys gated by schools_network.* per /tmp/schools-network-spec.md §4.
+  '/admission/schools-network': 'schools_network.schools.view',
+  '/admission/schools-network/new': 'schools_network.schools.create',
+  '/admission/schools-network/[schoolId]': 'schools_network.schools.view',
+  '/admission/schools-network/[schoolId]/edit': 'schools_network.schools.edit',
+  '/admission/schools-network/[schoolId]/sessions/log': 'schools_network.sessions.create',
+  '/admission/schools-network/[schoolId]/contributions/new': 'schools_network.contributions.create',
+  '/admission/schools-network/[schoolId]/contacts/new': 'schools_network.contacts.create',
+  '/admission/schools-network/[schoolId]/owners/assign': 'schools_network.owners.manage',
+  '/admission/schools-network/partners': 'schools_network.partners.view',
+  '/admission/schools-network/partners/new': 'schools_network.partners.manage',
+  '/admission/schools-network/partners/[partnerId]': 'schools_network.partners.view',
+
   // Admission Marketing
   '/admission/marketing/campaigns/monitoring': 'admission.marketing.view',
   '/admission/marketing/campaigns/roi': 'admission.marketing.view',
@@ -1538,6 +1554,29 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/consultants/analytics',
               label: 'Analytics',
               active: pathname === '/admission/consultants/analytics'
+            }
+          ]
+        },
+        {
+          // Added 2026-06-30 — Schools Network module. Tracks external K-12
+          // schools JKKN engages with + own Matric/CBSE schools, sessions,
+          // contributions, JKKN ownership, and CSR/grant/corporate funding.
+          // Spec: /tmp/schools-network-spec.md (Agent A) + service layer in
+          // a sibling PR (Agent B).
+          href: '/admission/schools-network',
+          label: 'Schools Network',
+          active: pathname.startsWith('/admission/schools-network'),
+          icon: School,
+          submenus: [
+            {
+              href: '/admission/schools-network',
+              label: 'All Schools',
+              active: pathname === '/admission/schools-network'
+            },
+            {
+              href: '/admission/schools-network/partners',
+              label: 'Program Partners',
+              active: pathname.startsWith('/admission/schools-network/partners')
             }
           ]
         },
