@@ -1343,6 +1343,16 @@ CREATE INDEX IF NOT EXISTS idx_bug_reports_module_name ON public.bug_reports(mod
 -- Composite index for module + sub-module queries (added 2026-03-23)
 CREATE INDEX IF NOT EXISTS idx_bug_reports_sub_module_name ON public.bug_reports(module_name, sub_module_name);
 
+-- Updated: 2026-06-30 - Added metadata JSONB for module-specific routing payloads
+-- (e.g. social/instagram bug reports populate metadata.ig_user_id at submission
+-- time; the daily ig-accounts-sync cron rewrites metadata.routed_owner_user_id
+-- on ownership flip — see lib/instagram/auto-route-on-ownership-flip.ts).
+ALTER TABLE public.bug_reports
+  ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
+CREATE INDEX IF NOT EXISTS idx_bug_reports_metadata_ig_user_id
+  ON public.bug_reports ((metadata->>'ig_user_id'))
+  WHERE metadata ? 'ig_user_id';
+
 -- Bug Report Messages
 CREATE TABLE IF NOT EXISTS public.bug_report_messages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

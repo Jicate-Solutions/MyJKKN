@@ -240,6 +240,10 @@
       "schedule": "11 5 * * *"
     },
     {
+      "path": "/api/cron/ig-silence-detect?secret=${CRON_SECRET}",
+      "schedule": "23 7 * * *"
+    },
+    {
       "path": "/api/cron/instagram-monthly-audit?secret=${CRON_SECRET}",
       "schedule": "0 6 1 * *"
     },
