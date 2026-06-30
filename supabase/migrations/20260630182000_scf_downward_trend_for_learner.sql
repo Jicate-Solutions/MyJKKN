@@ -57,13 +57,16 @@ BEGIN
   last3 AS (
     -- Keep courses with at least 3 rated sessions; collapse the latest 3 (oldest->newest)
     -- into aligned arrays. r[1]=oldest of the 3, r[3]=newest overall.
-    SELECT course_code,
-           max(course_name) AS course_name,
-           array_agg(understood      ORDER BY attendance_date ASC, rn DESC) AS ratings,
-           array_agg(attendance_date ORDER BY attendance_date ASC, rn DESC) AS rated_on
-    FROM ranked
-    WHERE rn <= 3
-    GROUP BY course_code
+    -- NOTE: qualify every column with the source alias `r` — unqualified course_code /
+    -- course_name would be ambiguous with this fn's RETURNS TABLE output columns of the
+    -- same name (a plpgsql variable-vs-column collision that only surfaces at execution).
+    SELECT r.course_code,
+           max(r.course_name) AS course_name,
+           array_agg(r.understood      ORDER BY r.attendance_date ASC, r.rn DESC) AS ratings,
+           array_agg(r.attendance_date ORDER BY r.attendance_date ASC, r.rn DESC) AS rated_on
+    FROM ranked r
+    WHERE r.rn <= 3
+    GROUP BY r.course_code
     HAVING count(*) = 3
   )
   SELECT l.course_code,
