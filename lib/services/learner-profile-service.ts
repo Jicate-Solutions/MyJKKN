@@ -1376,6 +1376,8 @@ export class LearnerProfileService {
     semesterId: string,
     sectionId: string,
     academicYearId?: string,
+    departmentId?: string,
+    programId?: string,
     onProgress?: (
       current: number,
       total: number,
@@ -1398,6 +1400,14 @@ export class LearnerProfileService {
 
         if (academicYearId) {
           updateData.academic_year_id = academicYearId;
+        }
+
+        // Optional department/program retargeting (blank = leave unchanged)
+        if (departmentId) {
+          updateData.department_id = departmentId;
+        }
+        if (programId) {
+          updateData.program_id = programId;
         }
 
         await this.updateLearnerProfile(learnerId, updateData);

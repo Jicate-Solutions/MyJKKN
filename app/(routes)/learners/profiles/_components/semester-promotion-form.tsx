@@ -41,10 +41,16 @@ import { usePromoteLearners, useLearnerProfiles } from '@/hooks/use-learner-prof
 import { useAcademicYears } from '@/hooks/use-academic-years';
 import { useSemesters } from '@/hooks/use-semesters';
 import { useSections } from '@/hooks/use-sections';
+import { useDepartments } from '@/hooks/organization/use-departments';
+import { usePrograms } from '@/hooks/organization/use-programs';
 import toast from 'react-hot-toast';
 import { Loader2, CheckCircle2, XCircle, Users, AlertTriangle, X } from 'lucide-react';
 import { logActivityClient, LearnerActivityTemplates } from '@/lib/utils/activity-logger-client';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+
+// Radix <SelectItem> cannot use an empty-string value, so this sentinel represents
+// the "leave the field unchanged" choice; it maps back to '' in state.
+const KEEP_CURRENT = '__keep_current__';
 
 interface SemesterPromotionFormProps {
   selectedLearnerIds: string[];
@@ -57,6 +63,8 @@ export function SemesterPromotionForm({
   onSuccess,
   onDeselectLearner,
 }: SemesterPromotionFormProps) {
+  const [departmentId, setDepartmentId] = useState('');
+  const [programId, setProgramId] = useState('');
   const [semesterId, setSemesterId] = useState('');
   const [sectionId, setSectionId] = useState('');
   const [academicYearId, setAcademicYearId] = useState('');
@@ -137,9 +145,34 @@ export function SemesterPromotionForm({
     };
   }, [learnersData, selectedLearnerIds]);
 
-  // Load filtered data based on validated program/institution
+  // Optional dept/program retargeting falls back to the cohort's current values,
+  // so the semester list is always sourced from the *destination* program.
+  const effectiveDepartmentId = departmentId || validationResult.departmentId;
+  // If the department is retargeted, the program must be picked explicitly — the
+  // current program belongs to the old department, so don't fall back to it.
+  const effectiveProgramId = programId || (departmentId ? '' : validationResult.programId);
+
+  // Department options — scoped to the cohort's shared institution + degree.
+  const { data: departments, isLoading: isLoadingDepartments } = useDepartments({
+    institution_id: validationResult.institutionId ?? undefined,
+    degree_id: validationResult.degreeId ?? undefined,
+    isActive: true,
+    limit: 100, // default page size is 10 — raise it so the dropdown isn't truncated
+  });
+
+  // Program options — scoped to the effective (target or current) department.
+  const { data: programs, isLoading: isLoadingPrograms } = usePrograms({
+    institution_id: validationResult.institutionId ?? undefined,
+    department_id: effectiveDepartmentId ?? undefined,
+    isActive: true,
+    limit: 100,
+  });
+
+  // Load filtered data based on validated program/institution. Gated on a resolved
+  // program so a half-finished department retarget doesn't list the old program's
+  // semesters.
   const { data: semesters, isLoading: isLoadingSemesters } = useSemesters(
-    validationResult.isValid ? { program_id: validationResult.programId! } : undefined
+    validationResult.isValid && effectiveProgramId ? { program_id: effectiveProgramId } : undefined
   );
   const { data: sections, isLoading: isLoadingSections } = useSections(
     validationResult.isValid && semesterId
@@ -150,12 +183,32 @@ export function SemesterPromotionForm({
     validationResult.isValid ? validationResult.institutionId! : undefined
   );
 
+  // Changing the target department invalidates the chosen program (programs belong
+  // to a department) and everything downstream.
+  useEffect(() => {
+    setProgramId('');
+    setSemesterId('');
+    setSectionId('');
+  }, [departmentId]);
+
+  // Changing the target program invalidates the chosen semester/section.
+  useEffect(() => {
+    setSemesterId('');
+    setSectionId('');
+  }, [programId]);
+
   // Reset section when semester changes
   useEffect(() => {
     setSectionId('');
   }, [semesterId]);
 
   const handlePromote = () => {
+    // A program belongs to a department, so retargeting the department requires a
+    // matching program to keep the record consistent.
+    if (departmentId && !programId) {
+      toast.error('Select a program for the new department');
+      return;
+    }
     if (!semesterId || !sectionId) {
       toast.error('Please select semester and section');
       return;
@@ -177,6 +230,8 @@ export function SemesterPromotionForm({
         semesterId,
         sectionId,
         academicYearId: academicYearId || undefined,
+        departmentId: departmentId || undefined,
+        programId: programId || undefined,
         onProgress: (current, total, success, failed) => {
           setProgress((current / total) * 100);
           setSuccessCount(success.length);
@@ -215,6 +270,8 @@ export function SemesterPromotionForm({
                 semester_id: semesterId,
                 section_id: sectionId,
                 academic_year_id: academicYearId || undefined,
+                department_id: departmentId || undefined,
+                program_id: programId || undefined,
                 learner_count: result.success.length,
                 failed_count: result.failed.length,
               },
@@ -369,6 +426,63 @@ export function SemesterPromotionForm({
 
       {/* Form Fields */}
       <div className="grid gap-6 md:grid-cols-2">
+        {/* Department Selection (Optional) */}
+        <div className="space-y-2">
+          <Label htmlFor="department">Department (Optional)</Label>
+          <Select
+            value={departmentId || KEEP_CURRENT}
+            onValueChange={(value) => setDepartmentId(value === KEEP_CURRENT ? '' : value)}
+            disabled={isLoadingDepartments}
+          >
+            <SelectTrigger id="department">
+              <SelectValue placeholder={isLoadingDepartments ? "Loading..." : "Keep current department"} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={KEEP_CURRENT}>Keep current department</SelectItem>
+              {departments?.data?.map((dept) => (
+                <SelectItem key={dept.id} value={dept.id}>
+                  {dept.department_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Program Selection (Optional) */}
+        <div className="space-y-2">
+          <Label htmlFor="program">
+            Program (Optional)
+            {departmentId && <span className="text-destructive"> *</span>}
+          </Label>
+          <Select
+            value={programId || KEEP_CURRENT}
+            onValueChange={(value) => setProgramId(value === KEEP_CURRENT ? '' : value)}
+            disabled={isLoadingPrograms}
+          >
+            <SelectTrigger id="program">
+              <SelectValue placeholder={
+                isLoadingPrograms ? "Loading..." :
+                departmentId ? "Select program" :
+                "Keep current program"
+              } />
+            </SelectTrigger>
+            <SelectContent>
+              {/* Keeping the current program is only valid when the department is unchanged */}
+              {!departmentId && <SelectItem value={KEEP_CURRENT}>Keep current program</SelectItem>}
+              {programs?.data?.map((prog) => (
+                <SelectItem key={prog.id} value={prog.id}>
+                  {prog.program_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {departmentId && (
+            <p className="text-xs text-muted-foreground">
+              Required when changing department
+            </p>
+          )}
+        </div>
+
         {/* Semester Selection */}
         <div className="space-y-2">
           <Label htmlFor="semester">
@@ -377,10 +491,14 @@ export function SemesterPromotionForm({
           <Select
             value={semesterId}
             onValueChange={setSemesterId}
-            disabled={isLoadingSemesters}
+            disabled={!effectiveProgramId || isLoadingSemesters}
           >
             <SelectTrigger id="semester">
-              <SelectValue placeholder={isLoadingSemesters ? "Loading..." : "Select semester"} />
+              <SelectValue placeholder={
+                !effectiveProgramId ? "Select program first" :
+                isLoadingSemesters ? "Loading..." :
+                "Select semester"
+              } />
             </SelectTrigger>
             <SelectContent>
               {semesters?.data?.map((semester) => (
@@ -450,7 +568,7 @@ export function SemesterPromotionForm({
       <div className="flex justify-end gap-3">
         <Button
           onClick={handlePromote}
-          disabled={!semesterId || !sectionId || promoteMutation.isPending}
+          disabled={!semesterId || !sectionId || (!!departmentId && !programId) || promoteMutation.isPending}
         >
           {promoteMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Promote Learners
@@ -526,11 +644,23 @@ export function SemesterPromotionForm({
                   </div>
                   <div>
                     <span className="font-medium text-muted-foreground">Department:</span>{' '}
-                    <span className="text-muted-foreground italic">Unchanged</span>
+                    {departmentId ? (
+                      <span className="text-green-600 font-medium">
+                        {departments?.data?.find((d) => d.id === departmentId)?.department_name}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground italic">Unchanged</span>
+                    )}
                   </div>
                   <div>
                     <span className="font-medium text-muted-foreground">Program:</span>{' '}
-                    <span className="text-muted-foreground italic">Unchanged</span>
+                    {programId ? (
+                      <span className="text-green-600 font-medium">
+                        {programs?.data?.find((p) => p.id === programId)?.program_name}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground italic">Unchanged</span>
+                    )}
                   </div>
                   <div>
                     <span className="font-medium text-muted-foreground">Semester:</span>{' '}
