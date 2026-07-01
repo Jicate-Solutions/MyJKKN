@@ -50,12 +50,35 @@ export function ScfLeadershipConcernsCard({ from, to }: { from?: string; to?: st
     return { from: format(subDays(today, 30), 'yyyy-MM-dd'), to: format(today, 'yyyy-MM-dd') };
   }, [from, to]);
 
-  const { data, isError } = useScfLeadershipConcerns(range.from, range.to);
+  const { data, isError, error } = useScfLeadershipConcerns(range.from, range.to);
   const rows = data ?? [];
 
-  // Additive signal only — self-hide when unauthorized (the escalations table shows the
-  // explicit access message) or when no concerns exist this window.
-  if (isError || rows.length === 0) return null;
+  // Auth-denied → self-hide (the sibling Session Escalations table already surfaces the
+  // explicit access message for this audience, so a second one would be noise).
+  const isAuthDenied =
+    error instanceof Error && /not authoriz|not authenticat/i.test(error.message);
+  if (isAuthDenied) return null;
+
+  // A transient / non-auth failure must NOT silently hide real leadership concerns — surface
+  // a small notice so leadership knows the signal couldn't load (vs. a genuine empty state).
+  if (isError) {
+    return (
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <MessageCircleWarning className="h-5 w-5" style={{ color: BRAND_GREEN }} />
+            Single-Voice Concerns
+          </CardTitle>
+          <CardDescription>
+            Couldn&apos;t load single-voice concerns right now. Refresh to try again.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
+  // Additive signal only — self-hide when there are no concerns this window.
+  if (rows.length === 0) return null;
 
   return (
     <Card className="mt-6">

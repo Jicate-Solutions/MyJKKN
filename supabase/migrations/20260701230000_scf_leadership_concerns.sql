@@ -46,6 +46,14 @@ CREATE TABLE IF NOT EXISTS public.scf_leadership_concerns (
 -- window dates) to the per-class key. Safe on a fresh install too (drops the just-made
 -- constraint and re-adds the per-class one).
 ALTER TABLE public.scf_leadership_concerns DROP CONSTRAINT IF EXISTS scf_leadership_concerns_uniq;
+-- Collapse any pre-existing per-class duplicates (from the old window-keyed table) to the
+-- most-recent row before adding the per-class constraint, so ADD CONSTRAINT can't abort.
+DELETE FROM public.scf_leadership_concerns c
+  USING public.scf_leadership_concerns newer
+ WHERE c.institution_id IS NOT DISTINCT FROM newer.institution_id
+   AND c.course_code = newer.course_code
+   AND c.faculty_email IS NOT DISTINCT FROM newer.faculty_email
+   AND (c.updated_at, c.id) < (newer.updated_at, newer.id);
 ALTER TABLE public.scf_leadership_concerns
   ADD CONSTRAINT scf_leadership_concerns_uniq
   UNIQUE NULLS NOT DISTINCT (institution_id, course_code, faculty_email);
@@ -135,9 +143,15 @@ BEGIN
   FROM public.scf_leadership_concerns c
   WHERE c.window_to >= p_from AND c.window_from <= p_to
     AND (v_super OR c.institution_id = v_inst)
-    -- Defensive: a row with no summary is not a real concern; never surface a
-    -- blank/uninformative leadership row. (The cron coerces an empty judge
-    -- summary to a generic line, so in practice every written row has a summary.)
+    -- Freshness backstop: only surface a concern the daily cron re-confirmed recently.
+    -- The cron clears a concern immediately when the class escalates to a teacher tip or
+    -- comes back all-praise; but if the class instead becomes a standout, its comments
+    -- drop below the widened threshold, or it falls under the response floor, the widened
+    -- branch never runs to clear it. Requiring a recent updated_at (the cron bumps it on
+    -- every re-record) lets such a stale concern self-heal within ~2 days instead of
+    -- lingering until its window ages out.
+    AND c.updated_at >= now() - interval '2 days'
+    -- Defensive: a summary-less row is never a real concern.
     AND c.concern_summary IS NOT NULL
   ORDER BY c.created_at DESC;
 END;

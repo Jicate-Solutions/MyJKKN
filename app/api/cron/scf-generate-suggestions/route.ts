@@ -91,15 +91,16 @@ Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exa
 { "whatWorked": "...", "whyItLanded": ["..."], "replicateIn": [{"context":"...","how":"..."}], "shareWithPeers": "...", "watchNext": "..." }
 Give 2-4 whyItLanded and 2-3 replicateIn. watchNext must reference sustaining this in the next session's understanding score (the loop's verifier).`;
 
-// Judge prompt for the WIDENED gate: count how many anonymous comments are GENUINE
-// requests for help / signals of not understanding. Semantic + multilingual so a
-// Tamil or Tanglish ask ("puriyala", "slow-a sollunga") is caught where a keyword
-// match would miss it. Returns a count + a short AGGREGATE summary (no verbatim
-// quote, no student identity) used for the leadership-concern card.
+// Judge prompt for the WIDENED gate: count ONLY. Semantic + multilingual so a Tamil or
+// Tanglish ask ("puriyala", "slow-a sollunga") is caught where a keyword match would miss
+// it. Deliberately returns ONLY a count — NOT a summary. The lone-voice (n=1) leadership
+// concern must never carry AI-paraphrased comment text: with course + faculty attached and
+// shown to broad leadership, a paraphrase of a single comment could re-identify the student
+// in a small class. The concern card uses fixed generic copy instead (see the 1-ask branch).
 const HELP_ASK_JUDGE_PROMPT = `You classify anonymous post-class student comments for an Indian higher-education institution. Comments may be in English, Tamil, or a Tamil-English mix (Tanglish).
 Count how many DISTINCT comments are a GENUINE request for help or a clear signal the student did not understand the session — e.g. "please explain slower", "I couldn't follow the derivation", "need clearer examples", "puriyala", "slow-a sollunga". Do NOT count praise, thanks, logistics (timing/room/audio), or neutral remarks.
 Return ONLY valid JSON (no markdown, no code fences, no commentary), exactly:
-{ "help_ask_count": <integer>, "summary": "<one short aggregate sentence naming the kind of help asked for; NEVER quote a comment verbatim and NEVER identify a student>" }`;
+{ "help_ask_count": <integer> }`;
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -164,14 +165,14 @@ async function buildTrackRecordBlock(
   }
 }
 
-// WIDENED gate — judge how many free-text comments are genuine help-asks. Returns a
-// count + an aggregate summary. Fails SAFE to { helpAskCount: 0 } so a judge error
-// never fabricates a teacher tip or a leadership concern out of thin air.
+// WIDENED gate — judge how many free-text comments are genuine help-asks. Returns ONLY a
+// count (no AI summary — privacy, see the judge prompt). Fails SAFE to { helpAskCount: 0 }
+// so a judge error never fabricates a teacher tip or a leadership concern out of thin air.
 async function judgeHelpAsks(
   anthropic: Anthropic,
   freeTexts: string[],
   courseCode: string
-): Promise<{ helpAskCount: number; summary: string; modelUsed: string }> {
+): Promise<{ helpAskCount: number; modelUsed: string }> {
   const numbered = freeTexts.map((t, i) => `${i + 1}. ${String(t).trim()}`).join('\n');
   try {
     const resp = await anthropic.messages.create(
@@ -197,14 +198,13 @@ async function judgeHelpAsks(
       .replace(/^```(?:json)?\s*/i, '')
       .replace(/\s*```$/i, '')
       .trim();
-    const parsed = JSON.parse(jsonStr) as { help_ask_count?: unknown; summary?: unknown };
+    const parsed = JSON.parse(jsonStr) as { help_ask_count?: unknown };
     const n = Number(parsed.help_ask_count);
     const helpAskCount = Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
-    const summary = typeof parsed.summary === 'string' ? parsed.summary.slice(0, 400) : '';
-    return { helpAskCount, summary, modelUsed: resp.model };
+    return { helpAskCount, modelUsed: resp.model };
   } catch (err) {
     console.error('[cron/scf-generate-suggestions] help-ask judge failed:', err);
-    return { helpAskCount: 0, summary: '', modelUsed: 'error' };
+    return { helpAskCount: 0, modelUsed: 'error' };
   }
 }
 
@@ -505,14 +505,15 @@ export async function GET(request: NextRequest) {
         kind = 'improvement';
       } else if (judged.helpAskCount === 1) {
         // Lone voice → leadership-only concern, NOT a teacher tip.
+        // PRIVACY: the summary is FIXED generic copy, never AI-derived from the single
+        // comment — with course + faculty attached and shown to broad leadership, an AI
+        // paraphrase of one comment could re-identify the student in a small class.
         // fn_scf_record_leadership_concern returns {data,error} and does NOT throw on a
         // Postgres error, so we check .error explicitly (a swallowed error would over-count
-        // leadershipFlagged and silently drop the write). A judge that returns 1 ask but no
-        // summary gets a generic aggregate line, so leadership still sees the flag — never a
-        // blank row. Best-effort: a record failure must not abort the batch.
+        // leadershipFlagged and silently drop the write). Best-effort: never aborts the batch.
         const summary =
-          (judged.summary ?? '').trim() ||
-          'One learner asked for clearer explanation (no further detail extracted).';
+          'One learner in this class asked for clearer explanation or more support this period. ' +
+          'Follow up with the facilitator for specifics.';
         let recorded = false;
         try {
           const { error: recErr } = await admin.rpc('fn_scf_record_leadership_concern', {
@@ -554,14 +555,20 @@ export async function GET(request: NextRequest) {
         // judge call). Correctness (never miss a real ask, never falsely resolve) beats a few cents.
         if (judged.modelUsed !== 'error') {
           try {
-            await admin.rpc('fn_scf_clear_leadership_concern', {
+            const { error: clrErr } = await admin.rpc('fn_scf_clear_leadership_concern', {
               p_institution_id: target.institution_id,
               p_course_code: target.course_code,
               p_faculty_email: target.faculty_email,
             });
+            if (clrErr) {
+              console.error(
+                `[cron/scf-generate-suggestions] clear-concern (resolve) failed for ${target.course_code}:`,
+                clrErr
+              );
+            }
           } catch (clrErr) {
             console.error(
-              `[cron/scf-generate-suggestions] clear-concern (resolve) failed for ${target.course_code}:`,
+              `[cron/scf-generate-suggestions] clear-concern (resolve) threw for ${target.course_code}:`,
               clrErr
             );
           }
@@ -664,14 +671,20 @@ export async function GET(request: NextRequest) {
         // escalated from 1 ask to >=2 asks must not leave a stale/contradictory concern row).
         if (kind === 'improvement') {
           try {
-            await admin.rpc('fn_scf_clear_leadership_concern', {
+            const { error: clrErr } = await admin.rpc('fn_scf_clear_leadership_concern', {
               p_institution_id: target.institution_id,
               p_course_code: target.course_code,
               p_faculty_email: target.faculty_email,
             });
+            if (clrErr) {
+              console.error(
+                `[cron/scf-generate-suggestions] clear-concern (supersede) failed for ${target.course_code}:`,
+                clrErr
+              );
+            }
           } catch (clrErr) {
             console.error(
-              `[cron/scf-generate-suggestions] clear-concern (supersede) failed for ${target.course_code}:`,
+              `[cron/scf-generate-suggestions] clear-concern (supersede) threw for ${target.course_code}:`,
               clrErr
             );
           }
