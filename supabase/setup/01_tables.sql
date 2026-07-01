@@ -5542,3 +5542,18 @@ CREATE TABLE IF NOT EXISTS public.event_program_feedback (
 CREATE INDEX IF NOT EXISTS idx_epf_event   ON public.event_program_feedback(event_id);
 CREATE INDEX IF NOT EXISTS idx_epf_learner ON public.event_program_feedback(learner_id);
 ALTER TABLE public.event_program_feedback ENABLE ROW LEVEL SECURITY;
+
+-- ── induction_event_coordinators (2026-07-30) — per-event coordinators, additive to institution-wide roles ──
+-- Migration: supabase/migrations/20260730120000_induction_event_coordinators.sql
+CREATE TABLE IF NOT EXISTS public.induction_event_coordinators (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id      UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  user_id       UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  assigned_by   UUID REFERENCES public.profiles(id),
+  assigned_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT induction_event_coordinators_event_user_uniq UNIQUE (event_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_iec_event ON public.induction_event_coordinators(event_id);
+CREATE INDEX IF NOT EXISTS idx_iec_user  ON public.induction_event_coordinators(user_id);
+
+ALTER TABLE public.induction_event_coordinators ENABLE ROW LEVEL SECURITY;

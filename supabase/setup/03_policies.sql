@@ -7249,3 +7249,9 @@ CREATE POLICY event_day_feedback_admin ON public.event_day_feedback FOR ALL
 DROP POLICY IF EXISTS event_program_feedback_admin ON public.event_program_feedback;
 CREATE POLICY event_program_feedback_admin ON public.event_program_feedback FOR ALL
   USING (is_super_admin() OR is_admin()) WITH CHECK (is_super_admin() OR is_admin());
+
+-- ── Induction event coordinators (2026-07-30) ──
+-- Migration: supabase/migrations/20260730120000_induction_event_coordinators.sql
+DROP POLICY IF EXISTS induction_event_coordinators_admin ON public.induction_event_coordinators;
+CREATE POLICY induction_event_coordinators_admin ON public.induction_event_coordinators FOR ALL
+  USING (is_super_admin() OR is_admin()) WITH CHECK (is_super_admin() OR is_admin());

@@ -49250,6 +49250,101 @@ export type Database = {
           },
         ]
       }
+      induction_event_coordinators: {
+        Row: {
+          assigned_at: string
+          assigned_by: string | null
+          event_id: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          assigned_at?: string
+          assigned_by?: string | null
+          event_id: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          assigned_at?: string
+          assigned_by?: string | null
+          event_id?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "induction_event_coordinators_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "induction_event_coordinators_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "induction_event_coordinators_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "induction_event_coordinators_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "induction_event_coordinators_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "induction_event_coordinators_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "marathon_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "induction_event_coordinators_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "induction_event_coordinators_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "induction_event_coordinators_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "induction_event_coordinators_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       induction_programs: {
         Row: {
           academic_year_id: string | null
@@ -102926,6 +103021,23 @@ export type Database = {
         Args: { p_learner_id: string; p_tier_id: string }
         Returns: Json
       }
+      fn_induction_assign_event_coordinator: {
+        Args: { p_event_id: string; p_user_id: string }
+        Returns: undefined
+      }
+      fn_induction_assignable_event_staff: {
+        Args: { p_event_id: string; p_query?: string }
+        Returns: {
+          email: string
+          full_name: string
+          id: string
+          role: string
+        }[]
+      }
+      fn_induction_can_manage_event_coordinators: {
+        Args: { p_event_id: string }
+        Returns: boolean
+      }
       fn_induction_day_feedback_summary: {
         Args: { p_event_id: string }
         Returns: {
@@ -102943,6 +103055,18 @@ export type Database = {
           name: string
           register_number: string
           status: string
+        }[]
+      }
+      fn_induction_is_event_coordinator: {
+        Args: { p_event_id: string; p_user_id?: string }
+        Returns: boolean
+      }
+      fn_induction_list_event_coordinators: {
+        Args: { p_event_id: string }
+        Returns: {
+          email: string
+          full_name: string
+          user_id: string
         }[]
       }
       fn_induction_mark_day_attendance: {
@@ -102995,6 +103119,10 @@ export type Database = {
           avg_rating: number
           response_count: number
         }[]
+      }
+      fn_induction_remove_event_coordinator: {
+        Args: { p_event_id: string; p_user_id: string }
+        Returns: undefined
       }
       fn_induction_submit_day_feedback: {
         Args: {
