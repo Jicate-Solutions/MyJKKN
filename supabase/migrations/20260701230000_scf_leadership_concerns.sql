@@ -102,9 +102,9 @@ BEGIN
   FROM public.scf_leadership_concerns c
   WHERE c.window_to >= p_from AND c.window_from <= p_to
     AND (v_super OR c.institution_id = v_inst)
-    -- Rows with a NULL summary are "judged, no lone-voice concern" spend-guard
-    -- markers (see the cron's 0-ask branch); they suppress daily re-judging but
-    -- are NOT concerns, so they never surface on the card.
+    -- Defensive: a row with no summary is not a real concern; never surface a
+    -- blank/uninformative leadership row. (The cron coerces an empty judge
+    -- summary to a generic line, so in practice every written row has a summary.)
     AND c.concern_summary IS NOT NULL
   ORDER BY c.created_at DESC;
 END;

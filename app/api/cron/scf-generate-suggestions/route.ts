@@ -513,14 +513,18 @@ export async function GET(request: NextRequest) {
       }
       const judged = await judgeHelpAsks(anthropic, freeTexts, target.course_code);
 
-      // Record via the leadership-concern upsert. A non-null summary is a real lone-voice
-      // concern (surfaces on the card); a NULL summary is a "judged, no concern" spend-guard
-      // marker (the reader RPC filters NULL summaries, so it never surfaces — it only stops
-      // the daily rolling rescan from re-billing Claude to re-judge the same window).
-      // fn_scf_record_leadership_concern returns {data,error} and does NOT throw on a
-      // Postgres error, so check .error explicitly — a swallowed error would over-count
-      // leadershipFlagged and silently drop the write. Best-effort: never aborts the batch.
-      const recordConcern = async (summary: string | null): Promise<boolean> => {
+      if (judged.helpAskCount >= WIDENED_MIN_ASKS) {
+        kind = 'improvement';
+      } else if (judged.helpAskCount === 1) {
+        // Lone voice → leadership-only concern, NOT a teacher tip.
+        // fn_scf_record_leadership_concern returns {data,error} and does NOT throw on a
+        // Postgres error, so we check .error explicitly (a swallowed error would over-count
+        // leadershipFlagged and silently drop the write). A judge that returns 1 ask but no
+        // summary gets a generic aggregate line, so leadership still sees the flag — never a
+        // blank row. Best-effort: a record failure must not abort the batch.
+        const summary =
+          (judged.summary ?? '').trim() ||
+          'One learner asked for clearer explanation (no further detail extracted).';
         try {
           const { error: recErr } = await admin.rpc('fn_scf_record_leadership_concern', {
             p_institution_id: target.institution_id,
@@ -538,30 +542,24 @@ export async function GET(request: NextRequest) {
               `[cron/scf-generate-suggestions] leadership-concern record failed for ${target.course_code}:`,
               recErr
             );
-            return false;
+          } else {
+            leadershipFlagged++;
           }
-          return true;
         } catch (leadErr) {
           console.error(
             `[cron/scf-generate-suggestions] leadership-concern record threw for ${target.course_code}:`,
             leadErr
           );
-          return false;
         }
-      };
-
-      if (judged.helpAskCount >= WIDENED_MIN_ASKS) {
-        kind = 'improvement';
-      } else if (judged.helpAskCount === 1) {
-        // Lone voice → leadership-only concern (real summary), NOT a teacher tip. Only
-        // count it when the write actually succeeded.
-        if (await recordConcern(judged.summary)) leadershipFlagged++;
         skipped++;
         continue;
       } else {
-        // 0 genuine asks → praise/neutral comments. Record a NULL-summary marker so the
-        // spend guard suppresses re-judging (and re-billing) this window on the next run.
-        await recordConcern(null);
+        // 0 genuine asks — praise/neutral comments — OR the judge failed (fail-safe returns
+        // 0). Record NOTHING and skip: a persistent "judged, no concern" marker would freeze
+        // out a window that later develops real confusion, and a transient judge error would
+        // suppress it permanently. The only cost is that an all-praise middling window is
+        // re-judged on the next daily run — bounded by BATCH_CAP, and a judge call is ~400
+        // output tokens. Correctness (never miss a real ask) beats saving a few cents.
         skipped++;
         continue;
       }
