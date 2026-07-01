@@ -37,11 +37,41 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'react-hot-toast';
+import { useQuery } from '@tanstack/react-query';
 import { CdcInternshipService } from '@/lib/services/cdc/internship-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { useLearnersForPicker, useStaffForPicker } from '@/hooks/cdc/use-cdc-pickers';
+import { useStaffForPicker } from '@/hooks/cdc/use-cdc-pickers';
 import { useAuth } from '@/hooks/use-auth';
+
+// BUG-004294: internship-specific learner picker whose option label includes the
+// learner's institution name, so coordinators who can see more than one
+// institution can tell similarly-named learners apart. Backed by the in-scope
+// /api/cdc/internships/new/learners route (service-role read + re-imposed
+// institution scope). Defined inline (same as the placements new form) to keep
+// the change contained to the internships module.
+interface LearnerPickerOption { value: string; label: string; }
+function useInternshipLearnersForPicker() {
+  return useQuery<LearnerPickerOption[]>({
+    queryKey: ['cdc-internship-learner-picker'],
+    queryFn: async () => {
+      try {
+        const res = await fetch('/api/cdc/internships/new/learners', { credentials: 'include' });
+        if (!res.ok) {
+          console.error('[cdc-internship-new] Failed to load learners: HTTP', res.status);
+          return [];
+        }
+        const json = await res.json();
+        return (json.options as LearnerPickerOption[]) || [];
+      } catch (err) {
+        console.error('[cdc-internship-new] Failed to load learners:', err);
+        return [];
+      }
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
 
 interface Cycle { id: string; cycle_name: string; start_date: string; end_date: string; }
 interface Site  { id: string; site_name: string; city: string | null; state: string | null; }
@@ -57,7 +87,7 @@ const DEFAULT_REQUIRED_ATTENDANCE_PCT = 75;
 export default function NewCdcInternshipPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const { data: learnerOptions = [], isLoading: learnersLoading } = useLearnersForPicker();
+  const { data: learnerOptions = [], isLoading: learnersLoading } = useInternshipLearnersForPicker();
   const { data: staffOptions = [], isLoading: staffLoading } = useStaffForPicker();
   const { profile } = useAuth();
 
@@ -81,6 +111,14 @@ export default function NewCdcInternshipPage() {
     stipend_amount: '' as string, // kept as string for the numeric input; parsed at submit
     // BUG-004087: optional offer-letter document URL
     offer_letter_url: '' as string,
+    // BUG-004293: optional company/host website URL
+    company_website_url: '' as string,
+    // BUG-004295: perks beyond stipend
+    has_accommodation: false,
+    has_transport: false,
+    has_food: false,
+    // BUG-004292: internship duration in months (Select value; parsed at submit)
+    duration_months: '' as string,
   });
   // BUG-004087: tracks the offer-letter upload-in-flight state for the field UI.
   const [uploadingOffer, setUploadingOffer] = useState(false);
@@ -190,6 +228,14 @@ export default function NewCdcInternshipPage() {
           is_paid: formData.is_paid,
           stipend_amount: parsedStipend,
           offer_letter_url: formData.offer_letter_url || null,
+          // BUG-004293: optional company website URL
+          company_website_url: formData.company_website_url.trim() || null,
+          // BUG-004295: perks beyond stipend
+          has_accommodation: formData.has_accommodation,
+          has_transport: formData.has_transport,
+          has_food: formData.has_food,
+          // BUG-004292: internship duration in months (null when unspecified)
+          duration_months: formData.duration_months ? Number(formData.duration_months) : null,
           institution_id: institutionId || undefined,
         }),
       });
@@ -394,6 +440,19 @@ export default function NewCdcInternshipPage() {
                 )}
               </div>
 
+              {/* Company website — optional (BUG-004293) */}
+              <div className="grid gap-1">
+                <Label htmlFor="company_website_url">Company website (optional)</Label>
+                <Input
+                  id="company_website_url"
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://company.example.com"
+                  value={formData.company_website_url}
+                  onChange={e => set('company_website_url')(e.target.value)}
+                />
+              </div>
+
               {/* Learner */}
               <div className="grid gap-1">
                 <Label htmlFor="learner_id">Learner <span className="text-red-500">*</span></Label>
@@ -451,6 +510,24 @@ export default function NewCdcInternshipPage() {
                 />
               </div>
 
+              {/* Duration in months — optional (BUG-004292). Distinct from the
+                  Posting cycle above, which is the recruitment window. */}
+              <div className="grid gap-1">
+                <Label htmlFor="duration_months">Duration (optional)</Label>
+                <Select value={formData.duration_months} onValueChange={set('duration_months')}>
+                  <SelectTrigger id="duration_months">
+                    <SelectValue placeholder="Select duration" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1 month</SelectItem>
+                    <SelectItem value="2">2 months</SelectItem>
+                    <SelectItem value="3">3 months</SelectItem>
+                    <SelectItem value="6">6 months</SelectItem>
+                    <SelectItem value="12">12 months</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
               {/* Paid / Unpaid + stipend — BUG-004040 */}
               <div className="grid gap-1">
                 <Label htmlFor="is_paid">Compensation</Label>
@@ -491,6 +568,40 @@ export default function NewCdcInternshipPage() {
                   />
                 </div>
               )}
+
+              {/* Perks beyond stipend — BUG-004295 */}
+              <div className="grid gap-2">
+                <Label>Perks (beyond stipend)</Label>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <label className="flex items-center gap-2 border rounded-md p-2 hover:bg-muted/40 cursor-pointer">
+                    <Checkbox
+                      checked={formData.has_accommodation}
+                      onCheckedChange={(v) =>
+                        setFormData(p => ({ ...p, has_accommodation: v === true }))
+                      }
+                    />
+                    <span className="text-sm">Accommodation</span>
+                  </label>
+                  <label className="flex items-center gap-2 border rounded-md p-2 hover:bg-muted/40 cursor-pointer">
+                    <Checkbox
+                      checked={formData.has_transport}
+                      onCheckedChange={(v) =>
+                        setFormData(p => ({ ...p, has_transport: v === true }))
+                      }
+                    />
+                    <span className="text-sm">Transport</span>
+                  </label>
+                  <label className="flex items-center gap-2 border rounded-md p-2 hover:bg-muted/40 cursor-pointer">
+                    <Checkbox
+                      checked={formData.has_food}
+                      onCheckedChange={(v) =>
+                        setFormData(p => ({ ...p, has_food: v === true }))
+                      }
+                    />
+                    <span className="text-sm">Food</span>
+                  </label>
+                </div>
+              </div>
 
               {/* Department / rotation */}
               <div className="grid gap-1">
