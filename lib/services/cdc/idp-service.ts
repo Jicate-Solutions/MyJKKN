@@ -100,6 +100,9 @@ export class IdpService {
         free_text_notes: dto.free_text_notes ?? null,
         // BUG-004197 (provenance): which fields were machine-suggested at create.
         prefill_sources: dto.prefill_sources ?? {},
+        // BUG-004298: self-submit workflow. Defaults to 'draft'; the learner's
+        // Submit path passes 'submitted'. 'approved' is rejected by RLS here.
+        submission_status: dto.submission_status ?? 'draft',
         source: 'native_form',
       })
       .select()
@@ -120,10 +123,43 @@ export class IdpService {
     if (dto.free_text_notes !== undefined) payload.free_text_notes = dto.free_text_notes;
     if (dto.academic_year_label !== undefined) payload.academic_year_label = dto.academic_year_label;
     if (dto.updated_by !== undefined) payload.updated_by = dto.updated_by;
+    // BUG-004298: self-submit workflow. Only ever set to 'draft' or 'submitted'
+    // here (learner Submit). Approval is a separate, staff-only path (approve()).
+    if (dto.submission_status !== undefined) payload.submission_status = dto.submission_status;
 
     const { data, error } = await supabase
       .from('cdc_idp_responses')
       .update(payload)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    return data as CdcIdpResponse;
+  }
+
+  // ==================== APPROVAL (BUG-004298) ====================
+  //
+  // Staff-only: mark a submitted IDP as approved. RLS enforces that only CDC
+  // staff (institution-scoped) can write submission_status='approved' — a learner
+  // calling this would be rejected by the row-level policy. Sets approved_at /
+  // approved_by for the audit trail and locks the plan from further learner edits
+  // (the learner UPDATE policy's USING clause is false once status='approved').
+  static async approve(
+    supabase: SupabaseClient,
+    id: string,
+    approverId: string
+  ): Promise<CdcIdpResponse> {
+    const nowIso = new Date().toISOString();
+    const { data, error } = await supabase
+      .from('cdc_idp_responses')
+      .update({
+        submission_status: 'approved',
+        approved_at: nowIso,
+        approved_by: approverId,
+        updated_at: nowIso,
+        updated_by: approverId,
+      })
       .eq('id', id)
       .select()
       .single();
@@ -211,9 +247,9 @@ export class IdpService {
       }
     }
 
-    // Build per-pending-row recipient + deep link to that learner's IDP record.
-    // (No learner self-service IDP route exists yet — link to the canonical
-    // detail page the CDC list already uses.)
+    // Build per-pending-row recipient. Recipients are LEARNERS, so the reminder
+    // deep-links to their own self-service IDP page (/learner/idp, BUG-004298) —
+    // NOT the staff console /cdc/idp, which learners have no permission to view.
     const recipients: Array<{ profileId: string; idpId: string }> = [];
     for (const r of pendingRows) {
       const profileId = r.learner_id ? learnerToProfile.get(r.learner_id) : undefined;
@@ -245,9 +281,10 @@ export class IdpService {
         category: 'cdc.idp.reminder',
         // kind is CHECK-constrained to ('announcement','work_item').
         kind: 'work_item',
-        // Single notification fan-out: one detail link won't fit every recipient,
-        // so route to the IDP area; per-learner detail ids live in metadata.
-        url: '/cdc/idp',
+        // Recipients are learners — route them to their own self-service IDP page
+        // (BUG-004298), which self-scopes to the signed-in learner's plan; per-learner
+        // source ids remain in metadata below.
+        url: '/learner/idp',
         targeting: { user_ids: recipientProfileIds },
         metadata: {
           kind: 'cdc_idp_completion_reminder',

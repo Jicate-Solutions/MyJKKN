@@ -35,6 +35,13 @@ function isIdpPending(r: { submitted_at?: string | null; updated_at?: string | n
   return !(updated > submitted);
 }
 
+// Self-submit workflow status badge (BUG-004298).
+const IDP_STATUS_META: Record<string, { label: string; className: string }> = {
+  draft: { label: 'Draft', className: 'bg-slate-100 text-slate-700 hover:bg-slate-100' },
+  submitted: { label: 'Submitted', className: 'bg-amber-100 text-amber-700 hover:bg-amber-100' },
+  approved: { label: 'Approved', className: 'bg-green-100 text-green-700 hover:bg-green-100' },
+};
+
 const idpStatsClient = createClientSupabaseClient();
 
 interface IdpStats {
@@ -296,6 +303,12 @@ export default function IdpListPage() {
                             {(r.learner as { name?: string } | null)?.name ?? 'Unknown learner'}
                           </CardTitle>
                           <div className="flex items-center gap-2 shrink-0">
+                            {(() => {
+                              const meta = IDP_STATUS_META[r.submission_status ?? 'draft'];
+                              return meta ? (
+                                <Badge className={`text-xs ${meta.className}`}>{meta.label}</Badge>
+                              ) : null;
+                            })()}
                             {isIdpPending(r) && (
                               <Badge className="text-xs bg-amber-100 text-amber-700 hover:bg-amber-100">
                                 Pending
