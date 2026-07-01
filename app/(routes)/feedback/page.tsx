@@ -26,6 +26,12 @@ import { SentimentChart } from './_components/sentiment-chart';
 import { TopThemes } from './_components/top-themes';
 import { ComplaintsTable } from './_components/complaints-table';
 import { ConcentrationTable } from './_components/concentration-table';
+import { SuperOverview } from './_components/super-overview';
+import { ActionQueue } from './_components/action-queue';
+import { InstitutionBreakdown } from './_components/institution-breakdown';
+import { SourceHealth } from './_components/source-health';
+import { FeedbackExplorer } from './_components/feedback-explorer';
+import type { SuperFilters } from '@/lib/services/feedback/super-cockpit-service';
 import {
   fetchFeedbackSummary,
   fetchSentimentOverTime,
@@ -74,6 +80,10 @@ export default function FeedbackDashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Bumped by the Refresh button and used as a React key on the super-cockpit
+  // components. Each of them self-fetches on primitive filter changes, so a
+  // same-filter refresh needs an explicit remount to re-pull from the DB.
+  const [refreshNonce, setRefreshNonce] = useState(0);
 
   const load = useCallback(
     async (filters: FeedbackFilters) => {
@@ -103,6 +113,9 @@ export default function FeedbackDashboardPage() {
   useEffect(() => {
     void load({ source, hideSpam });
   }, [source, hideSpam, load]);
+
+  // Filters handed to the super-cockpit components (each self-fetches on change).
+  const superFilters: SuperFilters = { source, hideSpam };
 
   return (
     <PermissionGuard
@@ -144,7 +157,10 @@ export default function FeedbackDashboardPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => void load({ source, hideSpam })}
+              onClick={() => {
+                setRefreshNonce((n) => n + 1);
+                void load({ source, hideSpam });
+              }}
               disabled={isLoading}
               className="gap-2 self-start sm:self-center"
             >
@@ -194,6 +210,20 @@ export default function FeedbackDashboardPage() {
             </Alert>
           )}
 
+          {/* ── Super-cockpit (management view) ─────────────────────────── */}
+          {/* Top-line management numbers: total / classified / genuine vs noise. */}
+          <SuperOverview key={`overview-${refreshNonce}`} filters={superFilters} />
+
+          {/* Genuine items needing a decision — internal complaints ranked first. */}
+          <ActionQueue key={`actionq-${refreshNonce}`} filters={superFilters} />
+
+          {/* Per-institution breakdown, ranked by genuine negatives. */}
+          <InstitutionBreakdown key={`inst-${refreshNonce}`} filters={superFilters} />
+
+          {/* Which of the 8 sources are flowing vs dry (global, unfiltered). */}
+          <SourceHealth key={`srchealth-${refreshNonce}`} />
+
+          {/* ── Classic dashboard sections ──────────────────────────────── */}
           {/* Sentiment tiles */}
           <SummaryTiles summary={data?.summary ?? null} isLoading={isLoading} />
 
@@ -222,6 +252,9 @@ export default function FeedbackDashboardPage() {
             rows={data?.concentration ?? []}
             isLoading={isLoading}
           />
+
+          {/* ── Full feedback explorer (searchable full event list) ──────── */}
+          <FeedbackExplorer key={`explorer-${refreshNonce}`} filters={superFilters} />
         </div>
       </ContentLayout>
     </PermissionGuard>
