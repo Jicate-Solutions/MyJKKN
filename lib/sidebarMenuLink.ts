@@ -1091,6 +1091,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/cdc/bulletin/new': 'cdc.bulletin.create',
   '/cdc/bulletin/[id]': 'cdc.bulletin.view',
 
+  // CDC — Employer Requirement Intake
+  '/cdc/requirements': 'cdc.requirements.view',
+  '/cdc/requirements/new': 'cdc.requirements.create',
+  '/cdc/requirements/[id]': 'cdc.requirements.view',
+
   // CDC — Industry Mentors directory
   '/cdc/industry-mentors': 'cdc.industry_mentors.view',
   '/cdc/industry-mentors/new': 'cdc.industry_mentors.create',
@@ -1873,6 +1878,17 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // My Individual Development Plan — learner self-service (BUG-004298).
+          // UNGATED by design (student self-scopes via RLS on cdc_idp_responses),
+          // so it is student-visible via the isStudentPortalRoute special-case
+          // below, NOT a MENU_PERMISSIONS entry. Distinct path from /learners/*.
+          href: '/learner/idp',
+          label: 'My Development Plan',
+          active: pathname.startsWith('/learner/idp'),
+          icon: ClipboardList,
+          submenus: []
+        },
+        {
           href: '/learners/my-marks',
           label: 'My Marks',
           active: pathname.startsWith('/learners/my-marks'),
@@ -2517,6 +2533,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // Employer Requirement Intake — company job-vacancy submissions
+          // (public self-submit + CDC staff entry). Public URL: /employers/submit.
+          href: '/cdc/requirements',
+          label: 'Employer Requirements',
+          active: pathname.startsWith('/cdc/requirements'),
+          icon: Building2,
+          submenus: []
+        },
+        {
           href: '/cdc/industry-mentors',
           label: 'Industry Mentors',
           active: pathname.startsWith('/cdc/industry-mentors'),
@@ -2602,7 +2627,10 @@ export function isStudentPortalRoute(href: string): boolean {
     href === '/learners/leave-onduty/my-applications' ||
     // Post-class feedback (Class Feedback) — student-only lane relocated out of
     // /academic. (My Attendance Feedback already matches /learners/my- above.)
-    href === '/learners/class-feedback'
+    href === '/learners/class-feedback' ||
+    // My Development Plan (learner self-service IDP, BUG-004298) — ungated,
+    // student-visible; distinct /learner/ path doesn't match /learners/my-.
+    href === '/learner/idp'
   );
 }
 

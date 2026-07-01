@@ -15,13 +15,18 @@ import type {
 // (latent until pairings had data). Map the real columns to the {name, roll_number}
 // shape the type and pages expect, so the embed stays valid and nothing downstream
 // changes. (BUG-004198 follow-up — the host page must render for the Sessions card.)
-function mapLearner(l: any): { id: string; name: string; roll_number: string | null; institution_id: string | null } | null {
+function mapLearner(l: any): { id: string; name: string; roll_number: string | null; institution_id: string | null; institution: { id: string; name: string } | null } | null {
   if (!l) return null;
+  // `institution` is embedded via learners_profiles.institution_id → institutions
+  // so the cross-college pairings list can show which college each pair belongs
+  // to (BUG-004291). PostgREST returns the aliased embed as an object or null.
+  const inst = l.institution ?? null;
   return {
     id: l.id,
     name: [l.first_name, l.last_name].filter(Boolean).join(' ').trim() || 'Unknown learner',
     roll_number: l.register_number ?? null,
     institution_id: l.institution_id ?? null,
+    institution: inst ? { id: inst.id, name: inst.name } : null,
   };
 }
 
@@ -29,7 +34,7 @@ function mapPairing(p: any): CdcMentorPairingWithLearners {
   return { ...p, mentor: mapLearner(p?.mentor), mentee: mapLearner(p?.mentee) };
 }
 
-const LEARNER_EMBED = 'id, first_name, last_name, register_number, institution_id';
+const LEARNER_EMBED = 'id, first_name, last_name, register_number, institution_id, institution:institution_id(id, name)';
 
 export class MentorService {
   static async list(supabase: SupabaseClient, filters: MentorPairingFilters = {}): Promise<MentorPairingListResponse> {

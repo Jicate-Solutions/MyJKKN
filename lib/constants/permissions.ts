@@ -2106,6 +2106,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'cdc.bulletin.edit', label: 'Edit Opportunities Bulletin Entries' },
       { key: 'cdc.bulletin.delete', label: 'Delete Opportunities Bulletin Entries' },
 
+      // Employer Requirement Intake (company job-vacancy submissions)
+      { key: 'cdc.requirements.view', label: 'View Employer Requirements' },
+      { key: 'cdc.requirements.create', label: 'Create Employer Requirements' },
+      { key: 'cdc.requirements.edit', label: 'Edit Employer Requirements' },
+      { key: 'cdc.requirements.delete', label: 'Delete Employer Requirements' },
+      { key: 'cdc.requirements.review', label: 'Review / Approve Employer Requirement Submissions' },
+
       // Industry Mentors directory
       { key: 'cdc.industry_mentors.view', label: 'View Industry Mentors' },
       { key: 'cdc.industry_mentors.create', label: 'Create Industry Mentors' },

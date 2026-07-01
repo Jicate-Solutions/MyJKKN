@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useClubById, useClubMembers, useAddMember, useRemoveMember, useUpdateClub } from '@/hooks/cdc/use-cdc-clubs';
 import { useLearnersForPicker } from '@/hooks/cdc/use-cdc-pickers';
+import { ClubInitiativesCard } from './_components/club-initiatives-card';
 import { BeatLoader } from 'react-spinners';
 import { Users, Plus, Trash2, ArrowLeft, UserCheck } from 'lucide-react';
 
@@ -212,6 +213,9 @@ function ClubDetailContent({ params }: PageProps) {
             })}
           </CardContent>
         </Card>
+
+        {/* Initiatives (BUG-004299) */}
+        <ClubInitiativesCard clubId={id} institutionId={club.institution_id} />
       </div>
     </ContentLayout>
   );
