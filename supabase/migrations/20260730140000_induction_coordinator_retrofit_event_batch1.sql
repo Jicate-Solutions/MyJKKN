@@ -223,6 +223,7 @@ BEGIN
     RAISE EXCEPTION 'fn_induction_autobalance_feedback_volunteers: no active feedback volunteers — appoint at least one first';
   END IF;
 
+  -- full deterministic rebalance
   DELETE FROM public.induction_feedback_volunteer_group WHERE event_id = p_event_id;
 
   WITH active_vols AS (
