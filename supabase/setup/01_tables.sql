@@ -5503,3 +5503,42 @@ CREATE TABLE IF NOT EXISTS public.program_partner_grants (
 CREATE INDEX IF NOT EXISTS program_partner_grants_partner_idx
   ON public.program_partner_grants (program_partner_id, received_at DESC);
 ALTER TABLE public.program_partner_grants ENABLE ROW LEVEL SECURITY;
+
+-- ── Induction programs: day/program feedback toggle columns (2026-07-30) ──
+-- Migration: supabase/migrations/20260730110000_induction_day_program_feedback.sql
+ALTER TABLE public.induction_programs
+  ADD COLUMN IF NOT EXISTS feedback_day_enabled     BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS feedback_program_enabled BOOLEAN NOT NULL DEFAULT false;
+
+-- ── event_day_feedback (2026-07-30) — per-day fresher feedback, mirrors event_session_feedback ──
+CREATE TABLE IF NOT EXISTS public.event_day_feedback (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id        UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  day_number      INTEGER NOT NULL,
+  learner_id      UUID NOT NULL REFERENCES public.learners_profiles(id) ON DELETE CASCADE,
+  institution_id  UUID NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  rating          INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  comment         TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT event_day_feedback_event_day_learner_uniq UNIQUE (event_id, day_number, learner_id)
+);
+CREATE INDEX IF NOT EXISTS idx_edf_event   ON public.event_day_feedback(event_id);
+CREATE INDEX IF NOT EXISTS idx_edf_learner ON public.event_day_feedback(learner_id);
+ALTER TABLE public.event_day_feedback ENABLE ROW LEVEL SECURITY;
+
+-- ── event_program_feedback (2026-07-30) — whole-induction fresher feedback ──
+CREATE TABLE IF NOT EXISTS public.event_program_feedback (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id        UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  learner_id      UUID NOT NULL REFERENCES public.learners_profiles(id) ON DELETE CASCADE,
+  institution_id  UUID NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  rating          INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  comment         TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT event_program_feedback_event_learner_uniq UNIQUE (event_id, learner_id)
+);
+CREATE INDEX IF NOT EXISTS idx_epf_event   ON public.event_program_feedback(event_id);
+CREATE INDEX IF NOT EXISTS idx_epf_learner ON public.event_program_feedback(learner_id);
+ALTER TABLE public.event_program_feedback ENABLE ROW LEVEL SECURITY;

@@ -7239,3 +7239,13 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.school_sessions          TO authe
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.school_contributions     TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.program_partners         TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.program_partner_grants   TO authenticated;
+
+-- ── Induction day/program feedback (2026-07-30) ──
+-- Migration: supabase/migrations/20260730110000_induction_day_program_feedback.sql
+DROP POLICY IF EXISTS event_day_feedback_admin ON public.event_day_feedback;
+CREATE POLICY event_day_feedback_admin ON public.event_day_feedback FOR ALL
+  USING (is_super_admin() OR is_admin()) WITH CHECK (is_super_admin() OR is_admin());
+
+DROP POLICY IF EXISTS event_program_feedback_admin ON public.event_program_feedback;
+CREATE POLICY event_program_feedback_admin ON public.event_program_feedback FOR ALL
+  USING (is_super_admin() OR is_admin()) WITH CHECK (is_super_admin() OR is_admin());

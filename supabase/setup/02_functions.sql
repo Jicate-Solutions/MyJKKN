@@ -19855,3 +19855,390 @@ END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.fn_school_portal_submit_update(TEXT, JSONB) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_school_portal_submit_update(TEXT, JSONB) TO authenticated;
+
+-- ============================================================================
+-- Fresher Induction — Day-level attendance (bulk mark, fans out to sessions)
+-- Migration: supabase/migrations/20260730100000_induction_day_attendance.sql
+-- Adds 2 DEFINER + anon-revoked RPCs alongside the existing per-session ones
+-- (fn_induction_session_roster / fn_induction_mark_attendance, phase 2a):
+--   fn_induction_day_roster          — learners eligible for ANY session on a
+--                                      day, + whether their existing per-session
+--                                      marks for that day are uniform
+--                                      (prefillable) or mixed (left blank).
+--   fn_induction_mark_day_attendance — bulk-writes the SAME status into EVERY
+--                                      session that day applicable to the
+--                                      learner's batch, then recomputes
+--                                      completion. Attendance storage stays
+--                                      session-scoped; this is a marking-UX
+--                                      convenience, not a new data model.
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_induction_day_roster(p_event_id UUID, p_day_number INTEGER)
+RETURNS TABLE (
+  learner_id      UUID,
+  name            TEXT,
+  register_number TEXT,
+  batch_label     TEXT,
+  status          TEXT,     -- the uniform status across the day's sessions, or NULL
+  is_mixed        BOOLEAN   -- true when the learner's sessions that day carry DIFFERENT statuses
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_inst UUID;
+BEGIN
+  SELECT institution_id INTO v_inst FROM public.induction_programs WHERE event_id = p_event_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_day_roster: not an induction event'; END IF;
+  IF NOT (is_super_admin() OR is_admin()
+          OR (user_has_permission('induction.view') AND role_has_institution_access(v_inst))) THEN
+    RAISE EXCEPTION 'fn_induction_day_roster: not authorized';
+  END IF;
+
+  RETURN QUERY
+  WITH day_sessions AS (
+    SELECT s.id, s.batch_id FROM public.event_sessions s
+    -- day_number is nullable (NULL = the "Unscheduled" bucket the UI shows as
+    -- day 0) — IS NOT DISTINCT FROM matches NULL rows a plain `=` would silently drop.
+    WHERE s.event_id = p_event_id AND s.day_number IS NOT DISTINCT FROM p_day_number
+  ),
+  eligible AS (
+    -- a learner is on the day roster if at least one of the day's sessions
+    -- applies to their batch (combined batch_id IS NULL, or an exact match)
+    SELECT DISTINCT e.learner_id
+    FROM public.induction_enrollment e
+    JOIN day_sessions ds ON ds.batch_id IS NULL OR ds.batch_id = e.batch_id
+    WHERE e.event_id = p_event_id
+  ),
+  marks AS (
+    SELECT a.learner_id,
+           count(DISTINCT a.status) AS distinct_statuses,
+           min(a.status) AS one_status
+    FROM public.event_session_attendance a
+    JOIN day_sessions ds ON ds.id = a.session_id
+    GROUP BY a.learner_id
+  )
+  SELECT el.learner_id::uuid,
+         btrim(coalesce(lp.first_name,'') || ' ' || coalesce(lp.last_name,''))::text,
+         lp.register_number::text,
+         b.label::text,
+         CASE WHEN m.distinct_statuses = 1 THEN m.one_status ELSE NULL END::text,
+         COALESCE(m.distinct_statuses, 0) > 1
+  FROM eligible el
+  JOIN public.learners_profiles lp ON lp.id = el.learner_id
+  JOIN public.induction_enrollment ie ON ie.event_id = p_event_id AND ie.learner_id = el.learner_id
+  LEFT JOIN public.induction_batches b ON b.id = ie.batch_id
+  LEFT JOIN marks m ON m.learner_id = el.learner_id
+  ORDER BY 2;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_day_roster(UUID, INTEGER) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_day_roster(UUID, INTEGER) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_induction_mark_day_attendance(p_event_id UUID, p_day_number INTEGER, p_marks JSONB)
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_inst UUID;
+BEGIN
+  SELECT institution_id INTO v_inst FROM public.induction_programs WHERE event_id = p_event_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_mark_day_attendance: not an induction event'; END IF;
+  IF NOT (is_super_admin() OR is_admin()
+          OR (user_has_permission('induction.manage') AND role_has_institution_access(v_inst))) THEN
+    RAISE EXCEPTION 'fn_induction_mark_day_attendance: not authorized';
+  END IF;
+
+  WITH incoming AS (
+    SELECT (m->>'learner_id')::uuid AS learner_id, (m->>'status') AS status
+    FROM jsonb_array_elements(p_marks) m
+  ),
+  fanned AS (
+    SELECT s.id AS session_id, i.learner_id, i.status
+    FROM incoming i
+    JOIN public.induction_enrollment ie ON ie.event_id = p_event_id AND ie.learner_id = i.learner_id
+    JOIN public.event_sessions s
+      ON s.event_id = p_event_id AND s.day_number IS NOT DISTINCT FROM p_day_number
+     AND (s.batch_id IS NULL OR s.batch_id = ie.batch_id)
+  )
+  INSERT INTO public.event_session_attendance (session_id, learner_id, institution_id, status, marked_by, marked_at)
+  SELECT session_id, learner_id, v_inst, status, auth.uid(), now() FROM fanned
+  ON CONFLICT (session_id, learner_id) DO UPDATE SET
+    status = EXCLUDED.status, marked_by = EXCLUDED.marked_by, marked_at = now(), updated_at = now();
+
+  PERFORM public.fn_induction_recompute_completion(p_event_id);
+  RETURN jsonb_array_length(p_marks);
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_mark_day_attendance(UUID, INTEGER, JSONB) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_mark_day_attendance(UUID, INTEGER, JSONB) TO authenticated;
+
+-- ============================================================================
+-- Fresher Induction — Day-level & whole-program feedback (dynamic scopes)
+-- Migration: supabase/migrations/20260730110000_induction_day_program_feedback.sql
+-- 6 DEFINER RPCs for the 2 new feedback scopes (mirroring event_session_feedback,
+-- phase 2b). Both scopes default OFF via induction_programs.feedback_day_enabled /
+-- feedback_program_enabled — existing inductions are unaffected until a
+-- coordinator opts in. Neither new scope feeds induction_completion.value_score_avg
+-- (that stays session-feedback-only — the scorecard/loop already consume it as such).
+-- ============================================================================
+
+-- 1. submit day feedback — self, must be enrolled in the event.
+CREATE OR REPLACE FUNCTION public.fn_induction_submit_day_feedback(
+  p_event_id UUID, p_day_number INTEGER, p_rating INTEGER, p_comment TEXT DEFAULT NULL
+) RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_learner UUID; v_inst UUID; v_fid UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_submit_day_feedback: not authenticated'; END IF;
+  v_learner := get_my_learner_id();
+  IF v_learner IS NULL THEN RAISE EXCEPTION 'fn_induction_submit_day_feedback: not a learner'; END IF;
+  IF p_rating IS NULL OR p_rating < 1 OR p_rating > 5 THEN RAISE EXCEPTION 'fn_induction_submit_day_feedback: rating must be 1-5'; END IF;
+
+  SELECT institution_id INTO v_inst FROM public.induction_programs WHERE event_id = p_event_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_submit_day_feedback: not an induction event'; END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.induction_enrollment ie
+    WHERE ie.event_id = p_event_id AND ie.learner_id = v_learner
+  ) THEN
+    RAISE EXCEPTION 'fn_induction_submit_day_feedback: not enrolled in this induction';
+  END IF;
+
+  INSERT INTO public.event_day_feedback (event_id, day_number, learner_id, institution_id, rating, comment)
+  VALUES (p_event_id, p_day_number, v_learner, v_inst, p_rating, p_comment)
+  ON CONFLICT (event_id, day_number, learner_id) DO UPDATE SET
+    rating = EXCLUDED.rating, comment = EXCLUDED.comment, updated_at = now()
+  RETURNING id INTO v_fid;
+
+  RETURN v_fid;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_submit_day_feedback(UUID, INTEGER, INTEGER, TEXT) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_submit_day_feedback(UUID, INTEGER, INTEGER, TEXT) TO authenticated;
+
+-- 2. coordinator per-day feedback summary.
+CREATE OR REPLACE FUNCTION public.fn_induction_day_feedback_summary(p_event_id UUID)
+RETURNS TABLE (day_number INTEGER, avg_rating NUMERIC, response_count INTEGER)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_inst UUID;
+BEGIN
+  SELECT institution_id INTO v_inst FROM public.induction_programs WHERE event_id = p_event_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_day_feedback_summary: not an induction event'; END IF;
+  IF NOT (is_super_admin() OR is_admin()
+          OR (user_has_permission('induction.view') AND role_has_institution_access(v_inst))) THEN
+    RAISE EXCEPTION 'fn_induction_day_feedback_summary: not authorized';
+  END IF;
+
+  RETURN QUERY
+  SELECT f.day_number, round(avg(f.rating), 2)::numeric, count(*)::integer
+  FROM public.event_day_feedback f
+  WHERE f.event_id = p_event_id
+  GROUP BY f.day_number;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_day_feedback_summary(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_day_feedback_summary(UUID) TO authenticated;
+
+-- 3. the fresher's OWN prior day ratings (pre-fill).
+CREATE OR REPLACE FUNCTION public.fn_induction_my_day_feedback(p_event_id UUID)
+RETURNS TABLE (day_number INTEGER, rating INTEGER, comment TEXT)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_learner UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_my_day_feedback: not authenticated'; END IF;
+  v_learner := get_my_learner_id();
+  IF v_learner IS NULL THEN RETURN; END IF;
+
+  RETURN QUERY
+  SELECT f.day_number, f.rating, f.comment
+  FROM public.event_day_feedback f
+  WHERE f.event_id = p_event_id AND f.learner_id = v_learner;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_my_day_feedback(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_my_day_feedback(UUID) TO authenticated;
+
+-- 4. submit program (whole-induction) feedback — self, must be enrolled.
+CREATE OR REPLACE FUNCTION public.fn_induction_submit_program_feedback(
+  p_event_id UUID, p_rating INTEGER, p_comment TEXT DEFAULT NULL
+) RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_learner UUID; v_inst UUID; v_fid UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_submit_program_feedback: not authenticated'; END IF;
+  v_learner := get_my_learner_id();
+  IF v_learner IS NULL THEN RAISE EXCEPTION 'fn_induction_submit_program_feedback: not a learner'; END IF;
+  IF p_rating IS NULL OR p_rating < 1 OR p_rating > 5 THEN RAISE EXCEPTION 'fn_induction_submit_program_feedback: rating must be 1-5'; END IF;
+
+  SELECT institution_id INTO v_inst FROM public.induction_programs WHERE event_id = p_event_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_submit_program_feedback: not an induction event'; END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.induction_enrollment ie
+    WHERE ie.event_id = p_event_id AND ie.learner_id = v_learner
+  ) THEN
+    RAISE EXCEPTION 'fn_induction_submit_program_feedback: not enrolled in this induction';
+  END IF;
+
+  INSERT INTO public.event_program_feedback (event_id, learner_id, institution_id, rating, comment)
+  VALUES (p_event_id, v_learner, v_inst, p_rating, p_comment)
+  ON CONFLICT (event_id, learner_id) DO UPDATE SET
+    rating = EXCLUDED.rating, comment = EXCLUDED.comment, updated_at = now()
+  RETURNING id INTO v_fid;
+
+  RETURN v_fid;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_submit_program_feedback(UUID, INTEGER, TEXT) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_submit_program_feedback(UUID, INTEGER, TEXT) TO authenticated;
+
+-- 5. coordinator program-wide feedback summary (single row).
+CREATE OR REPLACE FUNCTION public.fn_induction_program_feedback_summary(p_event_id UUID)
+RETURNS TABLE (avg_rating NUMERIC, response_count INTEGER)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_inst UUID;
+BEGIN
+  SELECT institution_id INTO v_inst FROM public.induction_programs WHERE event_id = p_event_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_program_feedback_summary: not an induction event'; END IF;
+  IF NOT (is_super_admin() OR is_admin()
+          OR (user_has_permission('induction.view') AND role_has_institution_access(v_inst))) THEN
+    RAISE EXCEPTION 'fn_induction_program_feedback_summary: not authorized';
+  END IF;
+
+  RETURN QUERY
+  SELECT round(avg(f.rating), 2)::numeric, count(*)::integer
+  FROM public.event_program_feedback f
+  WHERE f.event_id = p_event_id;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_program_feedback_summary(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_program_feedback_summary(UUID) TO authenticated;
+
+-- 6. the fresher's OWN prior program rating (pre-fill).
+CREATE OR REPLACE FUNCTION public.fn_induction_my_program_feedback(p_event_id UUID)
+RETURNS TABLE (rating INTEGER, comment TEXT)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_learner UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_my_program_feedback: not authenticated'; END IF;
+  v_learner := get_my_learner_id();
+  IF v_learner IS NULL THEN RETURN; END IF;
+
+  RETURN QUERY
+  SELECT f.rating, f.comment
+  FROM public.event_program_feedback f
+  WHERE f.event_id = p_event_id AND f.learner_id = v_learner;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_my_program_feedback(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_my_program_feedback(UUID) TO authenticated;
+
+-- 7. expose the two feedback-scope toggles on the fresher's enrollment read.
+--    Changing a RETURNS TABLE column list requires DROP + recreate — CREATE OR
+--    REPLACE cannot add/change output columns on an existing function.
+--
+--    IMPORTANT: this rebuild must start from the CURRENT live shape, not the
+--    phase-3 original. Phase 4 (20260627220000_induction_phase4_referral_advocacy.sql)
+--    already DROP+recreated this same function once to add `advocacy_score`
+--    between value_score_avg and is_profile_complete. That column is read live
+--    by my-induction/page.tsx (AdvocacyCard). Omitting it here would silently
+--    regress the advocacy card on every fresher's page. The body below is the
+--    phase-4 version verbatim, plus ONLY the two new trailing columns.
+DROP FUNCTION IF EXISTS public.fn_induction_my_enrollments();
+
+CREATE FUNCTION public.fn_induction_my_enrollments()
+RETURNS TABLE (
+  event_id               UUID,
+  event_name             TEXT,
+  institution_id         UUID,
+  institution_name       TEXT,
+  start_date             DATE,
+  end_date               DATE,
+  status                 TEXT,
+  batch_id               UUID,
+  batch_label            TEXT,
+  sessions_total         INTEGER,
+  sessions_attended      INTEGER,
+  attendance_pct         NUMERIC,
+  participation_complete BOOLEAN,
+  value_score_avg        NUMERIC,
+  advocacy_score         NUMERIC,
+  is_profile_complete    BOOLEAN,
+  profile_fields_total   INTEGER,
+  profile_fields_filled  INTEGER,
+  feedback_day_enabled     BOOLEAN,
+  feedback_program_enabled BOOLEAN
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_learner UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'fn_induction_my_enrollments: not authenticated';
+  END IF;
+  v_learner := get_my_learner_id();
+  IF v_learner IS NULL THEN
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    e.id::uuid,
+    e.name::text,
+    e.institution_id::uuid,
+    i.name::text,
+    e.start_date::date,
+    e.end_date::date,
+    e.status::text,
+    ie.batch_id::uuid,
+    b.label::text,
+    COALESCE(c.sessions_total, 0)::integer,
+    COALESCE(c.sessions_attended, 0)::integer,
+    COALESCE(c.attendance_pct, 0)::numeric,
+    COALESCE(c.participation_complete, false)::boolean,
+    c.value_score_avg::numeric,
+    c.advocacy_score::numeric,
+    COALESCE(lp.is_profile_complete, false)::boolean,
+    4::integer,
+    (
+      (lp.college_email   IS NOT NULL AND btrim(lp.college_email) <> '')::int +
+      (lp.academic_year_id IS NOT NULL)::int +
+      (lp.semester_id      IS NOT NULL)::int +
+      (lp.section_id       IS NOT NULL)::int
+    )::integer,
+    COALESCE(ip.feedback_day_enabled, false)::boolean,
+    COALESCE(ip.feedback_program_enabled, false)::boolean
+  FROM public.induction_enrollment ie
+  JOIN public.events             e  ON e.id = ie.event_id
+  JOIN public.institutions       i  ON i.id = e.institution_id
+  LEFT JOIN public.induction_batches    b  ON b.id = ie.batch_id
+  LEFT JOIN public.induction_completion c  ON c.event_id = ie.event_id AND c.learner_id = ie.learner_id
+  LEFT JOIN public.learners_profiles    lp ON lp.id = ie.learner_id
+  LEFT JOIN public.induction_programs   ip ON ip.event_id = ie.event_id
+  WHERE ie.learner_id = v_learner
+  ORDER BY e.start_date DESC NULLS LAST;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_induction_my_enrollments() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_my_enrollments() TO authenticated;

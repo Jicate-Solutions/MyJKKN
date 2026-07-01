@@ -1350,3 +1350,13 @@ CREATE TRIGGER hr_recruitment_jobs_fill_org_biu
   ON public.hr_recruitment_jobs
   FOR EACH ROW
   EXECUTE FUNCTION public.hr_recruitment_jobs_fill_org();
+
+-- Induction day/program feedback updated_at touch (2026-07-30).
+-- Migration: supabase/migrations/20260730110000_induction_day_program_feedback.sql
+DROP TRIGGER IF EXISTS trg_touch_updated_at ON public.event_day_feedback;
+CREATE TRIGGER trg_touch_updated_at BEFORE UPDATE ON public.event_day_feedback
+  FOR EACH ROW EXECUTE FUNCTION public.induction_touch_updated_at();
+
+DROP TRIGGER IF EXISTS trg_touch_updated_at ON public.event_program_feedback;
+CREATE TRIGGER trg_touch_updated_at BEFORE UPDATE ON public.event_program_feedback
+  FOR EACH ROW EXECUTE FUNCTION public.induction_touch_updated_at();
