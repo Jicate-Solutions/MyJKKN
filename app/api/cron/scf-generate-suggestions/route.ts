@@ -546,12 +546,26 @@ export async function GET(request: NextRequest) {
         else skipped++;
         continue;
       } else {
-        // 0 genuine asks — praise/neutral comments — OR the judge failed (fail-safe returns
-        // 0). Record NOTHING and skip: a persistent "judged, no concern" marker would freeze
-        // out a window that later develops real confusion, and a transient judge error would
-        // suppress it permanently. The only cost is that an all-praise middling window is
-        // re-judged on the next daily run — bounded by BATCH_CAP, and a judge call is ~400
-        // output tokens. Correctness (never miss a real ask) beats saving a few cents.
+        // 0 genuine asks — praise/neutral comments — OR the judge failed (fail-safe returns 0).
+        // A GENUINE 0-ask RESOLVES a prior lone-voice concern for this class (clear it). A judge
+        // ERROR must NOT resolve anything — a transient blip shouldn't clear a real concern — so
+        // skip and retry next run. We never write a suppression marker: it would freeze a class
+        // that later develops confusion, and the re-judge cost is bounded (BATCH_CAP, a ~400-token
+        // judge call). Correctness (never miss a real ask, never falsely resolve) beats a few cents.
+        if (judged.modelUsed !== 'error') {
+          try {
+            await admin.rpc('fn_scf_clear_leadership_concern', {
+              p_institution_id: target.institution_id,
+              p_course_code: target.course_code,
+              p_faculty_email: target.faculty_email,
+            });
+          } catch (clrErr) {
+            console.error(
+              `[cron/scf-generate-suggestions] clear-concern (resolve) failed for ${target.course_code}:`,
+              clrErr
+            );
+          }
+        }
         skipped++;
         continue;
       }
@@ -644,6 +658,24 @@ export async function GET(request: NextRequest) {
         generated++;
         if (kind === 'success') generatedSuccess++;
         else generatedImprovement++;
+
+        // Supersede: a teacher improvement tip is a bigger, teacher-facing issue than a
+        // lone-voice leadership concern, so clear any concern for this class (a class that
+        // escalated from 1 ask to >=2 asks must not leave a stale/contradictory concern row).
+        if (kind === 'improvement') {
+          try {
+            await admin.rpc('fn_scf_clear_leadership_concern', {
+              p_institution_id: target.institution_id,
+              p_course_code: target.course_code,
+              p_faculty_email: target.faculty_email,
+            });
+          } catch (clrErr) {
+            console.error(
+              `[cron/scf-generate-suggestions] clear-concern (supersede) failed for ${target.course_code}:`,
+              clrErr
+            );
+          }
+        }
       } catch (recErr) {
         console.error(
           `[cron/scf-generate-suggestions] record failed for ${target.course_code}:`,
