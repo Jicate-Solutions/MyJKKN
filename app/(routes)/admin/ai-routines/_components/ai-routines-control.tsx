@@ -2,9 +2,10 @@
 
 // ============================================================================
 // AI Routines control panel (client). Renders the static registry grouped by
-// category, with a permission-gated "Run now" for the crons that are safe to
-// fire on demand. Routines that message humans or need a request body show WHY
-// they can't be one-click-run here (the trigger API enforces the same rule).
+// category, merged with each routine's EDITABLE schedule (day-of-week + time in
+// IST) from the DB. Super_admin can: change when a routine runs (day/time),
+// enable/disable it, and "Run now" the ones that are safe to fire on demand.
+// Routines that message humans show WHY they can't be one-click-run here.
 // ============================================================================
 
 import { useState } from 'react';
@@ -18,6 +19,8 @@ import {
   CheckCircle2,
   XCircle,
   ShieldAlert,
+  CalendarClock,
+  PauseCircle,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -25,6 +28,13 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { AI_ROUTINES, routinesByCategory, triggerableCount } from '@/lib/ai-routines/registry';
 import { ROUTINE_CATEGORIES, type AIRoutine } from '@/lib/ai-routines/types';
+import {
+  useSchedules,
+  ScheduleEditor,
+  fmtTime,
+  fmtDays,
+  type ScheduleRow,
+} from './schedule-editor';
 
 const BRAND = '#0b6d41';
 
@@ -35,7 +45,6 @@ function summarize(result: unknown): string {
   if (typeof result === 'string') return result.slice(0, 240);
   try {
     const o = result as Record<string, unknown>;
-    // Pull the most useful cron response fields if present
     const keys = ['generated', 'candidates', 'eligible', 'skipped', 'notes', 'flags', 'sent', 'inserted', 'ok', 'week_of', 'elapsed_ms'];
     const parts = keys.filter((k) => k in o).map((k) => `${k}=${JSON.stringify(o[k])}`);
     return parts.length ? parts.join(' · ') : JSON.stringify(o).slice(0, 240);
@@ -54,8 +63,17 @@ function TypeBadge({ type }: { type: AIRoutine['type'] }) {
   return <Badge variant="outline" className="font-normal">{map[type]}</Badge>;
 }
 
-function RoutineRow({ r }: { r: AIRoutine }) {
+function RoutineRow({
+  r,
+  schedule,
+  onScheduleSaved,
+}: {
+  r: AIRoutine;
+  schedule?: ScheduleRow;
+  onScheduleSaved: (next: ScheduleRow) => void;
+}) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [running, setRunning] = useState(false);
   const [last, setLast] = useState<RunState>(undefined);
 
@@ -102,12 +120,37 @@ function RoutineRow({ r }: { r: AIRoutine }) {
               ) : (
                 <Badge variant="outline" className="font-normal text-muted-foreground">rules-based</Badge>
               )}
+              {schedule && !schedule.enabled ? (
+                <Badge variant="outline" className="gap-1 border-amber-300 text-amber-600 dark:text-amber-400">
+                  <PauseCircle className="h-3 w-3" /> paused
+                </Badge>
+              ) : null}
             </div>
             <p className="text-sm text-muted-foreground">{r.whatItDoes}</p>
+
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-0.5 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <Clock className="h-3.5 w-3.5" /> {r.schedule}
-              </span>
+              {schedule ? (
+                <span className="flex items-center gap-1">
+                  <CalendarClock className="h-3.5 w-3.5" />
+                  {schedule.enabled ? (
+                    <>
+                      {fmtDays(schedule.days_of_week)} at{' '}
+                      <span className="font-medium text-foreground">{fmtTime(schedule.minute_of_day)} IST</span>
+                    </>
+                  ) : (
+                    <span className="text-amber-600 dark:text-amber-400">paused</span>
+                  )}
+                </span>
+              ) : (
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3.5 w-3.5" /> {r.schedule}
+                </span>
+              )}
+              {schedule ? (
+                <button type="button" onClick={() => setEditing((v) => !v)} className="text-[#0b6d41] hover:underline">
+                  {editing ? 'Close' : 'Edit schedule'}
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
@@ -116,6 +159,9 @@ function RoutineRow({ r }: { r: AIRoutine }) {
                 <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
                 {open ? 'Hide details' : 'Details'}
               </button>
+              {schedule?.last_status ? (
+                <span className="text-muted-foreground/70">last run: {schedule.last_status}</span>
+              ) : null}
             </div>
           </div>
 
@@ -134,6 +180,17 @@ function RoutineRow({ r }: { r: AIRoutine }) {
             )}
           </div>
         </div>
+
+        {editing && schedule ? (
+          <ScheduleEditor
+            schedule={schedule}
+            onCancel={() => setEditing(false)}
+            onSaved={(next) => {
+              onScheduleSaved(next);
+              setEditing(false);
+            }}
+          />
+        ) : null}
 
         {last && (
           <div
@@ -171,13 +228,21 @@ function DetailRow({ label, value, mono }: { label: string; value: string; mono?
 }
 
 export function AiRoutinesControl() {
+  const { map, loading, error, setMap } = useSchedules();
   const total = AI_ROUTINES.length;
   const runnable = triggerableCount();
   const aiCount = AI_ROUTINES.filter((r) => r.callsClaude).length;
 
+  function onScheduleSaved(next: ScheduleRow) {
+    setMap((prev) => {
+      const m = new Map(prev);
+      m.set(next.routine_id, next);
+      return m;
+    });
+  }
+
   return (
     <div className="space-y-8">
-      {/* Summary header */}
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border bg-muted/30 p-4">
         <div className="flex items-center gap-2">
           <Bot className="h-5 w-5" style={{ color: BRAND }} />
@@ -189,13 +254,19 @@ export function AiRoutinesControl() {
           <Sparkles className="h-4 w-4" /> {aiCount} call Claude
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <CalendarClock className="h-4 w-4" /> {map.size} on an editable schedule
+        </div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Play className="h-4 w-4" /> {runnable} safe to run on demand
         </div>
         <p className="w-full text-xs text-muted-foreground">
-          Green <strong>Run now</strong> fires a routine immediately (server-side, secret-protected). Routines that
-          message students or staff show <span className="text-amber-600 dark:text-amber-400">messages people</span>{' '}
-          and must be run from their own screen — that guard is enforced on the server, not just here. Editing
-          schedules and thresholds from this page is the next phase.
+          Change any scheduled routine&apos;s <strong>day and time</strong> with <strong>Edit schedule</strong> —
+          takes effect on the next dispatcher tick, no redeploy. Green <strong>Run now</strong> fires immediately.
+          Routines that message students or staff show{' '}
+          <span className="text-amber-600 dark:text-amber-400">messages people</span> and must be run from their own
+          screen. All times are IST.
+          {error ? <span className="ml-2 text-red-600">Schedules failed to load: {error}</span> : null}
+          {loading ? <span className="ml-2">Loading schedules…</span> : null}
         </p>
       </div>
 
@@ -210,7 +281,7 @@ export function AiRoutinesControl() {
             </div>
             <div className="space-y-2">
               {rows.map((r) => (
-                <RoutineRow key={r.id} r={r} />
+                <RoutineRow key={r.id} r={r} schedule={map.get(r.id)} onScheduleSaved={onScheduleSaved} />
               ))}
             </div>
           </section>
