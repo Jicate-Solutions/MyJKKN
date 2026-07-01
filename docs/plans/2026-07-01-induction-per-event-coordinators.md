@@ -150,11 +150,20 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE v_inst UUID;
 BEGIN
   IF NOT public.fn_induction_can_manage_event_coordinators(p_event_id) THEN
     RAISE EXCEPTION 'fn_induction_assign_event_coordinator: not authorized';
   END IF;
   IF p_user_id IS NULL THEN RAISE EXCEPTION 'fn_induction_assign_event_coordinator: user_id required'; END IF;
+  SELECT ip.institution_id INTO v_inst FROM public.induction_programs ip WHERE ip.event_id = p_event_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_assign_event_coordinator: not an induction event'; END IF;
+  -- defense-in-depth: the picker UI (fn_induction_assignable_event_staff) only ever
+  -- offers staff of this event's own institution — reject a direct-API call that
+  -- tries to appoint someone from a different college as this event's coordinator.
+  IF NOT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = p_user_id AND p.institution_id = v_inst) THEN
+    RAISE EXCEPTION 'fn_induction_assign_event_coordinator: that user is not a member of this induction''s college';
+  END IF;
   INSERT INTO public.induction_event_coordinators (event_id, user_id, assigned_by)
   VALUES (p_event_id, p_user_id, auth.uid())
   ON CONFLICT (event_id, user_id) DO NOTHING;
@@ -366,6 +375,8 @@ BEGIN
   INSERT INTO public.event_session_speakers (session_id, profile_id, source_label, created_by)
   SELECT p_session_id, pid, p_source_label, auth.uid()
   FROM unnest(COALESCE(p_profile_ids, ARRAY[]::uuid[])) AS pid
+  -- only real users the caller can access: prevents linking a profile from an
+  -- institution the coordinator has no access to (cross-tenant link injection).
   WHERE EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = pid
                 AND (is_super_admin() OR is_admin() OR role_has_institution_access(p.institution_id)))
   ON CONFLICT (session_id, profile_id) DO NOTHING;
@@ -390,12 +401,17 @@ BEGIN
   SELECT institution_id INTO v_inst FROM public.induction_programs WHERE event_id = v_event;
   IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_submit_feedback_proxy: not an induction session'; END IF;
 
+  -- coordinator gate (identical to the attendance writer)
   IF NOT (is_super_admin() OR is_admin()
           OR (user_has_permission('induction.manage') AND role_has_institution_access(v_inst))
           OR public.fn_induction_is_event_coordinator(v_event)) THEN  -- ADDED
     RAISE EXCEPTION 'fn_induction_submit_feedback_proxy: not authorized';
   END IF;
 
+  -- FILTER (don't abort): a row with an invalid rating / un-enrolled learner / wrong
+  -- batch is silently skipped, so one stale pick on a SHARED device never loses the
+  -- rest of the batch. DISTINCT ON dedupes a learner repeated in the payload (else
+  -- ON CONFLICT "cannot affect row a second time" would abort the whole save). #1694 r3.
   WITH cleaned AS (
     SELECT (m->>'learner_id')::uuid AS learner_id,
            (m->>'rating')::int       AS rating,
@@ -408,13 +424,16 @@ BEGIN
   valid AS (
     SELECT DISTINCT ON (c.learner_id) c.learner_id, c.rating, c.comment
     FROM cleaned c
-    WHERE EXISTS (
+    WHERE EXISTS (   -- enrolled + (batch-specific session → only its batch)
       SELECT 1 FROM public.induction_enrollment ie
       WHERE ie.event_id = v_event AND ie.learner_id = c.learner_id
         AND (v_sbatch IS NULL OR ie.batch_id IS NOT DISTINCT FROM v_sbatch)
     )
     ORDER BY c.learner_id
   )
+  -- ANTI-CLOBBER: the ON CONFLICT UPDATE only fires when the EXISTING submitted_by IS
+  -- NOT NULL (a prior kiosk row). A fresher's own-login row (submitted_by IS NULL)
+  -- makes the predicate false → Postgres silently skips it; a self-vote is never lost.
   INSERT INTO public.event_session_feedback
     (session_id, learner_id, event_id, institution_id, rating, comment, capture_method, submitted_by)
   SELECT p_session_id, v.learner_id, v_event, v_inst, v.rating, v.comment, 'volunteer_kiosk', auth.uid()
@@ -425,10 +444,17 @@ BEGIN
   WHERE public.event_session_feedback.submitted_by IS NOT NULL;
   GET DIAGNOSTICS v_n = ROW_COUNT;
 
+  -- refresh value_score_avg for each picked learner (idempotent; a skipped self-row
+  -- recomputes to the same value, so this is safe for clobber-skipped rows too).
   INSERT INTO public.induction_completion (event_id, learner_id, institution_id, value_score_avg, updated_at)
   SELECT v_event, picked.learner_id, v_inst,
          (SELECT round(avg(f.rating), 2) FROM public.event_session_feedback f
             WHERE f.event_id = v_event AND f.learner_id = picked.learner_id), now()
+  -- #1694 r6 (MEDIUM): refresh value_score_avg ONLY for learners that actually have a
+  -- feedback row for this event. An enrolled-but-FILTERED pick (invalid rating / wrong
+  -- batch, dropped from `valid`) with no feedback row would otherwise upsert
+  -- value_score_avg = NULL (avg over an empty set) — polluting the leading metric and
+  -- creating a spurious completion row. The feedback-row EXISTS re-aligns `picked` with `valid`.
   FROM (SELECT DISTINCT (m->>'learner_id')::uuid AS learner_id
         FROM jsonb_array_elements(p_marks) m
         WHERE EXISTS (SELECT 1 FROM public.induction_enrollment ie
