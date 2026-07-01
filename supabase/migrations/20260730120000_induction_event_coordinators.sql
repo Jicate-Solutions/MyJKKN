@@ -128,11 +128,20 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE v_inst UUID;
 BEGIN
   IF NOT public.fn_induction_can_manage_event_coordinators(p_event_id) THEN
     RAISE EXCEPTION 'fn_induction_assign_event_coordinator: not authorized';
   END IF;
   IF p_user_id IS NULL THEN RAISE EXCEPTION 'fn_induction_assign_event_coordinator: user_id required'; END IF;
+  SELECT ip.institution_id INTO v_inst FROM public.induction_programs ip WHERE ip.event_id = p_event_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_assign_event_coordinator: not an induction event'; END IF;
+  -- defense-in-depth: the picker UI (fn_induction_assignable_event_staff) only ever
+  -- offers staff of this event's own institution — reject a direct-API call that
+  -- tries to appoint someone from a different college as this event's coordinator.
+  IF NOT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = p_user_id AND p.institution_id = v_inst) THEN
+    RAISE EXCEPTION 'fn_induction_assign_event_coordinator: that user is not a member of this induction''s college';
+  END IF;
   INSERT INTO public.induction_event_coordinators (event_id, user_id, assigned_by)
   VALUES (p_event_id, p_user_id, auth.uid())
   ON CONFLICT (event_id, user_id) DO NOTHING;
