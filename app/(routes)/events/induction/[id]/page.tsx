@@ -11,6 +11,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { InductionService, type PreviewEnrollResult } from '@/lib/services/induction/induction-service';
 import { SessionsSection } from './_components/sessions-section';
+import { EventCoordinatorsSection } from './_components/event-coordinators-section';
 import { FeedbackVolunteersSection } from './_components/feedback-volunteers-section';
 import { ScorecardSection } from './_components/scorecard-section';
 import { LoopPlaybookSection } from './_components/loop-playbook-section';
@@ -218,6 +219,9 @@ export default function InductionDetailPage() {
             {venueName && <MetaItem icon={MapPin} label="Main venue" value={venueName} />}
           </div>
         </section>
+
+        {/* Per-event coordinators — appoint who runs THIS induction, independent of any institution-wide coordinator */}
+        <EventCoordinatorsSection eventId={id} />
 
         {/* KPI strip — cohort at a glance */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
