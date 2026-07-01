@@ -13,6 +13,7 @@ import { InductionSpeakersService, type DirectoryUser } from '@/lib/services/ind
 import { PersonAvailabilityService } from '@/lib/services/availability/person-availability';
 import { useAuth } from '@/hooks/use-auth';
 import { AttendanceDialog } from './attendance-dialog';
+import { DayAttendanceDialog } from './day-attendance-dialog';
 import { FeedbackKioskDialog } from './feedback-kiosk-dialog';
 import { SessionPollDialog } from './session-poll-dialog';
 import { SessionSpeakerPicker } from './session-speaker-picker';
@@ -23,11 +24,13 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger,
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Pencil, Trash2, MapPin, User, Target, LinkIcon, X, Star, CalendarDays } from 'lucide-react';
+import { Plus, Pencil, Trash2, MapPin, User, Target, LinkIcon, X, Star, CalendarDays, Settings2 } from 'lucide-react';
 
 interface Batch { id: string; label: string; }
 const COMBINED = '__combined__';
@@ -47,6 +50,10 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
   const { profile } = useAuth();
   const [sessions, setSessions] = useState<InductionSessionRow[]>([]);
   const [feedback, setFeedback] = useState<Record<string, { avg: number; count: number }>>({});
+  const [dayFeedback, setDayFeedback] = useState<Record<number, { avg: number; count: number }>>({});
+  const [programFeedback, setProgramFeedback] = useState<{ avg: number; count: number } | null>(null);
+  const [scopes, setScopes] = useState({ dayEnabled: false, programEnabled: false });
+  const [scopesSaving, setScopesSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<InductionSessionRow | null>(null);
@@ -78,14 +85,22 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [rows, summary] = await Promise.all([
+      const [rows, summary, sc, daySummary, progSummary] = await Promise.all([
         InductionService.listSessions(eventId),
         InductionService.getSessionFeedbackSummary(eventId).catch(() => []),
+        InductionService.getFeedbackScopes(eventId).catch(() => ({ dayEnabled: false, programEnabled: false })),
+        InductionService.getDayFeedbackSummary(eventId).catch(() => []),
+        InductionService.getProgramFeedbackSummary(eventId).catch(() => null),
       ]);
       setSessions(rows);
       const fb: Record<string, { avg: number; count: number }> = {};
       for (const s of summary) fb[s.session_id] = { avg: Number(s.avg_rating), count: s.response_count };
       setFeedback(fb);
+      setScopes(sc);
+      const df: Record<number, { avg: number; count: number }> = {};
+      for (const d of daySummary) df[d.day_number] = { avg: Number(d.avg_rating), count: d.response_count };
+      setDayFeedback(df);
+      setProgramFeedback(progSummary ? { avg: Number(progSummary.avg_rating), count: progSummary.response_count } : null);
     } catch (e: any) { toast.error(`Couldn't load sessions: ${e.message ?? e}`); }
     finally { setLoading(false); }
   }, [eventId]);
@@ -193,6 +208,18 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
     catch (e: any) { toast.error(`Couldn't delete: ${e.message ?? e}`); }
   };
 
+  const toggleScope = async (key: 'dayEnabled' | 'programEnabled', value: boolean) => {
+    const next = { ...scopes, [key]: value };
+    setScopes(next);   // optimistic
+    setScopesSaving(true);
+    try {
+      await InductionService.setFeedbackScopes(eventId, next.dayEnabled, next.programEnabled);
+    } catch (e: any) {
+      setScopes(scopes);   // revert on failure
+      toast.error(`Couldn't update feedback settings: ${e.message ?? e}`);
+    } finally { setScopesSaving(false); }
+  };
+
   // group by day
   const byDay = new Map<number, InductionSessionRow[]>();
   for (const s of sessions) {
@@ -217,6 +244,37 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
             </CardTitle>
             <CardDescription>The day-by-day schedule — topics, speakers, venues, outcomes, and resources.</CardDescription>
           </div>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button size="sm" variant="ghost" className="gap-1">
+                <Settings2 className="h-4 w-4" /> Feedback settings
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm">
+                  <div className="font-medium">Day-end feedback</div>
+                  <div className="text-xs text-muted-foreground">One rating per fresher per day.</div>
+                </div>
+                <Switch checked={scopes.dayEnabled} disabled={scopesSaving}
+                  onCheckedChange={(v) => toggleScope('dayEnabled', v)} />
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm">
+                  <div className="font-medium">Overall program feedback</div>
+                  <div className="text-xs text-muted-foreground">One rating per fresher for the whole induction.</div>
+                </div>
+                <Switch checked={scopes.programEnabled} disabled={scopesSaving}
+                  onCheckedChange={(v) => toggleScope('programEnabled', v)} />
+              </div>
+              {programFeedback && (
+                <div className="border-t pt-2 text-xs text-muted-foreground flex items-center gap-1">
+                  <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+                  Overall: {programFeedback.avg.toFixed(1)} · {programFeedback.count} response{programFeedback.count === 1 ? '' : 's'}
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
           <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) resetForm(); }}>
             <DialogTrigger asChild>
               <Button size="sm" onClick={openCreate}><Plus className="h-4 w-4 mr-1" /> Add session</Button>
@@ -350,7 +408,16 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                     <span className="text-xs text-muted-foreground tabular-nums">
                       {daySessions.length} session{daySessions.length === 1 ? '' : 's'}
                     </span>
+                    {scopes.dayEnabled && dayFeedback[d] && (
+                      <Badge variant="outline" className="gap-1" title={`${dayFeedback[d].count} response(s)`}>
+                        <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+                        {dayFeedback[d].avg.toFixed(1)} · {dayFeedback[d].count}
+                      </Badge>
+                    )}
                     <div className="h-px flex-1 bg-border" />
+                    {d !== 0 && (
+                      <DayAttendanceDialog eventId={eventId} dayNumber={d} dayLabel={`Day ${d}`} />
+                    )}
                   </div>
 
                   {/* Agenda rows — time gutter + session card */}
