@@ -254,6 +254,33 @@ export class InductionService {
     return (data as number) ?? 0;
   }
 
+  // ── Day-level attendance (bulk mark, fans out to sessions) ──────────────────
+
+  /** Roster for a whole day — everyone eligible for any session that day, with
+   *  a uniform status pre-filled or is_mixed=true when their sessions differ. */
+  static async getDayRoster(eventId: string, dayNumber: number): Promise<DayRosterRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_day_roster', {
+      p_event_id: eventId,
+      p_day_number: dayNumber,
+    });
+    if (error) throw error;
+    return (data as DayRosterRow[]) ?? [];
+  }
+
+  /** Bulk mark attendance for every session under one day; recomputes completion.
+   *  Returns count of learners marked, not session-rows written (a day can fan out to several sessions per learner). */
+  static async markDayAttendance(eventId: string, dayNumber: number, marks: AttendanceMark[]): Promise<number> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_mark_day_attendance', {
+      p_event_id: eventId,
+      p_day_number: dayNumber,
+      p_marks: marks,
+    });
+    if (error) throw error;
+    return (data as number) ?? 0;
+  }
+
   // ── Per-session feedback (value signal; student submit + coordinator summary) ──
 
   /** Student submits/updates their 1–5 rating (+ comment) for a session. Returns feedback id. */
@@ -310,6 +337,92 @@ export class InductionService {
     if (error) throw error;
     const row = Array.isArray(data) ? data[0] : data;
     return (row as FeedbackMethodMix) ?? null;
+  }
+
+  // ── Day-level feedback (opt-in scope) ────────────────────────────────────────
+
+  static async submitDayFeedback(eventId: string, dayNumber: number, rating: number, comment?: string | null): Promise<string> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_submit_day_feedback', {
+      p_event_id: eventId,
+      p_day_number: dayNumber,
+      p_rating: rating,
+      p_comment: comment ?? null,
+    });
+    if (error) throw error;
+    return data as string;
+  }
+
+  static async getDayFeedbackSummary(eventId: string): Promise<DayFeedbackSummary[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_day_feedback_summary', { p_event_id: eventId });
+    if (error) throw error;
+    return (data as DayFeedbackSummary[]) ?? [];
+  }
+
+  static async myDayFeedback(eventId: string): Promise<MyDayFeedback[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_my_day_feedback', { p_event_id: eventId });
+    if (error) throw error;
+    return (data as MyDayFeedback[]) ?? [];
+  }
+
+  // ── Whole-program feedback (opt-in scope) ────────────────────────────────────
+
+  static async submitProgramFeedback(eventId: string, rating: number, comment?: string | null): Promise<string> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_submit_program_feedback', {
+      p_event_id: eventId,
+      p_rating: rating,
+      p_comment: comment ?? null,
+    });
+    if (error) throw error;
+    return data as string;
+  }
+
+  static async getProgramFeedbackSummary(eventId: string): Promise<ProgramFeedbackSummary | null> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_program_feedback_summary', { p_event_id: eventId });
+    if (error) throw error;
+    const row = Array.isArray(data) ? data[0] : data;
+    return (row as ProgramFeedbackSummary) ?? null;
+  }
+
+  static async myProgramFeedback(eventId: string): Promise<MyProgramFeedback | null> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_my_program_feedback', { p_event_id: eventId });
+    if (error) throw error;
+    const row = Array.isArray(data) ? data[0] : data;
+    return (row as MyProgramFeedback) ?? null;
+  }
+
+  // ── Coordinator: which feedback scopes are on for this induction ────────────
+
+  /** Read the two opt-in scope flags directly off induction_programs (RLS: induction_programs_view). */
+  static async getFeedbackScopes(eventId: string): Promise<{ dayEnabled: boolean; programEnabled: boolean }> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('induction_programs')
+      .select('feedback_day_enabled, feedback_program_enabled')
+      .eq('event_id', eventId)
+      .maybeSingle();
+    if (error) throw error;
+    return {
+      dayEnabled: (data as any)?.feedback_day_enabled ?? false,
+      programEnabled: (data as any)?.feedback_program_enabled ?? false,
+    };
+  }
+
+  /** Flip the two scopes. Direct table write — induction_programs_manage RLS already
+   *  gates this to induction.manage + institution access, same as coordinator writes
+   *  elsewhere on this table (e.g. the detail page's own program reads). */
+  static async setFeedbackScopes(eventId: string, dayEnabled: boolean, programEnabled: boolean): Promise<void> {
+    const supabase = getSupabase();
+    const { error } = await supabase
+      .from('induction_programs')
+      .update({ feedback_day_enabled: dayEnabled, feedback_program_enabled: programEnabled })
+      .eq('event_id', eventId);
+    if (error) throw error;
   }
 
   /** Cross-college session catalog (the curated "best sessions" reference library).
@@ -567,6 +680,8 @@ export interface MyInductionEnrollment {
   is_profile_complete: boolean;
   profile_fields_total: number;
   profile_fields_filled: number;
+  feedback_day_enabled: boolean;
+  feedback_program_enabled: boolean;
 }
 
 export interface MyInductionFeedback {
@@ -610,6 +725,20 @@ export interface RosterRow {
   batch_label: string | null;
   status: AttendanceStatus | null;
 }
+
+export interface DayRosterRow {
+  learner_id: string;
+  name: string;
+  register_number: string | null;
+  batch_label: string | null;
+  status: AttendanceStatus | null;
+  is_mixed: boolean;
+}
+
+export interface DayFeedbackSummary { day_number: number; avg_rating: number; response_count: number; }
+export interface MyDayFeedback { day_number: number; rating: number; comment: string | null; }
+export interface ProgramFeedbackSummary { avg_rating: number; response_count: number; }
+export interface MyProgramFeedback { rating: number; comment: string | null; }
 
 export interface ResourceLink { label: string; url: string; }
 
