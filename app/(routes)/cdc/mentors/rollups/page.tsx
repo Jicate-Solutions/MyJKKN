@@ -56,7 +56,10 @@ export default function MentorRollupsPage() {
             </Button>
           </div>
           <p className="text-sm text-gray-500">
-            Sessions rolled up per mentor and per mentee across all their pairings. Scoped to your institutions.
+            Sessions rolled up per mentor and per mentee across all their pairings. These totals stay
+            scoped to your college; the{' '}
+            <Link href="/cdc/mentors" className="underline hover:text-gray-700">Pairings list</Link>{' '}
+            shows pairings across all colleges.
           </p>
 
           {isLoading && (
