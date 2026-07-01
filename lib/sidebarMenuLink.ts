@@ -1874,6 +1874,17 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // My Individual Development Plan — learner self-service (BUG-004298).
+          // UNGATED by design (student self-scopes via RLS on cdc_idp_responses),
+          // so it is student-visible via the isStudentPortalRoute special-case
+          // below, NOT a MENU_PERMISSIONS entry. Distinct path from /learners/*.
+          href: '/learner/idp',
+          label: 'My Development Plan',
+          active: pathname.startsWith('/learner/idp'),
+          icon: ClipboardList,
+          submenus: []
+        },
+        {
           href: '/learners/my-marks',
           label: 'My Marks',
           active: pathname.startsWith('/learners/my-marks'),
@@ -2604,7 +2615,10 @@ export function isStudentPortalRoute(href: string): boolean {
     href === '/learners/leave-onduty/my-applications' ||
     // Post-class feedback (Class Feedback) — student-only lane relocated out of
     // /academic. (My Attendance Feedback already matches /learners/my- above.)
-    href === '/learners/class-feedback'
+    href === '/learners/class-feedback' ||
+    // My Development Plan (learner self-service IDP, BUG-004298) — ungated,
+    // student-visible; distinct /learner/ path doesn't match /learners/my-.
+    href === '/learner/idp'
   );
 }
 
