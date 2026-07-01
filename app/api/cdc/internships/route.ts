@@ -110,6 +110,12 @@ export async function POST(request: NextRequest) {
       is_paid?: boolean;
       stipend_amount?: number | null;
       offer_letter_url?: string | null;
+      // BUG-004293 / BUG-004295 / BUG-004292 — website, perks, duration
+      company_website_url?: string | null;
+      has_accommodation?: boolean;
+      has_transport?: boolean;
+      has_food?: boolean;
+      duration_months?: number | null;
     } = await request.json();
 
     if (!body.learner_id || !body.site_id || !body.facilitator_id || !body.cycle_id) {
@@ -168,6 +174,14 @@ export async function POST(request: NextRequest) {
         stipend_amount: stipendAmount,
         // BUG-004087: optional offer-letter document URL
         offer_letter_url: body.offer_letter_url ?? null,
+        // BUG-004293: optional company/host website URL
+        company_website_url: body.company_website_url ?? null,
+        // BUG-004295: perks beyond stipend (default false when omitted)
+        has_accommodation: body.has_accommodation ?? false,
+        has_transport: body.has_transport ?? false,
+        has_food: body.has_food ?? false,
+        // BUG-004292: internship duration in months (null when unspecified)
+        duration_months: body.duration_months ?? null,
         // BUG-004039: persist the new config-master FK (forward source of truth)
         // AND the legacy internship_type ENUM derived from the SAME master row's
         // config_key, so existing reads that key off internship_type still work.
