@@ -395,7 +395,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/bug-reports': 'system.bugs.view',
   '/ai-query/admin': 'super_admin', // Super admin only - AI Query Tools Registry
   '/admin/ai-models': 'super_admin', // Super admin only - AI Model Config (provider/model picker + spend caps + usage)
-  '/admin/ai-routines': 'super_admin', // Super admin only - AI Routines control (see + Run-now every AI job)
   '/admin/page-metadata': 'super_admin', // Super admin only - Page Search Metadata
 
   // Social Media module (added 2026-05-31 for Meta integration nav-bar
@@ -1091,6 +1090,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/cdc/bulletin': 'cdc.bulletin.view',
   '/cdc/bulletin/new': 'cdc.bulletin.create',
   '/cdc/bulletin/[id]': 'cdc.bulletin.view',
+
+  // CDC — Employer Requirement Intake
+  '/cdc/requirements': 'cdc.requirements.view',
+  '/cdc/requirements/new': 'cdc.requirements.create',
+  '/cdc/requirements/[id]': 'cdc.requirements.view',
 
   // CDC — Industry Mentors directory
   '/cdc/industry-mentors': 'cdc.industry_mentors.view',
@@ -2061,7 +2065,6 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/learners/lifecycle', label: 'Lifecycle Analytics', active: pathname.startsWith('/learners/lifecycle') },
             { href: '/admin/page-metadata', label: 'Page Metadata', active: pathname.startsWith('/admin/page-metadata') },
             { href: '/admin/ai-models', label: 'AI Models', active: pathname.startsWith('/admin/ai-models') },
-            { href: '/admin/ai-routines', label: 'AI Routines', active: pathname.startsWith('/admin/ai-routines') },
           ]
         }
       ]
@@ -2516,6 +2519,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Opportunities Bulletin',
           active: pathname.startsWith('/cdc/bulletin'),
           icon: Megaphone,
+          submenus: []
+        },
+        {
+          // Employer Requirement Intake — company job-vacancy submissions
+          // (public self-submit + CDC staff entry). Public URL: /employers/submit.
+          href: '/cdc/requirements',
+          label: 'Employer Requirements',
+          active: pathname.startsWith('/cdc/requirements'),
+          icon: Building2,
           submenus: []
         },
         {
