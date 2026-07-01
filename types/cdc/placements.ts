@@ -41,7 +41,7 @@ export interface CdcPlacement {
   decline_reason: string | null;
   rescind_reason: string | null;
   is_walk_in: boolean;
-  placement_mode: CdcPlacementMode;     // on_campus | off_campus | walk_in (BUG-004045)
+  placement_mode: CdcPlacementMode;     // on_campus | off_campus | walk_in | job_fair (BUG-004045, BUG-004297)
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -91,7 +91,7 @@ export interface CdcPlacementInsert {
   joining_date?: string | null;
   offer_letter_url?: string | null;
   is_walk_in?: boolean;
-  placement_mode?: CdcPlacementMode;    // on_campus | off_campus | walk_in (BUG-004045); DB defaults on_campus
+  placement_mode?: CdcPlacementMode;    // on_campus | off_campus | walk_in | job_fair (BUG-004045, BUG-004297); DB defaults on_campus
   notes?: string | null;
 }
 
@@ -104,20 +104,22 @@ export interface CdcPlacementStatusUpdate {
 }
 
 // =====================================================================================
-// Placement mode (BUG-004045) — how/where the placement happened.
-// Structural enum with an exhaustive set of 3 values; backs the text+CHECK column
-// `placement_mode` on cdc_placements (NOT a master table). `walk_in` is kept in sync
-// with the legacy `is_walk_in` boolean so the drive-required conditional and the
-// NAAC/AICTE export-service (both still read is_walk_in) continue to work.
+// Placement mode (BUG-004045; job_fair added BUG-004297) — how/where the placement
+// happened. Structural enum with an exhaustive set of 4 values; backs the text+CHECK
+// column `placement_mode` on cdc_placements (NOT a master table). Only `walk_in` is
+// kept in sync with the legacy `is_walk_in` boolean so the drive-required conditional
+// and the NAAC/AICTE export-service (both still read is_walk_in) continue to work —
+// `job_fair` leaves is_walk_in false (a career fair may still be linked to a drive).
 // =====================================================================================
 
-export const CDC_PLACEMENT_MODES = ['on_campus', 'off_campus', 'walk_in'] as const;
+export const CDC_PLACEMENT_MODES = ['on_campus', 'off_campus', 'walk_in', 'job_fair'] as const;
 export type CdcPlacementMode = (typeof CDC_PLACEMENT_MODES)[number];
 
 export const CDC_PLACEMENT_MODE_LABELS: Record<CdcPlacementMode, string> = {
   on_campus: 'On-campus',
   off_campus: 'Off-campus',
   walk_in: 'Walk-in',
+  job_fair: 'Job fair / Career fair',
 };
 
 // =====================================================================================
