@@ -209,10 +209,12 @@ async function judgeHelpAsks(
 }
 
 // WIDENED gate spend guard — has this (course, faculty, institution) window ALREADY
-// produced an improvement tip OR a leadership concern in the lookback? The cron
-// re-scans a rolling window daily, so without this a persistently-middling course
-// would be re-judged (paid) every run. Returns true=handled (skip judge),
-// false=fresh (judge it), null=query error (caller fails closed → skip).
+// produced an improvement TIP in the lookback? The cron re-scans a rolling window
+// daily, so without this a class that already earned a teacher tip would be re-judged
+// (paid) every run. Deliberately does NOT treat a prior lone-voice CONCERN as handled:
+// a class can worsen from 1 ask to >=2 within the window and must stay re-judgeable so
+// it can upgrade to a teacher tip (the exact hidden pocket this feature targets).
+// Returns true=already tipped (skip judge), false=re-judge, null=query error (fail closed).
 async function widenedWindowAlreadyHandled(
   admin: ReturnType<typeof createServiceRoleClient>,
   target: CourseTarget,
@@ -234,28 +236,14 @@ async function widenedWindowAlreadyHandled(
   sugQ = normFaculty ? sugQ.eq('faculty_email', normFaculty) : sugQ.is('faculty_email', null);
   const { data: sug, error: sugErr } = await sugQ;
   if (sugErr) {
-    console.error('[cron/scf-generate-suggestions] widened guard (suggestions) failed:', sugErr);
+    console.error('[cron/scf-generate-suggestions] widened guard failed:', sugErr);
     return null;
   }
-  if (sug && sug.length > 0) return true;
-
-  // 2) a leadership concern for this course+window?
-  let conQ = admin
-    .from('scf_leadership_concerns')
-    .select('id')
-    .eq('course_code', target.course_code)
-    .gte('created_at', since)
-    .limit(1);
-  conQ = target.institution_id
-    ? conQ.eq('institution_id', target.institution_id)
-    : conQ.is('institution_id', null);
-  conQ = normFaculty ? conQ.eq('faculty_email', normFaculty) : conQ.is('faculty_email', null);
-  const { data: con, error: conErr } = await conQ;
-  if (conErr) {
-    console.error('[cron/scf-generate-suggestions] widened guard (concerns) failed:', conErr);
-    return null;
-  }
-  return !!(con && con.length > 0);
+  // Only a prior improvement TIP suppresses re-judging. A prior lone-voice concern does
+  // not (see the header) — the idempotent per-window concern upsert makes re-recording
+  // cheap, and the only cost is re-judging a persistently-1-ask/all-praise class daily
+  // (bounded by BATCH_CAP), which we accept so a worsening class is never frozen out.
+  return !!(sug && sug.length > 0);
 }
 
 // Generate a suggestion JSON via Claude. Returns null on any failure (including
@@ -525,6 +513,7 @@ export async function GET(request: NextRequest) {
         const summary =
           (judged.summary ?? '').trim() ||
           'One learner asked for clearer explanation (no further detail extracted).';
+        let recorded = false;
         try {
           const { error: recErr } = await admin.rpc('fn_scf_record_leadership_concern', {
             p_institution_id: target.institution_id,
@@ -543,7 +532,7 @@ export async function GET(request: NextRequest) {
               recErr
             );
           } else {
-            leadershipFlagged++;
+            recorded = true;
           }
         } catch (leadErr) {
           console.error(
@@ -551,7 +540,10 @@ export async function GET(request: NextRequest) {
             leadErr
           );
         }
-        skipped++;
+        // Count each candidate exactly once: a recorded concern OR a skip (on write failure),
+        // never both.
+        if (recorded) leadershipFlagged++;
+        else skipped++;
         continue;
       } else {
         // 0 genuine asks — praise/neutral comments — OR the judge failed (fail-safe returns
