@@ -48,6 +48,7 @@ import { Badge } from '@/components/ui/badge';
 import { useEscalationFollowups } from '@/hooks/use-session-feedback';
 import type { EscalationFollowupRow } from '@/types/session-feedback';
 import { FollowupCell } from '../_components/followup-cell';
+import { ScfLeadershipConcernsCard } from '../_components/scf-leadership-concerns-card';
 
 const BRAND_GREEN = '#0b6d41';
 
@@ -194,6 +195,10 @@ export default function PrincipalEscalationPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Additive leadership signal: good-average classes with exactly one help-ask.
+          Self-hides when empty or unauthorized. */}
+      <ScfLeadershipConcernsCard from={from} to={to} />
     </ContentLayout>
   );
 }

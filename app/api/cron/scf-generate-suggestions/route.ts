@@ -7,9 +7,17 @@
 // days (>=3 responses) and, per course, generates ONE of:
 //   * a teaching-IMPROVEMENT suggestion  (avg understood < 3)            kind='improvement'
 //   * a teaching-SUCCESS / what-worked   (avg >= 4.5 with >=1 comment)   kind='success'
-// Middling windows (3 <= avg < 4.5) get nothing. It then triggers outcome
-// measurement so matured prior suggestions get their lift attributed.
+//   * a teaching-IMPROVEMENT suggestion  (3 <= avg < 4.5 with >=2 comments
+//       AND Claude judges >=2 of them are genuine help-asks)             kind='improvement'
+// A good-average window with EXACTLY ONE genuine help-ask instead records a
+// LEADERSHIP-ONLY concern (no teacher tip — n=1 would over-react; the struggling-
+// note routine already supports that learner). Other middling windows get nothing.
+// It then triggers outcome measurement so matured prior suggestions get their lift.
 //
+// 2026-07-01: widened the improvement gate beyond avg<3 — a good-average class can
+// still hide a real pocket of confusion the numeric mean masks (e.g. avg 3.2 with
+// 3 of 5 asking "explain slower"). Claude judges help-asks semantically so Tamil/
+// Tanglish counts; the lone-voice case is routed to leadership, not the teacher.
 // 2026-06-30: added the standout 'success' branch (learn from positive, not
 // only from struggle) AND fixed the candidate listing, which read a relation
 // 'scf_sessions' that never existed — the generator had been 500-ing on every
@@ -51,6 +59,15 @@ const LOW_UNDERSTOOD_THRESHOLD = 3; // avg_understood < this → 'improvement' s
 // STANDOUT only (not every 4/5) so we don't generate ~125 rows of noise + Claude
 // cost — capturing what worked is only worth it when a class clearly excelled.
 const STANDOUT_THRESHOLD = 4.5;
+// WIDENED gate (2026-07-01): a good/middling class (LOW <= avg < STANDOUT) can still
+// hide a real pocket of confusion that the numeric avg masks. When it carries at least
+// WIDENED_MIN_COMMENTS free-text comments, Claude judges how many are GENUINE help-asks
+// (semantic, so Tamil/Tanglish count). >= WIDENED_MIN_ASKS genuine asks → a teacher
+// improvement tip even in a good-average class; EXACTLY ONE ask → a leadership-only
+// concern (no teacher tip — n=1 would over-react, and the struggling-note routine
+// already supports that learner); zero → skip.
+const WIDENED_MIN_COMMENTS = 2;
+const WIDENED_MIN_ASKS = 2;
 // Stop taking NEW targets once the batch has run this long, so the function
 // finishes (incl. the outcome-measurement step) within maxDuration regardless of
 // how slow individual Claude calls are. Headroom below the 300s maxDuration.
@@ -73,6 +90,16 @@ Your job: capture WHAT WORKED so the facilitator can deliberately repeat it and 
 Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exactly:
 { "whatWorked": "...", "whyItLanded": ["..."], "replicateIn": [{"context":"...","how":"..."}], "shareWithPeers": "...", "watchNext": "..." }
 Give 2-4 whyItLanded and 2-3 replicateIn. watchNext must reference sustaining this in the next session's understanding score (the loop's verifier).`;
+
+// Judge prompt for the WIDENED gate: count how many anonymous comments are GENUINE
+// requests for help / signals of not understanding. Semantic + multilingual so a
+// Tamil or Tanglish ask ("puriyala", "slow-a sollunga") is caught where a keyword
+// match would miss it. Returns a count + a short AGGREGATE summary (no verbatim
+// quote, no student identity) used for the leadership-concern card.
+const HELP_ASK_JUDGE_PROMPT = `You classify anonymous post-class student comments for an Indian higher-education institution. Comments may be in English, Tamil, or a Tamil-English mix (Tanglish).
+Count how many DISTINCT comments are a GENUINE request for help or a clear signal the student did not understand the session — e.g. "please explain slower", "I couldn't follow the derivation", "need clearer examples", "puriyala", "slow-a sollunga". Do NOT count praise, thanks, logistics (timing/room/audio), or neutral remarks.
+Return ONLY valid JSON (no markdown, no code fences, no commentary), exactly:
+{ "help_ask_count": <integer>, "summary": "<one short aggregate sentence naming the kind of help asked for; NEVER quote a comment verbatim and NEVER identify a student>" }`;
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -135,6 +162,100 @@ async function buildTrackRecordBlock(
     console.error('[cron/scf-generate-suggestions] prior fetch failed:', err);
     return '';
   }
+}
+
+// WIDENED gate — judge how many free-text comments are genuine help-asks. Returns a
+// count + an aggregate summary. Fails SAFE to { helpAskCount: 0 } so a judge error
+// never fabricates a teacher tip or a leadership concern out of thin air.
+async function judgeHelpAsks(
+  anthropic: Anthropic,
+  freeTexts: string[],
+  courseCode: string
+): Promise<{ helpAskCount: number; summary: string; modelUsed: string }> {
+  const numbered = freeTexts.map((t, i) => `${i + 1}. ${String(t).trim()}`).join('\n');
+  try {
+    const resp = await anthropic.messages.create(
+      {
+        model: MODEL,
+        max_tokens: 400,
+        system: HELP_ASK_JUDGE_PROMPT,
+        messages: [
+          {
+            role: 'user',
+            content: `Course: ${courseCode}\nAnonymous comments:\n${numbered}\n\nReturn the JSON now.`,
+          },
+        ],
+      },
+      { timeout: 20_000 }
+    );
+    const text = resp.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('')
+      .trim();
+    const jsonStr = text
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim();
+    const parsed = JSON.parse(jsonStr) as { help_ask_count?: unknown; summary?: unknown };
+    const n = Number(parsed.help_ask_count);
+    const helpAskCount = Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+    const summary = typeof parsed.summary === 'string' ? parsed.summary.slice(0, 400) : '';
+    return { helpAskCount, summary, modelUsed: resp.model };
+  } catch (err) {
+    console.error('[cron/scf-generate-suggestions] help-ask judge failed:', err);
+    return { helpAskCount: 0, summary: '', modelUsed: 'error' };
+  }
+}
+
+// WIDENED gate spend guard — has this (course, faculty, institution) window ALREADY
+// produced an improvement tip OR a leadership concern in the lookback? The cron
+// re-scans a rolling window daily, so without this a persistently-middling course
+// would be re-judged (paid) every run. Returns true=handled (skip judge),
+// false=fresh (judge it), null=query error (caller fails closed → skip).
+async function widenedWindowAlreadyHandled(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  target: CourseTarget,
+  normFaculty: string | null,
+  since: string
+): Promise<boolean | null> {
+  // 1) an improvement suggestion for this course+window?
+  let sugQ = admin
+    .from('scf_ai_suggestions')
+    .select('id')
+    .eq('course_code', target.course_code)
+    .eq('kind', 'improvement')
+    .eq('domain', 'session_feedback')
+    .gte('generated_at', since)
+    .limit(1);
+  sugQ = target.institution_id
+    ? sugQ.eq('institution_id', target.institution_id)
+    : sugQ.is('institution_id', null);
+  sugQ = normFaculty ? sugQ.eq('faculty_email', normFaculty) : sugQ.is('faculty_email', null);
+  const { data: sug, error: sugErr } = await sugQ;
+  if (sugErr) {
+    console.error('[cron/scf-generate-suggestions] widened guard (suggestions) failed:', sugErr);
+    return null;
+  }
+  if (sug && sug.length > 0) return true;
+
+  // 2) a leadership concern for this course+window?
+  let conQ = admin
+    .from('scf_leadership_concerns')
+    .select('id')
+    .eq('course_code', target.course_code)
+    .gte('created_at', since)
+    .limit(1);
+  conQ = target.institution_id
+    ? conQ.eq('institution_id', target.institution_id)
+    : conQ.is('institution_id', null);
+  conQ = normFaculty ? conQ.eq('faculty_email', normFaculty) : conQ.is('faculty_email', null);
+  const { data: con, error: conErr } = await conQ;
+  if (conErr) {
+    console.error('[cron/scf-generate-suggestions] widened guard (concerns) failed:', conErr);
+    return null;
+  }
+  return !!(con && con.length > 0);
 }
 
 // Generate a suggestion JSON via Claude. Returns null on any failure (including
@@ -303,6 +424,7 @@ export async function GET(request: NextRequest) {
   let generatedSuccess = 0;
   let skipped = 0;
   let guardErrors = 0; // regen-guard query failures — surfaced so a fail-closed stall is visible
+  let leadershipFlagged = 0; // lone-voice concerns routed to leadership (no teacher tip)
 
   for (const target of targets) {
     // Stop taking new targets near the function time limit (the measure-outcomes
@@ -342,24 +464,85 @@ export async function GET(request: NextRequest) {
     // Count only non-blank comments. fn_scf_ai_signal already filters blank
     // free_text, but trim defensively so a whitespace-only comment can't trip the
     // success gate into a paid generation on a window with no real feedback.
-    const freeTextCount = (signal?.free_texts ?? []).filter(
-      (t) => String(t ?? '').trim().length > 0
-    ).length;
+    const freeTexts: string[] = (signal?.free_texts ?? [])
+      .map((t) => String(t ?? '').trim())
+      .filter((t) => t.length > 0);
+    const freeTextCount = freeTexts.length;
 
     // Classify the window:
-    //   below the response floor / no avg  → skip (not enough signal)
-    //   avg < LOW_UNDERSTOOD_THRESHOLD      → 'improvement' (patch what failed)
-    //   avg >= STANDOUT_THRESHOLD + comment → 'success'     (capture what worked)
-    //   otherwise (a middling window)       → skip (nothing actionable to generate)
+    //   below the response floor / no avg          → skip (not enough signal)
+    //   avg < LOW_UNDERSTOOD_THRESHOLD              → 'improvement' (patch what failed)
+    //   avg >= STANDOUT_THRESHOLD + comment         → 'success'     (capture what worked)
+    //   LOW <= avg < STANDOUT AND >= WIDENED_MIN_COMMENTS comments → AI-judge help-asks:
+    //       >= WIDENED_MIN_ASKS genuine asks → 'improvement' (a real recurring ask despite a good avg)
+    //       exactly 1 genuine ask            → leadership-only concern (no teacher tip; the
+    //                                          struggling-note routine already supports that learner)
+    //       0 genuine asks                   → skip (comments were praise/neutral)
+    //   otherwise (middling window, < 2 comments)   → skip (nothing actionable)
     if (responses < MIN_RESPONSES || avgUnderstood === null) {
       skipped++;
       continue;
     }
+
+    // Lookback + normalised faculty, used by BOTH the widened-gate spend guard and the
+    // regen guard below. faculty_email is normalised to match how the record fn stores it.
+    const recentSince = isoDate(new Date(today.getTime() - windowDays * 24 * 60 * 60 * 1000));
+    const normFaculty = target.faculty_email
+      ? target.faculty_email.trim().toLowerCase() || null
+      : null;
+
     let kind: 'improvement' | 'success' | null = null;
     if (avgUnderstood < LOW_UNDERSTOOD_THRESHOLD) {
       kind = 'improvement';
     } else if (avgUnderstood >= STANDOUT_THRESHOLD && freeTextCount >= 1) {
       kind = 'success';
+    } else if (freeTextCount >= WIDENED_MIN_COMMENTS && anthropic) {
+      // WIDENED path — a good/middling class with enough comments. Spend guard FIRST:
+      // if this window already produced an improvement tip OR a leadership concern,
+      // don't re-pay Claude to re-judge it (the cron re-scans a rolling window daily).
+      const handled = await widenedWindowAlreadyHandled(admin, target, normFaculty, recentSince);
+      if (handled === null) {
+        // guard query failed → fail closed (skip, don't risk re-spend). Surfaced via guardErrors.
+        guardErrors++;
+        skipped++;
+        continue;
+      }
+      if (handled) {
+        skipped++;
+        continue;
+      }
+      const judged = await judgeHelpAsks(anthropic, freeTexts, target.course_code);
+      if (judged.helpAskCount >= WIDENED_MIN_ASKS) {
+        kind = 'improvement';
+      } else if (judged.helpAskCount === 1) {
+        // Lone voice → leadership-only concern, NOT a teacher tip. Best-effort — a
+        // record failure must not abort the batch. Idempotent upsert (once per window).
+        try {
+          await admin.rpc('fn_scf_record_leadership_concern', {
+            p_institution_id: target.institution_id,
+            p_course_code: target.course_code,
+            p_faculty_email: target.faculty_email,
+            p_window_from: target.window_from,
+            p_window_to: target.window_to,
+            p_responses: responses,
+            p_avg: avgUnderstood,
+            p_summary: judged.summary,
+            p_model: judged.modelUsed,
+          });
+          leadershipFlagged++;
+        } catch (leadErr) {
+          console.error(
+            `[cron/scf-generate-suggestions] leadership-concern record failed for ${target.course_code}:`,
+            leadErr
+          );
+        }
+        skipped++;
+        continue;
+      } else {
+        // 0 genuine asks → the comments were praise/neutral; nothing actionable.
+        skipped++;
+        continue;
+      }
     }
     if (kind === null) {
       skipped++;
@@ -370,12 +553,7 @@ export async function GET(request: NextRequest) {
     // generated within the lookback window. The cron runs daily over a rolling
     // 7-day window, so without this a persistently-low or persistently-standout
     // course would be re-sent to Claude on every run (the upsert only dedupes
-    // identical window dates, which shift daily). Caps spend to ~once per window
-    // per kind. faculty_email is normalised to match how the record fn stores it.
-    const recentSince = isoDate(new Date(today.getTime() - windowDays * 24 * 60 * 60 * 1000));
-    const normFaculty = target.faculty_email
-      ? target.faculty_email.trim().toLowerCase() || null
-      : null;
+    // identical window dates, which shift daily). Caps spend to ~once per window per kind.
     let recentQuery = admin
       .from('scf_ai_suggestions')
       .select('id')
@@ -489,6 +667,7 @@ export async function GET(request: NextRequest) {
     generated_success: generatedSuccess,
     skipped,
     guard_errors: guardErrors, // >0 with generated=0 signals a fail-closed regen-guard stall
+    leadership_flagged: leadershipFlagged, // lone-voice concerns routed to leadership (no teacher tip)
     measured,
     ai_available: Boolean(anthropic),
     elapsed_ms: Date.now() - started,
