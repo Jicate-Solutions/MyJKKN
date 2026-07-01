@@ -64,10 +64,10 @@ export function ScfLeadershipConcernsCard({ from, to }: { from?: string; to?: st
         </CardTitle>
         <CardDescription>
           Classes that scored well overall but had{' '}
-          <span className="font-medium text-foreground">one</span> learner ask for help.
-          The teacher isn&apos;t sent a tip for these (a single voice can mislead, and that
-          learner is supported privately) — but the signal is surfaced here so it isn&apos;t
-          lost.
+          <span className="font-medium text-foreground">one</span>{' '}
+          learner ask for help. The teacher isn&apos;t sent a tip for these (a single voice
+          can mislead, and that learner is supported privately) — but the signal is surfaced
+          here so it isn&apos;t lost.
         </CardDescription>
       </CardHeader>
       <CardContent>
