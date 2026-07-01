@@ -230,6 +230,10 @@ export default function TimetableDetailPage() {
   // Additional state for unsaved changes tracking
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
+  // Delete timetable dialog state
+  const [deleteTimetableDialogOpen, setDeleteTimetableDialogOpen] = useState(false);
+  const [isDeletingTimetable, setIsDeletingTimetable] = useState(false);
+
   // Staff planning data
   const { staffPlanningCourses, staffPlanningStaff, isStaffPlanEmpty } =
     useStaffPlanningData(timetable);
@@ -500,6 +504,35 @@ export default function TimetableDetailPage() {
       setPendingNavigation(null);
     }
   };
+
+  // ===================================
+  // Delete Timetable Handler
+  // ===================================
+
+  const confirmDeleteTimetable = useCallback(async () => {
+    if (!timetable) return;
+
+    setIsDeletingTimetable(true);
+    try {
+      // Suppress the service's own toasts so we control messaging/navigation here
+      await TimetableService.deleteTimetable(timetable.id, false);
+      toast.success('Timetable deleted successfully');
+      setDeleteTimetableDialogOpen(false);
+      router.push('/academic/timetables');
+    } catch (err) {
+      logger.error('academic/timetables', 'Error deleting timetable', err);
+      const errorMessage =
+        err instanceof Error ? err.message : 'Failed to delete timetable';
+      const isAttendanceError = errorMessage.includes('attendance records');
+      toast.error(
+        isAttendanceError
+          ? 'This timetable has associated attendance records and cannot be deleted. You can still edit it if needed.'
+          : 'Failed to delete timetable. Please try again.'
+      );
+      setIsDeletingTimetable(false);
+      setDeleteTimetableDialogOpen(false);
+    }
+  }, [timetable, router]);
 
   // ===================================
   // Template Save Handler
@@ -1280,6 +1313,9 @@ export default function TimetableDetailPage() {
           timetable={timetable}
           onBack={() => handleNavigationWithWarning('/academic/timetables')}
           canEdit={canEditTimetable}
+          canDelete={canDeleteTimetable}
+          onDelete={() => setDeleteTimetableDialogOpen(true)}
+          isDeleting={isDeletingTimetable}
           isSuperAdmin={isSuperAdmin}
           hasAttendance={hasAttendance}
           todaysCycle={todaysCycle}
@@ -1733,7 +1769,39 @@ export default function TimetableDetailPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Delete Confirmation Dialog */}
+        {/* Delete Timetable Confirmation Dialog */}
+        <AlertDialog
+          open={deleteTimetableDialogOpen}
+          onOpenChange={setDeleteTimetableDialogOpen}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This action cannot be undone. This will permanently delete the
+                timetable &quot;{timetable.timetable_name}&quot; and all its
+                associated data.
+                <br /><br />
+                <strong>Note:</strong> If this timetable has been used for attendance tracking,
+                the deletion will be prevented to preserve attendance records.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isDeletingTimetable}>
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={confirmDeleteTimetable}
+                disabled={isDeletingTimetable}
+                className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              >
+                {isDeletingTimetable ? 'Deleting...' : 'Delete'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Delete Slot Confirmation Dialog */}
         <AlertDialog
           open={deleteDialog.isOpen}
           onOpenChange={deleteDialog.close}

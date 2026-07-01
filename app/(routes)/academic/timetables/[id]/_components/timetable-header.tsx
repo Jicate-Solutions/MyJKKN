@@ -2,7 +2,7 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Lock, AlertCircle, Edit } from 'lucide-react';
+import { ArrowLeft, Lock, AlertCircle, Edit, Trash2 } from 'lucide-react';
 import { Timetable } from '@/types/academics';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useRouter } from 'next/navigation';
@@ -16,6 +16,9 @@ interface TimetableHeaderProps {
   attendanceCount?: number;
   isSuperAdmin?: boolean;
   canEdit?: boolean; // New prop
+  canDelete?: boolean;
+  onDelete?: () => void;
+  isDeleting?: boolean;
   todaysCycle?: number | null; // For cycle-format timetables: today's active cycle
   inchargeName?: string | null; // Resolved class incharge display name (session/day-wise)
 }
@@ -36,6 +39,9 @@ export function TimetableHeader({
   attendanceCount = 0,
   isSuperAdmin = false,
   canEdit = false,
+  canDelete = false,
+  onDelete,
+  isDeleting = false,
   todaysCycle = null,
   inchargeName = null
 }: TimetableHeaderProps) {
@@ -116,6 +122,17 @@ export function TimetableHeader({
               >
                 <Edit className='h-4 w-4 mr-2' />
                 Edit
+              </Button>
+            )}
+            {canDelete && onDelete && (
+              <Button
+                variant='destructive'
+                size='sm'
+                onClick={onDelete}
+                disabled={isDeleting}
+              >
+                <Trash2 className='h-4 w-4 mr-2' />
+                {isDeleting ? 'Deleting...' : 'Delete'}
               </Button>
             )}
             <Button variant='outline' size='sm' onClick={onBack}>
