@@ -121,6 +121,7 @@ const PUBLIC_PATHS_SET = new Set([
   '/terms', // Terms of Use — public, required for Meta App Review
   '/data-deletion', // Data Deletion instructions — public, required for Meta App Review
   '/meet', // Universal Booking directory — public, no login (U4)
+  '/employers/submit', // CDC employer self-submit vacancy form — public, no login
   '/api/admission/leads/refer', // Agent referral API
   '/api/admission/leads/inbound' // Inbound webhook API
 ]);
