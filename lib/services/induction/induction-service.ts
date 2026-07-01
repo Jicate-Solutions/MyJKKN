@@ -61,6 +61,13 @@ export interface AssignableStaff {
   role: string;
 }
 
+/** A per-event appointed coordinator (additive to institution-wide roles). */
+export interface EventCoordinator {
+  user_id: string;
+  full_name: string;
+  email: string;
+}
+
 /** An induction-running college (institution with a non-blueprint induction program). */
 export interface InductionCollege {
   id: string;
@@ -187,6 +194,45 @@ export class InductionService {
   /** Remove a coordinator (revokes the role). */
   static async removeCoordinator(userId: string): Promise<void> {
     const { error } = await getSupabase().rpc('fn_induction_remove_coordinator', { p_user_id: userId });
+    if (error) throw error;
+  }
+
+  // ── Per-event coordinators (additive to institution-wide roles) ─────────────
+
+  static async canManageEventCoordinators(eventId: string): Promise<boolean> {
+    const { data, error } = await getSupabase().rpc('fn_induction_can_manage_event_coordinators', { p_event_id: eventId });
+    if (error) return false;
+    return !!data;
+  }
+
+  static async listEventCoordinators(eventId: string): Promise<EventCoordinator[]> {
+    const { data, error } = await getSupabase().rpc('fn_induction_list_event_coordinators', { p_event_id: eventId });
+    if (error) throw error;
+    return (data as EventCoordinator[]) ?? [];
+  }
+
+  static async assignableEventStaff(eventId: string, query: string): Promise<AssignableStaff[]> {
+    const { data, error } = await getSupabase().rpc('fn_induction_assignable_event_staff', {
+      p_event_id: eventId,
+      p_query: query || null,
+    });
+    if (error) throw error;
+    return (data as AssignableStaff[]) ?? [];
+  }
+
+  static async assignEventCoordinator(eventId: string, userId: string): Promise<void> {
+    const { error } = await getSupabase().rpc('fn_induction_assign_event_coordinator', {
+      p_event_id: eventId,
+      p_user_id: userId,
+    });
+    if (error) throw error;
+  }
+
+  static async removeEventCoordinator(eventId: string, userId: string): Promise<void> {
+    const { error } = await getSupabase().rpc('fn_induction_remove_event_coordinator', {
+      p_event_id: eventId,
+      p_user_id: userId,
+    });
     if (error) throw error;
   }
 
