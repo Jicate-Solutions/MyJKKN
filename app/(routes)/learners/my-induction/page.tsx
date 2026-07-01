@@ -31,6 +31,8 @@ import { SessionRatingCard } from './_components/session-rating-card';
 import { ProfileNudge } from './_components/profile-nudge';
 import { ReferralSection } from './_components/referral-section';
 import { AdvocacyCard } from './_components/advocacy-card';
+import { DayFeedbackCard } from './_components/day-feedback-card';
+import { ProgramFeedbackCard } from './_components/program-feedback-card';
 
 const BRAND = '#0b6d41';
 
@@ -53,6 +55,8 @@ export default function MyInductionPage() {
   const [sessions, setSessions] = useState<InductionSessionRow[]>([]);
   const [feedback, setFeedback] = useState<Record<string, { rating: number; comment: string | null }>>({});
   const [referrals, setReferrals] = useState<MyInductionReferral[]>([]);
+  const [dayFeedback, setDayFeedback] = useState<Record<number, { rating: number; comment: string | null }>>({});
+  const [programFeedback, setProgramFeedback] = useState<{ rating: number; comment: string | null } | null>(null);
   const [loadingSessions, setLoadingSessions] = useState(false);
 
   const load = useCallback(async () => {
@@ -63,16 +67,22 @@ export default function MyInductionPage() {
       setEnrollment(mine);
       if (mine) {
         setLoadingSessions(true);
-        const [sess, fb, refs] = await Promise.all([
+        const [sess, fb, refs, dayFb, progFb] = await Promise.all([
           InductionService.listSessions(mine.event_id),
           InductionService.myFeedback(mine.event_id),
           InductionService.myReferrals(mine.event_id),
+          mine.feedback_day_enabled ? InductionService.myDayFeedback(mine.event_id) : Promise.resolve([]),
+          mine.feedback_program_enabled ? InductionService.myProgramFeedback(mine.event_id) : Promise.resolve(null),
         ]);
         setSessions(sess);
         const map: Record<string, { rating: number; comment: string | null }> = {};
         for (const f of fb) map[f.session_id] = { rating: f.rating, comment: f.comment };
         setFeedback(map);
         setReferrals(refs);
+        const dmap: Record<number, { rating: number; comment: string | null }> = {};
+        for (const d of dayFb) dmap[d.day_number] = { rating: d.rating, comment: d.comment };
+        setDayFeedback(dmap);
+        setProgramFeedback(progFb ? { rating: progFb.rating, comment: progFb.comment } : null);
         setLoadingSessions(false);
       }
     } catch (e: any) {
@@ -251,6 +261,17 @@ export default function MyInductionPage() {
                         </CardContent>
                       </Card>
                     ))}
+                    {enrollment.feedback_day_enabled && day > 0 && (
+                      <DayFeedbackCard
+                        eventId={enrollment.event_id}
+                        dayNumber={day}
+                        initialRating={dayFeedback[day]?.rating ?? null}
+                        initialComment={dayFeedback[day]?.comment ?? null}
+                        onSubmitted={(rating, comment) =>
+                          setDayFeedback((prev) => ({ ...prev, [day]: { rating, comment } }))
+                        }
+                      />
+                    )}
                   </div>
                 ))}
               </div>
@@ -261,6 +282,13 @@ export default function MyInductionPage() {
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                 Grow JKKN
               </h2>
+              {enrollment.feedback_program_enabled && (
+                <ProgramFeedbackCard
+                  eventId={enrollment.event_id}
+                  initialRating={programFeedback?.rating ?? null}
+                  initialComment={programFeedback?.comment ?? null}
+                />
+              )}
               <AdvocacyCard eventId={enrollment.event_id} initialScore={enrollment.advocacy_score} />
               <ReferralSection eventId={enrollment.event_id} initialReferrals={referrals} />
             </div>
