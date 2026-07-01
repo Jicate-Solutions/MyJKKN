@@ -512,13 +512,17 @@ export async function GET(request: NextRequest) {
         continue;
       }
       const judged = await judgeHelpAsks(anthropic, freeTexts, target.course_code);
-      if (judged.helpAskCount >= WIDENED_MIN_ASKS) {
-        kind = 'improvement';
-      } else if (judged.helpAskCount === 1) {
-        // Lone voice → leadership-only concern, NOT a teacher tip. Best-effort — a
-        // record failure must not abort the batch. Idempotent upsert (once per window).
+
+      // Record via the leadership-concern upsert. A non-null summary is a real lone-voice
+      // concern (surfaces on the card); a NULL summary is a "judged, no concern" spend-guard
+      // marker (the reader RPC filters NULL summaries, so it never surfaces — it only stops
+      // the daily rolling rescan from re-billing Claude to re-judge the same window).
+      // fn_scf_record_leadership_concern returns {data,error} and does NOT throw on a
+      // Postgres error, so check .error explicitly — a swallowed error would over-count
+      // leadershipFlagged and silently drop the write. Best-effort: never aborts the batch.
+      const recordConcern = async (summary: string | null): Promise<boolean> => {
         try {
-          await admin.rpc('fn_scf_record_leadership_concern', {
+          const { error: recErr } = await admin.rpc('fn_scf_record_leadership_concern', {
             p_institution_id: target.institution_id,
             p_course_code: target.course_code,
             p_faculty_email: target.faculty_email,
@@ -526,20 +530,38 @@ export async function GET(request: NextRequest) {
             p_window_to: target.window_to,
             p_responses: responses,
             p_avg: avgUnderstood,
-            p_summary: judged.summary,
+            p_summary: summary,
             p_model: judged.modelUsed,
           });
-          leadershipFlagged++;
+          if (recErr) {
+            console.error(
+              `[cron/scf-generate-suggestions] leadership-concern record failed for ${target.course_code}:`,
+              recErr
+            );
+            return false;
+          }
+          return true;
         } catch (leadErr) {
           console.error(
-            `[cron/scf-generate-suggestions] leadership-concern record failed for ${target.course_code}:`,
+            `[cron/scf-generate-suggestions] leadership-concern record threw for ${target.course_code}:`,
             leadErr
           );
+          return false;
         }
+      };
+
+      if (judged.helpAskCount >= WIDENED_MIN_ASKS) {
+        kind = 'improvement';
+      } else if (judged.helpAskCount === 1) {
+        // Lone voice → leadership-only concern (real summary), NOT a teacher tip. Only
+        // count it when the write actually succeeded.
+        if (await recordConcern(judged.summary)) leadershipFlagged++;
         skipped++;
         continue;
       } else {
-        // 0 genuine asks → the comments were praise/neutral; nothing actionable.
+        // 0 genuine asks → praise/neutral comments. Record a NULL-summary marker so the
+        // spend guard suppresses re-judging (and re-billing) this window on the next run.
+        await recordConcern(null);
         skipped++;
         continue;
       }

@@ -1,8 +1,10 @@
 'use client';
 
-// "ONE VOICE ASKED FOR HELP" — leadership signal. Shows leadership (principal/dean/
-// HOD/institution-admin/super) courses where a GOOD-average class (3 <= avg < 4.5)
-// had EXACTLY ONE genuine help-ask in the free-text. The teacher deliberately gets
+// "ONE VOICE ASKED FOR HELP" — leadership signal. Shown to the SAME audience as the
+// sibling Session Escalations table it sits under (fn_scf_leadership_concerns mirrors
+// fn_scf_escalation_followups' gate: super_admin / administrator / institution_admin /
+// dean / hod / principal / coordinator, institution-scoped). Lists courses where a
+// GOOD-average class (3 <= avg < 4.5) had EXACTLY ONE genuine help-ask. The teacher gets
 // NO coaching tip for these (a single voice would over-react to n=1, and that learner
 // is already supported by the private struggling-note); leadership sees the single
 // voice here so it isn't lost. The summary is an AI aggregate line — never a verbatim
@@ -85,7 +87,9 @@ export function ScfLeadershipConcernsCard({ from, to }: { from?: string; to?: st
             </TableHeader>
             <TableBody>
               {rows.map((r) => (
-                <TableRow key={`${r.course_code}-${r.faculty_email ?? 'na'}-${r.window_from}`}>
+                <TableRow
+                  key={`${r.institution_id ?? 'na'}-${r.course_code}-${r.faculty_email ?? 'na'}-${r.window_from}-${r.window_to}`}
+                >
                   <TableCell className="font-mono text-xs font-medium">{r.course_code}</TableCell>
                   <TableCell className="text-sm">{r.faculty_email ?? '—'}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.responses ?? '—'}</TableCell>
