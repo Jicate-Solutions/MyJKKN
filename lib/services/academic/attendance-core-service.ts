@@ -247,6 +247,31 @@ export class AttendanceCoreService {
                 }
               });
             }
+
+            // Added: 2026-07-01 - Practical periods (period_mode='practical') assign staff
+            // per BATCH in practical_config.batches[].staff_mapping (course_id -> staff_id[]),
+            // NOT in staff_ids/sub_slots — those stay empty for practical slots. Without this,
+            // a faculty member assigned only via a practical batch (e.g. "Morning Practical")
+            // fails this save-time check even though they can see and open the period from
+            // My Classes (getFacultyTodayPeriods) and pass the roster-level canMarkAttendanceForSlot
+            // check (isStaffAssignedToSlot) — both of which already recognize this shape.
+            if (
+              periodSlot &&
+              periodSlot.period_mode === 'practical' &&
+              periodSlot.practical_config &&
+              Array.isArray(periodSlot.practical_config.batches)
+            ) {
+              periodSlot.practical_config.batches.forEach((batch: any) => {
+                const mapping = batch?.staff_mapping;
+                if (mapping && typeof mapping === 'object') {
+                  Object.values(mapping).forEach((staffList: any) => {
+                    if (Array.isArray(staffList)) {
+                      staffList.forEach((id: string) => allAssignedIds.add(id));
+                    }
+                  });
+                }
+              });
+            }
           });
         }
       });
