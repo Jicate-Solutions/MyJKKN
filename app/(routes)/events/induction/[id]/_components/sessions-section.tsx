@@ -244,6 +244,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
             </CardTitle>
             <CardDescription>The day-by-day schedule — topics, speakers, venues, outcomes, and resources.</CardDescription>
           </div>
+          <div className="flex items-center gap-2">
           <Popover>
             <PopoverTrigger asChild>
               <Button size="sm" variant="ghost" className="gap-1">
@@ -376,6 +377,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
