@@ -523,10 +523,15 @@ BEGIN
     RAISE EXCEPTION 'fn_induction_appoint_feedback_volunteer: not authorized';
   END IF;
   IF p_learner_id IS NULL THEN RAISE EXCEPTION 'fn_induction_appoint_feedback_volunteer: learner_id required'; END IF;
+  -- guard: never appoint a fresher of THIS induction as a mentor.
   IF EXISTS (SELECT 1 FROM public.induction_enrollment ie
              WHERE ie.event_id = p_event_id AND ie.learner_id = p_learner_id) THEN
     RAISE EXCEPTION 'fn_induction_appoint_feedback_volunteer: that learner is a fresher in this induction';
   END IF;
+  -- guard: the learner must be a MEMBER of this college (a profile in v_inst).
+  -- Don't trust the client-supplied id — mirror the assignable query's JOIN so an
+  -- out-of-college learner can't be appointed and then read this college's roster PII
+  -- via fn_induction_my_feedback_group. (Closes the cross-tenant gap; review #1694.)
   IF NOT EXISTS (SELECT 1 FROM public.profiles p
                  WHERE p.learner_id = p_learner_id AND p.institution_id = v_inst) THEN
     RAISE EXCEPTION 'fn_induction_appoint_feedback_volunteer: that learner is not a member of this college';
@@ -560,15 +565,16 @@ BEGIN
   END IF;
 
   RETURN QUERY
-  SELECT DISTINCT lp.id,
+  SELECT DISTINCT lp.id,   -- DISTINCT: a learner with >1 profile in the college appears once (review #1694)
          btrim(coalesce(lp.first_name,'') || ' ' || coalesce(lp.last_name,''))::text,
          lp.register_number::text
   FROM public.learners_profiles lp
+  -- must have a login in THIS college (so they can actually use the mentor page)
   JOIN public.profiles p ON p.learner_id = lp.id AND p.institution_id = v_inst
-  WHERE NOT EXISTS (
+  WHERE NOT EXISTS (  -- not a fresher being inducted here
           SELECT 1 FROM public.induction_enrollment ie
           WHERE ie.event_id = p_event_id AND ie.learner_id = lp.id)
-    AND NOT EXISTS (
+    AND NOT EXISTS (  -- not already an active mentor on this event
           SELECT 1 FROM public.induction_feedback_volunteers v
           WHERE v.event_id = p_event_id AND v.learner_id = lp.id AND v.is_active)
     AND (
@@ -724,12 +730,19 @@ BEGIN
   DELETE FROM public.induction_feedback_volunteer_group WHERE event_id = p_event_id;
 
   WITH active_vols AS (
+    -- Effective per-mentor cap, clamped to [1,200] to bound slot generation: a direct
+    -- RPC call with a huge p_capacity would otherwise materialize billions of slots →
+    -- self-DoS (review #1694 r3 MEDIUM). p_capacity, WHEN PROVIDED, overrides per-run
+    -- WITHOUT persisting (a per-mentor cap set elsewhere is never clobbered — r3 LOW);
+    -- WHEN NULL, each mentor's own stored capacity drives balancing.
     SELECT id,
            LEAST(GREATEST(COALESCE(p_capacity, capacity), 1), 200) AS capacity,
            (row_number() OVER (ORDER BY created_at, id) - 1) AS vord
     FROM public.induction_feedback_volunteers
     WHERE event_id = p_event_id AND is_active
   ),
+  -- each mentor contributes `capacity` slots; deal round-robin (round, then mentor
+  -- order) so a mentor with capacity 1 takes exactly one fresher.
   ordered_slots AS (
     SELECT v.id AS volunteer_id,
            (row_number() OVER (ORDER BY gs.n, v.vord) - 1) AS slot_idx
@@ -740,6 +753,8 @@ BEGIN
     SELECT ie.learner_id,
            (row_number() OVER (
               ORDER BY
+                -- no-account FIRST (institution-scoped: a profile in ANOTHER college
+                -- does NOT count as "has account" here — review #1694)
                 (EXISTS (SELECT 1 FROM public.profiles p
                          WHERE p.learner_id = ie.learner_id AND p.institution_id = v_inst)),
                 ie.batch_id NULLS FIRST,
@@ -750,6 +765,7 @@ BEGIN
     WHERE ie.event_id = p_event_id
   ),
   assign AS (
+    -- fresher rn → slot rn; freshers with rn >= total slots stay UNASSIGNED (surfaced below)
     SELECT r.learner_id, s.volunteer_id
     FROM ranked r
     JOIN ordered_slots s ON s.slot_idx = r.rn
@@ -763,6 +779,9 @@ BEGIN
   SELECT count(*) INTO v_enrolled
   FROM public.induction_enrollment WHERE event_id = p_event_id;
 
+  -- Surface the coverage TRUTH: if capacity×mentors < enrolled, some freshers have NO
+  -- owner. The UI warns when unassigned > 0 instead of implying full coverage
+  -- (review #1694 HIGH: silent coverage gap).
   enrolled   := v_enrolled;
   assigned   := v_assigned;
   unassigned := v_enrolled - v_assigned;
@@ -811,9 +830,13 @@ BEGIN
   RETURN QUERY
   WITH day_sessions AS (
     SELECT s.id, s.batch_id FROM public.event_sessions s
+    -- day_number is nullable (NULL = the "Unscheduled" bucket the UI shows as
+    -- day 0) — IS NOT DISTINCT FROM matches NULL rows a plain `=` would silently drop.
     WHERE s.event_id = p_event_id AND s.day_number IS NOT DISTINCT FROM p_day_number
   ),
   eligible AS (
+    -- a learner is on the day roster if at least one of the day's sessions
+    -- applies to their batch (combined batch_id IS NULL, or an exact match)
     SELECT DISTINCT e.learner_id
     FROM public.induction_enrollment e
     JOIN day_sessions ds ON ds.batch_id IS NULL OR ds.batch_id = e.batch_id
@@ -871,6 +894,10 @@ BEGIN
     RAISE EXCEPTION 'fn_induction_emit_naac_evidence: not authorized';
   END IF;
 
+  -- Prefer the linked academic-year LABEL (correct AY semantics — an Indian academic
+  -- year spans two calendar years, so a Jan–May induction must not be labelled by its
+  -- calendar start year). Fall back to an IST-normalised calendar-year label only when
+  -- the program has no academic_year row.
   v_period := COALESCE(
     NULLIF(btrim(v_prog.academic_year_name), ''),
     CASE WHEN v_prog.start_date IS NULL THEN NULL
@@ -879,10 +906,12 @@ BEGIN
     END
   );
 
+  -- Live rollup snapshot for the metadata (joins LIVE off the admission funnel).
   WITH freshers AS (
     SELECT ie.learner_id FROM public.induction_enrollment ie WHERE ie.event_id = p_event_id
   ),
-  refs AS (
+  refs AS (  -- submitted/referrers = EFFORT (any JKKN college); only JOINED scoped to
+             -- this college (match fn_induction_scorecard) for the NAAC evidence metadata.
     SELECT count(*) FILTER (WHERE al.id IS NOT NULL) AS submitted,
            count(*) FILTER (
              WHERE al.funnel_stage IN ('token_paid','confirmed','enrolled')
@@ -921,10 +950,14 @@ BEGIN
   ) INTO v_meta
   FROM comp, refs;
 
+  -- Don't write NAAC evidence for an induction that reached nobody. The UI hides the
+  -- button at enrolled=0, but a direct RPC must not emit all-zero evidence rows.
   IF COALESCE((v_meta->>'enrolled')::int, 0) = 0 THEN
     RETURN 0;
   END IF;
 
+  -- Upsert one evidence row per NAAC criterion (source row = the induction_programs
+  -- satellite). Refresh metadata + mapped_at on conflict so re-running re-snapshots.
   FOREACH v_metric IN ARRAY ARRAY['5.1.3','7.2.1'] LOOP
     INSERT INTO public.quality_evidence_mappings
       (source_table, source_id, institution_id, body_code, metric_code,
@@ -938,7 +971,10 @@ BEGIN
           mapped_by    = EXCLUDED.mapped_by,
           is_auto      = true,
           mapped_at    = now()
+      -- never clobber a manually-curated (is_auto=false) evidence mapping for this key
       WHERE public.quality_evidence_mappings.is_auto;
+    -- count ACTUAL writes only: the upsert is a no-op (ROW_COUNT 0) when a manual
+    -- row blocked the update, so the caller/UI never reports a false success.
     GET DIAGNOSTICS v_rc = ROW_COUNT;
     v_n := v_n + v_rc;
   END LOOP;
@@ -973,16 +1009,23 @@ BEGIN
   SELECT count(*) INTO v_enrolled
   FROM public.induction_enrollment e WHERE e.event_id = p_event_id;
 
+  -- enrolled freshers with no login account IN THIS COLLEGE — the structural exclusion
+  -- ceiling for the own-phone path. Institution-scoped: a profile in ANOTHER college
+  -- does not let them self-submit here, so it must not count as "has account"
+  -- (review #1694: cross-tenant no_account misclassification).
   SELECT count(*) INTO v_no_account
   FROM public.induction_enrollment e
   WHERE e.event_id = p_event_id
     AND NOT EXISTS (SELECT 1 FROM public.profiles p
                     WHERE p.learner_id = e.learner_id AND p.institution_id = v_inst);
 
+  -- one row per distinct responder, attributed to phone if they EVER self-submitted.
   WITH per_learner AS (
     SELECT f.learner_id, bool_or(f.capture_method = 'phone') AS has_phone
     FROM public.event_session_feedback f
     WHERE f.event_id = p_event_id
+      -- only still-enrolled learners (a since-unenrolled learner's old feedback must not
+      -- push responders > enrolled / response_rate > 1.0 — review #1694 r4)
       AND EXISTS (SELECT 1 FROM public.induction_enrollment ie
                   WHERE ie.event_id = p_event_id AND ie.learner_id = f.learner_id)
     GROUP BY f.learner_id
@@ -1281,7 +1324,9 @@ BEGIN
     LEFT JOIN public.learners_profiles lp ON lp.id = ie.learner_id
     WHERE ie.event_id = p_event_id
   ),
-  refs AS (
+  refs AS (  -- per-fresher referral stats, LIVE. submitted/referred = EFFORT (a referral
+             -- to any JKKN college counts — the "refer anywhere" decision); only JOINED is
+             -- institution-scoped, since a join fills THIS college's seat.
     SELECT al.referred_by_id AS learner_id,
            count(*)::bigint AS submitted,
            count(*) FILTER (
@@ -1303,6 +1348,7 @@ BEGIN
       ON c.event_id = p_event_id AND c.learner_id = f.learner_id
     LEFT JOIN refs r ON r.learner_id = f.learner_id
   )
+  -- program total
   SELECT 'total'::text, NULL::uuid, 'All departments'::text,
          count(*)::integer,
          count(*) FILTER (WHERE b.value_score_avg IS NOT NULL)::integer,
@@ -1315,6 +1361,7 @@ BEGIN
          COALESCE(sum(b.joined), 0)::bigint
   FROM base b
   UNION ALL
+  -- by department
   SELECT 'department'::text, b.department_id,
          COALESCE(d.department_name, '— Unassigned —')::text,
          count(*)::integer,
@@ -1330,6 +1377,7 @@ BEGIN
   LEFT JOIN public.departments d ON d.id = b.department_id
   GROUP BY b.department_id, d.department_name
   UNION ALL
+  -- by batch
   SELECT 'batch'::text, b.batch_id,
          COALESCE(ib.label, '— No batch —')::text,
          count(*)::integer,
