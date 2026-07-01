@@ -12,7 +12,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Rocket, CalendarDays, Building2 } from 'lucide-react';
+import { Plus, Rocket, CalendarDays, Building2, Library } from 'lucide-react';
 import { toast } from 'sonner';
 import { CoordinatorsPanel } from './_components/coordinators-panel';
 
@@ -62,9 +62,14 @@ export default function InductionLandingPage() {
               and who turns into a referral that joins.
             </p>
           </div>
-          <Button asChild>
-            <Link href="/events/induction/new"><Plus className="h-4 w-4 mr-1" /> Create induction</Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="outline">
+              <Link href="/events/induction/catalog"><Library className="h-4 w-4 mr-1" /> Session catalog</Link>
+            </Button>
+            <Button asChild>
+              <Link href="/events/induction/new"><Plus className="h-4 w-4 mr-1" /> Create induction</Link>
+            </Button>
+          </div>
         </div>
 
         {/* Induction Lead / admin only — appoint each college's coordinator here. */}

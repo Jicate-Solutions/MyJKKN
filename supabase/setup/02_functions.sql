@@ -19469,3 +19469,389 @@ REVOKE EXECUTE ON FUNCTION public.fn_induction_auto_enroll(uuid) FROM anon, PUBL
 GRANT  EXECUTE ON FUNCTION public.fn_induction_auto_enroll(uuid) TO authenticated;
 
 NOTIFY pgrst, 'reload schema';
+-- =====================================================================
+-- 2026-06-30 — Schools Network module (DB substrate, Agent A)
+-- Migration: supabase/migrations/20260630120000_schools_network_substrate.sql
+-- Spec: /tmp/schools-network-spec.md
+-- 3 helper fns + 11 service RPCs. All SECURITY DEFINER + REVOKE anon/PUBLIC +
+-- GRANT authenticated (per 2026-06-06 mandatory rule).
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION public.user_owns_school(p_school_id UUID)
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.school_jkkn_owners
+     WHERE school_id = p_school_id AND jkkn_user_id = auth.uid() AND is_active = TRUE
+  );
+$$;
+REVOKE EXECUTE ON FUNCTION public.user_owns_school(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.user_owns_school(UUID) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.user_leads_partner_for_school(p_school_id UUID)
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1
+      FROM public.school_jkkn_owners owner_link
+      JOIN public.school_jkkn_owners partner_lead
+        ON partner_lead.program_partner_id = owner_link.program_partner_id
+       AND partner_lead.role = 'program_lead'
+       AND partner_lead.jkkn_user_id = auth.uid()
+       AND partner_lead.is_active = TRUE
+     WHERE owner_link.school_id = p_school_id
+       AND owner_link.is_active = TRUE
+       AND owner_link.program_partner_id IS NOT NULL
+    UNION ALL
+    SELECT 1
+      FROM public.school_sessions s
+      JOIN public.school_jkkn_owners pl
+        ON pl.program_partner_id = s.program_partner_id
+       AND pl.role = 'program_lead'
+       AND pl.jkkn_user_id = auth.uid()
+       AND pl.is_active = TRUE
+     WHERE s.school_id = p_school_id
+       AND s.program_partner_id IS NOT NULL
+  );
+$$;
+REVOKE EXECUTE ON FUNCTION public.user_leads_partner_for_school(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.user_leads_partner_for_school(UUID) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.is_school_portal_user_for(p_school_id UUID)
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1
+      FROM public.school_contacts sc
+      JOIN auth.users u ON lower(u.email) = lower(sc.email)
+      JOIN public.school_contact_roles r ON r.id = sc.role_id
+     WHERE sc.school_id = p_school_id AND u.id = auth.uid() AND r.can_login_to_portal = TRUE
+  );
+$$;
+REVOKE EXECUTE ON FUNCTION public.is_school_portal_user_for(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.is_school_portal_user_for(UUID) TO authenticated;
+
+-- 11 service RPCs (per CLAUDE.md "Functions: ONLY in 02_functions.sql"):
+
+CREATE OR REPLACE FUNCTION public.fn_schools_list(
+  p_search             TEXT    DEFAULT NULL,
+  p_ownership          TEXT    DEFAULT NULL,
+  p_status             TEXT    DEFAULT NULL,
+  p_state              TEXT    DEFAULT NULL,
+  p_district           TEXT    DEFAULT NULL,
+  p_program_partner_id UUID    DEFAULT NULL,
+  p_jkkn_user_id       UUID    DEFAULT NULL,
+  p_limit              INTEGER DEFAULT 50,
+  p_offset             INTEGER DEFAULT 0
+)
+RETURNS TABLE (
+  id UUID, name TEXT, ownership school_ownership, district TEXT, state TEXT,
+  status school_status, intake_year INTEGER,
+  primary_owner_user_id UUID, primary_owner_name TEXT,
+  program_partner_id UUID, program_partner_name TEXT,
+  last_session_at TIMESTAMPTZ, session_count INTEGER,
+  total_contribution_inr NUMERIC, total_count BIGINT
+)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_total BIGINT;
+BEGIN
+  SELECT count(*)::bigint INTO v_total
+    FROM public.schools s
+    LEFT JOIN public.school_jkkn_owners o ON o.school_id = s.id AND o.is_active = TRUE
+   WHERE (p_search IS NULL OR s.name ILIKE '%' || p_search || '%' OR coalesce(s.district,'') ILIKE '%' || p_search || '%')
+     AND (p_ownership IS NULL OR s.ownership::text = p_ownership)
+     AND (p_status IS NULL OR s.status::text = p_status)
+     AND (p_state IS NULL OR s.state = p_state)
+     AND (p_district IS NULL OR s.district = p_district)
+     AND (p_program_partner_id IS NULL OR o.program_partner_id = p_program_partner_id)
+     AND (p_jkkn_user_id IS NULL OR o.jkkn_user_id = p_jkkn_user_id);
+
+  RETURN QUERY
+  WITH filtered AS (
+    SELECT DISTINCT s.id, s.name, s.ownership, s.district, s.state, s.status, s.intake_year
+      FROM public.schools s
+      LEFT JOIN public.school_jkkn_owners o ON o.school_id = s.id AND o.is_active = TRUE
+     WHERE (p_search IS NULL OR s.name ILIKE '%' || p_search || '%' OR coalesce(s.district,'') ILIKE '%' || p_search || '%')
+       AND (p_ownership IS NULL OR s.ownership::text = p_ownership)
+       AND (p_status IS NULL OR s.status::text = p_status)
+       AND (p_state IS NULL OR s.state = p_state)
+       AND (p_district IS NULL OR s.district = p_district)
+       AND (p_program_partner_id IS NULL OR o.program_partner_id = p_program_partner_id)
+       AND (p_jkkn_user_id IS NULL OR o.jkkn_user_id = p_jkkn_user_id)
+  ),
+  primary_owner AS (
+    SELECT DISTINCT ON (o.school_id) o.school_id, o.jkkn_user_id, o.program_partner_id, p.full_name AS owner_name
+      FROM public.school_jkkn_owners o
+      LEFT JOIN public.profiles p ON p.id = o.jkkn_user_id
+     WHERE o.is_active = TRUE
+     ORDER BY o.school_id, CASE WHEN o.role = 'outreach_coordinator' THEN 0 ELSE 1 END, o.assigned_at DESC
+  ),
+  session_stats AS (
+    SELECT school_id, max(conducted_at) AS last_session_at, count(*)::int AS session_count
+      FROM public.school_sessions GROUP BY school_id
+  ),
+  contrib_stats AS (
+    SELECT school_id, coalesce(sum(value_inr), 0)::numeric AS total_contribution_inr
+      FROM public.school_contributions GROUP BY school_id
+  )
+  SELECT f.id, f.name, f.ownership, f.district, f.state, f.status, f.intake_year,
+         po.jkkn_user_id, po.owner_name, po.program_partner_id, pp.name,
+         ss.last_session_at, coalesce(ss.session_count, 0),
+         coalesce(cs.total_contribution_inr, 0)::numeric, v_total
+    FROM filtered f
+    LEFT JOIN primary_owner po ON po.school_id = f.id
+    LEFT JOIN public.program_partners pp ON pp.id = po.program_partner_id
+    LEFT JOIN session_stats ss ON ss.school_id = f.id
+    LEFT JOIN contrib_stats cs ON cs.school_id = f.id
+   ORDER BY f.name LIMIT p_limit OFFSET p_offset;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_schools_list(TEXT,TEXT,TEXT,TEXT,TEXT,UUID,UUID,INTEGER,INTEGER) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_schools_list(TEXT,TEXT,TEXT,TEXT,TEXT,UUID,UUID,INTEGER,INTEGER) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_school_detail(p_school_id UUID)
+RETURNS TABLE (school JSONB, owners JSONB, contacts JSONB, recent_sessions JSONB, contribution_count INTEGER, contribution_total NUMERIC)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    to_jsonb(s.*),
+    coalesce((SELECT jsonb_agg(o ORDER BY o.assigned_at DESC) FROM (
+      SELECT o.id, o.school_id, o.jkkn_user_id, p.full_name AS jkkn_user_name,
+             o.role, o.program_partner_id, pp.name AS program_partner_name,
+             o.assigned_at, o.assigned_by, o.is_active
+        FROM public.school_jkkn_owners o
+        LEFT JOIN public.profiles p ON p.id = o.jkkn_user_id
+        LEFT JOIN public.program_partners pp ON pp.id = o.program_partner_id
+       WHERE o.school_id = p_school_id AND o.is_active = TRUE) o), '[]'::jsonb),
+    coalesce((SELECT jsonb_agg(c ORDER BY c.is_primary DESC, c.name) FROM (
+      SELECT sc.id, sc.school_id, sc.role_id, r.code AS role_code, r.label AS role_label,
+             sc.name, sc.phone, sc.email, sc.is_primary, sc.notes, sc.created_at, sc.updated_at
+        FROM public.school_contacts sc
+        LEFT JOIN public.school_contact_roles r ON r.id = sc.role_id
+       WHERE sc.school_id = p_school_id) c), '[]'::jsonb),
+    coalesce((SELECT jsonb_agg(ss ORDER BY ss.conducted_at DESC) FROM (
+      SELECT ses.id, ses.school_id, ses.session_type_id, st.code AS session_type_code, st.label AS session_type_label,
+             ses.conducted_at, ses.conducted_by_user_id, p.full_name AS conducted_by_name,
+             ses.program_partner_id, pp.name AS program_partner_name,
+             ses.attendee_count, ses.topic, ses.notes, ses.attachments, ses.metadata,
+             ses.created_at, ses.updated_at
+        FROM public.school_sessions ses
+        LEFT JOIN public.school_session_types st ON st.id = ses.session_type_id
+        LEFT JOIN public.profiles p ON p.id = ses.conducted_by_user_id
+        LEFT JOIN public.program_partners pp ON pp.id = ses.program_partner_id
+       WHERE ses.school_id = p_school_id
+       ORDER BY ses.conducted_at DESC LIMIT 10) ss), '[]'::jsonb),
+    (SELECT count(*)::int FROM public.school_contributions WHERE school_id = p_school_id),
+    coalesce((SELECT sum(value_inr) FROM public.school_contributions WHERE school_id = p_school_id), 0)::numeric
+  FROM public.schools s WHERE s.id = p_school_id;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_school_detail(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_school_detail(UUID) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_school_session_record(
+  p_school_id UUID, p_session_type_code TEXT, p_conducted_at TIMESTAMPTZ,
+  p_attendee_count INTEGER DEFAULT 0, p_program_partner_id UUID DEFAULT NULL,
+  p_topic TEXT DEFAULT NULL, p_notes TEXT DEFAULT NULL, p_attachments JSONB DEFAULT '[]'::jsonb
+)
+RETURNS UUID LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_type_id UUID; v_session_id UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'authentication required' USING ERRCODE = '42501'; END IF;
+  SELECT id INTO v_type_id FROM public.school_session_types WHERE code = p_session_type_code AND is_active = TRUE;
+  IF v_type_id IS NULL THEN RAISE EXCEPTION 'unknown session_type_code: %', p_session_type_code USING ERRCODE = '22023'; END IF;
+  IF NOT (is_super_admin() OR is_admin() OR
+          (user_has_permission('schools_network.sessions.create') AND
+           (user_owns_school(p_school_id) OR user_leads_partner_for_school(p_school_id)))) THEN
+    RAISE EXCEPTION 'not authorized to record session for school %', p_school_id USING ERRCODE = '42501';
+  END IF;
+  INSERT INTO public.school_sessions
+    (school_id, session_type_id, conducted_at, conducted_by_user_id, program_partner_id, attendee_count, topic, notes, attachments)
+  VALUES (p_school_id, v_type_id, p_conducted_at, auth.uid(), p_program_partner_id,
+          coalesce(p_attendee_count, 0), p_topic, p_notes, coalesce(p_attachments, '[]'::jsonb))
+  RETURNING id INTO v_session_id;
+  RETURN v_session_id;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_school_session_record(UUID,TEXT,TIMESTAMPTZ,INTEGER,UUID,TEXT,TEXT,JSONB) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_school_session_record(UUID,TEXT,TIMESTAMPTZ,INTEGER,UUID,TEXT,TEXT,JSONB) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_school_contribution_record(
+  p_school_id UUID, p_kind school_contribution_kind, p_description TEXT,
+  p_value_inr NUMERIC DEFAULT NULL, p_delivered_at DATE DEFAULT NULL,
+  p_program_partner_id UUID DEFAULT NULL, p_evidence_url TEXT DEFAULT NULL
+)
+RETURNS UUID LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_id UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'authentication required' USING ERRCODE = '42501'; END IF;
+  IF NOT (is_super_admin() OR is_admin() OR
+          (user_has_permission('schools_network.contributions.create') AND
+           (user_owns_school(p_school_id) OR user_leads_partner_for_school(p_school_id)))) THEN
+    RAISE EXCEPTION 'not authorized to record contribution for school %', p_school_id USING ERRCODE = '42501';
+  END IF;
+  INSERT INTO public.school_contributions
+    (school_id, kind, description, value_inr, delivered_at, program_partner_id, evidence_url, created_by)
+  VALUES (p_school_id, p_kind, p_description, p_value_inr, p_delivered_at, p_program_partner_id, p_evidence_url, auth.uid())
+  RETURNING id INTO v_id;
+  RETURN v_id;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_school_contribution_record(UUID,school_contribution_kind,TEXT,NUMERIC,DATE,UUID,TEXT) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_school_contribution_record(UUID,school_contribution_kind,TEXT,NUMERIC,DATE,UUID,TEXT) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_school_assign_owner(
+  p_school_id UUID, p_jkkn_user_id UUID, p_role school_owner_role, p_program_partner_id UUID DEFAULT NULL
+)
+RETURNS UUID LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_id UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'authentication required' USING ERRCODE = '42501'; END IF;
+  IF NOT (is_super_admin() OR is_admin() OR user_has_permission('schools_network.owners.manage')) THEN
+    RAISE EXCEPTION 'not authorized to assign owners' USING ERRCODE = '42501';
+  END IF;
+  IF p_role = 'program_lead' AND p_program_partner_id IS NULL THEN
+    RAISE EXCEPTION 'program_lead role requires p_program_partner_id' USING ERRCODE = '22023';
+  END IF;
+  INSERT INTO public.school_jkkn_owners
+    (school_id, jkkn_user_id, role, program_partner_id, assigned_by, is_active)
+  VALUES (p_school_id, p_jkkn_user_id, p_role, p_program_partner_id, auth.uid(), TRUE)
+  ON CONFLICT (school_id, jkkn_user_id, role, COALESCE(program_partner_id::text, '')) WHERE is_active = TRUE
+    DO UPDATE SET assigned_at = now(), assigned_by = auth.uid(), updated_at = now()
+  RETURNING id INTO v_id;
+  RETURN v_id;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_school_assign_owner(UUID,UUID,school_owner_role,UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_school_assign_owner(UUID,UUID,school_owner_role,UUID) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_school_revoke_owner(p_owner_id UUID)
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_count INTEGER;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'authentication required' USING ERRCODE = '42501'; END IF;
+  IF NOT (is_super_admin() OR is_admin() OR user_has_permission('schools_network.owners.manage')) THEN
+    RAISE EXCEPTION 'not authorized to revoke owners' USING ERRCODE = '42501';
+  END IF;
+  UPDATE public.school_jkkn_owners SET is_active = FALSE, updated_at = now()
+   WHERE id = p_owner_id AND is_active = TRUE;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count > 0;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_school_revoke_owner(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_school_revoke_owner(UUID) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_program_partner_rollup(p_program_partner_id UUID)
+RETURNS TABLE (
+  partner_id UUID, partner_name TEXT, schools_touched INTEGER, sessions_count INTEGER,
+  attendees_total INTEGER, contributions_count INTEGER, contributions_inr NUMERIC,
+  grants_received_inr NUMERIC, grants_outstanding_inr NUMERIC
+)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  RETURN QUERY
+  SELECT pp.id, pp.name,
+    (SELECT count(DISTINCT school_id)::int FROM (
+       SELECT school_id FROM public.school_jkkn_owners WHERE program_partner_id = pp.id AND is_active = TRUE
+       UNION SELECT school_id FROM public.school_sessions WHERE program_partner_id = pp.id
+       UNION SELECT school_id FROM public.school_contributions WHERE program_partner_id = pp.id) u),
+    (SELECT count(*)::int FROM public.school_sessions WHERE program_partner_id = pp.id),
+    coalesce((SELECT sum(attendee_count)::int FROM public.school_sessions WHERE program_partner_id = pp.id), 0),
+    (SELECT count(*)::int FROM public.school_contributions WHERE program_partner_id = pp.id),
+    coalesce((SELECT sum(value_inr) FROM public.school_contributions WHERE program_partner_id = pp.id), 0)::numeric,
+    coalesce((SELECT sum(amount_inr) FROM public.program_partner_grants WHERE program_partner_id = pp.id), 0)::numeric,
+    GREATEST(coalesce((SELECT sum(amount_inr) FROM public.program_partner_grants WHERE program_partner_id = pp.id), 0)
+             - coalesce((SELECT sum(value_inr) FROM public.school_contributions WHERE program_partner_id = pp.id), 0), 0)::numeric
+  FROM public.program_partners pp WHERE pp.id = p_program_partner_id;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_program_partner_rollup(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_program_partner_rollup(UUID) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_schools_silence_candidates(p_silence_days INTEGER DEFAULT 14)
+RETURNS TABLE (school_id UUID, school_name TEXT, last_session_at TIMESTAMPTZ, days_silent INTEGER, primary_owner_user_id UUID)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  RETURN QUERY
+  WITH last_seen AS (
+    SELECT s.id, s.name, s.status,
+           (SELECT max(conducted_at) FROM public.school_sessions ss WHERE ss.school_id = s.id) AS last_at
+      FROM public.schools s WHERE s.status IN ('active','sustaining')
+  ),
+  primary_owner AS (
+    SELECT DISTINCT ON (o.school_id) o.school_id, o.jkkn_user_id
+      FROM public.school_jkkn_owners o WHERE o.is_active = TRUE
+     ORDER BY o.school_id, CASE WHEN o.role = 'outreach_coordinator' THEN 0 ELSE 1 END, o.assigned_at DESC
+  )
+  SELECT ls.id, ls.name, ls.last_at,
+         CASE WHEN ls.last_at IS NULL THEN p_silence_days ELSE EXTRACT(DAY FROM now() - ls.last_at)::int END,
+         po.jkkn_user_id
+    FROM last_seen ls LEFT JOIN primary_owner po ON po.school_id = ls.id
+   WHERE ls.last_at IS NULL OR ls.last_at < now() - (p_silence_days || ' days')::interval;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_schools_silence_candidates(INTEGER) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_schools_silence_candidates(INTEGER) TO authenticated;
+
+-- STUB — thresholds pending Director input (see spec §12).
+CREATE OR REPLACE FUNCTION public.fn_schools_recompute_status(p_school_id UUID DEFAULT NULL)
+RETURNS INTEGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF p_school_id IS NULL THEN RETURN 0; ELSE RETURN 0; END IF;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_schools_recompute_status(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_schools_recompute_status(UUID) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_school_portal_self()
+RETURNS TABLE (school JSONB, recent_sessions JSONB, contribution_count INTEGER, contribution_total NUMERIC)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_school_id UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'authentication required' USING ERRCODE = '42501'; END IF;
+  SELECT sc.school_id INTO v_school_id
+    FROM public.school_contacts sc
+    JOIN auth.users u ON lower(u.email) = lower(sc.email)
+    JOIN public.school_contact_roles r ON r.id = sc.role_id
+   WHERE u.id = auth.uid() AND r.can_login_to_portal = TRUE
+   ORDER BY sc.is_primary DESC, sc.created_at DESC LIMIT 1;
+  IF v_school_id IS NULL THEN RAISE EXCEPTION 'no school associated with this portal session' USING ERRCODE = '42501'; END IF;
+  RETURN QUERY
+  SELECT to_jsonb(s.*),
+    coalesce((SELECT jsonb_agg(ss ORDER BY ss.conducted_at DESC) FROM (
+      SELECT ses.id, ses.session_type_id, st.code AS session_type_code, st.label AS session_type_label,
+             ses.conducted_at, ses.attendee_count, ses.topic, ses.notes
+        FROM public.school_sessions ses
+        LEFT JOIN public.school_session_types st ON st.id = ses.session_type_id
+       WHERE ses.school_id = v_school_id
+       ORDER BY ses.conducted_at DESC LIMIT 5) ss), '[]'::jsonb),
+    (SELECT count(*)::int FROM public.school_contributions WHERE school_id = v_school_id),
+    coalesce((SELECT sum(value_inr) FROM public.school_contributions WHERE school_id = v_school_id), 0)::numeric
+  FROM public.schools s WHERE s.id = v_school_id;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_school_portal_self() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_school_portal_self() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_school_portal_submit_update(p_message TEXT, p_attachments JSONB DEFAULT '[]'::jsonb)
+RETURNS UUID LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_school_id UUID; v_type_id UUID; v_session_id UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'authentication required' USING ERRCODE = '42501'; END IF;
+  SELECT sc.school_id INTO v_school_id
+    FROM public.school_contacts sc
+    JOIN auth.users u ON lower(u.email) = lower(sc.email)
+    JOIN public.school_contact_roles r ON r.id = sc.role_id
+   WHERE u.id = auth.uid() AND r.can_login_to_portal = TRUE
+   ORDER BY sc.is_primary DESC, sc.created_at DESC LIMIT 1;
+  IF v_school_id IS NULL THEN RAISE EXCEPTION 'no school associated with this portal session' USING ERRCODE = '42501'; END IF;
+  SELECT id INTO v_type_id FROM public.school_session_types WHERE code = 'drop_by' AND is_active = TRUE;
+  IF v_type_id IS NULL THEN RAISE EXCEPTION 'master row school_session_types.code=drop_by missing' USING ERRCODE = '22023'; END IF;
+  INSERT INTO public.school_sessions
+    (school_id, session_type_id, conducted_at, conducted_by_user_id, attendee_count, notes, attachments, metadata)
+  VALUES (v_school_id, v_type_id, now(), auth.uid(), 0, p_message, coalesce(p_attachments, '[]'::jsonb), jsonb_build_object('source','hm_portal'))
+  RETURNING id INTO v_session_id;
+  RETURN v_session_id;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_school_portal_submit_update(TEXT, JSONB) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_school_portal_submit_update(TEXT, JSONB) TO authenticated;

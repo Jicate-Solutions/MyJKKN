@@ -45,10 +45,17 @@
  *     via PostgREST RPC.
  *
  * Usage:
- *   node scripts/ci/check-secdef-anon-revoke.mjs                 # PR-scoped (base = origin/main)
+ *   node scripts/ci/check-secdef-anon-revoke.mjs                 # PR-scoped (auto-base, see below)
  *   node scripts/ci/check-secdef-anon-revoke.mjs --base jicate/main
  *   node scripts/ci/check-secdef-anon-revoke.mjs --all          # scan every migration (audit mode)
  *   node scripts/ci/check-secdef-anon-revoke.mjs --verbose
+ *
+ * Auto-base (no --base, no BASE_REF env): prefer `jicate/main` when the `jicate`
+ * remote is configured locally, otherwise fall back to `origin/main`. Local clones
+ * often have `origin` pointing at a stale fork (e.g. JKKN-Institutions/MyJKKN.git
+ * for some contributors) — defaulting to a stale base silently returns 0 added
+ * migrations and the gate FALSE-PASSES. Detecting `jicate` first restores fidelity.
+ * GitHub Actions sets BASE_REF explicitly, so CI behaviour is unchanged.
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { execSync } from 'node:child_process';
@@ -59,13 +66,27 @@ const argv = process.argv.slice(2);
 const VERBOSE = argv.includes('--verbose');
 const ALL = argv.includes('--all');
 const baseIdx = argv.indexOf('--base');
-const BASE = baseIdx !== -1 ? argv[baseIdx + 1] : (process.env.BASE_REF || 'origin/main');
-const MIG_DIR = 'supabase/migrations/';
 
 function sh(cmd) {
   try { return execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim(); }
   catch { return ''; }
 }
+
+/**
+ * Pick the canonical base ref. Prefers `jicate/main` when the `jicate` remote is
+ * configured locally — otherwise falls back to `origin/main`. CI explicitly sets
+ * BASE_REF, so this only fires for local invocations.
+ */
+function defaultBaseRef() {
+  const remotes = sh('git remote').split('\n').filter(Boolean);
+  if (remotes.includes('jicate') && sh('git rev-parse --verify --quiet jicate/main')) {
+    return 'jicate/main';
+  }
+  return 'origin/main';
+}
+
+const BASE = baseIdx !== -1 ? argv[baseIdx + 1] : (process.env.BASE_REF || defaultBaseRef());
+const MIG_DIR = 'supabase/migrations/';
 
 /** Migration files to inspect: added vs base (PR mode) or all (audit mode). */
 function targetFiles() {
@@ -74,7 +95,7 @@ function targetFiles() {
   }
   // Resolve a usable base ref; fall back across common names.
   let base = BASE;
-  for (const cand of [BASE, 'origin/main', 'jicate/main', 'main']) {
+  for (const cand of [BASE, 'jicate/main', 'origin/main', 'main']) {
     if (sh(`git rev-parse --verify --quiet ${cand}`)) { base = cand; break; }
   }
   const merge = sh(`git merge-base ${base} HEAD`) || base;

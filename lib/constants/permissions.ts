@@ -1007,6 +1007,53 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.voice_memo', label: 'Record Voice Memo on Call Log' }
     ]
   },
+  // Schools Network (2026-06-30) — track external K-12 schools the org engages
+  // with + JKKN's own Matric/CBSE schools. Sessions conducted, contributions
+  // made, JKKN ownership, and program-partner (CSR/grant/corporate) funding
+  // chains. Spec: /tmp/schools-network-spec.md §5. RLS uses these keys via
+  // user_has_permission() per spec §4.
+  {
+    name: 'Schools Network',
+    key: 'schools_network',
+    permissions: [
+      // Schools (master entity)
+      { key: 'schools_network.schools.view', label: 'View Schools in Network' },
+      { key: 'schools_network.schools.create', label: 'Add Schools to Network' },
+      { key: 'schools_network.schools.edit', label: 'Edit School Records' },
+
+      // Contacts (HM / principal / teacher / alternate)
+      { key: 'schools_network.contacts.view', label: 'View School Contacts' },
+      { key: 'schools_network.contacts.create', label: 'Add School Contacts' },
+      { key: 'schools_network.contacts.edit', label: 'Edit School Contacts' },
+
+      // Sessions (visit / orientation / training / event / drop-by)
+      { key: 'schools_network.sessions.view', label: 'View Sessions Conducted' },
+      { key: 'schools_network.sessions.create', label: 'Log a Session' },
+      { key: 'schools_network.sessions.edit', label: 'Edit Logged Sessions' },
+
+      // Contributions (devices / branding / website / funds / training kit)
+      { key: 'schools_network.contributions.view', label: 'View Contributions' },
+      { key: 'schools_network.contributions.create', label: 'Log a Contribution' },
+      { key: 'schools_network.contributions.edit', label: 'Edit Contributions' },
+
+      // JKKN ownership (outreach_coordinator / program_lead)
+      { key: 'schools_network.owners.view', label: 'View JKKN School Owners' },
+      { key: 'schools_network.owners.manage', label: 'Assign / Revoke JKKN Owners' },
+
+      // Program partners (CSR / grant / corporate / govt foundation)
+      { key: 'schools_network.partners.view', label: 'View Program Partners' },
+      { key: 'schools_network.partners.edit', label: 'Edit Program Partners' },
+      { key: 'schools_network.partners.manage', label: 'Create / Manage Program Partners' },
+
+      // Grants (funds received from a partner)
+      { key: 'schools_network.grants.view', label: 'View Program Partner Grants' },
+      { key: 'schools_network.grants.manage', label: 'Manage Program Partner Grants' },
+
+      // Master value-list tables (session types, partner types, contact roles)
+      { key: 'schools_network.master.view', label: 'View Schools Network Master Tables' },
+      { key: 'schools_network.master.manage', label: 'Manage Schools Network Master Tables' }
+    ]
+  },
   // Admission Fees (2026-05-07) — matrix-driven fee-structure module
   // Keys are flat under `admission_fees.*` (not `admission.fees.*`) because
   // RLS policies + service code reference them that way.
@@ -2214,6 +2261,50 @@ export const PERMISSION_CATEGORIES = [
     key: 'feedback',
     permissions: [
       { key: 'feedback.view', label: 'View Feedback Dashboard (AI-classified events)' }
+    ]
+  },
+  {
+    // Added 2026-06-30 — Schools Network module. Tracks JKKN's K-12 outreach
+    // (external schools + JKKN's own Matric/CBSE schools): sessions conducted,
+    // contributions made, JKKN-side owners (outreach_coordinator /
+    // program_lead faceted by program_partner_id), and program-partner
+    // funding chains (CSR / grants / corporate sponsors).
+    //
+    // Two new application roles in custom_roles seed the access pattern:
+    //   - outreach_coordinator — own assigned schools (via school_jkkn_owners)
+    //   - program_lead         — schools their program partner touches
+    // Super-admin / admin bypass via the canonical RLS triad.
+    //
+    // RLS policies on schools / school_contacts / school_sessions /
+    // school_contributions / school_jkkn_owners / program_partners /
+    // program_partner_grants reference these keys directly. Keep this catalog
+    // and the spec section 5 role seeds in lock-step.
+    name: 'Schools Network',
+    key: 'schools_network',
+    permissions: [
+      { key: 'schools_network.schools.view', label: 'View Schools' },
+      { key: 'schools_network.schools.create', label: 'Create Schools' },
+      { key: 'schools_network.schools.edit', label: 'Edit Schools' },
+      { key: 'schools_network.schools.delete', label: 'Delete Schools' },
+      { key: 'schools_network.contacts.view', label: 'View School Contacts (HM / principal / teachers)' },
+      { key: 'schools_network.contacts.create', label: 'Add School Contacts' },
+      { key: 'schools_network.contacts.edit', label: 'Edit School Contacts' },
+      { key: 'schools_network.sessions.view', label: 'View School Sessions' },
+      { key: 'schools_network.sessions.create', label: 'Log School Sessions' },
+      { key: 'schools_network.sessions.edit', label: 'Edit School Sessions' },
+      { key: 'schools_network.contributions.view', label: 'View School Contributions' },
+      { key: 'schools_network.contributions.create', label: 'Log School Contributions' },
+      { key: 'schools_network.contributions.edit', label: 'Edit School Contributions' },
+      { key: 'schools_network.owners.view', label: 'View JKKN-side Owner Assignments' },
+      { key: 'schools_network.owners.manage', label: 'Assign / Revoke JKKN-side Owners' },
+      { key: 'schools_network.partners.view', label: 'View Program Partners' },
+      { key: 'schools_network.partners.edit', label: 'Edit Program Partners' },
+      { key: 'schools_network.partners.manage', label: 'Manage Program Partners (create / archive)' },
+      { key: 'schools_network.grants.view', label: 'View Program Partner Grants' },
+      { key: 'schools_network.grants.manage', label: 'Manage Program Partner Grants' },
+      { key: 'schools_network.master.view', label: 'View Schools Network Master Lists' },
+      { key: 'schools_network.master.manage', label: 'Manage Schools Network Master Lists (session types, partner types, contact roles)' },
+      { key: 'schools_network.portal.write', label: 'HM Portal Write Access (future v2)' }
     ]
   }
 ];
