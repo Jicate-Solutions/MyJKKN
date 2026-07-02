@@ -62,8 +62,18 @@ export async function GET(): Promise<NextResponse> {
   const svc = createServiceRoleClient();
 
   // Step 3: resolve the caller's institution scope.
-  //  - super_admin / admission  → see all (allowedInstitutionIds = null)
-  //  - everyone else            → only their accessible institutions
+  //  - super_admin / admission / CDC staff → see all (allowedInstitutionIds = null)
+  //  - everyone else                        → only their accessible institutions
+  //
+  // CDC staff (cdc_head / cdc_coordinator, including multi-role) get the
+  // cross-college view here to MATCH the cdc_mentor_pairings SELECT policy
+  // shipped in PR #1721, which is a bare `is_cdc_staff()` with no institution
+  // scope. These rollups are derived from those same pairings, so a coordinator
+  // must see the same cross-college aggregates they already see on the pairings
+  // list — otherwise the two surfaces silently disagree. We call the RPC
+  // `is_cdc_staff()` (the exact function the RLS uses) rather than reading
+  // profiles.role, so a MULTI-ROLE coordinator (cdc role in user_roles but a
+  // different primary role in profiles) is correctly recognised.
   let allowedInstitutionIds: Set<string> | null = null;
   const { data: profile } = await supabase
     .from('profiles')
@@ -72,7 +82,8 @@ export async function GET(): Promise<NextResponse> {
     .single();
   const role = (profile as { role?: string } | null)?.role;
   const isSuperAdmin = (profile as { is_super_admin?: boolean } | null)?.is_super_admin === true;
-  if (!(isSuperAdmin || role === 'super_admin' || role === 'admission')) {
+  const { data: isCdcStaff } = await supabase.rpc('is_cdc_staff');
+  if (!(isSuperAdmin || role === 'super_admin' || role === 'admission' || isCdcStaff === true)) {
     const { data: accInst } = await svc.rpc('get_user_accessible_institutions', {
       target_user_id: user.id,
     });

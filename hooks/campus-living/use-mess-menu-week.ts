@@ -125,3 +125,51 @@ export function useUpsertMessMenuCell() {
     },
   });
 }
+
+/**
+ * "Copy last week → this week" mutation. Seeds the target week from the most
+ * recent prior week's cells (status 'planned', idempotent) so publishing a
+ * weekly menu is two clicks instead of 28 cell edits — keeping the weekly menu
+ * (and the Choose Your Menu loop's rating baseline) alive.
+ *
+ * On success, invalidates the target week key + the whole week-tier family so
+ * the grid re-renders with the copied cells.
+ */
+export interface CopyMenuWeekInput {
+  institutionId: string;
+  catererId: string;
+  tierKey: TierKey;
+  targetWeekStart: string;
+}
+
+export function useCopyMessMenuWeek() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CopyMenuWeekInput) => MessMenuService.copyWeekForward(input),
+    onSuccess: (result, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: messMenuWeekKeys.week(
+          variables.institutionId,
+          variables.targetWeekStart,
+          variables.tierKey,
+          variables.catererId,
+        ),
+      });
+      queryClient.invalidateQueries({ queryKey: messMenuWeekKeys.all });
+      queryClient.invalidateQueries({ queryKey: messMenuKeys.all });
+
+      if (!result.sourceWeek) {
+        toast.info('No earlier week to copy from — fill the grid manually.');
+      } else if (result.copied === 0) {
+        toast.info(`Already filled from week of ${result.sourceWeek} — nothing to copy.`);
+      } else {
+        toast.success(
+          `Copied ${result.copied} cell${result.copied === 1 ? '' : 's'} from week of ${result.sourceWeek}` +
+            (result.skipped ? ` (${result.skipped} already filled, kept)` : '') +
+            '. Review, edit, then publish.',
+        );
+      }
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+}

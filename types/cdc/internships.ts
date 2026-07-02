@@ -111,6 +111,14 @@ export interface CreateCorporateInternshipPayload {
   department_rotation?: string;
   // BUG-004087: optional offer-letter document URL (cdc-docs bucket)
   offer_letter_url?: string | null;
+  // BUG-004293: optional company/host website URL.
+  company_website_url?: string | null;
+  // BUG-004295: perks beyond stipend (accommodation / transport / food).
+  has_accommodation?: boolean;
+  has_transport?: boolean;
+  has_food?: boolean;
+  // BUG-004292: internship duration in months (e.g. 1, 2, 3, 6, 12).
+  duration_months?: number | null;
   // BUG-004039: FK to cdc_internship_types (the CRUDable config-master).
   // Required on new records (Director decision). The API derives the legacy
   // internship_type ENUM from the selected master row's config_key for

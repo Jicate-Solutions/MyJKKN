@@ -503,6 +503,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/ai-routines",
+        "label": "AI Routines",
+        "iconName": "Bot",
+        "children": []
+      },
+      {
         "path": "/admin/bug-reports",
         "label": "Bug Reports",
         "iconName": "FileText",
@@ -1108,6 +1114,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/admission/marketing/whatsapp-broadcast",
             "label": "Whatsapp Broadcast",
             "iconName": "Megaphone",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/admission/schools-network",
+        "label": "Schools Network",
+        "iconName": "GraduationCap",
+        "children": [
+          {
+            "path": "/admission/schools-network/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/admission/schools-network/partners",
+            "label": "Partners",
+            "iconName": "GraduationCap",
             "children": []
           }
         ]
@@ -3044,6 +3069,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Induction",
         "iconName": "CalendarHeart",
         "children": [
+          {
+            "path": "/events/induction/catalog",
+            "label": "Catalog",
+            "iconName": "CalendarHeart",
+            "children": []
+          },
           {
             "path": "/events/induction/new",
             "label": "New",
@@ -5630,6 +5661,37 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/resource-management/scan",
         "label": "Scan",
+        "iconName": "FileText",
+        "children": []
+      }
+    ]
+  },
+  {
+    "path": "/schools-portal",
+    "label": "Schools Portal",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/schools-portal/dashboard",
+        "label": "Dashboard",
+        "iconName": "LayoutGrid",
+        "children": []
+      },
+      {
+        "path": "/schools-portal/login",
+        "label": "Login",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/schools-portal/update-contact",
+        "label": "Update Contact",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/schools-portal/verify",
+        "label": "Verify",
         "iconName": "FileText",
         "children": []
       }
