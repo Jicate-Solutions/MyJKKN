@@ -8,6 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table';
 import { useAuth } from '@/hooks/use-auth';
 import { useHostelBlock } from '@/hooks/campus-living/use-hostel-blocks';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -64,6 +67,19 @@ type ExtendedFloorRow = FloorSummaryRow & {
   byType?: Record<string, number>;
   byAC?: Record<string, number>;
   byCategory?: Record<string, number>;
+};
+
+// One category's live occupancy (student rooms only) — block-wide or per-floor.
+type CategoryOccupancyRow = {
+  category: string;
+  rooms: number; full: number; partial: number; empty: number;
+  beds: number; occupied: number; free: number;
+};
+
+type FloorCategorySummary = {
+  floor: number;
+  label: string;
+  categories: CategoryOccupancyRow[];
 };
 
 type BlockBreakdown = {
@@ -156,10 +172,72 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
   }>;
   const floorSummary = (block.floor_summary ?? []) as FloorSummaryRow[];
   const blockBreakdown = (block.block_breakdown ?? null) as BlockBreakdown | null;
+  const categorySummary = (block.category_summary ?? []) as CategoryOccupancyRow[];
+  const floorCategorySummary = (block.floor_category_summary ?? []) as FloorCategorySummary[];
   const recentActivities = (block.recent_activities ?? []) as ActivityRow[];
 
   const formatDesignation = (value?: string | null) =>
     (value ?? '').replace(/_/g, ' ');
+
+  // Category occupancy table — shared by the block-wide summary and each
+  // floor section. "Full/Partial/Empty" are room counts by live derived
+  // status; bed columns come from live allocations (not stored counters).
+  const renderCategoryTable = (rows: CategoryOccupancyRow[], withTotals = false) => {
+    const total = rows.reduce(
+      (t, r) => ({
+        rooms: t.rooms + r.rooms, full: t.full + r.full, partial: t.partial + r.partial,
+        empty: t.empty + r.empty, beds: t.beds + r.beds,
+        occupied: t.occupied + r.occupied, free: t.free + r.free,
+      }),
+      { rooms: 0, full: 0, partial: 0, empty: 0, beds: 0, occupied: 0, free: 0 },
+    );
+    return (
+      <Table>
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead>Category</TableHead>
+            <TableHead className="text-right">Rooms</TableHead>
+            <TableHead className="text-right text-purple-600">Full</TableHead>
+            <TableHead className="text-right text-blue-600">Partial</TableHead>
+            <TableHead className="text-right text-green-600">Empty</TableHead>
+            <TableHead className="text-right">Beds</TableHead>
+            <TableHead className="text-right">Occupied</TableHead>
+            <TableHead className="text-right text-green-600">Free Beds</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((r) => (
+            <TableRow key={r.category}>
+              <TableCell className="font-medium">{r.category}</TableCell>
+              <TableCell className="text-right tabular-nums">{r.rooms}</TableCell>
+              <TableCell className="text-right tabular-nums">{r.full}</TableCell>
+              <TableCell className="text-right tabular-nums">{r.partial}</TableCell>
+              <TableCell className="text-right tabular-nums">{r.empty}</TableCell>
+              <TableCell className="text-right tabular-nums">{r.beds}</TableCell>
+              <TableCell className="text-right tabular-nums">{r.occupied}</TableCell>
+              <TableCell className={`text-right tabular-nums font-semibold ${r.free > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
+                {r.free}
+              </TableCell>
+            </TableRow>
+          ))}
+          {withTotals && rows.length > 1 && (
+            <TableRow className="bg-muted/40 font-semibold hover:bg-muted/40">
+              <TableCell>Total</TableCell>
+              <TableCell className="text-right tabular-nums">{total.rooms}</TableCell>
+              <TableCell className="text-right tabular-nums">{total.full}</TableCell>
+              <TableCell className="text-right tabular-nums">{total.partial}</TableCell>
+              <TableCell className="text-right tabular-nums">{total.empty}</TableCell>
+              <TableCell className="text-right tabular-nums">{total.beds}</TableCell>
+              <TableCell className="text-right tabular-nums">{total.occupied}</TableCell>
+              <TableCell className={`text-right tabular-nums ${total.free > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
+                {total.free}
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    );
+  };
 
   const renderWardenCard = (w: BlockWarden) => {
     const name = wardenNames.get(w.staff_id) ?? 'Unnamed warden';
@@ -399,7 +477,7 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
                   </Link>
                 </Button>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-6">
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
                   {[
                     { label: 'Available', count: roomsSummary.available ?? 0, color: 'text-green-600 bg-green-50' },
@@ -414,6 +492,36 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
                     </div>
                   ))}
                 </div>
+
+                {/* Category-wise summary — entire block (student rooms, live occupancy) */}
+                {categorySummary.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-semibold">By Category — entire block</p>
+                    {renderCategoryTable(categorySummary, true)}
+                  </div>
+                )}
+
+                {/* Floor × category matrix */}
+                {floorCategorySummary.length > 0 && (
+                  <div className="space-y-4">
+                    <p className="text-sm font-semibold">Floor-wise breakdown</p>
+                    {floorCategorySummary.map((f) => {
+                      const fRooms = f.categories.reduce((n, c) => n + c.rooms, 0);
+                      const fFree = f.categories.reduce((n, c) => n + c.free, 0);
+                      return (
+                        <div key={f.floor} className="rounded-lg border border-border/60 overflow-hidden">
+                          <div className="flex items-center justify-between px-3 py-2 bg-muted/40 border-b">
+                            <p className="text-sm font-medium">{f.label}</p>
+                            <p className="text-xs text-muted-foreground tabular-nums">
+                              {fRooms} room{fRooms !== 1 ? 's' : ''} · {fFree} bed{fFree !== 1 ? 's' : ''} free
+                            </p>
+                          </div>
+                          {renderCategoryTable(f.categories)}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

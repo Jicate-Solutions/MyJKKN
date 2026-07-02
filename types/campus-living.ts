@@ -540,9 +540,24 @@ export interface RoomBedOccupancy {
   occupant_roll: string | null;
 }
 
-// A room in a block the learner can actually be allocated to — physical (student
-// room, gender, institution-serving, cohort eligibility, free beds) + category
-// conditions applied server-side by fn_cl_admin_allocatable_rooms.
+// One student room in a block with per-condition verdict flags from
+// fn_cl_admin_allocatable_rooms (gender, institution-serving, cohort
+// eligibility, category, free beds — computed server-side, mirrors the
+// auto-allocate preview pattern). is_allocatable = all conditions pass;
+// the allocate dialog picks from allocatable rooms and explains the rest.
+// One hostel block annotated with how many rooms/beds a given learner can
+// actually be allocated (fn_cl_admin_allocatable_blocks — same predicates as
+// AllocatableRoom, aggregated). Ranks the allocate dialog's block picker.
+export interface AllocatableBlock {
+  block_id: string;
+  block_name: string;
+  block_code: string | null;
+  hostel_type: string | null;
+  gender_ok: boolean;
+  allocatable_rooms: number;
+  free_beds: number;
+}
+
 export interface AllocatableRoom {
   room_id: string;
   room_number: string | null;
@@ -551,6 +566,12 @@ export interface AllocatableRoom {
   category_name: string | null;
   capacity: number | null;
   available_beds: number | null;
+  is_allocatable: boolean;
+  gender_ok: boolean;
+  institution_ok: boolean;
+  eligibility_ok: boolean;
+  category_ok: boolean;
+  has_free_beds: boolean;
 }
 
 export interface WardenFilters {

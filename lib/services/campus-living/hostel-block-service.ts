@@ -229,6 +229,19 @@ export class HostelBlockService {
         byAC: Record<string, number>;
         byCategory: Record<string, number>;
       };
+      // Category occupancy row (student rooms only — the allocation view):
+      // room counts by derived status + bed occupancy, per category. Built at
+      // floor granularity; the block-wide table is the merge across floors.
+      type CategoryOccupancy = {
+        category: string;
+        rooms: number; full: number; partial: number; empty: number;
+        beds: number; occupied: number; free: number;
+      };
+      const newCatRow = (category: string): CategoryOccupancy => ({
+        category, rooms: 0, full: 0, partial: 0, empty: 0,
+        beds: 0, occupied: 0, free: 0,
+      });
+      const floorCatMap = new Map<number, Map<string, CategoryOccupancy>>();
       const floorMap = new Map<number, FloorGroup>();
       for (const room of rooms) {
         const floor = Number(room.floor ?? 0);
@@ -248,6 +261,21 @@ export class HostelBlockService {
         const cn = room.hostel_categories?.name;
         if (cn) g.byCategory[cn] = (g.byCategory[cn] ?? 0) + 1;
         floorMap.set(floor, g);
+
+        if (isStudent) {
+          const catKey = cn ?? 'Uncategorized';
+          const fc = floorCatMap.get(floor) ?? new Map<string, CategoryOccupancy>();
+          const row = fc.get(catKey) ?? newCatRow(catKey);
+          row.rooms += 1;
+          row.beds += Number(room.capacity ?? 0);
+          row.occupied += occupiedByRoom.get(room.id) ?? 0;
+          const st = statusByRoom.get(room.id) ?? 'available';
+          if (st === 'full') row.full += 1;
+          else if (st === 'partially_occupied') row.partial += 1;
+          else row.empty += 1;
+          fc.set(catKey, row);
+          floorCatMap.set(floor, fc);
+        }
       }
       const floorLabel = (floor: number) => {
         if (floor === 0) return 'Ground Floor';
@@ -260,6 +288,34 @@ export class HostelBlockService {
       const floor_summary = Array.from(floorMap.values())
         .sort((a, b) => a.floor - b.floor)
         .map((g) => ({ ...g, available: Math.max(g.capacity - g.occupied, 0), label: floorLabel(g.floor) }));
+
+      const finishCatRow = (r: CategoryOccupancy): CategoryOccupancy => ({
+        ...r, free: Math.max(r.beds - r.occupied, 0),
+      });
+      // Floor × category matrix (sorted by floor, then category name).
+      const floor_category_summary = Array.from(floorCatMap.entries())
+        .sort(([a], [b]) => a - b)
+        .map(([floor, cats]) => ({
+          floor,
+          label: floorLabel(floor),
+          categories: Array.from(cats.values())
+            .map(finishCatRow)
+            .sort((a, b) => a.category.localeCompare(b.category)),
+        }));
+      // Block-wide category totals = merge of the floor rows.
+      const blockCatMap = new Map<string, CategoryOccupancy>();
+      for (const fc of floorCatMap.values()) {
+        for (const row of fc.values()) {
+          const agg = blockCatMap.get(row.category) ?? newCatRow(row.category);
+          agg.rooms += row.rooms; agg.full += row.full;
+          agg.partial += row.partial; agg.empty += row.empty;
+          agg.beds += row.beds; agg.occupied += row.occupied;
+          blockCatMap.set(row.category, agg);
+        }
+      }
+      const category_summary = Array.from(blockCatMap.values())
+        .map(finishCatRow)
+        .sort((a, b) => a.category.localeCompare(b.category));
 
       // The stored hostel_blocks counters (total_capacity / current_occupancy /
       // total_rooms) are legacy denormalized columns that nothing keeps in sync
@@ -274,12 +330,16 @@ export class HostelBlockService {
         rooms_summary,
         floor_summary,
         block_breakdown,
+        category_summary,
+        floor_category_summary,
       } as HostelBlock & {
         hostel_rooms: unknown[];
         hostel_wardens: unknown[];
         rooms_summary: typeof rooms_summary;
         floor_summary: typeof floor_summary;
         block_breakdown: typeof block_breakdown;
+        category_summary: typeof category_summary;
+        floor_category_summary: typeof floor_category_summary;
       };
     } catch (error) {
       logger.error('campus-living/blocks', 'Unexpected error in getBlock', error);

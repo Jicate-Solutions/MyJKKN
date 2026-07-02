@@ -8,6 +8,7 @@ import type {
   VacateReason,
   RoomBedOccupancy,
   AllocatableRoom,
+  AllocatableBlock,
 } from '@/types/campus-living';
 
 // Row shape returned by fn_cl_transfer_room_options (transfer-modal availability).
@@ -244,9 +245,10 @@ export class HostelAllocationService {
   }
 
   // ── Allocatable rooms (fn_cl_admin_allocatable_rooms) ─────────────
-  // Rooms in a block the learner can actually be allocated to — physical
-  // (student room, gender, institution-serving, cohort eligibility, free beds)
-  // + category conditions applied server-side. Drives the dialog's room picker.
+  // ALL student rooms in a block with per-condition verdict flags (gender,
+  // institution-serving, cohort eligibility, category, free beds) computed
+  // server-side. is_allocatable rooms drive the dialog's room picker; the
+  // failing flags drive its "why not allocatable" diagnostics.
   static async getAllocatableRooms(
     learnerProfileId: string,
     blockId: string,
@@ -261,6 +263,24 @@ export class HostelAllocationService {
       throw error;
     }
     return (data ?? []) as AllocatableRoom[];
+  }
+
+  // ── Allocatable blocks (fn_cl_admin_allocatable_blocks) ───────────
+  // Every hostel block with the count of rooms/beds this learner can actually
+  // be allocated (same predicates as getAllocatableRooms, aggregated). Ranks
+  // the dialog's block picker and drives its auto-select.
+  static async getAllocatableBlocks(
+    learnerProfileId: string,
+  ): Promise<AllocatableBlock[]> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc('fn_cl_admin_allocatable_blocks', {
+      p_learner_profile_id: learnerProfileId,
+    });
+    if (error) {
+      logger.error('campus-living/allocations', 'Failed to load allocatable blocks', error);
+      throw error;
+    }
+    return (data ?? []) as AllocatableBlock[];
   }
 
   // ── Admin allocate bed (fn_cl_admin_allocate_bed) ─────────────────

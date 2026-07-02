@@ -223,13 +223,24 @@ export function useRoomBedOccupancy(roomId: string) {
 }
 
 // ── Allocatable rooms query (fn_cl_admin_allocatable_rooms) ───────────────────
-// Rooms in a block the learner can actually be allocated to (physical + category
-// conditions applied server-side). Drives the allocate dialog's room dropdown.
+// ALL student rooms in a block with per-condition verdict flags (computed
+// server-side). Drives the allocate dialog's room dropdown + "why not" panel.
 export function useAllocatableRooms(learnerProfileId: string | null, blockId: string) {
   return useQuery({
     queryKey: ['campus-living', 'allocatable-rooms', learnerProfileId, blockId],
     queryFn: () => HostelAllocationService.getAllocatableRooms(learnerProfileId!, blockId),
     enabled: !!learnerProfileId && !!blockId,
+  });
+}
+
+// ── Allocatable blocks query (fn_cl_admin_allocatable_blocks) ─────────────────
+// Every block annotated with this learner's allocatable room/bed counts —
+// ranks the dialog's block picker and lets it auto-select a block that works.
+export function useAllocatableBlocks(learnerProfileId: string | null) {
+  return useQuery({
+    queryKey: ['campus-living', 'allocatable-blocks', learnerProfileId],
+    queryFn: () => HostelAllocationService.getAllocatableBlocks(learnerProfileId!),
+    enabled: !!learnerProfileId,
   });
 }
 
