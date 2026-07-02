@@ -13,7 +13,9 @@ const SECTION_TITLES: Record<keyof CurlExamples, string> = {
 };
 
 const HUMAN_LABEL: Record<string, string> = {
-  profiles: 'List Learner Profiles',
+  profiles: 'List Learner Profiles (active by default)',
+  profilesAllStatuses: 'All Learners (Every Lifecycle Status)',
+  profilesByStatus: 'Filter by Lifecycle Status',
   profilesWithExpand: 'Profiles with Related Data',
   profileById: 'Get Profile by ID',
   enquiries: 'List Enquiries',
