@@ -321,6 +321,14 @@ export const POLICY_KEYS = {
   SOCIAL_COMPLIANCE_MIN_POSTS: 'social.compliance.min_posts',
   SOCIAL_FOLLOWBACK_RATIO_THRESHOLD: 'social.followback_ratio_threshold',
   SOCIAL_REALTIME_ENABLED: 'social.realtime_enabled',
+
+  // Post-class feedback → attendance confirmation ("show the split").
+  // gate_mode: off | visibility (show completion, non-blocking) | hard.
+  // window_hours: grace window after class within which feedback is due; also
+  // splits present-pending into within-window vs overdue on the dashboard.
+  // Seeded as global system rows in platform_policies; edited via admin policy UI.
+  SESSION_FEEDBACK_GATE_MODE: 'session_feedback.gate_mode',
+  SESSION_FEEDBACK_WINDOW_HOURS: 'session_feedback.window_hours',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];

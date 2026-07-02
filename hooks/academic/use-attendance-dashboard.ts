@@ -74,6 +74,56 @@ export function useAttendanceStats(
 }
 
 /**
+ * Hook for the post-class-feedback attendance-confirmation split.
+ * Same institution scoping as useAttendanceStats. Returns gateMode so the UI can
+ * hide the cards entirely when the policy is 'off'. Visibility-only — never
+ * affects the official attendance %.
+ */
+export function useConfirmationSplit(
+  institutionId?: string,
+  canViewAllInstitutions: boolean = false,
+  selectedDate: Date = new Date(),
+  refreshTrigger: number = 0
+) {
+  const { profile } = useAuth();
+
+  const queryInstitutionId = canViewAllInstitutions
+    ? institutionId
+    : profile?.institution_id || undefined;
+
+  const queryAllInstitutions =
+    canViewAllInstitutions && institutionId === undefined;
+
+  const dateString = selectedDate.toISOString().split('T')[0];
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: [
+      'attendance-confirmation-split',
+      queryInstitutionId,
+      queryAllInstitutions,
+      dateString,
+      refreshTrigger
+    ],
+    queryFn: () =>
+      AttendanceDashboardService.getConfirmationSplit(
+        dateString,
+        queryAllInstitutions ? undefined : queryInstitutionId
+      ),
+    enabled: queryAllInstitutions || !!queryInstitutionId,
+    ...QUERY_CONFIG.DASHBOARD_DATA
+  });
+
+  return {
+    gateMode: data?.gateMode ?? 'off',
+    windowHours: data?.windowHours ?? 48,
+    split: data?.split ?? null,
+    isLoading,
+    error,
+    refetch
+  };
+}
+
+/**
  * Hook for fetching pending attendance periods
  */
 export function usePendingAttendance(

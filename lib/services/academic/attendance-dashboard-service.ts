@@ -9,9 +9,89 @@ import type {
   DashboardFilters,
   AttendanceTrendData
 } from '@/types/attendance-dashboard';
+import { getPolicyString, getPolicyInt } from '@/lib/policies/get-policy-client';
+import { POLICY_KEYS } from '@/lib/policies/keys';
+
+/**
+ * Post-class-feedback attendance-confirmation split for the admin dashboard.
+ * VISIBILITY-ONLY: derived from student_attendance + session_feedback via the
+ * fn_scf_confirmation_rollup RPC. Does NOT affect the official attendance %.
+ * When gate_mode = 'off' the split is not computed and `split` is null.
+ */
+export type SessionFeedbackGateMode = 'off' | 'visibility' | 'hard';
+
+export interface ConfirmationSplit {
+  totalPresent: number;
+  confirmed: number;
+  pendingWithin: number;
+  pendingOverdue: number;
+  sessions: number;
+}
+
+export interface ConfirmationSplitResult {
+  gateMode: SessionFeedbackGateMode;
+  windowHours: number;
+  split: ConfirmationSplit | null;
+}
 
 export class AttendanceDashboardService {
   private static supabase = createClientSupabaseClient();
+
+  /**
+   * Confirmation split for the selected date + institution scope.
+   * Reads session_feedback.gate_mode: when 'off', returns early without hitting
+   * the RPC. Otherwise reads window_hours and calls fn_scf_confirmation_rollup
+   * (SECURITY DEFINER; enforces the same institution scope as the dashboard RLS).
+   */
+  static async getConfirmationSplit(
+    dateString: string,
+    institutionId?: string
+  ): Promise<ConfirmationSplitResult> {
+    const gateMode = (await getPolicyString(
+      POLICY_KEYS.SESSION_FEEDBACK_GATE_MODE,
+      'off'
+    )) as SessionFeedbackGateMode;
+
+    const windowHours = await getPolicyInt(
+      POLICY_KEYS.SESSION_FEEDBACK_WINDOW_HOURS,
+      48
+    );
+
+    if (gateMode === 'off') {
+      return { gateMode, windowHours, split: null };
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_scf_confirmation_rollup',
+      {
+        p_from: dateString,
+        p_to: dateString,
+        p_institution_id: institutionId ?? null,
+        p_window_hours: windowHours
+      }
+    );
+
+    if (error) {
+      logger.error(
+        'academic/attendance-dashboard',
+        'fn_scf_confirmation_rollup failed',
+        error
+      );
+      return { gateMode, windowHours, split: null };
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    const split: ConfirmationSplit = {
+      totalPresent: Number(row?.total_present ?? 0),
+      confirmed: Number(row?.confirmed ?? 0),
+      pendingWithin: Number(row?.pending_within ?? 0),
+      pendingOverdue: Number(row?.pending_overdue ?? 0),
+      sessions: Number(row?.sessions ?? 0)
+    };
+
+    return { gateMode, windowHours, split };
+  }
 
   /**
    * Get today's attendance statistics with hierarchical structure
