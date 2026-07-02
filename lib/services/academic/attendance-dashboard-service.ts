@@ -49,15 +49,29 @@ export class AttendanceDashboardService {
     dateString: string,
     institutionId?: string
   ): Promise<ConfirmationSplitResult> {
-    const gateMode = (await getPolicyString(
-      POLICY_KEYS.SESSION_FEEDBACK_GATE_MODE,
-      'off'
-    )) as SessionFeedbackGateMode;
-
-    const windowHours = await getPolicyInt(
-      POLICY_KEYS.SESSION_FEEDBACK_WINDOW_HOURS,
-      48
-    );
+    // A failed policy read must not surface an error card for a feature that may
+    // well be 'off'. getPolicy* already fail-soft on the RPC's error field, but a
+    // thrown/rejected fetch would otherwise propagate to the query and render the
+    // error card — so treat any policy-read failure as 'off' (feature hidden).
+    let gateMode: SessionFeedbackGateMode = 'off';
+    let windowHours = 48;
+    try {
+      gateMode = (await getPolicyString(
+        POLICY_KEYS.SESSION_FEEDBACK_GATE_MODE,
+        'off'
+      )) as SessionFeedbackGateMode;
+      windowHours = await getPolicyInt(
+        POLICY_KEYS.SESSION_FEEDBACK_WINDOW_HOURS,
+        48
+      );
+    } catch (e) {
+      logger.warn(
+        'academic/attendance-dashboard',
+        'session_feedback policy read failed; treating gate as off',
+        e
+      );
+      return { gateMode: 'off', windowHours, split: null };
+    }
 
     if (gateMode === 'off') {
       return { gateMode, windowHours, split: null };
