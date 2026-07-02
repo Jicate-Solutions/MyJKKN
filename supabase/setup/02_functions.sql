@@ -20808,8 +20808,12 @@ BEGIN
       )                           AS session_end_local
     FROM public.student_attendance sa
     CROSS JOIN LATERAL jsonb_each(sa.attendance_data)                       AS period
+    -- jsonb_typeof guard, not COALESCE: a JSON-null / scalar / object 'students'
+    -- (JSON null ≠ SQL NULL) would make jsonb_array_elements abort the rollup.
     CROSS JOIN LATERAL jsonb_array_elements(
-                         COALESCE(period.value -> 'students', '[]'::jsonb)) AS st
+                         CASE WHEN jsonb_typeof(period.value -> 'students') = 'array'
+                              THEN period.value -> 'students'
+                              ELSE '[]'::jsonb END) AS st
     WHERE sa.attendance_date BETWEEN p_from AND p_to
       AND (st ->> 'status') = 'Present'
       -- Guard the ::uuid cast: skip malformed/empty student_id so a single bad
