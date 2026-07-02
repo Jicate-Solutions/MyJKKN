@@ -12,6 +12,7 @@ import {
 import { InductionSpeakersService, type DirectoryUser } from '@/lib/services/induction/induction-speakers-service';
 import { PersonAvailabilityService } from '@/lib/services/availability/person-availability';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { AttendanceDialog } from './attendance-dialog';
 import { DayAttendanceDialog } from './day-attendance-dialog';
 import { FeedbackKioskDialog } from './feedback-kiosk-dialog';
@@ -30,7 +31,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger,
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Pencil, Trash2, MapPin, User, Target, LinkIcon, X, Star, CalendarDays, Settings2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, MapPin, User, Users, Target, LinkIcon, X, Star, CalendarDays, Settings2 } from 'lucide-react';
 
 interface Batch { id: string; label: string; }
 const COMBINED = '__combined__';
@@ -48,7 +49,11 @@ function fmtTime(iso: string) {
 
 export function SessionsSection({ eventId, batches }: { eventId: string; batches: Batch[] }) {
   const { profile } = useAuth();
+  const { permissions, isSuperAdmin } = usePermissions();
+  const [isCoordinator, setIsCoordinator] = useState(false);
   const [sessions, setSessions] = useState<InductionSessionRow[]>([]);
+  // session id → linked resource persons (shown on the card + drives per-session access)
+  const [sessionSpeakers, setSessionSpeakers] = useState<Record<string, DirectoryUser[]>>({});
   const [feedback, setFeedback] = useState<Record<string, { avg: number; count: number }>>({});
   const [dayFeedback, setDayFeedback] = useState<Record<number, { avg: number; count: number }>>({});
   const [programFeedback, setProgramFeedback] = useState<{ avg: number; count: number } | null>(null);
@@ -93,6 +98,10 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
         InductionService.getProgramFeedbackSummary(eventId).catch(() => null),
       ]);
       setSessions(rows);
+      // linked resource persons for every session (non-blocking: chips just stay empty on failure)
+      InductionSpeakersService.getSpeakersBySession(rows.map((r) => r.id))
+        .then(setSessionSpeakers)
+        .catch(() => setSessionSpeakers({}));
       const fb: Record<string, { avg: number; count: number }> = {};
       for (const s of summary) fb[s.session_id] = { avg: Number(s.avg_rating), count: s.response_count };
       setFeedback(fb);
@@ -105,6 +114,15 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
     finally { setLoading(false); }
   }, [eventId]);
   useEffect(() => { load(); }, [load]);
+
+  // Access model: admins / induction.manage holders / per-event coordinators manage
+  // everything; a resource person views all sessions but operates (attendance,
+  // feedback kiosk, polls) ONLY on sessions they're assigned to. The DEFINER RPCs
+  // enforce the same rules server-side — this just keeps the UI honest.
+  useEffect(() => {
+    InductionService.isEventCoordinator(eventId).then(setIsCoordinator);
+  }, [eventId]);
+  const canManage = isSuperAdmin || !!permissions['induction.manage'] || isCoordinator;
 
   const resetForm = () => {
     setDay('1'); setBatchId(COMBINED); setStart(''); setEnd('');
@@ -244,6 +262,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
             </CardTitle>
             <CardDescription>The day-by-day schedule — topics, speakers, venues, outcomes, and resources.</CardDescription>
           </div>
+          {canManage && (
           <div className="flex items-center gap-2">
           <Popover>
             <PopoverTrigger asChild>
@@ -378,6 +397,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
             </DialogContent>
           </Dialog>
           </div>
+          )}
         </div>
       </CardHeader>
       <CardContent>
@@ -391,10 +411,14 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
           <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-10 text-center">
             <CalendarDays className="h-8 w-8 text-muted-foreground/50" aria-hidden />
             <p className="mt-3 text-sm font-medium">No sessions yet</p>
-            <p className="text-xs text-muted-foreground">Add the first one to start building the day-by-day schedule.</p>
-            <Button size="sm" variant="outline" className="mt-4" onClick={openCreate}>
-              <Plus className="h-4 w-4 mr-1" /> Add session
-            </Button>
+            <p className="text-xs text-muted-foreground">
+              {canManage ? 'Add the first one to start building the day-by-day schedule.' : 'The schedule hasn’t been published yet.'}
+            </p>
+            {canManage && (
+              <Button size="sm" variant="outline" className="mt-4" onClick={openCreate}>
+                <Plus className="h-4 w-4 mr-1" /> Add session
+              </Button>
+            )}
           </div>
         ) : (
           <div className="space-y-6">
@@ -417,14 +441,18 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                       </Badge>
                     )}
                     <div className="h-px flex-1 bg-border" />
-                    {d !== 0 && (
+                    {d !== 0 && canManage && (
                       <DayAttendanceDialog eventId={eventId} dayNumber={d} dayLabel={`Day ${d}`} />
                     )}
                   </div>
 
                   {/* Agenda rows — time gutter + session card */}
                   <div className="space-y-2">
-                    {daySessions.map((s) => (
+                    {daySessions.map((s) => {
+                      const speakers = sessionSpeakers[s.id] ?? [];
+                      const isMySession = speakers.some((u) => u.id === profile?.id);
+                      const canOperate = canManage || isMySession;
+                      return (
                       <div key={s.id} className="group flex gap-3 rounded-lg border p-3 transition-colors hover:border-primary/40 hover:bg-muted/30">
                         {/* time gutter */}
                         <div className="w-14 shrink-0 pt-0.5 text-right">
@@ -446,6 +474,19 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                             {s.venue_text && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{s.venue_text}</span>}
                             {s.speaker_text && <span className="flex items-center gap-1"><User className="h-3 w-3" />{s.speaker_text}</span>}
+                            {speakers.length > 0 && (
+                              <span className="flex items-center gap-1">
+                                <Users className="h-3 w-3" />
+                                {speakers.map((u, i) => (
+                                  <span key={u.id}>
+                                    {i > 0 && ', '}
+                                    <span className={u.id === profile?.id ? 'font-medium text-foreground' : undefined}>
+                                      {u.full_name || u.email}{u.id === profile?.id ? ' (you)' : ''}
+                                    </span>
+                                  </span>
+                                ))}
+                              </span>
+                            )}
                           </div>
                           {s.outcome_text && (
                             <p className="mt-1.5 text-xs text-muted-foreground flex items-start gap-1">
@@ -463,16 +504,25 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                             </div>
                           )}
                         </div>
-                        {/* actions */}
+                        {/* actions — operate on assigned sessions; edit/delete for managers only */}
                         <div className="flex gap-1 shrink-0">
-                          <AttendanceDialog sessionId={s.id} sessionTitle={s.title} />
-                          <FeedbackKioskDialog sessionId={s.id} sessionTitle={s.title} />
-                          <SessionPollDialog sessionId={s.id} sessionTitle={s.title} />
-                          <Button size="icon" variant="ghost" onClick={() => openEdit(s)}><Pencil className="h-4 w-4" /></Button>
-                          <Button size="icon" variant="ghost" onClick={() => remove(s)}><Trash2 className="h-4 w-4" /></Button>
+                          {canOperate && (
+                            <>
+                              <AttendanceDialog sessionId={s.id} sessionTitle={s.title} />
+                              <FeedbackKioskDialog sessionId={s.id} sessionTitle={s.title} />
+                              <SessionPollDialog sessionId={s.id} sessionTitle={s.title} />
+                            </>
+                          )}
+                          {canManage && (
+                            <>
+                              <Button size="icon" variant="ghost" onClick={() => openEdit(s)}><Pencil className="h-4 w-4" /></Button>
+                              <Button size="icon" variant="ghost" onClick={() => remove(s)}><Trash2 className="h-4 w-4" /></Button>
+                            </>
+                          )}
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               );

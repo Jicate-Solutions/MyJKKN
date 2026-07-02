@@ -205,6 +205,15 @@ export class InductionService {
     return !!data;
   }
 
+  /** Is the CURRENT user a per-event coordinator of this induction? Used by the
+   *  sessions section to decide manage-level UI (event coordinators may lack the
+   *  global induction.manage permission). */
+  static async isEventCoordinator(eventId: string): Promise<boolean> {
+    const { data, error } = await getSupabase().rpc('fn_induction_is_event_coordinator', { p_event_id: eventId });
+    if (error) return false;
+    return !!data;
+  }
+
   static async listEventCoordinators(eventId: string): Promise<EventCoordinator[]> {
     const { data, error } = await getSupabase().rpc('fn_induction_list_event_coordinators', { p_event_id: eventId });
     if (error) throw error;

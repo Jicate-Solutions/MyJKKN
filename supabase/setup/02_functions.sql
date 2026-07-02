@@ -20666,3 +20666,60 @@ BEGIN
 END $$;
 REVOKE EXECUTE ON FUNCTION public.fn_induction_remove_event_coordinator(UUID, UUID) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_induction_remove_event_coordinator(UUID, UUID) TO authenticated;
+
+-- ============================================================================
+-- Fresher Induction — resource-person (session speaker) access model
+-- Migration: supabase/migrations/20260702150000_induction_resource_person_session_access.sql
+--            supabase/migrations/20260702151000_induction_speakers_read_co_speakers.sql
+-- ADDITIVE: a credited resource person (event_session_speakers) can now VIEW
+-- the whole event they speak at, and OPERATE only on their assigned sessions.
+--   • fn_induction_is_event_speaker(p_event_id) is OR'd into:
+--     fn_induction_list_sessions (speaker sees ALL sessions, incl. all batches),
+--     fn_induction_session_feedback_summary, fn_induction_day_feedback_summary,
+--     fn_induction_program_feedback_summary.
+--   • an assigned-session EXISTS over event_session_speakers is OR'd into:
+--     fn_induction_session_roster, fn_induction_mark_attendance,
+--     fn_induction_session_feedback_roster, fn_induction_submit_feedback_proxy.
+--   • _fn_induction_can_manage_session_pulse additionally gained the
+--     fn_induction_is_event_coordinator(v_event) clause the 2026-07-30
+--     coordinator retrofit missed (poll/pulse hosting for event coordinators).
+-- See the migration files for the full rebuilt bodies.
+-- ============================================================================
+
+-- Is the caller a credited resource person anywhere in this event?
+CREATE OR REPLACE FUNCTION public.fn_induction_is_event_speaker(p_event_id uuid, p_user_id uuid DEFAULT auth.uid())
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.event_session_speakers sp
+    JOIN public.event_sessions es ON es.id = sp.session_id
+    WHERE es.event_id = p_event_id AND sp.profile_id = p_user_id
+  );
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_is_event_speaker(uuid, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_is_event_speaker(uuid, uuid) TO authenticated;
+
+-- Is this session part of an event where the caller is a credited speaker?
+-- (Used by the ess_event_speaker_read policy so a speaker can see co-speakers.)
+CREATE OR REPLACE FUNCTION public.fn_induction_session_in_my_speaker_event(p_session_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.event_sessions es
+    JOIN public.event_sessions mine ON mine.event_id = es.event_id
+    JOIN public.event_session_speakers sp ON sp.session_id = mine.id AND sp.profile_id = auth.uid()
+    WHERE es.id = p_session_id
+  );
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_session_in_my_speaker_event(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_session_in_my_speaker_event(uuid) TO authenticated;

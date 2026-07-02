@@ -198,6 +198,25 @@ export class InductionSpeakersService {
       .filter(Boolean) as DirectoryUser[];
   }
 
+  /** Linked resource persons for MANY sessions at once (session-list display).
+   *  One .in() query instead of a per-session loop; RLS scopes what's visible
+   *  (admins/view-holders: all; a resource person: all speakers of their event). */
+  static async getSpeakersBySession(sessionIds: string[]): Promise<Record<string, DirectoryUser[]>> {
+    if (!sessionIds.length) return {};
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('event_session_speakers')
+      .select('session_id, profiles(id, full_name, role, email)')
+      .in('session_id', sessionIds);
+    if (error) throw error;
+    const map: Record<string, DirectoryUser[]> = {};
+    for (const r of (data as any[]) ?? []) {
+      if (!r.profiles) continue;
+      (map[r.session_id] ??= []).push(r.profiles as DirectoryUser);
+    }
+    return map;
+  }
+
   /** Replace the session's linked resource persons with this exact set. */
   static async setSessionSpeakers(sessionId: string, profileIds: string[]): Promise<number> {
     const supabase = getSupabase();

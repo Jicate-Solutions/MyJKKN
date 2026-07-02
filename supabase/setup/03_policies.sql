@@ -7255,3 +7255,28 @@ CREATE POLICY event_program_feedback_admin ON public.event_program_feedback FOR 
 DROP POLICY IF EXISTS induction_event_coordinators_admin ON public.induction_event_coordinators;
 CREATE POLICY induction_event_coordinators_admin ON public.induction_event_coordinators FOR ALL
   USING (is_super_admin() OR is_admin()) WITH CHECK (is_super_admin() OR is_admin());
+
+-- ── Induction resource-person (session speaker) reads (2026-07-02) ──
+-- Migration: supabase/migrations/20260702150000_induction_resource_person_session_access.sql
+--            supabase/migrations/20260702151000_induction_speakers_read_co_speakers.sql
+-- A credited resource person can read the event shell + speaker links of the
+-- induction they speak at. Additive SELECT-only; writes stay RPC-gated.
+DROP POLICY IF EXISTS events_induction_speaker_read ON public.events;
+CREATE POLICY events_induction_speaker_read ON public.events
+  FOR SELECT TO authenticated
+  USING (public.fn_induction_is_event_speaker(id));
+
+DROP POLICY IF EXISTS induction_programs_speaker_view ON public.induction_programs;
+CREATE POLICY induction_programs_speaker_view ON public.induction_programs
+  FOR SELECT TO authenticated
+  USING (public.fn_induction_is_event_speaker(event_id));
+
+DROP POLICY IF EXISTS induction_batches_speaker_view ON public.induction_batches;
+CREATE POLICY induction_batches_speaker_view ON public.induction_batches
+  FOR SELECT TO authenticated
+  USING (public.fn_induction_is_event_speaker(event_id));
+
+DROP POLICY IF EXISTS ess_event_speaker_read ON public.event_session_speakers;
+CREATE POLICY ess_event_speaker_read ON public.event_session_speakers
+  FOR SELECT TO authenticated
+  USING (public.fn_induction_session_in_my_speaker_event(session_id));
