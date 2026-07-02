@@ -94,29 +94,38 @@ export function useConfirmationSplit(
   const queryAllInstitutions =
     canViewAllInstitutions && institutionId === undefined;
 
-  // IST wall-clock date, derived deterministically via Intl (timeZone
-  // Asia/Kolkata) — NOT toISOString() (UTC) and NOT local getFullYear/getDate
-  // (browser-tz-dependent). The RPC anchors its window bucketing to
-  // Asia/Kolkata, so the query date must be the IST calendar day regardless of
-  // where the admin's client is (VPN / overseas / SSR). 'en-CA' → YYYY-MM-DD.
-  const dateString = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).format(selectedDate);
+  // The split covers a ROLLING window ending at the selected date, not a single
+  // day: with window_hours=48 a single-day (today) view can never produce an
+  // "overdue" mark, making that bucket structurally dead. A trailing window
+  // surfaces the accumulated confirmation gap leadership cares about.
+  // Dates are IST wall-clock via Intl (timeZone Asia/Kolkata) — NOT toISOString()
+  // (UTC) or local getDate (browser-tz-dependent) — because the RPC anchors its
+  // buckets to Asia/Kolkata; correct regardless of the admin's client TZ.
+  const istDate = (d: Date) =>
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(d);
+  const toDate = istDate(selectedDate);
+  const fromDate = istDate(
+    new Date(selectedDate.getTime() - (SPLIT_WINDOW_DAYS - 1) * 86_400_000)
+  );
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: [
       'attendance-confirmation-split',
       queryInstitutionId,
       queryAllInstitutions,
-      dateString,
+      fromDate,
+      toDate,
       refreshTrigger
     ],
     queryFn: () =>
       AttendanceDashboardService.getConfirmationSplit(
-        dateString,
+        fromDate,
+        toDate,
         queryAllInstitutions ? undefined : queryInstitutionId
       ),
     enabled: queryAllInstitutions || !!queryInstitutionId,
@@ -126,6 +135,7 @@ export function useConfirmationSplit(
   return {
     gateMode: data?.gateMode ?? 'off',
     windowHours: data?.windowHours ?? 48,
+    windowDays: SPLIT_WINDOW_DAYS,
     split: data?.split ?? null,
     isLoading,
     // Surface both a thrown query error and an RPC-level error the service
