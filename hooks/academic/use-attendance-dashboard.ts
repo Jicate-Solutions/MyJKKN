@@ -75,8 +75,11 @@ export function useAttendanceStats(
 
 /**
  * Trailing window (days, inclusive of the selected date) the confirmation split
- * covers. Must exceed window_hours/24 (=2d) for the "overdue" bucket to be
- * meaningful. 14d gives leadership a two-week view of the confirmation gap.
+ * covers. Must exceed window_hours/24 for the "overdue" bucket to be meaningful
+ * (with the default window_hours=48 → 2d, 14d leaves ~12d of overdue headroom).
+ * COUPLING: if an institution ever raises session_feedback.window_hours above
+ * ~336h (14d), overdue would be structurally near-empty within this fixed span —
+ * revisit this constant (or derive it from window_hours) if that policy changes.
  */
 const SPLIT_WINDOW_DAYS = 14;
 

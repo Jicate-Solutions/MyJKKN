@@ -20724,8 +20724,36 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_induction_session_in_my_speaker_event(uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_induction_session_in_my_speaker_event(uuid) TO authenticated;
 
--- Updated: 2026-07-03 (deep-review r4) — SCF "show the split" confirmation rollup.
+-- Updated: 2026-07-03 (deep-review r5) — SCF "show the split" confirmation rollup.
 -- Mirror of supabase/migrations/20260703003800_scf_confirmation_rollup.sql.
+-- Safe text→time parse: returns p_default on ANY parse failure. A regex guard
+-- can't guarantee ::time succeeds (e.g. '25:00', '13:00 PM' pass a loose regex
+-- but throw on cast, failing the whole rollup), so we use an exception block.
+-- IMMUTABLE: time parsing does not depend on session settings.
+CREATE OR REPLACE FUNCTION public.fn_scf_safe_time(p_text text, p_default time)
+RETURNS time
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = public
+AS $$
+BEGIN
+  -- NULL/empty must return the default, NOT NULL: NULL::time raises no exception
+  -- but yields NULL, which would make session_end_local NULL and drop the row
+  -- from BOTH the within and overdue buckets (breaking confirmed+within+overdue
+  -- = total_present).
+  IF p_text IS NULL OR btrim(p_text) = '' THEN
+    RETURN p_default;
+  END IF;
+  RETURN p_text::time;
+EXCEPTION WHEN others THEN
+  RETURN p_default;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_scf_safe_time(text, time) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_scf_safe_time(text, time) TO authenticated;
+
+-- DROP first: the return type changed (dropped the unused `sessions` column),
+-- which CREATE OR REPLACE cannot do. Safe — the function is not yet deployed.
 DROP FUNCTION IF EXISTS
   public.fn_scf_confirmation_rollup(date,date,uuid,uuid,uuid,uuid,integer);
 
@@ -20771,18 +20799,13 @@ BEGIN
       sa.attendance_date,
       period.key                  AS period_id,
       (st ->> 'student_id')::uuid AS student_id,
-      -- class-end wall-clock (IST): date + period end_time. Guard the ::time
-      -- cast — the blob mixes 24h ("10:00:00") and 12h/meridian ("3:00 PM")
-      -- formats (both parse via ::time). Accept both; fall back to end-of-day
-      -- only on genuine garbage (2 such rows in 6 months) so one bad value can
-      -- never fail the whole rollup.
+      -- class-end wall-clock (IST): date + period end_time. The blob mixes 24h
+      -- ("10:00:00") and 12h/meridian ("3:00 PM") formats (both parse via
+      -- ::time); fn_scf_safe_time returns end-of-day on any unparseable value so
+      -- one bad row can never fail the whole rollup.
       (sa.attendance_date
-        + CASE
-            WHEN (period.value ->> 'end_time') ~*
-                 '^\s*[0-9]{1,2}:[0-9]{2}(:[0-9]{2})?\s*(am|pm)?\s*$'
-              THEN (period.value ->> 'end_time')::time
-            ELSE TIME '23:59:59'
-          END)                    AS session_end_local
+        + fn_scf_safe_time(period.value ->> 'end_time', TIME '23:59:59')
+      )                           AS session_end_local
     FROM public.student_attendance sa
     CROSS JOIN LATERAL jsonb_each(sa.attendance_data)                       AS period
     CROSS JOIN LATERAL jsonb_array_elements(
@@ -20797,7 +20820,17 @@ BEGIN
       AND (p_program_id     IS NULL OR sa.program_id     = p_program_id)
       AND (p_department_id  IS NULL OR sa.department_id  = p_department_id)
       AND (p_section_id     IS NULL OR sa.section_id     = p_section_id)
-      AND (is_super_admin() OR is_admin()
+      -- Data scope: super_admin sees all; everyone else is bounded by
+      -- role_has_institution_access, which ALREADY grants scope='all' roles
+      -- every institution and scope='own' roles only their own + granted.
+      -- is_admin() is deliberately NOT here: it is a hardcoded role-NAME bypass
+      -- that ignores institution_scope, so a scope='own' admin could read other
+      -- institutions' aggregates through this DEFINER RPC (verified leak: a
+      -- role='admin' with role_has_institution_access(foreign)=false read 1,979
+      -- foreign present marks). The student_attendance dashboard RLS carries the
+      -- same is_admin() branch — a pre-existing over-grant we intentionally do
+      -- NOT propagate here.
+      AND (is_super_admin()
            OR role_has_institution_access(sa.institution_id))
     ORDER BY sa.attendance_date, period.key, (st ->> 'student_id'),
              session_end_local ASC
