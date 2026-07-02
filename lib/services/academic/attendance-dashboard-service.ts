@@ -89,8 +89,8 @@ export class AttendanceDashboardService {
     const { data, error } = await (this.supabase as any).rpc(
       'fn_scf_confirmation_rollup',
       {
-        p_from: dateString,
-        p_to: dateString,
+        p_from: fromDate,
+        p_to: toDate,
         p_institution_id: institutionId ?? null,
         p_window_hours: windowHours
       }
