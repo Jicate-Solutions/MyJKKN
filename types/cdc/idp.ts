@@ -1,6 +1,11 @@
 // types/cdc/idp.ts
 // Individual Development Plan — type definitions derived from live DB schema
 
+// Learner self-submit + staff approval workflow (BUG-004298).
+// State machine: 'draft' -> 'submitted' (learner) -> 'approved' (CDC staff only).
+// The plan stays editable by the learner until it is approved.
+export type IdpSubmissionStatus = 'draft' | 'submitted' | 'approved';
+
 export interface CdcIdpResponse {
   id: string;
   learner_id: string;
@@ -24,8 +29,14 @@ export interface CdcIdpResponse {
   prefill_sources: Record<string, string>;
   source: 'native_form' | 'google_form_import';
   source_response_id: string | null;
+  // Self-submit workflow (BUG-004298). NOT NULL DEFAULT 'draft' at the DB level;
+  // '' is never valid. Rows created before this column read as 'draft' via default.
+  submission_status: IdpSubmissionStatus;
   submitted_at: string;
   updated_at: string;
+  // Set when a CDC coordinator approves the plan (BUG-004298); null until then.
+  approved_at: string | null;
+  approved_by: string | null;
   created_by: string | null;
   updated_by: string | null;
 }
@@ -55,6 +66,10 @@ export interface CreateIdpResponseDto {
   // BUG-004197 (provenance): which fields were machine-suggested at create time.
   // Set by the create form from the prefill draft; '{}' when nothing was prefilled.
   prefill_sources?: Record<string, string>;
+  // Self-submit workflow (BUG-004298). Learner create/save uses 'draft'; the
+  // Submit button uses 'submitted'. Learners may never pass 'approved' (RLS
+  // rejects it) — approval goes through IdpService.approve(), staff-only.
+  submission_status?: IdpSubmissionStatus;
 }
 
 export interface UpdateIdpResponseDto extends Partial<CreateIdpResponseDto> {

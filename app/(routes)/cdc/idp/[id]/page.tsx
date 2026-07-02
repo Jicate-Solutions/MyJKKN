@@ -14,9 +14,20 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useIdpById, useUpdateIdp } from '@/hooks/cdc/use-cdc-idp';
+import { useIdpById, useUpdateIdp, useApproveIdp } from '@/hooks/cdc/use-cdc-idp';
+import type { CdcIdpResponse } from '@/types/cdc/idp';
 import { BeatLoader } from 'react-spinners';
-import { X, Plus, ArrowLeft } from 'lucide-react';
+import { X, Plus, ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react';
+
+// Submission-status badge styling (BUG-004298). Kept local to the CDC IDP UI.
+const IDP_STATUS_META: Record<
+  CdcIdpResponse['submission_status'],
+  { label: string; className: string }
+> = {
+  draft: { label: 'Draft', className: 'bg-slate-100 text-slate-700 hover:bg-slate-100' },
+  submitted: { label: 'Submitted', className: 'bg-amber-100 text-amber-700 hover:bg-amber-100' },
+  approved: { label: 'Approved', className: 'bg-green-100 text-green-700 hover:bg-green-100' },
+};
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -35,6 +46,7 @@ function IdpDetailContent({ params }: PageProps) {
   const router = useRouter();
   const { data: idp, isLoading, error } = useIdpById(id);
   const updateIdp = useUpdateIdp(id);
+  const approveIdp = useApproveIdp(id);
 
   const [editing, setEditing] = useState(false);
   const [interestInput, setInterestInput] = useState('');
@@ -101,6 +113,13 @@ function IdpDetailContent({ params }: PageProps) {
 
   const learner = idp.learner as { name?: string; roll_number?: string } | null;
   const plan = idp.three_year_plan as Record<string, string>;
+  const status = idp.submission_status ?? 'draft';
+  const statusMeta = IDP_STATUS_META[status];
+
+  const handleApprove = async () => {
+    if (!window.confirm('Approve this IDP? The learner will no longer be able to edit it.')) return;
+    await approveIdp.mutateAsync();
+  };
 
   return (
     <ContentLayout title="IDP Response">
@@ -129,15 +148,31 @@ function IdpDetailContent({ params }: PageProps) {
             )}
           </div>
           {!editing && (
-            <PermissionGuard module="cdc.idp" action="edit">
-              <Button onClick={startEdit} variant="outline">Edit</Button>
-            </PermissionGuard>
+            <div className="flex items-center gap-2 flex-wrap">
+              {status !== 'approved' && (
+                <PermissionGuard module="cdc.idp" action="edit">
+                  <Button onClick={handleApprove} disabled={approveIdp.isPending}>
+                    {approveIdp.isPending
+                      ? <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                      : <CheckCircle2 className="w-4 h-4 mr-1" />}
+                    Approve
+                  </Button>
+                </PermissionGuard>
+              )}
+              <PermissionGuard module="cdc.idp" action="edit">
+                <Button onClick={startEdit} variant="outline">Edit</Button>
+              </PermissionGuard>
+            </div>
           )}
         </div>
 
-        <div className="flex gap-3 text-sm text-gray-500">
+        <div className="flex items-center gap-3 text-sm text-gray-500 flex-wrap">
+          <Badge className={statusMeta.className}>{statusMeta.label}</Badge>
           <span>Submitted: {new Date(idp.submitted_at).toLocaleDateString()}</span>
           {idp.academic_year_label && <span>Year: {idp.academic_year_label}</span>}
+          {status === 'approved' && idp.approved_at && (
+            <span>Approved: {new Date(idp.approved_at).toLocaleDateString()}</span>
+          )}
           <Badge variant="outline">{idp.source === 'google_form_migration' ? 'Imported' : 'Native'}</Badge>
         </div>
 
