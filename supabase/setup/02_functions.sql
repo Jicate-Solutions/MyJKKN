@@ -18451,7 +18451,7 @@ BEGIN
   WHERE r.block_id = p_block_id
     AND r.room_purpose = 'student'
     AND (NOT v_has_elig
-         OR r.category_id IN (SELECT category_id FROM fn_hostel_learner_room_categories(p_learner_profile_id)))
+         OR r.category_id IN (SELECT elig.category_id FROM fn_hostel_learner_room_categories(p_learner_profile_id) elig))
     AND (bl.hostel_type::text = 'mixed'
          OR (v_gender IN ('male','m')   AND bl.hostel_type::text = 'boys')
          OR (v_gender IN ('female','f') AND bl.hostel_type::text = 'girls'))
