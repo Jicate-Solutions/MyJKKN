@@ -57,11 +57,27 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // Tier scope — the loop only generates proposals for tiers where the
+  // engagement layer (voting) is live, because only those tiers accrue the
+  // votes/ratings the recommendation reads. Without this, a single-tier pilot
+  // would still emit an (empty, baseline-less) proposal for EVERY tier in
+  // mess_menus. Empty enabled_tiers ⇒ generate for none (stays dark).
+  const { data: tiersPol } = await db
+    .from('platform_policies')
+    .select('value')
+    .eq('policy_key', 'mess.choose.voting.enabled_tiers')
+    .eq('scope_type', 'global')
+    .maybeSingle();
+  const enabledTiers = new Set<string>(
+    Array.isArray(tiersPol?.value) ? (tiersPol!.value as unknown[]).map(String) : [],
+  );
+
   const now = new Date();
   const nextWeek = mondayOf(now, 1);
   const thisWeek = mondayOf(now, 0);
 
-  // 1. GENERATE — one proposal per active (institution, tier, meal) slot
+  // 1. GENERATE — one proposal per active (institution, tier, meal) slot,
+  //    restricted to the voting-enabled tiers (the pilot scope).
   const { data: slots, error: slotErr } = await db
     .from('mess_menus')
     .select('institution_id, tier_key, meal_type')
@@ -72,6 +88,7 @@ export async function GET(req: NextRequest) {
   const uniq = new Map<string, { i: string; t: string; m: string }>();
   for (const s of slots ?? []) {
     if (!s.institution_id || !s.tier_key || !s.meal_type) continue;
+    if (!enabledTiers.has(String(s.tier_key))) continue; // ← tier scope (pilot)
     uniq.set(`${s.institution_id}|${s.tier_key}|${s.meal_type}`, {
       i: s.institution_id,
       t: s.tier_key,
@@ -111,6 +128,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     success: true,
     week: nextWeek,
+    tierScope: [...enabledTiers],
     slots: uniq.size,
     generated,
     genErrors,

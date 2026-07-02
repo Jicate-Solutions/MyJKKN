@@ -32,10 +32,11 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ChefHat, CalendarRange } from 'lucide-react';
+import { ChefHat, CalendarRange, Copy, Loader2 } from 'lucide-react';
 
 import { useAuth } from '@/hooks/use-auth';
 import { useMessCaterers } from '@/hooks/campus-living/use-mess-caterers';
+import { useCopyMessMenuWeek } from '@/hooks/campus-living/use-mess-menu-week';
 import type { GenderServed, TierKey } from '@/types/campus-living';
 
 import { MenuGrid } from '../_components/menu-grid';
@@ -117,6 +118,11 @@ export default function MessMenuEditorPage() {
   // the resolved caterer; institution-scoped users fall back to their own.
   const institutionId = genderCaterer?.institution_id ?? profileInstitutionId;
 
+  // "Copy last week → this week" — seeds the selected week from the most recent
+  // prior week so publishing is 2 clicks, not 28 cell edits.
+  const copyWeek = useCopyMessMenuWeek();
+  const canCopy = !!institutionId && !!catererId && !copyWeek.isPending;
+
   return (
     <SuperAdminOnly
       fallback={
@@ -175,6 +181,28 @@ export default function MessMenuEditorPage() {
                 ))}
               </SelectContent>
             </Select>
+
+            {/* Copy last week → the selected week — the friction-killer that
+                keeps weekly publishing (and the Choose Your Menu rating
+                baseline) alive. Copies as 'planned' for review, idempotent. */}
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-9"
+              disabled={!canCopy}
+              title="Fill this week from the most recent prior week's menu, then edit the changes"
+              onClick={() => {
+                if (!institutionId || !catererId) return;
+                copyWeek.mutate({ institutionId, catererId, tierKey, targetWeekStart: weekStartDate });
+              }}
+            >
+              {copyWeek.isPending ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Copy className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Copy last week
+            </Button>
           </div>
         </header>
 
