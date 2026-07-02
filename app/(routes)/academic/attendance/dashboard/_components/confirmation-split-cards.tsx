@@ -38,7 +38,7 @@ export function ConfirmationSplitCards({
     filters?.institutionId ||
     (canViewAllInstitutions ? undefined : userInstitutionId);
 
-  const { gateMode, windowHours, split, isLoading, isError } =
+  const { gateMode, windowHours, windowDays, split, isLoading, isError } =
     useConfirmationSplit(
       queryInstitutionId,
       canViewAllInstitutions,
