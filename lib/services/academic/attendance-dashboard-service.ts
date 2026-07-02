@@ -109,8 +109,7 @@ export class AttendanceDashboardService {
       totalPresent: Number(row?.total_present ?? 0),
       confirmed: Number(row?.confirmed ?? 0),
       pendingWithin: Number(row?.pending_within ?? 0),
-      pendingOverdue: Number(row?.pending_overdue ?? 0),
-      sessions: Number(row?.sessions ?? 0)
+      pendingOverdue: Number(row?.pending_overdue ?? 0)
     };
 
     return { gateMode, windowHours, split };
