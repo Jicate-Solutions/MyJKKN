@@ -64,9 +64,18 @@ BEGIN
       sa.section_id,
       period.key                         AS period_id,
       (st ->> 'student_id')::uuid        AS student_id,
-      -- class-end wall-clock (IST): date + period end_time; fallback end-of-day
+      -- class-end wall-clock (IST): date + period end_time. Guard the ::time
+      -- cast — the blob mixes 24h ("10:00:00") and 12h/meridian ("3:00 PM")
+      -- formats (both parse via ::time), so accept both and fall back to
+      -- end-of-day only on genuine garbage; one bad value must not fail the
+      -- entire rollup.
       (sa.attendance_date
-        + COALESCE(NULLIF(period.value ->> 'end_time', ''), '23:59:59')::time
+        + CASE
+            WHEN (period.value ->> 'end_time') ~*
+                 '^\s*[0-9]{1,2}:[0-9]{2}(:[0-9]{2})?\s*(am|pm)?\s*$'
+              THEN (period.value ->> 'end_time')::time
+            ELSE TIME '23:59:59'
+          END
       )                                  AS session_end_local
     FROM public.student_attendance sa
     CROSS JOIN LATERAL jsonb_each(sa.attendance_data)                       AS period
