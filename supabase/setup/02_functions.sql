@@ -20761,7 +20761,9 @@ BEGIN
 
   RETURN QUERY
   WITH present_marks AS (
-    SELECT
+    -- DISTINCT: a student listed twice in one period's students[] must not
+    -- inflate the counts (one Present mark per learner per session).
+    SELECT DISTINCT
       sa.attendance_date,
       sa.timetable_id,
       sa.section_id,

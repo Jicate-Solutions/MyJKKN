@@ -32,6 +32,8 @@ export interface ConfirmationSplitResult {
   gateMode: SessionFeedbackGateMode;
   windowHours: number;
   split: ConfirmationSplit | null;
+  /** Set when the rollup RPC errored — lets the UI distinguish failure from empty. */
+  error?: string;
 }
 
 export class AttendanceDashboardService {
@@ -78,7 +80,7 @@ export class AttendanceDashboardService {
         'fn_scf_confirmation_rollup failed',
         error
       );
-      return { gateMode, windowHours, split: null };
+      return { gateMode, windowHours, split: null, error: error.message };
     }
 
     const row = Array.isArray(data) ? data[0] : data;

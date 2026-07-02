@@ -94,7 +94,15 @@ export function useConfirmationSplit(
   const queryAllInstitutions =
     canViewAllInstitutions && institutionId === undefined;
 
-  const dateString = selectedDate.toISOString().split('T')[0];
+  // IST wall-clock date, NOT toISOString()/UTC. The RPC anchors its window
+  // bucketing to Asia/Kolkata; during 00:00–05:29 IST, toISOString() would
+  // resolve "today" to the previous calendar day and query the wrong date.
+  // JKKN browsers run in IST, so local components give the correct calendar day.
+  const dateString = [
+    selectedDate.getFullYear(),
+    String(selectedDate.getMonth() + 1).padStart(2, '0'),
+    String(selectedDate.getDate()).padStart(2, '0')
+  ].join('-');
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: [
@@ -118,7 +126,10 @@ export function useConfirmationSplit(
     windowHours: data?.windowHours ?? 48,
     split: data?.split ?? null,
     isLoading,
-    error,
+    // Surface both a thrown query error and an RPC-level error the service
+    // caught (which returns split=null) — so the UI can distinguish a load
+    // failure from a genuine empty result instead of showing fake zeros.
+    isError: !!error || !!data?.error,
     refetch
   };
 }

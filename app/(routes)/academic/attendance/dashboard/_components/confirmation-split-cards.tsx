@@ -39,15 +39,17 @@ export function ConfirmationSplitCards({
     filters?.institutionId ||
     (canViewAllInstitutions ? undefined : userInstitutionId);
 
-  const { gateMode, windowHours, split, isLoading } = useConfirmationSplit(
-    queryInstitutionId,
-    canViewAllInstitutions,
-    selectedDate,
-    refreshTrigger
-  );
+  const { gateMode, windowHours, split, isLoading, isError } =
+    useConfirmationSplit(
+      queryInstitutionId,
+      canViewAllInstitutions,
+      selectedDate,
+      refreshTrigger
+    );
 
-  // Policy disables the layer → surface nothing.
-  if (gateMode === 'off') return null;
+  // Policy disables the layer → surface nothing. Keep rendering while loading
+  // (gateMode defaults to 'off' before data arrives) so the skeleton shows.
+  if (gateMode === 'off' && !isLoading) return null;
 
   const confirmedPct =
     split && split.totalPresent > 0
@@ -84,12 +86,19 @@ export function ConfirmationSplitCards({
             </Card>
           ))}
         </div>
+      ) : isError ? (
+        <Card>
+          <CardContent className='py-4 text-sm text-muted-foreground'>
+            Couldn&apos;t load feedback-confirmation data. This does not affect the
+            attendance figures above.
+          </CardContent>
+        </Card>
       ) : (
         <div className='grid gap-4 md:grid-cols-3'>
           <SplitCard
             title='Feedback-Confirmed'
             value={split?.confirmed ?? 0}
-            subtitle={`${confirmedPct}% of ${(split?.totalPresent ?? 0).toLocaleString()} present marks`}
+            subtitle={`${confirmedPct}% of ${(split?.totalPresent ?? 0).toLocaleString()} marked present`}
             icon={UserCheck}
             color='success'
           />
