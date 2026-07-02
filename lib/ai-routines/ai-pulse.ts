@@ -55,6 +55,7 @@ export const AI_PULSE_ROUTINES: AIRoutine[] = [
     "cronExpr": "43 3 * * *",
     "triggerPath": "/api/cron/ai-pulse-anomaly-scan",
     "callsClaude": false,
+    "featureKey": "ai_pulse.anomaly_detection",
     "whatItDoes": "Scans the last 14 days of AI Pulse cycles for five integrity red-flags — passing the quiz without attending, suspiciously high reach, rubber-stamp identical poll answers, rotation-queue gaming, and excessive excused absences — and writes 'pending' anomaly flags for Champions to review.",
     "configKnobs": "SCAN_WINDOW_DAYS=14; quiz_pass_threshold_live=40, ig_reach_threshold=500, reach_outlier_multiplier=20 (reach outlier threshold = 500*20 = 10000), poll_pattern_min_responses=3, rotation_fairness_slack=12, excuse_frequency_threshold=3 (all from ai_pulse_policies with these code defaults)",
     "sideEffects": "DB writes: inserts ai_pulse_anomaly_flags rows with review_outcome='pending'. No human messaging (flags are reviewed in-app at /ai-pulse/admin/anomalies).",
