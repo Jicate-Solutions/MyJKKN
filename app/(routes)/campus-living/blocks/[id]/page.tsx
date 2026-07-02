@@ -95,6 +95,19 @@ type BlockBreakdown = {
 
 const AC_LABELS: Record<string, string> = { ac: 'AC', non_ac: 'Non-AC', cooler: 'Cooler' };
 
+// Room-status palette, CVD/contrast-validated (dataviz six-checks) for light
+// (#fcfcfb) and dark (#1a1a19) surfaces. Fixed assignment order — identity is
+// also carried by the legend labels + counts, never color alone.
+// "Empty" = fully vacant room (was mislabelled "Available", which admins read
+// as available BEDS — free-bed figures live in the headline tiles instead).
+const ROOM_STATUS_META = [
+  { key: 'full', label: 'Full', swatch: 'bg-[#7c3aed] dark:bg-[#8b5cf6]' },
+  { key: 'partially_occupied', label: 'Partial', swatch: 'bg-[#0284c7]' },
+  { key: 'available', label: 'Empty', swatch: 'bg-[#15803d] dark:bg-[#16a34a]' },
+  { key: 'maintenance', label: 'Maintenance', swatch: 'bg-[#c2410c] dark:bg-[#ea580c]' },
+  { key: 'reserved', label: 'Reserved', swatch: 'bg-[#0891b2]' },
+] as const;
+
 type ActivityRow = {
   id: string;
   type: string;
@@ -174,6 +187,13 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
   const blockBreakdown = (block.block_breakdown ?? null) as BlockBreakdown | null;
   const categorySummary = (block.category_summary ?? []) as CategoryOccupancyRow[];
   const floorCategorySummary = (block.floor_category_summary ?? []) as FloorCategorySummary[];
+
+  // Room-status composition in fixed assignment order (see ROOM_STATUS_META).
+  const statusCounts = ROOM_STATUS_META.map((m) => ({
+    ...m,
+    count: Number(roomsSummary[m.key as keyof typeof roomsSummary] ?? 0),
+  }));
+  const statusTotal = statusCounts.reduce((n, s) => n + s.count, 0);
   const recentActivities = (block.recent_activities ?? []) as ActivityRow[];
 
   const formatDesignation = (value?: string | null) =>
@@ -203,23 +223,38 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
             <TableHead className="text-right">Beds</TableHead>
             <TableHead className="text-right">Occupied</TableHead>
             <TableHead className="text-right text-green-600">Free Beds</TableHead>
+            <TableHead className="w-28">Occupancy</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((r) => (
-            <TableRow key={r.category}>
-              <TableCell className="font-medium">{r.category}</TableCell>
-              <TableCell className="text-right tabular-nums">{r.rooms}</TableCell>
-              <TableCell className="text-right tabular-nums">{r.full}</TableCell>
-              <TableCell className="text-right tabular-nums">{r.partial}</TableCell>
-              <TableCell className="text-right tabular-nums">{r.empty}</TableCell>
-              <TableCell className="text-right tabular-nums">{r.beds}</TableCell>
-              <TableCell className="text-right tabular-nums">{r.occupied}</TableCell>
-              <TableCell className={`text-right tabular-nums font-semibold ${r.free > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
-                {r.free}
-              </TableCell>
-            </TableRow>
-          ))}
+          {rows.map((r) => {
+            const pct = r.beds > 0 ? Math.round((r.occupied / r.beds) * 100) : 0;
+            return (
+              <TableRow key={r.category}>
+                <TableCell className="font-medium">{r.category}</TableCell>
+                <TableCell className="text-right tabular-nums">{r.rooms}</TableCell>
+                <TableCell className="text-right tabular-nums">{r.full}</TableCell>
+                <TableCell className="text-right tabular-nums">{r.partial}</TableCell>
+                <TableCell className="text-right tabular-nums">{r.empty}</TableCell>
+                <TableCell className="text-right tabular-nums">{r.beds}</TableCell>
+                <TableCell className="text-right tabular-nums">{r.occupied}</TableCell>
+                <TableCell className={`text-right tabular-nums font-semibold ${r.free > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
+                  {r.free}
+                </TableCell>
+                <TableCell>
+                  <div
+                    className="h-2 w-full min-w-16 rounded-full bg-muted overflow-hidden"
+                    title={`${pct}% of beds occupied`}
+                  >
+                    <div
+                      className="h-full rounded-full bg-[#0284c7]"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </TableCell>
+              </TableRow>
+            );
+          })}
           {withTotals && rows.length > 1 && (
             <TableRow className="bg-muted/40 font-semibold hover:bg-muted/40">
               <TableCell>Total</TableCell>
@@ -231,6 +266,17 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
               <TableCell className="text-right tabular-nums">{total.occupied}</TableCell>
               <TableCell className={`text-right tabular-nums ${total.free > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
                 {total.free}
+              </TableCell>
+              <TableCell>
+                <div
+                  className="h-2 w-full min-w-16 rounded-full bg-muted overflow-hidden"
+                  title={`${total.beds > 0 ? Math.round((total.occupied / total.beds) * 100) : 0}% of beds occupied`}
+                >
+                  <div
+                    className="h-full rounded-full bg-[#0284c7]"
+                    style={{ width: `${total.beds > 0 ? Math.round((total.occupied / total.beds) * 100) : 0}%` }}
+                  />
+                </div>
               </TableCell>
             </TableRow>
           )}
@@ -478,20 +524,68 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
                 </Button>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-                  {[
-                    { label: 'Available', count: roomsSummary.available ?? 0, color: 'text-green-600 bg-green-50' },
-                    { label: 'Partial', count: roomsSummary.partially_occupied ?? 0, color: 'text-blue-600 bg-blue-50' },
-                    { label: 'Full', count: roomsSummary.full ?? 0, color: 'text-purple-600 bg-purple-50' },
-                    { label: 'Maintenance', count: roomsSummary.maintenance ?? 0, color: 'text-orange-600 bg-orange-50' },
-                    { label: 'Reserved', count: roomsSummary.reserved ?? 0, color: 'text-amber-600 bg-amber-50' },
-                  ].map((item) => (
-                    <div key={item.label} className={`p-4 rounded-lg text-center ${item.color}`}>
-                      <p className="text-2xl font-bold">{item.count}</p>
-                      <p className="text-xs font-medium">{item.label}</p>
-                    </div>
-                  ))}
+                {/* Bed availability headline — the question this card answers is
+                    "how much space is left?", and that answer is BEDS, not the
+                    count of fully-empty rooms (which is 0 in a busy block even
+                    when beds remain free inside partial rooms). */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="p-4 rounded-lg text-center bg-emerald-50 dark:bg-emerald-950/40">
+                    <p className={`text-3xl font-bold tabular-nums ${
+                      (blockBreakdown?.availableBeds ?? 0) > 0
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-muted-foreground'
+                    }`}>
+                      {blockBreakdown?.availableBeds ?? availableCapacity}
+                    </p>
+                    <p className="text-xs font-medium text-muted-foreground mt-1">Free Beds</p>
+                  </div>
+                  <div className="p-4 rounded-lg text-center bg-muted/40">
+                    <p className="text-3xl font-bold tabular-nums">{blockBreakdown?.occupiedBeds ?? currentOccupancy}</p>
+                    <p className="text-xs font-medium text-muted-foreground mt-1">Occupied Beds</p>
+                  </div>
+                  <div className="p-4 rounded-lg text-center bg-muted/40">
+                    <p className="text-3xl font-bold tabular-nums">{blockBreakdown?.totalBeds ?? totalCapacity}</p>
+                    <p className="text-xs font-medium text-muted-foreground mt-1">Total Beds</p>
+                  </div>
+                  <div className="p-4 rounded-lg text-center bg-muted/40">
+                    <p className="text-3xl font-bold tabular-nums">{occupancyPercent}%</p>
+                    <p className="text-xs font-medium text-muted-foreground mt-1">Occupancy</p>
+                  </div>
                 </div>
+
+                {/* Rooms by status — one proportion bar (composition) + legend
+                    with counts, replacing five disconnected tiles. */}
+                {statusTotal > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-baseline justify-between">
+                      <p className="text-sm font-semibold">Rooms by status</p>
+                      <p className="text-xs text-muted-foreground tabular-nums">{statusTotal} rooms</p>
+                    </div>
+                    <div className="flex h-6 w-full gap-[2px]">
+                      {statusCounts.filter((s) => s.count > 0).map((s) => (
+                        <div
+                          key={s.key}
+                          className={`h-full first:rounded-l-md last:rounded-r-md ${s.swatch}`}
+                          style={{ width: `${(s.count / statusTotal) * 100}%` }}
+                          title={`${s.label} — ${s.count} room${s.count !== 1 ? 's' : ''} (${Math.round((s.count / statusTotal) * 100)}%)`}
+                        />
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1.5 pt-0.5">
+                      {statusCounts.map((s) => (
+                        <span
+                          key={s.key}
+                          className={`inline-flex items-center gap-1.5 text-xs ${
+                            s.count === 0 ? 'text-muted-foreground/60' : 'text-foreground'
+                          }`}
+                        >
+                          <span className={`h-2.5 w-2.5 rounded-sm ${s.swatch} ${s.count === 0 ? 'opacity-30' : ''}`} />
+                          {s.label} <span className="font-semibold tabular-nums">{s.count}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Category-wise summary — entire block (student rooms, live occupancy) */}
                 {categorySummary.length > 0 && (
