@@ -12,6 +12,7 @@ export interface PollQuestionDraft { id?: string; prompt: string; kind: 'single'
 export interface PollStructure {
   id: string; session_id: string; status: 'draft' | 'open' | 'closed';
   auto_close_at: string | null; has_votes: boolean;
+  current_question_id: string | null;
   questions: { id: string; prompt: string; kind: 'single' | 'multi'; position: number;
                options: { id: string; label: string; position: number }[] }[];
 }
@@ -21,14 +22,26 @@ export interface PollTotals {
   questions: { id: string; prompt: string; kind: 'single' | 'multi'; response_count: number;
                options: { id: string; label: string; count: number | null }[] }[];
 }
+export interface PollResponder {
+  learner_id: string; register_number: string | null; roll_number: string | null;
+  learner_name: string | null; questions_answered: number; answered_at: string;
+}
 export interface OpenPollForLearner {
   poll_id: string; session_id: string; event_id: string; event_name: string | null;
   title: string | null; day_number: number | null; auto_close_at: string; already_answered: boolean;
 }
 export interface PollForAnswering {
   poll_id: string;
+  // Coordinator-controlled: the server returns ONLY the current question.
   questions: { id: string; prompt: string; kind: 'single' | 'multi'; options: { id: string; label: string }[] }[];
   my_answers: Record<string, string[]>;
+  current_question_id: string | null;
+  question_index: number | null;
+  question_total: number;
+}
+export interface LearnerQuestionTotals {
+  question_id: string; prompt: string; response_count: number; suppressed: boolean;
+  options: { id: string; label: string; count: number | null }[];
 }
 
 export class InductionPollService {
@@ -60,6 +73,19 @@ export class InductionPollService {
     if (error) throw error;
     return (data as PollTotals) ?? null;
   }
+  // Coordinator picks which question is live for learners (also extends auto-close).
+  static async setCurrentQuestion(pollId: string, questionId: string): Promise<void> {
+    const { error } = await getSupabase().rpc('fn_induction_set_current_poll_question', {
+      p_poll_id: pollId, p_question_id: questionId,
+    });
+    if (error) throw error;
+  }
+  // Who answered (identity only, never ballots) — host-gated in the RPC.
+  static async getResponders(pollId: string): Promise<PollResponder[]> {
+    const { data, error } = await getSupabase().rpc('fn_induction_session_poll_responders', { p_poll_id: pollId });
+    if (error) throw error;
+    return (data as PollResponder[]) ?? [];
+  }
   // ── Learner ──
   static async getMyOpenPolls(): Promise<OpenPollForLearner[]> {
     const { data, error } = await getSupabase().rpc('fn_induction_session_poll_for_learner');
@@ -74,5 +100,11 @@ export class InductionPollService {
   static async submit(pollId: string, answers: { question_id: string; option_ids: string[] }[]): Promise<void> {
     const { error } = await getSupabase().rpc('fn_induction_submit_poll_response', { p_poll_id: pollId, p_answers: answers });
     if (error) throw error;
+  }
+  // Live counts for the CURRENT question (aggregate only, suppressed until 3 responders).
+  static async getLearnerQuestionTotals(pollId: string): Promise<LearnerQuestionTotals | null> {
+    const { data, error } = await getSupabase().rpc('fn_induction_poll_question_totals_for_learner', { p_poll_id: pollId });
+    if (error) throw error;
+    return (data as LearnerQuestionTotals) ?? null;
   }
 }

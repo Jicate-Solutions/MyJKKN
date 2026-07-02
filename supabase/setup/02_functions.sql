@@ -19149,6 +19149,189 @@ GRANT  EXECUTE ON FUNCTION public.fn_induction_submit_poll_response(uuid, jsonb)
 
 NOTIFY pgrst, 'reload schema';
 
+-- ── Induction poll responders (2026-07-02) — see migration 20260702050000 ──
+-- Host-side "who answered" list for a session poll's live count analytics.
+-- Deliberate design change from the original anonymized-only totals: the HOST
+-- (same gate as the pulse) sees WHICH learners responded (register no + name),
+-- but still NOT their ballots. fn_induction_session_poll_totals stays anonymized.
+CREATE OR REPLACE FUNCTION public.fn_induction_session_poll_responders(p_poll_id uuid)
+RETURNS TABLE (learner_id uuid, register_number text, roll_number text,
+               learner_name text, questions_answered bigint, answered_at timestamptz)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_session uuid;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'fn_induction_session_poll_responders: not authenticated'; END IF;
+  SELECT p.session_id INTO v_session FROM public.induction_session_poll p WHERE p.id = p_poll_id;
+  IF v_session IS NULL OR NOT public._fn_induction_can_manage_session_pulse(v_session) THEN
+    RAISE EXCEPTION 'fn_induction_session_poll_responders: not allowed'; END IF;
+
+  RETURN QUERY
+  SELECT v.learner_id,
+         lp.register_number::text,
+         lp.roll_number::text,
+         trim(coalesce(lp.first_name,'') || ' ' || coalesce(lp.last_name,''))::text,
+         count(DISTINCT v.question_id),
+         max(v.created_at)
+  FROM public.induction_session_poll_vote v
+  JOIN public.learners_profiles lp ON lp.id = v.learner_id
+  WHERE v.poll_id = p_poll_id
+  GROUP BY v.learner_id, lp.register_number, lp.roll_number, lp.first_name, lp.last_name
+  ORDER BY max(v.created_at) DESC;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_session_poll_responders(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_session_poll_responders(uuid) TO authenticated;
+
+-- ── Induction poll coordinator flow (2026-07-02) — see migration 20260702060000 ──
+-- Coordinator-controlled question flow (Mentimeter-style): the host decides which
+-- ONE question is live via induction_session_poll.current_question_id; learners only
+-- ever receive the current question and can watch its live counts (k>=3 floor).
+-- Rebuilds fn_induction_open_session_poll / fn_induction_get_session_poll /
+-- fn_induction_get_poll_for_answering; adds fn_induction_set_current_poll_question
+-- and fn_induction_poll_question_totals_for_learner. These are the CURRENT versions.
+
+CREATE OR REPLACE FUNCTION public.fn_induction_open_session_poll(p_session_id uuid)
+RETURNS induction_session_poll LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_row public.induction_session_poll;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_open_session_poll: not authenticated'; END IF;
+  IF NOT public._fn_induction_can_manage_session_pulse(p_session_id) THEN
+    RAISE EXCEPTION 'fn_induction_open_session_poll: not authorized'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('induction_poll|' || p_session_id::text));
+  SELECT * INTO v_row FROM public.induction_session_poll WHERE session_id = p_session_id;
+  IF v_row.id IS NULL THEN RAISE EXCEPTION 'fn_induction_open_session_poll: no poll for this session'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.induction_session_poll_question WHERE poll_id = v_row.id) THEN
+    RAISE EXCEPTION 'fn_induction_open_session_poll: add at least one question first'; END IF;
+  UPDATE public.induction_session_poll
+  SET status='open', issued_at=coalesce(issued_at, now()), auto_close_at = now() + interval '240 minutes',
+      current_question_id = coalesce(current_question_id,
+        (SELECT q.id FROM public.induction_session_poll_question q
+          WHERE q.poll_id = induction_session_poll.id ORDER BY q.position LIMIT 1)),
+      updated_at=now()
+  WHERE id = v_row.id RETURNING * INTO v_row;
+  RETURN v_row;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_open_session_poll(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_open_session_poll(uuid) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_induction_set_current_poll_question(p_poll_id uuid, p_question_id uuid)
+RETURNS void LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_session uuid; v_status text;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_set_current_poll_question: not authenticated'; END IF;
+  SELECT p.session_id, p.status INTO v_session, v_status
+  FROM public.induction_session_poll p WHERE p.id = p_poll_id;
+  IF v_session IS NULL OR NOT public._fn_induction_can_manage_session_pulse(v_session) THEN
+    RAISE EXCEPTION 'fn_induction_set_current_poll_question: not allowed'; END IF;
+  IF v_status <> 'open' THEN
+    RAISE EXCEPTION 'fn_induction_set_current_poll_question: poll is not open'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.induction_session_poll_question q
+                 WHERE q.id = p_question_id AND q.poll_id = p_poll_id) THEN
+    RAISE EXCEPTION 'fn_induction_set_current_poll_question: question not in poll'; END IF;
+  -- Advancing is host activity: also push the lazy auto-close window forward.
+  UPDATE public.induction_session_poll
+  SET current_question_id = p_question_id, auto_close_at = now() + interval '240 minutes', updated_at = now()
+  WHERE id = p_poll_id;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_set_current_poll_question(uuid, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_set_current_poll_question(uuid, uuid) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_induction_get_session_poll(p_session_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_p public.induction_session_poll; v_questions jsonb; v_has_votes boolean;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_get_session_poll: not authenticated'; END IF;
+  IF NOT public._fn_induction_can_manage_session_pulse(p_session_id) THEN
+    RAISE EXCEPTION 'fn_induction_get_session_poll: not authorized'; END IF;
+  SELECT * INTO v_p FROM public.induction_session_poll WHERE session_id = p_session_id;
+  IF v_p.id IS NULL THEN RETURN NULL; END IF;
+
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'id', q.id, 'prompt', q.prompt, 'kind', q.kind, 'position', q.position,
+           'options', (SELECT coalesce(jsonb_agg(jsonb_build_object('id',o.id,'label',o.label,'position',o.position) ORDER BY o.position),'[]'::jsonb)
+                       FROM public.induction_session_poll_option o WHERE o.question_id = q.id)
+         ) ORDER BY q.position),'[]'::jsonb)
+  INTO v_questions FROM public.induction_session_poll_question q WHERE q.poll_id = v_p.id;
+
+  SELECT EXISTS(SELECT 1 FROM public.induction_session_poll_vote WHERE poll_id = v_p.id) INTO v_has_votes;
+
+  RETURN jsonb_build_object('id', v_p.id, 'session_id', v_p.session_id, 'status', v_p.status,
+    'auto_close_at', v_p.auto_close_at, 'has_votes', v_has_votes,
+    'current_question_id', v_p.current_question_id, 'questions', v_questions);
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_get_session_poll(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_get_session_poll(uuid) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_induction_get_poll_for_answering(p_poll_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_learner uuid; v_current uuid; v_question jsonb; v_mine jsonb; v_index int; v_total int;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_get_poll_for_answering: not authenticated'; END IF;
+  v_learner := get_my_learner_id();
+  IF v_learner IS NULL OR NOT public._fn_induction_learner_can_answer_poll(p_poll_id, v_learner) THEN
+    RAISE EXCEPTION 'fn_induction_get_poll_for_answering: not allowed'; END IF;
+
+  SELECT p.current_question_id INTO v_current FROM public.induction_session_poll p WHERE p.id = p_poll_id;
+
+  SELECT count(*)::int INTO v_total FROM public.induction_session_poll_question q WHERE q.poll_id = p_poll_id;
+
+  IF v_current IS NOT NULL THEN
+    SELECT jsonb_build_object(
+             'id', q.id, 'prompt', q.prompt, 'kind', q.kind,
+             'options', (SELECT coalesce(jsonb_agg(jsonb_build_object('id',o.id,'label',o.label) ORDER BY o.position),'[]'::jsonb)
+                         FROM public.induction_session_poll_option o WHERE o.question_id = q.id)),
+           (SELECT count(*)::int FROM public.induction_session_poll_question q2
+             WHERE q2.poll_id = p_poll_id AND q2.position <= q.position)
+    INTO v_question, v_index
+    FROM public.induction_session_poll_question q WHERE q.id = v_current AND q.poll_id = p_poll_id;
+  END IF;
+
+  SELECT coalesce(jsonb_object_agg(question_id, opts),'{}'::jsonb) INTO v_mine FROM (
+    SELECT question_id, jsonb_agg(option_id) AS opts
+    FROM public.induction_session_poll_vote
+    WHERE poll_id = p_poll_id AND learner_id = v_learner AND question_id = v_current
+    GROUP BY question_id
+  ) m;
+
+  RETURN jsonb_build_object('poll_id', p_poll_id,
+    'questions', CASE WHEN v_question IS NULL THEN '[]'::jsonb ELSE jsonb_build_array(v_question) END,
+    'my_answers', v_mine,
+    'current_question_id', v_current, 'question_index', v_index, 'question_total', v_total);
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_get_poll_for_answering(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_get_poll_for_answering(uuid) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_induction_poll_question_totals_for_learner(p_poll_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_learner uuid; v_current uuid; v_responders int; v_options jsonb; v_prompt text;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_poll_question_totals_for_learner: not authenticated'; END IF;
+  v_learner := get_my_learner_id();
+  IF v_learner IS NULL OR NOT public._fn_induction_learner_can_answer_poll(p_poll_id, v_learner) THEN
+    RAISE EXCEPTION 'fn_induction_poll_question_totals_for_learner: not allowed'; END IF;
+
+  SELECT p.current_question_id INTO v_current FROM public.induction_session_poll p WHERE p.id = p_poll_id;
+  IF v_current IS NULL THEN RETURN NULL; END IF;
+
+  SELECT q.prompt INTO v_prompt FROM public.induction_session_poll_question q WHERE q.id = v_current;
+  SELECT count(DISTINCT v.learner_id)::int INTO v_responders
+  FROM public.induction_session_poll_vote v WHERE v.question_id = v_current;
+
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'id', o.id, 'label', o.label,
+           'count', CASE WHEN v_responders >= 3
+                         THEN (SELECT count(*) FROM public.induction_session_poll_vote v
+                                WHERE v.question_id = v_current AND v.option_id = o.id)
+                         ELSE NULL END
+         ) ORDER BY o.position),'[]'::jsonb)
+  INTO v_options FROM public.induction_session_poll_option o WHERE o.question_id = v_current;
+
+  RETURN jsonb_build_object('question_id', v_current, 'prompt', v_prompt,
+    'response_count', v_responders, 'suppressed', v_responders < 3, 'options', v_options);
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_poll_question_totals_for_learner(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_poll_question_totals_for_learner(uuid) TO authenticated;
+
 -- ── Induction poll review fixes (2026-06-30) — see migration 20260630210300 ──
 -- 20260630210300_induction_session_polls_review_fixes.sql
 -- Final-review fixes for induction session polls:
