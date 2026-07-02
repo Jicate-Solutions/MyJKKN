@@ -20807,7 +20807,12 @@ BEGIN
         + fn_scf_safe_time(period.value ->> 'end_time', TIME '23:59:59')
       )                           AS session_end_local
     FROM public.student_attendance sa
-    CROSS JOIN LATERAL jsonb_each(sa.attendance_data)                       AS period
+    -- jsonb_typeof guard on the OUTER expansion too: a row whose attendance_data
+    -- is a JSON array/scalar/null would make jsonb_each abort the whole rollup.
+    CROSS JOIN LATERAL jsonb_each(
+                         CASE WHEN jsonb_typeof(sa.attendance_data) = 'object'
+                              THEN sa.attendance_data
+                              ELSE '{}'::jsonb END)                          AS period
     -- jsonb_typeof guard, not COALESCE: a JSON-null / scalar / object 'students'
     -- (JSON null ≠ SQL NULL) would make jsonb_array_elements abort the rollup.
     CROSS JOIN LATERAL jsonb_array_elements(
