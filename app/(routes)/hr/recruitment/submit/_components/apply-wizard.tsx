@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { UploadCloud, UserCircle, ClipboardCheck, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useApplyForJob } from '@/hooks/hr/use-recruitment';
@@ -29,21 +29,39 @@ interface ApplyWizardProps {
 
 export function ApplyWizard({ job, onCancel }: ApplyWizardProps) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [resumeUrl, setResumeUrl] = useState('');
-  const [resumeFilename, setResumeFilename] = useState('');
-  const [resumeSizeBytes, setResumeSizeBytes] = useState(0);
-  const [driveFileId, setDriveFileId] = useState('');
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [details, setDetails] = useState<ApplicantDetails>(EMPTY_DETAILS);
   const [submitted, setSubmitted] = useState(false);
+  // Upload result cached per File so a retry after a failed submit doesn't
+  // create a duplicate Drive file.
+  const uploadedRef = useRef<{ file: File; url: string; driveFileId: string } | null>(null);
 
   const applyMutation = useApplyForJob();
 
-  const handleResumeNext = (url: string, filename: string, size: number, fileId: string) => {
-    setResumeUrl(url);
-    setResumeFilename(filename);
-    setResumeSizeBytes(size);
-    setDriveFileId(fileId);
+  const handleResumeNext = (file: File) => {
+    setResumeFile(file);
     setStep(2);
+  };
+
+  const uploadResume = async (file: File) => {
+    const cached = uploadedRef.current;
+    if (cached && cached.file === file) return cached;
+
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch(`/api/hr/recruitment/jobs/${job.id}/resume-upload`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error((err as { error?: string }).error || 'Resume upload failed. Please try again.');
+    }
+    const data = await res.json() as { url: string; driveFileId: string };
+    const uploaded = { file, url: data.url, driveFileId: data.driveFileId };
+    uploadedRef.current = uploaded;
+    return uploaded;
   };
 
   const handleDetailsNext = (d: ApplicantDetails) => {
@@ -52,7 +70,19 @@ export function ApplyWizard({ job, onCancel }: ApplyWizardProps) {
   };
 
   const handleSubmit = async () => {
+    if (!resumeFile) {
+      toast.error('Please select a resume file.');
+      setStep(1);
+      return;
+    }
     try {
+      setUploading(true);
+      let uploaded: { url: string; driveFileId: string };
+      try {
+        uploaded = await uploadResume(resumeFile);
+      } finally {
+        setUploading(false);
+      }
       await applyMutation.mutateAsync({
         job_id: job.id,
         institution_id: job.institution_id ?? null,
@@ -70,10 +100,10 @@ export function ApplyWizard({ job, onCancel }: ApplyWizardProps) {
         worked_cities: details.workedCities
           ? details.workedCities.split(',').map((c) => c.trim()).filter(Boolean)
           : [],
-        resume_url: resumeUrl,
-        resume_filename: resumeFilename,
-        resume_size_bytes: resumeSizeBytes,
-        drive_file_id: driveFileId || null,
+        resume_url: uploaded.url,
+        resume_filename: resumeFile.name,
+        resume_size_bytes: resumeFile.size,
+        drive_file_id: uploaded.driveFileId || null,
       });
       setSubmitted(true);
     } catch (err) {
@@ -132,7 +162,7 @@ export function ApplyWizard({ job, onCancel }: ApplyWizardProps) {
       {/* Step content */}
       {step === 1 && (
         <StepUploadResume
-          jobId={job.id}
+          initialFile={resumeFile}
           onNext={handleResumeNext}
           onCancel={onCancel}
         />
@@ -146,12 +176,13 @@ export function ApplyWizard({ job, onCancel }: ApplyWizardProps) {
       )}
       {step === 3 && (
         <StepConfirm
-          resumeFilename={resumeFilename}
-          resumeSizeBytes={resumeSizeBytes}
+          resumeFilename={resumeFile?.name ?? ''}
+          resumeSizeBytes={resumeFile?.size ?? 0}
           details={details}
           onBack={() => setStep(2)}
           onSubmit={handleSubmit}
-          isSubmitting={applyMutation.isPending}
+          isSubmitting={uploading || applyMutation.isPending}
+          isUploading={uploading}
           submitted={submitted}
           onDone={onCancel}
         />
