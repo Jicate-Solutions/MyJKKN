@@ -75,8 +75,11 @@ export function ConfirmationSplitCards({
 
   return (
     <div className='space-y-3'>
-      <div className='flex items-center gap-2'>
+      <div className='flex flex-wrap items-baseline gap-x-2'>
         <h3 className='text-lg font-semibold'>Post-Class Feedback Confirmation</h3>
+        <span className='text-xs text-muted-foreground'>
+          last {windowDays} days
+        </span>
       </div>
       <p className='flex items-start gap-1.5 text-xs text-muted-foreground'>
         <Info className='h-3.5 w-3.5 mt-0.5 shrink-0' />
