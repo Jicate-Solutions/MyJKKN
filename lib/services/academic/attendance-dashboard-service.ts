@@ -45,7 +45,8 @@ export class AttendanceDashboardService {
    * (SECURITY DEFINER; enforces the same institution scope as the dashboard RLS).
    */
   static async getConfirmationSplit(
-    dateString: string,
+    fromDate: string,
+    toDate: string,
     institutionId?: string
   ): Promise<ConfirmationSplitResult> {
     // A failed policy read must not surface an error card for a feature that may
