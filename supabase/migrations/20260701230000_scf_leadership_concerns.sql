@@ -144,14 +144,18 @@ BEGIN
   WHERE c.window_to >= p_from AND c.window_from <= p_to
     AND (v_super OR c.institution_id = v_inst)
     -- Freshness backstop: only surface a concern the daily cron re-confirmed recently.
-    -- The cron clears a concern immediately when the class escalates to a teacher tip or
-    -- comes back all-praise; but if the class instead becomes a standout, its comments
-    -- drop below the widened threshold, or it falls under the response floor, the widened
-    -- branch never runs to clear it. Requiring a recent updated_at (the cron bumps it on
-    -- every re-record) lets such a stale concern self-heal within ~2 days instead of
-    -- lingering until its window ages out.
-    AND c.updated_at >= now() - interval '2 days'
-    -- Defensive: a summary-less row is never a real concern.
+    -- The cron re-records a genuine concern every day (self-healing: it clears on escalation
+    -- to a tip or on an all-praise run), so an ongoing concern's updated_at stays fresh. Only
+    -- when a class stops being a widened candidate (comments drop below the threshold, becomes
+    -- a standout, or falls under the response floor) does its concern stop being re-confirmed;
+    -- this window then ages it off. The window is 8 days — comfortably longer than the 7-day
+    -- feedback/candidate window (WINDOW_DAYS), so a class that goes quiet ages off ~a week
+    -- after its last feedback, AND a multi-day cron gap (deploy freeze / holiday / outage)
+    -- does NOT wrongly blank the card into a false "no concerns" for leadership.
+    AND c.updated_at >= now() - interval '8 days'
+    -- Defensive only: the cron always writes a non-null summary for a real concern (a genuine
+    -- 0-ask deletes the row rather than nulling it), so this never excludes a live row — it
+    -- just guards against a future path ever leaving a summary-less row visible.
     AND c.concern_summary IS NOT NULL
   ORDER BY c.created_at DESC;
 END;
