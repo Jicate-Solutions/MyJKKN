@@ -74,10 +74,18 @@ export function useAttendanceStats(
 }
 
 /**
+ * Trailing window (days, inclusive of the selected date) the confirmation split
+ * covers. Must exceed window_hours/24 (=2d) for the "overdue" bucket to be
+ * meaningful. 14d gives leadership a two-week view of the confirmation gap.
+ */
+const SPLIT_WINDOW_DAYS = 14;
+
+/**
  * Hook for the post-class-feedback attendance-confirmation split.
  * Same institution scoping as useAttendanceStats. Returns gateMode so the UI can
  * hide the cards entirely when the policy is 'off'. Visibility-only — never
- * affects the official attendance %.
+ * affects the official attendance %. Covers a rolling SPLIT_WINDOW_DAYS window
+ * ending at the selected date (so "overdue" is not structurally always 0).
  */
 export function useConfirmationSplit(
   institutionId?: string,
