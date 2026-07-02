@@ -47,7 +47,7 @@ export async function fetchFeedbackSummary(
     query = query.eq('source', filters.source);
   }
   if (filters.hideSpam) {
-    query = query.neq('ai_intent', 'spam');
+    query = query.or('ai_intent.neq.spam,ai_intent.is.null'); // keep NULL-intent (unclassified) rows; exclude only real spam
   }
   if (filters.institutionId) {
     query = query.eq('institution_id', filters.institutionId);
@@ -116,7 +116,7 @@ export async function fetchSentimentOverTime(
     query = query.eq('source', filters.source);
   }
   if (filters.hideSpam) {
-    query = query.neq('ai_intent', 'spam');
+    query = query.or('ai_intent.neq.spam,ai_intent.is.null'); // keep NULL-intent (unclassified) rows; exclude only real spam
   }
   if (filters.institutionId) {
     query = query.eq('institution_id', filters.institutionId);
@@ -166,7 +166,7 @@ export async function fetchTopTopics(
     query = query.eq('source', filters.source);
   }
   if (filters.hideSpam) {
-    query = query.neq('ai_intent', 'spam');
+    query = query.or('ai_intent.neq.spam,ai_intent.is.null'); // keep NULL-intent (unclassified) rows; exclude only real spam
   }
   if (filters.institutionId) {
     query = query.eq('institution_id', filters.institutionId);
@@ -264,7 +264,7 @@ export async function fetchConcentrationByPost(
     query = query.eq('source', filters.source);
   }
   if (filters.hideSpam) {
-    query = query.neq('ai_intent', 'spam');
+    query = query.or('ai_intent.neq.spam,ai_intent.is.null'); // keep NULL-intent (unclassified) rows; exclude only real spam
   }
   if (filters.institutionId) {
     query = query.eq('institution_id', filters.institutionId);
