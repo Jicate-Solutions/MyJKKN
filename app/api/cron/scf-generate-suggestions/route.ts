@@ -208,26 +208,20 @@ async function judgeHelpAsks(
   }
 }
 
-// WIDENED gate spend guard — decide whether to skip the (paid) help-ask judge for this
-// class. Skip when EITHER:
-//   (a) an improvement TIP already exists for the class in the lookback — already handled; or
-//   (b) the class already has a concern/marker row whose stored response count is >= the
-//       current count, i.e. NO NEW feedback has arrived since it was last judged — nothing
-//       to re-evaluate, so re-judging would just re-bill Claude for an unchanged state.
-// Change-detection (b) is response-count based, NOT time based: the instant new feedback
-// arrives (current > stored) we re-judge, so a class worsening 1 -> >=2 asks still escalates
-// to a teacher tip (never frozen — the round-2 failure mode). On a stable-skip we BUMP the
-// row's updated_at (cheap, no Claude) so a still-current concern stays fresh for the reader's
-// freshness backstop, while a class that stops being a widened candidate ages out.
-// Returns true=skip judge, false=re-judge, null=query error (caller fails closed).
-async function widenedShouldSkipJudge(
+// WIDENED gate spend guard — has this (course, faculty, institution) window ALREADY
+// produced an improvement TIP in the lookback? The cron re-scans a rolling window
+// daily, so without this a class that already earned a teacher tip would be re-judged
+// (paid) every run. Deliberately does NOT treat a prior lone-voice CONCERN as handled:
+// a class can worsen from 1 ask to >=2 within the window and must stay re-judgeable so
+// it can upgrade to a teacher tip (the exact hidden pocket this feature targets).
+// Returns true=already tipped (skip judge), false=re-judge, null=query error (fail closed).
+async function widenedWindowAlreadyHandled(
   admin: ReturnType<typeof createServiceRoleClient>,
   target: CourseTarget,
   normFaculty: string | null,
-  since: string,
-  currentResponses: number
+  since: string
 ): Promise<boolean | null> {
-  // (a) a prior improvement tip for this class in the lookback?
+  // 1) an improvement suggestion for this course+window?
   let sugQ = admin
     .from('scf_ai_suggestions')
     .select('id')
@@ -242,40 +236,14 @@ async function widenedShouldSkipJudge(
   sugQ = normFaculty ? sugQ.eq('faculty_email', normFaculty) : sugQ.is('faculty_email', null);
   const { data: sug, error: sugErr } = await sugQ;
   if (sugErr) {
-    console.error('[cron/scf-generate-suggestions] widened guard (tip) failed:', sugErr);
+    console.error('[cron/scf-generate-suggestions] widened guard failed:', sugErr);
     return null;
   }
-  if (sug && sug.length > 0) return true;
-
-  // (b) an existing concern/marker row for this class — judged at what response count?
-  let rowQ = admin
-    .from('scf_leadership_concerns')
-    .select('id, responses')
-    .eq('course_code', target.course_code)
-    .limit(1);
-  rowQ = target.institution_id
-    ? rowQ.eq('institution_id', target.institution_id)
-    : rowQ.is('institution_id', null);
-  rowQ = normFaculty ? rowQ.eq('faculty_email', normFaculty) : rowQ.is('faculty_email', null);
-  const { data: rows, error: rowErr } = await rowQ;
-  if (rowErr) {
-    console.error('[cron/scf-generate-suggestions] widened guard (row) failed:', rowErr);
-    return null;
-  }
-  const row = rows && rows.length > 0 ? (rows[0] as { id: string; responses: number | null }) : null;
-  if (row && row.responses != null && row.responses >= currentResponses) {
-    // No new feedback since last judged → skip the paid judge. Bump updated_at so a
-    // still-current concern stays fresh for the reader (best-effort; a failed touch is harmless).
-    const { error: touchErr } = await admin
-      .from('scf_leadership_concerns')
-      .update({ updated_at: new Date().toISOString() })
-      .eq('id', row.id);
-    if (touchErr) {
-      console.error('[cron/scf-generate-suggestions] widened guard touch failed:', touchErr);
-    }
-    return true;
-  }
-  return false;
+  // Only a prior improvement TIP suppresses re-judging. A prior lone-voice concern does
+  // not (see the header) — the idempotent per-window concern upsert makes re-recording
+  // cheap, and the only cost is re-judging a persistently-1-ask/all-praise class daily
+  // (bounded by BATCH_CAP), which we accept so a worsening class is never frozen out.
+  return !!(sug && sug.length > 0);
 }
 
 // Generate a suggestion JSON via Claude. Returns null on any failure (including
@@ -518,22 +486,16 @@ export async function GET(request: NextRequest) {
       kind = 'success';
     } else if (freeTextCount >= WIDENED_MIN_COMMENTS && anthropic) {
       // WIDENED path — a good/middling class with enough comments. Spend guard FIRST:
-      // skip the paid judge if the class was already tipped, or was already judged at this
-      // same feedback level (no new comments since) — see widenedShouldSkipJudge.
-      const skipJudge = await widenedShouldSkipJudge(
-        admin,
-        target,
-        normFaculty,
-        recentSince,
-        responses
-      );
-      if (skipJudge === null) {
+      // if this window already produced an improvement tip OR a leadership concern,
+      // don't re-pay Claude to re-judge it (the cron re-scans a rolling window daily).
+      const handled = await widenedWindowAlreadyHandled(admin, target, normFaculty, recentSince);
+      if (handled === null) {
         // guard query failed → fail closed (skip, don't risk re-spend). Surfaced via guardErrors.
         guardErrors++;
         skipped++;
         continue;
       }
-      if (skipJudge) {
+      if (handled) {
         skipped++;
         continue;
       }
@@ -586,37 +548,28 @@ export async function GET(request: NextRequest) {
         continue;
       } else {
         // 0 genuine asks — praise/neutral comments — OR the judge failed (fail-safe returns 0).
-        // A GENUINE 0-ask records a MARKER (summary NULL, response count stamped). It does two
-        // jobs: (1) it overwrites any prior lone-voice concern for this class, so the concern
-        // RESOLVES off the card (the reader filters NULL summaries); (2) it lets the spend guard
-        // skip re-judging (change-detection by response count) until NEW feedback arrives — this
-        // is what closes the daily re-bill for persistently-all-praise classes. A judge ERROR
-        // must NOT write anything — a transient blip shouldn't resolve a real concern or plant a
-        // marker — so skip and retry next run (the response-gate never permanently freezes: a
-        // growing class re-judges the moment its response count rises).
+        // A GENUINE 0-ask RESOLVES a prior lone-voice concern for this class (clear it). A judge
+        // ERROR must NOT resolve anything — a transient blip shouldn't clear a real concern — so
+        // skip and retry next run. We never write a suppression marker: it would freeze a class
+        // that later develops confusion, and the re-judge cost is bounded (BATCH_CAP, a ~400-token
+        // judge call). Correctness (never miss a real ask, never falsely resolve) beats a few cents.
         if (judged.modelUsed !== 'error') {
           try {
-            const { error: mkErr } = await admin.rpc('fn_scf_record_leadership_concern', {
+            const { error: clrErr } = await admin.rpc('fn_scf_clear_leadership_concern', {
               p_institution_id: target.institution_id,
               p_course_code: target.course_code,
               p_faculty_email: target.faculty_email,
-              p_window_from: target.window_from,
-              p_window_to: target.window_to,
-              p_responses: responses,
-              p_avg: avgUnderstood,
-              p_summary: null,
-              p_model: judged.modelUsed,
             });
-            if (mkErr) {
+            if (clrErr) {
               console.error(
-                `[cron/scf-generate-suggestions] 0-ask marker record failed for ${target.course_code}:`,
-                mkErr
+                `[cron/scf-generate-suggestions] clear-concern (resolve) failed for ${target.course_code}:`,
+                clrErr
               );
             }
-          } catch (mkErr) {
+          } catch (clrErr) {
             console.error(
-              `[cron/scf-generate-suggestions] 0-ask marker record threw for ${target.course_code}:`,
-              mkErr
+              `[cron/scf-generate-suggestions] clear-concern (resolve) threw for ${target.course_code}:`,
+              clrErr
             );
           }
         }
@@ -713,28 +666,28 @@ export async function GET(request: NextRequest) {
         if (kind === 'success') generatedSuccess++;
         else generatedImprovement++;
 
-        // Supersede: once a class has a definite teacher-facing outcome — an improvement tip
-        // (a bigger issue than a lone voice) or a standout success (it's doing great) — any
-        // prior lone-voice concern/marker for the class is stale, so clear it. This covers the
-        // 1-ask -> >=2-ask escalation and the 1-ask -> standout recovery so neither leaves a
-        // contradictory row on the leadership card.
-        try {
-          const { error: clrErr } = await admin.rpc('fn_scf_clear_leadership_concern', {
-            p_institution_id: target.institution_id,
-            p_course_code: target.course_code,
-            p_faculty_email: target.faculty_email,
-          });
-          if (clrErr) {
+        // Supersede: a teacher improvement tip is a bigger, teacher-facing issue than a
+        // lone-voice leadership concern, so clear any concern for this class (a class that
+        // escalated from 1 ask to >=2 asks must not leave a stale/contradictory concern row).
+        if (kind === 'improvement') {
+          try {
+            const { error: clrErr } = await admin.rpc('fn_scf_clear_leadership_concern', {
+              p_institution_id: target.institution_id,
+              p_course_code: target.course_code,
+              p_faculty_email: target.faculty_email,
+            });
+            if (clrErr) {
+              console.error(
+                `[cron/scf-generate-suggestions] clear-concern (supersede) failed for ${target.course_code}:`,
+                clrErr
+              );
+            }
+          } catch (clrErr) {
             console.error(
-              `[cron/scf-generate-suggestions] clear-concern (supersede) failed for ${target.course_code}:`,
+              `[cron/scf-generate-suggestions] clear-concern (supersede) threw for ${target.course_code}:`,
               clrErr
             );
           }
-        } catch (clrErr) {
-          console.error(
-            `[cron/scf-generate-suggestions] clear-concern (supersede) threw for ${target.course_code}:`,
-            clrErr
-          );
         }
       } catch (recErr) {
         console.error(
