@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, ChevronRight, Users, BarChart3, Maximize, Minimize, Hourglass } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Users, BarChart3, Maximize, Minimize } from 'lucide-react';
 import { InductionPollService, type PollTotals } from '@/lib/services/induction/induction-poll-service';
 
 const REFRESH_MS = 4000;
@@ -23,15 +23,6 @@ function pct(count: number, total: number) { return total > 0 ? Math.round((coun
 function ResultBars({ q, big }: { q: PollTotals['questions'][number]; big: boolean }) {
   const total = q.options.reduce((a, o) => a + (o.count ?? 0), 0);
   const max = Math.max(...q.options.map((o) => o.count ?? 0), 0);
-  const suppressed = q.response_count < 3;
-  if (suppressed) {
-    return (
-      <div className={`flex items-center gap-3 text-slate-400 ${big ? 'py-10 text-xl justify-center' : 'py-3 text-sm'}`}>
-        <Hourglass className={`${big ? 'h-6 w-6' : 'h-4 w-4'} animate-pulse motion-reduce:animate-none`} />
-        {q.response_count} answered — results appear after 3 responses
-      </div>
-    );
-  }
   return (
     <div className={big ? 'space-y-3' : 'space-y-1.5'}>
       {q.options.map((o) => {

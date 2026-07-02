@@ -19512,11 +19512,15 @@ END $$;
 REVOKE EXECUTE ON FUNCTION public.fn_induction_upsert_session_poll(uuid, jsonb) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_induction_upsert_session_poll(uuid, jsonb) TO authenticated;
 
+-- 2026-07-02 (20260702170000): live option counts — this RPC is manager-only
+-- (coordinators / induction.manage / session speakers), so the k>=3 anonymity
+-- floor only hid live results from the presenter running the poll. Counts are
+-- now always returned; `suppressed` kept (always false) for client compat.
 CREATE OR REPLACE FUNCTION public.fn_induction_session_poll_totals(p_poll_id uuid)
 RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public AS $$
 DECLARE
   v_p public.induction_session_poll; v_batch uuid; v_enrolled int; v_responses int;
-  v_suppress boolean; v_k constant int := 3; v_questions jsonb;
+  v_questions jsonb;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_session_poll_totals: not authenticated'; END IF;
   SELECT * INTO v_p FROM public.induction_session_poll WHERE id = p_poll_id;
@@ -19535,10 +19539,7 @@ BEGIN
 
   SELECT count(DISTINCT learner_id)::int INTO v_responses
   FROM public.induction_session_poll_vote WHERE poll_id = v_p.id;
-  v_suppress := (v_responses < v_k);
 
-  -- #2: per-question suppression. q_resp = distinct learners who answered THIS question;
-  -- option counts are nulled when the poll is suppressed OR the question has < k responders.
   SELECT coalesce(jsonb_agg(qx.obj ORDER BY qx.position),'[]'::jsonb) INTO v_questions FROM (
     SELECT q.position,
       jsonb_build_object(
@@ -19547,8 +19548,7 @@ BEGIN
         'options', (
           SELECT coalesce(jsonb_agg(jsonb_build_object(
             'id', o.id, 'label', o.label,
-            'count', CASE WHEN v_suppress OR q_resp.cnt < v_k THEN NULL
-                         ELSE (SELECT count(*) FROM public.induction_session_poll_vote v WHERE v.option_id = o.id) END
+            'count', (SELECT count(*) FROM public.induction_session_poll_vote v WHERE v.option_id = o.id)
           ) ORDER BY o.position),'[]'::jsonb)
           FROM public.induction_session_poll_option o WHERE o.question_id = q.id)
       ) AS obj
@@ -19561,7 +19561,7 @@ BEGIN
   ) qx;
 
   RETURN jsonb_build_object('status', v_p.status, 'auto_close_at', v_p.auto_close_at,
-    'enrolled_count', v_enrolled, 'response_count', v_responses, 'suppressed', v_suppress,
+    'enrolled_count', v_enrolled, 'response_count', v_responses, 'suppressed', false,
     'questions', v_questions);
 END $$;
 REVOKE EXECUTE ON FUNCTION public.fn_induction_session_poll_totals(uuid) FROM anon, PUBLIC;
