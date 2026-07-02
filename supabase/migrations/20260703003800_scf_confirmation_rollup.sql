@@ -97,18 +97,21 @@ BEGIN
   scored AS (
     SELECT
       pm.*,
-      -- Matches canonical fn_scf_confirmation_status: (student_id,
-      -- attendance_date, period_id). period_id (the attendance_data JSONB key)
-      -- is NOT globally unique across rows, but student_id disambiguates — a
-      -- learner appears in only their own section's row for a given period/day,
-      -- so another section's feedback cannot confirm this Present mark. Verified
-      -- in prod: adding timetable/section scope leaves the confirmed count
-      -- unchanged (583 = 583).
+      -- Confirmed = a session_feedback row for this session. period_id (the
+      -- attendance_data JSONB key) is NOT globally unique (834/1340 keys are
+      -- shared across rows), and 32 (student,date,period_id) tuples are Present
+      -- in >1 row — so we ALSO scope on timetable_id to avoid one feedback row
+      -- confirming two present marks (over-count). timetable_id is 100%
+      -- populated on session_feedback; adding it leaves the current confirmed
+      -- count unchanged (1120 = 1120) while hardening against the latent
+      -- multi-row case. (Canonical fn_scf_confirmation_status is learner-scoped,
+      -- where this collision cannot arise, so it needs only period_id.)
       EXISTS (
         SELECT 1 FROM public.session_feedback f
-        WHERE f.student_id     = pm.student_id
+        WHERE f.student_id      = pm.student_id
           AND f.attendance_date = pm.attendance_date
           AND f.period_id       = pm.period_id
+          AND f.timetable_id    = pm.timetable_id
       ) AS is_confirmed
     FROM present_marks pm
   )
