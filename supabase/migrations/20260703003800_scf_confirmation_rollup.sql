@@ -74,6 +74,10 @@ BEGIN
                          COALESCE(period.value -> 'students', '[]'::jsonb)) AS st
     WHERE sa.attendance_date BETWEEN p_from AND p_to
       AND (st ->> 'status') = 'Present'
+      -- Guard the ::uuid cast: skip malformed/empty student_id so a single bad
+      -- blob row cannot raise and fail the ENTIRE institution/date rollup.
+      AND (st ->> 'student_id') ~
+          '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
       AND (p_institution_id IS NULL OR sa.institution_id = p_institution_id)
       AND (p_program_id     IS NULL OR sa.program_id     = p_program_id)
       AND (p_department_id  IS NULL OR sa.department_id  = p_department_id)
@@ -84,6 +88,13 @@ BEGIN
   scored AS (
     SELECT
       pm.*,
+      -- Matches canonical fn_scf_confirmation_status: (student_id,
+      -- attendance_date, period_id). period_id (the attendance_data JSONB key)
+      -- is NOT globally unique across rows, but student_id disambiguates — a
+      -- learner appears in only their own section's row for a given period/day,
+      -- so another section's feedback cannot confirm this Present mark. Verified
+      -- in prod: adding timetable/section scope leaves the confirmed count
+      -- unchanged (583 = 583).
       EXISTS (
         SELECT 1 FROM public.session_feedback f
         WHERE f.student_id     = pm.student_id

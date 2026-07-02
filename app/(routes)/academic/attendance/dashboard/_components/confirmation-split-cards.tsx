@@ -7,7 +7,6 @@ import {
   CardHeader,
   CardTitle
 } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
 import { useConfirmationSplit } from '@/hooks/academic/use-attendance-dashboard';
 import { cn } from '@/lib/utils';
 import type { DashboardFilterState } from './dashboard-filters';
@@ -47,9 +46,27 @@ export function ConfirmationSplitCards({
       refreshTrigger
     );
 
-  // Policy disables the layer → surface nothing. Keep rendering while loading
-  // (gateMode defaults to 'off' before data arrives) so the skeleton shows.
-  if (gateMode === 'off' && !isLoading) return null;
+  // Resolve state before rendering, in order — this avoids two failure modes:
+  //  1. While loading we render nothing (not a skeleton): gateMode isn't known
+  //     yet and defaults to 'off', so a skeleton here would briefly FLASH the
+  //     section on pages where the policy is genuinely 'off', breaking the
+  //     "disappears entirely when off" guarantee. The main stat cards above
+  //     already provide loading feedback for this secondary section.
+  //  2. On a failed query `data` is undefined → gateMode defaults to 'off';
+  //     the error branch MUST come before the off-check or load failures would
+  //     render identically to a disabled feature (silent failure).
+  if (isLoading) return null;
+  if (isError) {
+    return (
+      <Card>
+        <CardContent className='py-4 text-sm text-muted-foreground'>
+          Couldn&apos;t load feedback-confirmation data. This does not affect the
+          attendance figures above.
+        </CardContent>
+      </Card>
+    );
+  }
+  if (gateMode === 'off') return null;
 
   const confirmedPct =
     split && split.totalPresent > 0
@@ -71,53 +88,29 @@ export function ConfirmationSplitCards({
         </span>
       </p>
 
-      {isLoading ? (
-        <div className='grid gap-4 md:grid-cols-3'>
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Card key={i}>
-              <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-                <Skeleton className='h-4 w-24' />
-                <Skeleton className='h-4 w-4' />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className='h-7 w-16 mb-1' />
-                <Skeleton className='h-3 w-28' />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : isError ? (
-        <Card>
-          <CardContent className='py-4 text-sm text-muted-foreground'>
-            Couldn&apos;t load feedback-confirmation data. This does not affect the
-            attendance figures above.
-          </CardContent>
-        </Card>
-      ) : (
-        <div className='grid gap-4 md:grid-cols-3'>
-          <SplitCard
-            title='Feedback-Confirmed'
-            value={split?.confirmed ?? 0}
-            subtitle={`${confirmedPct}% of ${(split?.totalPresent ?? 0).toLocaleString()} marked present`}
-            icon={UserCheck}
-            color='success'
-          />
-          <SplitCard
-            title='Present-Pending'
-            value={split?.pendingWithin ?? 0}
-            subtitle={`feedback window still open (within ${windowHours}h)`}
-            icon={Clock}
-            color='warning'
-          />
-          <SplitCard
-            title='Overdue'
-            value={split?.pendingOverdue ?? 0}
-            subtitle={`no feedback past ${windowHours}h`}
-            icon={AlertTriangle}
-            color='destructive'
-          />
-        </div>
-      )}
+      <div className='grid gap-4 md:grid-cols-3'>
+        <SplitCard
+          title='Feedback-Confirmed'
+          value={split?.confirmed ?? 0}
+          subtitle={`${confirmedPct}% of ${(split?.totalPresent ?? 0).toLocaleString()} marked present`}
+          icon={UserCheck}
+          color='success'
+        />
+        <SplitCard
+          title='Present-Pending'
+          value={split?.pendingWithin ?? 0}
+          subtitle={`feedback window still open (within ${windowHours}h)`}
+          icon={Clock}
+          color='warning'
+        />
+        <SplitCard
+          title='Overdue'
+          value={split?.pendingOverdue ?? 0}
+          subtitle={`no feedback past ${windowHours}h`}
+          icon={AlertTriangle}
+          color='destructive'
+        />
+      </div>
     </div>
   );
 }

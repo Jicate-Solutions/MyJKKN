@@ -63,6 +63,14 @@ export class AttendanceDashboardService {
       return { gateMode, windowHours, split: null };
     }
 
+    // Institution + date scoped, matching the sibling attendance stat cards.
+    // The RPC also accepts p_program_id/p_department_id/p_section_id, but the
+    // attendance dashboard's Statistics section (DashboardFilterState) exposes
+    // no program/department/section filter — only institution + academic year —
+    // so there is nothing narrower to forward here. academic_year is redundant
+    // for a single date (a day maps to one academic year), so it is not passed.
+    // If a finer dashboard filter is added later, thread it through to these
+    // already-present RPC params.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (this.supabase as any).rpc(
       'fn_scf_confirmation_rollup',

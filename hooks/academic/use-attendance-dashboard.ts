@@ -94,15 +94,17 @@ export function useConfirmationSplit(
   const queryAllInstitutions =
     canViewAllInstitutions && institutionId === undefined;
 
-  // IST wall-clock date, NOT toISOString()/UTC. The RPC anchors its window
-  // bucketing to Asia/Kolkata; during 00:00–05:29 IST, toISOString() would
-  // resolve "today" to the previous calendar day and query the wrong date.
-  // JKKN browsers run in IST, so local components give the correct calendar day.
-  const dateString = [
-    selectedDate.getFullYear(),
-    String(selectedDate.getMonth() + 1).padStart(2, '0'),
-    String(selectedDate.getDate()).padStart(2, '0')
-  ].join('-');
+  // IST wall-clock date, derived deterministically via Intl (timeZone
+  // Asia/Kolkata) — NOT toISOString() (UTC) and NOT local getFullYear/getDate
+  // (browser-tz-dependent). The RPC anchors its window bucketing to
+  // Asia/Kolkata, so the query date must be the IST calendar day regardless of
+  // where the admin's client is (VPN / overseas / SSR). 'en-CA' → YYYY-MM-DD.
+  const dateString = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(selectedDate);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: [
