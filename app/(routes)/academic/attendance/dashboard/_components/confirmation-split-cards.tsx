@@ -100,7 +100,7 @@ export function ConfirmationSplitCards({
           color='success'
         />
         <SplitCard
-          title='Present-Pending'
+          title='Pending (window open)'
           value={split?.pendingWithin ?? 0}
           subtitle={`feedback window still open (within ${windowHours}h)`}
           icon={Clock}
