@@ -20868,12 +20868,12 @@ BEGIN
     count(*) FILTER (
       WHERE NOT is_confirmed
         AND (now() AT TIME ZONE 'Asia/Kolkata')
-            <= session_end_local + make_interval(hours => p_window_hours)
+            <= session_end_local + make_interval(hours => GREATEST(p_window_hours, 1))
     )::bigint,
     count(*) FILTER (
       WHERE NOT is_confirmed
         AND (now() AT TIME ZONE 'Asia/Kolkata')
-            >  session_end_local + make_interval(hours => p_window_hours)
+            >  session_end_local + make_interval(hours => GREATEST(p_window_hours, 1))
     )::bigint
   FROM scored;
 END;
