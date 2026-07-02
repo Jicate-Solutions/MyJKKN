@@ -20724,11 +20724,11 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_induction_session_in_my_speaker_event(uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_induction_session_in_my_speaker_event(uuid) TO authenticated;
 
--- Updated: 2026-07-03 — SCF "show the split" admin-scoped confirmation rollup.
--- Migration: supabase/migrations/20260703003800_scf_confirmation_rollup.sql
--- Visibility-only aggregate of post-class-feedback attendance confirmation.
--- Mirrors fn_scf_confirmation_status semantics + the student_attendance dashboard
--- SELECT RLS scope. Does NOT touch attendance_data or the official attendance %.
+-- Updated: 2026-07-03 (deep-review r4) — SCF "show the split" confirmation rollup.
+-- Mirror of supabase/migrations/20260703003800_scf_confirmation_rollup.sql.
+DROP FUNCTION IF EXISTS
+  public.fn_scf_confirmation_rollup(date,date,uuid,uuid,uuid,uuid,integer);
+
 CREATE OR REPLACE FUNCTION public.fn_scf_confirmation_rollup(
   p_from           date,
   p_to             date,
@@ -20742,13 +20742,13 @@ RETURNS TABLE (
   total_present   bigint,
   confirmed       bigint,
   pending_within  bigint,
-  pending_overdue bigint,
-  sessions        bigint
+  pending_overdue bigint
 )
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = public
+SET statement_timeout = '20s'
 AS $$
 BEGIN
   IF auth.uid() IS NULL THEN
@@ -20761,26 +20761,28 @@ BEGIN
 
   RETURN QUERY
   WITH present_marks AS (
-    -- DISTINCT: a student listed twice in one period's students[] must not
-    -- inflate the counts (one Present mark per learner per session).
-    SELECT DISTINCT
+    -- One row per (learner, date, period). A learner marked Present in two
+    -- student_attendance rows for the same period/day (32 such tuples exist in
+    -- prod — substitute / re-provisioned classes) is ONE attendance, not two,
+    -- so DISTINCT ON the learner-session identity keeps a single row (earliest
+    -- class-end — the most conservative anchor for the overdue bucket) and
+    -- avoids inflating total_present / the confirmedPct denominator.
+    SELECT DISTINCT ON (sa.attendance_date, period.key, (st ->> 'student_id'))
       sa.attendance_date,
-      sa.timetable_id,
-      sa.section_id,
-      period.key                         AS period_id,
-      (st ->> 'student_id')::uuid        AS student_id,
+      period.key                  AS period_id,
+      (st ->> 'student_id')::uuid AS student_id,
       -- class-end wall-clock (IST): date + period end_time. Guard the ::time
       -- cast — the blob mixes 24h ("10:00:00") and 12h/meridian ("3:00 PM")
-      -- formats (both parse via ::time), so accept both and fall back to
-      -- end-of-day only on genuine garbage; one bad value must not fail the rollup.
+      -- formats (both parse via ::time). Accept both; fall back to end-of-day
+      -- only on genuine garbage (2 such rows in 6 months) so one bad value can
+      -- never fail the whole rollup.
       (sa.attendance_date
         + CASE
             WHEN (period.value ->> 'end_time') ~*
                  '^\s*[0-9]{1,2}:[0-9]{2}(:[0-9]{2})?\s*(am|pm)?\s*$'
               THEN (period.value ->> 'end_time')::time
             ELSE TIME '23:59:59'
-          END
-      )                                  AS session_end_local
+          END)                    AS session_end_local
     FROM public.student_attendance sa
     CROSS JOIN LATERAL jsonb_each(sa.attendance_data)                       AS period
     CROSS JOIN LATERAL jsonb_array_elements(
@@ -20797,23 +20799,24 @@ BEGIN
       AND (p_section_id     IS NULL OR sa.section_id     = p_section_id)
       AND (is_super_admin() OR is_admin()
            OR role_has_institution_access(sa.institution_id))
+    ORDER BY sa.attendance_date, period.key, (st ->> 'student_id'),
+             session_end_local ASC
   ),
   scored AS (
     SELECT
       pm.*,
-      -- Confirmed = a session_feedback row for this session. period_id (the
-      -- attendance_data JSONB key) is NOT globally unique (834/1340 keys shared),
-      -- and 32 (student,date,period_id) tuples are Present in >1 row — so we ALSO
-      -- scope on timetable_id to avoid one feedback row confirming two present
-      -- marks (over-count). timetable_id is 100% populated on session_feedback;
-      -- adding it leaves the current confirmed count unchanged (1120 = 1120)
-      -- while hardening the latent multi-row case.
+      -- Confirmed = a session_feedback row for (student_id, attendance_date,
+      -- period_id) — period-only, matching canonical fn_scf_confirmation_status
+      -- exactly. NOT scoped on timetable_id: a feedback row's timetable_id can
+      -- legitimately differ (rescheduled/substitute class), which would
+      -- UNDERCOUNT confirmations. Verified equal to a timetable-scoped join on
+      -- current prod data (1120 = 1120), and DISTINCT ON above already prevents
+      -- one feedback row confirming two present marks.
       EXISTS (
         SELECT 1 FROM public.session_feedback f
         WHERE f.student_id      = pm.student_id
           AND f.attendance_date = pm.attendance_date
           AND f.period_id       = pm.period_id
-          AND f.timetable_id    = pm.timetable_id
       ) AS is_confirmed
     FROM present_marks pm
   )
@@ -20829,10 +20832,14 @@ BEGIN
       WHERE NOT is_confirmed
         AND (now() AT TIME ZONE 'Asia/Kolkata')
             >  session_end_local + make_interval(hours => p_window_hours)
-    )::bigint,
-    count(DISTINCT (attendance_date, timetable_id, section_id, period_id))::bigint
+    )::bigint
   FROM scored;
 END;
 $$;
-REVOKE EXECUTE ON FUNCTION public.fn_scf_confirmation_rollup(date,date,uuid,uuid,uuid,uuid,integer) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_scf_confirmation_rollup(date,date,uuid,uuid,uuid,uuid,integer) TO authenticated;
+
+REVOKE EXECUTE ON FUNCTION
+  public.fn_scf_confirmation_rollup(date,date,uuid,uuid,uuid,uuid,integer)
+  FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION
+  public.fn_scf_confirmation_rollup(date,date,uuid,uuid,uuid,uuid,integer)
+  TO authenticated;

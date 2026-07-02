@@ -25,7 +25,6 @@ export interface ConfirmationSplit {
   confirmed: number;
   pendingWithin: number;
   pendingOverdue: number;
-  sessions: number;
 }
 
 export interface ConfirmationSplitResult {
