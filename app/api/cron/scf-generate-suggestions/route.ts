@@ -47,10 +47,19 @@ export const maxDuration = 300;
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import Anthropic from '@anthropic-ai/sdk';
+import {
+  resolveChatModel,
+  recordChatUsage,
+} from '@/lib/services/platform/ai-clients/chat';
+import { getModel } from '@/lib/services/platform/ai-providers';
 
 // ── constants ────────────────────────────────────────────────────────────────
 
-const MODEL = 'claude-sonnet-4-6';
+// Model comes from ai_model_config (admin-governed) — resolved once per run via
+// resolveChatModel(FEATURE_KEY), which never throws (hardcoded fallback on any
+// config failure). One feature key covers BOTH calls in this file (help-ask
+// judge + suggestion generator).
+const FEATURE_KEY = 'scf.generate_suggestions';
 const BATCH_CAP = 25; // max courses to process per run; excess is logged
 const WINDOW_DAYS = 7; // look back 7 days for fresh windows (low OR standout)
 const MIN_RESPONSES = 3; // floor below which we skip AI (same as interactive route)
@@ -127,6 +136,56 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Cost in INR from the pricing registry — null when pricing or token counts are missing.
+function costInr(
+  modelId: string,
+  inputTokens?: number,
+  outputTokens?: number
+): number | null {
+  const pricing = getModel('anthropic', modelId);
+  if (
+    !pricing ||
+    pricing.inputPer1KTokensInr == null ||
+    pricing.outputPer1KTokensInr == null
+  ) {
+    return null;
+  }
+  if (inputTokens == null || outputTokens == null) return null;
+  return Number(
+    (
+      (inputTokens / 1000) * pricing.inputPer1KTokensInr +
+      (outputTokens / 1000) * pricing.outputPer1KTokensInr
+    ).toFixed(6)
+  );
+}
+
+// Record one Claude invocation into ai_model_usage. recordChatUsage is internally
+// non-throwing and MUST be awaited (Vercel serverless drops un-awaited promises).
+async function recordCall(
+  modelId: string,
+  startedAt: number,
+  resp: Anthropic.Message | null,
+  err?: unknown
+): Promise<void> {
+  if (resp) {
+    const inputTokens = resp.usage?.input_tokens;
+    const outputTokens = resp.usage?.output_tokens;
+    await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      cost_inr: costInr(modelId, inputTokens, outputTokens) ?? undefined,
+      duration_ms: Date.now() - startedAt,
+      success: true,
+    });
+  } else {
+    await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
+      duration_ms: Date.now() - startedAt,
+      success: false,
+      error_message: err instanceof Error ? err.message.slice(0, 500) : String(err),
+    });
+  }
+}
+
 // Replicates the self-improving track-record block from ai-suggest-improvement
 // so the autonomous suggestions also improve over time (same loop feed).
 async function buildTrackRecordBlock(
@@ -170,25 +229,34 @@ async function buildTrackRecordBlock(
 // so a judge error never fabricates a teacher tip or a leadership concern out of thin air.
 async function judgeHelpAsks(
   anthropic: Anthropic,
+  modelId: string,
   freeTexts: string[],
   courseCode: string
 ): Promise<{ helpAskCount: number; modelUsed: string }> {
   const numbered = freeTexts.map((t, i) => `${i + 1}. ${String(t).trim()}`).join('\n');
   try {
-    const resp = await anthropic.messages.create(
-      {
-        model: MODEL,
-        max_tokens: 400,
-        system: HELP_ASK_JUDGE_PROMPT,
-        messages: [
-          {
-            role: 'user',
-            content: `Course: ${courseCode}\nAnonymous comments:\n${numbered}\n\nReturn the JSON now.`,
-          },
-        ],
-      },
-      { timeout: 20_000 }
-    );
+    const t0 = Date.now();
+    let resp: Anthropic.Message;
+    try {
+      resp = await anthropic.messages.create(
+        {
+          model: modelId,
+          max_tokens: 400,
+          system: HELP_ASK_JUDGE_PROMPT,
+          messages: [
+            {
+              role: 'user',
+              content: `Course: ${courseCode}\nAnonymous comments:\n${numbered}\n\nReturn the JSON now.`,
+            },
+          ],
+        },
+        { timeout: 20_000 }
+      );
+    } catch (apiErr) {
+      await recordCall(modelId, t0, null, apiErr);
+      throw apiErr; // outer catch keeps the fail-safe { helpAskCount: 0, modelUsed: 'error' }
+    }
+    await recordCall(modelId, t0, resp);
     const text = resp.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
       .map((b) => b.text)
@@ -250,6 +318,7 @@ async function widenedWindowAlreadyHandled(
 // missing API key) so the cron can still record outcomes and continue the batch.
 async function generateSuggestion(
   anthropic: Anthropic | null,
+  modelId: string,
   kind: 'improvement' | 'success',
   courseCode: string,
   signal: SignalRow,
@@ -286,17 +355,25 @@ ${commentBlock}${trackRecord}
 ${closingLine}`;
 
   try {
-    const resp = await anthropic.messages.create(
-      {
-        model: MODEL,
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userPrompt }],
-      },
-      // Bound each call so one hung request can't eat the whole batch's wall-clock
-      // (sequential calls, capped at BATCH_CAP, under the Vercel function limit).
-      { timeout: 25_000 }
-    );
+    const t0 = Date.now();
+    let resp: Anthropic.Message;
+    try {
+      resp = await anthropic.messages.create(
+        {
+          model: modelId,
+          max_tokens: 1024,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+        },
+        // Bound each call so one hung request can't eat the whole batch's wall-clock
+        // (sequential calls, capped at BATCH_CAP, under the Vercel function limit).
+        { timeout: 25_000 }
+      );
+    } catch (apiErr) {
+      await recordCall(modelId, t0, null, apiErr);
+      throw apiErr; // outer catch keeps the { suggestion: null, modelUsed: 'error' } sentinel
+    }
+    await recordCall(modelId, t0, resp);
 
     const text = resp.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
@@ -404,6 +481,9 @@ export async function GET(request: NextRequest) {
   if (!anthropic) {
     console.warn('[cron/scf-generate-suggestions] no API key — will skip generation but measure outcomes');
   }
+  // Resolve the model from ai_model_config ONCE per run (never throws — hardcoded
+  // fallback on any config failure). Both calls (judge + generator) use it.
+  const { model_id: modelId } = await resolveChatModel(FEATURE_KEY);
 
   // 5) For each target: read signal, classify the window (low / standout / skip),
   //    generate the matching suggestion, record it with its kind.
@@ -499,7 +579,7 @@ export async function GET(request: NextRequest) {
         skipped++;
         continue;
       }
-      const judged = await judgeHelpAsks(anthropic, freeTexts, target.course_code);
+      const judged = await judgeHelpAsks(anthropic, modelId, freeTexts, target.course_code);
 
       if (judged.helpAskCount >= WIDENED_MIN_ASKS) {
         kind = 'improvement';
@@ -636,6 +716,7 @@ export async function GET(request: NextRequest) {
 
     const { suggestion, modelUsed } = await generateSuggestion(
       anthropic,
+      modelId,
       kind,
       target.course_code,
       signal as SignalRow,
