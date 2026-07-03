@@ -43,16 +43,36 @@ function buildQuery(filters: SchoolsListFilters): string {
   return params.toString();
 }
 
+/**
+ * All API routes under /api/schools-network use the canonical response
+ * envelope from `lib/api/response.ts` — `successResponse<T>(data)` wraps
+ * as `{ success: true, data: T }` and `errorResponse` writes
+ * `{ success: false, error, code }`. Historically this client checked
+ * `body.ok` (a shape that never existed on the server) and returned the
+ * whole body cast to `T`, so consumers received `{ success, data }` and
+ * tried `.data` again — which pulled the payload object where they
+ * expected an array. That produced the "Q.map is not a function"
+ * runtime crash on every list page. Fix: check `body.success`
+ * (matching the server envelope) and hand callers the unwrapped `data`.
+ */
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
     ...init,
   });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok || body?.ok === false) {
-    throw new Error(body?.error || `Request failed: ${res.status}`);
+  const body = (await res.json().catch(() => ({}))) as {
+    success?: boolean;
+    data?: unknown;
+    error?: string;
+    message?: string;
+  };
+  if (!res.ok || body?.success === false) {
+    // errorResponse() puts the human-readable text in `message` and the
+    // machine code (VALIDATION_ERROR, CONFLICT, …) in `error` — prefer the
+    // text so toasts read like sentences, not codes.
+    throw new Error(body?.message || body?.error || `Request failed: ${res.status}`);
   }
-  return body as T;
+  return (body?.data ?? body) as T;
 }
 
 /* ─── Schools ───────────────────────────────────────────── */
@@ -65,14 +85,14 @@ export function getSchoolDetail(schoolId: string): Promise<SchoolDetailResponse>
   return call<SchoolDetailResponse>(`${BASE}/schools/${schoolId}`);
 }
 
-export function createSchool(input: CreateSchoolInput): Promise<{ ok: true; id: string }> {
+export function createSchool(input: CreateSchoolInput): Promise<{ id: string }> {
   return call(`${BASE}/schools`, { method: 'POST', body: JSON.stringify(input) });
 }
 
 export function updateSchool(
   schoolId: string,
   input: Partial<CreateSchoolInput>
-): Promise<{ ok: true }> {
+): Promise<void> {
   return call(`${BASE}/schools/${schoolId}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
@@ -84,7 +104,7 @@ export function updateSchool(
 export function logSession(
   schoolId: string,
   input: CreateSessionInput
-): Promise<{ ok: true; id: string }> {
+): Promise<{ id: string }> {
   return call(`${BASE}/schools/${schoolId}/sessions`, {
     method: 'POST',
     body: JSON.stringify(input),
@@ -96,7 +116,7 @@ export function logSession(
 export function logContribution(
   schoolId: string,
   input: CreateContributionInput
-): Promise<{ ok: true; id: string }> {
+): Promise<{ id: string }> {
   return call(`${BASE}/schools/${schoolId}/contributions`, {
     method: 'POST',
     body: JSON.stringify(input),
@@ -108,14 +128,14 @@ export function logContribution(
 export function assignOwner(
   schoolId: string,
   input: AssignOwnerInput
-): Promise<{ ok: true; id: string }> {
+): Promise<{ id: string }> {
   return call(`${BASE}/schools/${schoolId}/owners`, {
     method: 'POST',
     body: JSON.stringify(input),
   });
 }
 
-export function revokeOwner(ownerId: string): Promise<{ ok: true }> {
+export function revokeOwner(ownerId: string): Promise<void> {
   return call(`${BASE}/owners/${ownerId}`, { method: 'DELETE' });
 }
 
@@ -135,13 +155,11 @@ export function listPartners(opts: {
   return call<ProgramPartnerListResponse>(`${BASE}/program-partners?${p.toString()}`);
 }
 
-export function getPartnerRollup(
-  partnerId: string
-): Promise<{ ok: true; rollup: ProgramPartnerRollup; partner: ProgramPartner }> {
+export function getPartnerRollup(partnerId: string): Promise<ProgramPartnerRollup> {
   return call(`${BASE}/program-partners/${partnerId}/rollup`);
 }
 
-export function getPartner(partnerId: string): Promise<{ ok: true; partner: ProgramPartner }> {
+export function getPartner(partnerId: string): Promise<ProgramPartner> {
   return call(`${BASE}/program-partners/${partnerId}`);
 }
 
@@ -150,24 +168,53 @@ export function getPartner(partnerId: string): Promise<{ ok: true; partner: Prog
 export function listSchoolSessions(
   schoolId: string,
   limit = 50
-): Promise<{ ok: true; data: import('./types').SchoolSession[] }> {
+): Promise<{
+  rows: import('./types').SchoolSession[];
+  limit: number;
+  offset: number;
+}> {
   return call(`${BASE}/schools/${schoolId}/sessions?limit=${limit}`);
 }
 
 export function listSchoolContributions(
   schoolId: string,
   limit = 50
-): Promise<{ ok: true; data: import('./types').SchoolContribution[] }> {
+): Promise<{
+  rows: import('./types').SchoolContribution[];
+  limit: number;
+  offset: number;
+}> {
   return call(`${BASE}/schools/${schoolId}/contributions?limit=${limit}`);
 }
 
 /* ─── Master tables ─────────────────────────────────────── */
 
 export function listSessionTypes(): Promise<{
-  ok: true;
-  data: import('./types').SchoolSessionType[];
+  rows: import('./types').SchoolSessionType[];
 }> {
   return call(`${BASE}/session-types`);
+}
+
+export function listPartnerTypes(): Promise<{
+  rows: import('./types').ProgramPartnerType[];
+}> {
+  return call(`${BASE}/partner-types`);
+}
+
+export function createPartner(input: {
+  name: string;
+  typeId: string;
+  contactPerson?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  websiteUrl?: string | null;
+  status?: import('./types').ProgramPartnerStatus;
+  notes?: string | null;
+}): Promise<{ id: string }> {
+  return call(`${BASE}/program-partners`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 }
 
 /* Re-export for caller ergonomics */

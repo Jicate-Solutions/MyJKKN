@@ -176,16 +176,17 @@ export interface SchoolListRow {
   totalContributionInr: number;
 }
 
+// Server payload shapes — describe what's INSIDE `body.data` from
+// `successResponse<T>(...)`. Client `call()` unwraps the envelope before
+// handing off, so these types describe the post-unwrap payload.
 export interface SchoolListResponse {
-  ok: true;
-  data: SchoolListRow[];
+  rows: SchoolListRow[];
   total: number;
   limit: number;
   offset: number;
 }
 
 export interface SchoolDetailResponse {
-  ok: true;
   school: School;
   owners: SchoolJkknOwner[];
   contacts: SchoolContact[];
@@ -194,8 +195,7 @@ export interface SchoolDetailResponse {
 }
 
 export interface ProgramPartnerListResponse {
-  ok: true;
-  data: ProgramPartner[];
+  rows: ProgramPartner[];
   total: number;
   limit: number;
   offset: number;

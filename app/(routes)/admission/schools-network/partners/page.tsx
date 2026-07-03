@@ -81,7 +81,7 @@ function PartnersContent() {
     placeholderData: (prev) => prev,
   });
 
-  const partners: ProgramPartner[] = data?.data ?? [];
+  const partners: ProgramPartner[] = data?.rows ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
