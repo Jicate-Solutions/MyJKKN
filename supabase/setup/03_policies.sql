@@ -1304,6 +1304,27 @@ CREATE POLICY "student_attendance_select_own_student" ON student_attendance
         )
     );
 
+-- Updated: 2026-07-03 - Added the attendance-dashboard SELECT policy definition here
+--   (it previously lived only in a prod migration, not in this setup file) AND fixed a
+--   cross-tenant leak: the live policy had a standalone is_admin() OR-branch. is_admin()
+--   is a GLOBAL role-name check (role IN 'admin'/'administrator'/'super_admin', no
+--   institution scoping), so a scope='own'/'all' admin with is_super_admin=false could
+--   read EVERY institution's attendance. Removed is_admin(); access is now
+--   super-admin OR (dashboard.view permission AND institution scope).
+--   See migration 20260731000000_fix_student_attendance_rls_is_admin_leak.sql for the
+--   full leak analysis, 4-way impersonation verification, and the ⚠️ prerequisite
+--   (grant 'academic.attendance.dashboard.view' to the 'administrator' role first, or
+--   NULL-institution group admins lose all dashboard access). Same class of leak that
+--   PR #1737 closed for the RPC path.
+CREATE POLICY "student_attendance_select_dashboard_institution_access" ON student_attendance
+    FOR SELECT USING (
+        is_super_admin()
+        OR (
+            user_has_permission('academic.attendance.dashboard.view')
+            AND role_has_institution_access(institution_id)
+        )
+    );
+
 -- ================================================================================
 -- SECTION 8: TIMETABLE MODULE TABLES
 -- ================================================================================
