@@ -4,10 +4,34 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connection } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import {
+  resolveChatModel,
+  recordChatUsage,
+} from '@/lib/services/platform/ai-clients/chat';
+import { getModel } from '@/lib/services/platform/ai-providers';
 import { WP_CATEGORIES } from '@/types/work-pulse';
 
 const VALID_API_KEY = process.env.WORK_PULSE_API_KEY;
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+
+// Model resolves at runtime from ai_model_config (feature_key below);
+// resolveChatModel never throws — hardcoded fallback on any config failure.
+const FEATURE_KEY = 'work_pulse.analyze';
+
+// Cost in INR from the pricing registry — null when pricing/tokens are missing.
+function costInr(
+  modelId: string,
+  usage: { input_tokens?: number | null; output_tokens?: number | null } | undefined,
+): number | null {
+  const pricing = getModel('anthropic', modelId);
+  const input = usage?.input_tokens;
+  const output = usage?.output_tokens;
+  if (!pricing || pricing.inputPer1KTokensInr == null || pricing.outputPer1KTokensInr == null) return null;
+  if (input == null || output == null) return null;
+  return Number(
+    ((input / 1000) * pricing.inputPer1KTokensInr + (output / 1000) * pricing.outputPer1KTokensInr).toFixed(6),
+  );
+}
 
 /** Weekly AI analysis — discover patterns from pulse entries + behavioral signals */
 export async function POST(request: NextRequest) {
@@ -95,22 +119,36 @@ export async function POST(request: NextRequest) {
     // Build Claude prompt
     const prompt = buildAnalysisPrompt(entries, activities, existingPatterns, interviewResponses);
 
+    // Model from ai_model_config — resolved once per request, never throws.
+    const { model_id: modelId } = await resolveChatModel(FEATURE_KEY);
+
     // Call Claude with 60s timeout
     const anthropic = new Anthropic({ apiKey: ANTHROPIC_KEY });
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 60000);
 
     let analysisResult;
+    const aiStartedAt = Date.now();
+    let aiRecorded = false;
     try {
       const message = await anthropic.messages.create(
         {
-          model: 'claude-sonnet-4-20250514',
+          model: modelId,
           max_tokens: 4096,
           messages: [{ role: 'user', content: prompt }],
         },
         { signal: controller.signal }
       );
       clearTimeout(timeout);
+
+      aiRecorded = true;
+      await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
+        input_tokens: message.usage?.input_tokens ?? undefined,
+        output_tokens: message.usage?.output_tokens ?? undefined,
+        cost_inr: costInr(modelId, message.usage) ?? undefined,
+        duration_ms: Date.now() - aiStartedAt,
+        success: true,
+      });
 
       const content = message.content[0];
       const text = content.type === 'text' ? content.text : '';
@@ -126,6 +164,15 @@ export async function POST(request: NextRequest) {
       analysisResult = JSON.parse(jsonMatch[0]);
     } catch (err) {
       clearTimeout(timeout);
+      // Record the failed API call once (not JSON-parse failures after a
+      // successful call). recordChatUsage is internally non-throwing.
+      if (!aiRecorded) {
+        await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
+          duration_ms: Date.now() - aiStartedAt,
+          success: false,
+          error_message: err instanceof Error ? err.message.slice(0, 500) : String(err),
+        });
+      }
       if ((err as Error).name === 'AbortError') {
         return NextResponse.json({ error: 'Analysis timed out (60s)' }, { status: 504 });
       }

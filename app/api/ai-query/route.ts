@@ -9,6 +9,11 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { AIQueryService } from '@/lib/services/ai-query-service';
 import Anthropic from '@anthropic-ai/sdk';
+import {
+  resolveChatModel,
+  recordChatUsage,
+} from '@/lib/services/platform/ai-clients/chat';
+import { getModel } from '@/lib/services/platform/ai-providers';
 import type {
 
   AIQueryRequest,
@@ -22,6 +27,25 @@ import type {
 const anthropic = new Anthropic({
   apiKey: process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY!,
 });
+
+// Model resolves at runtime from ai_model_config (resolved once per request
+// inside POST — NOT at module level; resolveChatModel never throws).
+const FEATURE_KEY = 'ai_query.natural_language';
+
+// Cost in INR from the pricing registry — null when pricing/tokens are missing.
+function costInr(
+  modelId: string,
+  usage: { input_tokens?: number | null; output_tokens?: number | null } | undefined,
+): number | null {
+  const pricing = getModel('anthropic', modelId);
+  const input = usage?.input_tokens;
+  const output = usage?.output_tokens;
+  if (!pricing || pricing.inputPer1KTokensInr == null || pricing.outputPer1KTokensInr == null) return null;
+  if (input == null || output == null) return null;
+  return Number(
+    ((input / 1000) * pricing.inputPer1KTokensInr + (output / 1000) * pricing.outputPer1KTokensInr).toFixed(6),
+  );
+}
 
 // Maximum characters for tool results to prevent token overflow
 // Claude's context is ~200K tokens, we need to leave room for system prompt, tools, and response
@@ -947,6 +971,17 @@ export async function POST(request: NextRequest) {
   let queryMessage: string | undefined;
   let userInstitutionId: string | undefined;
 
+  // AI usage accounting — aggregated across every messages.create in the
+  // tool-use loop, recorded ONCE per request into ai_model_usage.
+  let aiModelId: string | null = null;
+  let aiAttempted = false;
+  let aiInputTokens = 0;
+  let aiOutputTokens = 0;
+  let aiDurationMs = 0;
+  // Set once the success row is written, so a later throw (e.g. logQuery
+  // failing AFTER the AI call succeeded) can't add a second failure row.
+  let aiUsageRecorded = false;
+
   try {
     // Get authenticated user
     const supabase = await createClient();
@@ -1002,19 +1037,30 @@ export async function POST(request: NextRequest) {
     // Increment query count
     await AIQueryService.incrementQueryCount(user.id);
 
+    // Resolve the model ONCE per request and reuse it for the initial call AND
+    // every tool-use continuation — resolving per-iteration risks a mid-loop
+    // model flip when the config service's 60s cache expires. Never throws.
+    const { model_id: modelForRequest } = await resolveChatModel(FEATURE_KEY);
+    aiModelId = modelForRequest;
+
     // Build messages for Claude
     const messages: Anthropic.MessageParam[] = [
       { role: 'user', content: message }
     ];
 
     // Call Claude with tools
+    aiAttempted = true;
+    let aiCallStart = Date.now();
     let response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: modelForRequest,
       max_tokens: 4096,
       system: buildSystemPrompt(userContext),
       tools: AI_TOOLS,
       messages,
     });
+    aiDurationMs += Date.now() - aiCallStart;
+    aiInputTokens += response.usage?.input_tokens ?? 0;
+    aiOutputTokens += response.usage?.output_tokens ?? 0;
 
     // Process tool calls
     while (response.stop_reason === 'tool_use') {
@@ -1047,14 +1093,34 @@ export async function POST(request: NextRequest) {
       messages.push({ role: 'assistant', content: response.content });
       messages.push(toolResults);
 
+      aiCallStart = Date.now();
       response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
+        model: modelForRequest,
         max_tokens: 4096,
         system: buildSystemPrompt(userContext),
         tools: AI_TOOLS,
         messages,
       });
+      aiDurationMs += Date.now() - aiCallStart;
+      aiInputTokens += response.usage?.input_tokens ?? 0;
+      aiOutputTokens += response.usage?.output_tokens ?? 0;
     }
+
+    // Record aggregated usage for the whole request (internally non-throwing).
+    // Separate ledger from AIQueryService.logQuery (ai query log has no token
+    // fields) — this writes ai_model_usage so /admin/ai-models sees the spend.
+    await recordChatUsage(FEATURE_KEY, 'anthropic', modelForRequest, {
+      input_tokens: aiInputTokens,
+      output_tokens: aiOutputTokens,
+      cost_inr:
+        costInr(modelForRequest, {
+          input_tokens: aiInputTokens,
+          output_tokens: aiOutputTokens,
+        }) ?? undefined,
+      duration_ms: aiDurationMs,
+      success: true,
+    });
+    aiUsageRecorded = true;
 
     // Extract final text response
     const textBlocks = response.content.filter(
@@ -1092,6 +1158,20 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('[ai-query] API error:', error);
+
+    // Record the failed AI invocation (only when an AI call was actually
+    // attempted — auth/context failures before the first call are not AI
+    // usage — and the success row wasn't already written). recordChatUsage
+    // is internally non-throwing.
+    if (aiAttempted && aiModelId && !aiUsageRecorded) {
+      await recordChatUsage(FEATURE_KEY, 'anthropic', aiModelId, {
+        input_tokens: aiInputTokens || undefined,
+        output_tokens: aiOutputTokens || undefined,
+        duration_ms: Date.now() - startTime,
+        success: false,
+        error_message: error instanceof Error ? error.message.slice(0, 500) : String(error),
+      });
+    }
 
     // Log failed query with all required parameters
     const responseTime = Date.now() - startTime;

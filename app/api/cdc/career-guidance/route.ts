@@ -19,11 +19,33 @@ import {
   applyInstitutionFilterToQuery,
 } from '@/lib/auth/api-institution-filter';
 import Anthropic from '@anthropic-ai/sdk';
+import {
+  resolveChatModel,
+  recordChatUsage,
+} from '@/lib/services/platform/ai-clients/chat';
+import { getModel } from '@/lib/services/platform/ai-providers';
 import type {
   CareerGuidanceResult, CareerGuidanceSignal, CareerGuidance,
 } from '@/types/cdc/career-guidance';
 
-const MODEL = 'claude-sonnet-4-6';
+// Model resolves at runtime from ai_model_config (feature_key below);
+// resolveChatModel never throws — hardcoded fallback on any config failure.
+const FEATURE_KEY = 'cdc.career_guidance';
+
+// Cost in INR from the pricing registry — null when pricing/tokens are missing.
+function costInr(
+  modelId: string,
+  usage: { input_tokens?: number | null; output_tokens?: number | null } | undefined,
+): number | null {
+  const pricing = getModel('anthropic', modelId);
+  const input = usage?.input_tokens;
+  const output = usage?.output_tokens;
+  if (!pricing || pricing.inputPer1KTokensInr == null || pricing.outputPer1KTokensInr == null) return null;
+  if (input == null || output == null) return null;
+  return Number(
+    ((input / 1000) * pricing.inputPer1KTokensInr + (output / 1000) * pricing.outputPer1KTokensInr).toFixed(6),
+  );
+}
 
 const SYSTEM_PROMPT = `You are a career-counselling assistant for the Career Development Centre (CDC) of an Indian higher-education group. A counsellor has selected one student and wants guidance to discuss with them.
 
@@ -286,19 +308,36 @@ Generate the career guidance JSON now.`;
       return NextResponse.json({ error: 'AI is not configured (missing API key).' }, { status: 503 });
     }
 
+    // Resolved after the cheap-exit paths (403/404/503) — never throws.
+    const { model_id: modelId } = await resolveChatModel(FEATURE_KEY);
+
     const anthropic = new Anthropic({ apiKey });
+    const aiStartedAt = Date.now();
     let message;
     try {
       message = await anthropic.messages.create({
-        model: MODEL,
+        model: modelId,
         max_tokens: 2000,
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userPrompt }],
       });
     } catch (e) {
       console.error('[cdc/career-guidance] Anthropic call failed:', e);
+      // Record the failed invocation (internally non-throwing), keep the 502.
+      await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
+        duration_ms: Date.now() - aiStartedAt,
+        success: false,
+        error_message: e instanceof Error ? e.message.slice(0, 500) : String(e),
+      });
       return NextResponse.json({ error: 'AI request failed. Please try again.' }, { status: 502 });
     }
+    await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
+      input_tokens: message.usage?.input_tokens ?? undefined,
+      output_tokens: message.usage?.output_tokens ?? undefined,
+      cost_inr: costInr(modelId, message.usage) ?? undefined,
+      duration_ms: Date.now() - aiStartedAt,
+      success: true,
+    });
 
     const text = message.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
@@ -319,7 +358,9 @@ Generate the career guidance JSON now.`;
       completenessPct,
       guidance,
       generatedAt: new Date().toISOString(),
-      model: MODEL,
+      // Actual model echoed by the API — keeps saved reports truthful even if
+      // the config row changes between resolve and response.
+      model: message.model,
     };
 
     // Persist the LATEST report (overwrite previous — one row per learner, per the
@@ -333,7 +374,7 @@ Generate the career guidance JSON now.`;
           institution_id: (p.institution_id as string | null) ?? null,
           result,
           completeness_pct: completenessPct,
-          model: MODEL,
+          model: message.model,
           generated_at: result.generatedAt,
           generated_by: user.id,
           updated_at: new Date().toISOString(),
