@@ -135,17 +135,17 @@ function connChip(value: boolean | null) {
  * ground truth must not be rendered as confirmed drift.
  */
 function liveInsightsChip(
-  state: 'live' | 'public' | 'awaiting' | 'none' | undefined,
+  state: 'live' | 'public' | 'awaiting' | 'hidden' | 'none' | undefined,
   markedConnected: boolean | null,
   igLoaded: boolean,
   igAvailable: boolean
 ) {
   if (!igLoaded) return <span className="text-muted-foreground">…</span>;
-  if (!igAvailable)
+  if (!igAvailable || state === 'hidden')
     return (
       <span
         className="text-muted-foreground"
-        title="Live-insights source is not available for your role (needs social.instagram.view)"
+        title="Live-insights state is not visible to your role (needs social.instagram.view)"
       >
         unavailable
       </span>
@@ -324,6 +324,10 @@ export default function SocialDepartmentAccountsPage() {
     // on these two selects blows TS's instantiation depth (TS2589). Untyped
     // client here; results are cast to the explicit row interfaces above.
     const supabase = createClientSupabaseClient() as unknown as SupabaseClient;
+    // Reset the ground-truth error on every (re)load — load() re-runs on each
+    // connect/disconnect, so a past transient failure must not permanently pin
+    // the Live-insights UI to "unavailable" after a later successful refetch.
+    setIgError(null);
     supabase
       .from('social_dept_accounts')
       .select(
@@ -359,6 +363,12 @@ export default function SocialDepartmentAccountsPage() {
       .then(({ data, error: err }) => {
         if (err) setIgError(err.message);
         else setIgAccounts((data as unknown as IgAccountRow[]) ?? []);
+        setIgLoaded(true);
+      })
+      // A rejected promise (network failure) never resolves the .then, which
+      // would leave igLoaded false and pin the new tiles/column on "…" forever.
+      .catch((e: unknown) => {
+        setIgError(e instanceof Error ? e.message : String(e));
         setIgLoaded(true);
       });
   }, []);
@@ -399,9 +409,11 @@ export default function SocialDepartmentAccountsPage() {
   //   'public'   business_discovery — public metrics only
   //   'awaiting' backing ig_accounts row exists but metrics_source is still null
   //              (linked, awaiting its first Graph-API sync — NOT drift)
-  //   'none'     no backing ig_accounts row at all
+  //   'hidden'   dept row IS linked (ig_account_id set) but that ig_accounts row
+  //              is not in our visible set (partial RLS) — unknown, NOT drift
+  //   'none'     dept row has no ig_account_id at all — genuinely unmonitored
   // Match on the linked ig_account_id first (authoritative), then handle.
-  type InsightState = 'live' | 'public' | 'awaiting' | 'none';
+  type InsightState = 'live' | 'public' | 'awaiting' | 'hidden' | 'none';
   const insightByDept = useMemo(() => {
     const byId = new Map<string, string | null>();
     const byUsername = new Map<string, string | null>();
@@ -411,18 +423,26 @@ export default function SocialDepartmentAccountsPage() {
     }
     const map = new Map<string, InsightState>();
     for (const r of rows) {
-      let ms: string | null | undefined; // undefined = no backing row
-      if (r.ig_account_id && byId.has(r.ig_account_id)) ms = byId.get(r.ig_account_id);
-      else if (byUsername.has(r.username.toLowerCase()))
+      let ms: string | null | undefined;
+      let matched = false;
+      if (r.ig_account_id && byId.has(r.ig_account_id)) {
+        ms = byId.get(r.ig_account_id);
+        matched = true;
+      } else if (byUsername.has(r.username.toLowerCase())) {
         ms = byUsername.get(r.username.toLowerCase());
-      const state: InsightState =
-        ms === undefined
-          ? 'none'
-          : ms === null
-            ? 'awaiting'
-            : isLiveInsights(ms)
-              ? 'live'
-              : 'public';
+        matched = true;
+      }
+      let state: InsightState;
+      if (matched) {
+        state =
+          ms === null ? 'awaiting' : isLiveInsights(ms) ? 'live' : 'public';
+      } else if (r.ig_account_id) {
+        // Linked to an ig_accounts row we cannot see (partial RLS): unknown,
+        // must NOT be counted or badged as drift.
+        state = 'hidden';
+      } else {
+        state = 'none';
+      }
       map.set(r.id, state);
     }
     return map;
