@@ -70,6 +70,7 @@ import {
 import { PermissionGuard } from '@/components/auth/permission-guard';
 
 import { listSchools } from './_lib/api';
+import { FeederDiscovery } from './_components/feeder-discovery';
 import {
   STATUS_COLOR,
   STATUS_LABEL,
@@ -513,6 +514,8 @@ function SchoolsNetworkContent() {
           )}
         </CardContent>
       </Card>
+
+      <FeederDiscovery />
     </div>
   );
 }

@@ -6,8 +6,8 @@
  * Calls POST /api/schools-network/schools per spec §7.2.
  */
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -52,7 +52,9 @@ function NewSchoolForm() {
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  const [name, setName] = useState('');
+  // Adopt flow: the feeder-discovery panel links here with ?name=<school>
+  const searchParams = useSearchParams();
+  const [name, setName] = useState(searchParams.get('name') ?? '');
   const [ownership, setOwnership] = useState<SchoolOwnership>('external');
   const [status, setStatus] = useState<SchoolStatus>('active');
   const [district, setDistrict] = useState('');
@@ -261,7 +263,9 @@ export default function NewSchoolPage() {
           </BreadcrumbList>
         </Breadcrumb>
         <div className="mt-6">
-          <NewSchoolForm />
+          <Suspense fallback={null}>
+            <NewSchoolForm />
+          </Suspense>
         </div>
       </ContentLayout>
     </PermissionGuard>

@@ -249,3 +249,29 @@ export function createPartner(input: {
 
 /* Re-export for caller ergonomics */
 export type { School };
+
+/* ─── Feeder discovery (read-through, no copy) ──────────── */
+
+export interface FeederRow {
+  schoolName: string;
+  enrolledCount: number;
+  leadsCount: number;
+  sources: string[];
+  adoptedSchoolId: string | null;
+}
+
+export function listFeeders(opts: {
+  search?: string;
+  source?: string;
+  adopted?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ rows: FeederRow[]; total: number; limit: number; offset: number }> {
+  const p = new URLSearchParams();
+  if (opts.search) p.set('search', opts.search);
+  if (opts.source) p.set('source', opts.source);
+  if (opts.adopted) p.set('adopted', opts.adopted);
+  p.set('limit', String(opts.limit ?? 25));
+  p.set('offset', String(opts.offset ?? 0));
+  return call(`${BASE}/feeders?${p.toString()}`);
+}
