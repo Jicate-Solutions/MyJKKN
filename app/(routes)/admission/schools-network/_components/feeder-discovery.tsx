@@ -51,6 +51,9 @@ export function FeederDiscovery() {
   const [appliedSearch, setAppliedSearch] = useState('');
   const [source, setSource] = useState<string>('all');
   const [adopted, setAdopted] = useState<string>('all');
+  // 'priority' = the visit list the loop re-ranks: schools whose per-cycle
+  // enrollment dropped the most come first. 'volume' = all-time count order.
+  const [sort, setSort] = useState<'priority' | 'volume'>('priority');
   const [page, setPage] = useState(1);
 
   const filters = useMemo(
@@ -58,10 +61,11 @@ export function FeederDiscovery() {
       search: appliedSearch || undefined,
       source: source === 'all' ? undefined : source,
       adopted: adopted === 'all' ? undefined : adopted,
+      sort,
       limit: PAGE_SIZE,
       offset: (page - 1) * PAGE_SIZE,
     }),
-    [appliedSearch, source, adopted, page]
+    [appliedSearch, source, adopted, sort, page]
   );
 
   const { data, isLoading } = useQuery({
@@ -140,6 +144,21 @@ export function FeederDiscovery() {
               <SelectItem value="not_adopted">Not adopted yet</SelectItem>
             </SelectContent>
           </Select>
+          <Select
+            value={sort}
+            onValueChange={(v) => {
+              setSort(v as 'priority' | 'volume');
+              setPage(1);
+            }}
+          >
+            <SelectTrigger className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="priority">Needs attention first</SelectItem>
+              <SelectItem value="volume">Highest volume first</SelectItem>
+            </SelectContent>
+          </Select>
           <Button type="submit" variant="secondary">
             Apply
           </Button>
@@ -161,6 +180,11 @@ export function FeederDiscovery() {
               <TableHeader>
                 <TableRow>
                   <TableHead>School</TableHead>
+                  <TableHead className="text-right">
+                    {rows[0]?.cycleYear
+                      ? `${rows[0].cycleYear - 1} → ${rows[0].cycleYear} so far`
+                      : 'Momentum'}
+                  </TableHead>
                   <TableHead className="text-right">Enrolled learners</TableHead>
                   <TableHead className="text-right">Marketing leads</TableHead>
                   <TableHead>Source</TableHead>
@@ -171,6 +195,33 @@ export function FeederDiscovery() {
                 {rows.map((r, i) => (
                   <TableRow key={`${r.schoolName}__${r.adoptedSchoolId ?? i}`}>
                     <TableCell className="font-medium">{r.schoolName}</TableCell>
+                    <TableCell
+                      className="text-right whitespace-nowrap"
+                      title={`${r.priorCycleEnrolled} enrolled in ${r.cycleYear - 1}, ${r.currentCycleEnrolled} so far in ${r.cycleYear}. Based on ${r.cohortKnown} of ${r.enrolledCount} learners with admission-year data.`}
+                    >
+                      <span className="text-xs text-muted-foreground">
+                        {r.priorCycleEnrolled} → {r.currentCycleEnrolled}
+                      </span>{' '}
+                      {r.cycleDelta !== 0 ? (
+                        <Badge
+                          variant={r.cycleDelta < 0 ? 'destructive' : 'secondary'}
+                          className={
+                            r.cycleDelta < 0
+                              ? 'text-xs'
+                              : 'text-xs bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
+                          }
+                        >
+                          {r.cycleDelta > 0 ? `+${r.cycleDelta}` : r.cycleDelta}
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">±0</span>
+                      )}
+                      {r.sessionsCount > 0 && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {r.sessionsCount} session{r.sessionsCount === 1 ? '' : 's'} invested
+                        </p>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">
                       {r.enrolledCount > 0 ? r.enrolledCount.toLocaleString('en-IN') : '—'}
                     </TableCell>

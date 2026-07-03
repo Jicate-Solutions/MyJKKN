@@ -258,12 +258,27 @@ export interface FeederRow {
   leadsCount: number;
   sources: string[];
   adoptedSchoolId: string | null;
+  /** Active admission cycle the momentum columns are measured against. */
+  cycleYear: number;
+  /** Cohort-attributed learners enrolled in the active cycle (so far). */
+  currentCycleEnrolled: number;
+  /** Cohort-attributed learners enrolled in the prior cycle. */
+  priorCycleEnrolled: number;
+  /** currentCycleEnrolled − priorCycleEnrolled — the measured outcome. */
+  cycleDelta: number;
+  /** How many of this school's learners carry admission-year data;
+   *  undated learners are excluded from the delta. */
+  cohortKnown: number;
+  /** Investment context (adopted schools only, 0 otherwise). */
+  sessionsCount: number;
+  contributionsValue: number;
 }
 
 export function listFeeders(opts: {
   search?: string;
   source?: string;
   adopted?: string;
+  sort?: 'priority' | 'volume';
   limit?: number;
   offset?: number;
 }): Promise<{ rows: FeederRow[]; total: number; limit: number; offset: number }> {
@@ -271,6 +286,7 @@ export function listFeeders(opts: {
   if (opts.search) p.set('search', opts.search);
   if (opts.source) p.set('source', opts.source);
   if (opts.adopted) p.set('adopted', opts.adopted);
+  if (opts.sort) p.set('sort', opts.sort);
   p.set('limit', String(opts.limit ?? 25));
   p.set('offset', String(opts.offset ?? 0));
   return call(`${BASE}/feeders?${p.toString()}`);

@@ -24,6 +24,14 @@ export const GET = withAuth(
     const adopted = searchParams.get('adopted') || null; // adopted | not_adopted
     const limit = Math.min(200, Math.max(1, parseInt(searchParams.get('limit') || '50', 10)));
     const offset = Math.max(0, parseInt(searchParams.get('offset') || '0', 10));
+    // 'priority' (default) = the moat-loop visit list: biggest per-cycle
+    // enrollment DROP first, so the rank responds to the measured outcome.
+    // 'volume' = legacy all-time count ordering. The DB default is 'volume'
+    // (backward compat during the migration→deploy window); the product
+    // default lives here.
+    const sort = searchParams.get('sort') === 'volume' ? 'volume' : 'priority';
+    const cycleYearRaw = parseInt(searchParams.get('cycleYear') || '', 10);
+    const cycleYear = Number.isFinite(cycleYearRaw) ? cycleYearRaw : null;
 
     const { data, error } = await auth.supabase.rpc('fn_schools_network_feeders', {
       p_search: search,
@@ -31,6 +39,8 @@ export const GET = withAuth(
       p_adopted: adopted,
       p_limit: limit,
       p_offset: offset,
+      p_sort: sort,
+      p_cycle_year: cycleYear,
     });
     if (error) return errorResponse(error.message, 500, 'LIST_FAILED');
 
@@ -41,6 +51,13 @@ export const GET = withAuth(
       leadsCount: Number(r.leads_count ?? 0),
       sources: (r.sources ?? []) as string[],
       adoptedSchoolId: (r.adopted_school_id ?? null) as string | null,
+      cycleYear: Number(r.cycle_year ?? 0),
+      currentCycleEnrolled: Number(r.current_cycle_enrolled ?? 0),
+      priorCycleEnrolled: Number(r.prior_cycle_enrolled ?? 0),
+      cycleDelta: Number(r.cycle_delta ?? 0),
+      cohortKnown: Number(r.cohort_known ?? 0),
+      sessionsCount: Number(r.sessions_count ?? 0),
+      contributionsValue: Number(r.contributions_value ?? 0),
     }));
     let total = arr.length > 0 ? Number(arr[0].total_count ?? rows.length) : 0;
     if (arr.length === 0 && offset > 0) {

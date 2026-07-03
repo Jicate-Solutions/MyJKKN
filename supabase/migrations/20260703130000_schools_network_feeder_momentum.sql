@@ -1,0 +1,210 @@
+-- Schools Network: feeder momentum — the measured re-rank that closes the loop
+-- ============================================================================
+-- Moat-loop gap-closer (2026-07-03). The v2 feeders RPC ranked by ALL-TIME
+-- enrolled volume — a popularity list. Nothing measured per-cycle enrollment
+-- change, so adopt→invest actions never fed back into the rank (moat-loop
+-- audit verdict: NO LOOP — parts 4 and 5 absent). v3 adds the measure and the
+-- feed-forward:
+--
+--   • Per-school admission-cycle yield from learners_profiles.admission_year_id
+--     (current cycle vs prior cycle; SAME estimator on both ends — count of
+--     cohort-attributed learners whose normalized last_school matches).
+--   • cycle_delta = current − prior  (the measured outcome).
+--   • cohort_known = how many of the school's learners carry admission-year
+--     data (sample-size qualifier). 2,190 of 6,583 learners are undated and
+--     are EXCLUDED from the delta — created_at is the digitization date, not
+--     the admission date (1,756 learner rows admitted 2025 were created 2026), so
+--     it is NOT a valid fallback cohort.
+--   • sessions_count / contributions_value for adopted schools — the
+--     investment context displayed next to the outcome it is supposed to
+--     move, and the substrate for the causal (invested vs not) check.
+--   • p_sort='priority' → visit-list rank: biggest cycle DROP first
+--     (cycle_delta ASC), all-time volume as tiebreak. 'volume' → legacy
+--     all-time rank. DB default stays 'volume' so the old deployed route
+--     keeps its exact behavior during the migration→deploy window; the API
+--     route defaults to 'priority' so the shipped panel IS the re-ranked
+--     visit list.
+--   • p_cycle_year overrides the active cycle (default: newest plausible
+--     admission year that actually has learners — guards against typo years
+--     like 2002 and pre-created empty future years zeroing every delta).
+--
+-- RETURN TYPE CHANGES → DROP + CREATE (CREATE OR REPLACE cannot change OUT
+-- columns). The anon/PUBLIC revoke and the Director-ruling COMMENT are
+-- re-applied below — a bare DROP silently erases both.
+
+DROP FUNCTION IF EXISTS public.fn_schools_network_feeders(text, text, text, int, int);
+
+CREATE FUNCTION public.fn_schools_network_feeders(
+  p_search text DEFAULT NULL,
+  p_source text DEFAULT NULL,
+  p_adopted text DEFAULT NULL,
+  p_limit int DEFAULT 50,
+  p_offset int DEFAULT 0,
+  p_sort text DEFAULT 'volume',
+  p_cycle_year int DEFAULT NULL
+)
+RETURNS TABLE(
+  school_name text,
+  enrolled_count bigint,
+  leads_count bigint,
+  sources text[],
+  adopted_school_id uuid,
+  total_count bigint,
+  cycle_year int,
+  current_cycle_enrolled bigint,
+  prior_cycle_enrolled bigint,
+  cycle_delta bigint,
+  cohort_known bigint,
+  sessions_count bigint,
+  contributions_value numeric
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_search text;
+  v_sort text;
+  v_cycle int;
+BEGIN
+  IF NOT (is_super_admin() OR is_admin()
+          OR user_has_permission('schools_network.schools.view')) THEN
+    RAISE EXCEPTION 'permission denied for schools_network.schools.view'
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_sort := CASE WHEN p_sort IN ('priority', 'volume') THEN p_sort ELSE 'volume' END;
+
+  -- Active admission cycle = newest plausible admission year that has
+  -- learners. Bounded so garbage years (2002 exists in prod) and empty
+  -- future years cannot shift the cycle.
+  v_cycle := COALESCE(p_cycle_year, (
+    SELECT max(ay.year)
+      FROM public.admission_years ay
+     WHERE ay.year BETWEEN 2000 AND EXTRACT(YEAR FROM now())::int + 1
+       AND EXISTS (SELECT 1 FROM public.learners_profiles lp2
+                    WHERE lp2.admission_year_id = ay.id)
+  ));
+
+  -- Escape LIKE metacharacters so a user's % / _ search chars match literally.
+  v_search := CASE WHEN p_search IS NULL THEN NULL
+              ELSE replace(replace(replace(trim(lower(p_search)),
+                     '\', '\\'), '%', '\%'), '_', '\_') END;
+
+  RETURN QUERY
+  WITH learner_src AS (
+    SELECT regexp_replace(trim(lower(lp.last_school)), '\s+', ' ', 'g') AS name_norm,
+           mode() WITHIN GROUP (ORDER BY trim(lp.last_school)) AS name_disp,
+           count(*) AS n,
+           count(*) FILTER (WHERE ay.year = v_cycle)     AS cur_n,
+           count(*) FILTER (WHERE ay.year = v_cycle - 1) AS pri_n,
+           count(ay.year)                                AS dated_n
+      FROM public.learners_profiles lp
+      LEFT JOIN public.admission_years ay ON ay.id = lp.admission_year_id
+     WHERE lp.last_school IS NOT NULL
+       AND length(trim(lp.last_school)) >= 6
+       AND lower(lp.last_school) NOT LIKE '%unknown%'
+       AND lower(trim(lp.last_school)) NOT IN ('nil','na','n/a','-','nothing')
+     GROUP BY 1
+  ),
+  marketing_src AS (
+    SELECT regexp_replace(trim(lower(ml.school_name)), '\s+', ' ', 'g') AS name_norm,
+           mode() WITHIN GROUP (ORDER BY trim(ml.school_name)) AS name_disp,
+           count(*) AS n
+      FROM public.marketing_leads_database ml
+     WHERE ml.school_name IS NOT NULL
+       AND length(trim(ml.school_name)) >= 6
+       AND lower(ml.school_name) NOT LIKE '%unknown%'
+       AND lower(trim(ml.school_name)) NOT IN ('nil','na','n/a','-','nothing')
+     GROUP BY 1
+  ),
+  merged AS (
+    SELECT coalesce(l.name_norm, m.name_norm) AS name_norm,
+           coalesce(l.name_disp, m.name_disp) AS name_disp,
+           coalesce(l.n, 0) AS enrolled_n,
+           coalesce(m.n, 0) AS leads_n,
+           coalesce(l.cur_n, 0) AS cur_n,
+           coalesce(l.pri_n, 0) AS pri_n,
+           coalesce(l.dated_n, 0) AS dated_n,
+           array_remove(ARRAY[
+             CASE WHEN l.name_norm IS NOT NULL THEN 'enrolled_learners' END,
+             CASE WHEN m.name_norm IS NOT NULL THEN 'marketing_leads' END
+           ], NULL) AS srcs
+      FROM learner_src l
+      FULL OUTER JOIN marketing_src m ON m.name_norm = l.name_norm
+  ),
+  joined AS (
+    SELECT mg.name_disp,
+           mg.name_norm,
+           mg.enrolled_n,
+           mg.leads_n,
+           mg.cur_n,
+           mg.pri_n,
+           mg.dated_n,
+           mg.srcs,
+           adopt.id AS adopted_id
+      FROM merged mg
+      LEFT JOIN LATERAL (
+        SELECT s.id
+          FROM public.schools s
+         WHERE regexp_replace(trim(lower(s.name)), '\s+', ' ', 'g') = mg.name_norm
+         ORDER BY s.created_at
+         LIMIT 1
+      ) adopt ON TRUE
+     WHERE (v_search IS NULL OR mg.name_norm LIKE '%' || v_search || '%' ESCAPE '\')
+       AND (p_source IS NULL OR p_source = ANY(mg.srcs))
+       AND (p_adopted IS NULL
+            OR (p_adopted = 'adopted' AND adopt.id IS NOT NULL)
+            OR (p_adopted = 'not_adopted' AND adopt.id IS NULL))
+  ),
+  sess_agg AS (
+    SELECT ss.school_id, count(*) AS n
+      FROM public.school_sessions ss
+     GROUP BY 1
+  ),
+  contrib_agg AS (
+    SELECT sc.school_id, coalesce(sum(sc.value_inr), 0) AS v
+      FROM public.school_contributions sc
+     GROUP BY 1
+  )
+  SELECT j.name_disp,
+         j.enrolled_n,
+         j.leads_n,
+         j.srcs,
+         j.adopted_id,
+         count(*) OVER () AS total_count,
+         v_cycle,
+         j.cur_n,
+         j.pri_n,
+         j.cur_n - j.pri_n AS cycle_delta,
+         j.dated_n,
+         coalesce(sa.n, 0),
+         coalesce(ca.v, 0)::numeric
+    FROM joined j
+    LEFT JOIN sess_agg sa ON sa.school_id = j.adopted_id
+    LEFT JOIN contrib_agg ca ON ca.school_id = j.adopted_id
+   ORDER BY
+     CASE WHEN v_sort = 'priority' THEN j.cur_n - j.pri_n END ASC NULLS LAST,
+     j.enrolled_n DESC, j.leads_n DESC, j.name_disp
+   LIMIT greatest(1, least(p_limit, 200))
+  OFFSET greatest(0, p_offset);
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_schools_network_feeders(text, text, text, int, int, text, int) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_schools_network_feeders(text, text, text, int, int, text, int) TO authenticated;
+
+-- Carry the Director ruling forward VERBATIM (DROP erased it), then append
+-- the v3 provenance line.
+COMMENT ON FUNCTION public.fn_schools_network_feeders(text, text, text, int, int, text, int) IS
+'ORG-WIDE BY DIRECTOR RULING (2026-07-03): intentionally reads across all
+institutions despite per-tenant RLS on learners_profiles /
+marketing_leads_database. Feeder schools are shared upstream entities serving
+every JKKN college; exposure is aggregate school names + counts only (no
+learner rows, no PII). Access bounded by schools_network.schools.view.
+Deep-review cross-tenant finding acknowledged and accepted by the data owner
+— do not "fix" without a new Director decision.
+v3 (2026-07-03): adds per-admission-cycle yield columns + p_sort=priority
+visit-list ranking (moat-loop feed-forward). Cohort-undated learners are
+excluded from cycle_delta and surfaced via cohort_known.';
