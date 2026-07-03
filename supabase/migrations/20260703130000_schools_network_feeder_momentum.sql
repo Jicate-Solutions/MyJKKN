@@ -10,11 +10,17 @@
 --     (current cycle vs prior cycle; SAME estimator on both ends — count of
 --     cohort-attributed learners whose normalized last_school matches).
 --   • cycle_delta = current − prior  (the measured outcome).
---   • cohort_known = how many of the school's learners carry admission-year
---     data (sample-size qualifier). 2,190 of 6,583 learners are undated and
---     are EXCLUDED from the delta — created_at is the digitization date, not
---     the admission date (1,756 learner rows admitted 2025 were created 2026), so
---     it is NOT a valid fallback cohort.
+--   • cohort_known = learners falling in the two compared cycles (cur+pri)
+--     — the delta's actual sample size. Cohort-undated learners (2,190 of
+--     6,583) are EXCLUDED — created_at is the digitization date, not the
+--     admission date (1,756 learner rows admitted 2025 were created 2026),
+--     so it is NOT a valid fallback cohort.
+--   • KNOWN SEMANTICS: the current cycle is PARTIAL until admissions close,
+--     so early-cycle deltas trend negative and the priority rank approaches
+--     prior-cycle-volume order (protect the biggest recent pipelines). This
+--     is labeled in the UI ("so far"); a same-day-of-cycle comparison is
+--     impossible without per-learner admission dates, which the schema does
+--     not carry.
 --   • Investment context (sessions/contributions) is deliberately NOT
 --     exposed here: their RLS is ownership-scoped (sessions.view AND
 --     user_owns_school), so an org-wide aggregate would widen the exposure
@@ -54,6 +60,7 @@ RETURNS TABLE(
   adopted_school_id uuid,
   total_count bigint,
   cycle_year int,
+  prior_cycle_year int,
   current_cycle_enrolled bigint,
   prior_cycle_enrolled bigint,
   cycle_delta bigint,
@@ -68,6 +75,7 @@ DECLARE
   v_search text;
   v_sort text;
   v_cycle int;
+  v_prior int;
 BEGIN
   IF NOT (is_super_admin() OR is_admin()
           OR user_has_permission('schools_network.schools.view')) THEN
@@ -79,19 +87,40 @@ BEGIN
 
   -- Active admission cycle = newest plausible admission year that has
   -- learners. Bounded so garbage years (2002 exists in prod) and empty
-  -- future years cannot shift the cycle.
-  v_cycle := COALESCE(p_cycle_year, (
+  -- future years cannot shift the cycle. A caller-supplied p_cycle_year is
+  -- accepted only if it passes the SAME plausibility + has-learners guard —
+  -- otherwise it falls back to the derived cycle (prevents a crafted value
+  -- like 3000 zeroing every delta in that caller's response).
+  v_cycle := COALESCE(
+    (SELECT max(ay.year)
+       FROM public.admission_years ay
+      WHERE ay.year = p_cycle_year
+        AND ay.year BETWEEN 2000 AND EXTRACT(YEAR FROM now())::int + 1
+        AND EXISTS (SELECT 1 FROM public.learners_profiles lp2
+                     WHERE lp2.admission_year_id = ay.id)),
+    (SELECT max(ay.year)
+       FROM public.admission_years ay
+      WHERE ay.year BETWEEN 2000 AND EXTRACT(YEAR FROM now())::int + 1
+        AND EXISTS (SELECT 1 FROM public.learners_profiles lp2
+                     WHERE lp2.admission_year_id = ay.id))
+  );
+
+  -- Prior cycle = the next-lower admission year that actually has learners
+  -- (NOT literally v_cycle-1: a gap/skipped year would force prior=0 and
+  -- inflate every delta).
+  v_prior := (
     SELECT max(ay.year)
       FROM public.admission_years ay
-     WHERE ay.year BETWEEN 2000 AND EXTRACT(YEAR FROM now())::int + 1
+     WHERE ay.year < v_cycle
+       AND ay.year >= 2000
        AND EXISTS (SELECT 1 FROM public.learners_profiles lp2
                     WHERE lp2.admission_year_id = ay.id)
-  ));
+  );
 
   -- Escape LIKE metacharacters so a user's % / _ search chars match
   -- literally, and collapse internal whitespace with the SAME normalization
   -- applied to name_norm — otherwise a double-spaced search never matches.
-  v_search := CASE WHEN p_search IS NULL THEN NULL
+  v_search := CASE WHEN p_search IS NULL OR trim(p_search) = '' THEN NULL
               ELSE replace(replace(replace(
                      regexp_replace(trim(lower(p_search)), '\s+', ' ', 'g'),
                      '\', '\\'), '%', '\%'), '_', '\_') END;
@@ -101,9 +130,8 @@ BEGIN
     SELECT regexp_replace(trim(lower(lp.last_school)), '\s+', ' ', 'g') AS name_norm,
            mode() WITHIN GROUP (ORDER BY trim(lp.last_school)) AS name_disp,
            count(*) AS n,
-           count(*) FILTER (WHERE ay.year = v_cycle)     AS cur_n,
-           count(*) FILTER (WHERE ay.year = v_cycle - 1) AS pri_n,
-           count(ay.year)                                AS dated_n
+           count(*) FILTER (WHERE ay.year = v_cycle) AS cur_n,
+           count(*) FILTER (WHERE ay.year = v_prior) AS pri_n
       FROM public.learners_profiles lp
       LEFT JOIN public.admission_years ay ON ay.id = lp.admission_year_id
      WHERE lp.last_school IS NOT NULL
@@ -130,7 +158,6 @@ BEGIN
            coalesce(m.n, 0) AS leads_n,
            coalesce(l.cur_n, 0) AS cur_n,
            coalesce(l.pri_n, 0) AS pri_n,
-           coalesce(l.dated_n, 0) AS dated_n,
            array_remove(ARRAY[
              CASE WHEN l.name_norm IS NOT NULL THEN 'enrolled_learners' END,
              CASE WHEN m.name_norm IS NOT NULL THEN 'marketing_leads' END
@@ -145,7 +172,6 @@ BEGIN
            mg.leads_n,
            mg.cur_n,
            mg.pri_n,
-           mg.dated_n,
            mg.srcs,
            adopt.id AS adopted_id
       FROM merged mg
@@ -169,10 +195,11 @@ BEGIN
          j.adopted_id,
          count(*) OVER () AS total_count,
          v_cycle,
+         v_prior,
          j.cur_n,
          j.pri_n,
          j.cur_n - j.pri_n AS cycle_delta,
-         j.dated_n
+         j.cur_n + j.pri_n
     FROM joined j
    ORDER BY
      CASE WHEN v_sort = 'priority' THEN j.cur_n - j.pri_n END ASC NULLS LAST,
@@ -197,7 +224,11 @@ Deep-review cross-tenant finding acknowledged and accepted by the data owner
 — do not "fix" without a new Director decision.
 v3 (2026-07-03): adds per-admission-cycle yield columns + p_sort=priority
 visit-list ranking (moat-loop feed-forward). Cohort-undated learners are
-excluded from cycle_delta; cohort_known = learners with admission-year data
-(coverage qualifier). Exposure surface unchanged from the ruling above:
+excluded from cycle_delta; cohort_known = learners in the two compared
+cycles (the delta sample). Current cycle is partial until admissions close —
+early-cycle deltas trend negative by construction (labeled in the UI).
+Prior cycle = next-lower year with learners (gap-year safe); p_cycle_year
+is clamped to plausible years with learners. Exposure surface unchanged
+from the ruling above:
 school names + learner/lead counts only — session/contribution aggregates
 were deliberately kept OUT (their RLS is ownership-scoped).';

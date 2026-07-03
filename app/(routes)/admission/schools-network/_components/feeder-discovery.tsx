@@ -182,7 +182,7 @@ export function FeederDiscovery() {
                   <TableHead>School</TableHead>
                   <TableHead className="text-right">
                     {rows[0]?.cycleYear
-                      ? `${rows[0].cycleYear - 1} → ${rows[0].cycleYear} so far`
+                      ? `${rows[0].priorCycleYear || rows[0].cycleYear - 1} → ${rows[0].cycleYear} so far`
                       : 'Momentum'}
                   </TableHead>
                   <TableHead className="text-right">Enrolled learners</TableHead>
@@ -199,7 +199,7 @@ export function FeederDiscovery() {
                       className="text-right whitespace-nowrap"
                       title={
                         r.cycleYear > 0
-                          ? `${r.priorCycleEnrolled} enrolled in ${r.cycleYear - 1}, ${r.currentCycleEnrolled} so far in ${r.cycleYear}. ${r.cohortKnown} of ${r.enrolledCount} learners carry admission-year data; undated learners are excluded from these numbers.`
+                          ? `${r.priorCycleEnrolled} enrolled last cycle, ${r.currentCycleEnrolled} so far in ${r.cycleYear} (cycle still in progress — early-cycle drops are expected to shrink as admissions come in). ${r.cohortKnown} of ${r.enrolledCount} learners fall in the two compared cycles; the rest are excluded.`
                           : undefined
                       }
                     >

@@ -260,6 +260,9 @@ export interface FeederRow {
   adoptedSchoolId: string | null;
   /** Active admission cycle the momentum columns are measured against. */
   cycleYear: number;
+  /** Prior cycle actually compared (next-lower year with learners — not
+   *  necessarily cycleYear − 1 if a year has no data). */
+  priorCycleYear: number;
   /** Cohort-attributed learners enrolled in the active cycle (so far). */
   currentCycleEnrolled: number;
   /** Cohort-attributed learners enrolled in the prior cycle. */

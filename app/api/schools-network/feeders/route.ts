@@ -52,6 +52,7 @@ export const GET = withAuth(
       sources: (r.sources ?? []) as string[],
       adoptedSchoolId: (r.adopted_school_id ?? null) as string | null,
       cycleYear: Number(r.cycle_year ?? 0),
+      priorCycleYear: Number(r.prior_cycle_year ?? 0),
       currentCycleEnrolled: Number(r.current_cycle_enrolled ?? 0),
       priorCycleEnrolled: Number(r.prior_cycle_enrolled ?? 0),
       cycleDelta: Number(r.cycle_delta ?? 0),
