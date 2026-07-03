@@ -32,6 +32,23 @@
 --   • SCOPE: merging is ASCII-only by design — accented Latin variants
 --     ("École" vs "Ecole") do NOT unify (would need the unaccent extension;
 --     not worth the dependency for this dataset's naming reality).
+--   • Names containing ANY non-ASCII character (Tamil script, mixed-script
+--     like "ABC தமிழ்") keep the v3.3 whitespace-collapse key ENTIRELY —
+--     stripping would reduce them to garbage ASCII residue keys and merge
+--     unrelated schools (round-3 review fix).
+--   • The adopted-badge LATERAL reads public.schools org-wide — that table
+--     is the module's shared substrate (same org-wide module design the
+--     ruling below records for the source tables); the badge is aggregate
+--     presence only (a school id the caller can already reach via the
+--     module's own list under its RLS).
+--   • Asymmetry by design: feeder GROUPING sums counts across a shared key
+--     (that is the merge feature; identical-spelling generics already
+--     summed in v3.3), while the adopted BADGE is more conservative
+--     (location-agreement rule) because a wrong school id is actionable
+--     harm and a summed count is informational.
+--   • Search matches the space-stripped key, so word boundaries are lost
+--     ("tmar" matches "stmarys") — accepted trade-off for
+--     punctuation-proof search on this dataset.
 --   • Search input is canonicalized with the SAME strip. For stripped input
 --     no LIKE-metachar escaping is needed (a pattern reduced to [a-z0-9]
 --     cannot contain '%', '_' or '\'); a NON-BLANK input that strips to ''
@@ -137,7 +154,11 @@ BEGIN
   -- exactly the fallback key Tamil-script feeder rows carry, so Tamil
   -- searches match Tamil rows instead of returning everything.
   v_search := NULLIF(regexp_replace(lower(coalesce(p_search, '')), '[^a-z0-9]', '', 'g'), '');
-  IF v_search IS NULL AND trim(coalesce(p_search, '')) <> '' THEN
+  IF (v_search IS NULL OR coalesce(p_search, '') ~ '[^[:ascii:]]')
+     AND trim(coalesce(p_search, '')) <> '' THEN
+    -- Mixed/non-ASCII search routes to the same whitespace-collapse form
+    -- non-ASCII NAMES are keyed with (see grouping CASEs) — otherwise a
+    -- Tamil search could never match a Tamil-keyed row.
     v_search := replace(replace(replace(
                   regexp_replace(trim(lower(p_search)), '\s+', ' ', 'g'),
                   '\', '\\'), '%', '\%'), '_', '\_');
@@ -149,10 +170,12 @@ BEGIN
     -- whitespace-collapsed form as fallback when the strip yields '' (names
     -- with no ASCII alphanumerics keep their v3.3 grouping instead of all
     -- merging into one row).
-    SELECT COALESCE(
-             NULLIF(regexp_replace(lower(lp.last_school), '[^a-z0-9]', '', 'g'), ''),
-             regexp_replace(trim(lower(lp.last_school)), '\s+', ' ', 'g')
-           ) AS name_norm,
+    SELECT CASE WHEN lp.last_school ~ '[^[:ascii:]]'
+             THEN regexp_replace(trim(lower(lp.last_school)), '\s+', ' ', 'g')
+             ELSE COALESCE(
+               NULLIF(regexp_replace(lower(lp.last_school), '[^a-z0-9]', '', 'g'), ''),
+               regexp_replace(trim(lower(lp.last_school)), '\s+', ' ', 'g'))
+           END AS name_norm,
            mode() WITHIN GROUP (ORDER BY trim(lp.last_school)) AS name_disp,
            count(*) AS n,
            count(*) FILTER (WHERE ay.year = v_cycle) AS cur_n,
@@ -166,10 +189,12 @@ BEGIN
      GROUP BY 1
   ),
   marketing_src AS (
-    SELECT COALESCE(
-             NULLIF(regexp_replace(lower(ml.school_name), '[^a-z0-9]', '', 'g'), ''),
-             regexp_replace(trim(lower(ml.school_name)), '\s+', ' ', 'g')
-           ) AS name_norm,
+    SELECT CASE WHEN ml.school_name ~ '[^[:ascii:]]'
+             THEN regexp_replace(trim(lower(ml.school_name)), '\s+', ' ', 'g')
+             ELSE COALESCE(
+               NULLIF(regexp_replace(lower(ml.school_name), '[^a-z0-9]', '', 'g'), ''),
+               regexp_replace(trim(lower(ml.school_name)), '\s+', ' ', 'g'))
+           END AS name_norm,
            mode() WITHIN GROUP (ORDER BY trim(ml.school_name)) AS name_disp,
            count(*) AS n
       FROM public.marketing_leads_database ml
@@ -223,16 +248,26 @@ BEGIN
         SELECT CASE
                  WHEN count(*) = 1
                    THEN (array_agg(s.id ORDER BY s.created_at))[1]
-                 WHEN count(DISTINCT (coalesce(lower(s.district), ''),
-                                      coalesce(lower(s.state), ''))) = 1
+                 -- NULL-as-wildcard agreement (round-3 review): non-null
+                 -- districts must all match, non-null states must all match,
+                 -- AND at least one row must carry SOME location evidence.
+                 -- Partial-NULL duplicates ('salem' + NULL) keep the badge;
+                 -- all-NULL multi-matches have no evidence they are the same
+                 -- school → NULL (a false badge on an arbitrary UUID is
+                 -- worse than a missing badge).
+                 WHEN count(DISTINCT lower(s.district)) FILTER (WHERE s.district IS NOT NULL) <= 1
+                  AND count(DISTINCT lower(s.state)) FILTER (WHERE s.state IS NOT NULL) <= 1
+                  AND count(*) FILTER (WHERE s.district IS NOT NULL OR s.state IS NOT NULL) > 0
                    THEN (array_agg(s.id ORDER BY s.created_at))[1]
                  ELSE NULL
                END AS id
           FROM public.schools s
-         WHERE COALESCE(
-                 NULLIF(regexp_replace(lower(s.name), '[^a-z0-9]', '', 'g'), ''),
-                 regexp_replace(trim(lower(s.name)), '\s+', ' ', 'g')
-               ) = mg.name_norm
+         WHERE CASE WHEN s.name ~ '[^[:ascii:]]'
+                 THEN regexp_replace(trim(lower(s.name)), '\s+', ' ', 'g')
+                 ELSE COALESCE(
+                   NULLIF(regexp_replace(lower(s.name), '[^a-z0-9]', '', 'g'), ''),
+                   regexp_replace(trim(lower(s.name)), '\s+', ' ', 'g'))
+               END = mg.name_norm
       ) adopt ON TRUE
      WHERE (v_search IS NULL OR mg.name_norm LIKE '%' || v_search || '%' ESCAPE '\')
        AND (p_source IS NULL OR p_source = ANY(mg.srcs))
