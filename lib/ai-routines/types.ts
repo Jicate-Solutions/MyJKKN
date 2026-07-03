@@ -37,6 +37,13 @@ export interface AIRoutine {
   triggerPath: string;
   /** does it actually call Claude/Anthropic (directly or via an AI service)? */
   callsClaude: boolean;
+  /**
+   * feature_key in ai_model_config for the model this routine's backing code
+   * resolves at runtime. Drives the model+spend chip on /admin/ai-routines and
+   * the "Used by" column on /admin/ai-models. Unset when the routine has no
+   * config row (rules-based routines, or no matching seeded key).
+   */
+  featureKey?: string;
   /** 1-2 plain sentences a non-coder understands */
   whatItDoes: string;
   /** hardcoded constants/thresholds it uses (name=value pairs) or "none" */

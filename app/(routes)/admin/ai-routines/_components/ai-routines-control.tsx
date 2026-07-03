@@ -35,6 +35,7 @@ import {
   fmtDays,
   type ScheduleRow,
 } from './schedule-editor';
+import { ModelChip, useModelConfigMap, type ModelConfigEntry } from './model-chip';
 
 const BRAND = '#0b6d41';
 
@@ -66,10 +67,12 @@ function TypeBadge({ type }: { type: AIRoutine['type'] }) {
 function RoutineRow({
   r,
   schedule,
+  configMap,
   onScheduleSaved,
 }: {
   r: AIRoutine;
   schedule?: ScheduleRow;
+  configMap: Map<string, ModelConfigEntry>;
   onScheduleSaved: (next: ScheduleRow) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -120,6 +123,7 @@ function RoutineRow({
               ) : (
                 <Badge variant="outline" className="font-normal text-muted-foreground">rules-based</Badge>
               )}
+              <ModelChip featureKey={r.featureKey} configMap={configMap} />
               {schedule && !schedule.enabled ? (
                 <Badge variant="outline" className="gap-1 border-amber-300 text-amber-600 dark:text-amber-400">
                   <PauseCircle className="h-3 w-3" /> paused
@@ -229,6 +233,7 @@ function DetailRow({ label, value, mono }: { label: string; value: string; mono?
 
 export function AiRoutinesControl() {
   const { map, loading, error, setMap } = useSchedules();
+  const configMap = useModelConfigMap();
   const total = AI_ROUTINES.length;
   const runnable = triggerableCount();
   const aiCount = AI_ROUTINES.filter((r) => r.callsClaude).length;
@@ -281,7 +286,13 @@ export function AiRoutinesControl() {
             </div>
             <div className="space-y-2">
               {rows.map((r) => (
-                <RoutineRow key={r.id} r={r} schedule={map.get(r.id)} onScheduleSaved={onScheduleSaved} />
+                <RoutineRow
+                  key={r.id}
+                  r={r}
+                  schedule={map.get(r.id)}
+                  configMap={configMap}
+                  onScheduleSaved={onScheduleSaved}
+                />
               ))}
             </div>
           </section>

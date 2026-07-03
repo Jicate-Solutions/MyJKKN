@@ -99,8 +99,9 @@ export const FEEDBACK_ADAPTER_ROUTINES: AIRoutine[] = [
     "schedule": "On demand (per-event; driven by the /api/cron/feedback-classify cron)",
     "triggerPath": "/api/cron/feedback-classify",
     "callsClaude": true,
+    "featureKey": "feedback.classify",
     "whatItDoes": "The shared AI worker for the feedback spine: for one piece of feedback text it calls Claude to return sentiment, intent, a short topic label, and a draft reply (in the same language, English/Tamil/Tanglish). This is the AI layer the adapters feed into.",
-    "configKnobs": "MODEL=claude-sonnet-4-6; max_tokens=400; input content capped at 4000 chars; API key from CLAUDE_API_KEY or ANTHROPIC_API_KEY. Driving cron uses BATCH=25 events/run, maxDuration=300s",
+    "configKnobs": "MODEL=claude-sonnet-4-6 (config row 'feedback.classify' — /admin/ai-models); max_tokens=400; input content capped at 4000 chars; API key from CLAUDE_API_KEY or ANTHROPIC_API_KEY. Driving cron uses BATCH=25 events/run, maxDuration=300s",
     "sideEffects": "The function itself is read-only (returns a classification object; sends NO messages — draft_reply is stored for human approval, never auto-sent). Persistence happens in its caller: /api/cron/feedback-classify writes ai_sentiment/ai_intent/ai_topic/ai_draft_reply/ai_model/ai_processed_at onto feedback_events rows where ai_processed_at IS NULL.",
     "safeToManualTrigger": false,
     "notes": "Library function lib/services/feedback/feedback-classify.ts — not an HTTP route itself; operators run classification via the /api/cron/feedback-classify cron (auth: Bearer CRON_SECRET or x-vercel-cron). Uses the paid Anthropic API (NOT the Claude subscription); each event costs a fraction of a cent. Guarded by ai_processed_at IS NULL so re-runs only classify still-unprocessed events (drained-safe, idempotent). Throws on API/parse failure per event; the cron catches per-row."
