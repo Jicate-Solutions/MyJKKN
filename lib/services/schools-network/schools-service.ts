@@ -205,6 +205,29 @@ export class SchoolsService {
     };
   }
 
+  /**
+   * Review fix (MEDIUM): setting institution_id must respect the caller's
+   * institution scope — the write path never re-checked what the SELECT
+   * policy enforces via role_has_institution_access(). Without this, any
+   * school owner could point their school at another tenant's institution.
+   * RLS-scoped RPC; the DB fn bypasses ONLY for super_admin and
+   * institution_scope='all' roles — plain is_admin() institution-admins ARE
+   * subject to the check (intended tightening: an institution-level admin
+   * cannot link a school to another tenant's institution). Fails CLOSED on
+   * RPC error.
+   */
+  private static async assertInstitutionAccess(
+    supabase: SupabaseClient,
+    institutionId: string
+  ): Promise<string | null> {
+    const { data, error } = await supabase.rpc('role_has_institution_access', {
+      check_institution_id: institutionId,
+    });
+    if (error) return `Could not verify institution access: ${error.message}`;
+    if (data !== true) return 'You do not have access to the selected institution';
+    return null;
+  }
+
   // ── Create ────────────────────────────────────────────────────────────────
   static async create(
     supabase: SupabaseClient,
@@ -215,6 +238,13 @@ export class SchoolsService {
         id: null,
         error: 'institutionId is required when ownership is internal',
       };
+    }
+    if (input.institutionId) {
+      const accessErr = await SchoolsService.assertInstitutionAccess(
+        supabase,
+        input.institutionId
+      );
+      if (accessErr) return { id: null, error: accessErr };
     }
 
     const row = {
@@ -254,7 +284,39 @@ export class SchoolsService {
     const patch: Record<string, unknown> = {};
     if (input.name !== undefined) patch.name = input.name;
     if (input.ownership !== undefined) patch.ownership = input.ownership;
-    if (input.institutionId !== undefined) patch.institution_id = input.institutionId;
+    if (input.institutionId !== undefined) {
+      if (input.institutionId) {
+        const accessErr = await SchoolsService.assertInstitutionAccess(
+          supabase,
+          input.institutionId
+        );
+        if (accessErr) return { ok: false, error: accessErr };
+        patch.institution_id = input.institutionId;
+      } else {
+        // Clearing the institution: only legal when the school is (or is
+        // becoming) external. A nulled INTERNAL school would become visible
+        // to every tenant (role_has_institution_access(NULL) is TRUE in the
+        // SELECT policy) and break the internal⇒institution invariant the
+        // create path enforces. Round-3 review fix.
+        let effectiveOwnership = input.ownership;
+        if (effectiveOwnership === undefined) {
+          const { data: cur } = await supabase
+            .from('schools')
+            .select('ownership')
+            .eq('id', schoolId)
+            .maybeSingle();
+          effectiveOwnership = (cur?.ownership ?? 'internal') as typeof input.ownership;
+        }
+        if (effectiveOwnership !== 'external') {
+          return {
+            ok: false,
+            error:
+              'Internal schools must keep an institution — switch ownership to external to clear it',
+          };
+        }
+        patch.institution_id = null;
+      }
+    }
     if (input.district !== undefined) patch.district = input.district;
     if (input.state !== undefined) patch.state = input.state;
     if (input.pincode !== undefined) patch.pincode = input.pincode;

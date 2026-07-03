@@ -11,7 +11,9 @@
  *
  * Ownership is intentionally read-only here: flipping internal ↔ external has
  * institutionId implications (an internal school MUST link to an institution)
- * that belong in a dedicated flow, not this quick-edit form.
+ * that belong in a dedicated flow, not this quick-edit form. For schools that
+ * are ALREADY internal, an Institution picker is shown (prefilled from the
+ * school) so the required linkage can be corrected without leaving the form.
  */
 
 import { useEffect, useState } from 'react';
@@ -46,7 +48,7 @@ import {
 } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 
-import { getSchoolDetail, updateSchool } from '../../_lib/api';
+import { getSchoolDetail, listInstitutions, updateSchool } from '../../_lib/api';
 import {
   OWNERSHIP_COLOR,
   OWNERSHIP_LABEL,
@@ -68,6 +70,7 @@ function EditSchoolForm({ schoolId }: { schoolId: string }) {
   const school = detailQuery.data?.school;
 
   const [name, setName] = useState('');
+  const [institutionId, setInstitutionId] = useState('');
   const [status, setStatus] = useState<SchoolStatus>('active');
   const [district, setDistrict] = useState('');
   const [state, setState] = useState('');
@@ -78,9 +81,19 @@ function EditSchoolForm({ schoolId }: { schoolId: string }) {
 
   // Prefill once from the fetched school — guarded so a background refetch
   // doesn't clobber in-progress edits.
+  // Institutions lookup — same source + query key as other admin forms
+  // (internships/vehicles). Only needed for internal schools.
+  const institutionsQuery = useQuery({
+    queryKey: ['institutions', 'simple'],
+    queryFn: listInstitutions,
+    enabled: school?.ownership === 'internal',
+    staleTime: 10 * 60 * 1000,
+  });
+
   useEffect(() => {
     if (school && !hydrated) {
       setName(school.name ?? '');
+      setInstitutionId(school.institutionId ?? '');
       setStatus(school.status);
       setDistrict(school.district ?? '');
       setState(school.state ?? '');
@@ -105,12 +118,27 @@ function EditSchoolForm({ schoolId }: { schoolId: string }) {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!school) return;
     if (!name.trim()) {
       toast.error('Name is required');
       return;
     }
+    // Require an institution for internal schools — but never let a FAILED
+    // institutions lookup brick unrelated edits: if the list errored and the
+    // school had no institution to begin with, allow the save (the picker is
+    // empty through no fault of the user; review fix).
+    if (
+      school.ownership === 'internal' &&
+      !institutionId &&
+      !institutionsQuery.isError
+    ) {
+      toast.error('Institution is required for JKKN (internal) schools');
+      return;
+    }
     // Send trimmed values so "what you see is what you save" — the server
     // applies only fields present, and empty strings clear text columns.
+    // institutionId is only sent for internal schools (external schools never
+    // carry one, and omitting it leaves the column untouched server-side).
     mutation.mutate({
       name: name.trim(),
       status,
@@ -119,6 +147,10 @@ function EditSchoolForm({ schoolId }: { schoolId: string }) {
       pincode: pincode.trim(),
       address: address.trim(),
       intakeYear: intakeYear ? parseInt(intakeYear, 10) : undefined,
+      // Only send institutionId when a real value is picked — an empty
+      // string would fail the uuid cast server-side; omitting leaves the
+      // column untouched (keeps the degraded-lookup save path functional).
+      ...(school.ownership === 'internal' && institutionId ? { institutionId } : {}),
     });
   };
 
@@ -210,6 +242,40 @@ function EditSchoolForm({ schoolId }: { schoolId: string }) {
                 </Select>
               </div>
             </div>
+
+            {school.ownership === 'internal' && (
+              <div className="space-y-2">
+                <Label htmlFor="institution">Institution *</Label>
+                <Select value={institutionId} onValueChange={setInstitutionId}>
+                  <SelectTrigger id="institution">
+                    <SelectValue
+                      placeholder={
+                        institutionsQuery.isLoading
+                          ? 'Loading institutions…'
+                          : 'Select the JKKN institution'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(institutionsQuery.data ?? []).map((inst) => (
+                      <SelectItem key={inst.id} value={inst.id}>
+                        {inst.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {institutionsQuery.error ? (
+                  <p className="text-xs text-destructive">
+                    Couldn&apos;t load institutions — reload the page and try
+                    again.
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    The JKKN institution this school is part of.
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
