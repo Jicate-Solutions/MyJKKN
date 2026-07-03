@@ -7,8 +7,9 @@
  * `onChange` whenever ANY vote lands (insert / change / delete). The broadcast is
  * fired by the DB trigger fn_induction_poll_vote_broadcast, whose payload carries
  * ONLY poll_id — never vote content or learner identity — so the ping simply tells
- * subscribers "something changed, refetch totals now". The topic is an unguessable
- * UUID, so private=false is safe.
+ * subscribers "something changed, refetch totals now". The channel is private:true;
+ * the realtime.messages receive policy scopes each subscribe to the poll's enrolled
+ * learners and the session host (knowing the topic UUID is not sufficient).
  *
  * Mirrors the removeChannel cleanup pattern of features/hr/payroll/use-payroll-period-realtime.ts.
  * Callers KEEP their existing setInterval polling as a resilience fallback in case

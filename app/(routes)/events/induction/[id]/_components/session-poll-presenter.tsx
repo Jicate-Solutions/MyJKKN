@@ -18,7 +18,7 @@ import { InductionPollService, type PollTotals } from '@/lib/services/induction/
 import { useInductionPollRealtime } from '@/hooks/induction/use-induction-poll-realtime';
 
 const REFRESH_MS = 10000;                // fallback poll; realtime pushes immediate refreshes
-const WORDCLOUD_MIN_FREQ = 2;            // once unlocked, only show words answered by >=2 people
+const WORDCLOUD_MIN_FREQ = 3;            // k>=3 anonymity floor: only project words >=3 people typed
 const WORDCLOUD_UNLOCK = 3;              // question-level "hidden until 3 responses" gate
 
 type PollQuestion = PollTotals['questions'][number];

@@ -99,11 +99,21 @@ export function SessionPollBanner() {
       setActive(null); load();
     }
   }, [load]);
-  // Realtime pushes an immediate refresh on every vote; the 10s interval is a fallback.
-  useInductionPollRealtime(active?.poll_id, tick);
+  // Realtime fires on VOTES only (never on the coordinator advancing the question),
+  // so the vote-ping handler must NOT run the heavy getForAnswering for every learner
+  // — that would be an O(votes×learners) fan-out. It refreshes only the totals the
+  // learner can actually see (answered, non-wordcloud). Question-advance is picked up
+  // by the short interval below, whose cost is fixed per-learner, not vote-scaled.
+  const refreshTotals = useCallback(async () => {
+    const cur = activeRef.current;
+    if (!cur || !answeredRef.current || cur.questions[0]?.kind === 'wordcloud') return;
+    try { setLiveTotals(await InductionPollService.getLearnerQuestionTotals(cur.poll_id)); }
+    catch { /* keep last totals; the interval recovers */ }
+  }, []);
+  useInductionPollRealtime(active?.poll_id, refreshTotals);
   useEffect(() => {
     if (!active) return;
-    const t = setInterval(tick, 10000);
+    const t = setInterval(tick, 5000);   // advance detection; per-learner cost, not vote-scaled
     return () => clearInterval(t);
   }, [active?.poll_id, tick]);
 
