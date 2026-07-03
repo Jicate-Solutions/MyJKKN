@@ -249,6 +249,11 @@ const withTimeout = <T,>(p: Promise<T>, ms: number, label: string): Promise<T> =
   const timeout = new Promise<never>((_, rej) => {
     timer = setTimeout(() => rej(new Error(`${label} timed out after ${ms}ms`)), ms);
   });
+  // Swallow the losing branch's late rejection so a timed-out provider call
+  // can't surface as an unhandledRejection. (It is not CANCELLED — the
+  // dispatchers expose no AbortSignal; maxDuration + orphan recovery bound
+  // the worst case.)
+  p.catch(() => {});
   return Promise.race([p, timeout]).finally(() => clearTimeout(timer)) as Promise<T>;
 };
 
@@ -336,7 +341,10 @@ export async function GET(request: NextRequest) {
     // Least-recently-touched first (NOT created_at): rows the previous run
     // touched sink to the back, so front-row failures can never permanently
     // stall the rest of the queue (deep-review v2 MEDIUM).
-    .order('updated_at', { ascending: true })
+    // updated_at verified in prod: DEFAULT now(), zero NULL rows — nullsFirst
+    // is belt-and-braces so a future NULL can never hide behind touched rows.
+    .order('updated_at', { ascending: true, nullsFirst: true })
+    .order('created_at', { ascending: true })
     .limit(BATCH_LIMIT);
 
   if (candidatesErr) {
@@ -760,7 +768,10 @@ export async function GET(request: NextRequest) {
   // 'ratelimit' failures are never in these lists — throttling is
   // request-level, and charging it would silently park valid memos.
   // No memo_analyzed_at stamp: analysis never concluded for these rows.
-  const retroPromote = async (rows: { id: string; attempts: number }[]) => {
+  const retroPromote = async (
+    rows: { id: string; attempts: number }[],
+    expectedStatus: string,
+  ) => {
     for (const r of rows) {
       try {
         await supabase
@@ -771,17 +782,20 @@ export async function GET(request: NextRequest) {
             updated_at: nowIso(),
           })
           .eq('id', r.id)
-          // CAS on the prior value: if a concurrent run already bumped
-          // attempts, its increment stands and this write no-ops (a lost
-          // update here would under-charge a poison row).
-          .eq('memo_analyze_attempts', r.attempts);
+          // Double CAS: prior attempts value (a concurrent bump stands — a
+          // lost update would under-charge a poison row) AND the status this
+          // run left the row in — a concurrent run that re-claimed or even
+          // COMPLETED the row must never be clobbered back to 'failed'.
+          .eq('memo_analyze_attempts', r.attempts)
+          .eq('memo_analyze_status', expectedStatus);
       } catch {
         // best-effort
       }
     }
   };
-  if (txHealthy && txPromotable.length > 0) await retroPromote(txPromotable);
-  if (stHealthy && stPromotable.length > 0) await retroPromote(stPromotable);
+  // tx transient rows were left in 'failed'; sentiment ones sit in 'analyzing'.
+  if (txHealthy && txPromotable.length > 0) await retroPromote(txPromotable, 'failed');
+  if (stHealthy && stPromotable.length > 0) await retroPromote(stPromotable, 'analyzing');
 
   // --- Remaining counter (visibility) -------------------------------
   let remaining: number | null = null;
