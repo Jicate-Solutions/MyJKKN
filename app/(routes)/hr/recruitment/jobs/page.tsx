@@ -6,8 +6,10 @@
 // selection + bulk delete) with a dedicated filter bar. The create/edit modal
 // and all the CRUD wiring live in _components/jobs-data-table.tsx.
 //
-// Permission gate: admin_or_super_admin. Specific mutations resolve through the
-// existing hr.recruitment.{view,create,edit,delete} grants enforced by RLS.
+// Permission gate: hr.recruitment.view (dynamic Role Management key) — was
+// admin_or_super_admin, which wrongly locked out custom roles like COO that
+// hold every hr.recruitment.* grant. Mutations resolve through the existing
+// hr.recruitment.{view,create,edit,delete} grants enforced by RLS.
 // ============================================================================
 
 'use client';
@@ -39,7 +41,7 @@ export default function HRRecruitmentJobsPage() {
     <PolicyPageShell
       title="Recruitment — Job Postings"
       explainer={EXPLAINER}
-      permission="admin_or_super_admin"
+      permissionKey="hr.recruitment.view"
     >
       <JobsDataTable />
     </PolicyPageShell>
