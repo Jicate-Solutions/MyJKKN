@@ -128,46 +128,53 @@ function connChip(value: boolean | null) {
 
 /**
  * The GROUND-TRUTH insight state for a handle, from ig_accounts.metrics_source.
- * When a handle is marked business_suite_connected but Meta is NOT actually
- * sending insights (metrics_source is business_discovery / absent), we render
- * an explicit "marked, not live" mismatch — the exact drift that made the
- * manual "Business Suite connected" tile overstate reality.
+ * The "⚠ marked connected, not live" mismatch is shown ONLY when we actually
+ * have ground truth (igAvailable) AND the handle is confirmed not-live (public
+ * metrics or no monitored row) — never while the source is loading/unavailable,
+ * and never for a linked account still awaiting its first sync. Absence of
+ * ground truth must not be rendered as confirmed drift.
  */
-function liveInsightsChip(ms: string | null | undefined, markedConnected: boolean | null) {
-  if (ms === 'graph')
+function liveInsightsChip(
+  state: 'live' | 'public' | 'awaiting' | 'none' | undefined,
+  markedConnected: boolean | null,
+  igLoaded: boolean,
+  igAvailable: boolean
+) {
+  if (!igLoaded) return <span className="text-muted-foreground">…</span>;
+  if (!igAvailable)
+    return (
+      <span
+        className="text-muted-foreground"
+        title="Live-insights source is not available for your role (needs social.instagram.view)"
+      >
+        unavailable
+      </span>
+    );
+  if (state === 'live')
     return (
       <Badge className="border-transparent bg-emerald-600 text-white hover:bg-emerald-600 dark:bg-emerald-500">
         Live · full insights
       </Badge>
     );
-  if (ms === 'instagram_login')
+  if (state === 'awaiting')
     return (
-      <Badge className="border-transparent bg-emerald-600 text-white hover:bg-emerald-600 dark:bg-emerald-500">
-        Live · IG Login
+      <Badge variant="outline" title="Linked — awaiting its first Graph-API sync">
+        Awaiting first sync
       </Badge>
     );
-  if (ms === 'business_discovery')
-    return (
-      <div className="flex flex-col gap-0.5">
-        <Badge variant="secondary" className="w-fit">Public only</Badge>
-        {markedConnected === true && (
-          <span className="text-xs text-amber-600 dark:text-amber-500">
-            ⚠ marked connected, not live
-          </span>
-        )}
-      </div>
-    );
-  // no ig_accounts row at all
-  if (markedConnected === true)
-    return (
-      <div className="flex flex-col gap-0.5">
-        <span className="text-muted-foreground">—</span>
+  // 'public' or 'none' — confirmed not live. Flag drift only when it was MARKED.
+  return (
+    <div className="flex flex-col gap-0.5">
+      <Badge variant="secondary" className="w-fit">
+        {state === 'public' ? 'Public only' : 'Not monitored'}
+      </Badge>
+      {markedConnected === true && (
         <span className="text-xs text-amber-600 dark:text-amber-500">
           ⚠ marked connected, not live
         </span>
-      </div>
-    );
-  return <span className="text-muted-foreground">—</span>;
+      )}
+    </div>
+  );
 }
 
 /**
@@ -305,6 +312,8 @@ export default function SocialDepartmentAccountsPage() {
   const [rows, setRows] = useState<DeptAccountRow[]>([]);
   const [connections, setConnections] = useState<IgConnectionRow[]>([]);
   const [igAccounts, setIgAccounts] = useState<IgAccountRow[]>([]);
+  const [igLoaded, setIgLoaded] = useState(false);
+  const [igError, setIgError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -339,13 +348,18 @@ export default function SocialDepartmentAccountsPage() {
       });
     // Ground-truth monitoring state. metrics_source ('graph' = full insights,
     // 'business_discovery' = public only) is what the manual connection flags
-    // are supposed to reflect. RLS: super_admin + social.instagram.view (held
-    // by every role that can reach this page), so this is not silently empty.
+    // are supposed to reflect. RLS on ig_accounts requires social.instagram.view
+    // (a DIFFERENT grant from this page's social.departments.view) OR super_admin.
+    // A role with departments.view but not instagram.view would get an empty/denied
+    // result — which must render as "unavailable", NOT as "nothing is live" (that
+    // would fabricate drift). Track the load + error so the UI can tell them apart.
     supabase
       .from('ig_accounts')
       .select('id, username, metrics_source')
-      .then(({ data }) => {
-        setIgAccounts((data as unknown as IgAccountRow[]) ?? []);
+      .then(({ data, error: err }) => {
+        if (err) setIgError(err.message);
+        else setIgAccounts((data as unknown as IgAccountRow[]) ?? []);
+        setIgLoaded(true);
       });
   }, []);
 
@@ -375,24 +389,41 @@ export default function SocialDepartmentAccountsPage() {
     return map;
   }, [connections, rows]);
 
-  // dept row id -> actual metrics_source (ground truth). Match on the linked
-  // ig_account_id first (authoritative), then fall back to handle so a row that
-  // isn't back-linked yet still resolves its real state.
-  const metricsSourceByDept = useMemo(() => {
-    const byId = new Map<string, string>();
-    const byUsername = new Map<string, string>();
+  // Ground truth is only usable once the ig_accounts fetch resolved WITH rows.
+  // Empty (RLS denied for a role lacking social.instagram.view) or not-yet-loaded
+  // must render as "unavailable", never as "0 live / everything is drift".
+  const igAvailable = igLoaded && !igError && igAccounts.length > 0;
+
+  // dept row id -> real insight state (only meaningful when igAvailable):
+  //   'live'     graph / instagram_login — full insights flowing
+  //   'public'   business_discovery — public metrics only
+  //   'awaiting' backing ig_accounts row exists but metrics_source is still null
+  //              (linked, awaiting its first Graph-API sync — NOT drift)
+  //   'none'     no backing ig_accounts row at all
+  // Match on the linked ig_account_id first (authoritative), then handle.
+  type InsightState = 'live' | 'public' | 'awaiting' | 'none';
+  const insightByDept = useMemo(() => {
+    const byId = new Map<string, string | null>();
+    const byUsername = new Map<string, string | null>();
     for (const a of igAccounts) {
-      if (!a.metrics_source) continue;
       byId.set(a.id, a.metrics_source);
       byUsername.set(a.username.toLowerCase(), a.metrics_source);
     }
-    const map = new Map<string, string | null>();
+    const map = new Map<string, InsightState>();
     for (const r of rows) {
-      const ms =
-        (r.ig_account_id ? byId.get(r.ig_account_id) : undefined) ??
-        byUsername.get(r.username.toLowerCase()) ??
-        null;
-      map.set(r.id, ms);
+      let ms: string | null | undefined; // undefined = no backing row
+      if (r.ig_account_id && byId.has(r.ig_account_id)) ms = byId.get(r.ig_account_id);
+      else if (byUsername.has(r.username.toLowerCase()))
+        ms = byUsername.get(r.username.toLowerCase());
+      const state: InsightState =
+        ms === undefined
+          ? 'none'
+          : ms === null
+            ? 'awaiting'
+            : isLiveInsights(ms)
+              ? 'live'
+              : 'public';
+      map.set(r.id, state);
     }
     return map;
   }, [igAccounts, rows]);
@@ -416,17 +447,23 @@ export default function SocialDepartmentAccountsPage() {
       contentStudio: rows.filter((r) => r.content_studio_connected === true).length,
       monitored: rows.filter((r) => r.ig_account_id !== null).length,
       igLogin: connections.filter((c) => c.status === 'active').length,
-      // Ground truth: handles Meta actually feeds full insights for.
-      liveInsights: rows.filter((r) => isLiveInsights(metricsSourceByDept.get(r.id)))
-        .length,
-      // The disparity: marked "Business Suite connected" but NOT actually live.
-      markedNotLive: rows.filter(
-        (r) =>
-          r.business_suite_connected === true &&
-          !isLiveInsights(metricsSourceByDept.get(r.id))
-      ).length,
+      // Ground truth: handles Meta actually feeds full insights for. null when
+      // the ig_accounts source is unavailable → tile renders "—", not a fake 0.
+      liveInsights: igAvailable
+        ? rows.filter((r) => insightByDept.get(r.id) === 'live').length
+        : null,
+      // The disparity: marked "Business Suite connected" but NOT actually live
+      // and NOT merely awaiting a first sync. null when ground truth is absent.
+      markedNotLive: igAvailable
+        ? rows.filter((r) => {
+            const s = insightByDept.get(r.id);
+            return (
+              r.business_suite_connected === true && (s === 'public' || s === 'none')
+            );
+          }).length
+        : null,
     }),
-    [rows, connections, metricsSourceByDept]
+    [rows, connections, insightByDept, igAvailable]
   );
 
   return (
@@ -463,7 +500,7 @@ export default function SocialDepartmentAccountsPage() {
             <CardHeader className="pb-2">
               <CardDescription>Live insights</CardDescription>
               <CardTitle className="text-3xl text-emerald-600 dark:text-emerald-500">
-                {loading ? '…' : totals.liveInsights}
+                {loading || !igLoaded ? '…' : (totals.liveInsights ?? '—')}
               </CardTitle>
               <p className="text-xs text-muted-foreground">Meta-verified · full insights</p>
             </CardHeader>
@@ -473,12 +510,12 @@ export default function SocialDepartmentAccountsPage() {
               <CardDescription>Marked, not live</CardDescription>
               <CardTitle
                 className={`text-3xl ${
-                  !loading && totals.markedNotLive > 0
+                  !loading && igLoaded && (totals.markedNotLive ?? 0) > 0
                     ? 'text-amber-600 dark:text-amber-500'
                     : ''
                 }`}
               >
-                {loading ? '…' : totals.markedNotLive}
+                {loading || !igLoaded ? '…' : (totals.markedNotLive ?? '—')}
               </CardTitle>
               <p className="text-xs text-muted-foreground">flagged but no live insights</p>
             </CardHeader>
@@ -575,8 +612,10 @@ export default function SocialDepartmentAccountsPage() {
                       <TableCell>{connChip(r.business_suite_connected)}</TableCell>
                       <TableCell>
                         {liveInsightsChip(
-                          metricsSourceByDept.get(r.id),
-                          r.business_suite_connected
+                          insightByDept.get(r.id),
+                          r.business_suite_connected,
+                          igLoaded,
+                          igAvailable
                         )}
                       </TableCell>
                       <TableCell>
