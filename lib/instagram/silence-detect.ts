@@ -153,11 +153,20 @@ async function fetchLastAlertDays(
     Date.now() - (windowDays + 1) * 24 * 60 * 60 * 1000
   ).toISOString();
 
+  // Newest-first + explicit cap (review fix): without an order, Supabase's
+  // implicit ~1000-row limit truncates NONDETERMINISTICALLY — an account's
+  // newest alert row could silently vanish and re-enable daily re-alerts.
+  // Ordered desc, truncation can only shed OLDER rows; since only the max
+  // day per account matters, the newest 5000 rows (~one notifications row
+  // per silent account per day; 35/day today => ~300/window) cannot lose
+  // any account's latest alert at any realistic scale.
   const { data, error } = await supabase
     .from('notifications')
-    .select('idempotency_key, metadata')
+    .select('idempotency_key, metadata, created_at')
     .like('idempotency_key', `${IDEMPOTENCY_PREFIX}%`)
-    .gte('created_at', sinceIso);
+    .gte('created_at', sinceIso)
+    .order('created_at', { ascending: false })
+    .limit(5000);
 
   if (error) {
     console.warn(
@@ -173,9 +182,11 @@ async function fetchLastAlertDays(
     const dayKey = key.slice(-10); // trailing YYYY-MM-DD
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) continue;
     const meta = (row as { metadata?: { ig_user_id?: unknown } }).metadata;
+    const metaId = meta?.ig_user_id;
     const igUserId =
-      typeof meta?.ig_user_id === 'string' && meta.ig_user_id.length > 0
-        ? meta.ig_user_id
+      (typeof metaId === 'string' && metaId.length > 0) ||
+      typeof metaId === 'number'
+        ? String(metaId)
         : key.slice(IDEMPOTENCY_PREFIX.length, -11); // strip prefix + '-YYYY-MM-DD'
     if (!igUserId) continue;
     const prev = lastAlertDay.get(igUserId);
@@ -251,7 +262,9 @@ export async function runSilenceDetect(
     // Re-alert cadence: still-silent accounts alerted within the last
     // realert_days are skipped before any notification write. First-time
     // detections have no prior alert row and always pass through.
-    const lastAlertedOn = lastAlertDays.get(ig_user_id);
+    // String-coerce the lookup key — map keys are always strings; a numeric
+    // ig_user_id column type must not silently no-op the suppression.
+    const lastAlertedOn = lastAlertDays.get(String(ig_user_id));
     if (
       realertDays > 0 &&
       lastAlertedOn &&
