@@ -82,6 +82,17 @@ const STORAGE_BUCKET = 'call-memos';
 // OpenAI account quota.
 const MAX_ANALYZE_ATTEMPTS = 5;
 
+// Slow persistent backstop for chronic rows whose failures always look
+// provider-wide (so same-run health evidence never charges them): every
+// UNCHARGED transient-class failure increments memo_transient_failures;
+// at this threshold it converts to one memo_analyze_attempts charge and
+// resets. Lone chronic row (probed ~12x/hr): +1 attempt per ~50 min →
+// parks in ~4h. Real fleet-wide outage: rotation spreads ~2 probes/run
+// across the whole queue, so a specific row needs days of unbroken outage
+// per single charge — valid rows effectively never park from outages, and
+// the counter stops growing the moment the provider heals.
+const TRANSIENT_CHARGE_THRESHOLD = 10;
+
 /**
  * Extracts the storage path-relative form from a memo_audio_url that may be
  * stored in any of THREE formats due to historical inconsistency between the
@@ -128,6 +139,7 @@ interface MemoCandidate {
   memo_analyze_status: string | null;
   memo_transcript: string | null;
   memo_transcript_language: string | null;
+  memo_transient_failures: number | null;
 }
 
 interface AnalysisResult {
@@ -225,9 +237,23 @@ function classifyFailure(err: unknown): 'ratelimit' | 'provider' | 'row' {
   // Missing storage object is always this row's problem.
   if (/storage download: (no blob|.*not.?found|.*does not exist)/i.test(msg)) return 'row';
   if (status !== null) {
-    // 401/403 key/config, 408 timeout, 5xx — provider-wide shapes.
-    if (status === 401 || status === 403 || status === 408 || status >= 500) return 'provider';
-    // Remaining 4xx (400/404/413/415/422…) describe this file/request.
+    // 401/403 key/config, 408 timeout, 5xx — provider-wide shapes. 400/404
+    // are MODEL/ENDPOINT-level in this pipeline (model retired → 404 for
+    // every row, bad model flip in /admin/ai-models → 400 for every row):
+    // charging them row-by-row would park the whole backlog on a config
+    // mistake (round-5 HIGH), so they take the health-gated lane — with
+    // healthy siblings a per-file 400 still charges immediately.
+    if (
+      status === 400 ||
+      status === 401 ||
+      status === 403 ||
+      status === 404 ||
+      status === 408 ||
+      status >= 500
+    ) {
+      return 'provider';
+    }
+    // Remaining 4xx (413/415/422…) describe THIS file: charged unconditionally.
     if (status >= 400) return 'row';
   }
   if (/not configured|overloaded/i.test(msg)) return 'provider';
@@ -334,7 +360,7 @@ export async function GET(request: NextRequest) {
   const { data: candidatesRaw, error: candidatesErr } = await supabase
     .from('admission_call_logs')
     .select(
-      'id, institution_id, memo_audio_url, memo_analyze_attempts, memo_analyze_status, memo_transcript, memo_transcript_language',
+      'id, institution_id, memo_audio_url, memo_analyze_attempts, memo_analyze_status, memo_transcript, memo_transcript_language, memo_transient_failures',
     )
     .not('memo_audio_url', 'is', null)
     .lt('memo_analyze_attempts', MAX_ANALYZE_ATTEMPTS)
@@ -386,10 +412,10 @@ export async function GET(request: NextRequest) {
   const stPromotable: { id: string; attempts: number }[] = [];
 
   for (const c of candidates) {
-    // One slow/timing-out row (~50s worst case) must not let the function be
-    // killed mid-write at maxDuration=60s — stop early; the untouched rest
-    // stays cleanly sweepable next run.
-    if (Date.now() - started > 50000) break;
+    // Don't START a row without enough wall-clock left for it to finish —
+    // per-call timeouts below are additionally capped by remaining budget so
+    // a row started late can never push past maxDuration=60s mid-write.
+    if (Date.now() - started > 45000) break;
     const attempts = c.memo_analyze_attempts ?? 0;
     let phase: 'transcribe' | 'sentiment' = 'transcribe';
     try {
@@ -485,9 +511,9 @@ export async function GET(request: NextRequest) {
               language: 'en',
               mimeType: audioMime,
             }),
-            // 35s + 15s (sentiment) keeps one slow row + download/DB
-            // overhead under maxDuration=60s (round-3 LOW).
-            35000,
+            // Capped by remaining run budget so tx + sentiment + overhead
+            // always fit under maxDuration=60s (round-6 MEDIUM).
+            Math.min(35000, Math.max(5000, 52000 - (Date.now() - started))),
             'transcription',
           );
           transcript = result.text;
@@ -611,7 +637,7 @@ export async function GET(request: NextRequest) {
             systemPrompt: SENTIMENT_SYSTEM_PROMPT,
             userPrompt: `Transcript:\n\n${transcript}`,
           }),
-          15000,
+          Math.min(15000, Math.max(3000, 55000 - (Date.now() - started))),
           'sentiment',
         );
         analysis = normalizeAnalysis(raw.parsed);
@@ -671,15 +697,16 @@ export async function GET(request: NextRequest) {
       const cls = classifyFailure(e);
       const phaseHealthy = phase === 'sentiment' ? stHealthy : txHealthy;
 
-      if (cls !== 'ratelimit' && phaseHealthy) {
-        // UNIVERSAL RULE (round-5 HIGH): budget is charged ONLY with health
-        // evidence — a failure of ANY class while this phase's provider is
-        // demonstrably healthy this run is really this row's problem. This
-        // holds for classified 'row' 4xx too: a provider-wide 4xx storm
-        // (model retired → 404 for every row, bad model flip → 400) has no
-        // successes, so it charges NOTHING and auto-recovers when fixed.
-        // 'ratelimit' NEVER charges: throttling is request-level, not
-        // content-level (deep-review v2 HIGH).
+      if (cls === 'row' || (cls === 'provider' && phaseHealthy)) {
+        // 'row' (file-level 413/415/422, storage miss) charges UNCONDITIONALLY
+        // — it must neither dodge budget nor trip the breaker (round-6 HIGH:
+        // two front-of-batch corrupt files must not halt the queue).
+        // 'provider' charges only with same-run health evidence; the
+        // provider-wide storms (model retired → 404, bad flip → 400, 5xx,
+        // network) are classified 'provider' and charge NOTHING in a
+        // zero-success run, so the backlog auto-recovers on fix (round-5
+        // HIGH). 'ratelimit' NEVER charges: throttling is request-level,
+        // not content-level (deep-review v2 HIGH).
         //
         // ACCEPTED TRADE-OFF (round-3 MEDIUM declined): a valid row must
         // fail in FIVE separate provider-healthy runs to park — at that
@@ -742,16 +769,52 @@ export async function GET(request: NextRequest) {
         stTransientStreak++;
         if (cls !== 'ratelimit') stPromotable.push({ id: c.id, attempts });
         if (stTransientStreak >= 2) skipSentiment = true;
+        const stTransientCount = (c.memo_transient_failures ?? 0) + 1;
+        try {
+          await supabase
+            .from('admission_call_logs')
+            .update(
+              stTransientCount >= TRANSIENT_CHARGE_THRESHOLD
+                ? {
+                    // Backstop conversion (see TRANSIENT_CHARGE_THRESHOLD).
+                    memo_analyze_status: 'failed',
+                    memo_analyze_attempts: attempts + 1,
+                    memo_transient_failures: 0,
+                    updated_at: nowIso(),
+                  }
+                : { memo_transient_failures: stTransientCount, updated_at: nowIso() },
+            )
+            .eq('id', c.id);
+        } catch {
+          // best-effort
+        }
         continue;
       }
 
       failed++;
       txTransientStreak++;
       if (cls !== 'ratelimit') txPromotable.push({ id: c.id, attempts });
+      const txTransientCount = (c.memo_transient_failures ?? 0) + 1;
       try {
         await supabase
           .from('admission_call_logs')
-          .update({ memo_analyze_status: 'failed', updated_at: nowIso() })
+          .update(
+            txTransientCount >= TRANSIENT_CHARGE_THRESHOLD
+              ? {
+                  // Persistent backstop conversion: enough uncharged
+                  // transient-class failures accrued across runs — charge
+                  // one attempts unit and reset the counter.
+                  memo_analyze_status: 'failed',
+                  memo_analyze_attempts: attempts + 1,
+                  memo_transient_failures: 0,
+                  updated_at: nowIso(),
+                }
+              : {
+                  memo_analyze_status: 'failed',
+                  memo_transient_failures: txTransientCount,
+                  updated_at: nowIso(),
+                },
+          )
           .eq('id', c.id);
       } catch {
         // best-effort — already in error path
@@ -790,6 +853,7 @@ export async function GET(request: NextRequest) {
           .update({
             memo_analyze_status: 'failed',
             memo_analyze_attempts: r.attempts + 1,
+            memo_transient_failures: 0,
             updated_at: nowIso(),
           })
           .eq('id', r.id)
