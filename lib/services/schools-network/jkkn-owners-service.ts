@@ -14,6 +14,7 @@ import type {
   SchoolJkknOwnerRow,
   AssignOwnerInput,
 } from '@/lib/types/schools-network';
+import { fetchProfileNames } from './profile-names';
 
 const LOG = 'schools-network/jkkn-owners';
 
@@ -42,12 +43,15 @@ export class SchoolJkknOwnersService {
     schoolId: string,
     includeInactive = false
   ): Promise<{ rows: SchoolJkknOwner[]; error: string | null }> {
+    // NO profiles embed here: jkkn_user_id is a FK to auth.users, not
+    // public.profiles — PostgREST cannot resolve `profiles:jkkn_user_id(...)`
+    // and 500s the list (same class as sessions listForSchool). Names are
+    // merged from a second RLS-scoped query via fetchProfileNames.
     let q = supabase
       .from('school_jkkn_owners')
       .select(
         `
         *,
-        profiles:jkkn_user_id(full_name),
         program_partners(name)
       `
       )
@@ -61,8 +65,19 @@ export class SchoolJkknOwnersService {
       logger.error(LOG, 'listForSchool failed', error);
       return { rows: [], error: error.message };
     }
+    const names = await fetchProfileNames(
+      supabase,
+      (data ?? []).map((r: { jkkn_user_id: string | null }) => r.jkkn_user_id)
+    );
     return {
-      rows: (data ?? []).map((r) => mapOwnerRow(r as SchoolJkknOwnerRow)),
+      rows: (data ?? []).map((r: Record<string, unknown>) =>
+        mapOwnerRow({
+          ...r,
+          profiles: r.jkkn_user_id
+            ? { full_name: names.get(r.jkkn_user_id as string) ?? null }
+            : null,
+        } as SchoolJkknOwnerRow)
+      ),
       error: null,
     };
   }
