@@ -509,6 +509,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/loops",
+        "label": "Loop Control Tower",
+        "iconName": "Repeat",
+        "children": []
+      },
+      {
         "path": "/admin/bug-reports",
         "label": "Bug Reports",
         "iconName": "FileText",

@@ -395,6 +395,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/bug-reports': 'system.bugs.view',
   '/ai-query/admin': 'super_admin', // Super admin only - AI Query Tools Registry
   '/admin/ai-models': 'super_admin', // Super admin only - AI Model Config (provider/model picker + spend caps + usage)
+  '/admin/loops': 'super_admin', // Super admin only - Loop Control Tower (live health of every self-improving/cadence/accountability loop)
   '/admin/learner-notes': 'super_admin', // Super admin only - Learner Notes approval queue (AI-drafted support notes reviewed before students see them)
   '/admin/page-metadata': 'super_admin', // Super admin only - Page Search Metadata
 
