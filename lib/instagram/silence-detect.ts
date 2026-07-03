@@ -176,6 +176,17 @@ async function fetchLastAlertDays(
     return lastAlertDay;
   }
 
+  // Cap-hit guard (review fix): if the result size reaches the requested
+  // limit (or PostgREST's server-side max-rows silently capped us lower),
+  // completeness is no longer guaranteed — a suppressed account's newest
+  // row could be truncated out and it would re-alert daily. Log loudly;
+  // behavior degrades toward legacy (alerting), never toward silence.
+  if ((data?.length ?? 0) >= 1000) {
+    console.warn(
+      `[ig-silence-detect] last-alert lookup returned ${data?.length} rows — at/near the row cap; suppression may be incomplete (fails open to alerting)`
+    );
+  }
+
   for (const row of data ?? []) {
     const key = (row as { idempotency_key?: string }).idempotency_key;
     if (!key || key.length <= IDEMPOTENCY_PREFIX.length + 11) continue;
@@ -245,6 +256,9 @@ export async function runSilenceDetect(
   const results: SilenceAccountResult[] = [];
   let alerted = 0;
   let suppressed = 0;
+  // NOTE: with cadence suppression active, 'deduplicated' only counts
+  // intra-run/concurrent idempotency conflicts — same-day re-runs for a
+  // just-alerted account hit the suppressed branch before the insert.
   let deduplicated = 0;
   let failed = 0;
 
@@ -262,12 +276,19 @@ export async function runSilenceDetect(
     // Re-alert cadence: still-silent accounts alerted within the last
     // realert_days are skipped before any notification write. First-time
     // detections have no prior alert row and always pass through.
+    // Review fix: a FRESH silence episode is never suppressed — if the
+    // account posted AFTER its last alert (recovered, then went silent
+    // again within the window), that's a new episode, not a repeat.
     // String-coerce the lookup key — map keys are always strings; a numeric
     // ig_user_id column type must not silently no-op the suppression.
     const lastAlertedOn = lastAlertDays.get(String(ig_user_id));
+    const lastPostDay = last ? String(last).slice(0, 10) : null;
+    const freshEpisode =
+      lastAlertedOn !== undefined && lastPostDay !== null && lastPostDay > lastAlertedOn;
     if (
       realertDays > 0 &&
       lastAlertedOn &&
+      !freshEpisode &&
       daysBetweenDayKeys(lastAlertedOn, dayKey) < realertDays
     ) {
       suppressed++;
