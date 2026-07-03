@@ -311,7 +311,10 @@ export async function GET(request: NextRequest) {
   // budget is exhausted stay visible as 'failed' in the monitor but are never
   // re-swept, so they can't starve the queue (oldest-first ordering otherwise
   // lets ~20 permanently-failing rows fill every batch forever).
-  const ORPHAN_AGE_MS = 5 * 60 * 1000;
+  // Strictly SMALLER than the */5 cron interval — a window equal to the
+  // interval makes just-deferred rows ineligible on the very next tick
+  // (equal-not-less-than), delaying sentiment recovery by an extra cycle.
+  const ORPHAN_AGE_MS = 4 * 60 * 1000;
   const orphanCutoffIso = new Date(Date.now() - ORPHAN_AGE_MS).toISOString();
   // Build the OR clause as equality branches plus nested ANDs for the
   // orphan-recovery branches. Top-level branches (eq.pending / eq.failed /
@@ -375,12 +378,18 @@ export async function GET(request: NextRequest) {
   let transcribeSkipped = 0; // fresh rows skipped while skipTranscribe (untouched, next run's problem)
   let sentimentDeferred = 0; // rows left in 'analyzing' for a later sentiment resume
   let claimMissed = 0; // rows another concurrent run claimed first (CAS returned 0 rows)
+  let txAttempted = 0; // distinct rows that reached a transcription call this run
+  let stAttempted = 0; // distinct rows that reached a sentiment call this run
   // 'provider'-class failures recorded for end-of-run retro-promotion.
   // 'ratelimit' failures are NEVER recorded here (never charged).
   const txPromotable: { id: string; attempts: number }[] = [];
   const stPromotable: { id: string; attempts: number }[] = [];
 
   for (const c of candidates) {
+    // One slow/timing-out row (~50s worst case) must not let the function be
+    // killed mid-write at maxDuration=60s — stop early; the untouched rest
+    // stays cleanly sweepable next run.
+    if (Date.now() - started > 50000) break;
     const attempts = c.memo_analyze_attempts ?? 0;
     let phase: 'transcribe' | 'sentiment' = 'transcribe';
     try {
@@ -463,6 +472,7 @@ export async function GET(request: NextRequest) {
         const audioMime = audioBlob.type || 'audio/webm';
 
         // ----- Transcription (provider dispatch) -----
+        txAttempted++;
         const txStart = Date.now();
         let language = 'unknown';
         try {
@@ -590,6 +600,7 @@ export async function GET(request: NextRequest) {
       }
 
       // ----- Sentiment / structured extraction (provider dispatch) -----
+      stAttempted++;
       const stStart = Date.now();
       let analysis: AnalysisResult;
       try {
@@ -660,20 +671,20 @@ export async function GET(request: NextRequest) {
       const cls = classifyFailure(e);
       const phaseHealthy = phase === 'sentiment' ? stHealthy : txHealthy;
 
-      if (cls === 'row' || (cls === 'provider' && phaseHealthy)) {
-        // Row-specific — or a 'provider'-class failure while this phase's
-        // provider is demonstrably healthy this run, which means the failure
-        // is really this row's (a poison row faking provider-wide symptoms
-        // must not dodge its retry budget). 'ratelimit' NEVER lands here:
-        // throttling is request-level, not content-level, so charging it
-        // would silently park valid memos (deep-review v2 HIGH).
+      if (cls !== 'ratelimit' && phaseHealthy) {
+        // UNIVERSAL RULE (round-5 HIGH): budget is charged ONLY with health
+        // evidence — a failure of ANY class while this phase's provider is
+        // demonstrably healthy this run is really this row's problem. This
+        // holds for classified 'row' 4xx too: a provider-wide 4xx storm
+        // (model retired → 404 for every row, bad model flip → 400) has no
+        // successes, so it charges NOTHING and auto-recovers when fixed.
+        // 'ratelimit' NEVER charges: throttling is request-level, not
+        // content-level (deep-review v2 HIGH).
         //
         // ACCEPTED TRADE-OFF (round-3 MEDIUM declined): a valid row must
-        // fail provider-class in FIVE separate provider-healthy runs to park
-        // — at that repetition rate the content itself is the trigger, which
-        // is exactly the look-alike case round-1's HIGH exists to park.
-        // Parked rows stay visible as 'failed' in the monitor and recover by
-        // resetting memo_analyze_attempts.
+        // fail in FIVE separate provider-healthy runs to park — at that
+        // repetition rate the content itself is the trigger. Parked rows
+        // stay visible as 'failed' and recover by resetting attempts.
         failed++;
         errors.push(`${c.id}: [${phase}] ${msg}`);
         try {
@@ -729,14 +740,14 @@ export async function GET(request: NextRequest) {
         // transcribe-only mode for the rest of the run.
         sentimentDeferred++;
         stTransientStreak++;
-        if (cls === 'provider') stPromotable.push({ id: c.id, attempts });
+        if (cls !== 'ratelimit') stPromotable.push({ id: c.id, attempts });
         if (stTransientStreak >= 2) skipSentiment = true;
         continue;
       }
 
       failed++;
       txTransientStreak++;
-      if (cls === 'provider') txPromotable.push({ id: c.id, attempts });
+      if (cls !== 'ratelimit') txPromotable.push({ id: c.id, attempts });
       try {
         await supabase
           .from('admission_call_logs')
@@ -796,6 +807,21 @@ export async function GET(request: NextRequest) {
   // tx transient rows were left in 'failed'; sentiment ones sit in 'analyzing'.
   if (txHealthy && txPromotable.length > 0) await retroPromote(txPromotable, 'failed');
   if (stHealthy && stPromotable.length > 0) await retroPromote(stPromotable, 'analyzing');
+  // SOLO-ROW RULE (round-5): when a phase attempted exactly ONE row and it
+  // failed chargeable-class, no sibling can ever supply health evidence — a
+  // lone chronic row (poison transcript, always-timing-out file) would loop
+  // forever. Charge it so it parks after MAX_ANALYZE_ATTEMPTS runs. A real
+  // provider outage with a 1-row queue charges that row too (bounded harm:
+  // one visible 'failed' row, recoverable by resetting attempts). KNOWN
+  // RESIDUAL: a drained queue holding exactly 2 chronic rows halts at
+  // streak 2 with no evidence either way and is left uncharged (~2 probe
+  // calls/run, 'halted' flagged every run in the log for the monitor).
+  if (!txHealthy && txAttempted === 1 && txPromotable.length === 1) {
+    await retroPromote(txPromotable, 'failed');
+  }
+  if (!stHealthy && stAttempted === 1 && stPromotable.length === 1) {
+    await retroPromote(stPromotable, 'analyzing');
+  }
 
   // --- Remaining counter (visibility) -------------------------------
   let remaining: number | null = null;
