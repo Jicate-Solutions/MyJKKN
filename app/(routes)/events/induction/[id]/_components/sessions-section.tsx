@@ -13,7 +13,6 @@ import {
 import { InductionSpeakersService, type DirectoryUser } from '@/lib/services/induction/induction-speakers-service';
 import { PersonAvailabilityService } from '@/lib/services/availability/person-availability';
 import { useAuth } from '@/hooks/use-auth';
-import { usePermissions } from '@/hooks/use-permissions';
 import { AttendanceDialog } from './attendance-dialog';
 import { AttendanceCoverageBanner } from './attendance-coverage-banner';
 import { DayAttendanceDialog } from './day-attendance-dialog';
@@ -51,8 +50,13 @@ function fmtTime(iso: string) {
 
 export function SessionsSection({ eventId, batches }: { eventId: string; batches: Batch[] }) {
   const { profile } = useAuth();
-  const { permissions, isSuperAdmin } = usePermissions();
-  const [isCoordinator, setIsCoordinator] = useState(false);
+  // Server-truth event-level manage gate (admin / induction.manage WITH access to
+  // THIS event's institution / per-event coordinator). Mirrors the DEFINER RPCs
+  // exactly — a scope='own' resource person with no access to this event's
+  // institution is NOT a manager, so edit/delete/Add-session/Mark-day-attendance
+  // stay hidden on rows that aren't theirs (per-session tools still show via
+  // isMySession below). Starts false → manage UI appears only once confirmed.
+  const [canManage, setCanManage] = useState(false);
   const [sessions, setSessions] = useState<InductionSessionRow[]>([]);
   // session id → linked resource persons (shown on the card + drives per-session access)
   const [sessionSpeakers, setSessionSpeakers] = useState<Record<string, DirectoryUser[]>>({});
@@ -147,9 +151,8 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
   // feedback kiosk, polls) ONLY on sessions they're assigned to. The DEFINER RPCs
   // enforce the same rules server-side — this just keeps the UI honest.
   useEffect(() => {
-    InductionService.isEventCoordinator(eventId).then(setIsCoordinator);
+    InductionService.canManageEvent(eventId).then(setCanManage).catch(() => setCanManage(false));
   }, [eventId]);
-  const canManage = isSuperAdmin || !!permissions['induction.manage'] || isCoordinator;
 
   const resetForm = () => {
     setDay('1'); setBatchId(COMBINED); setStart(''); setEnd('');
@@ -430,7 +433,8 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
       <CardContent>
         {/* Back-mark nudge — managers/coordinators only (the RPC is gated anyway;
             this just avoids rendering an empty slot for students/speakers).
-            canManage already includes per-event coordinators (isCoordinator). */}
+            canManage is the server-truth event manage gate (fn_induction_can_manage_event),
+            which already includes per-event coordinators. */}
         {canManage && !loading && (
           <AttendanceCoverageBanner coverage={coverage} unavailable={coverageFailed} />
         )}

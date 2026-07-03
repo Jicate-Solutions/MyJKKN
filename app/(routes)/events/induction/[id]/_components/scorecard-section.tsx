@@ -17,7 +17,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   InductionService, type ScorecardRow,
 } from '@/lib/services/induction/induction-service';
-import { usePermissions } from '@/hooks/use-permissions';
 import {
   Users, Star, Megaphone, UserPlus, Send, GraduationCap, ShieldCheck, RefreshCw,
 } from 'lucide-react';
@@ -30,15 +29,33 @@ export function ScorecardSection({ eventId }: { eventId: string }) {
   const [rows, setRows] = useState<ScorecardRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [emitting, setEmitting] = useState(false);
-  const { can } = usePermissions();
-  const canManage = can('induction.manage'); // only managers may write NAAC evidence
+  // Out-of-scope viewers (e.g. a resource person with no access to this event's
+  // institution, no induction.view, not a coordinator) get a not-authorized RAISE
+  // from fn_induction_scorecard. Graceful-deny: render a muted note, no red toast.
+  const [denied, setDenied] = useState(false);
+  // Server-truth event manage gate (same fn_induction_can_manage_event RPC as the
+  // sessions section): a scope='own' resource person with no access to this event's
+  // institution is NOT a manager, so the "Record as NAAC evidence" button stays
+  // hidden instead of dangling and erroring on click (the write RPC denies them too).
+  const [canManage, setCanManage] = useState(false);
+  useEffect(() => {
+    InductionService.canManageEvent(eventId).then(setCanManage).catch(() => setCanManage(false));
+  }, [eventId]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       setRows(await InductionService.getScorecard(eventId));
+      setDenied(false);
     } catch (e: any) {
-      toast.error(`Couldn't load the scorecard: ${e.message ?? e}`);
+      // Every RAISE in fn_induction_scorecard (not authenticated / not an induction
+      // event / not authorized) is SQLSTATE P0001 — treat as a role-scope denial and
+      // render nothing loud. Any OTHER error is a real failure → surface the toast.
+      if (e?.code === 'P0001') {
+        setDenied(true);
+      } else {
+        toast.error(`Couldn't load the scorecard: ${e.message ?? e}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -63,6 +80,20 @@ export function ScorecardSection({ eventId }: { eventId: string }) {
       setEmitting(false);
     }
   };
+
+  // Graceful-deny: a role that isn't allowed to see the scorecard gets a quiet
+  // muted note instead of a red error toast. Authorized render path is untouched.
+  if (denied) {
+    return (
+      <Card>
+        <CardContent className="py-6">
+          <p className="text-sm text-muted-foreground">
+            The scorecard isn’t available for your role.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const total = rows.find((r) => r.dimension === 'total');
   const depts = rows.filter((r) => r.dimension === 'department');
