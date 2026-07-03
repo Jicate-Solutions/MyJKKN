@@ -256,10 +256,29 @@ export interface CreateContributionInput {
   evidenceUrl?: string;
 }
 
+export interface CreateContactInput {
+  name: string;
+  roleId: string;
+  phone?: string;
+  email?: string;
+  isPrimary?: boolean;
+  notes?: string;
+}
+
 export interface AssignOwnerInput {
   jkknUserId: string;
   role: SchoolOwnerRole;
   programPartnerId?: string;
+}
+
+// Wire shape of GET /api/schools-network/staff-search — a JKKN staff row
+// eligible to own a school relationship. camelCase mirrors the endpoint.
+export interface StaffSearchRow {
+  id: string;
+  fullName: string;
+  email: string | null;
+  role: string | null;
+  institutionId: string | null;
 }
 
 /* Display helpers — keep alongside the types so callers don't fork copies. */
