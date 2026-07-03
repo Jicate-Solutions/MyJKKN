@@ -25,6 +25,9 @@ quick: about **one minute per day** using the bulk day button.
 5. Repeat for each pending day. A yellow banner at the top of the sessions list shows exactly
    which days are still pending. A day clears only when **every learner** on its roster has a
    mark (Present/Absent/Excused/OD all count) — so mark the absentees too, don't skip them.
+6. **If a new fresher joins mid-program**, earlier days re-open on the banner — that's correct:
+   completion counts every session against them too. Mark their pre-joining days (usually
+   **Excused**) so they aren't failed for days before they arrived.
 
 ## The daily rhythm for the remaining days (until July 8)
 

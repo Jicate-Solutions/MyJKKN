@@ -35,6 +35,9 @@ SET search_path = public
 AS $$
 DECLARE v_inst UUID;
 BEGIN
+  -- CONTRACT: every RAISE in this function is an authorization denial — the
+  -- client classifies SQLSTATE P0001 from this RPC as "gate denied" (hide the
+  -- banner) vs anything else as "coverage unavailable". Keep it that way.
   SELECT institution_id INTO v_inst FROM public.induction_programs WHERE event_id = p_event_id;
   -- One generic message for not-found / NULL-institution / gate-denied: a
   -- distinct "not an induction event" would let any authenticated caller probe
@@ -53,11 +56,20 @@ BEGIN
   -- roster = enrolled learners the session applies to (combined batch_id IS NULL
   -- or exact batch match) — same eligibility rule as fn_induction_day_roster.
   -- roster=0 sessions count as marked (nothing to mark; keeps empty programs quiet).
+  -- Roster deliberately binds to CURRENT enrollment with no enrolled_at bound:
+  -- fn_induction_recompute_completion counts ALL batch sessions against a
+  -- learner regardless of when they enrolled, so a late enrollee with blank
+  -- past days genuinely fails completion — a back-marked day REOPENING for
+  -- them is the banner agreeing with the completion rule (coordinator should
+  -- mark their pre-enrollment days, typically Excused), not a bug.
   SELECT t.day_number::int,
          (count(*) FILTER (WHERE t.is_past))::int AS past_sessions,
          (count(*) FILTER (WHERE t.is_past AND t.marked >= t.roster))::int AS marked_sessions
   FROM (
     SELECT s.day_number,
+           -- end_at is timestamptz NOT NULL (verified via information_schema on
+           -- prod 2026-07-03: data_type='timestamp with time zone', is_nullable
+           -- ='NO', 0 null rows) — no tz-mismatch or NULL-never-past edge here.
            (s.end_at < now()) AS is_past,
            -- bounded to current roster membership: stale rows from learners who
            -- were batch-moved/unenrolled after marking must not count toward

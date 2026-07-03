@@ -105,14 +105,15 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
         InductionService.getProgramFeedbackSummary(eventId).catch(() => null),
         // gated to managers/coordinators server-side — an auth denial hides the
         // banner; any OTHER failure is surfaced as "coverage unavailable".
-        // Denial = the RPC's RAISE EXCEPTION (SQLSTATE P0001) with its gate
-        // message — code+message together, so a transient error whose text
-        // merely contains "not authorized" isn't misread as a denial.
+        // Denial = SQLSTATE P0001: every RAISE in fn_induction_attendance_coverage
+        // is an auth denial (contract documented in the fn), so the code alone is
+        // exact — no message-text matching that could rot on a rewording.
+        // Live-verified: a denied student call returns {code:'P0001'}.
         InductionService.getAttendanceCoverage(eventId)
           .then((rows) => ({ rows, failed: false }))
           .catch((e: any) => ({
             rows: [] as AttendanceCoverageRow[],
-            failed: !(e?.code === 'P0001' && /not authorized/i.test(String(e?.message ?? ''))),
+            failed: e?.code !== 'P0001',
           })),
       ]);
       setSessions(rows);
@@ -131,9 +132,10 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
       setCoverage(coverageRows.rows);
       setCoverageFailed(coverageRows.failed);
     } catch (e: any) {
-      // don't leave stale coverage behind a failed reload — a stale "all clear"
-      // banner state would read as done
-      setCoverage([]); setCoverageFailed(true);
+      // total load failure (e.g. listSessions): clear stale coverage so an old
+      // "all clear" can't linger, but DON'T claim "coverage unavailable" — the
+      // toast already announces the real failure and the banner is moot here
+      setCoverage([]); setCoverageFailed(false);
       toast.error(`Couldn't load sessions: ${e.message ?? e}`);
     }
     finally { setLoading(false); }
