@@ -64,9 +64,13 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     success?: boolean;
     data?: unknown;
     error?: string;
+    message?: string;
   };
   if (!res.ok || body?.success === false) {
-    throw new Error(body?.error || `Request failed: ${res.status}`);
+    // errorResponse() puts the human-readable text in `message` and the
+    // machine code (VALIDATION_ERROR, CONFLICT, …) in `error` — prefer the
+    // text so toasts read like sentences, not codes.
+    throw new Error(body?.message || body?.error || `Request failed: ${res.status}`);
   }
   return (body?.data ?? body) as T;
 }
