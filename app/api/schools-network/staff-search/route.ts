@@ -28,12 +28,33 @@ export const GET = withAuth(
 
     if (q.length < 2) return successResponse({ rows: [] });
 
-    const { data, error } = await auth.supabase
+    // Tenant scoping (skeptic HIGH on #1745): the profiles RLS select policy
+    // is NOT institution-scoped, so an unscoped search would let any holder
+    // of schools_network.owners.manage enumerate staff names/emails across
+    // ALL institutions. Cross-institution search is a super-admin/admin
+    // privilege (canonical triad); everyone else is pinned to their own
+    // institution — mirroring the induction assignableStaff pattern. A
+    // non-admin caller with no institution on file gets an empty result,
+    // never an unscoped one.
+    const [{ data: isSuper }, { data: isAdmin }] = await Promise.all([
+      auth.supabase.rpc('is_super_admin'),
+      auth.supabase.rpc('is_admin'),
+    ]);
+    const crossInstitution = isSuper === true || isAdmin === true;
+    if (!crossInstitution && !auth.institutionId) {
+      return successResponse({ rows: [] });
+    }
+
+    let query = auth.supabase
       .from('profiles')
       .select('id, full_name, email, role, institution_id')
       .or(`full_name.ilike.%${q}%,email.ilike.%${q}%`)
       .in('role', ['staff', 'faculty', 'hod', 'admin', 'super_admin'])
       .limit(10);
+    if (!crossInstitution) {
+      query = query.eq('institution_id', auth.institutionId);
+    }
+    const { data, error } = await query;
     if (error) return errorResponse(error.message, 500, 'SEARCH_FAILED');
 
     const rows = (data ?? []).map((r) => ({

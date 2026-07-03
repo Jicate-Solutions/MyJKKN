@@ -43,6 +43,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { NoAccess } from '../../../_lib/no-access';
 
 import { assignOwner, listPartners, searchStaff } from '../../../_lib/api';
 import {
@@ -297,7 +298,7 @@ export default function AssignOwnerPage() {
   const schoolId = params?.schoolId ?? '';
 
   return (
-    <PermissionGuard module="schools_network.owners" action="manage">
+    <PermissionGuard module="schools_network.owners" action="manage" fallback={<NoAccess what="assigning school owners" />}>
       <ContentLayout title="Assign Owner">
         <Breadcrumb>
           <BreadcrumbList>
