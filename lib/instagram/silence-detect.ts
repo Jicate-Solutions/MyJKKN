@@ -160,39 +160,51 @@ async function fetchLastAlertDays(
   // day per account matters, the newest 5000 rows (~one notifications row
   // per silent account per day; 35/day today => ~300/window) cannot lose
   // any account's latest alert at any realistic scale.
-  const { data, error } = await supabase
-    .from('notifications')
-    .select('idempotency_key, metadata, created_at')
-    .like('idempotency_key', `${IDEMPOTENCY_PREFIX}%`)
-    .gte('created_at', sinceIso)
-    .order('created_at', { ascending: false })
-    .limit(5000);
+  // Paginated fetch (round-3 review): a single capped query cannot
+  // guarantee completeness — PostgREST's server max-rows (commonly 1000)
+  // can silently truncate, and a large realert window (30–90 days) can
+  // legitimately exceed it (~35 alerts/day × window across all accounts).
+  // Page newest-first until a short page arrives; hard stop at PAGE_CAP
+  // pages with a loud warn (degrades toward alerting, never silence).
+  // NOTE on tenant scoping (re-flagged each round): keying on ig_user_id
+  // alone is safe — ig_accounts.ig_user_id carries a GLOBAL unique
+  // constraint (ig_accounts_ig_user_id_key), so one IG account cannot be
+  // connected under two institutions.
+  const PAGE_SIZE = 1000;
+  const PAGE_CAP = 10;
+  type AlertRow = { idempotency_key?: string; metadata?: { ig_user_id?: unknown } };
+  const rows: AlertRow[] = [];
+  for (let page = 0; page < PAGE_CAP; page++) {
+    const { data: pageData, error } = await supabase
+      .from('notifications')
+      .select('idempotency_key, metadata, created_at')
+      .like('idempotency_key', `${IDEMPOTENCY_PREFIX}%`)
+      .gte('created_at', sinceIso)
+      .order('created_at', { ascending: false })
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
-  if (error) {
-    console.warn(
-      '[ig-silence-detect] last-alert lookup failed (failing open, no suppression):',
-      error.message
-    );
-    return lastAlertDay;
+    if (error) {
+      console.warn(
+        '[ig-silence-detect] last-alert lookup failed (failing open, no suppression):',
+        error.message
+      );
+      return lastAlertDay;
+    }
+    rows.push(...((pageData ?? []) as AlertRow[]));
+    if ((pageData?.length ?? 0) < PAGE_SIZE) break;
+    if (page === PAGE_CAP - 1) {
+      console.warn(
+        `[ig-silence-detect] last-alert lookup hit the ${PAGE_CAP * PAGE_SIZE}-row page cap — suppression may be incomplete (fails open to alerting)`
+      );
+    }
   }
 
-  // Cap-hit guard (review fix): if the result size reaches the requested
-  // limit (or PostgREST's server-side max-rows silently capped us lower),
-  // completeness is no longer guaranteed — a suppressed account's newest
-  // row could be truncated out and it would re-alert daily. Log loudly;
-  // behavior degrades toward legacy (alerting), never toward silence.
-  if ((data?.length ?? 0) >= 1000) {
-    console.warn(
-      `[ig-silence-detect] last-alert lookup returned ${data?.length} rows — at/near the row cap; suppression may be incomplete (fails open to alerting)`
-    );
-  }
-
-  for (const row of data ?? []) {
-    const key = (row as { idempotency_key?: string }).idempotency_key;
+  for (const row of rows) {
+    const key = row.idempotency_key;
     if (!key || key.length <= IDEMPOTENCY_PREFIX.length + 11) continue;
     const dayKey = key.slice(-10); // trailing YYYY-MM-DD
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) continue;
-    const meta = (row as { metadata?: { ig_user_id?: unknown } }).metadata;
+    const meta = row.metadata;
     const metaId = meta?.ig_user_id;
     const igUserId =
       (typeof metaId === 'string' && metaId.length > 0) ||
