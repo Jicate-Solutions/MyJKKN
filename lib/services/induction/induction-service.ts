@@ -214,6 +214,19 @@ export class InductionService {
     return !!data;
   }
 
+  /** Server-truth event-level manage gate. Mirrors the privileged induction RPCs'
+   *  auth check (admin OR induction.manage WITH access to THIS event's institution
+   *  OR per-event coordinator). EXCLUDES per-session speakers — a resource person
+   *  still gets per-row tools on their own sessions via the isMySession path. The
+   *  sessions section uses this instead of a client-only permission check so the
+   *  UI matches exactly what the server allows (no dead edit/delete/add buttons for
+   *  a scope='own' person with no access to this event's institution). */
+  static async canManageEvent(eventId: string): Promise<boolean> {
+    const { data, error } = await getSupabase().rpc('fn_induction_can_manage_event', { p_event_id: eventId });
+    if (error) return false;
+    return !!data;
+  }
+
   static async listEventCoordinators(eventId: string): Promise<EventCoordinator[]> {
     const { data, error } = await getSupabase().rpc('fn_induction_list_event_coordinators', { p_event_id: eventId });
     if (error) throw error;
