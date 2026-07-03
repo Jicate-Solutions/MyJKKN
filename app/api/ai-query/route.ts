@@ -12,8 +12,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import {
   resolveChatModel,
   recordChatUsage,
+  computeChatCostInr,
 } from '@/lib/services/platform/ai-clients/chat';
-import { getModel } from '@/lib/services/platform/ai-providers';
 import type {
 
   AIQueryRequest,
@@ -32,20 +32,6 @@ const anthropic = new Anthropic({
 // inside POST — NOT at module level; resolveChatModel never throws).
 const FEATURE_KEY = 'ai_query.natural_language';
 
-// Cost in INR from the pricing registry — null when pricing/tokens are missing.
-function costInr(
-  modelId: string,
-  usage: { input_tokens?: number | null; output_tokens?: number | null } | undefined,
-): number | null {
-  const pricing = getModel('anthropic', modelId);
-  const input = usage?.input_tokens;
-  const output = usage?.output_tokens;
-  if (!pricing || pricing.inputPer1KTokensInr == null || pricing.outputPer1KTokensInr == null) return null;
-  if (input == null || output == null) return null;
-  return Number(
-    ((input / 1000) * pricing.inputPer1KTokensInr + (output / 1000) * pricing.outputPer1KTokensInr).toFixed(6),
-  );
-}
 
 // Maximum characters for tool results to prevent token overflow
 // Claude's context is ~200K tokens, we need to leave room for system prompt, tools, and response
@@ -1113,10 +1099,8 @@ export async function POST(request: NextRequest) {
       input_tokens: aiInputTokens,
       output_tokens: aiOutputTokens,
       cost_inr:
-        costInr(modelForRequest, {
-          input_tokens: aiInputTokens,
-          output_tokens: aiOutputTokens,
-        }) ?? undefined,
+        computeChatCostInr(modelForRequest, aiInputTokens, aiOutputTokens) ??
+        undefined,
       duration_ms: aiDurationMs,
       success: true,
     });

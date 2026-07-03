@@ -28,64 +28,13 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import Anthropic from '@anthropic-ai/sdk';
 import {
   resolveChatModel,
-  recordChatUsage,
+  recordChatCall,
 } from '@/lib/services/platform/ai-clients/chat';
-import { getModel } from '@/lib/services/platform/ai-providers';
 
 // Model comes from ai_model_config (admin-governed) — resolved once per run via
 // resolveChatModel(FEATURE_KEY), which never throws (hardcoded fallback on any
 // config failure).
 const FEATURE_KEY = 'session_feedback.escalation';
-
-// Cost in INR from the pricing registry — null when pricing or token counts are missing.
-function costInr(
-  modelId: string,
-  inputTokens?: number,
-  outputTokens?: number
-): number | null {
-  const pricing = getModel('anthropic', modelId);
-  if (
-    !pricing ||
-    pricing.inputPer1KTokensInr == null ||
-    pricing.outputPer1KTokensInr == null
-  ) {
-    return null;
-  }
-  if (inputTokens == null || outputTokens == null) return null;
-  return Number(
-    (
-      (inputTokens / 1000) * pricing.inputPer1KTokensInr +
-      (outputTokens / 1000) * pricing.outputPer1KTokensInr
-    ).toFixed(6)
-  );
-}
-
-// Record one Claude invocation into ai_model_usage. recordChatUsage is internally
-// non-throwing and MUST be awaited (Vercel serverless drops un-awaited promises).
-async function recordCall(
-  modelId: string,
-  startedAt: number,
-  resp: Anthropic.Message | null,
-  err?: unknown
-): Promise<void> {
-  if (resp) {
-    const inputTokens = resp.usage?.input_tokens;
-    const outputTokens = resp.usage?.output_tokens;
-    await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
-      input_tokens: inputTokens,
-      output_tokens: outputTokens,
-      cost_inr: costInr(modelId, inputTokens, outputTokens) ?? undefined,
-      duration_ms: Date.now() - startedAt,
-      success: true,
-    });
-  } else {
-    await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
-      duration_ms: Date.now() - startedAt,
-      success: false,
-      error_message: err instanceof Error ? err.message.slice(0, 500) : String(err),
-    });
-  }
-}
 
 const SUMMARY_SYSTEM = `You write a 2-3 sentence briefing for a department head or principal about ONE class whose students gave anonymous post-class feedback indicating low understanding. You receive ONLY aggregate numbers and anonymized comment themes — never any student identity. Speak only in aggregate themes; NEVER quote a comment verbatim and NEVER refer to an individual student. Be concrete, India higher-education context aware, and end with the single most useful next step for the teacher. Return PLAIN TEXT only (2-3 sentences, no markdown, no preamble).`;
 
@@ -137,10 +86,10 @@ Write the 2-3 sentence leadership briefing now.`;
         messages: [{ role: 'user', content: userPrompt }],
       });
     } catch (apiErr) {
-      await recordCall(modelId, t0, null, apiErr);
+      await recordChatCall(FEATURE_KEY, 'anthropic', modelId, t0, null, apiErr);
       throw apiErr; // outer catch keeps the template fallback — summarize NEVER throws outward
     }
-    await recordCall(modelId, t0, resp);
+    await recordChatCall(FEATURE_KEY, 'anthropic', modelId, t0, resp);
     const text = resp.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
       .map((b) => b.text)

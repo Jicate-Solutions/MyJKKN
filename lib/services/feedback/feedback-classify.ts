@@ -16,9 +16,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import {
   resolveChatModel,
-  recordChatUsage,
+  recordChatCall,
 } from '@/lib/services/platform/ai-clients/chat';
-import { getModel } from '@/lib/services/platform/ai-providers';
 import type {
   FeedbackClassification,
   AiSentiment,
@@ -46,29 +45,6 @@ const SYSTEM = `You classify a single piece of audience feedback for an Indian e
 - "topic": a 2-5 word lowercase topic label (e.g. "hostel food quality", "admission fee query")
 - "draft_reply": a warm, specific, ≤300-char reply in the SAME language as the feedback that a staff member could send after a quick check. For complaints, acknowledge + next step. For questions, answer or say who will. Never invent facts, fees, or dates — if unknown, say it'll be confirmed.`;
 
-// Cost in INR from the pricing registry — null when pricing or token counts are missing.
-function costInr(
-  modelId: string,
-  inputTokens?: number,
-  outputTokens?: number
-): number | null {
-  const pricing = getModel('anthropic', modelId);
-  if (
-    !pricing ||
-    pricing.inputPer1KTokensInr == null ||
-    pricing.outputPer1KTokensInr == null
-  ) {
-    return null;
-  }
-  if (inputTokens == null || outputTokens == null) return null;
-  return Number(
-    (
-      (inputTokens / 1000) * pricing.inputPer1KTokensInr +
-      (outputTokens / 1000) * pricing.outputPer1KTokensInr
-    ).toFixed(6)
-  );
-}
-
 /** Classify one feedback string. Throws on API/parse failure (caller decides). */
 export async function classifyFeedback(
   content: string
@@ -88,26 +64,14 @@ export async function classifyFeedback(
       messages: [{ role: 'user', content: content.slice(0, 4000) }],
     });
   } catch (err) {
-    // Record the failed invocation (recordChatUsage is internally non-throwing,
+    // Record the failed invocation (recordChatCall is internally non-throwing,
     // MUST be awaited — serverless drops un-awaited promises), then RETHROW:
     // the cron catches per-row and leaves ai_processed_at NULL so a later run
     // retries. Swallowing here would break that retry queue.
-    await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
-      duration_ms: Date.now() - t0,
-      success: false,
-      error_message: err instanceof Error ? err.message.slice(0, 500) : String(err),
-    });
+    await recordChatCall(FEATURE_KEY, 'anthropic', modelId, t0, null, err);
     throw err;
   }
-  const inputTokens = resp.usage?.input_tokens;
-  const outputTokens = resp.usage?.output_tokens;
-  await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
-    input_tokens: inputTokens,
-    output_tokens: outputTokens,
-    cost_inr: costInr(modelId, inputTokens, outputTokens) ?? undefined,
-    duration_ms: Date.now() - t0,
-    success: true,
-  });
+  await recordChatCall(FEATURE_KEY, 'anthropic', modelId, t0, resp);
 
   const text = resp.content
     .filter((b): b is Anthropic.TextBlock => b.type === 'text')

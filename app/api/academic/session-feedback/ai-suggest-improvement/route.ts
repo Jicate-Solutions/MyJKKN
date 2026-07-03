@@ -23,28 +23,13 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import Anthropic from '@anthropic-ai/sdk';
 import {
   resolveChatModel,
-  recordChatUsage,
+  recordChatCall,
 } from '@/lib/services/platform/ai-clients/chat';
-import { getModel } from '@/lib/services/platform/ai-providers';
 
 // Model resolves at runtime from ai_model_config (feature_key below);
 // resolveChatModel never throws — hardcoded fallback on any config failure.
 const FEATURE_KEY = 'session_feedback.suggest_improvement';
 
-// Cost in INR from the pricing registry — null when pricing/tokens are missing.
-function costInr(
-  modelId: string,
-  usage: { input_tokens?: number | null; output_tokens?: number | null } | undefined,
-): number | null {
-  const pricing = getModel('anthropic', modelId);
-  const input = usage?.input_tokens;
-  const output = usage?.output_tokens;
-  if (!pricing || pricing.inputPer1KTokensInr == null || pricing.outputPer1KTokensInr == null) return null;
-  if (input == null || output == null) return null;
-  return Number(
-    ((input / 1000) * pricing.inputPer1KTokensInr + (output / 1000) * pricing.outputPer1KTokensInr).toFixed(6),
-  );
-}
 
 // Roles that may see institution-wide signals (non-super leadership). A plain
 // faculty/staff caller falls through to the self-scoped (own-email) path.
@@ -273,22 +258,12 @@ Generate the teaching-improvement JSON now.`;
         messages: [{ role: 'user', content: userPrompt }],
       });
     } catch (aiErr) {
-      // Record the failed invocation (recordChatUsage is internally
+      // Record the failed invocation (recordChatCall is internally
       // non-throwing), then rethrow — the outer catch keeps the existing 500.
-      await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
-        duration_ms: Date.now() - aiStartedAt,
-        success: false,
-        error_message: aiErr instanceof Error ? aiErr.message.slice(0, 500) : String(aiErr),
-      });
+      await recordChatCall(FEATURE_KEY, 'anthropic', modelId, aiStartedAt, null, aiErr);
       throw aiErr;
     }
-    await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
-      input_tokens: resp.usage?.input_tokens ?? undefined,
-      output_tokens: resp.usage?.output_tokens ?? undefined,
-      cost_inr: costInr(modelId, resp.usage) ?? undefined,
-      duration_ms: Date.now() - aiStartedAt,
-      success: true,
-    });
+    await recordChatCall(FEATURE_KEY, 'anthropic', modelId, aiStartedAt, resp);
 
     const text = resp.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
