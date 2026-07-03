@@ -20885,3 +20885,10 @@ REVOKE EXECUTE ON FUNCTION
 GRANT EXECUTE ON FUNCTION
   public.fn_scf_confirmation_rollup(date,date,uuid,uuid,uuid,uuid,integer)
   TO authenticated;
+
+-- Updated: 2026-07-03 - Schools Network feeder discovery (read-through)
+-- fn_schools_network_feeders: UNIONs learners_profiles.last_school +
+-- marketing_leads_database.school_name into a deduped feeder list with
+-- adopted-flag JOIN to schools. SECURITY DEFINER, permission-gated inside
+-- (schools_network.schools.view), anon EXECUTE revoked.
+-- Full definition: supabase/migrations/20260703093000_schools_network_feeders_rpc.sql
