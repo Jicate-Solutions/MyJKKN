@@ -1369,10 +1369,27 @@ ALTER TABLE billing_student_bills ENABLE ROW LEVEL SECURITY;
 
 -- Updated: 2026-04-18 - Use role_has_institution_access for cross-institution support
 -- (admission_staff with scope='all' was blocked by institution_id = get_current_user_institution_id())
-CREATE POLICY "bills_select_institution" ON billing_student_bills
+-- Updated: 2026-07-03 - Consolidated the two overlapping SELECT policies
+-- (bills_select_institution + billing_bills_select_permission) into one whose
+-- user-constant predicates are hoisted out of the per-row loop (scalar InitPlan
+-- + hashed IN-subquery). Per-row role_has_institution_access()/
+-- user_has_permission() calls over ~10k rows cost ~4s and blew the 8s
+-- statement timeout (57014) for all-institution non-admin users on
+-- /billing/schedule. Visible-row set unchanged.
+CREATE POLICY "bills_select_scoped" ON billing_student_bills
     FOR SELECT USING (
-        is_super_admin() OR is_admin()
-        OR (role_has_institution_access(institution_id) AND user_has_permission('billing.bills.view'))
+        (SELECT is_super_admin() OR is_admin())
+        OR institution_id IN (
+            SELECT unnest(_user_accessible_institutions())
+            WHERE user_has_permission('billing.bills.view')
+               OR user_has_permission('billing.schedule.view')
+        )
+        OR student_id IN (
+            SELECT lp.id
+            FROM learners_profiles lp
+            JOIN profiles p ON (p.email = lp.student_email OR p.email = lp.college_email)
+            WHERE p.id = auth.uid()
+        )
     );
 
 CREATE POLICY "bills_insert_admin" ON billing_student_bills
