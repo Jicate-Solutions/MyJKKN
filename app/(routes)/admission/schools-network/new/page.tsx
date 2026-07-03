@@ -9,7 +9,7 @@
 import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowLeft, Loader2, School as SchoolIcon } from 'lucide-react';
 
@@ -36,7 +36,7 @@ import {
 } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 
-import { createSchool } from '../_lib/api';
+import { createSchool, listInstitutions } from '../_lib/api';
 import {
   OWNERSHIP_LABEL,
   STATUS_LABEL,
@@ -56,6 +56,7 @@ function NewSchoolForm() {
   const searchParams = useSearchParams();
   const [name, setName] = useState(searchParams.get('name') ?? '');
   const [ownership, setOwnership] = useState<SchoolOwnership>('external');
+  const [institutionId, setInstitutionId] = useState('');
   const [status, setStatus] = useState<SchoolStatus>('active');
   const [district, setDistrict] = useState('');
   const [state, setState] = useState('Tamil Nadu');
@@ -64,6 +65,16 @@ function NewSchoolForm() {
   const [intakeYear, setIntakeYear] = useState<string>(
     new Date().getFullYear().toString()
   );
+
+  // Same source + query key as other admin forms (internships/vehicles) so
+  // the list is shared from the React Query cache. Only fetched when the
+  // Internal branch actually needs it.
+  const institutionsQuery = useQuery({
+    queryKey: ['institutions', 'simple'],
+    queryFn: listInstitutions,
+    enabled: ownership === 'internal',
+    staleTime: 10 * 60 * 1000,
+  });
 
   const mutation = useMutation({
     mutationFn: (input: CreateSchoolInput) => createSchool(input),
@@ -83,9 +94,14 @@ function NewSchoolForm() {
       toast.error('Name is required');
       return;
     }
+    if (ownership === 'internal' && !institutionId) {
+      toast.error('Institution is required for JKKN (internal) schools');
+      return;
+    }
     mutation.mutate({
       name: name.trim(),
       ownership,
+      institutionId: ownership === 'internal' ? institutionId : undefined,
       status,
       district: district.trim() || undefined,
       state: state.trim() || undefined,
@@ -129,7 +145,13 @@ function NewSchoolForm() {
                 <Label htmlFor="ownership">Ownership *</Label>
                 <Select
                   value={ownership}
-                  onValueChange={(v) => setOwnership(v as SchoolOwnership)}
+                  onValueChange={(v) => {
+                    const next = v as SchoolOwnership;
+                    setOwnership(next);
+                    // Institution only applies to internal schools — drop any
+                    // picked value when switching back to external.
+                    if (next === 'external') setInstitutionId('');
+                  }}
                 >
                   <SelectTrigger id="ownership">
                     <SelectValue />
@@ -144,7 +166,7 @@ function NewSchoolForm() {
                 </Select>
                 <p className="text-xs text-muted-foreground">
                   {ownership === 'internal'
-                    ? "JKKN's own school — must link to an institution. Set institution after creation."
+                    ? "JKKN's own school — pick the institution it belongs to below."
                     : 'External partner school in the community.'}
                 </p>
               </div>
@@ -167,6 +189,40 @@ function NewSchoolForm() {
                 </Select>
               </div>
             </div>
+
+            {ownership === 'internal' && (
+              <div className="space-y-2">
+                <Label htmlFor="institution">Institution *</Label>
+                <Select value={institutionId} onValueChange={setInstitutionId}>
+                  <SelectTrigger id="institution">
+                    <SelectValue
+                      placeholder={
+                        institutionsQuery.isLoading
+                          ? 'Loading institutions…'
+                          : 'Select the JKKN institution'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(institutionsQuery.data ?? []).map((inst) => (
+                      <SelectItem key={inst.id} value={inst.id}>
+                        {inst.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {institutionsQuery.error ? (
+                  <p className="text-xs text-destructive">
+                    Couldn&apos;t load institutions — reload the page and try
+                    again.
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    The JKKN institution this school is part of.
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">

@@ -247,6 +247,29 @@ export function createPartner(input: {
   });
 }
 
+/* ─── Institutions lookup (platform-wide, outside this module's API) ── */
+
+export interface InstitutionOption {
+  id: string;
+  name: string;
+}
+
+/**
+ * GET /api/institutions — the existing platform-wide institutions lookup
+ * already used by other admin forms (e.g. internships/vehicles). It predates
+ * this module's `{ success, data }` envelope and returns `{ data, count }`,
+ * so it deliberately bypasses `call()`.
+ */
+export async function listInstitutions(): Promise<InstitutionOption[]> {
+  const res = await fetch('/api/institutions');
+  if (!res.ok) throw new Error('Failed to load institutions');
+  const json = (await res.json().catch(() => ({}))) as {
+    data?: Array<{ id: string; name: string }>;
+  };
+  const arr = Array.isArray(json?.data) ? json.data : [];
+  return arr.map((row) => ({ id: row.id, name: row.name }));
+}
+
 /* Re-export for caller ergonomics */
 export type { School };
 
