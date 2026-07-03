@@ -88,6 +88,16 @@ export interface ResolvedViewerScope {
 // Recruitment Service
 // =====================================================================================
 
+/**
+ * Strip PostgREST filter meta-characters before interpolating a user-supplied
+ * search term into a `.or()` string — `,`/`(`/`)` etc. would otherwise be
+ * parsed as filter syntax (RLS still bounds rows, but the filter logic could
+ * be altered or the query broken).
+ */
+function sanitizeSearchTerm(search: string): string {
+  return search.replace(/[,()"\\:*%]/g, ' ').trim();
+}
+
 export class RecruitmentService {
   // ----- Viewer-scope resolver (platform_policies-driven) -----
 
@@ -288,9 +298,10 @@ export class RecruitmentService {
       q = q.in('status', statuses);
     }
     if (filters.search) {
-      q = q.or(
-        `name.ilike.%${filters.search}%,email.ilike.%${filters.search}%,role_title.ilike.%${filters.search}%`
-      );
+      const s = sanitizeSearchTerm(filters.search);
+      if (s) {
+        q = q.or(`name.ilike.%${s}%,email.ilike.%${s}%,role_title.ilike.%${s}%`);
+      }
     }
 
     const { data, count, error } = await q;
@@ -751,9 +762,10 @@ export class RecruitmentService {
     if (filters.job_id) query = query.eq('job_id', filters.job_id);
     if (filters.status && filters.status.length > 0) query = query.in('status', filters.status);
     if (filters.search) {
-      query = query.or(
-        `first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,email.ilike.%${filters.search}%`
-      );
+      const s = sanitizeSearchTerm(filters.search);
+      if (s) {
+        query = query.or(`first_name.ilike.%${s}%,last_name.ilike.%${s}%,email.ilike.%${s}%`);
+      }
     }
 
     const { data, error, count } = await query;
