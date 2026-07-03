@@ -13,8 +13,24 @@ import {
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BarChart3, Plus, X, Radio, Square, Users, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Presentation } from 'lucide-react';
-import { InductionPollService, type PollQuestionDraft, type PollTotals, type PollResponder } from '@/lib/services/induction/induction-poll-service';
+import { InductionPollService, type PollQuestionDraft, type PollQuestionKind, type PollTotals, type PollResponder } from '@/lib/services/induction/induction-poll-service';
+import { useInductionPollRealtime } from '@/hooks/induction/use-induction-poll-realtime';
 import { SessionPollPresenter } from './session-poll-presenter';
+
+// Generate the numeric option rows for a SCALE question (labels ARE the numbers),
+// preserving existing option ids by number so re-saving never orphans a voted option.
+// A rating scale is capped to a sane number of points so a mistyped bound (e.g.
+// max=1_000_000) can't loop min..max on every keystroke and freeze the browser or
+// mint a giant option-upsert payload.
+const MAX_SCALE_POINTS = 10;
+function genScaleOptions(min: number, max: number, existing: { id?: string; label: string }[]) {
+  const byNum = new Map(existing.map((o) => [parseInt(o.label, 10), o.id]));
+  const out: { id?: string; label: string; position: number }[] = [];
+  const hi = Math.min(max, min + MAX_SCALE_POINTS - 1);   // defensive backstop
+  for (let n = min, i = 0; n <= hi; n += 1, i += 1) out.push({ id: byNum.get(n), label: String(n), position: i });
+  return out;
+}
+const clampInt = (v: string, fallback: number) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : fallback; };
 
 export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: string; sessionTitle: string }) {
   const [open, setOpen] = useState(false);
@@ -40,8 +56,19 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
       if (p) {
         setPollId(p.id); setStatus(p.status); setHasVotes(p.has_votes); setAutoCloseAt(p.auto_close_at);
         setCurrentQid(p.current_question_id);
-        setQuestions(p.questions.map((q) => ({ id: q.id, prompt: q.prompt, kind: q.kind, position: q.position,
-          options: q.options.map((o) => ({ id: o.id, label: o.label, position: o.position })) })));
+        setQuestions(p.questions.map((q) => {
+          const opts = q.options.map((o) => ({ id: o.id, label: o.label, position: o.position }));
+          // Re-hydrate the scale range from the numeric option labels so the builder
+          // shows the same min..max on re-open.
+          const nums = q.kind === 'scale' ? opts.map((o) => parseInt(o.label, 10)).filter((n) => Number.isFinite(n)) : [];
+          return {
+            id: q.id, prompt: q.prompt, kind: q.kind, position: q.position, options: opts,
+            scale_min_label: q.scale_min_label ?? null, scale_max_label: q.scale_max_label ?? null,
+            ...(q.kind === 'scale' && nums.length
+              ? { scale_min: Math.min(...nums), scale_max: Math.max(...nums) }
+              : {}),
+          } as PollQuestionDraft;
+        }));
         if (p.status === 'open') { await refresh(p.id); startPoll(p.id); }
       } else { setQuestions([]); setPollId(null); setStatus('draft'); setHasVotes(false); }
     } catch (e: any) { toast.error(e?.message ?? 'Could not load poll'); }
@@ -59,24 +86,63 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
       if (t) setAutoCloseAt(t.auto_close_at);
       if (t && t.status !== 'open') { stop(); setStatus(t.status); } } catch { /* keep last */ }
   }
-  function startPoll(pid: string) { stop(); timer.current = setInterval(() => refresh(pid), 8000); }
+  // Resilience fallback (lengthened to 10s now that realtime pushes immediate refreshes).
+  function startPoll(pid: string) { stop(); timer.current = setInterval(() => refresh(pid), 10000); }
+
+  // Realtime: any vote on this poll triggers an immediate totals refetch.
+  useInductionPollRealtime(open && status === 'open' && pollId ? pollId : undefined, () => { if (pollId) refresh(pollId); });
 
   useEffect(() => { if (open) load(); else { stop(); setTotals(null); setResponders([]); setShowResponders(false); } }, [open, load]);
 
   // builder mutations
   const addQuestion = () => setQuestions((qs) => [...qs, { prompt: '', kind: 'single', position: qs.length, options: [{ label: '', position: 0 }] }]);
   const setQ = (i: number, patch: Partial<PollQuestionDraft>) => setQuestions((qs) => qs.map((q, j) => j === i ? { ...q, ...patch } : q));
+  // Switching kind seeds the shape each kind needs: scale gets a default 1..5 range
+  // (options generated on save); wordcloud drops options; single/multi keep at least one.
+  const changeKind = (i: number, kind: PollQuestionKind) => setQuestions((qs) => qs.map((q, j) => {
+    if (j !== i) return q;
+    if (kind === 'scale') {
+      const min = q.scale_min ?? 1; const max = q.scale_max ?? 5;
+      return { ...q, kind, scale_min: min, scale_max: max, options: genScaleOptions(min, max, q.options) };
+    }
+    if (kind === 'wordcloud') return { ...q, kind, options: [] };
+    // single/multi
+    return { ...q, kind, options: q.options.length ? q.options : [{ label: '', position: 0 }] };
+  }));
+  const setScaleRange = (i: number, next: { min?: number; max?: number }) => setQuestions((qs) => qs.map((q, j) => {
+    if (j !== i) return q;
+    const min = Math.max(1, next.min ?? q.scale_min ?? 1);
+    const rawMax = next.max ?? q.scale_max ?? 5;
+    // Always 2..MAX_SCALE_POINTS points: max strictly above min (no degenerate
+    // single-point scale that the >=2 save filter would silently drop), span capped.
+    const max = Math.min(Math.max(min + 1, rawMax), min + MAX_SCALE_POINTS - 1);
+    return { ...q, scale_min: min, scale_max: max, options: genScaleOptions(min, max, q.options) };
+  }));
   const removeQ = (i: number) => setQuestions((qs) => qs.filter((_, j) => j !== i));
   const addOpt = (i: number) => setQuestions((qs) => qs.map((q, j) => j === i ? { ...q, options: [...q.options, { label: '', position: q.options.length }] } : q));
   const setOpt = (i: number, k: number, label: string) => setQuestions((qs) => qs.map((q, j) => j === i ? { ...q, options: q.options.map((o, m) => m === k ? { ...o, label } : o) } : q));
   const removeOpt = (i: number, k: number) => setQuestions((qs) => qs.map((q, j) => j === i ? { ...q, options: q.options.filter((_, m) => m !== k) } : q));
 
   const savePoll = async () => {
-    // normalize positions; drop empty options/questions
+    // Normalize positions and build a per-kind payload:
+    //  · scale     → generate numeric options from the range; carry anchor labels.
+    //  · wordcloud → prompt only, no options (options are minted at answer time).
+    //  · single/multi → keep non-empty options (need at least two).
     const payload = questions
-      .map((q, i) => ({ ...q, position: i, options: q.options.filter((o) => o.label.trim()).map((o, k) => ({ ...o, position: k })) }))
-      .filter((q) => q.prompt.trim() && q.options.length >= 2);
-    if (!payload.length) { toast.error('Add at least one question with two options.'); return; }
+      .map((q, i) => {
+        if (q.kind === 'scale') {
+          const min = q.scale_min ?? 1; const max = Math.max(min, q.scale_max ?? 5);
+          return {
+            ...q, position: i, options: genScaleOptions(min, max, q.options),
+            scale_min_label: q.scale_min_label?.trim() || null,
+            scale_max_label: q.scale_max_label?.trim() || null,
+          } as PollQuestionDraft;
+        }
+        if (q.kind === 'wordcloud') return { ...q, position: i, options: [] } as PollQuestionDraft;
+        return { ...q, position: i, options: q.options.filter((o) => o.label.trim()).map((o, k) => ({ ...o, position: k })) } as PollQuestionDraft;
+      })
+      .filter((q) => q.prompt.trim() && (q.kind === 'wordcloud' || q.options.length >= 2));
+    if (!payload.length) { toast.error('Add at least one question (options: two for a choice question, none for a word cloud).'); return; }
     setBusy(true);
     try { const id = await InductionPollService.upsertPoll(sessionId, payload); setPollId(id); toast.success('Poll saved.'); await load(); }
     catch (e: any) { toast.error(e?.message ?? 'Could not save poll'); } finally { setBusy(false); }
@@ -190,19 +256,52 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
             <div key={q.id ?? i} className="rounded-md border p-2 space-y-2">
               <div className="flex gap-2">
                 <Input placeholder="Question" value={q.prompt} onChange={(e) => setQ(i, { prompt: e.target.value })} />
-                <Select value={q.kind} onValueChange={(v) => setQ(i, { kind: v as 'single' | 'multi' })}>
-                  <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="single">Pick one</SelectItem><SelectItem value="multi">Pick many</SelectItem></SelectContent>
+                {/* Kind is locked once votes exist — changing it would corrupt the ballot shape. */}
+                <Select value={q.kind} onValueChange={(v) => changeKind(i, v as PollQuestionKind)} disabled={hasVotes}>
+                  <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="single">Pick one</SelectItem>
+                    <SelectItem value="multi">Pick many</SelectItem>
+                    <SelectItem value="scale">Rating scale</SelectItem>
+                    <SelectItem value="wordcloud">Word cloud</SelectItem>
+                  </SelectContent>
                 </Select>
                 <Button size="icon" variant="ghost" disabled={hasVotes} onClick={() => removeQ(i)}><X className="h-4 w-4" /></Button>
               </div>
-              {q.options.map((o, k) => (
-                <div key={o.id ?? k} className="flex gap-2 pl-3">
-                  <Input placeholder={`Option ${k + 1}`} value={o.label} onChange={(e) => setOpt(i, k, e.target.value)} />
-                  <Button size="icon" variant="ghost" disabled={hasVotes} onClick={() => removeOpt(i, k)}><X className="h-4 w-4" /></Button>
+
+              {q.kind === 'wordcloud' ? (
+                <p className="pl-3 text-xs text-muted-foreground">Learners type one word or short phrase — the most-common answers grow largest. No options to set.</p>
+              ) : q.kind === 'scale' ? (
+                <div className="space-y-2 pl-3">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Label className="text-xs text-muted-foreground">From</Label>
+                    <Input type="number" className="w-16" value={q.scale_min ?? 1} disabled={hasVotes}
+                      onChange={(e) => setScaleRange(i, { min: clampInt(e.target.value, 1) })} />
+                    <Label className="text-xs text-muted-foreground">to</Label>
+                    <Input type="number" className="w-16" value={q.scale_max ?? 5} disabled={hasVotes}
+                      onChange={(e) => setScaleRange(i, { max: clampInt(e.target.value, 5) })} />
+                    <span className="text-xs text-muted-foreground">
+                      {`${(q.scale_max ?? 5) - (q.scale_min ?? 1) + 1} points`}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <Input placeholder="Low label (optional, e.g. Strongly disagree)" value={q.scale_min_label ?? ''}
+                      onChange={(e) => setQ(i, { scale_min_label: e.target.value })} />
+                    <Input placeholder="High label (optional, e.g. Strongly agree)" value={q.scale_max_label ?? ''}
+                      onChange={(e) => setQ(i, { scale_max_label: e.target.value })} />
+                  </div>
                 </div>
-              ))}
-              <Button size="sm" variant="ghost" onClick={() => addOpt(i)}><Plus className="h-3.5 w-3.5 mr-1" /> Option</Button>
+              ) : (
+                <>
+                  {q.options.map((o, k) => (
+                    <div key={o.id ?? k} className="flex gap-2 pl-3">
+                      <Input placeholder={`Option ${k + 1}`} value={o.label} onChange={(e) => setOpt(i, k, e.target.value)} />
+                      <Button size="icon" variant="ghost" disabled={hasVotes} onClick={() => removeOpt(i, k)}><X className="h-4 w-4" /></Button>
+                    </div>
+                  ))}
+                  <Button size="sm" variant="ghost" onClick={() => addOpt(i)}><Plus className="h-3.5 w-3.5 mr-1" /> Option</Button>
+                </>
+              )}
             </div>
           ))}
           <Button size="sm" variant="outline" onClick={addQuestion}><Plus className="h-4 w-4 mr-1" /> Add question</Button>

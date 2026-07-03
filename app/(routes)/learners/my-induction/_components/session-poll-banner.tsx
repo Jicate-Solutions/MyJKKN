@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import confetti from 'canvas-confetti';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { BarChart3, CheckCircle2, Hourglass, Pencil } from 'lucide-react';
@@ -20,6 +21,9 @@ import {
   type PollForAnswering,
   type LearnerQuestionTotals,
 } from '@/lib/services/induction/induction-poll-service';
+import { useInductionPollRealtime } from '@/hooks/induction/use-induction-poll-realtime';
+
+const WORDCLOUD_MAX = 40;   // matches the server-side normalize cap
 
 function celebrate() {
   const opts = { disableForReducedMotion: true, ticks: 150 };
@@ -32,12 +36,15 @@ export function SessionPollBanner() {
   const [polls, setPolls] = useState<OpenPollForLearner[]>([]);
   const [active, setActive] = useState<PollForAnswering | null>(null);
   const [picks, setPicks] = useState<string[]>([]);
+  const [word, setWord] = useState('');              // wordcloud free-text answer
   const [answered, setAnswered] = useState(false);   // answered the CURRENT question
   const [changing, setChanging] = useState(false);   // re-opened the form to change
   const [liveTotals, setLiveTotals] = useState<LearnerQuestionTotals | null>(null);
   const [busy, setBusy] = useState(false);
   const activeRef = useRef<PollForAnswering | null>(null);
   activeRef.current = active;
+  const answeredRef = useRef(false);
+  answeredRef.current = answered;
 
   const load = useCallback(async () => {
     try { setPolls(await InductionPollService.getMyOpenPolls()); } catch { /* silent */ }
@@ -55,6 +62,13 @@ export function SessionPollBanner() {
     const q = f?.questions[0];
     const mine = q ? (f?.my_answers?.[q.id] ?? []) : [];
     setPicks(mine);
+    // Re-hydrate the learner's own wordcloud answer text from the option they voted for.
+    if (q?.kind === 'wordcloud') {
+      const myWord = mine.length ? (q.options.find((o) => o.id === mine[0])?.label ?? '') : '';
+      setWord(myWord);
+    } else {
+      setWord('');
+    }
     setAnswered(mine.length > 0);
     setChanging(false);
     setLiveTotals(null);
@@ -65,37 +79,73 @@ export function SessionPollBanner() {
     catch (e: any) { toast.error(e?.message ?? 'Could not load poll'); }
   };
 
-  // While joined: every 5s pick up (a) the coordinator moving to the next question,
-  // and (b) live counts for the current question once I've answered it.
+  // While joined: pick up (a) the coordinator moving to the next question, and
+  // (b) live counts for the current question once I've answered it.
+  const tick = useCallback(async () => {
+    const cur = activeRef.current;
+    if (!cur) return;
+    try {
+      const f = await InductionPollService.getForAnswering(cur.poll_id);
+      if (f && f.current_question_id !== cur.current_question_id) { applyForm(f); return; }
+      // Only fetch live counts when they'll actually be shown: the learner has
+      // answered this question and it isn't a word cloud (learners never see the
+      // word-cloud aggregate). This stops un-answered learners — the bulk of a live
+      // audience — from refetching totals on every ping.
+      if (answeredRef.current && cur.questions[0]?.kind !== 'wordcloud') {
+        setLiveTotals(await InductionPollService.getLearnerQuestionTotals(cur.poll_id));
+      }
+    } catch {
+      // Poll closed / no longer visible → leave the live view quietly.
+      setActive(null); load();
+    }
+  }, [load]);
+  // Realtime fires on VOTES only (never on the coordinator advancing the question),
+  // so the vote-ping handler must NOT run the heavy getForAnswering for every learner
+  // — that would be an O(votes×learners) fan-out. It refreshes only the totals the
+  // learner can actually see (answered, non-wordcloud). Question-advance is picked up
+  // by the short interval below, whose cost is fixed per-learner, not vote-scaled.
+  const refreshTotals = useCallback(async () => {
+    const cur = activeRef.current;
+    if (!cur || !answeredRef.current || cur.questions[0]?.kind === 'wordcloud') return;
+    try { setLiveTotals(await InductionPollService.getLearnerQuestionTotals(cur.poll_id)); }
+    catch { /* keep last totals; the interval recovers */ }
+  }, []);
+  useInductionPollRealtime(active?.poll_id, refreshTotals);
   useEffect(() => {
     if (!active) return;
-    const tick = async () => {
-      const cur = activeRef.current;
-      if (!cur) return;
-      try {
-        const f = await InductionPollService.getForAnswering(cur.poll_id);
-        if (f && f.current_question_id !== cur.current_question_id) { applyForm(f); return; }
-        setLiveTotals(await InductionPollService.getLearnerQuestionTotals(cur.poll_id));
-      } catch {
-        // Poll closed / no longer visible → leave the live view quietly.
-        setActive(null); load();
-      }
-    };
-    const t = setInterval(tick, 5000);
+    const t = setInterval(tick, 5000);   // advance detection; per-learner cost, not vote-scaled
     return () => clearInterval(t);
-  }, [active?.poll_id, active?.current_question_id, load]);
+  }, [active?.poll_id, tick]);
 
   const q = active?.questions[0] ?? null;
 
   const toggle = (oid: string, multi: boolean) =>
     setPicks((p) => (multi ? (p.includes(oid) ? p.filter((x) => x !== oid) : [...p, oid]) : [oid]));
 
+  const normWord = (s: string) => s.trim().replace(/\s+/g, ' ').slice(0, WORDCLOUD_MAX);
+  // Can the current answer be submitted? scale/single need exactly one pick; multi
+  // needs at least one; wordcloud needs a non-empty word.
+  const canSubmit = q
+    ? q.kind === 'wordcloud' ? normWord(word).length > 0
+      : q.kind === 'multi' ? picks.length > 0
+      : picks.length === 1
+    : false;
+
   const submit = async () => {
     if (!active || !q) return;
-    if (q.kind === 'single' && picks.length !== 1) { toast.error('Pick one option.'); return; }
+    let answer: { question_id: string; option_ids?: string[]; text?: string };
+    if (q.kind === 'wordcloud') {
+      const w = normWord(word);
+      if (!w) { toast.error('Type a word or short phrase.'); return; }
+      answer = { question_id: q.id, text: w };
+    } else {
+      if ((q.kind === 'single' || q.kind === 'scale') && picks.length !== 1) { toast.error('Pick one option.'); return; }
+      if (q.kind === 'multi' && picks.length === 0) { toast.error('Pick at least one option.'); return; }
+      answer = { question_id: q.id, option_ids: picks };
+    }
     setBusy(true);
     try {
-      await InductionPollService.submit(active.poll_id, [{ question_id: q.id, option_ids: picks }]);
+      await InductionPollService.submit(active.poll_id, [answer]);
       celebrate();
       toast.success('Answer submitted!');
       setAnswered(true); setChanging(false);
@@ -128,7 +178,12 @@ export function SessionPollBanner() {
         ) : showResults ? (
           <div className="space-y-2">
             <div className="text-sm font-medium">{q.prompt}</div>
-            {liveTotals && !liveTotals.suppressed ? (
+            {q.kind === 'wordcloud' ? (
+              // Learners never see the aggregate word list (anonymity); just confirm theirs.
+              <p className="text-xs text-muted-foreground">
+                Your answer: <span className="font-semibold text-foreground">{word || '—'}</span> · watch the screen for the live word cloud
+              </p>
+            ) : liveTotals && !liveTotals.suppressed ? (
               (() => {
                 const tot = liveTotals.options.reduce((a, o) => a + (o.count ?? 0), 0) || 1;
                 return liveTotals.options.map((o) => (
@@ -158,7 +213,30 @@ export function SessionPollBanner() {
         ) : (
           <div className="space-y-2">
             <div className="text-sm font-medium">{q.prompt}</div>
-            {q.kind === 'single' ? (
+            {q.kind === 'wordcloud' ? (
+              <div className="space-y-1">
+                <Input value={word} maxLength={WORDCLOUD_MAX} placeholder="Type one word or short phrase…"
+                  onChange={(e) => setWord(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && canSubmit && !busy) { e.preventDefault(); submit(); } }} />
+                <p className="text-xs text-muted-foreground">Up to {WORDCLOUD_MAX} characters.</p>
+              </div>
+            ) : q.kind === 'scale' ? (
+              <div className="space-y-1">
+                <div className="flex flex-wrap gap-2">
+                  {q.options.map((o) => (
+                    <button key={o.id} type="button" onClick={() => toggle(o.id, false)}
+                      className={`h-10 min-w-10 rounded-md border px-3 text-sm font-semibold tabular-nums transition-colors ${picks.includes(o.id) ? 'border-emerald-500 bg-emerald-500 text-white' : 'hover:bg-accent'}`}>
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+                {(q.scale_min_label || q.scale_max_label) && (
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>{q.scale_min_label ?? ''}</span><span>{q.scale_max_label ?? ''}</span>
+                  </div>
+                )}
+              </div>
+            ) : q.kind === 'single' ? (
               <RadioGroup value={picks[0] ?? ''} onValueChange={(v) => toggle(v, false)}>
                 {q.options.map((o) => (
                   <div key={o.id} className="flex items-center gap-2 rounded-md border p-2 hover:bg-accent">
@@ -177,7 +255,7 @@ export function SessionPollBanner() {
             )}
             {q.kind === 'multi' && <p className="text-xs text-muted-foreground">Pick as many as apply.</p>}
             <div className="flex gap-2 pt-1">
-              <Button size="sm" onClick={submit} disabled={busy || (q.kind === 'single' && picks.length !== 1)}>
+              <Button size="sm" onClick={submit} disabled={busy || !canSubmit}>
                 <CheckCircle2 className="h-4 w-4 mr-1" /> Submit
               </Button>
               {changing
