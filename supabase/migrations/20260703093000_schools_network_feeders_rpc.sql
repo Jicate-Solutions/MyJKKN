@@ -108,3 +108,12 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_schools_network_feeders(text, text, text, int, int) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_schools_network_feeders(text, text, text, int, int) TO authenticated;
 -- v2 applied to prod 2026-07-03 09:55 IST via Management API (impersonated live-verify: raw casing, 3525 total, adopted-join intact)
+
+-- ORG-WIDE BY DIRECTOR RULING (2026-07-03): intentionally cross-institution.
+-- Feeder schools are shared upstream entities serving every JKKN college;
+-- exposure is aggregate school names + counts only (no learner rows, no PII);
+-- access bounded by schools_network.schools.view. Deep-review cross-tenant
+-- finding acknowledged and ACCEPTED by the data owner. Do not scope to
+-- auth_institution_id() without a new Director decision.
+COMMENT ON FUNCTION public.fn_schools_network_feeders(text, text, text, int, int) IS
+'ORG-WIDE BY DIRECTOR RULING (2026-07-03): aggregate feeder names+counts across institutions by design; bounded by schools_network.schools.view. See PR #1752 discussion.';
