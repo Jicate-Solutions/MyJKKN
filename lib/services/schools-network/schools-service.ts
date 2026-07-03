@@ -210,8 +210,11 @@ export class SchoolsService {
    * institution scope — the write path never re-checked what the SELECT
    * policy enforces via role_has_institution_access(). Without this, any
    * school owner could point their school at another tenant's institution.
-   * RLS-scoped RPC; DB fn is SECURITY DEFINER and handles admin bypass +
-   * scope='all' roles internally. Fails CLOSED on RPC error.
+   * RLS-scoped RPC; the DB fn bypasses ONLY for super_admin and
+   * institution_scope='all' roles — plain is_admin() institution-admins ARE
+   * subject to the check (intended tightening: an institution-level admin
+   * cannot link a school to another tenant's institution). Fails CLOSED on
+   * RPC error.
    */
   private static async assertInstitutionAccess(
     supabase: SupabaseClient,
@@ -288,8 +291,31 @@ export class SchoolsService {
           input.institutionId
         );
         if (accessErr) return { ok: false, error: accessErr };
+        patch.institution_id = input.institutionId;
+      } else {
+        // Clearing the institution: only legal when the school is (or is
+        // becoming) external. A nulled INTERNAL school would become visible
+        // to every tenant (role_has_institution_access(NULL) is TRUE in the
+        // SELECT policy) and break the internal⇒institution invariant the
+        // create path enforces. Round-3 review fix.
+        let effectiveOwnership = input.ownership;
+        if (effectiveOwnership === undefined) {
+          const { data: cur } = await supabase
+            .from('schools')
+            .select('ownership')
+            .eq('id', schoolId)
+            .maybeSingle();
+          effectiveOwnership = (cur?.ownership ?? 'internal') as typeof input.ownership;
+        }
+        if (effectiveOwnership !== 'external') {
+          return {
+            ok: false,
+            error:
+              'Internal schools must keep an institution — switch ownership to external to clear it',
+          };
+        }
+        patch.institution_id = null;
       }
-      patch.institution_id = input.institutionId || null;
     }
     if (input.district !== undefined) patch.district = input.district;
     if (input.state !== undefined) patch.state = input.state;
