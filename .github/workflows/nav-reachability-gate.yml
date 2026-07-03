@@ -95,3 +95,14 @@ jobs:
       - name: Check nav reachability
         if: steps.scope.outputs.skip != 'true'
         run: npm run check:reachability
+
+      # Sidebar health incl. the menu-visibility contract (gate 3): a menu
+      # entry with no MENU_PERMISSIONS mapping and no always-visible special
+      # case is silently SUPER-ADMIN-ONLY (default-deny filter). Receipt:
+      # /my-induction-sessions, found live 2026-07-03 — "ungated on purpose"
+      # yet invisible to the resource persons it was built for. This script
+      # also runs in the Vercel build; running it here fails the PR that
+      # introduces a violation instead of a later, unrelated deploy.
+      - name: Check sidebar health (incl. menu-visibility contract)
+        if: steps.scope.outputs.skip != 'true'
+        run: npm run check:sidebar
