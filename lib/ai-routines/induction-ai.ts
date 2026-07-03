@@ -3,6 +3,7 @@ import { type AIRoutine } from './types';
 export const INDUCTION_AI_ROUTINES: AIRoutine[] = [
   {
     "id": "induction-generate-playbook",
+    "maxLane": true,
     "name": "Induction Playbook Generator (annual cohort loop)",
     "category": "induction-ai",
     "type": "cron",

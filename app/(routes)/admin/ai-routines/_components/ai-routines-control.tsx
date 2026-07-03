@@ -36,6 +36,7 @@ import {
   type ScheduleRow,
 } from './schedule-editor';
 import { ModelChip, useModelConfigMap, type ModelConfigEntry } from './model-chip';
+import { useMaxLaneRequests, MaxLaneRunButton, MaxLaneNote, type MaxLaneRequest } from './max-lane';
 
 const BRAND = '#0b6d41';
 
@@ -68,11 +69,15 @@ function RoutineRow({
   r,
   schedule,
   configMap,
+  maxRequest,
+  onMaxQueued,
   onScheduleSaved,
 }: {
   r: AIRoutine;
   schedule?: ScheduleRow;
   configMap: Map<string, ModelConfigEntry>;
+  maxRequest?: MaxLaneRequest;
+  onMaxQueued: () => void;
   onScheduleSaved: (next: ScheduleRow) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -150,6 +155,7 @@ function RoutineRow({
                   <Clock className="h-3.5 w-3.5" /> {r.schedule}
                 </span>
               )}
+              {r.maxLane ? <MaxLaneNote /> : null}
               {schedule ? (
                 <button type="button" onClick={() => setEditing((v) => !v)} className="text-[#0b6d41] hover:underline">
                   {editing ? 'Close' : 'Edit schedule'}
@@ -169,7 +175,7 @@ function RoutineRow({
             </div>
           </div>
 
-          <div className="shrink-0 text-right">
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
             {runnable ? (
               <Button size="sm" onClick={runNow} disabled={running} style={{ backgroundColor: BRAND }}>
                 {running ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Play className="mr-1.5 h-3.5 w-3.5" />}
@@ -182,6 +188,14 @@ function RoutineRow({
             ) : (
               <span className="text-xs text-muted-foreground">runs on its own screen</span>
             )}
+            {r.maxLane ? (
+              <MaxLaneRunButton
+                routineId={r.id}
+                routineName={r.name}
+                request={maxRequest}
+                onQueued={onMaxQueued}
+              />
+            ) : null}
           </div>
         </div>
 
@@ -234,6 +248,7 @@ function DetailRow({ label, value, mono }: { label: string; value: string; mono?
 export function AiRoutinesControl() {
   const { map, loading, error, setMap } = useSchedules();
   const configMap = useModelConfigMap();
+  const { map: maxMap, refetch: refetchMax } = useMaxLaneRequests();
   const total = AI_ROUTINES.length;
   const runnable = triggerableCount();
   const aiCount = AI_ROUTINES.filter((r) => r.callsClaude).length;
@@ -291,6 +306,8 @@ export function AiRoutinesControl() {
                   r={r}
                   schedule={map.get(r.id)}
                   configMap={configMap}
+                  maxRequest={maxMap.get(r.id)}
+                  onMaxQueued={refetchMax}
                   onScheduleSaved={onScheduleSaved}
                 />
               ))}
