@@ -104,12 +104,15 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
         InductionService.getDayFeedbackSummary(eventId).catch(() => []),
         InductionService.getProgramFeedbackSummary(eventId).catch(() => null),
         // gated to managers/coordinators server-side — an auth denial hides the
-        // banner; any OTHER failure is surfaced as "coverage unavailable"
+        // banner; any OTHER failure is surfaced as "coverage unavailable".
+        // Denial = the RPC's RAISE EXCEPTION (SQLSTATE P0001) with its gate
+        // message — code+message together, so a transient error whose text
+        // merely contains "not authorized" isn't misread as a denial.
         InductionService.getAttendanceCoverage(eventId)
           .then((rows) => ({ rows, failed: false }))
           .catch((e: any) => ({
             rows: [] as AttendanceCoverageRow[],
-            failed: !/not authorized/i.test(String(e?.message ?? '')),
+            failed: !(e?.code === 'P0001' && /not authorized/i.test(String(e?.message ?? ''))),
           })),
       ]);
       setSessions(rows);
@@ -127,7 +130,12 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
       setProgramFeedback(progSummary ? { avg: Number(progSummary.avg_rating), count: progSummary.response_count } : null);
       setCoverage(coverageRows.rows);
       setCoverageFailed(coverageRows.failed);
-    } catch (e: any) { toast.error(`Couldn't load sessions: ${e.message ?? e}`); }
+    } catch (e: any) {
+      // don't leave stale coverage behind a failed reload — a stale "all clear"
+      // banner state would read as done
+      setCoverage([]); setCoverageFailed(true);
+      toast.error(`Couldn't load sessions: ${e.message ?? e}`);
+    }
     finally { setLoading(false); }
   }, [eventId]);
   useEffect(() => { load(); }, [load]);

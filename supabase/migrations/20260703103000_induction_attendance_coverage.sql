@@ -69,7 +69,11 @@ BEGIN
                           WHERE e2.event_id = p_event_id
                             AND e2.learner_id = a.learner_id
                             AND (s.batch_id IS NULL OR e2.batch_id = s.batch_id))) AS marked,
-           (SELECT count(*)
+           -- DISTINCT matches the marked count's grain. induction_enrollment
+           -- already has UNIQUE(event_id, learner_id), so this is belt-and-
+           -- braces: the marked>=roster invariant no longer depends on a
+           -- constraint defined elsewhere.
+           (SELECT count(DISTINCT e.learner_id)
             FROM public.induction_enrollment e
             WHERE e.event_id = p_event_id
               AND (s.batch_id IS NULL OR e.batch_id = s.batch_id)) AS roster

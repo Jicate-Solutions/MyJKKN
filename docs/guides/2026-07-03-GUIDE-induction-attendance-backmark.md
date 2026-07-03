@@ -17,7 +17,7 @@ quick: about **one minute per day** using the bulk day button.
 ## How to back-mark a past day (1 minute per day)
 
 1. Open **MyJKKN → Events → Induction → Fresher Induction 2026** (the sessions page).
-2. Find the day's header row (e.g. **Day 1**) and click the **Day attendance** button on the right.
+2. Find the day's header row (e.g. **Day 1**) and click the **Mark day attendance** button on the right.
 3. Click **Mark all present**, then change only the exceptions (Absent / Excused / OD).
    - If a learner already has different marks across that day's sessions, they show
      "Varies by session" — the day-mark won't overwrite a deliberate partial-day mark.
@@ -28,7 +28,7 @@ quick: about **one minute per day** using the bulk day button.
 
 ## The daily rhythm for the remaining days (until July 8)
 
-- **Same day (best) or next morning:** open **Day attendance** for the day just finished,
+- **Same day (best) or next morning:** open **Mark day attendance** for the day just finished,
   mark all present, adjust exceptions, save.
 - Resource persons assigned to a session can also mark attendance for their own session.
 
