@@ -29,10 +29,25 @@ ALTER TABLE public.induction_session_poll_question
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 2) Case-insensitive per-question option uniqueness — the anchor that lets the
---    wordcloud submit path UPSERT one option row per distinct word.
+--    wordcloud submit path UPSERT one option row per distinct word. Scoped to
+--    WORDCLOUD options only (is_wordcloud flag) so single/multi/scale host options
+--    are NOT constrained (two options may legitimately differ only by letter case,
+--    e.g. IT/it) and the index can never abort on pre-existing choice labels.
 -- ─────────────────────────────────────────────────────────────────────────────
+ALTER TABLE public.induction_session_poll_option
+  ADD COLUMN IF NOT EXISTS is_wordcloud boolean NOT NULL DEFAULT false;
+-- Replace any prior table-wide index with the wordcloud-scoped partial one.
+DROP INDEX IF EXISTS public.induction_session_poll_option_qlabel_uidx;
 CREATE UNIQUE INDEX IF NOT EXISTS induction_session_poll_option_qlabel_uidx
-  ON public.induction_session_poll_option (question_id, lower(label));
+  ON public.induction_session_poll_option (question_id, lower(label))
+  WHERE is_wordcloud;
+
+-- Vote de-dup already exists as unique(question_id, option_id, learner_id) on the vote
+-- table, so a learner can never hold two identical rows. The submit RPC's INSERT ...
+-- ON CONFLICT DO NOTHING (below) infers that constraint by column-set, making a
+-- double-click / retry / realtime re-fire a graceful no-op instead of a 500. Drop the
+-- redundant duplicate index if a prior apply of this migration created one.
+DROP INDEX IF EXISTS public.induction_session_poll_vote_qlo_uidx;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 3) Host build RPC — accept scale/wordcloud. Scale questions carry generated
@@ -160,15 +175,16 @@ BEGIN
       v_word := left(btrim(regexp_replace(coalesce(a->>'text',''), '\s+', ' ', 'g')), 40);
       IF v_word = '' THEN RAISE EXCEPTION 'fn_induction_submit_poll_response: empty word'; END IF;
 
-      INSERT INTO public.induction_session_poll_option AS opt (question_id, label, position)
-      VALUES (v_qid, v_word, (SELECT count(*) FROM public.induction_session_poll_option WHERE question_id = v_qid))
-      ON CONFLICT (question_id, lower(label))
+      INSERT INTO public.induction_session_poll_option AS opt (question_id, label, position, is_wordcloud)
+      VALUES (v_qid, v_word, (SELECT count(*) FROM public.induction_session_poll_option WHERE question_id = v_qid), true)
+      ON CONFLICT (question_id, lower(label)) WHERE is_wordcloud
         DO UPDATE SET label = opt.label   -- no-op keep-first-casing update; just returns the existing id
       RETURNING opt.id INTO v_oid;
 
       DELETE FROM public.induction_session_poll_vote WHERE question_id = v_qid AND learner_id = v_learner;
       INSERT INTO public.induction_session_poll_vote (poll_id, question_id, option_id, learner_id)
-      VALUES (p_poll_id, v_qid, v_oid, v_learner);
+      VALUES (p_poll_id, v_qid, v_oid, v_learner)
+      ON CONFLICT (question_id, learner_id, option_id) DO NOTHING;
       CONTINUE;
     END IF;
 
@@ -186,7 +202,8 @@ BEGIN
     DELETE FROM public.induction_session_poll_vote WHERE question_id = v_qid AND learner_id = v_learner;
     FOREACH v_oid IN ARRAY v_opts LOOP
       INSERT INTO public.induction_session_poll_vote (poll_id, question_id, option_id, learner_id)
-      VALUES (p_poll_id, v_qid, v_oid, v_learner);
+      VALUES (p_poll_id, v_qid, v_oid, v_learner)
+      ON CONFLICT (question_id, learner_id, option_id) DO NOTHING;
     END LOOP;
   END LOOP;
 END $function$;
@@ -288,10 +305,16 @@ BEGIN
         'response_count', q_resp.cnt,
         'options', (
           SELECT coalesce(jsonb_agg(jsonb_build_object(
-            'id', o.id, 'label', o.label,
-            'count', (SELECT count(*) FROM public.induction_session_poll_vote v WHERE v.option_id = o.id)
+            'id', o.id, 'label', o.label, 'count', oc.cnt
           ) ORDER BY o.position),'[]'::jsonb)
-          FROM public.induction_session_poll_option o WHERE o.question_id = q.id)
+          FROM public.induction_session_poll_option o
+          CROSS JOIN LATERAL (SELECT count(*)::int AS cnt
+                              FROM public.induction_session_poll_vote v WHERE v.option_id = o.id) oc
+          WHERE o.question_id = q.id
+            -- k>=3 anonymity floor for wordcloud words, enforced SERVER-SIDE (not only
+            -- in the presenter): never ship a word to the host wire until >=3 learners
+            -- typed it. single/multi/scale options are host-authored choices → all shown.
+            AND (q.kind <> 'wordcloud' OR oc.cnt >= 3))
       ) AS obj
     FROM public.induction_session_poll_question q
     CROSS JOIN LATERAL (
