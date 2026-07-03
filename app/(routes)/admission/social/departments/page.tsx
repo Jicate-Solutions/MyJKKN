@@ -142,10 +142,13 @@ function liveInsightsChip(
 ) {
   if (!igLoaded) return <span className="text-muted-foreground">…</span>;
   if (!igAvailable || state === 'hidden')
+    // Cause-neutral: an empty ig_accounts result is ambiguous (RLS denial returns
+    // zero rows with no error, indistinguishable from a permitted user with zero
+    // monitored accounts), so we assert neither "no permission" nor "none exist".
     return (
       <span
         className="text-muted-foreground"
-        title="Live-insights state is not visible to your role (needs social.instagram.view)"
+        title="Live-insights data isn't available for this view"
       >
         unavailable
       </span>
