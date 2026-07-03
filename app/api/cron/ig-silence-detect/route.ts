@@ -7,8 +7,11 @@ export const maxDuration = 300;
  * Daily silence-detect for connected Instagram accounts. Reads the
  * threshold from platform_policies (`ig.alert_dormant_after_days`,
  * default 30 days, same key as the existing seeded policy) and dispatches
- * one in-app notification per silent account per day (idempotent via
- * `notifications.idempotency_key`).
+ * an in-app notification per silent account (idempotent via
+ * `notifications.idempotency_key`). Repeat alerts for a still-silent
+ * account are rate-limited by `ig.silence_realert_days` (default 7):
+ * first detection alerts immediately, then suppresses until N days after
+ * that account's last silence alert. See lib/instagram/silence-detect.ts.
  *
  * Auth: Bearer CRON_SECRET (Vercel-injected). Registered in vercel.json
  * with the standard `?secret=${CRON_SECRET}` form.
