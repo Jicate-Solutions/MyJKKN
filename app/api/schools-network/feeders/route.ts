@@ -42,7 +42,22 @@ export const GET = withAuth(
       sources: (r.sources ?? []) as string[],
       adoptedSchoolId: (r.adopted_school_id ?? null) as string | null,
     }));
-    const total = arr.length > 0 ? Number(arr[0].total_count ?? rows.length) : 0;
+    let total = arr.length > 0 ? Number(arr[0].total_count ?? rows.length) : 0;
+    if (arr.length === 0 && offset > 0) {
+      // Past-the-end page: the window count travels on rows, so an empty page
+      // would misreport total=0 and collapse pagination. Recover it with a
+      // 1-row probe at offset 0 (rare path — the UI never navigates past the
+      // last page; this protects direct API consumers).
+      const probe = await auth.supabase.rpc('fn_schools_network_feeders', {
+        p_search: search,
+        p_source: source,
+        p_adopted: adopted,
+        p_limit: 1,
+        p_offset: 0,
+      });
+      const parr = (probe.data ?? []) as Array<Record<string, unknown>>;
+      total = parr.length > 0 ? Number(parr[0].total_count ?? 0) : 0;
+    }
     return successResponse({ rows, total, limit, offset });
   },
   { allowApiKey: false, requirePermission: 'schools_network.schools.view' }

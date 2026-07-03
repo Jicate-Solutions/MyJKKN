@@ -1,14 +1,11 @@
--- fn_schools_network_feeders — read-through feeder-school discovery.
--- Reads EXISTING data (learners_profiles.last_school +
--- marketing_leads_database.school_name); no copy, no sync problem. LEFT JOIN
--- to schools marks which feeders are already adopted into the network.
--- SECURITY DEFINER because learners_profiles/marketing_leads_database RLS is
--- learner/lead-grade; this exposes ONLY school-name aggregates (no PII).
--- Gated inside on the module's own view permission.
+-- v2 (deep-review fixes): raw-cased display name via mode(), internal
+-- whitespace normalization, junk filter on BOTH sources, LIKE-metachar
+-- escaping, deduped schools join via LATERAL (no row multiplication).
+-- Admin triad + permission gate retained (canonical platform convention).
 CREATE OR REPLACE FUNCTION public.fn_schools_network_feeders(
   p_search text DEFAULT NULL,
-  p_source text DEFAULT NULL,          -- 'enrolled_learners' | 'marketing_leads' | NULL(all)
-  p_adopted text DEFAULT NULL,         -- 'adopted' | 'not_adopted' | NULL(all)
+  p_source text DEFAULT NULL,
+  p_adopted text DEFAULT NULL,
   p_limit int DEFAULT 50,
   p_offset int DEFAULT 0
 )
@@ -25,6 +22,8 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  v_search text;
 BEGIN
   IF NOT (is_super_admin() OR is_admin()
           OR user_has_permission('schools_network.schools.view')) THEN
@@ -32,27 +31,33 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
+  -- Escape LIKE metacharacters so a user's % / _ search chars match literally.
+  v_search := CASE WHEN p_search IS NULL THEN NULL
+              ELSE replace(replace(replace(trim(lower(p_search)),
+                     '\', '\\'), '%', '\%'), '_', '\_') END;
+
   RETURN QUERY
   WITH learner_src AS (
-    SELECT initcap(trim(lp.last_school)) AS name_disp,
-           trim(lower(lp.last_school)) AS name_norm,
+    SELECT regexp_replace(trim(lower(lp.last_school)), '\s+', ' ', 'g') AS name_norm,
+           mode() WITHIN GROUP (ORDER BY trim(lp.last_school)) AS name_disp,
            count(*) AS n
       FROM public.learners_profiles lp
      WHERE lp.last_school IS NOT NULL
        AND length(trim(lp.last_school)) >= 6
        AND lower(lp.last_school) NOT LIKE '%unknown%'
        AND lower(trim(lp.last_school)) NOT IN ('nil','na','n/a','-','nothing')
-     GROUP BY 1, 2
+     GROUP BY 1
   ),
   marketing_src AS (
-    SELECT initcap(trim(ml.school_name)) AS name_disp,
-           trim(lower(ml.school_name)) AS name_norm,
+    SELECT regexp_replace(trim(lower(ml.school_name)), '\s+', ' ', 'g') AS name_norm,
+           mode() WITHIN GROUP (ORDER BY trim(ml.school_name)) AS name_disp,
            count(*) AS n
       FROM public.marketing_leads_database ml
      WHERE ml.school_name IS NOT NULL
        AND length(trim(ml.school_name)) >= 6
        AND lower(ml.school_name) NOT LIKE '%unknown%'
-     GROUP BY 1, 2
+       AND lower(trim(ml.school_name)) NOT IN ('nil','na','n/a','-','nothing')
+     GROUP BY 1
   ),
   merged AS (
     SELECT coalesce(l.name_norm, m.name_norm) AS name_norm,
@@ -72,14 +77,20 @@ BEGIN
            mg.enrolled_n,
            mg.leads_n,
            mg.srcs,
-           s.id AS adopted_id
+           adopt.id AS adopted_id
       FROM merged mg
-      LEFT JOIN public.schools s ON trim(lower(s.name)) = mg.name_norm
-     WHERE (p_search IS NULL OR mg.name_norm LIKE '%' || trim(lower(p_search)) || '%')
+      LEFT JOIN LATERAL (
+        SELECT s.id
+          FROM public.schools s
+         WHERE regexp_replace(trim(lower(s.name)), '\s+', ' ', 'g') = mg.name_norm
+         ORDER BY s.created_at
+         LIMIT 1
+      ) adopt ON TRUE
+     WHERE (v_search IS NULL OR mg.name_norm LIKE '%' || v_search || '%' ESCAPE '\')
        AND (p_source IS NULL OR p_source = ANY(mg.srcs))
        AND (p_adopted IS NULL
-            OR (p_adopted = 'adopted' AND s.id IS NOT NULL)
-            OR (p_adopted = 'not_adopted' AND s.id IS NULL))
+            OR (p_adopted = 'adopted' AND adopt.id IS NOT NULL)
+            OR (p_adopted = 'not_adopted' AND adopt.id IS NULL))
   )
   SELECT j.name_disp,
          j.enrolled_n,
@@ -96,4 +107,4 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_schools_network_feeders(text, text, text, int, int) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_schools_network_feeders(text, text, text, int, int) TO authenticated;
--- Applied to prod 2026-07-03 09:35 IST via Management API (statement-by-statement)
+-- v2 applied to prod 2026-07-03 09:55 IST via Management API (impersonated live-verify: raw casing, 3525 total, adopted-join intact)

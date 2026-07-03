@@ -168,8 +168,8 @@ export function FeederDiscovery() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((r) => (
-                  <TableRow key={r.schoolName}>
+                {rows.map((r, i) => (
+                  <TableRow key={`${r.schoolName}__${r.adoptedSchoolId ?? i}`}>
                     <TableCell className="font-medium">{r.schoolName}</TableCell>
                     <TableCell className="text-right">
                       {r.enrolledCount > 0 ? r.enrolledCount.toLocaleString('en-IN') : '—'}
