@@ -20745,3 +20745,172 @@ AS $$
 $$;
 REVOKE EXECUTE ON FUNCTION public.fn_hr_orgs_for_institutions() FROM anon;
 GRANT EXECUTE ON FUNCTION public.fn_hr_orgs_for_institutions() TO authenticated;
+
+-- Updated: 2026-07-03 (deep-review r5) — SCF "show the split" confirmation rollup.
+-- Mirror of supabase/migrations/20260703003800_scf_confirmation_rollup.sql.
+-- Safe text→time parse: returns p_default on ANY parse failure. A regex guard
+-- can't guarantee ::time succeeds (e.g. '25:00', '13:00 PM' pass a loose regex
+-- but throw on cast, failing the whole rollup), so we use an exception block.
+-- IMMUTABLE: time parsing does not depend on session settings.
+CREATE OR REPLACE FUNCTION public.fn_scf_safe_time(p_text text, p_default time)
+RETURNS time
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = public
+AS $$
+BEGIN
+  -- NULL/empty must return the default, NOT NULL: NULL::time raises no exception
+  -- but yields NULL, which would make session_end_local NULL and drop the row
+  -- from BOTH the within and overdue buckets (breaking confirmed+within+overdue
+  -- = total_present).
+  IF p_text IS NULL OR btrim(p_text) = '' THEN
+    RETURN p_default;
+  END IF;
+  RETURN p_text::time;
+EXCEPTION WHEN others THEN
+  RETURN p_default;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_scf_safe_time(text, time) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_scf_safe_time(text, time) TO authenticated;
+
+-- DROP first: the return type changed (dropped the unused `sessions` column),
+-- which CREATE OR REPLACE cannot do. Safe — the function is not yet deployed.
+DROP FUNCTION IF EXISTS
+  public.fn_scf_confirmation_rollup(date,date,uuid,uuid,uuid,uuid,integer);
+
+CREATE OR REPLACE FUNCTION public.fn_scf_confirmation_rollup(
+  p_from           date,
+  p_to             date,
+  p_institution_id uuid    DEFAULT NULL,
+  p_program_id     uuid    DEFAULT NULL,
+  p_department_id  uuid    DEFAULT NULL,
+  p_section_id     uuid    DEFAULT NULL,
+  p_window_hours   integer DEFAULT 48
+)
+RETURNS TABLE (
+  total_present   bigint,
+  confirmed       bigint,
+  pending_within  bigint,
+  pending_overdue bigint
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+SET statement_timeout = '20s'
+AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'fn_scf_confirmation_rollup: not authenticated';
+  END IF;
+  IF NOT (is_super_admin() OR is_admin()
+          OR user_has_permission('academic.attendance.dashboard.view')) THEN
+    RAISE EXCEPTION 'fn_scf_confirmation_rollup: not authorized';
+  END IF;
+
+  RETURN QUERY
+  WITH present_marks AS (
+    -- One row per (learner, date, period). A learner marked Present in two
+    -- student_attendance rows for the same period/day (32 such tuples exist in
+    -- prod — substitute / re-provisioned classes) is ONE attendance, not two,
+    -- so DISTINCT ON the learner-session identity keeps a single row (earliest
+    -- class-end — the most conservative anchor for the overdue bucket) and
+    -- avoids inflating total_present / the confirmedPct denominator.
+    SELECT DISTINCT ON (sa.attendance_date, period.key, (st ->> 'student_id'))
+      sa.attendance_date,
+      period.key                  AS period_id,
+      (st ->> 'student_id')::uuid AS student_id,
+      -- class-end wall-clock (IST): date + period end_time. The blob mixes 24h
+      -- ("10:00:00") and 12h/meridian ("3:00 PM") formats (both parse via
+      -- ::time); fn_scf_safe_time returns end-of-day on any unparseable value so
+      -- one bad row can never fail the whole rollup.
+      (sa.attendance_date
+        + fn_scf_safe_time(period.value ->> 'end_time', TIME '23:59:59')
+      )                           AS session_end_local
+    FROM public.student_attendance sa
+    -- jsonb_typeof guard on the OUTER expansion too: a row whose attendance_data
+    -- is a JSON array/scalar/null would make jsonb_each abort the whole rollup.
+    CROSS JOIN LATERAL jsonb_each(
+                         CASE WHEN jsonb_typeof(sa.attendance_data) = 'object'
+                              THEN sa.attendance_data
+                              ELSE '{}'::jsonb END)                          AS period
+    -- jsonb_typeof guard, not COALESCE: a JSON-null / scalar / object 'students'
+    -- (JSON null ≠ SQL NULL) would make jsonb_array_elements abort the rollup.
+    CROSS JOIN LATERAL jsonb_array_elements(
+                         CASE WHEN jsonb_typeof(period.value -> 'students') = 'array'
+                              THEN period.value -> 'students'
+                              ELSE '[]'::jsonb END) AS st
+    WHERE sa.attendance_date BETWEEN p_from AND p_to
+      AND (st ->> 'status') = 'Present'
+      -- Guard the ::uuid cast: skip malformed/empty student_id so a single bad
+      -- blob row cannot raise and fail the ENTIRE institution/date rollup.
+      AND (st ->> 'student_id') ~
+          '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+      AND (p_institution_id IS NULL OR sa.institution_id = p_institution_id)
+      AND (p_program_id     IS NULL OR sa.program_id     = p_program_id)
+      AND (p_department_id  IS NULL OR sa.department_id  = p_department_id)
+      AND (p_section_id     IS NULL OR sa.section_id     = p_section_id)
+      -- Data scope: super_admin sees all; everyone else is bounded by
+      -- role_has_institution_access, which ALREADY grants scope='all' roles
+      -- every institution and scope='own' roles only their own + granted.
+      -- is_admin() is deliberately NOT here: it is a hardcoded role-NAME bypass
+      -- that ignores institution_scope, so a scope='own' admin could read other
+      -- institutions' aggregates through this DEFINER RPC (verified leak: a
+      -- role='admin' with role_has_institution_access(foreign)=false read 1,979
+      -- foreign present marks). The student_attendance dashboard RLS carries the
+      -- same is_admin() branch — a pre-existing over-grant we intentionally do
+      -- NOT propagate here.
+      AND (is_super_admin()
+           OR role_has_institution_access(sa.institution_id))
+    ORDER BY sa.attendance_date, period.key, (st ->> 'student_id'),
+             session_end_local ASC
+  ),
+  scored AS (
+    SELECT
+      pm.*,
+      -- Confirmed = a session_feedback row for (student_id, attendance_date,
+      -- period_id) — period-only, matching canonical fn_scf_confirmation_status
+      -- exactly. NOT scoped on timetable_id: a feedback row's timetable_id can
+      -- legitimately differ (rescheduled/substitute class), which would
+      -- UNDERCOUNT confirmations. Verified equal to a timetable-scoped join on
+      -- current prod data (1120 = 1120), and DISTINCT ON above already prevents
+      -- one feedback row confirming two present marks.
+      EXISTS (
+        SELECT 1 FROM public.session_feedback f
+        WHERE f.student_id      = pm.student_id
+          AND f.attendance_date = pm.attendance_date
+          AND f.period_id       = pm.period_id
+      ) AS is_confirmed
+    FROM present_marks pm
+  )
+  SELECT
+    count(*)::bigint,
+    count(*) FILTER (WHERE is_confirmed)::bigint,
+    count(*) FILTER (
+      WHERE NOT is_confirmed
+        AND (now() AT TIME ZONE 'Asia/Kolkata')
+            <= session_end_local + make_interval(hours => GREATEST(p_window_hours, 1))
+    )::bigint,
+    count(*) FILTER (
+      WHERE NOT is_confirmed
+        AND (now() AT TIME ZONE 'Asia/Kolkata')
+            >  session_end_local + make_interval(hours => GREATEST(p_window_hours, 1))
+    )::bigint
+  FROM scored;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION
+  public.fn_scf_confirmation_rollup(date,date,uuid,uuid,uuid,uuid,integer)
+  FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION
+  public.fn_scf_confirmation_rollup(date,date,uuid,uuid,uuid,uuid,integer)
+  TO authenticated;
+
+-- Updated: 2026-07-03 - Schools Network feeder discovery (read-through)
+-- fn_schools_network_feeders: UNIONs learners_profiles.last_school +
+-- marketing_leads_database.school_name into a deduped feeder list with
+-- adopted-flag JOIN to schools. SECURITY DEFINER, permission-gated inside
+-- (schools_network.schools.view), anon EXECUTE revoked.
+-- Full definition: supabase/migrations/20260703093000_schools_network_feeders_rpc.sql

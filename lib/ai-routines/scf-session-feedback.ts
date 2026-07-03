@@ -3,6 +3,7 @@ import { type AIRoutine } from './types';
 export const SCF_ROUTINES: AIRoutine[] = [
   {
     "id": "scf-generate-suggestions",
+    "maxLane": true,
     "name": "SCF Generate Suggestions (autonomous improve step)",
     "category": "scf-session-feedback",
     "type": "cron",
@@ -10,8 +11,9 @@ export const SCF_ROUTINES: AIRoutine[] = [
     "cronExpr": "47 5 * * *",
     "triggerPath": "/api/cron/scf-generate-suggestions",
     "callsClaude": true,
+    "featureKey": "scf.generate_suggestions",
     "whatItDoes": "Scans courses that had post-class feedback in the last 7 days; for classes where students understood poorly it asks Claude to write teaching-improvement advice, and for standout classes it asks Claude to capture what worked. It then measures whether earlier advice actually helped.",
-    "configKnobs": "MODEL=claude-sonnet-4-6, BATCH_CAP=25, WINDOW_DAYS=7, MIN_RESPONSES=3, LOW_UNDERSTOOD_THRESHOLD=3, STANDOUT_THRESHOLD=4.5, BATCH_DEADLINE_MS=240000, maxDuration=300, per-call-timeout=25000ms, max_tokens=1024",
+    "configKnobs": "MODEL=claude-sonnet-4-6 (config row 'scf.generate_suggestions' — /admin/ai-models), BATCH_CAP=25, WINDOW_DAYS=7, MIN_RESPONSES=3, LOW_UNDERSTOOD_THRESHOLD=3, STANDOUT_THRESHOLD=4.5, BATCH_DEADLINE_MS=240000, maxDuration=300, per-call-timeout=25000ms, max_tokens=1024",
     "sideEffects": "DB writes only: inserts/upserts suggestions into scf_ai_suggestions (via fn_scf_record_suggestion) and updates outcome_lift on matured prior rows (fn_scf_measure_suggestion_outcomes). No emails/notifications/WhatsApp.",
     "safeToManualTrigger": true,
     "notes": "Auth: CRON_SECRET as Authorization: Bearer <secret> or ?secret=<secret>. Needs CLAUDE_API_KEY or ANTHROPIC_API_KEY; without a key it skips generation but still runs outcome measurement (honest-empty). Regen-guarded (skips a same-kind course generated within the last 7 days) and fails CLOSED on guard-query errors, so re-firing is safe/idempotent — watch guard_errors>0 with generated=0 for a fail-closed stall. Optional ?window_days= for backfill. Depends on RPCs fn_scf_candidate_windows, fn_scf_ai_signal, fn_scf_prior_suggestion, fn_scf_record_suggestion, fn_scf_measure_suggestion_outcomes. Known history: an earlier version read a non-existent scf_sessions relation and 500'd every run (produced zero suggestions) until fixed 2026-06-30."
@@ -21,12 +23,14 @@ export const SCF_ROUTINES: AIRoutine[] = [
     "name": "SCF Learner Support Notes (struggling-student lane)",
     "category": "scf-session-feedback",
     "type": "cron",
+    "maxLane": true,
     "schedule": "Daily 06:09 UTC (approx 11:39 IST)",
     "cronExpr": "9 6 * * *",
     "triggerPath": "/api/cron/scf-learner-notes",
     "callsClaude": true,
+    "featureKey": "scf.learner_notes",
     "whatItDoes": "Finds students whose own understanding ratings for a course dropped across three classes in a row, and asks Claude to draft one short, warm, private note nudging them to seek help early. The student sees the note on their Class Feedback page.",
-    "configKnobs": "MODEL=claude-sonnet-4-6, BATCH_CAP=50, REGEN_DAYS=7, RECENT_WITHIN_DAYS=30, BATCH_DEADLINE_MS=240000, maxDuration=300, per-call-timeout=25000ms, max_tokens=300, maxRetries=1",
+    "configKnobs": "MODEL=claude-sonnet-4-6 (config row 'scf.learner_notes' — /admin/ai-models), BATCH_CAP=50, REGEN_DAYS=7, RECENT_WITHIN_DAYS=30, BATCH_DEADLINE_MS=240000, maxDuration=300, per-call-timeout=25000ms, max_tokens=300, maxRetries=1",
     "sideEffects": "Writes private per-student notes into scf_learner_notes (upsert, onConflict learner_id,course_code,week_of, ignoreDuplicates). Each note becomes student-visible in-app content. No push/bell/email/WhatsApp is sent — the student only sees it passively when they open their feedback page.",
     "safeToManualTrigger": false,
     "notes": "Marked false conservatively: a manual run can generate brand-new private notes that a struggling student will read (human-facing content on a sensitive surface). It IS idempotent within a week — the 7-day regen guard plus unique (learner,course,week_of) make re-firing in the same week a no-op — so firing twice will not duplicate. Fails CLOSED (aborts the run) if the regen-guard query errors. Auth: CRON_SECRET Bearer or ?secret=. Needs CLAUDE_API_KEY/ANTHROPIC_API_KEY; no key -> nothing generated (NO template fallback by Director decision). Note text is private to the learner; leadership only sees THAT a note was sent. Depends on service-role RPC fn_scf_downward_trend_all. Optional ?recent_days= override."
@@ -48,6 +52,7 @@ export const SCF_ROUTINES: AIRoutine[] = [
   },
   {
     "id": "session-feedback-escalation",
+    "maxLane": true,
     "name": "Session Feedback Weekly Escalation Digest",
     "category": "scf-session-feedback",
     "type": "cron",
@@ -55,8 +60,9 @@ export const SCF_ROUTINES: AIRoutine[] = [
     "cronExpr": "30 7 * * 1",
     "triggerPath": "/api/cron/session-feedback-escalation",
     "callsClaude": true,
+    "featureKey": "session_feedback.escalation",
     "whatItDoes": "Weekly, finds classes that escalated last week (enough responses with low average understanding), has Claude write a short leadership briefing for each, and pushes one in-app digest to the HOD (and to the Principal once a class keeps escalating).",
-    "configKnobs": "MODEL=claude-sonnet-4-6, max_tokens=220. The escalation thresholds (>=3 responses AND avg understanding < 3) live in the RPC fn_scf_compute_weekly_escalations, not hardcoded in this file.",
+    "configKnobs": "MODEL=claude-sonnet-4-6 (config row 'session_feedback.escalation' — /admin/ai-models), max_tokens=220. The escalation thresholds (>=3 responses AND avg understanding < 3) live in the RPC fn_scf_compute_weekly_escalations, not hardcoded in this file.",
     "sideEffects": "Sends in-app digest notifications to leadership (HOD/Principal) via fn_scf_apply_weekly_escalation_digest. This delivers messages to humans. Idempotent per recipient per week.",
     "safeToManualTrigger": false,
     "notes": "Marked false because it pushes in-app notifications to leadership (messages humans). It IS idempotent per recipient per week, so a same-week re-run will not create duplicate digests, but a manual run for a fresh week will notify people. Auth: CRON_SECRET Bearer or ?secret=. CLAUDE_API_KEY/ANTHROPIC_API_KEY is optional — without it (or with no comments) each summary falls back to a numeric template and the run still completes. Optional ?week_start=YYYY-MM-DD for backfill. Depends on fn_scf_compute_weekly_escalations + fn_scf_apply_weekly_escalation_digest."
@@ -84,8 +90,9 @@ export const SCF_ROUTINES: AIRoutine[] = [
     "schedule": "On demand (POST)",
     "triggerPath": "/api/academic/session-feedback/ai-suggest-improvement",
     "callsClaude": true,
+    "featureKey": "session_feedback.suggest_improvement",
     "whatItDoes": "When a faculty member or leader clicks 'suggest improvement' for a low-scoring course, Claude returns concrete teaching adjustments (likely causes, changes to try, a quick win, and what to watch next). It also feeds back whether the class's previous advice actually helped.",
-    "configKnobs": "MODEL=claude-sonnet-4-6, max_tokens=1024, small-n floor responses<3 (skips the LLM), default window=last 30 days, LEADERSHIP_ROLES=administrator/institution_admin/dean/hod/principal/coordinator, prior-outcome confidence gates (>=5 learners=strong, >=3=weak).",
+    "configKnobs": "MODEL=claude-sonnet-4-6 (config row 'session_feedback.suggest_improvement' — /admin/ai-models), max_tokens=1024, small-n floor responses<3 (skips the LLM), default window=last 30 days, LEADERSHIP_ROLES=administrator/institution_admin/dean/hod/principal/coordinator, prior-outcome confidence gates (>=5 learners=strong, >=3=weak).",
     "sideEffects": "Records the generated suggestion + its input state into scf_ai_suggestions via fn_scf_record_suggestion (best-effort; failure does not break the response). Returns the suggestion to the caller. Anonymized free-text comments are sent to the model only and are NEVER returned. No human messaging.",
     "safeToManualTrigger": true,
     "notes": "This is a POST endpoint gated by a logged-in USER SESSION (supabase.auth.getUser), NOT by CRON_SECRET — an operator cannot fire it with just the cron secret; it needs an authenticated session and a JSON body { course_code, from?, to? }. Scope is self-limiting: super-admin=all, leadership=own institution, plain faculty=own taught sessions (by email). Requires CLAUDE_API_KEY or ANTHROPIC_API_KEY (returns 503 if missing). Idempotent recording (upsert), no outbound messages, so safe to re-run. This is the human-triggered version of the improve step that scf-generate-suggestions later automated."

@@ -39,10 +39,18 @@ export const maxDuration = 300;
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import Anthropic from '@anthropic-ai/sdk';
+import {
+  resolveChatModel,
+  recordChatUsage,
+} from '@/lib/services/platform/ai-clients/chat';
+import { getModel } from '@/lib/services/platform/ai-providers';
 
 // ── constants ────────────────────────────────────────────────────────────────
 
-const MODEL = 'claude-sonnet-4-6';
+// Model comes from ai_model_config (admin-governed) — resolved once per run via
+// resolveChatModel(FEATURE_KEY), which never throws (hardcoded fallback on any
+// config failure).
+const FEATURE_KEY = 'induction.generate_playbook';
 const BATCH_CAP = 25; // max cohorts to process per run; excess is logged
 
 // Decision 13 is enforced in the prompt: the model optimises value-balanced
@@ -71,6 +79,56 @@ type Cohort = {
 
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
+}
+
+// Cost in INR from the pricing registry — null when pricing or token counts are missing.
+function costInr(
+  modelId: string,
+  inputTokens?: number,
+  outputTokens?: number
+): number | null {
+  const pricing = getModel('anthropic', modelId);
+  if (
+    !pricing ||
+    pricing.inputPer1KTokensInr == null ||
+    pricing.outputPer1KTokensInr == null
+  ) {
+    return null;
+  }
+  if (inputTokens == null || outputTokens == null) return null;
+  return Number(
+    (
+      (inputTokens / 1000) * pricing.inputPer1KTokensInr +
+      (outputTokens / 1000) * pricing.outputPer1KTokensInr
+    ).toFixed(6)
+  );
+}
+
+// Record one Claude invocation into ai_model_usage. recordChatUsage is internally
+// non-throwing and MUST be awaited (Vercel serverless drops un-awaited promises).
+async function recordCall(
+  modelId: string,
+  startedAt: number,
+  resp: Anthropic.Message | null,
+  err?: unknown
+): Promise<void> {
+  if (resp) {
+    const inputTokens = resp.usage?.input_tokens;
+    const outputTokens = resp.usage?.output_tokens;
+    await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      cost_inr: costInr(modelId, inputTokens, outputTokens) ?? undefined,
+      duration_ms: Date.now() - startedAt,
+      success: true,
+    });
+  } else {
+    await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
+      duration_ms: Date.now() - startedAt,
+      success: false,
+      error_message: err instanceof Error ? err.message.slice(0, 500) : String(err),
+    });
+  }
 }
 
 // Reads the prior cohort's MEASURED outcome and renders the feed-forward block
@@ -153,6 +211,7 @@ async function buildTrackRecordBlock(
 // key) so the cron can still run the verifier and continue the batch.
 async function generatePlaybook(
   anthropic: Anthropic | null,
+  modelId: string,
   cohort: Cohort,
   trackRecord: string
 ): Promise<{ playbook: Record<string, unknown> | null; modelUsed: string }> {
@@ -165,15 +224,23 @@ Success metric: value-balanced join score = 100 × (joined-referrals per fresher
 Generate the value-first induction playbook JSON for this cohort now.`;
 
   try {
-    const resp = await anthropic.messages.create(
-      {
-        model: MODEL,
-        max_tokens: 1024,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userPrompt }],
-      },
-      { timeout: 60000 }
-    );
+    const t0 = Date.now();
+    let resp: Anthropic.Message;
+    try {
+      resp = await anthropic.messages.create(
+        {
+          model: modelId,
+          max_tokens: 1024,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: userPrompt }],
+        },
+        { timeout: 60000 }
+      );
+    } catch (apiErr) {
+      await recordCall(modelId, t0, null, apiErr);
+      throw apiErr; // outer catch keeps the { playbook: null, modelUsed: 'error' } sentinel
+    }
+    await recordCall(modelId, t0, resp);
     const text = resp.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
       .map((b) => b.text)
@@ -312,6 +379,9 @@ export async function GET(request: NextRequest) {
   if (!anthropic) {
     console.warn('[cron/induction-generate-playbook] no API key — will skip generation but still run the verifier');
   }
+  // Resolve the model from ai_model_config ONCE per run (never throws — hardcoded
+  // fallback on any config failure).
+  const { model_id: modelId } = await resolveChatModel(FEATURE_KEY);
 
   // 6) Generate + record a playbook per cohort.
   let generated = 0;
@@ -322,7 +392,7 @@ export async function GET(request: NextRequest) {
       cohort.institution_id,
       cohort.academic_year_id
     );
-    const { playbook, modelUsed } = await generatePlaybook(anthropic, cohort, block);
+    const { playbook, modelUsed } = await generatePlaybook(anthropic, modelId, cohort, block);
     if (playbook === null) {
       skipped++;
       continue;

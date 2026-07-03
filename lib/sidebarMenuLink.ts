@@ -395,6 +395,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/bug-reports': 'system.bugs.view',
   '/ai-query/admin': 'super_admin', // Super admin only - AI Query Tools Registry
   '/admin/ai-models': 'super_admin', // Super admin only - AI Model Config (provider/model picker + spend caps + usage)
+  '/admin/learner-notes': 'super_admin', // Super admin only - Learner Notes approval queue (AI-drafted support notes reviewed before students see them)
   '/admin/page-metadata': 'super_admin', // Super admin only - Page Search Metadata
 
   // Social Media module (added 2026-05-31 for Meta integration nav-bar
@@ -2777,6 +2778,15 @@ export function GetRoleBasedPages(
 
           // Platform Guide is always visible for all users (universal in-app help)
           if (menu.href === '/guide') return true;
+
+          // "My Induction Sessions" is SELF-SCOPED: its RPCs gate on speakership
+          // (event_session_speakers.profile_id = auth.uid()); non-presenters just
+          // see an empty state. It deliberately has no MENU_PERMISSIONS entry, but
+          // the default-deny below hides unmapped routes from every non-super-admin
+          // — exactly the resource persons the page exists for (found live
+          // 2026-07-03: presenter couldn't discover his own feedback + live-pulse
+          // page). Always visible, same pattern as /guide.
+          if (menu.href === '/my-induction-sessions') return true;
 
           // Check if menu requires super admin
           if ((menu as any).requiresSuperAdmin) {

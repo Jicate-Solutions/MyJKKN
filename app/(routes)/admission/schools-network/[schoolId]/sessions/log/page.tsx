@@ -85,7 +85,7 @@ function LogSessionForm({ schoolId }: { schoolId: string }) {
     });
   };
 
-  const types = typesQuery.data?.data ?? [];
+  const types = typesQuery.data?.rows ?? [];
 
   return (
     <div className="max-w-2xl">

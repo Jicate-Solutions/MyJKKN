@@ -29,6 +29,7 @@ import { useAttendanceStats } from '@/hooks/academic/use-attendance-dashboard';
 import { cn } from '@/lib/utils';
 import type { DashboardFilterState } from './dashboard-filters';
 import { EnhancedDetailedBreakdown } from './enhanced-detailed-breakdown';
+import { ConfirmationSplitCards } from './confirmation-split-cards';
 
 interface Institution {
   id: string;
@@ -215,6 +216,16 @@ export function StatisticsCards({
           />
         </div>
       )}
+
+      {/* Post-Class Feedback Confirmation split (visibility-only; hidden when
+          session_feedback.gate_mode = 'off') */}
+      <ConfirmationSplitCards
+        userInstitutionId={userInstitutionId}
+        canViewAllInstitutions={canViewAllInstitutions}
+        selectedDate={selectedDate}
+        filters={filters}
+        refreshTrigger={refreshTrigger}
+      />
 
       {/* Enhanced Detailed Breakdown */}
       <div>

@@ -37,6 +37,13 @@ export interface AIRoutine {
   triggerPath: string;
   /** does it actually call Claude/Anthropic (directly or via an AI service)? */
   callsClaude: boolean;
+  /**
+   * feature_key in ai_model_config for the model this routine's backing code
+   * resolves at runtime. Drives the model+spend chip on /admin/ai-routines and
+   * the "Used by" column on /admin/ai-models. Unset when the routine has no
+   * config row (rules-based routines, or no matching seeded key).
+   */
+  featureKey?: string;
   /** 1-2 plain sentences a non-coder understands */
   whatItDoes: string;
   /** hardcoded constants/thresholds it uses (name=value pairs) or "none" */
@@ -45,6 +52,13 @@ export interface AIRoutine {
   sideEffects: string;
   /** true if an on-demand run is safe/idempotent; false if it messages humans / is destructive */
   safeToManualTrigger: boolean;
+  /**
+   * true if this routine runs on the Director's Claude Max subscription via a
+   * Mac-side scheduled runner (the "Max lane"); the API cron is the fallback.
+   * Max-lane routines get a "Run on Max" button on /admin/ai-routines that
+   * queues a request for the Mac poller to pick up (max_lane_requests).
+   */
+  maxLane?: boolean;
   notes?: string;
 }
 

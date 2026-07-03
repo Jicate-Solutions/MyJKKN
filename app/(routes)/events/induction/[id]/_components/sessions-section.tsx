@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   InductionService,
+  type AttendanceCoverageRow,
   type InductionSessionRow,
   type ResourceLink,
 } from '@/lib/services/induction/induction-service';
@@ -14,6 +15,7 @@ import { PersonAvailabilityService } from '@/lib/services/availability/person-av
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { AttendanceDialog } from './attendance-dialog';
+import { AttendanceCoverageBanner } from './attendance-coverage-banner';
 import { DayAttendanceDialog } from './day-attendance-dialog';
 import { FeedbackKioskDialog } from './feedback-kiosk-dialog';
 import { SessionPollDialog } from './session-poll-dialog';
@@ -56,6 +58,11 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
   const [sessionSpeakers, setSessionSpeakers] = useState<Record<string, DirectoryUser[]>>({});
   const [feedback, setFeedback] = useState<Record<string, { avg: number; count: number }>>({});
   const [dayFeedback, setDayFeedback] = useState<Record<number, { avg: number; count: number }>>({});
+  // per-day past-vs-marked attendance coverage (drives the back-mark nudge; empty for non-managers)
+  const [coverage, setCoverage] = useState<AttendanceCoverageRow[]>([]);
+  // distinguish "gate denied" (hide banner) from a real load failure (show
+  // "unavailable" — a silent hide would read as "everything marked")
+  const [coverageFailed, setCoverageFailed] = useState(false);
   const [programFeedback, setProgramFeedback] = useState<{ avg: number; count: number } | null>(null);
   const [scopes, setScopes] = useState({ dayEnabled: false, programEnabled: false });
   const [scopesSaving, setScopesSaving] = useState(false);
@@ -90,12 +97,24 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [rows, summary, sc, daySummary, progSummary] = await Promise.all([
+      const [rows, summary, sc, daySummary, progSummary, coverageRows] = await Promise.all([
         InductionService.listSessions(eventId),
         InductionService.getSessionFeedbackSummary(eventId).catch(() => []),
         InductionService.getFeedbackScopes(eventId).catch(() => ({ dayEnabled: false, programEnabled: false })),
         InductionService.getDayFeedbackSummary(eventId).catch(() => []),
         InductionService.getProgramFeedbackSummary(eventId).catch(() => null),
+        // gated to managers/coordinators server-side — an auth denial hides the
+        // banner; any OTHER failure is surfaced as "coverage unavailable".
+        // Denial = SQLSTATE P0001: every RAISE in fn_induction_attendance_coverage
+        // is an auth denial (contract documented in the fn), so the code alone is
+        // exact — no message-text matching that could rot on a rewording.
+        // Live-verified: a denied student call returns {code:'P0001'}.
+        InductionService.getAttendanceCoverage(eventId)
+          .then((rows) => ({ rows, failed: false }))
+          .catch((e: any) => ({
+            rows: [] as AttendanceCoverageRow[],
+            failed: e?.code !== 'P0001',
+          })),
       ]);
       setSessions(rows);
       // linked resource persons for every session (non-blocking: chips just stay empty on failure)
@@ -110,7 +129,15 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
       for (const d of daySummary) df[d.day_number] = { avg: Number(d.avg_rating), count: d.response_count };
       setDayFeedback(df);
       setProgramFeedback(progSummary ? { avg: Number(progSummary.avg_rating), count: progSummary.response_count } : null);
-    } catch (e: any) { toast.error(`Couldn't load sessions: ${e.message ?? e}`); }
+      setCoverage(coverageRows.rows);
+      setCoverageFailed(coverageRows.failed);
+    } catch (e: any) {
+      // total load failure (e.g. listSessions): clear stale coverage so an old
+      // "all clear" can't linger, but DON'T claim "coverage unavailable" — the
+      // toast already announces the real failure and the banner is moot here
+      setCoverage([]); setCoverageFailed(false);
+      toast.error(`Couldn't load sessions: ${e.message ?? e}`);
+    }
     finally { setLoading(false); }
   }, [eventId]);
   useEffect(() => { load(); }, [load]);
@@ -401,6 +428,12 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
         </div>
       </CardHeader>
       <CardContent>
+        {/* Back-mark nudge — managers/coordinators only (the RPC is gated anyway;
+            this just avoids rendering an empty slot for students/speakers).
+            canManage already includes per-event coordinators (isCoordinator). */}
+        {canManage && !loading && (
+          <AttendanceCoverageBanner coverage={coverage} unavailable={coverageFailed} />
+        )}
         {loading ? (
           <div className="space-y-2" aria-busy="true">
             {[0, 1, 2].map((i) => (

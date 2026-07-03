@@ -15,6 +15,7 @@ import type {
   SchoolSessionRow,
   RecordSessionInput,
 } from '@/lib/types/schools-network';
+import { fetchProfileNames } from './profile-names';
 
 const LOG = 'schools-network/sessions';
 
@@ -87,14 +88,18 @@ export class SchoolSessionsService {
     limit = 50,
     offset = 0
   ): Promise<{ rows: SchoolSession[]; error: string | null }> {
+    // NO profiles embed here: conducted_by_user_id is a FK to auth.users,
+    // not public.profiles, so PostgREST cannot resolve
+    // `profiles:conducted_by_user_id(...)` and 500s the list ("Could not find
+    // a relationship … in the schema cache"). Names are merged from a second
+    // RLS-scoped query via fetchProfileNames instead.
     const { data, error } = await supabase
       .from('school_sessions')
       .select(
         `
         *,
         school_session_types(code, label),
-        program_partners(name),
-        profiles:conducted_by_user_id(full_name)
+        program_partners(name)
       `
       )
       .eq('school_id', schoolId)
@@ -106,7 +111,18 @@ export class SchoolSessionsService {
       return { rows: [], error: error.message };
     }
 
-    const rows = (data ?? []).map((r) => mapSessionRow(r as SchoolSessionRow));
+    const names = await fetchProfileNames(
+      supabase,
+      (data ?? []).map((r: { conducted_by_user_id: string | null }) => r.conducted_by_user_id)
+    );
+    const rows = (data ?? []).map((r: Record<string, unknown>) =>
+      mapSessionRow({
+        ...r,
+        profiles: r.conducted_by_user_id
+          ? { full_name: names.get(r.conducted_by_user_id as string) ?? null }
+          : null,
+      } as SchoolSessionRow)
+    );
     return { rows, error: null };
   }
 }

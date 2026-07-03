@@ -43,14 +43,28 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 
-import { getPartnerRollup } from '../../_lib/api';
+import { getPartner, getPartnerRollup } from '../../_lib/api';
 import { PARTNER_STATUS_LABEL, formatInr } from '../../_lib/types';
 
 function PartnerDetailContent({ partnerId }: { partnerId: string }) {
-  const { data, isLoading, error } = useQuery({
+  // The two endpoints return their payloads FLAT (no nested { partner, rollup }
+  // envelope) — the fetch helper already unwraps `body.data`. Fetch both and
+  // combine at render time.
+  const partnerQuery = useQuery({
+    queryKey: ['schools-network', 'partner', partnerId],
+    queryFn: () => getPartner(partnerId),
+  });
+  const rollupQuery = useQuery({
     queryKey: ['schools-network', 'partner-rollup', partnerId],
     queryFn: () => getPartnerRollup(partnerId),
   });
+
+  const isLoading = partnerQuery.isLoading || rollupQuery.isLoading;
+  const error = partnerQuery.error ?? rollupQuery.error;
+  const data =
+    partnerQuery.data && rollupQuery.data
+      ? { partner: partnerQuery.data, rollup: rollupQuery.data }
+      : undefined;
 
   if (isLoading) {
     return (

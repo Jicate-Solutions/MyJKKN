@@ -133,8 +133,76 @@ export class SchoolsService {
       logger.error(LOG, 'fn_school_detail failed', error);
       return { data: null, error: error.message };
     }
-    if (!data) return { data: null, error: null };
-    return { data: data as SchoolDetail, error: null };
+    // fn_school_detail is RETURNS TABLE → PostgREST hands back a single-row
+    // ARRAY whose jsonb columns carry snake_case keys. The raw cast used to
+    // ship that array straight to the client, which then read `.owners` off
+    // an array → undefined → "Cannot read properties of undefined
+    // (reading 'filter')" on the detail page. Unwrap + map explicitly.
+    const row = (Array.isArray(data) ? data[0] : data) as {
+      school: Record<string, unknown> | null;
+      owners: Array<Record<string, unknown>> | null;
+      contacts: Array<Record<string, unknown>> | null;
+      recent_sessions: Array<Record<string, unknown>> | null;
+      contribution_count: number | null;
+      contribution_total: number | string | null;
+    } | undefined;
+    if (!row?.school) return { data: null, error: null };
+
+    return {
+      data: {
+        school: mapSchoolRow(row.school as unknown as SchoolRow),
+        owners: (row.owners ?? []).map((o) => ({
+          id: o.id as string,
+          schoolId: o.school_id as string,
+          jkknUserId: o.jkkn_user_id as string,
+          jkknUserName: (o.jkkn_user_name ?? undefined) as string | undefined,
+          role: o.role as SchoolDetail['owners'][number]['role'],
+          programPartnerId: (o.program_partner_id ?? null) as string | null,
+          programPartnerName: (o.program_partner_name ?? null) as string | null,
+          assignedAt: o.assigned_at as string,
+          assignedBy: (o.assigned_by ?? null) as string | null,
+          isActive: !!o.is_active,
+        })),
+        contacts: (row.contacts ?? []).map((c) => ({
+          id: c.id as string,
+          schoolId: c.school_id as string,
+          roleId: c.role_id as string,
+          roleCode: (c.role_code ?? undefined) as string | undefined,
+          roleLabel: (c.role_label ?? undefined) as string | undefined,
+          name: c.name as string,
+          phone: (c.phone ?? null) as string | null,
+          email: (c.email ?? null) as string | null,
+          isPrimary: !!c.is_primary,
+          notes: (c.notes ?? null) as string | null,
+          createdAt: c.created_at as string,
+          updatedAt: c.updated_at as string,
+        })),
+        recentSessions: (row.recent_sessions ?? []).map((s) => ({
+          id: s.id as string,
+          schoolId: s.school_id as string,
+          sessionTypeId: s.session_type_id as string,
+          sessionTypeCode: (s.session_type_code ?? undefined) as string | undefined,
+          sessionTypeLabel: (s.session_type_label ?? undefined) as string | undefined,
+          conductedAt: s.conducted_at as string,
+          conductedByUserId: (s.conducted_by_user_id ?? null) as string | null,
+          conductedByName: (s.conducted_by_name ?? undefined) as string | undefined,
+          programPartnerId: (s.program_partner_id ?? null) as string | null,
+          programPartnerName: (s.program_partner_name ?? null) as string | null,
+          attendeeCount: (s.attendee_count ?? 0) as number,
+          topic: (s.topic ?? null) as string | null,
+          notes: (s.notes ?? null) as string | null,
+          attachments: (s.attachments ?? []) as SchoolDetail['recentSessions'][number]['attachments'],
+          metadata: (s.metadata ?? {}) as Record<string, unknown>,
+          createdAt: s.created_at as string,
+          updatedAt: s.updated_at as string,
+        })),
+        contributionTotals: {
+          count: row.contribution_count ?? 0,
+          valueInr: Number(row.contribution_total ?? 0),
+        },
+      },
+      error: null,
+    };
   }
 
   // ── Create ────────────────────────────────────────────────────────────────
