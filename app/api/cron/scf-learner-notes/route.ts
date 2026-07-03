@@ -5,8 +5,11 @@
 // of a course lower across 3 classes in a row (the strict downward-trend definition
 // — non-increasing, net drop, most-recent <= 3), this daily cron asks Claude to
 // draft ONE short, warm, PRIVATE support note pointing them to help, and persists
-// it into scf_learner_notes. The learner sees it on their Class Feedback page ONLY
-// when one exists — there is NO template fallback (Director decision 2026-06-30).
+// it into scf_learner_notes as a DRAFT (status='draft'). Notes await super-admin
+// approval (fn_scf_learner_notes_review, /admin/learner-notes) before learners see
+// them — the learner's Class Feedback page only ever surfaces status='approved'
+// notes, and ONLY when one exists — there is NO template fallback (Director
+// decision 2026-06-30; approval queue added 2026-07-03).
 //
 // FREQUENCY (decision): a fresh note every week the learner is still sliding. The
 //   regen guard skips a (learner, course) that already has a note generated within
@@ -291,6 +294,8 @@ export async function GET(request: NextRequest) {
 
     // Insert the note. Unique (learner_id, course_code, week_of) backstops same-week
     // races; ignoreDuplicates so a re-run within the week is a safe no-op.
+    // status:'draft' — notes await super-admin approval (fn_scf_learner_notes_review)
+    // before learners see them (approval queue, 2026-07-03).
     const { error: insErr } = await admin.from('scf_learner_notes').upsert(
       {
         learner_id: c.learner_id,
@@ -301,6 +306,7 @@ export async function GET(request: NextRequest) {
         model: modelUsed,
         net_decline: c.net_decline,
         week_of: weekOf,
+        status: 'draft',
       },
       { onConflict: 'learner_id,course_code,week_of', ignoreDuplicates: true },
     );
