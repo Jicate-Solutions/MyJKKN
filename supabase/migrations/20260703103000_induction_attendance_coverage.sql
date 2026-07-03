@@ -16,6 +16,15 @@
 --   * "past" now gates on end_at (a session mid-run can't be fully marked yet).
 --   * Row-missing vs NULL-institution split from the auth failure, and both
 --     failure branches raise the SAME generic message (no existence oracle).
+-- v3 (deep-review round 3):
+--   * "marked" is now bounded to CURRENT roster membership — a stale attendance
+--     row (learner later batch-moved or unenrolled) could otherwise push
+--     marked >= roster while a rostered fresher stays unmarked.
+--   * Rebutted with schema evidence (no code change): end_at is NOT NULL
+--     (information_schema: is_nullable=NO, 0 null rows) so the NULL-end_at
+--     "never past" edge cannot occur; induction_enrollment has NO status
+--     column, and fn_induction_day_roster's eligibility is the same raw
+--     (event_id, batch-match) predicate used for roster here — not inflated.
 
 CREATE OR REPLACE FUNCTION public.fn_induction_attendance_coverage(p_event_id uuid)
 RETURNS TABLE(day_number integer, past_sessions integer, marked_sessions integer)
@@ -50,9 +59,16 @@ BEGIN
   FROM (
     SELECT s.day_number,
            (s.end_at < now()) AS is_past,
+           -- bounded to current roster membership: stale rows from learners who
+           -- were batch-moved/unenrolled after marking must not count toward
+           -- "fully marked" (they could mask a still-unmarked rostered fresher)
            (SELECT count(DISTINCT a.learner_id)
             FROM public.event_session_attendance a
-            WHERE a.session_id = s.id) AS marked,
+            WHERE a.session_id = s.id
+              AND EXISTS (SELECT 1 FROM public.induction_enrollment e2
+                          WHERE e2.event_id = p_event_id
+                            AND e2.learner_id = a.learner_id
+                            AND (s.batch_id IS NULL OR e2.batch_id = s.batch_id))) AS marked,
            (SELECT count(*)
             FROM public.induction_enrollment e
             WHERE e.event_id = p_event_id
