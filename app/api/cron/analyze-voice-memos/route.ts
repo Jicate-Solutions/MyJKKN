@@ -244,13 +244,19 @@ function classifyFailure(err: unknown): 'ratelimit' | 'provider' | 'row' {
 // Bounded per-call timeout: converts a hung provider call into a classified
 // 'provider' failure for one row instead of silently eating the whole
 // maxDuration=60s budget (orphan recovery remains the backstop).
-const withTimeout = <T,>(p: Promise<T>, ms: number, label: string): Promise<T> =>
-  Promise.race([
-    p,
-    new Promise<never>((_, rej) =>
-      setTimeout(() => rej(new Error(`${label} timed out after ${ms}ms`)), ms),
-    ),
-  ]);
+const withTimeout = <T,>(p: Promise<T>, ms: number, label: string): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, rej) => {
+    timer = setTimeout(() => rej(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer)) as Promise<T>;
+};
+
+// admission_call_logs has NO updated_at auto-bump trigger (verified in prod
+// 2026-07-03: only an AFTER INSERT lead-touch trigger exists). Every UPDATE
+// in this route therefore stamps updated_at EXPLICITLY — the CAS claims, the
+// orphan age guard, and the least-recently-touched rotation all depend on it.
+const nowIso = () => new Date().toISOString();
 
 // ============================================================================
 // CRON HANDLER
@@ -312,7 +318,7 @@ export async function GET(request: NextRequest) {
   // filter, so without this pass they would stay mislabeled forever.
   await supabase
     .from('admission_call_logs')
-    .update({ memo_analyze_status: 'failed' })
+    .update({ memo_analyze_status: 'failed', updated_at: nowIso() })
     .gte('memo_analyze_attempts', MAX_ANALYZE_ATTEMPTS)
     .in('memo_analyze_status', ['transcribing', 'analyzing'])
     .lt('updated_at', orphanCutoffIso);
@@ -357,6 +363,8 @@ export async function GET(request: NextRequest) {
   let txTransientStreak = 0; // consecutive distinct-row transient-class transcription failures
   let stTransientStreak = 0;
   let skipSentiment = false; // transcribe-only mode after repeated sentiment provider failures
+  let skipTranscribe = false; // sentiment-only mode after transcribe provider confirmed down
+  let transcribeSkipped = 0; // fresh rows skipped while skipTranscribe (untouched, next run's problem)
   let sentimentDeferred = 0; // rows left in 'analyzing' for a later sentiment resume
   let claimMissed = 0; // rows another concurrent run claimed first (CAS returned 0 rows)
   // 'provider'-class failures recorded for end-of-run retro-promotion.
@@ -379,6 +387,14 @@ export async function GET(request: NextRequest) {
         !NON_LATIN_REGEX.test(storedTranscript) &&
         normalizeLanguageCode(c.memo_transcript_language || 'en') === 'en';
 
+      if (skipTranscribe && !canResumeAtSentiment) {
+        // Transcribe provider confirmed down this run — leave fresh rows
+        // untouched, but keep draining sentiment-ready rows below (their
+        // provider is independent and may be healthy).
+        transcribeSkipped++;
+        continue;
+      }
+
       let transcript = storedTranscript;
 
       if (canResumeAtSentiment) {
@@ -396,7 +412,7 @@ export async function GET(request: NextRequest) {
         // updated_at or flipped the status, making this UPDATE match 0 rows.
         let claimQuery = supabase
           .from('admission_call_logs')
-          .update({ memo_analyze_status: 'analyzing' })
+          .update({ memo_analyze_status: 'analyzing', updated_at: nowIso() })
           .eq('id', c.id)
           .eq('memo_analyze_status', c.memo_analyze_status as string);
         if (c.memo_analyze_status === 'analyzing') {
@@ -414,7 +430,7 @@ export async function GET(request: NextRequest) {
         // the pre-claim updated_at to be older than the orphan cutoff.
         let claimQuery = supabase
           .from('admission_call_logs')
-          .update({ memo_analyze_status: 'transcribing' })
+          .update({ memo_analyze_status: 'transcribing', updated_at: nowIso() })
           .eq('id', c.id)
           .eq('memo_analyze_status', c.memo_analyze_status as string);
         if (c.memo_analyze_status === 'transcribing') {
@@ -451,7 +467,9 @@ export async function GET(request: NextRequest) {
               language: 'en',
               mimeType: audioMime,
             }),
-            40000,
+            // 35s + 15s (sentiment) keeps one slow row + download/DB
+            // overhead under maxDuration=60s (round-3 LOW).
+            35000,
             'transcription',
           );
           transcript = result.text;
@@ -513,7 +531,8 @@ export async function GET(request: NextRequest) {
               memo_transcript: transcript || null,
               memo_transcript_language: normalizedLanguage,
               memo_analyze_status: 'rejected_non_english',
-              memo_analyzed_at: new Date().toISOString(),
+              memo_analyzed_at: nowIso(),
+              updated_at: nowIso(),
             })
             .eq('id', c.id);
           rejected++;
@@ -533,7 +552,8 @@ export async function GET(request: NextRequest) {
               memo_transcript_language: normalizedLanguage,
               memo_analyze_status: 'failed',
               memo_analyze_attempts: attempts + 1,
-              memo_analyzed_at: new Date().toISOString(),
+              memo_analyzed_at: nowIso(),
+              updated_at: nowIso(),
             })
             .eq('id', c.id);
           failed++;
@@ -550,6 +570,7 @@ export async function GET(request: NextRequest) {
             memo_transcript: transcript,
             memo_transcript_language: normalizedLanguage,
             memo_analyze_status: 'analyzing',
+            updated_at: nowIso(),
           })
           .eq('id', c.id);
 
@@ -571,7 +592,7 @@ export async function GET(request: NextRequest) {
             systemPrompt: SENTIMENT_SYSTEM_PROMPT,
             userPrompt: `Transcript:\n\n${transcript}`,
           }),
-          20000,
+          15000,
           'sentiment',
         );
         analysis = normalizeAnalysis(raw.parsed);
@@ -620,7 +641,8 @@ export async function GET(request: NextRequest) {
           memo_summary: analysis.summary,
           memo_categories: analysis.categories,
           memo_analyze_status: 'completed',
-          memo_analyzed_at: new Date().toISOString(),
+          memo_analyzed_at: nowIso(),
+          updated_at: nowIso(),
         })
         .eq('id', c.id);
 
@@ -637,6 +659,13 @@ export async function GET(request: NextRequest) {
         // must not dodge its retry budget). 'ratelimit' NEVER lands here:
         // throttling is request-level, not content-level, so charging it
         // would silently park valid memos (deep-review v2 HIGH).
+        //
+        // ACCEPTED TRADE-OFF (round-3 MEDIUM declined): a valid row must
+        // fail provider-class in FIVE separate provider-healthy runs to park
+        // — at that repetition rate the content itself is the trigger, which
+        // is exactly the look-alike case round-1's HIGH exists to park.
+        // Parked rows stay visible as 'failed' in the monitor and recover by
+        // resetting memo_analyze_attempts.
         failed++;
         errors.push(`${c.id}: [${phase}] ${msg}`);
         try {
@@ -644,8 +673,9 @@ export async function GET(request: NextRequest) {
             .from('admission_call_logs')
             .update({
               memo_analyze_status: 'failed',
-              memo_analyzed_at: new Date().toISOString(),
+              memo_analyzed_at: nowIso(),
               memo_analyze_attempts: attempts + 1,
+              updated_at: nowIso(),
             })
             .eq('id', c.id);
         } catch {
@@ -655,21 +685,23 @@ export async function GET(request: NextRequest) {
       }
 
       if (cls === 'ratelimit' && phaseHealthy) {
-        // Provider is up but throttling this request. No budget, no halt —
-        // park the row for the next run ('failed' keeps it sweepable; no
-        // memo_analyzed_at: analysis never concluded).
-        failed++;
+        // Provider is up but throttling this request. No budget, no halt.
         errors.push(`${c.id}: [${phase}] ${msg}`);
         if (phase !== 'sentiment') {
+          // Park for the next run ('failed' keeps it sweepable; no
+          // memo_analyzed_at: analysis never concluded).
+          failed++;
           try {
             await supabase
               .from('admission_call_logs')
-              .update({ memo_analyze_status: 'failed' })
+              .update({ memo_analyze_status: 'failed', updated_at: nowIso() })
               .eq('id', c.id);
           } catch {
             // best-effort
           }
         } else {
+          // Row already sits in 'analyzing' with its transcript — counted
+          // once as deferred, resumes at sentiment on a later run.
           sentimentDeferred++;
         }
         continue;
@@ -700,20 +732,21 @@ export async function GET(request: NextRequest) {
       try {
         await supabase
           .from('admission_call_logs')
-          .update({ memo_analyze_status: 'failed' })
+          .update({ memo_analyze_status: 'failed', updated_at: nowIso() })
           .eq('id', c.id);
       } catch {
         // best-effort — already in error path
       }
       if (txTransientStreak >= 2) {
         // Provider-wide confirmed on two distinct rows with zero successes —
-        // every remaining candidate would hit the same wall. Receipt
+        // every remaining FRESH candidate would hit the same wall. Receipt
         // 2026-07-03: a quota-dead OpenAI account ate ~5,400 pointless
         // calls/day for 29 days because each run burned its full batch.
-        // (Two look-alike front rows cannot stall the queue: candidate order
-        // is least-recently-touched, so the next run starts elsewhere.)
+        // Not a `break`: resume-at-sentiment rows use a different provider
+        // and keep draining. (Two look-alike front rows cannot stall the
+        // queue either way: candidate order is least-recently-touched.)
         halted = msg.slice(0, 200);
-        break;
+        skipTranscribe = true;
       }
       // First transient failure this run: probe one more row before halting.
     }
@@ -735,8 +768,13 @@ export async function GET(request: NextRequest) {
           .update({
             memo_analyze_status: 'failed',
             memo_analyze_attempts: r.attempts + 1,
+            updated_at: nowIso(),
           })
-          .eq('id', r.id);
+          .eq('id', r.id)
+          // CAS on the prior value: if a concurrent run already bumped
+          // attempts, its increment stands and this write no-ops (a lost
+          // update here would under-charge a poison row).
+          .eq('memo_analyze_attempts', r.attempts);
       } catch {
         // best-effort
       }
@@ -773,6 +811,7 @@ export async function GET(request: NextRequest) {
       remaining,
       halted,
       sentiment_deferred: sentimentDeferred,
+      transcribe_skipped: transcribeSkipped,
       claim_missed: claimMissed,
       transcribe_provider: `${transcribeConfig.provider}/${transcribeConfig.model_id}`,
       sentiment_provider: `${sentimentConfig.provider}/${sentimentConfig.model_id}`,
@@ -793,6 +832,7 @@ export async function GET(request: NextRequest) {
     // left untouched for the next run rather than burned against the same wall.
     halted,
     sentiment_deferred: sentimentDeferred,
+    transcribe_skipped: transcribeSkipped,
     claim_missed: claimMissed,
     transcribe_provider: `${transcribeConfig.provider}/${transcribeConfig.model_id}`,
     sentiment_provider: `${sentimentConfig.provider}/${sentimentConfig.model_id}`,
