@@ -98,13 +98,6 @@ export default async function LoopControlTowerPage() {
 
   const messOn = messPolicy === true;
 
-  const summary: { label: string; value: number; tone: LoopTone }[] = [
-    { label: 'self-improving (all 4 gates)', value: 5, tone: 'live' },
-    { label: 'cadence & rotation loops', value: 2, tone: 'early' },
-    { label: 'accountability loops', value: 2, tone: 'dark' },
-    { label: 'intake (senses, not a loop)', value: 1, tone: 'sched' },
-  ];
-
   const tiers: LoopTier[] = [
     {
       title: 'Self-improving loops',
@@ -307,6 +300,27 @@ export default async function LoopControlTowerPage() {
           note: 'Measures pace against targets and flags the gap — but a person owns the correction (the accountability meeting), so the feed-forward is human, not automatic.',
         },
       ],
+    },
+  ];
+
+  // Summary tiles are STRUCTURAL inventory counts, derived from the tiers so
+  // they can never drift from what's rendered below (a hardcoded tile once
+  // double-counted the intake adapter as a cadence loop). "Loop" excludes the
+  // intake tone — the Feedback Spine sits in the cadence tier for context but
+  // is the senses, not a loop.
+  const allLoops = tiers.flatMap((t) => t.loops);
+  const summary: { label: string; value: number; tone: LoopTone }[] = [
+    { label: 'self-improving (all 4 gates)', value: tiers[0]!.loops.length, tone: 'live' },
+    {
+      label: 'cadence & rotation loops',
+      value: tiers[1]!.loops.filter((l) => l.tone !== 'intake').length,
+      tone: 'early',
+    },
+    { label: 'accountability loops', value: tiers[2]!.loops.length, tone: 'dark' },
+    {
+      label: 'intake (senses, not a loop)',
+      value: allLoops.filter((l) => l.tone === 'intake').length,
+      tone: 'sched',
     },
   ];
 

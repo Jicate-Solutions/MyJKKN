@@ -235,7 +235,8 @@ export function LoopControlTower({
       ))}
 
       <p className="border-t border-border pt-4 font-mono text-[11px] tracking-wide text-muted-foreground/70">
-        Live from production · counts as of {asOf}
+        Per-loop metrics fetched live from production on load · {asOf}. Tile
+        counts above are the loop inventory (structural).
       </p>
     </div>
   );
