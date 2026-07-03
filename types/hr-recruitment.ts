@@ -651,7 +651,15 @@ export const INTERVIEW_MODE_LABELS: Record<InterviewMode, string> = {
 // Added: 2026-06-27 (replaces CVViz-URL-based submit flow)
 // =====================================================================================
 
-export type JobApplicationStatus = 'pending' | 'reviewed' | 'shortlisted' | 'rejected';
+export type JobApplicationStatus = 'pending' | 'reviewed' | 'shortlisted' | 'rejected' | 'promoted';
+
+export const JOB_APPLICATION_STATUS_LABELS: Record<JobApplicationStatus, string> = {
+  pending: 'Pending Review',
+  reviewed: 'Reviewed',
+  shortlisted: 'Shortlisted',
+  rejected: 'Rejected',
+  promoted: 'In Approval Pipeline',
+};
 
 export interface HRJobApplication {
   id: string;
@@ -681,9 +689,25 @@ export interface HRJobApplication {
   review_notes: string | null;
 
   applicant_user_id: string | null;
+  /** Set when a shortlisted application is promoted into the approval pipeline. */
+  promoted_candidate_id: string | null;
   submitted_at: string;
   created_at: string;
   updated_at: string;
+}
+
+/** Free-form discussion thread on a recruitment candidate (hr_recruitment_candidate_comments). */
+export interface HRRecruitmentCandidateComment {
+  id: string;
+  candidate_id: string;
+  hr_organization_id: string;
+  commenter_id: string;
+  comment: string;
+  parent_comment_id: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Joined commenter display info (profiles embed). */
+  commenter?: { full_name: string | null; email: string | null } | null;
 }
 
 export interface HRJobApplicationInsert {
@@ -707,13 +731,6 @@ export interface HRJobApplicationInsert {
   resume_size_bytes?: number | null;
   drive_file_id?: string | null;
 }
-
-export const JOB_APPLICATION_STATUS_LABELS: Record<JobApplicationStatus, string> = {
-  pending: 'Pending Review',
-  reviewed: 'Reviewed',
-  shortlisted: 'Shortlisted',
-  rejected: 'Rejected',
-};
 
 export const SCORECARD_RECOMMENDATION_LABELS: Record<ScorecardRecommendation, string> = {
   strong_hire: 'Strong Hire',

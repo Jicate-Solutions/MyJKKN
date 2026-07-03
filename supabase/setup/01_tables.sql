@@ -5557,3 +5557,28 @@ CREATE INDEX IF NOT EXISTS idx_iec_event ON public.induction_event_coordinators(
 CREATE INDEX IF NOT EXISTS idx_iec_user  ON public.induction_event_coordinators(user_id);
 
 ALTER TABLE public.induction_event_coordinators ENABLE ROW LEVEL SECURITY;
+
+
+-- =====================================================================================
+-- hr_recruitment_candidate_comments — discussion thread on recruitment candidates
+-- (migration 20260703130200). Decision comments stay in approval_chain JSONB;
+-- this is the free-form thread. RLS inherits candidate visibility via EXISTS.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS hr_recruitment_candidate_comments (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  candidate_id       uuid NOT NULL REFERENCES hr_recruitment_candidates(id) ON DELETE CASCADE,
+  hr_organization_id uuid NOT NULL REFERENCES hr_organizations(id),
+  commenter_id       uuid NOT NULL REFERENCES profiles(id),
+  comment            text NOT NULL,
+  parent_comment_id  uuid REFERENCES hr_recruitment_candidate_comments(id),
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_hr_rec_cand_comments_candidate
+  ON hr_recruitment_candidate_comments(candidate_id, created_at);
+
+-- hr_job_applications promotion bridge (migration 20260703130000):
+--   promoted_candidate_id uuid REFERENCES hr_recruitment_candidates(id)
+--   status CHECK extended with 'promoted'
+-- (Base table created in migration 20260627_hr_job_applications.sql — not yet
+--  mirrored here; see that migration for the full definition.)

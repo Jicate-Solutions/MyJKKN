@@ -7364,3 +7364,15 @@ DROP POLICY IF EXISTS ess_event_speaker_read ON public.event_session_speakers;
 CREATE POLICY ess_event_speaker_read ON public.event_session_speakers
   FOR SELECT TO authenticated
   USING (public.fn_induction_session_in_my_speaker_event(session_id));
+
+
+-- hr_recruitment_candidate_comments (migration 20260703130200) — visibility
+-- inherits the candidate row's RLS via EXISTS.
+ALTER TABLE hr_recruitment_candidate_comments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY hr_rec_cand_comments_select ON hr_recruitment_candidate_comments
+  FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM hr_recruitment_candidates c WHERE c.id = hr_recruitment_candidate_comments.candidate_id));
+CREATE POLICY hr_rec_cand_comments_insert ON hr_recruitment_candidate_comments
+  FOR INSERT TO authenticated
+  WITH CHECK (commenter_id = auth.uid()
+    AND EXISTS (SELECT 1 FROM hr_recruitment_candidates c WHERE c.id = hr_recruitment_candidate_comments.candidate_id));
