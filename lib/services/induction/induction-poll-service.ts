@@ -6,20 +6,33 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 const getSupabase = (): any => createClientSupabaseClient();
 
+// Question kinds (v2): 'single'/'multi' = option ballots; 'scale' = numeric 1..N
+// single-select (reuses the option path, labels are the numbers); 'wordcloud' =
+// free-text (options minted server-side, one per distinct word).
+export type PollQuestionKind = 'single' | 'multi' | 'scale' | 'wordcloud';
+
 export interface PollOptionDraft { id?: string; label: string; position: number }
-export interface PollQuestionDraft { id?: string; prompt: string; kind: 'single' | 'multi'; position: number; options: PollOptionDraft[] }
+export interface PollQuestionDraft {
+  id?: string; prompt: string; kind: PollQuestionKind; position: number; options: PollOptionDraft[];
+  scale_min_label?: string | null; scale_max_label?: string | null;
+  // Builder-local only (ignored by the RPC): the numeric scale range. Options are
+  // GENERATED from this on save. Re-hydrated from the numeric option labels on load.
+  scale_min?: number; scale_max?: number;
+}
 
 export interface PollStructure {
   id: string; session_id: string; status: 'draft' | 'open' | 'closed';
   auto_close_at: string | null; has_votes: boolean;
   current_question_id: string | null;
-  questions: { id: string; prompt: string; kind: 'single' | 'multi'; position: number;
+  questions: { id: string; prompt: string; kind: PollQuestionKind; position: number;
+               scale_min_label?: string | null; scale_max_label?: string | null;
                options: { id: string; label: string; position: number }[] }[];
 }
 export interface PollTotals {
   status: 'draft' | 'open' | 'closed'; auto_close_at: string | null;
   enrolled_count: number; response_count: number; suppressed: boolean;
-  questions: { id: string; prompt: string; kind: 'single' | 'multi'; response_count: number;
+  questions: { id: string; prompt: string; kind: PollQuestionKind; response_count: number;
+               scale_min_label?: string | null; scale_max_label?: string | null;
                options: { id: string; label: string; count: number | null }[] }[];
 }
 export interface PollResponder {
@@ -33,12 +46,18 @@ export interface OpenPollForLearner {
 export interface PollForAnswering {
   poll_id: string;
   // Coordinator-controlled: the server returns ONLY the current question.
-  questions: { id: string; prompt: string; kind: 'single' | 'multi'; options: { id: string; label: string }[] }[];
+  questions: { id: string; prompt: string; kind: PollQuestionKind;
+               scale_min_label?: string | null; scale_max_label?: string | null;
+               options: { id: string; label: string }[] }[];
   my_answers: Record<string, string[]>;
   current_question_id: string | null;
   question_index: number | null;
   question_total: number;
 }
+
+// One answer in a submit payload. Option kinds carry option_ids; wordcloud carries
+// the free-text word.
+export interface PollAnswer { question_id: string; option_ids?: string[]; text?: string }
 export interface LearnerQuestionTotals {
   question_id: string; prompt: string; response_count: number; suppressed: boolean;
   options: { id: string; label: string; count: number | null }[];
@@ -97,7 +116,7 @@ export class InductionPollService {
     if (error) throw error;
     return (data as PollForAnswering) ?? null;
   }
-  static async submit(pollId: string, answers: { question_id: string; option_ids: string[] }[]): Promise<void> {
+  static async submit(pollId: string, answers: PollAnswer[]): Promise<void> {
     const { error } = await getSupabase().rpc('fn_induction_submit_poll_response', { p_poll_id: pollId, p_answers: answers });
     if (error) throw error;
   }

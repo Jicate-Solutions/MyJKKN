@@ -15,12 +15,96 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, Users, BarChart3, Maximize, Minimize } from 'lucide-react';
 import { InductionPollService, type PollTotals } from '@/lib/services/induction/induction-poll-service';
+import { useInductionPollRealtime } from '@/hooks/induction/use-induction-poll-realtime';
 
-const REFRESH_MS = 4000;
+const REFRESH_MS = 10000;                // fallback poll; realtime pushes immediate refreshes
+const WORDCLOUD_MIN_FREQ = 2;            // once unlocked, only show words answered by >=2 people
+const WORDCLOUD_UNLOCK = 3;              // question-level "hidden until 3 responses" gate
+
+type PollQuestion = PollTotals['questions'][number];
 
 function pct(count: number, total: number) { return total > 0 ? Math.round((count / total) * 100) : 0; }
 
-function ResultBars({ q, big }: { q: PollTotals['questions'][number]; big: boolean }) {
+// SCALE: weighted average of the numeric option labels + a per-number distribution.
+function ScaleResult({ q, big }: { q: PollQuestion; big: boolean }) {
+  const rows = q.options.map((o) => ({ id: o.id, n: parseInt(o.label, 10), label: o.label, count: o.count ?? 0 }));
+  const total = rows.reduce((a, r) => a + r.count, 0);
+  const weighted = rows.reduce((a, r) => a + (Number.isFinite(r.n) ? r.n * r.count : 0), 0);
+  const avg = total > 0 ? weighted / total : 0;
+  const max = Math.max(...rows.map((r) => r.count), 0);
+  return (
+    <div className={big ? 'space-y-6' : 'space-y-3'}>
+      <div className="flex items-end gap-3">
+        <span className={`${big ? 'text-6xl md:text-8xl' : 'text-3xl'} font-bold tabular-nums text-emerald-300`}>
+          {total > 0 ? avg.toFixed(1) : '–'}
+        </span>
+        <span className={`${big ? 'text-lg md:text-2xl' : 'text-sm'} pb-1 text-slate-400`}>avg</span>
+        {(q.scale_min_label || q.scale_max_label) && (
+          <span className={`${big ? 'text-sm md:text-base' : 'text-xs'} ml-auto pb-2 text-right text-slate-400`}>
+            {q.scale_min_label ? <span>{rows[0]?.label} = {q.scale_min_label}</span> : null}
+            {q.scale_min_label && q.scale_max_label ? <span className="mx-1">·</span> : null}
+            {q.scale_max_label ? <span>{rows[rows.length - 1]?.label} = {q.scale_max_label}</span> : null}
+          </span>
+        )}
+      </div>
+      <div className={big ? 'space-y-2' : 'space-y-1.5'}>
+        {rows.map((r) => {
+          const leading = r.count > 0 && r.count === max;
+          return (
+            <div key={r.id} className={`relative overflow-hidden rounded-xl border ${leading ? 'border-emerald-400/60' : 'border-white/10'} bg-white/5`}>
+              <div className={`absolute inset-y-0 left-0 ${leading ? 'bg-emerald-500/45' : 'bg-emerald-500/20'} transition-[width] duration-700 ease-out motion-reduce:transition-none`}
+                style={{ width: `${pct(r.count, total)}%` }} />
+              <div className={`relative flex items-center justify-between gap-4 ${big ? 'px-5 py-3' : 'px-3 py-1.5'}`}>
+                <span className={`${big ? 'text-lg md:text-2xl' : 'text-sm'} font-semibold tabular-nums text-white`}>{r.label}</span>
+                <span className={`${big ? 'text-lg md:text-2xl' : 'text-sm'} shrink-0 font-semibold tabular-nums text-emerald-200`}>
+                  {r.count} <span className={`${big ? 'text-base md:text-lg' : 'text-xs'} text-slate-400`}>({pct(r.count, total)}%)</span>
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// WORDCLOUD: font-size proportional to frequency. Respects the 3-response unlock
+// gate; once unlocked shows only words answered by >=2 people.
+function WordCloud({ q, big }: { q: PollQuestion; big: boolean }) {
+  if (q.response_count < WORDCLOUD_UNLOCK) {
+    return <div className="flex items-center justify-center py-8 text-slate-400">Collecting responses… (revealed after {WORDCLOUD_UNLOCK})</div>;
+  }
+  const words = q.options
+    .map((o) => ({ id: o.id, label: o.label, count: o.count ?? 0 }))
+    .filter((w) => w.count >= WORDCLOUD_MIN_FREQ)
+    .sort((a, b) => b.count - a.count);
+  if (!words.length) {
+    return <div className="flex items-center justify-center py-8 text-slate-400">No repeated words yet.</div>;
+  }
+  const max = Math.max(...words.map((w) => w.count));
+  const minPx = big ? 18 : 12; const maxPx = big ? 84 : 34;
+  const sizeFor = (c: number) => (max <= 1 ? maxPx : Math.round(minPx + ((c - 1) / (max - 1)) * (maxPx - minPx)));
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 py-2">
+      {words.map((w, i) => (
+        <span key={w.id} title={`${w.count}`}
+          className={`font-bold leading-none ${i % 3 === 0 ? 'text-emerald-300' : i % 3 === 1 ? 'text-white' : 'text-emerald-100'}`}
+          style={{ fontSize: `${sizeFor(w.count)}px` }}>
+          {w.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// Kind-aware result surface: scale / wordcloud / (single|multi via ResultBars).
+function QuestionResult({ q, big }: { q: PollQuestion; big: boolean }) {
+  if (q.kind === 'scale') return <ScaleResult q={q} big={big} />;
+  if (q.kind === 'wordcloud') return <WordCloud q={q} big={big} />;
+  return <ResultBars q={q} big={big} />;
+}
+
+function ResultBars({ q, big }: { q: PollQuestion; big: boolean }) {
   const total = q.options.reduce((a, o) => a + (o.count ?? 0), 0);
   const max = Math.max(...q.options.map((o) => o.count ?? 0), 0);
   return (
@@ -71,9 +155,11 @@ export function SessionPollPresenter({ pollId, sessionTitle, questionOrder, init
   }, [pollId]);
   useEffect(() => {
     refresh();
-    const t = setInterval(refresh, REFRESH_MS);
+    const t = setInterval(refresh, REFRESH_MS);   // resilience fallback
     return () => clearInterval(t);
   }, [refresh]);
+  // Realtime: refetch the instant any vote lands.
+  useInductionPollRealtime(pollId, refresh);
 
   const moveTo = useCallback(async (nextIdx: number) => {
     const qid = questionOrder[nextIdx];
@@ -150,7 +236,7 @@ export function SessionPollPresenter({ pollId, sessionTitle, questionOrder, init
                   </div>
                   <h2 className="text-2xl font-bold leading-snug md:text-4xl">{current.prompt}</h2>
                 </div>
-                <ResultBars q={current} big />
+                <QuestionResult q={current} big />
                 <div className="flex items-center gap-2 text-sm text-slate-400">
                   <Users className="h-4 w-4" />
                   <span className="tabular-nums text-lg font-semibold text-white">{current.response_count}</span> answered this question
@@ -189,7 +275,7 @@ export function SessionPollPresenter({ pollId, sessionTitle, questionOrder, init
                         </div>
                         <span className="shrink-0 text-xs text-slate-400 tabular-nums">{q.response_count} answered</span>
                       </div>
-                      <ResultBars q={q} big={false} />
+                      <QuestionResult q={q} big={false} />
                     </div>
                   );
                 })}
