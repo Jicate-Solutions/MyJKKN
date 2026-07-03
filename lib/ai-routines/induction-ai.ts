@@ -20,6 +20,7 @@ export const INDUCTION_AI_ROUTINES: AIRoutine[] = [
   },
   {
     "id": "induction-session-effectiveness",
+    "maxLane": true,
     "name": "Induction Session-Effectiveness Coach (per-session loop)",
     "category": "induction-ai",
     "type": "cron",
