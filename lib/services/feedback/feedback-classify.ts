@@ -1,7 +1,8 @@
 /**
  * Feedback Spine — AI classify worker.
  *
- * One claude-sonnet-4-6 call per feedback event → {sentiment, intent, topic,
+ * One Claude call per feedback event (model from ai_model_config,
+ * feature_key 'feedback.classify') → {sentiment, intent, topic,
  * draft_reply}. This is the "take advantage of AI" layer: it turns raw feedback
  * text into structured signal the loops can act on, and drafts a personalized
  * reply a human approves before sending.
@@ -13,13 +14,22 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import {
+  resolveChatModel,
+  recordChatUsage,
+} from '@/lib/services/platform/ai-clients/chat';
+import { getModel } from '@/lib/services/platform/ai-providers';
 import type {
   FeedbackClassification,
   AiSentiment,
   AiIntent,
 } from '@/lib/types/feedback-spine';
 
-const MODEL = 'claude-sonnet-4-6';
+// Model comes from ai_model_config (admin-governed) — resolved per call via
+// resolveChatModel(FEATURE_KEY), which never throws (hardcoded fallback on any
+// config failure). The caller (feedback-classify cron) loops BATCH=25 rows; the
+// service's 60s cache makes the repeated resolution a single DB read per run.
+const FEATURE_KEY = 'feedback.classify';
 const SENTIMENTS: AiSentiment[] = ['positive', 'neutral', 'negative', 'mixed'];
 const INTENTS: AiIntent[] = [
   'praise',
@@ -36,6 +46,29 @@ const SYSTEM = `You classify a single piece of audience feedback for an Indian e
 - "topic": a 2-5 word lowercase topic label (e.g. "hostel food quality", "admission fee query")
 - "draft_reply": a warm, specific, ≤300-char reply in the SAME language as the feedback that a staff member could send after a quick check. For complaints, acknowledge + next step. For questions, answer or say who will. Never invent facts, fees, or dates — if unknown, say it'll be confirmed.`;
 
+// Cost in INR from the pricing registry — null when pricing or token counts are missing.
+function costInr(
+  modelId: string,
+  inputTokens?: number,
+  outputTokens?: number
+): number | null {
+  const pricing = getModel('anthropic', modelId);
+  if (
+    !pricing ||
+    pricing.inputPer1KTokensInr == null ||
+    pricing.outputPer1KTokensInr == null
+  ) {
+    return null;
+  }
+  if (inputTokens == null || outputTokens == null) return null;
+  return Number(
+    (
+      (inputTokens / 1000) * pricing.inputPer1KTokensInr +
+      (outputTokens / 1000) * pricing.outputPer1KTokensInr
+    ).toFixed(6)
+  );
+}
+
 /** Classify one feedback string. Throws on API/parse failure (caller decides). */
 export async function classifyFeedback(
   content: string
@@ -43,12 +76,37 @@ export async function classifyFeedback(
   const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
 
+  const { model_id: modelId } = await resolveChatModel(FEATURE_KEY);
   const anthropic = new Anthropic({ apiKey });
-  const resp = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: 400,
-    system: SYSTEM,
-    messages: [{ role: 'user', content: content.slice(0, 4000) }],
+  const t0 = Date.now();
+  let resp: Anthropic.Message;
+  try {
+    resp = await anthropic.messages.create({
+      model: modelId,
+      max_tokens: 400,
+      system: SYSTEM,
+      messages: [{ role: 'user', content: content.slice(0, 4000) }],
+    });
+  } catch (err) {
+    // Record the failed invocation (recordChatUsage is internally non-throwing,
+    // MUST be awaited — serverless drops un-awaited promises), then RETHROW:
+    // the cron catches per-row and leaves ai_processed_at NULL so a later run
+    // retries. Swallowing here would break that retry queue.
+    await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
+      duration_ms: Date.now() - t0,
+      success: false,
+      error_message: err instanceof Error ? err.message.slice(0, 500) : String(err),
+    });
+    throw err;
+  }
+  const inputTokens = resp.usage?.input_tokens;
+  const outputTokens = resp.usage?.output_tokens;
+  await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    cost_inr: costInr(modelId, inputTokens, outputTokens) ?? undefined,
+    duration_ms: Date.now() - t0,
+    success: true,
   });
 
   const text = resp.content
@@ -75,6 +133,8 @@ export async function classifyFeedback(
     intent,
     topic: (parsed.topic || 'general').toString().slice(0, 80),
     draft_reply: (parsed.draft_reply || '').toString().slice(0, 600),
-    model: MODEL,
+    // ACTUAL model from the response (not the config value) — the caller writes
+    // this to feedback_events.ai_model, so the audit column must stay truthful.
+    model: resp.model,
   };
 }
