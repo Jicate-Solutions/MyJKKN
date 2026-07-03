@@ -19,10 +19,15 @@ import { SessionPollPresenter } from './session-poll-presenter';
 
 // Generate the numeric option rows for a SCALE question (labels ARE the numbers),
 // preserving existing option ids by number so re-saving never orphans a voted option.
+// A rating scale is capped to a sane number of points so a mistyped bound (e.g.
+// max=1_000_000) can't loop min..max on every keystroke and freeze the browser or
+// mint a giant option-upsert payload.
+const MAX_SCALE_POINTS = 10;
 function genScaleOptions(min: number, max: number, existing: { id?: string; label: string }[]) {
   const byNum = new Map(existing.map((o) => [parseInt(o.label, 10), o.id]));
   const out: { id?: string; label: string; position: number }[] = [];
-  for (let n = min, i = 0; n <= max; n += 1, i += 1) out.push({ id: byNum.get(n), label: String(n), position: i });
+  const hi = Math.min(max, min + MAX_SCALE_POINTS - 1);   // defensive backstop
+  for (let n = min, i = 0; n <= hi; n += 1, i += 1) out.push({ id: byNum.get(n), label: String(n), position: i });
   return out;
 }
 const clampInt = (v: string, fallback: number) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : fallback; };
@@ -106,8 +111,11 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
   }));
   const setScaleRange = (i: number, next: { min?: number; max?: number }) => setQuestions((qs) => qs.map((q, j) => {
     if (j !== i) return q;
-    const min = next.min ?? q.scale_min ?? 1;
-    const max = Math.max(min, next.max ?? q.scale_max ?? 5);
+    const min = Math.max(1, next.min ?? q.scale_min ?? 1);
+    const rawMax = next.max ?? q.scale_max ?? 5;
+    // Always 2..MAX_SCALE_POINTS points: max strictly above min (no degenerate
+    // single-point scale that the >=2 save filter would silently drop), span capped.
+    const max = Math.min(Math.max(min + 1, rawMax), min + MAX_SCALE_POINTS - 1);
     return { ...q, scale_min: min, scale_max: max, options: genScaleOptions(min, max, q.options) };
   }));
   const removeQ = (i: number) => setQuestions((qs) => qs.filter((_, j) => j !== i));

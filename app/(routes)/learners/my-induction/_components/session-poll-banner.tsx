@@ -43,6 +43,8 @@ export function SessionPollBanner() {
   const [busy, setBusy] = useState(false);
   const activeRef = useRef<PollForAnswering | null>(null);
   activeRef.current = active;
+  const answeredRef = useRef(false);
+  answeredRef.current = answered;
 
   const load = useCallback(async () => {
     try { setPolls(await InductionPollService.getMyOpenPolls()); } catch { /* silent */ }
@@ -85,7 +87,13 @@ export function SessionPollBanner() {
     try {
       const f = await InductionPollService.getForAnswering(cur.poll_id);
       if (f && f.current_question_id !== cur.current_question_id) { applyForm(f); return; }
-      setLiveTotals(await InductionPollService.getLearnerQuestionTotals(cur.poll_id));
+      // Only fetch live counts when they'll actually be shown: the learner has
+      // answered this question and it isn't a word cloud (learners never see the
+      // word-cloud aggregate). This stops un-answered learners — the bulk of a live
+      // audience — from refetching totals on every ping.
+      if (answeredRef.current && cur.questions[0]?.kind !== 'wordcloud') {
+        setLiveTotals(await InductionPollService.getLearnerQuestionTotals(cur.poll_id));
+      }
     } catch {
       // Poll closed / no longer visible → leave the live view quietly.
       setActive(null); load();
