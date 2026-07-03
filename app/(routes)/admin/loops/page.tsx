@@ -41,7 +41,12 @@ const n = (v: number | null) => (v === null ? '—' : String(v));
 
 export default async function LoopControlTowerPage() {
   const { profile } = await getEnhancedUserProfile();
-  const isSuperAdmin = profile?.is_super_admin === true;
+  // Canonical super-admin definition (matches hooks/use-permissions.ts and the
+  // SuperAdminOnly guard): the boolean flag OR the role. MENU_PERMISSIONS maps
+  // /admin/loops → 'super_admin', which a role-based super admin satisfies, so
+  // gating on the flag alone would show them the link then deny the page.
+  const isSuperAdmin =
+    profile?.is_super_admin === true || profile?.role === 'super_admin';
 
   if (!isSuperAdmin) {
     return (
@@ -126,10 +131,14 @@ export default async function LoopControlTowerPage() {
             {
               v: `${n(scfFbClassified)}/${n(scfFbTotal)}`,
               k: 'feedback classified',
+              // A failed load (either count null) must read neutral, not green —
+              // "—/—" in a healthy tone would disguise a broken read as "all good".
               tone:
-                scfFbTotal && scfFbClassified !== null && scfFbClassified < scfFbTotal
-                  ? 'warn'
-                  : 'good',
+                scfFbTotal == null || scfFbClassified == null
+                  ? 'mute'
+                  : scfFbClassified < scfFbTotal
+                    ? 'warn'
+                    : 'good',
             },
           ],
           noteTag: 'Now',
@@ -253,9 +262,11 @@ export default async function LoopControlTowerPage() {
               v: `${n(spineClassified)}/${n(spineTotal)}`,
               k: 'classified',
               tone:
-                spineTotal && spineClassified !== null && spineClassified < spineTotal
-                  ? 'warn'
-                  : 'good',
+                spineTotal == null || spineClassified == null
+                  ? 'mute'
+                  : spineClassified < spineTotal
+                    ? 'warn'
+                    : 'good',
             },
           ],
           noteTag: 'Why not a loop',
