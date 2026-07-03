@@ -194,38 +194,38 @@ function normalizeAnalysis(raw: Record<string, unknown>): AnalysisResult {
 }
 
 // ============================================================================
-// FAILURE CLASSIFICATION — structured status/code first, message text second
+// FAILURE CLASSIFICATION — final design after 7 deep-review rounds
 // ============================================================================
-// 'ratelimit' = 429/quota/rate-limit. NEVER content-deterministic (a specific
-//   file cannot cause a 429), so it never consumes a row's retry budget under
-//   any evidence rule — this is what keeps partial throttling from silently
-//   parking valid memos (deep-review v2 HIGH).
-// 'provider'  = looks provider-wide (5xx, auth/config, network, timeout,
-//   unknown). CAN be content-deterministic (corrupt file → provider 500), so
-//   these are eligible for evidence-based promotion below.
-// 'row'       = deterministic for THIS row (client 4xx on the file, missing
-//   storage object) — charges budget immediately.
+// Two classes only:
+//   'ratelimit' — 429/quota/rate-limit. Request-level throttling: charges
+//     NOTHING (neither attempts nor the transient counter). Waited out.
+//   'transient' — everything else (5xx, 4xx of any kind, storage, network,
+//     timeout, unknown). NEVER charges attempts directly — every uncharged
+//     failure increments the persistent memo_transient_failures counter,
+//     which converts to one attempts charge at TRANSIENT_CHARGE_THRESHOLD.
 //
-// Run-level evidence rules (deep-review v1 HIGH + v2 HIGH reconciled):
-//   1. Halt transcription only after TWO DISTINCT rows fail transient-class
-//      ('ratelimit' or 'provider') with zero successes from that phase.
-//   2. Promotion (immediate when the phase already proved healthy this run,
-//      retroactive at end of run otherwise) charges budget ONLY for
-//      'provider'-class failures — a look-alike poison row parks after
-//      MAX_ANALYZE_ATTEMPTS runs, while genuinely throttled rows never do.
-//   3. Candidate ordering is least-recently-touched (updated_at ASC), so two
-//      look-alike front rows cannot permanently stall rows behind them: the
-//      next run starts with untouched rows and gathers health evidence.
-function classifyFailure(err: unknown): 'ratelimit' | 'provider' | 'row' {
-  const anyErr = err as { status?: unknown; code?: unknown; name?: unknown } | null;
+// WHY NO EVIDENCE-BASED CHARGING: rounds 1–7 oscillated between "charge
+// look-alikes or poison rows never park" and "charging under partial
+// degradation parks valid memos". Both poles are covered structurally now:
+//   - The ONLY immediate attempts charge in this route is the
+//     empty-transcript guard — it fires after a SUCCESSFUL transcription,
+//     which is unambiguous row-specific evidence (the provider processed
+//     this file and returned nothing). That is the exact 2026-07-03 poison
+//     receipt, still parked at full speed (5 runs).
+//   - Every other pathology parks via the counter: a lone chronic row in a
+//     drained queue parks in ~4h; in a deep queue it costs ~1 wasted call
+//     per full rotation (~10h) until it parks. No storm of ANY class (5xx,
+//     404 model-retired, 400 bad flip, 413 oversize wave, bucket rename,
+//     network) can charge the backlog — all of them wait out or halt, and
+//     the backlog auto-recovers untouched when the cause is fixed.
+function classifyFailure(err: unknown): 'ratelimit' | 'transient' {
+  const anyErr = err as { status?: unknown; code?: unknown } | null;
   const msg = err instanceof Error ? err.message : String(err);
-  const code = typeof anyErr?.code === 'string' ? (anyErr.code as string) : '';
-  const name = typeof anyErr?.name === 'string' ? (anyErr.name as string) : '';
   let status = typeof anyErr?.status === 'number' ? (anyErr.status as number) : null;
   if (status === null) {
     // Only trust a status embedded in message text when it sits in an explicit
     // provider-error shape — a bare \b\d\d\d\b would match incidental numbers
-    // like "404KB downloaded" or "took 500ms" (deep-review v2 LOW).
+    // like "404KB downloaded" or "took 500ms".
     const m =
       msg.match(/(?:API|HTTP|status(?:\s+code)?)[ :]+(4\d\d|5\d\d)\b/i) ||
       msg.match(
@@ -234,41 +234,11 @@ function classifyFailure(err: unknown): 'ratelimit' | 'provider' | 'row' {
     if (m) status = Number(m[1]);
   }
   if (status === 429 || /quota|rate.?limit/i.test(msg)) return 'ratelimit';
-  // Missing storage object is always this row's problem.
-  if (/storage download: (no blob|.*not.?found|.*does not exist)/i.test(msg)) return 'row';
-  if (status !== null) {
-    // 401/403 key/config, 408 timeout, 5xx — provider-wide shapes. 400/404
-    // are MODEL/ENDPOINT-level in this pipeline (model retired → 404 for
-    // every row, bad model flip in /admin/ai-models → 400 for every row):
-    // charging them row-by-row would park the whole backlog on a config
-    // mistake (round-5 HIGH), so they take the health-gated lane — with
-    // healthy siblings a per-file 400 still charges immediately.
-    if (
-      status === 400 ||
-      status === 401 ||
-      status === 403 ||
-      status === 404 ||
-      status === 408 ||
-      status >= 500
-    ) {
-      return 'provider';
-    }
-    // Remaining 4xx (413/415/422…) describe THIS file: charged unconditionally.
-    if (status >= 400) return 'row';
-  }
-  if (/not configured|overloaded/i.test(msg)) return 'provider';
-  if (
-    name === 'AbortError' ||
-    /ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ECONNREFUSED/.test(code) ||
-    /ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket|network|abort|timed?.?out|terminated|fetch failed/i.test(msg)
-  ) {
-    return 'provider';
-  }
-  return 'provider'; // unknown → fail-safe: evidence rules decide, never blind-charge
+  return 'transient';
 }
 
 // Bounded per-call timeout: converts a hung provider call into a classified
-// 'provider' failure for one row instead of silently eating the whole
+// classified failure for one row instead of silently eating the whole
 // maxDuration=60s budget (orphan recovery remains the backstop).
 const withTimeout = <T,>(p: Promise<T>, ms: number, label: string): Promise<T> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -395,8 +365,6 @@ export async function GET(request: NextRequest) {
   const errors: string[] = [];
 
   // Run-level provider-health evidence (see classifyFailure above).
-  let txHealthy = false; // any successful transcription API response this run
-  let stHealthy = false; // any successful sentiment API response this run
   let txTransientStreak = 0; // consecutive distinct-row transient-class transcription failures
   let stTransientStreak = 0;
   let skipSentiment = false; // transcribe-only mode after repeated sentiment provider failures
@@ -404,12 +372,6 @@ export async function GET(request: NextRequest) {
   let transcribeSkipped = 0; // fresh rows skipped while skipTranscribe (untouched, next run's problem)
   let sentimentDeferred = 0; // rows left in 'analyzing' for a later sentiment resume
   let claimMissed = 0; // rows another concurrent run claimed first (CAS returned 0 rows)
-  let txAttempted = 0; // distinct rows that reached a transcription call this run
-  let stAttempted = 0; // distinct rows that reached a sentiment call this run
-  // 'provider'-class failures recorded for end-of-run retro-promotion.
-  // 'ratelimit' failures are NEVER recorded here (never charged).
-  const txPromotable: { id: string; attempts: number }[] = [];
-  const stPromotable: { id: string; attempts: number }[] = [];
 
   for (const c of candidates) {
     // Don't START a row without enough wall-clock left for it to finish —
@@ -498,7 +460,6 @@ export async function GET(request: NextRequest) {
         const audioMime = audioBlob.type || 'audio/webm';
 
         // ----- Transcription (provider dispatch) -----
-        txAttempted++;
         const txStart = Date.now();
         let language = 'unknown';
         try {
@@ -518,8 +479,7 @@ export async function GET(request: NextRequest) {
           );
           transcript = result.text;
           language = result.language;
-          txHealthy = true; // provider proven up this run
-          txTransientStreak = 0;
+          txTransientStreak = 0; // provider proven up this run
 
           // Cost estimate: pass the audio duration parsed from the provider's
           // verbose_json `duration` field. Without it the estimator returns null
@@ -608,7 +568,7 @@ export async function GET(request: NextRequest) {
         // Move to analyzing (transcript persists — a sentiment-phase failure
         // later resumes HERE, never back at transcription). Store the
         // NORMALIZED language code for cross-path consistency.
-        await supabase
+        const { error: persistErr } = await supabase
           .from('admission_call_logs')
           .update({
             memo_transcript: transcript,
@@ -617,6 +577,13 @@ export async function GET(request: NextRequest) {
             updated_at: nowIso(),
           })
           .eq('id', c.id);
+        if (persistErr) {
+          // Transcript NOT persisted — proceeding would strand sentiment
+          // results on a row with no transcript, and silently losing this
+          // write re-burns a full transcription next run. Throw into the
+          // transient lane (no charge; orphan recovery re-picks the row).
+          throw new Error(`transcript persist: ${persistErr.message}`);
+        }
 
         if (skipSentiment) {
           sentimentDeferred++;
@@ -626,7 +593,6 @@ export async function GET(request: NextRequest) {
       }
 
       // ----- Sentiment / structured extraction (provider dispatch) -----
-      stAttempted++;
       const stStart = Date.now();
       let analysis: AnalysisResult;
       try {
@@ -641,8 +607,7 @@ export async function GET(request: NextRequest) {
           'sentiment',
         );
         analysis = normalizeAnalysis(raw.parsed);
-        stHealthy = true; // provider proven up this run
-        stTransientStreak = 0;
+        stTransientStreak = 0; // provider proven up this run
 
         await recordUsage(
           'voice_memo.sentiment',
@@ -678,7 +643,7 @@ export async function GET(request: NextRequest) {
         throw stErr;
       }
 
-      await supabase
+      const { error: doneErr } = await supabase
         .from('admission_call_logs')
         .update({
           memo_sentiment: analysis.sentiment,
@@ -690,91 +655,60 @@ export async function GET(request: NextRequest) {
           updated_at: nowIso(),
         })
         .eq('id', c.id);
+      if (doneErr) {
+        // Results not persisted — row stays 'analyzing'; resume-at-sentiment
+        // redoes the (cheap) sentiment call next run.
+        throw new Error(`completed persist: ${doneErr.message}`);
+      }
 
       completed++;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       const cls = classifyFailure(e);
-      const phaseHealthy = phase === 'sentiment' ? stHealthy : txHealthy;
+      errors.push(`${c.id}: [${phase}] ${msg}`);
 
-      if (cls === 'row' || (cls === 'provider' && phaseHealthy)) {
-        // 'row' (file-level 413/415/422, storage miss) charges UNCONDITIONALLY
-        // — it must neither dodge budget nor trip the breaker (round-6 HIGH:
-        // two front-of-batch corrupt files must not halt the queue).
-        // 'provider' charges only with same-run health evidence; the
-        // provider-wide storms (model retired → 404, bad flip → 400, 5xx,
-        // network) are classified 'provider' and charge NOTHING in a
-        // zero-success run, so the backlog auto-recovers on fix (round-5
-        // HIGH). 'ratelimit' NEVER charges: throttling is request-level,
-        // not content-level (deep-review v2 HIGH).
-        //
-        // ACCEPTED TRADE-OFF (round-3 MEDIUM declined): a valid row must
-        // fail in FIVE separate provider-healthy runs to park — at that
-        // repetition rate the content itself is the trigger. Parked rows
-        // stay visible as 'failed' and recover by resetting attempts.
-        failed++;
-        errors.push(`${c.id}: [${phase}] ${msg}`);
-        try {
-          await supabase
-            .from('admission_call_logs')
-            .update({
-              memo_analyze_status: 'failed',
-              memo_analyzed_at: nowIso(),
-              memo_analyze_attempts: attempts + 1,
-              updated_at: nowIso(),
-            })
-            .eq('id', c.id);
-        } catch {
-          // best-effort — already in error path
-        }
-        continue;
-      }
-
-      if (cls === 'ratelimit' && phaseHealthy) {
-        // Provider is up but throttling this request. No budget, no halt.
-        errors.push(`${c.id}: [${phase}] ${msg}`);
-        if (phase !== 'sentiment') {
-          // Park for the next run ('failed' keeps it sweepable; no
-          // memo_analyzed_at: analysis never concluded).
-          failed++;
+      if (phase === 'sentiment') {
+        // Transcript is saved and status is 'analyzing' — leave the row
+        // there; resume-at-sentiment picks it up next run without
+        // re-transcribing. Never halt TRANSCRIPTION work over a sentiment
+        // failure (different provider); after two distinct-row failures
+        // switch to transcribe-only mode for the rest of the run.
+        sentimentDeferred++;
+        stTransientStreak++;
+        if (stTransientStreak >= 2) skipSentiment = true;
+        if (cls !== 'ratelimit') {
+          const stTransientCount = (c.memo_transient_failures ?? 0) + 1;
           try {
             await supabase
               .from('admission_call_logs')
-              .update({ memo_analyze_status: 'failed', updated_at: nowIso() })
+              .update(
+                stTransientCount >= TRANSIENT_CHARGE_THRESHOLD
+                  ? {
+                      // Backstop conversion (see TRANSIENT_CHARGE_THRESHOLD).
+                      memo_analyze_status: 'failed',
+                      memo_analyze_attempts: attempts + 1,
+                      memo_transient_failures: 0,
+                      updated_at: nowIso(),
+                    }
+                  : { memo_transient_failures: stTransientCount, updated_at: nowIso() },
+              )
               .eq('id', c.id);
           } catch {
             // best-effort
           }
-        } else {
-          // Row already sits in 'analyzing' with its transcript — counted
-          // once as deferred, resumes at sentiment on a later run.
-          sentimentDeferred++;
         }
         continue;
       }
 
-      // Transient-class ('ratelimit' or 'provider') with no health evidence
-      // from this phase yet: consume no budget (the backlog must auto-recover
-      // once the provider heals). 'provider' failures are remembered for
-      // end-of-run retro-promotion; 'ratelimit' failures never are.
-      errors.push(`${c.id}: [${phase}] ${msg}`);
-
-      if (phase === 'sentiment') {
-        // Transcript is saved and status is 'analyzing' — leave it there;
-        // resume-at-sentiment picks it up next run without re-transcribing.
-        // Never halt TRANSCRIPTION work over a sentiment-provider failure
-        // (different provider); after two distinct-row failures switch to
-        // transcribe-only mode for the rest of the run.
-        sentimentDeferred++;
-        stTransientStreak++;
-        if (cls !== 'ratelimit') stPromotable.push({ id: c.id, attempts });
-        if (stTransientStreak >= 2) skipSentiment = true;
-        const stTransientCount = (c.memo_transient_failures ?? 0) + 1;
+      failed++;
+      txTransientStreak++;
+      if (cls !== 'ratelimit') {
+        const txTransientCount = (c.memo_transient_failures ?? 0) + 1;
         try {
           await supabase
             .from('admission_call_logs')
             .update(
-              stTransientCount >= TRANSIENT_CHARGE_THRESHOLD
+              txTransientCount >= TRANSIENT_CHARGE_THRESHOLD
                 ? {
                     // Backstop conversion (see TRANSIENT_CHARGE_THRESHOLD).
                     memo_analyze_status: 'failed',
@@ -782,109 +716,38 @@ export async function GET(request: NextRequest) {
                     memo_transient_failures: 0,
                     updated_at: nowIso(),
                   }
-                : { memo_transient_failures: stTransientCount, updated_at: nowIso() },
+                : {
+                    memo_analyze_status: 'failed',
+                    memo_transient_failures: txTransientCount,
+                    updated_at: nowIso(),
+                  },
             )
+            .eq('id', c.id);
+        } catch {
+          // best-effort — already in error path
+        }
+      } else {
+        // Rate-limited: park for a later run; charge nothing anywhere.
+        try {
+          await supabase
+            .from('admission_call_logs')
+            .update({ memo_analyze_status: 'failed', updated_at: nowIso() })
             .eq('id', c.id);
         } catch {
           // best-effort
         }
-        continue;
-      }
-
-      failed++;
-      txTransientStreak++;
-      if (cls !== 'ratelimit') txPromotable.push({ id: c.id, attempts });
-      const txTransientCount = (c.memo_transient_failures ?? 0) + 1;
-      try {
-        await supabase
-          .from('admission_call_logs')
-          .update(
-            txTransientCount >= TRANSIENT_CHARGE_THRESHOLD
-              ? {
-                  // Persistent backstop conversion: enough uncharged
-                  // transient-class failures accrued across runs — charge
-                  // one attempts unit and reset the counter.
-                  memo_analyze_status: 'failed',
-                  memo_analyze_attempts: attempts + 1,
-                  memo_transient_failures: 0,
-                  updated_at: nowIso(),
-                }
-              : {
-                  memo_analyze_status: 'failed',
-                  memo_transient_failures: txTransientCount,
-                  updated_at: nowIso(),
-                },
-          )
-          .eq('id', c.id);
-      } catch {
-        // best-effort — already in error path
       }
       if (txTransientStreak >= 2) {
-        // Provider-wide confirmed on two distinct rows with zero successes —
-        // every remaining FRESH candidate would hit the same wall. Receipt
-        // 2026-07-03: a quota-dead OpenAI account ate ~5,400 pointless
-        // calls/day for 29 days because each run burned its full batch.
-        // Not a `break`: resume-at-sentiment rows use a different provider
-        // and keep draining. (Two look-alike front rows cannot stall the
-        // queue either way: candidate order is least-recently-touched.)
+        // Two distinct rows failed with zero successes — stop burning
+        // transcribe calls this run (resume-at-sentiment rows keep
+        // draining; rotation prevents any front-row stall). Receipt
+        // 2026-07-03: a quota-dead account ate ~5,400 calls/day for 29
+        // days; this caps a dead provider at ~576 probe calls/day.
         halted = msg.slice(0, 200);
         skipTranscribe = true;
       }
       // First transient failure this run: probe one more row before halting.
     }
-  }
-
-  // --- Retro-promotion (deep-review v1 HIGH + v2 HIGH reconciled) ----
-  // If a phase's provider succeeded for ANY row this run, then that phase's
-  // 'provider'-class failures this run were really row-specific: charge
-  // their retry budgets now so a first-position poison row parks after
-  // MAX_ANALYZE_ATTEMPTS runs instead of starving the queue forever.
-  // 'ratelimit' failures are never in these lists — throttling is
-  // request-level, and charging it would silently park valid memos.
-  // No memo_analyzed_at stamp: analysis never concluded for these rows.
-  const retroPromote = async (
-    rows: { id: string; attempts: number }[],
-    expectedStatus: string,
-  ) => {
-    for (const r of rows) {
-      try {
-        await supabase
-          .from('admission_call_logs')
-          .update({
-            memo_analyze_status: 'failed',
-            memo_analyze_attempts: r.attempts + 1,
-            memo_transient_failures: 0,
-            updated_at: nowIso(),
-          })
-          .eq('id', r.id)
-          // Double CAS: prior attempts value (a concurrent bump stands — a
-          // lost update would under-charge a poison row) AND the status this
-          // run left the row in — a concurrent run that re-claimed or even
-          // COMPLETED the row must never be clobbered back to 'failed'.
-          .eq('memo_analyze_attempts', r.attempts)
-          .eq('memo_analyze_status', expectedStatus);
-      } catch {
-        // best-effort
-      }
-    }
-  };
-  // tx transient rows were left in 'failed'; sentiment ones sit in 'analyzing'.
-  if (txHealthy && txPromotable.length > 0) await retroPromote(txPromotable, 'failed');
-  if (stHealthy && stPromotable.length > 0) await retroPromote(stPromotable, 'analyzing');
-  // SOLO-ROW RULE (round-5): when a phase attempted exactly ONE row and it
-  // failed chargeable-class, no sibling can ever supply health evidence — a
-  // lone chronic row (poison transcript, always-timing-out file) would loop
-  // forever. Charge it so it parks after MAX_ANALYZE_ATTEMPTS runs. A real
-  // provider outage with a 1-row queue charges that row too (bounded harm:
-  // one visible 'failed' row, recoverable by resetting attempts). KNOWN
-  // RESIDUAL: a drained queue holding exactly 2 chronic rows halts at
-  // streak 2 with no evidence either way and is left uncharged (~2 probe
-  // calls/run, 'halted' flagged every run in the log for the monitor).
-  if (!txHealthy && txAttempted === 1 && txPromotable.length === 1) {
-    await retroPromote(txPromotable, 'failed');
-  }
-  if (!stHealthy && stAttempted === 1 && stPromotable.length === 1) {
-    await retroPromote(stPromotable, 'analyzing');
   }
 
   // --- Remaining counter (visibility) -------------------------------
