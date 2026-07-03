@@ -23,6 +23,7 @@ export const SCF_ROUTINES: AIRoutine[] = [
     "name": "SCF Learner Support Notes (struggling-student lane)",
     "category": "scf-session-feedback",
     "type": "cron",
+    "maxLane": true,
     "schedule": "Daily 06:09 UTC (approx 11:39 IST)",
     "cronExpr": "9 6 * * *",
     "triggerPath": "/api/cron/scf-learner-notes",
