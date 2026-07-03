@@ -191,5 +191,27 @@ export function listSessionTypes(): Promise<{
   return call(`${BASE}/session-types`);
 }
 
+export function listPartnerTypes(): Promise<{
+  rows: import('./types').ProgramPartnerType[];
+}> {
+  return call(`${BASE}/partner-types`);
+}
+
+export function createPartner(input: {
+  name: string;
+  typeId: string;
+  contactPerson?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  websiteUrl?: string | null;
+  status?: import('./types').ProgramPartnerStatus;
+  notes?: string | null;
+}): Promise<{ id: string }> {
+  return call(`${BASE}/program-partners`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
 /* Re-export for caller ergonomics */
 export type { School };
