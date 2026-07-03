@@ -219,7 +219,7 @@ function getHardcodedFallback(featureKey: string): ResolvedModel {
     'voice_memo.transcribe': fallback(featureKey, 'groq', 'whisper-large-v3'),
     'voice_memo.sentiment': fallback(featureKey, 'google', 'gemini-2.5-flash-lite'),
     'admission.briefing': fallback(featureKey, 'openai', 'gpt-4o-mini'),
-    'admission.ai_insights': fallback(featureKey, 'openai', 'gpt-4o-mini'),
+    'admission.ai_insights': fallback(featureKey, 'anthropic', 'claude-sonnet-4-5'),
     'ai_pulse.anomaly_detection': fallback(featureKey, 'openai', 'gpt-4o-mini'),
     // Adoption program 2026-07-02 — each entry mirrors the model the call site
     // hardcoded before adoption (cutover invariant: degraded mode == old behavior).

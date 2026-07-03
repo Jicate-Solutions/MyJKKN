@@ -6,6 +6,76 @@ import Anthropic from '@anthropic-ai/sdk';
 import { sanitizeSearch } from '@/lib/config/pagination';
 
 // ═══════════════════════════════════════════════════════════════════════════
+// AI MODEL CONFIG ADOPTION (2026-07-02)
+// The model id is resolved from ai_model_config — ONE feature key covers BOTH
+// AI calls in this service (intent parse + result summary). This service is
+// built around the BROWSER Supabase client, so the server-only config service
+// is imported LAZILY inside the flow: a top-level import would poison any
+// future client bundle. On any resolution failure we degrade to the
+// previously hardcoded model (cutover invariant — zero behavior change).
+// ═══════════════════════════════════════════════════════════════════════════
+
+const AGENTIC_QUERY_FEATURE_KEY = 'admission.agentic_query';
+const AGENTIC_QUERY_FALLBACK_MODEL = 'claude-3-5-haiku-20241022';
+
+async function resolveAgenticQueryModel(): Promise<string> {
+  try {
+    const { resolveChatModel } = await import(
+      '@/lib/services/platform/ai-clients/chat'
+    );
+    const { model_id } = await resolveChatModel(AGENTIC_QUERY_FEATURE_KEY);
+    return model_id;
+  } catch {
+    // Config service unavailable (e.g. executed outside a server context) —
+    // keep working on the previously hardcoded model.
+    return AGENTIC_QUERY_FALLBACK_MODEL;
+  }
+}
+
+/**
+ * Best-effort usage recording — must NEVER throw: a throw inside
+ * formatResponse's try block would wrongly trigger its deterministic
+ * fallback-summary path.
+ */
+async function recordAgenticQueryUsage(
+  modelId: string,
+  durationMs: number,
+  usage?: { input_tokens: number; output_tokens: number },
+  errorMessage?: string
+): Promise<void> {
+  try {
+    const { recordChatUsage } = await import(
+      '@/lib/services/platform/ai-clients/chat'
+    );
+    const { getModel } = await import(
+      '@/lib/services/platform/ai-providers'
+    );
+    const pricing = getModel('anthropic', modelId);
+    const costInr =
+      usage &&
+      pricing?.inputPer1KTokensInr != null &&
+      pricing?.outputPer1KTokensInr != null
+        ? Number(
+            (
+              (usage.input_tokens / 1000) * pricing.inputPer1KTokensInr +
+              (usage.output_tokens / 1000) * pricing.outputPer1KTokensInr
+            ).toFixed(6)
+          )
+        : null;
+    await recordChatUsage(AGENTIC_QUERY_FEATURE_KEY, 'anthropic', modelId, {
+      input_tokens: usage?.input_tokens,
+      output_tokens: usage?.output_tokens,
+      cost_inr: costInr ?? undefined,
+      duration_ms: durationMs,
+      success: !errorMessage,
+      error_message: errorMessage
+    });
+  } catch (recordError) {
+    console.error('[AgenticQueryService] Usage recording failed:', recordError);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -204,6 +274,11 @@ export class AgenticQueryService {
     };
 
     try {
+      // Resolve the configured model ONCE per query run — both AI calls
+      // (intent parse at step 1 + summary at step 5) share it, so the model
+      // cannot flip mid-run when the config cache expires.
+      const modelId = await resolveAgenticQueryModel();
+
       // Step 1: Understanding
       const understandingStep: QueryStep = {
         id: 'understanding',
@@ -214,7 +289,7 @@ export class AgenticQueryService {
       };
       updateStep(understandingStep);
 
-      const intent = await this.parseQueryIntent(query);
+      const intent = await this.parseQueryIntent(query, modelId);
 
       updateStep({
         ...understandingStep,
@@ -292,7 +367,7 @@ export class AgenticQueryService {
       };
       updateStep(respondingStep);
 
-      const response = await this.formatResponse(processedData, query, intent);
+      const response = await this.formatResponse(processedData, query, intent, modelId);
 
       updateStep({
         ...respondingStep,
@@ -334,9 +409,13 @@ export class AgenticQueryService {
 
   /**
    * Parse natural language query to extract intent and entities
+   *
+   * @param modelId - pre-resolved model id (processQuery resolves once per
+   *   run); when called standalone the model is resolved here.
    */
-  static async parseQueryIntent(query: string): Promise<QueryIntent> {
+  static async parseQueryIntent(query: string, modelId?: string): Promise<QueryIntent> {
     const client = this.getClient();
+    const resolvedModelId = modelId ?? (await resolveAgenticQueryModel());
 
     const systemPrompt = `You are a query parser for a CRM system. Parse the user's natural language query and extract structured intent.
 
@@ -359,13 +438,30 @@ Examples:
 
 Return ONLY valid JSON, no explanation.`;
 
-    const response = await client.messages.create({
-      model: 'claude-3-5-haiku-20241022',
-      max_tokens: 1024,
-      messages: [
-        { role: 'user', content: query }
-      ],
-      system: systemPrompt,
+    const startedAt = Date.now();
+    let response: Anthropic.Message;
+    try {
+      response = await client.messages.create({
+        model: resolvedModelId,
+        max_tokens: 1024,
+        messages: [
+          { role: 'user', content: query }
+        ],
+        system: systemPrompt,
+      });
+    } catch (apiError) {
+      await recordAgenticQueryUsage(
+        resolvedModelId,
+        Date.now() - startedAt,
+        undefined,
+        apiError instanceof Error ? apiError.message.slice(0, 500) : String(apiError)
+      );
+      throw apiError;
+    }
+
+    await recordAgenticQueryUsage(resolvedModelId, Date.now() - startedAt, {
+      input_tokens: response.usage.input_tokens,
+      output_tokens: response.usage.output_tokens,
     });
 
     const textContent = response.content.find(c => c.type === 'text');
@@ -666,9 +762,11 @@ Return ONLY valid JSON, no explanation.`;
   static async formatResponse(
     data: any,
     query: string,
-    intent: QueryIntent
+    intent: QueryIntent,
+    modelId?: string
   ): Promise<{ summary: string; visualizationType: 'table' | 'chart' | 'cards' | 'metric' }> {
     const client = this.getClient();
+    const resolvedModelId = modelId ?? (await resolveAgenticQueryModel());
 
     // Determine visualization type
     let visualizationType: 'table' | 'chart' | 'cards' | 'metric' = 'table';
@@ -689,9 +787,10 @@ Use professional but friendly tone.`;
 
     const dataPreview = JSON.stringify(data, null, 2).slice(0, 2000);
 
+    const startedAt = Date.now();
     try {
       const response = await client.messages.create({
-        model: 'claude-3-5-haiku-20241022',
+        model: resolvedModelId,
         max_tokens: 256,
         messages: [
           { role: 'user', content: `Query: "${query}"\n\nResults:\n${dataPreview}\n\nProvide a brief summary.` }
@@ -699,11 +798,24 @@ Use professional but friendly tone.`;
         system: systemPrompt,
       });
 
+      // Non-throwing by construction — a throw here would wrongly divert to
+      // the fallback-summary catch below.
+      await recordAgenticQueryUsage(resolvedModelId, Date.now() - startedAt, {
+        input_tokens: response.usage.input_tokens,
+        output_tokens: response.usage.output_tokens,
+      });
+
       const textContent = response.content.find(c => c.type === 'text');
       const summary = textContent?.type === 'text' ? textContent.text : 'Results retrieved successfully.';
 
       return { summary, visualizationType };
     } catch (error) {
+      await recordAgenticQueryUsage(
+        resolvedModelId,
+        Date.now() - startedAt,
+        undefined,
+        error instanceof Error ? error.message.slice(0, 500) : String(error)
+      );
       // Fallback summary if AI fails
       let summary = 'Results retrieved successfully.';
       if (data.totalCount !== undefined) {

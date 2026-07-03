@@ -1,14 +1,50 @@
 import Anthropic from '@anthropic-ai/sdk';
 import {
+  resolveChatModel,
+  recordChatUsage
+} from '@/lib/services/platform/ai-clients/chat';
+import { getModel } from '@/lib/services/platform/ai-providers';
+import {
   AdmissionDashboardAnalytics,
   AdmissionAIInsights
 } from '@/types/admission';
+
+// AI model config adoption (2026-07-02): the model is resolved at runtime from
+// ai_model_config via this feature key (seeded to the previously hardcoded
+// claude-sonnet-4-5 — cutover invariant, zero behavior change).
+// NOTE: this service is server-only (zero client importers, not in the barrel),
+// so the top-level import of the server-only config primitives is safe here.
+const AI_SERVICE_FEATURE_KEY = 'admission.ai_service';
+
+/** Cost in INR from the pricing registry; null when pricing/tokens missing. */
+function computeCostInr(
+  modelId: string,
+  inputTokens: number | null | undefined,
+  outputTokens: number | null | undefined
+): number | null {
+  const pricing = getModel('anthropic', modelId);
+  if (
+    !pricing ||
+    pricing.inputPer1KTokensInr == null ||
+    pricing.outputPer1KTokensInr == null ||
+    inputTokens == null ||
+    outputTokens == null
+  ) {
+    return null;
+  }
+  return Number(
+    (
+      (inputTokens / 1000) * pricing.inputPer1KTokensInr +
+      (outputTokens / 1000) * pricing.outputPer1KTokensInr
+    ).toFixed(6)
+  );
+}
 
 /**
  * AdmissionAIService
  *
  * Service for generating AI-powered insights from admissions analytics data
- * using Claude claude-sonnet-4-6 API.
+ * using the Claude API (model resolved from ai_model_config).
  *
  * Features:
  * - Comprehensive analysis of admissions analytics
@@ -60,16 +96,48 @@ export class AdmissionAIService {
       // Build comprehensive prompt
       const prompt = this.buildAnalysisPrompt(analyticsSummary, analytics);
 
-      // Call Claude API with Claude claude-sonnet-4-5
-      const response = await client.messages.create({
-        model: 'claude-sonnet-4-5',
-        max_tokens: 4096,
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ]
+      // Resolve the configured model (never throws — hardcoded fallback on
+      // any config failure), then call the Claude API.
+      const { model_id: modelId } = await resolveChatModel(
+        AI_SERVICE_FEATURE_KEY
+      );
+
+      const startedAt = Date.now();
+      let response: Anthropic.Message;
+      try {
+        response = await client.messages.create({
+          model: modelId,
+          max_tokens: 4096,
+          messages: [
+            {
+              role: 'user',
+              content: prompt
+            }
+          ]
+        });
+      } catch (apiError) {
+        await recordChatUsage(AI_SERVICE_FEATURE_KEY, 'anthropic', modelId, {
+          duration_ms: Date.now() - startedAt,
+          success: false,
+          error_message:
+            apiError instanceof Error
+              ? apiError.message.slice(0, 500)
+              : String(apiError)
+        });
+        throw apiError;
+      }
+
+      await recordChatUsage(AI_SERVICE_FEATURE_KEY, 'anthropic', modelId, {
+        input_tokens: response.usage?.input_tokens ?? undefined,
+        output_tokens: response.usage?.output_tokens ?? undefined,
+        cost_inr:
+          computeCostInr(
+            modelId,
+            response.usage?.input_tokens ?? null,
+            response.usage?.output_tokens ?? null
+          ) ?? undefined,
+        duration_ms: Date.now() - startedAt,
+        success: true
       });
 
       // Extract text content from response
@@ -206,7 +274,7 @@ ${referenceSources
   }
 
   /**
-   * Build comprehensive analysis prompt for Claude claude-sonnet-4-6
+   * Build comprehensive analysis prompt for Claude
    */
   private static buildAnalysisPrompt(
     summary: string,
