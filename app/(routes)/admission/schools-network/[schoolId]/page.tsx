@@ -253,10 +253,10 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="sessions">
-            Sessions ({sessionsQuery.data?.data.length ?? recentSessions.length})
+            Sessions ({sessionsQuery.data?.rows.length ?? recentSessions.length})
           </TabsTrigger>
           <TabsTrigger value="contributions">
-            Contributions ({contribsQuery.data?.data.length ?? contributionTotals.count})
+            Contributions ({contribsQuery.data?.rows.length ?? contributionTotals.count})
           </TabsTrigger>
           <TabsTrigger value="contacts">
             Contacts ({contacts.length})
@@ -343,7 +343,7 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
             <CardContent>
               {sessionsQuery.isLoading ? (
                 <Skeleton className="h-32 w-full" />
-              ) : (sessionsQuery.data?.data ?? recentSessions).length === 0 ? (
+              ) : (sessionsQuery.data?.rows ?? recentSessions).length === 0 ? (
                 <div className="text-center py-8 text-sm text-muted-foreground">
                   No sessions logged for this school yet.
                 </div>
@@ -360,7 +360,7 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(sessionsQuery.data?.data ?? recentSessions).map((s) => (
+                    {(sessionsQuery.data?.rows ?? recentSessions).map((s) => (
                       <TableRow key={s.id}>
                         <TableCell>
                           <Badge variant="secondary">
@@ -411,7 +411,7 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
             <CardContent>
               {contribsQuery.isLoading ? (
                 <Skeleton className="h-32 w-full" />
-              ) : (contribsQuery.data?.data ?? []).length === 0 ? (
+              ) : (contribsQuery.data?.rows ?? []).length === 0 ? (
                 <div className="text-center py-8 text-sm text-muted-foreground">
                   No contributions logged yet.
                 </div>
@@ -427,7 +427,7 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(contribsQuery.data?.data ?? []).map((c) => (
+                    {(contribsQuery.data?.rows ?? []).map((c) => (
                       <TableRow key={c.id}>
                         <TableCell>
                           <Badge variant="secondary">{CONTRIBUTION_LABEL[c.kind]}</Badge>

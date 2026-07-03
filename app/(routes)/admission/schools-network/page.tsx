@@ -183,7 +183,7 @@ function SchoolsNetworkContent() {
     });
   }, [queryClient]);
 
-  const rows: SchoolListRow[] = data?.data ?? [];
+  const rows: SchoolListRow[] = data?.rows ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const hasFilters =
