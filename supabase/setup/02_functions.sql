@@ -20723,3 +20723,25 @@ AS $$
 $$;
 REVOKE EXECUTE ON FUNCTION public.fn_induction_session_in_my_speaker_event(uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_induction_session_in_my_speaker_event(uuid) TO authenticated;
+
+
+-- =====================================================================================
+-- fn_hr_orgs_for_institutions — accessible institution ↔ HR organization mapping
+-- (migration 20260703120000). SECURITY DEFINER because hr_organizations RLS only
+-- exposes the caller's own org row; self-authorizes via role_has_institution_access().
+-- Drives the institution dropdowns in /hr/leave/* and the HR PolicyEditor.
+-- =====================================================================================
+CREATE OR REPLACE FUNCTION public.fn_hr_orgs_for_institutions()
+RETURNS TABLE (institution_id uuid, hr_organization_id uuid, organization_name text)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT o.institution_id, o.id, o.name
+  FROM public.hr_organizations o
+  WHERE o.institution_id IS NOT NULL
+    AND public.role_has_institution_access(o.institution_id)
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_orgs_for_institutions() FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_orgs_for_institutions() TO authenticated;

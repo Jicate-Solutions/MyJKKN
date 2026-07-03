@@ -103021,6 +103021,14 @@ export type Database = {
         Args: { p_learner_id: string; p_tier_id: string }
         Returns: Json
       }
+      fn_hr_orgs_for_institutions: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          institution_id: string
+          hr_organization_id: string
+          organization_name: string
+        }[]
+      }
       fn_induction_assign_event_coordinator: {
         Args: { p_event_id: string; p_user_id: string }
         Returns: undefined
