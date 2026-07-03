@@ -67,6 +67,21 @@ import { getModel } from '@/lib/services/platform/ai-providers';
 const BATCH_LIMIT = 20; // rate-limit transcription API calls per run
 const STORAGE_BUCKET = 'call-memos';
 
+// Per-row failure budget. Rows that fail for row-specific reasons (silent
+// audio → empty transcript, oversized/corrupt file → provider 4xx, missing
+// storage object) consume one unit per attempt; once exhausted the sweep
+// skips the row so it can't monopolize the batch. Transient provider-wide
+// failures (429 quota/rate-limit, 5xx) do NOT consume budget — see the
+// circuit breaker in the catch block below.
+//
+// Bug receipt (2026-07-03): 'failed' rows were re-swept forever with no cap.
+// ~20 rows with <5-char transcripts, sorted oldest-first, filled the entire
+// 20-row batch every 5 min — 162K wasted transcription calls in 6 weeks,
+// 2,454 pending memos starved (zero progress even while the API was healthy),
+// and enough call volume to burn through both the Groq free tier and the
+// OpenAI account quota.
+const MAX_ANALYZE_ATTEMPTS = 5;
+
 /**
  * Extracts the storage path-relative form from a memo_audio_url that may be
  * stored in any of THREE formats due to historical inconsistency between the
@@ -109,6 +124,7 @@ interface MemoCandidate {
   id: string;
   institution_id: string;
   memo_audio_url: string;
+  memo_analyze_attempts: number | null;
 }
 
 interface AnalysisResult {
@@ -190,30 +206,40 @@ export async function GET(request: NextRequest) {
   const supabase = createServiceRoleClient();
 
   // --- Find candidates ---------------------------------------------
-  // memo_audio_url IS NOT NULL AND (
-  //   status IN ('pending','failed')
-  //   OR (status = 'transcribing' AND updated_at < now - 5 min)
-  // )
+  // memo_audio_url IS NOT NULL
+  //   AND memo_analyze_attempts < MAX_ANALYZE_ATTEMPTS
+  //   AND (
+  //     status IN ('pending','failed')
+  //     OR (status IN ('transcribing','analyzing') AND updated_at < now - 5 min)
+  //   )
   //
-  // The 'transcribing' branch recovers orphaned soft-locks from crashed
-  // cron runs. The status is set on line ~224 as a soft lock against
-  // concurrent invocation; if the run crashes (OOM, timeout, network
-  // partition) the row stays stuck in 'transcribing' forever. The 5-min
-  // age guard ensures we don't race a still-running invocation (cron
-  // schedule is */5 * * * *, max single-memo duration ≤ 30s in practice).
+  // The 'transcribing'/'analyzing' branches recover orphaned soft-locks from
+  // crashed cron runs. Those statuses are set mid-pipeline as soft locks
+  // against concurrent invocation; if the run crashes (OOM, timeout, network
+  // partition) the row stays stuck forever. ('analyzing' orphan recovery
+  // added 2026-07-03 — 28 rows from May were stuck permanently because only
+  // 'transcribing' was recovered.) The 5-min age guard ensures we don't race
+  // a still-running invocation (cron schedule is */5 * * * *, max
+  // single-memo duration ≤ 30s in practice).
+  //
+  // The attempts filter is the poison-pill guard: rows whose per-row failure
+  // budget is exhausted stay visible as 'failed' in the monitor but are never
+  // re-swept, so they can't starve the queue (oldest-first ordering otherwise
+  // lets ~20 permanently-failing rows fill every batch forever).
   const ORPHAN_AGE_MS = 5 * 60 * 1000;
   const orphanCutoffIso = new Date(Date.now() - ORPHAN_AGE_MS).toISOString();
-  // Build the OR clause as three equality branches plus a nested AND for the
-  // orphan-recovery branch. Using three top-level branches (eq.pending /
-  // eq.failed / and(eq.transcribing,lt.cutoff)) is friendlier to the
-  // PostgREST parser than .in.(...) when an ISO timestamp (containing ':'
-  // and '.') is in the same expression.
+  // Build the OR clause as equality branches plus nested ANDs for the
+  // orphan-recovery branches. Top-level branches (eq.pending / eq.failed /
+  // and(eq.<status>,lt.cutoff)) are friendlier to the PostgREST parser than
+  // .in.(...) when an ISO timestamp (containing ':' and '.') is in the same
+  // expression.
   const { data: candidatesRaw, error: candidatesErr } = await supabase
     .from('admission_call_logs')
-    .select('id, institution_id, memo_audio_url')
+    .select('id, institution_id, memo_audio_url, memo_analyze_attempts')
     .not('memo_audio_url', 'is', null)
+    .lt('memo_analyze_attempts', MAX_ANALYZE_ATTEMPTS)
     .or(
-      `memo_analyze_status.eq.pending,memo_analyze_status.eq.failed,and(memo_analyze_status.eq.transcribing,updated_at.lt.${orphanCutoffIso})`,
+      `memo_analyze_status.eq.pending,memo_analyze_status.eq.failed,and(memo_analyze_status.eq.transcribing,updated_at.lt.${orphanCutoffIso}),and(memo_analyze_status.eq.analyzing,updated_at.lt.${orphanCutoffIso})`,
     )
     .order('created_at', { ascending: true })
     .limit(BATCH_LIMIT);
@@ -233,9 +259,11 @@ export async function GET(request: NextRequest) {
   let completed = 0;
   let rejected = 0;
   let failed = 0;
+  let halted: string | null = null;
   const errors: string[] = [];
 
   for (const c of candidates) {
+    const attempts = c.memo_analyze_attempts ?? 0;
     try {
       // Mark transcribing (acts as a soft lock against another invocation).
       await supabase
@@ -333,6 +361,10 @@ export async function GET(request: NextRequest) {
       }
 
       // Empty transcript guard — Whisper sometimes returns nothing for silence.
+      // Row-specific failure: consume one unit of the retry budget so a
+      // silent/corrupt recording parks after MAX_ANALYZE_ATTEMPTS instead of
+      // being re-transcribed every 5 minutes forever (the 2026-07-03 poison
+      // loop: same ~17 rows transcribed ~280x/day each with zero progress).
       if (!transcript || transcript.length < 5) {
         await supabase
           .from('admission_call_logs')
@@ -340,6 +372,7 @@ export async function GET(request: NextRequest) {
             memo_transcript: transcript || null,
             memo_transcript_language: normalizedLanguage,
             memo_analyze_status: 'failed',
+            memo_analyze_attempts: attempts + 1,
             memo_analyzed_at: new Date().toISOString(),
           })
           .eq('id', c.id);
@@ -421,16 +454,38 @@ export async function GET(request: NextRequest) {
       failed++;
       const msg = e instanceof Error ? e.message : String(e);
       errors.push(`${c.id}: ${msg}`);
+
+      // Circuit breaker: 429 (quota/rate-limit) and provider 5xx are
+      // provider-wide, not the row's fault. Don't consume the row's retry
+      // budget (the backlog must auto-recover once the provider is healthy
+      // again), and halt the batch — every remaining candidate would hit the
+      // same wall. Receipt 2026-07-03: a quota-dead OpenAI account was hit
+      // with ~5,400 pointless calls/day for 29 days (162K total) because
+      // each run burned its full 20-row batch on the same wall.
+      const isTransient =
+        /API (429|5\d\d)/.test(msg) ||
+        /quota/i.test(msg) ||
+        // Missing env key is a deploy/config problem, also provider-wide.
+        /not configured/i.test(msg);
+
       try {
         await supabase
           .from('admission_call_logs')
           .update({
             memo_analyze_status: 'failed',
             memo_analyzed_at: new Date().toISOString(),
+            // Row-specific failures (invalid file format 4xx, storage
+            // download miss, oversized audio 413) consume retry budget.
+            ...(isTransient ? {} : { memo_analyze_attempts: attempts + 1 }),
           })
           .eq('id', c.id);
       } catch {
         // best-effort — already in error path
+      }
+
+      if (isTransient) {
+        halted = msg.slice(0, 200);
+        break;
       }
     }
   }
@@ -461,6 +516,7 @@ export async function GET(request: NextRequest) {
       rejected,
       failed,
       remaining,
+      halted,
       transcribe_provider: `${transcribeConfig.provider}/${transcribeConfig.model_id}`,
       sentiment_provider: `${sentimentConfig.provider}/${sentimentConfig.model_id}`,
       first_errors: errors.slice(0, 5),
@@ -475,6 +531,10 @@ export async function GET(request: NextRequest) {
     rejected,
     failed,
     remaining,
+    // Non-null when the run stopped early on a provider-wide failure
+    // (quota exhaustion / rate limit / 5xx) — the remaining candidates were
+    // left untouched for the next run rather than burned against the same wall.
+    halted,
     transcribe_provider: `${transcribeConfig.provider}/${transcribeConfig.model_id}`,
     sentiment_provider: `${sentimentConfig.provider}/${sentimentConfig.model_id}`,
     errors: errors.slice(0, 10),
