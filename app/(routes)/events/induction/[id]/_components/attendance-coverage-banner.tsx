@@ -8,8 +8,26 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { AlertTriangle } from 'lucide-react';
 import type { AttendanceCoverageRow } from '@/lib/services/induction/induction-service';
 
-export function AttendanceCoverageBanner({ coverage }: { coverage: AttendanceCoverageRow[] }) {
-  // A day is pending when at least one of its PAST sessions carries no marks.
+export function AttendanceCoverageBanner({
+  coverage,
+  unavailable,
+}: {
+  coverage: AttendanceCoverageRow[];
+  unavailable?: boolean;
+}) {
+  // A coverage load failure must not read as "all marked" — show a muted note
+  // instead of silently hiding (deep-review: silence looks identical to done).
+  if (unavailable) {
+    return (
+      <p className="mb-4 text-xs text-muted-foreground">
+        Attendance coverage unavailable right now — reload the page to retry.
+      </p>
+    );
+  }
+
+  // A day is pending while any of its PAST sessions is not FULLY marked —
+  // "marked" server-side means every rostered learner has an attendance row,
+  // so 1-of-435 marked can't hide a day and fake completeness.
   // (day_number NULL = the "Unscheduled" bucket — no day dialog, so skip it.)
   const pending = coverage.filter(
     (c) => c.day_number !== null && c.past_sessions > 0 && c.marked_sessions < c.past_sessions,
@@ -26,9 +44,9 @@ export function AttendanceCoverageBanner({ coverage }: { coverage: AttendanceCov
         Attendance pending for day{pending.length === 1 ? '' : 's'} {dayList}
       </AlertTitle>
       <AlertDescription className="text-xs">
-        {`${unmarkedSessions} past session${unmarkedSessions === 1 ? ' has' : 's have'} no attendance marks yet. Use each day's `}
+        {`${unmarkedSessions} past session${unmarkedSessions === 1 ? ' isn’t' : 's aren’t'} fully marked yet. Use each day's `}
         <span className="font-medium">Mark day attendance</span>
-        {' button to back-mark in one pass — completion counts attendance (≥75%), so unmarked days fail every fresher.'}
+        {' button to back-mark in one pass — completion counts attendance (≥75%), so unmarked freshers fail by default.'}
       </AlertDescription>
     </Alert>
   );

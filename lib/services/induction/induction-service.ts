@@ -336,9 +336,10 @@ export class InductionService {
     return (data as number) ?? 0;
   }
 
-  /** Per-day attendance coverage — how many of each day's PAST sessions carry at
-   *  least one mark. Read-only; drives the coordinators' "back-mark pending days"
-   *  nudge banner on the sessions page. */
+  /** Per-day attendance coverage — how many of each day's PAST (ended) sessions
+   *  are FULLY marked (every rostered learner has an attendance row; absentees
+   *  count — marking writes a row per learner). Read-only; drives the
+   *  coordinators' "back-mark pending days" nudge banner on the sessions page. */
   static async getAttendanceCoverage(eventId: string): Promise<AttendanceCoverageRow[]> {
     const supabase = getSupabase();
     const { data, error } = await supabase.rpc('fn_induction_attendance_coverage', { p_event_id: eventId });
@@ -800,7 +801,8 @@ export interface DayRosterRow {
   is_mixed: boolean;
 }
 
-/** Per-day "past sessions vs sessions with ≥1 mark" — drives the back-mark nudge. */
+/** Per-day "past sessions vs FULLY-marked sessions" — drives the back-mark nudge.
+ *  A session is fully marked when every rostered learner has an attendance row. */
 export interface AttendanceCoverageRow {
   day_number: number | null; // NULL = the "Unscheduled" bucket (UI day 0)
   past_sessions: number;
