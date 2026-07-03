@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { Calendar, TrendingUp, Users, AlertCircle, ArrowRight, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Calendar, TrendingUp, Users, AlertCircle, ArrowRight, AlertTriangle, RefreshCw, MessageSquare } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -30,6 +30,7 @@ import { StatisticsCards } from './_components/statistics-cards';
 import { PendingAttendanceDataTable } from './_components/pending-attendance-data-table';
 import { PendingAttendanceHierarchyFilters } from './_components/pending-attendance-hierarchy-filters';
 import { PendingStatisticsCards } from './_components/pending-statistics-cards';
+import { FeedbackConfirmationTab } from './_components/feedback-confirmation-tab';
 import {
   DashboardFilters,
   type DashboardFilterState
@@ -244,7 +245,7 @@ function AttendanceDashboardContent() {
 
         {/* Main Content Tabs */}
         <Tabs defaultValue='statistics' className='space-y-4'>
-          <TabsList className='grid w-full grid-cols-2'>
+          <TabsList className='grid w-full grid-cols-3'>
             <TabsTrigger value='statistics' className='flex items-center gap-2'>
               <TrendingUp className='h-4 w-4' />
               {isHistoricalData
@@ -263,6 +264,13 @@ function AttendanceDashboardContent() {
                   N/A
                 </Badge>
               )}
+            </TabsTrigger>
+            <TabsTrigger
+              value='feedback'
+              className='flex items-center gap-2'
+            >
+              <MessageSquare className='h-4 w-4' />
+              Feedback Confirmation
             </TabsTrigger>
           </TabsList>
 
@@ -411,6 +419,27 @@ function AttendanceDashboardContent() {
                   <ArrowRight className="h-3 w-3" />
                 </Link>
               </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value='feedback' className='space-y-4'>
+            <FeedbackConfirmationTab
+              userInstitutionId={
+                filters.institutionId || profile?.institution_id || undefined
+              }
+              canViewAllInstitutions={canViewAllInstitutions}
+              selectedDate={filters.selectedDate}
+              filters={filters}
+              refreshTrigger={refreshTrigger}
+            />
+            <div className='flex justify-end pt-2'>
+              <Link
+                href='/academic/session-feedback/admin'
+                className='text-sm text-muted-foreground hover:text-foreground flex items-center gap-1'
+              >
+                Open Full All-College Feedback Dashboard
+                <ArrowRight className='h-3 w-3' />
+              </Link>
             </div>
           </TabsContent>
         </Tabs>
