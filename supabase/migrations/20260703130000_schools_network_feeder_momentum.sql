@@ -198,11 +198,21 @@ BEGIN
          v_prior,
          j.cur_n,
          j.pri_n,
-         j.cur_n - j.pri_n AS cycle_delta,
+         -- No sample ⇒ no measurement: delta is NULL (not a fake 0) when no
+         -- prior cohort year exists (v_prior NULL — single-cohort data or an
+         -- early p_cycle_year override) or the school has zero learners in
+         -- the two compared cycles. NULL deltas sort AFTER every measured
+         -- row under 'priority', so no-signal schools can't masquerade as
+         -- measured-flat on the visit list.
+         CASE WHEN v_prior IS NULL OR (j.cur_n + j.pri_n) = 0 THEN NULL
+              ELSE j.cur_n - j.pri_n END AS cycle_delta,
          j.cur_n + j.pri_n
     FROM joined j
    ORDER BY
-     CASE WHEN v_sort = 'priority' THEN j.cur_n - j.pri_n END ASC NULLS LAST,
+     CASE WHEN v_sort = 'priority'
+          THEN CASE WHEN v_prior IS NULL OR (j.cur_n + j.pri_n) = 0 THEN NULL
+                    ELSE j.cur_n - j.pri_n END
+     END ASC NULLS LAST,
      j.enrolled_n DESC, j.leads_n DESC, j.name_disp
    LIMIT greatest(1, least(p_limit, 200))
   OFFSET greatest(0, p_offset);
@@ -228,7 +238,9 @@ excluded from cycle_delta; cohort_known = learners in the two compared
 cycles (the delta sample). Current cycle is partial until admissions close —
 early-cycle deltas trend negative by construction (labeled in the UI).
 Prior cycle = next-lower year with learners (gap-year safe); p_cycle_year
-is clamped to plausible years with learners. Exposure surface unchanged
-from the ruling above:
+is clamped to plausible years with learners. cycle_delta is NULL when
+unmeasurable (no prior cohort year, or zero sampled learners) and NULL
+deltas rank after measured rows under priority sort. Exposure surface
+unchanged from the ruling above:
 school names + learner/lead counts only — session/contribution aggregates
 were deliberately kept OUT (their RLS is ownership-scoped).';

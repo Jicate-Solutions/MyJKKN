@@ -181,8 +181,8 @@ export function FeederDiscovery() {
                 <TableRow>
                   <TableHead>School</TableHead>
                   <TableHead className="text-right">
-                    {rows[0]?.cycleYear
-                      ? `${rows[0].priorCycleYear || rows[0].cycleYear - 1} → ${rows[0].cycleYear} so far`
+                    {rows[0]?.cycleYear && rows[0]?.priorCycleYear
+                      ? `${rows[0].priorCycleYear} → ${rows[0].cycleYear} so far`
                       : 'Momentum'}
                   </TableHead>
                   <TableHead className="text-right">Enrolled learners</TableHead>
@@ -198,12 +198,12 @@ export function FeederDiscovery() {
                     <TableCell
                       className="text-right whitespace-nowrap"
                       title={
-                        r.cycleYear > 0
+                        r.cycleYear > 0 && r.priorCycleYear > 0 && r.cycleDelta !== null
                           ? `${r.priorCycleEnrolled} enrolled last cycle, ${r.currentCycleEnrolled} so far in ${r.cycleYear} (cycle still in progress — early-cycle drops are expected to shrink as admissions come in). ${r.cohortKnown} of ${r.enrolledCount} learners fall in the two compared cycles; the rest are excluded.`
-                          : undefined
+                          : 'No admission-cycle data for this school yet — momentum is unknown.'
                       }
                     >
-                      {r.cycleYear > 0 ? (
+                      {r.cycleYear > 0 && r.priorCycleYear > 0 && r.cycleDelta !== null ? (
                         <>
                           <span className="text-xs text-muted-foreground">
                             {r.priorCycleEnrolled} → {r.currentCycleEnrolled}

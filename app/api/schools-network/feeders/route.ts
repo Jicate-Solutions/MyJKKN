@@ -30,8 +30,6 @@ export const GET = withAuth(
     // (backward compat during the migration→deploy window); the product
     // default lives here.
     const sort = searchParams.get('sort') === 'volume' ? 'volume' : 'priority';
-    const cycleYearRaw = parseInt(searchParams.get('cycleYear') || '', 10);
-    const cycleYear = Number.isFinite(cycleYearRaw) ? cycleYearRaw : null;
 
     const { data, error } = await auth.supabase.rpc('fn_schools_network_feeders', {
       p_search: search,
@@ -40,7 +38,7 @@ export const GET = withAuth(
       p_limit: limit,
       p_offset: offset,
       p_sort: sort,
-      p_cycle_year: cycleYear,
+      p_cycle_year: null,
     });
     if (error) return errorResponse(error.message, 500, 'LIST_FAILED');
 
@@ -55,7 +53,7 @@ export const GET = withAuth(
       priorCycleYear: Number(r.prior_cycle_year ?? 0),
       currentCycleEnrolled: Number(r.current_cycle_enrolled ?? 0),
       priorCycleEnrolled: Number(r.prior_cycle_enrolled ?? 0),
-      cycleDelta: Number(r.cycle_delta ?? 0),
+      cycleDelta: r.cycle_delta === null || r.cycle_delta === undefined ? null : Number(r.cycle_delta),
       cohortKnown: Number(r.cohort_known ?? 0),
     }));
     let total = arr.length > 0 ? Number(arr[0].total_count ?? rows.length) : 0;

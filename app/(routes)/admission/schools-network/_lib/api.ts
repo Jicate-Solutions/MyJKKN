@@ -267,8 +267,9 @@ export interface FeederRow {
   currentCycleEnrolled: number;
   /** Cohort-attributed learners enrolled in the prior cycle. */
   priorCycleEnrolled: number;
-  /** currentCycleEnrolled − priorCycleEnrolled — the measured outcome. */
-  cycleDelta: number;
+  /** currentCycleEnrolled − priorCycleEnrolled — the measured outcome.
+   *  NULL when unmeasurable (no prior cohort year, or no sampled learners). */
+  cycleDelta: number | null;
   /** How many of this school's learners carry admission-year data;
    *  undated learners are excluded from the delta. */
   cohortKnown: number;
