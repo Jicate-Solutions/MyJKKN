@@ -89,8 +89,13 @@ export default async function LoopControlTowerPage() {
     cnt(admin.from('director_decisions').select('*', { count: 'exact', head: true }).eq('status', 'graded')),
     admin
       .from('platform_policies')
+      // Match the mess-menu-loop cron's canonical read exactly: the key is
+      // multi-scope, so filter scope_type='global' or a stray non-global row
+      // makes .maybeSingle() error → swallowed → the tile would falsely read
+      // "Dark" even when the global master switch is ON.
       .select('value')
       .eq('policy_key', 'mess.choose.loop.master_enabled')
+      .eq('scope_type', 'global')
       .maybeSingle()
       .then((r) => r.data?.value ?? null)
       .catch(() => null),
