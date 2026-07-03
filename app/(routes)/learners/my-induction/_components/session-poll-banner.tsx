@@ -171,8 +171,7 @@ export function SessionPollBanner() {
             {q.kind === 'wordcloud' ? (
               // Learners never see the aggregate word list (anonymity); just confirm theirs.
               <p className="text-xs text-muted-foreground">
-                Your answer: <span className="font-semibold text-foreground">{word || '—'}</span>
-                {liveTotals ? ` · ${liveTotals.response_count} answered so far` : ''}
+                Your answer: <span className="font-semibold text-foreground">{word || '—'}</span> · watch the screen for the live word cloud
               </p>
             ) : liveTotals && !liveTotals.suppressed ? (
               (() => {

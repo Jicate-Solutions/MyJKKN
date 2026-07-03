@@ -84,8 +84,16 @@ BEGIN
     v_keep_q := array_append(v_keep_q, v_qid);
 
     -- Wordcloud options are minted by fn_induction_submit_poll_response, never by
-    -- the host. Leave them untouched so re-saving the prompt after votes is safe.
-    IF v_kind = 'wordcloud' THEN CONTINUE; END IF;
+    -- the host. Leave voted words untouched so re-saving the prompt after votes is
+    -- safe — but GC any vote-less options, so a question converted from single/multi
+    -- to wordcloud doesn't keep its stale choice options (and orphaned freq-0 words
+    -- from re-submits get cleaned up on the next host save).
+    IF v_kind = 'wordcloud' THEN
+      DELETE FROM public.induction_session_poll_option o
+       WHERE o.question_id = v_qid
+         AND NOT EXISTS (SELECT 1 FROM public.induction_session_poll_vote v WHERE v.option_id = o.id);
+      CONTINUE;
+    END IF;
 
     v_keep_o := '{}';
     FOR o IN SELECT value FROM jsonb_array_elements(coalesce(q->'options','[]'::jsonb)) LOOP
@@ -334,9 +342,9 @@ END $function$;
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 8) Anonymity-safe realtime broadcast. A per-row trigger on the vote table fires
 --    realtime.send with a payload carrying ONLY poll_id (never vote content) on an
---    unguessable per-poll topic 'induction_poll:<poll_uuid>'. private=false: the
---    topic itself (a random UUID) is the capability, and no vote content is ever
---    exposed, so no per-row auth is required for the ping.
+--    unguessable per-poll topic 'induction_poll:<poll_uuid>'. private=true: the
+--    receive RLS policy below scopes each subscribe to the poll's enrolled learners
+--    and the session host, and the payload never carries vote content or identity.
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.fn_induction_poll_vote_broadcast()
  RETURNS trigger
@@ -352,7 +360,7 @@ BEGIN
       jsonb_build_object('poll_id', v_poll),         -- payload: poll_id ONLY
       'vote',                                         -- event
       'induction_poll:' || v_poll::text,              -- topic (unguessable UUID)
-      false                                           -- private=false (public topic)
+      true                                            -- private=true: receive RLS scopes it to the poll's learners/host
     );
   END IF;
   RETURN NULL;   -- AFTER trigger, return value ignored
@@ -363,14 +371,25 @@ CREATE TRIGGER trg_induction_poll_vote_broadcast
   AFTER INSERT OR UPDATE OR DELETE ON public.induction_session_poll_vote
   FOR EACH ROW EXECUTE FUNCTION public.fn_induction_poll_vote_broadcast();
 
--- Receive policy: allow any authenticated client to receive on induction_poll:*
--- topics. With private=false this is not strictly consulted, but it makes the
--- topic future-proof (safe to flip to private=true later) and is harmless — the
--- payload never carries vote content or learner identity.
+-- Receive policy (private=true): a client may subscribe to induction_poll:<pollId>
+-- ONLY if it is an enrolled learner who can answer that poll OR the session's host.
+-- This closes the cross-tenant subscribe channel — knowing the topic UUID is no
+-- longer sufficient. Evaluated once per subscribe; get_my_learner_id() is NULL for a
+-- staff host, so the learner check fails cleanly and the manage check authorizes
+-- them. If this (wrongly) denies, the client silently falls back to interval polling,
+-- so delivery can only degrade, never break.
 DROP POLICY IF EXISTS "induction_poll_realtime_receive" ON realtime.messages;
 CREATE POLICY "induction_poll_realtime_receive" ON realtime.messages
   FOR SELECT TO authenticated
-  USING (topic LIKE 'induction_poll:%');
+  USING (
+    topic LIKE 'induction_poll:%'
+    AND EXISTS (
+      SELECT 1 FROM public.induction_session_poll p
+      WHERE p.id = NULLIF(split_part(topic, ':', 2), '')::uuid
+        AND ( public._fn_induction_learner_can_answer_poll(p.id, public.get_my_learner_id())
+              OR public._fn_induction_can_manage_session_pulse(p.session_id) )
+    )
+  );
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 9) Lock down execute grants on every CHANGED SECURITY DEFINER RPC (anon must

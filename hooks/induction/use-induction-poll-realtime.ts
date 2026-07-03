@@ -39,8 +39,12 @@ export function useInductionPollRealtime(pollId: string | undefined, onChange: (
     let timer: ReturnType<typeof setTimeout> | null = null;
     const fire = () => { timer = null; cbRef.current(); };
 
+    // private:true — the realtime.messages receive RLS policy authorizes this
+    // subscribe against the poll's learners/host; the client's Supabase session
+    // token is sent for that check. If it's denied, no pings arrive and the
+    // caller's interval polling keeps the view fresh (safe degrade, never break).
     const channel = supabase
-      .channel(`induction_poll:${pollId}`)
+      .channel(`induction_poll:${pollId}`, { config: { private: true } })
       .on('broadcast', { event: 'vote' }, () => {
         // First ping in a quiet window schedules a single trailing refetch; any
         // further pings that arrive inside the window are absorbed into that fire.
