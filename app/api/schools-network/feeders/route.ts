@@ -56,8 +56,6 @@ export const GET = withAuth(
       priorCycleEnrolled: Number(r.prior_cycle_enrolled ?? 0),
       cycleDelta: Number(r.cycle_delta ?? 0),
       cohortKnown: Number(r.cohort_known ?? 0),
-      sessionsCount: Number(r.sessions_count ?? 0),
-      contributionsValue: Number(r.contributions_value ?? 0),
     }));
     let total = arr.length > 0 ? Number(arr[0].total_count ?? rows.length) : 0;
     if (arr.length === 0 && offset > 0) {

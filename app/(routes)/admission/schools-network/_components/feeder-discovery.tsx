@@ -197,29 +197,34 @@ export function FeederDiscovery() {
                     <TableCell className="font-medium">{r.schoolName}</TableCell>
                     <TableCell
                       className="text-right whitespace-nowrap"
-                      title={`${r.priorCycleEnrolled} enrolled in ${r.cycleYear - 1}, ${r.currentCycleEnrolled} so far in ${r.cycleYear}. Based on ${r.cohortKnown} of ${r.enrolledCount} learners with admission-year data.`}
+                      title={
+                        r.cycleYear > 0
+                          ? `${r.priorCycleEnrolled} enrolled in ${r.cycleYear - 1}, ${r.currentCycleEnrolled} so far in ${r.cycleYear}. ${r.cohortKnown} of ${r.enrolledCount} learners carry admission-year data; undated learners are excluded from these numbers.`
+                          : undefined
+                      }
                     >
-                      <span className="text-xs text-muted-foreground">
-                        {r.priorCycleEnrolled} → {r.currentCycleEnrolled}
-                      </span>{' '}
-                      {r.cycleDelta !== 0 ? (
-                        <Badge
-                          variant={r.cycleDelta < 0 ? 'destructive' : 'secondary'}
-                          className={
-                            r.cycleDelta < 0
-                              ? 'text-xs'
-                              : 'text-xs bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
-                          }
-                        >
-                          {r.cycleDelta > 0 ? `+${r.cycleDelta}` : r.cycleDelta}
-                        </Badge>
+                      {r.cycleYear > 0 ? (
+                        <>
+                          <span className="text-xs text-muted-foreground">
+                            {r.priorCycleEnrolled} → {r.currentCycleEnrolled}
+                          </span>{' '}
+                          {r.cycleDelta !== 0 ? (
+                            <Badge
+                              variant={r.cycleDelta < 0 ? 'destructive' : 'secondary'}
+                              className={
+                                r.cycleDelta < 0
+                                  ? 'text-xs'
+                                  : 'text-xs bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
+                              }
+                            >
+                              {r.cycleDelta > 0 ? `+${r.cycleDelta}` : r.cycleDelta}
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">±0</span>
+                          )}
+                        </>
                       ) : (
-                        <span className="text-xs text-muted-foreground">±0</span>
-                      )}
-                      {r.sessionsCount > 0 && (
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {r.sessionsCount} session{r.sessionsCount === 1 ? '' : 's'} invested
-                        </p>
+                        <span className="text-xs text-muted-foreground">—</span>
                       )}
                     </TableCell>
                     <TableCell className="text-right">

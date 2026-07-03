@@ -15,9 +15,11 @@
 --     are EXCLUDED from the delta — created_at is the digitization date, not
 --     the admission date (1,756 learner rows admitted 2025 were created 2026), so
 --     it is NOT a valid fallback cohort.
---   • sessions_count / contributions_value for adopted schools — the
---     investment context displayed next to the outcome it is supposed to
---     move, and the substrate for the causal (invested vs not) check.
+--   • Investment context (sessions/contributions) is deliberately NOT
+--     exposed here: their RLS is ownership-scoped (sessions.view AND
+--     user_owns_school), so an org-wide aggregate would widen the exposure
+--     envelope beyond the recorded Director ruling. Invest→outcome
+--     juxtaposition lives on the school detail page under its own gates.
 --   • p_sort='priority' → visit-list rank: biggest cycle DROP first
 --     (cycle_delta ASC), all-time volume as tiebreak. 'volume' → legacy
 --     all-time rank. DB default stays 'volume' so the old deployed route
@@ -33,6 +35,7 @@
 -- re-applied below — a bare DROP silently erases both.
 
 DROP FUNCTION IF EXISTS public.fn_schools_network_feeders(text, text, text, int, int);
+DROP FUNCTION IF EXISTS public.fn_schools_network_feeders(text, text, text, int, int, text, int);
 
 CREATE FUNCTION public.fn_schools_network_feeders(
   p_search text DEFAULT NULL,
@@ -54,9 +57,7 @@ RETURNS TABLE(
   current_cycle_enrolled bigint,
   prior_cycle_enrolled bigint,
   cycle_delta bigint,
-  cohort_known bigint,
-  sessions_count bigint,
-  contributions_value numeric
+  cohort_known bigint
 )
 LANGUAGE plpgsql
 STABLE
@@ -87,9 +88,12 @@ BEGIN
                     WHERE lp2.admission_year_id = ay.id)
   ));
 
-  -- Escape LIKE metacharacters so a user's % / _ search chars match literally.
+  -- Escape LIKE metacharacters so a user's % / _ search chars match
+  -- literally, and collapse internal whitespace with the SAME normalization
+  -- applied to name_norm — otherwise a double-spaced search never matches.
   v_search := CASE WHEN p_search IS NULL THEN NULL
-              ELSE replace(replace(replace(trim(lower(p_search)),
+              ELSE replace(replace(replace(
+                     regexp_replace(trim(lower(p_search)), '\s+', ' ', 'g'),
                      '\', '\\'), '%', '\%'), '_', '\_') END;
 
   RETURN QUERY
@@ -157,16 +161,6 @@ BEGIN
        AND (p_adopted IS NULL
             OR (p_adopted = 'adopted' AND adopt.id IS NOT NULL)
             OR (p_adopted = 'not_adopted' AND adopt.id IS NULL))
-  ),
-  sess_agg AS (
-    SELECT ss.school_id, count(*) AS n
-      FROM public.school_sessions ss
-     GROUP BY 1
-  ),
-  contrib_agg AS (
-    SELECT sc.school_id, coalesce(sum(sc.value_inr), 0) AS v
-      FROM public.school_contributions sc
-     GROUP BY 1
   )
   SELECT j.name_disp,
          j.enrolled_n,
@@ -178,12 +172,8 @@ BEGIN
          j.cur_n,
          j.pri_n,
          j.cur_n - j.pri_n AS cycle_delta,
-         j.dated_n,
-         coalesce(sa.n, 0),
-         coalesce(ca.v, 0)::numeric
+         j.dated_n
     FROM joined j
-    LEFT JOIN sess_agg sa ON sa.school_id = j.adopted_id
-    LEFT JOIN contrib_agg ca ON ca.school_id = j.adopted_id
    ORDER BY
      CASE WHEN v_sort = 'priority' THEN j.cur_n - j.pri_n END ASC NULLS LAST,
      j.enrolled_n DESC, j.leads_n DESC, j.name_disp
@@ -207,4 +197,7 @@ Deep-review cross-tenant finding acknowledged and accepted by the data owner
 — do not "fix" without a new Director decision.
 v3 (2026-07-03): adds per-admission-cycle yield columns + p_sort=priority
 visit-list ranking (moat-loop feed-forward). Cohort-undated learners are
-excluded from cycle_delta and surfaced via cohort_known.';
+excluded from cycle_delta; cohort_known = learners with admission-year data
+(coverage qualifier). Exposure surface unchanged from the ruling above:
+school names + learner/lead counts only — session/contribution aggregates
+were deliberately kept OUT (their RLS is ownership-scoped).';

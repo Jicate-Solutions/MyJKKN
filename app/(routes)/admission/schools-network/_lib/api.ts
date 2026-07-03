@@ -269,9 +269,6 @@ export interface FeederRow {
   /** How many of this school's learners carry admission-year data;
    *  undated learners are excluded from the delta. */
   cohortKnown: number;
-  /** Investment context (adopted schools only, 0 otherwise). */
-  sessionsCount: number;
-  contributionsValue: number;
 }
 
 export function listFeeders(opts: {
