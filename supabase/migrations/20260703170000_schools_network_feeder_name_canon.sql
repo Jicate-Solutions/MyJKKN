@@ -29,15 +29,17 @@
 --     when the stripped key is empty. No cross-keyspace collision is
 --     possible: a stripped key is pure [a-z0-9]+ while a fallback key (from
 --     a string with no ASCII alphanumerics) contains none.
---   • Search input is canonicalized with the SAME strip. LIKE-metachar
---     escaping (and the ESCAPE clause) is REMOVED as now-unnecessary: LIKE
---     metacharacters only carry meaning in the PATTERN, and a pattern
---     reduced to [a-z0-9] cannot contain '%', '_' or '\' — they are stripped
---     before the pattern is built. (Metachars in the SUBJECT column never
---     needed escaping.) A search containing no ASCII alphanumerics strips to
---     '' and is treated as no-filter (v3.3 would have matched it literally;
---     acceptable trade — such searches were near-useless against the
---     canonical key anyway).
+--   • Search input is canonicalized with the SAME strip. For stripped input
+--     no LIKE-metachar escaping is needed (a pattern reduced to [a-z0-9]
+--     cannot contain '%', '_' or '\'); a NON-BLANK input that strips to ''
+--     (Tamil-script / symbol-only) falls back to the v3.3 whitespace-collapse
+--     form WITH escaping + ESCAPE clause, so it matches the fallback-keyed
+--     rows instead of dropping the filter. (Metachars in the SUBJECT never
+--     needed escaping.)
+--   • Adopted-badge join: if MORE THAN ONE distinct schools row collides on
+--     the same canonical key, the match is ambiguous — the row renders as
+--     not-adopted (NULL) instead of badging an arbitrary school (review
+--     fix; a human disambiguates the school rows).
 --
 -- Everything else is byte-for-byte v3.3 semantics: junk filters, cycle /
 -- prior-cycle derivation, NULL-delta rule, priority/volume ordering, clamps,
@@ -125,11 +127,18 @@ BEGIN
   );
 
   -- v3.4: canonicalize the search input with the SAME strip as the grouping
-  -- key. No LIKE-metachar escaping and no ESCAPE clause: metachars only have
-  -- meaning in the pattern, and '%' / '_' / '\' cannot survive the strip to
-  -- [a-z0-9]. Input with no ASCII alphanumerics strips to '' → NULL → no
-  -- filter (see header note).
+  -- key. Stripped input needs no LIKE-metachar escaping ('%'/'_'/'\' cannot
+  -- survive [a-z0-9]). Review fix: a NON-BLANK search that strips to ''
+  -- (Tamil-script or symbol-only input) must NOT silently drop the filter —
+  -- it falls back to the v3.3 whitespace-collapse form (escaped), which is
+  -- exactly the fallback key Tamil-script feeder rows carry, so Tamil
+  -- searches match Tamil rows instead of returning everything.
   v_search := NULLIF(regexp_replace(lower(coalesce(p_search, '')), '[^a-z0-9]', '', 'g'), '');
+  IF v_search IS NULL AND trim(coalesce(p_search, '')) <> '' THEN
+    v_search := replace(replace(replace(
+                  regexp_replace(trim(lower(p_search)), '\s+', ' ', 'g'),
+                  '\', '\\'), '%', '\%'), '_', '\_');
+  END IF;
 
   RETURN QUERY
   WITH learner_src AS (
@@ -195,16 +204,19 @@ BEGIN
       -- recorded under any punctuation/spacing variant must still badge the
       -- merged feeder row.
       LEFT JOIN LATERAL (
-        SELECT s.id
+        -- Review fix (MEDIUM): if MORE THAN ONE distinct school row
+        -- canonicalizes to this key (two genuinely different adopted
+        -- schools colliding, e.g. "St. Mary's" / "St Marys"), badging an
+        -- arbitrary one is WRONG — return NULL (renders as not-adopted)
+        -- and let a human disambiguate the school rows.
+        SELECT CASE WHEN count(*) = 1 THEN (array_agg(s.id))[1] END AS id
           FROM public.schools s
          WHERE COALESCE(
                  NULLIF(regexp_replace(lower(s.name), '[^a-z0-9]', '', 'g'), ''),
                  regexp_replace(trim(lower(s.name)), '\s+', ' ', 'g')
                ) = mg.name_norm
-         ORDER BY s.created_at
-         LIMIT 1
       ) adopt ON TRUE
-     WHERE (v_search IS NULL OR mg.name_norm LIKE '%' || v_search || '%')
+     WHERE (v_search IS NULL OR mg.name_norm LIKE '%' || v_search || '%' ESCAPE '\')
        AND (p_source IS NULL OR p_source = ANY(mg.srcs))
        AND (p_adopted IS NULL
             OR (p_adopted = 'adopted' AND adopt.id IS NOT NULL)
