@@ -12,6 +12,7 @@
  */
 import type {
   AssignOwnerInput,
+  CreateContactInput,
   CreateContributionInput,
   CreateSchoolInput,
   CreateSessionInput,
@@ -19,9 +20,11 @@ import type {
   ProgramPartnerListResponse,
   ProgramPartnerRollup,
   School,
+  SchoolContactRole,
   SchoolDetailResponse,
   SchoolListResponse,
   SchoolsListFilters,
+  StaffSearchRow,
 } from './types';
 
 const BASE = '/api/schools-network';
@@ -123,7 +126,30 @@ export function logContribution(
   });
 }
 
+/* ─── Contacts ──────────────────────────────────────────── */
+
+export function createContact(
+  schoolId: string,
+  input: CreateContactInput
+): Promise<{ id: string }> {
+  return call(`${BASE}/schools/${schoolId}/contacts`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
 /* ─── Owners ────────────────────────────────────────────── */
+
+/**
+ * Debounced staff picker for the Assign-owner form. Returns [] for queries
+ * shorter than 2 chars (the endpoint short-circuits there too), so callers
+ * don't need their own min-length guard.
+ */
+export function searchStaff(q: string): Promise<{ rows: StaffSearchRow[] }> {
+  return call<{ rows: StaffSearchRow[] }>(
+    `${BASE}/staff-search?q=${encodeURIComponent(q)}`
+  );
+}
 
 export function assignOwner(
   schoolId: string,
@@ -199,6 +225,10 @@ export function listPartnerTypes(): Promise<{
   rows: import('./types').ProgramPartnerType[];
 }> {
   return call(`${BASE}/partner-types`);
+}
+
+export function listContactRoles(): Promise<{ rows: SchoolContactRole[] }> {
+  return call<{ rows: SchoolContactRole[] }>(`${BASE}/contact-roles`);
 }
 
 export function createPartner(input: {
