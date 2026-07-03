@@ -29,6 +29,9 @@
 --     when the stripped key is empty. No cross-keyspace collision is
 --     possible: a stripped key is pure [a-z0-9]+ while a fallback key (from
 --     a string with no ASCII alphanumerics) contains none.
+--   • SCOPE: merging is ASCII-only by design — accented Latin variants
+--     ("École" vs "Ecole") do NOT unify (would need the unaccent extension;
+--     not worth the dependency for this dataset's naming reality).
 --   • Search input is canonicalized with the SAME strip. For stripped input
 --     no LIKE-metachar escaping is needed (a pattern reduced to [a-z0-9]
 --     cannot contain '%', '_' or '\'); a NON-BLANK input that strips to ''
@@ -204,12 +207,27 @@ BEGIN
       -- recorded under any punctuation/spacing variant must still badge the
       -- merged feeder row.
       LEFT JOIN LATERAL (
-        -- Review fix (MEDIUM): if MORE THAN ONE distinct school row
-        -- canonicalizes to this key (two genuinely different adopted
-        -- schools colliding, e.g. "St. Mary's" / "St Marys"), badging an
-        -- arbitrary one is WRONG — return NULL (renders as not-adopted)
-        -- and let a human disambiguate the school rows.
-        SELECT CASE WHEN count(*) = 1 THEN (array_agg(s.id))[1] END AS id
+        -- Review fix round 2 (MEDIUM, 3/3 consensus): multi-match handling
+        -- must separate two cases the canonical key alone cannot:
+        --   • variant-DUPLICATE rows of the SAME school (adopted twice under
+        --     two spellings) — the badge must SURVIVE → oldest row wins,
+        --     matching v3.3 (blanket-NULL here would un-badge real
+        --     adoptions and hide them from p_adopted='adopted');
+        --   • genuinely DIFFERENT schools colliding on the stripped key —
+        --     badging an arbitrary one is wrong → NULL, human disambiguates.
+        -- Discriminator: location agreement. Rows that agree on
+        -- (district, state) — NULLs agreeing with NULLs — are treated as
+        -- duplicates of one school; conflicting locations mean distinct
+        -- schools. Undistinguishable all-NULL collisions resolve like v3.3
+        -- (oldest), so v3.4 never regresses an existing badge.
+        SELECT CASE
+                 WHEN count(*) = 1
+                   THEN (array_agg(s.id ORDER BY s.created_at))[1]
+                 WHEN count(DISTINCT (coalesce(lower(s.district), ''),
+                                      coalesce(lower(s.state), ''))) = 1
+                   THEN (array_agg(s.id ORDER BY s.created_at))[1]
+                 ELSE NULL
+               END AS id
           FROM public.schools s
          WHERE COALESCE(
                  NULLIF(regexp_replace(lower(s.name), '[^a-z0-9]', '', 'g'), ''),
