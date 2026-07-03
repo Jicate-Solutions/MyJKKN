@@ -21,9 +21,8 @@ import {
 import Anthropic from '@anthropic-ai/sdk';
 import {
   resolveChatModel,
-  recordChatUsage,
+  recordChatCall,
 } from '@/lib/services/platform/ai-clients/chat';
-import { getModel } from '@/lib/services/platform/ai-providers';
 import type {
   CareerGuidanceResult, CareerGuidanceSignal, CareerGuidance,
 } from '@/types/cdc/career-guidance';
@@ -32,20 +31,6 @@ import type {
 // resolveChatModel never throws — hardcoded fallback on any config failure.
 const FEATURE_KEY = 'cdc.career_guidance';
 
-// Cost in INR from the pricing registry — null when pricing/tokens are missing.
-function costInr(
-  modelId: string,
-  usage: { input_tokens?: number | null; output_tokens?: number | null } | undefined,
-): number | null {
-  const pricing = getModel('anthropic', modelId);
-  const input = usage?.input_tokens;
-  const output = usage?.output_tokens;
-  if (!pricing || pricing.inputPer1KTokensInr == null || pricing.outputPer1KTokensInr == null) return null;
-  if (input == null || output == null) return null;
-  return Number(
-    ((input / 1000) * pricing.inputPer1KTokensInr + (output / 1000) * pricing.outputPer1KTokensInr).toFixed(6),
-  );
-}
 
 const SYSTEM_PROMPT = `You are a career-counselling assistant for the Career Development Centre (CDC) of an Indian higher-education group. A counsellor has selected one student and wants guidance to discuss with them.
 
@@ -324,20 +309,10 @@ Generate the career guidance JSON now.`;
     } catch (e) {
       console.error('[cdc/career-guidance] Anthropic call failed:', e);
       // Record the failed invocation (internally non-throwing), keep the 502.
-      await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
-        duration_ms: Date.now() - aiStartedAt,
-        success: false,
-        error_message: e instanceof Error ? e.message.slice(0, 500) : String(e),
-      });
+      await recordChatCall(FEATURE_KEY, 'anthropic', modelId, aiStartedAt, null, e);
       return NextResponse.json({ error: 'AI request failed. Please try again.' }, { status: 502 });
     }
-    await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
-      input_tokens: message.usage?.input_tokens ?? undefined,
-      output_tokens: message.usage?.output_tokens ?? undefined,
-      cost_inr: costInr(modelId, message.usage) ?? undefined,
-      duration_ms: Date.now() - aiStartedAt,
-      success: true,
-    });
+    await recordChatCall(FEATURE_KEY, 'anthropic', modelId, aiStartedAt, message);
 
     const text = message.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')

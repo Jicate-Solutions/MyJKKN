@@ -21,9 +21,8 @@ import Anthropic from '@anthropic-ai/sdk';
 
 import {
   resolveChatModel,
-  recordChatUsage,
+  recordChatCall,
 } from '@/lib/services/platform/ai-clients/chat';
-import { getModel } from '@/lib/services/platform/ai-providers';
 
 import {
   buildSystemPrompt,
@@ -44,26 +43,6 @@ import {
  * "HOW TO UPDATE" block so the budget gate and audit costs stay truthful.
  */
 const FEATURE_KEY = 'attention_bar.assistant';
-
-/**
- * Cost in INR from the shared pricing registry (input/output tokens only —
- * cache read/write premiums are tracked in USD by cost-rates.ts; this INR
- * figure feeds the platform-wide ai_model_usage ledger). Null when pricing
- * or token counts are missing.
- */
-function costInr(
-  modelId: string,
-  usage: { input_tokens?: number | null; output_tokens?: number | null } | undefined,
-): number | null {
-  const pricing = getModel('anthropic', modelId);
-  const input = usage?.input_tokens;
-  const output = usage?.output_tokens;
-  if (!pricing || pricing.inputPer1KTokensInr == null || pricing.outputPer1KTokensInr == null) return null;
-  if (input == null || output == null) return null;
-  return Number(
-    ((input / 1000) * pricing.inputPer1KTokensInr + (output / 1000) * pricing.outputPer1KTokensInr).toFixed(6),
-  );
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Singleton client
@@ -194,11 +173,7 @@ export async function pickActionViaLLM(
     // Record the failed invocation in ai_model_usage (internally non-throwing),
     // then rethrow — Layer 4's evaluator converts errors to matched:false and
     // its own USD tracker (recordLayer4Call) still audits the attempt.
-    await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
-      duration_ms: Date.now() - startedAt,
-      success: false,
-      error_message: err instanceof Error ? err.message.slice(0, 500) : String(err),
-    });
+    await recordChatCall(FEATURE_KEY, 'anthropic', modelId, startedAt, null, err);
     throw err;
   }
 
@@ -206,13 +181,7 @@ export async function pickActionViaLLM(
   // USD cost-tracker (quick_action_* tables) — different ledgers, not
   // double-counting. Recorded before tool_use validation: the API call
   // succeeded and was paid for even if the model misbehaved below.
-  await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
-    input_tokens: message.usage?.input_tokens ?? undefined,
-    output_tokens: message.usage?.output_tokens ?? undefined,
-    cost_inr: costInr(modelId, message.usage) ?? undefined,
-    duration_ms: Date.now() - startedAt,
-    success: true,
-  });
+  await recordChatCall(FEATURE_KEY, 'anthropic', modelId, startedAt, message);
 
   // ─────────────────────────────────────────────────────────────────────
   // Extract the tool_use block.

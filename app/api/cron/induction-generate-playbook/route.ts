@@ -41,9 +41,8 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import Anthropic from '@anthropic-ai/sdk';
 import {
   resolveChatModel,
-  recordChatUsage,
+  recordChatCall,
 } from '@/lib/services/platform/ai-clients/chat';
-import { getModel } from '@/lib/services/platform/ai-providers';
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -79,56 +78,6 @@ type Cohort = {
 
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
-}
-
-// Cost in INR from the pricing registry — null when pricing or token counts are missing.
-function costInr(
-  modelId: string,
-  inputTokens?: number,
-  outputTokens?: number
-): number | null {
-  const pricing = getModel('anthropic', modelId);
-  if (
-    !pricing ||
-    pricing.inputPer1KTokensInr == null ||
-    pricing.outputPer1KTokensInr == null
-  ) {
-    return null;
-  }
-  if (inputTokens == null || outputTokens == null) return null;
-  return Number(
-    (
-      (inputTokens / 1000) * pricing.inputPer1KTokensInr +
-      (outputTokens / 1000) * pricing.outputPer1KTokensInr
-    ).toFixed(6)
-  );
-}
-
-// Record one Claude invocation into ai_model_usage. recordChatUsage is internally
-// non-throwing and MUST be awaited (Vercel serverless drops un-awaited promises).
-async function recordCall(
-  modelId: string,
-  startedAt: number,
-  resp: Anthropic.Message | null,
-  err?: unknown
-): Promise<void> {
-  if (resp) {
-    const inputTokens = resp.usage?.input_tokens;
-    const outputTokens = resp.usage?.output_tokens;
-    await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
-      input_tokens: inputTokens,
-      output_tokens: outputTokens,
-      cost_inr: costInr(modelId, inputTokens, outputTokens) ?? undefined,
-      duration_ms: Date.now() - startedAt,
-      success: true,
-    });
-  } else {
-    await recordChatUsage(FEATURE_KEY, 'anthropic', modelId, {
-      duration_ms: Date.now() - startedAt,
-      success: false,
-      error_message: err instanceof Error ? err.message.slice(0, 500) : String(err),
-    });
-  }
 }
 
 // Reads the prior cohort's MEASURED outcome and renders the feed-forward block
@@ -237,10 +186,10 @@ Generate the value-first induction playbook JSON for this cohort now.`;
         { timeout: 60000 }
       );
     } catch (apiErr) {
-      await recordCall(modelId, t0, null, apiErr);
+      await recordChatCall(FEATURE_KEY, 'anthropic', modelId, t0, null, apiErr);
       throw apiErr; // outer catch keeps the { playbook: null, modelUsed: 'error' } sentinel
     }
-    await recordCall(modelId, t0, resp);
+    await recordChatCall(FEATURE_KEY, 'anthropic', modelId, t0, resp);
     const text = resp.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
       .map((b) => b.text)

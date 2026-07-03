@@ -17,7 +17,7 @@
 //
 // For call sites too weird to wrap (tool-use loops, custom client wrappers),
 // use the primitives instead: resolveChatModel() at the top of the flow,
-// recordChatUsage() at the end.
+// recordChatCall() right after each messages.create (success and failure).
 //
 // GUARANTEES:
 //   - Config problems NEVER throw and NEVER change caller behavior beyond
@@ -127,28 +127,13 @@ export async function claudeChatForFeature(
       options,
     );
   } catch (err) {
-    // Record the failed invocation (recordUsage is internally non-throwing),
+    // Record the failed invocation (recordChatCall is internally non-throwing),
     // then rethrow — callers keep their existing error handling.
-    await recordUsage(featureKey, 'anthropic', model_id, {
-      duration_ms: Date.now() - startedAt,
-      success: false,
-      error_message: err instanceof Error ? err.message.slice(0, 500) : String(err),
-    });
+    await recordChatCall(featureKey, 'anthropic', model_id, startedAt, null, err);
     throw err;
   }
-  const durationMs = Date.now() - startedAt;
 
-  const inputTokens = response.usage?.input_tokens ?? null;
-  const outputTokens = response.usage?.output_tokens ?? null;
-  const costInr = computeChatCostInr(model_id, inputTokens, outputTokens);
-
-  await recordUsage(featureKey, 'anthropic', model_id, {
-    input_tokens: inputTokens ?? undefined,
-    output_tokens: outputTokens ?? undefined,
-    cost_inr: costInr ?? undefined,
-    duration_ms: durationMs,
-    success: true,
-  });
+  await recordChatCall(featureKey, 'anthropic', model_id, startedAt, response);
 
   const text = response.content
     .filter(
@@ -161,11 +146,62 @@ export async function claudeChatForFeature(
 }
 
 /**
+ * Record ONE Claude invocation (success OR failure) into ai_model_usage.
+ *
+ * This is THE shared helper for primitive adopters (call sites that run
+ * `anthropic.messages.create` themselves instead of using
+ * claudeChatForFeature): pass the raw response for a success row, or
+ * `resp = null` plus the caught error for a failure row. Cost comes from
+ * computeChatCostInr (pricing registry). Internally non-throwing
+ * (recordUsage never throws) and MUST be awaited — Vercel serverless
+ * freezes the instance at response time and drops un-awaited promises.
+ *
+ * @param featureKey ai_model_config feature key (e.g. 'scf.generate_suggestions')
+ * @param provider   provider label for the ledger row (currently 'anthropic')
+ * @param modelId    model id actually sent to the API
+ * @param startedAt  Date.now() captured just before messages.create
+ * @param resp       the Anthropic response (success) or null (failure)
+ * @param err        the caught error — only read when resp is null
+ */
+export async function recordChatCall(
+  featureKey: string,
+  provider: string,
+  modelId: string,
+  startedAt: number,
+  resp: Anthropic.Message | null,
+  err?: unknown,
+): Promise<void> {
+  if (resp) {
+    const inputTokens = resp.usage?.input_tokens;
+    const outputTokens = resp.usage?.output_tokens;
+    await recordUsage(featureKey, provider, modelId, {
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      cost_inr:
+        computeChatCostInr(modelId, inputTokens ?? null, outputTokens ?? null) ??
+        undefined,
+      duration_ms: Date.now() - startedAt,
+      success: true,
+    });
+  } else {
+    await recordUsage(featureKey, provider, modelId, {
+      duration_ms: Date.now() - startedAt,
+      success: false,
+      error_message: err instanceof Error ? err.message.slice(0, 500) : String(err),
+    });
+  }
+}
+
+/**
  * Cost in INR from the pricing registry (INR per 1K tokens).
  * Null (and a console.warn) when the model is missing from the registry —
  * the usage row still lands, just without a cost figure.
+ *
+ * Exported for call sites whose token counts don't come from a single
+ * response (e.g. ai-query aggregates usage across a tool-use loop) —
+ * everyone else should go through recordChatCall.
  */
-function computeChatCostInr(
+export function computeChatCostInr(
   modelId: string,
   inputTokens: number | null,
   outputTokens: number | null,
