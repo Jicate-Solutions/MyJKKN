@@ -83,6 +83,13 @@ BEGIN
     v_kind := coalesce(q->>'kind','single');
     IF nullif(q->>'id','') IS NOT NULL THEN
       v_qid := (q->>'id')::uuid;
+      -- Kind is locked once votes exist: changing a voted question's kind would
+      -- reinterpret its ballots (e.g. single/multi choice options rendered as cloud
+      -- words). The UI enforces this too; make it a server-side invariant.
+      IF EXISTS (SELECT 1 FROM public.induction_session_poll_vote WHERE question_id = v_qid)
+         AND v_kind IS DISTINCT FROM (SELECT kind FROM public.induction_session_poll_question WHERE id = v_qid AND poll_id = v_poll_id) THEN
+        RAISE EXCEPTION 'fn_induction_upsert_session_poll: cannot change the kind of question % after it has votes', v_qid;
+      END IF;
       UPDATE public.induction_session_poll_question
       SET prompt = q->>'prompt', kind = v_kind,
           position = coalesce((q->>'position')::int, 0),
@@ -379,12 +386,18 @@ DECLARE v_poll uuid;
 BEGIN
   v_poll := COALESCE(NEW.poll_id, OLD.poll_id);
   IF v_poll IS NOT NULL THEN
-    PERFORM realtime.send(
-      jsonb_build_object('poll_id', v_poll),         -- payload: poll_id ONLY
-      'vote',                                         -- event
-      'induction_poll:' || v_poll::text,              -- topic (unguessable UUID)
-      true                                            -- private=true: receive RLS scopes it to the poll's learners/host
-    );
+    -- A broadcast failure (realtime schema / permission / availability hiccup) must
+    -- NEVER roll back the vote — voting is the critical path; the ping is best-effort.
+    BEGIN
+      PERFORM realtime.send(
+        jsonb_build_object('poll_id', v_poll),       -- payload: poll_id ONLY
+        'vote',                                       -- event
+        'induction_poll:' || v_poll::text,            -- topic (unguessable UUID)
+        true                                          -- private=true: receive RLS scopes it to the poll's learners/host
+      );
+    EXCEPTION WHEN OTHERS THEN
+      NULL;   -- vote row already written; the realtime ping is optional
+    END;
   END IF;
   RETURN NULL;   -- AFTER trigger, return value ignored
 END $function$;
