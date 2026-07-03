@@ -203,6 +203,23 @@ CREATE POLICY "academic_years_delete_by_role" ON academic_years
         OR (institution_id = get_current_user_institution_id() AND user_has_permission('academic.years.delete'))
     );
 
+-- Added: 2026-07-03 - /learners/my-bills groups bills by academic year; a
+-- student may read the year rows their own bills reference (name lookup only).
+CREATE POLICY "Students can view academic years on their own bills" ON academic_years
+    FOR SELECT TO authenticated USING (
+        id IN (
+            SELECT b.academic_year_id
+            FROM billing_student_bills b
+            WHERE b.academic_year_id IS NOT NULL
+              AND b.student_id IN (
+                SELECT lp.id
+                FROM learners_profiles lp
+                JOIN profiles p ON (p.email = lp.student_email OR p.email = lp.college_email)
+                WHERE p.id = auth.uid() AND p.role = 'student'
+            )
+        )
+    );
+
 -- DEGREES TABLE (Optimized policies)
 -- Updated: 2025-12-15 - Changed to use security definer functions
 -- Updated: 2026-03-05 - Added admission role policy
@@ -1474,6 +1491,21 @@ CREATE POLICY "receipt_items_all_billing" ON billing_receipt_items
         )
     );
 
+-- Added: 2026-07-03 - /learners/my-bills reads receipt->bill links to group
+-- paid receipts by academic year and render the receipt detail/PDF.
+CREATE POLICY "Students can view their own receipt items" ON billing_receipt_items
+    FOR SELECT TO authenticated USING (
+        receipt_id IN (
+            SELECT r.id FROM billing_receipts r
+            WHERE r.student_id IN (
+                SELECT lp.id
+                FROM learners_profiles lp
+                JOIN profiles p ON (p.email = lp.student_email OR p.email = lp.college_email)
+                WHERE p.id = auth.uid() AND p.role = 'student'
+            )
+        )
+    );
+
 -- BILLING_INVOICE_ITEMS TABLE (1 policy)
 ALTER TABLE billing_invoice_items ENABLE ROW LEVEL SECURITY;
 
@@ -1516,6 +1548,20 @@ CREATE POLICY "refunds_all_billing" ON billing_refunds
             WHERE br.id = billing_refunds.receipt_id
             AND br.institution_id = get_current_user_institution_id()
             AND user_has_permission('billing.refunds.view')
+        )
+    );
+
+-- Added: 2026-07-03 - /learners/my-bills flags refunded receipts honestly.
+CREATE POLICY "Students can view their own refunds" ON billing_refunds
+    FOR SELECT TO authenticated USING (
+        receipt_id IN (
+            SELECT r.id FROM billing_receipts r
+            WHERE r.student_id IN (
+                SELECT lp.id
+                FROM learners_profiles lp
+                JOIN profiles p ON (p.email = lp.student_email OR p.email = lp.college_email)
+                WHERE p.id = auth.uid() AND p.role = 'student'
+            )
         )
     );
 
