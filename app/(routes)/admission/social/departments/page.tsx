@@ -57,6 +57,27 @@ interface DeptAccountRow {
   departments: { department_name: string } | null;
 }
 
+/** Actual monitoring state from ig_accounts — the GROUND TRUTH the manual
+ *  business_suite_connected / content_studio_connected flags are supposed to
+ *  reflect but don't always. metrics_source is written by the Graph-API sync
+ *  from what Meta actually exposes:
+ *    'graph'              → Page-linked, FULL insights (reach/impressions/…)
+ *    'instagram_login'    → per-account IG Login, also full insights
+ *    'business_discovery' → public metrics only (followers/likes) — LIMITED
+ *  Readable client-side by super_admin + social.instagram.view (the only
+ *  non-super-admin role with social.departments.view — `seo` — also holds it). */
+interface IgAccountRow {
+  id: string;
+  username: string;
+  metrics_source: string | null;
+}
+
+/** An account is truly "unlocked" (receiving full insights) only when Meta
+ *  actually feeds it — graph (Business-Suite/Page path) or instagram_login. */
+function isLiveInsights(ms: string | null | undefined): boolean {
+  return ms === 'graph' || ms === 'instagram_login';
+}
+
 /** Instagram Business Login connection status (token column is not readable
  *  client-side — service_role only via column-level grant). */
 interface IgConnectionRow {
@@ -102,6 +123,50 @@ const COLLEGE_ORDER = [
 function connChip(value: boolean | null) {
   if (value === true) return <Badge variant="default">Connected</Badge>;
   if (value === false) return <Badge variant="outline">Not connected</Badge>;
+  return <span className="text-muted-foreground">—</span>;
+}
+
+/**
+ * The GROUND-TRUTH insight state for a handle, from ig_accounts.metrics_source.
+ * When a handle is marked business_suite_connected but Meta is NOT actually
+ * sending insights (metrics_source is business_discovery / absent), we render
+ * an explicit "marked, not live" mismatch — the exact drift that made the
+ * manual "Business Suite connected" tile overstate reality.
+ */
+function liveInsightsChip(ms: string | null | undefined, markedConnected: boolean | null) {
+  if (ms === 'graph')
+    return (
+      <Badge className="border-transparent bg-emerald-600 text-white hover:bg-emerald-600 dark:bg-emerald-500">
+        Live · full insights
+      </Badge>
+    );
+  if (ms === 'instagram_login')
+    return (
+      <Badge className="border-transparent bg-emerald-600 text-white hover:bg-emerald-600 dark:bg-emerald-500">
+        Live · IG Login
+      </Badge>
+    );
+  if (ms === 'business_discovery')
+    return (
+      <div className="flex flex-col gap-0.5">
+        <Badge variant="secondary" className="w-fit">Public only</Badge>
+        {markedConnected === true && (
+          <span className="text-xs text-amber-600 dark:text-amber-500">
+            ⚠ marked connected, not live
+          </span>
+        )}
+      </div>
+    );
+  // no ig_accounts row at all
+  if (markedConnected === true)
+    return (
+      <div className="flex flex-col gap-0.5">
+        <span className="text-muted-foreground">—</span>
+        <span className="text-xs text-amber-600 dark:text-amber-500">
+          ⚠ marked connected, not live
+        </span>
+      </div>
+    );
   return <span className="text-muted-foreground">—</span>;
 }
 
@@ -239,6 +304,7 @@ function IgLoginCell({
 export default function SocialDepartmentAccountsPage() {
   const [rows, setRows] = useState<DeptAccountRow[]>([]);
   const [connections, setConnections] = useState<IgConnectionRow[]>([]);
+  const [igAccounts, setIgAccounts] = useState<IgAccountRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -271,6 +337,16 @@ export default function SocialDepartmentAccountsPage() {
       .then(({ data }) => {
         setConnections((data as unknown as IgConnectionRow[]) ?? []);
       });
+    // Ground-truth monitoring state. metrics_source ('graph' = full insights,
+    // 'business_discovery' = public only) is what the manual connection flags
+    // are supposed to reflect. RLS: super_admin + social.instagram.view (held
+    // by every role that can reach this page), so this is not silently empty.
+    supabase
+      .from('ig_accounts')
+      .select('id, username, metrics_source')
+      .then(({ data }) => {
+        setIgAccounts((data as unknown as IgAccountRow[]) ?? []);
+      });
   }, []);
 
   useEffect(() => {
@@ -299,6 +375,28 @@ export default function SocialDepartmentAccountsPage() {
     return map;
   }, [connections, rows]);
 
+  // dept row id -> actual metrics_source (ground truth). Match on the linked
+  // ig_account_id first (authoritative), then fall back to handle so a row that
+  // isn't back-linked yet still resolves its real state.
+  const metricsSourceByDept = useMemo(() => {
+    const byId = new Map<string, string>();
+    const byUsername = new Map<string, string>();
+    for (const a of igAccounts) {
+      if (!a.metrics_source) continue;
+      byId.set(a.id, a.metrics_source);
+      byUsername.set(a.username.toLowerCase(), a.metrics_source);
+    }
+    const map = new Map<string, string | null>();
+    for (const r of rows) {
+      const ms =
+        (r.ig_account_id ? byId.get(r.ig_account_id) : undefined) ??
+        byUsername.get(r.username.toLowerCase()) ??
+        null;
+      map.set(r.id, ms);
+    }
+    return map;
+  }, [igAccounts, rows]);
+
   const grouped = useMemo(() => {
     const map = new Map<string, DeptAccountRow[]>();
     for (const r of rows) {
@@ -318,8 +416,17 @@ export default function SocialDepartmentAccountsPage() {
       contentStudio: rows.filter((r) => r.content_studio_connected === true).length,
       monitored: rows.filter((r) => r.ig_account_id !== null).length,
       igLogin: connections.filter((c) => c.status === 'active').length,
+      // Ground truth: handles Meta actually feeds full insights for.
+      liveInsights: rows.filter((r) => isLiveInsights(metricsSourceByDept.get(r.id)))
+        .length,
+      // The disparity: marked "Business Suite connected" but NOT actually live.
+      markedNotLive: rows.filter(
+        (r) =>
+          r.business_suite_connected === true &&
+          !isLiveInsights(metricsSourceByDept.get(r.id))
+      ).length,
     }),
-    [rows, connections]
+    [rows, connections, metricsSourceByDept]
   );
 
   return (
@@ -338,7 +445,7 @@ export default function SocialDepartmentAccountsPage() {
       <ContentLayout title="Department Social Accounts">
         <PageBreadcrumb items={breadcrumbItems} />
 
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Department handles</CardDescription>
@@ -349,6 +456,31 @@ export default function SocialDepartmentAccountsPage() {
             <CardHeader className="pb-2">
               <CardDescription>Business Suite connected</CardDescription>
               <CardTitle className="text-3xl">{loading ? '…' : totals.businessSuite}</CardTitle>
+              <p className="text-xs text-muted-foreground">manually flagged</p>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Live insights</CardDescription>
+              <CardTitle className="text-3xl text-emerald-600 dark:text-emerald-500">
+                {loading ? '…' : totals.liveInsights}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">Meta-verified · full insights</p>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Marked, not live</CardDescription>
+              <CardTitle
+                className={`text-3xl ${
+                  !loading && totals.markedNotLive > 0
+                    ? 'text-amber-600 dark:text-amber-500'
+                    : ''
+                }`}
+              >
+                {loading ? '…' : totals.markedNotLive}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">flagged but no live insights</p>
             </CardHeader>
           </Card>
           <Card>
@@ -418,6 +550,7 @@ export default function SocialDepartmentAccountsPage() {
                     <TableHead>Handle</TableHead>
                     <TableHead>Login email</TableHead>
                     <TableHead>Business Suite</TableHead>
+                    <TableHead>Live insights</TableHead>
                     <TableHead>Monitoring</TableHead>
                     <TableHead>IG Login</TableHead>
                   </TableRow>
@@ -440,6 +573,12 @@ export default function SocialDepartmentAccountsPage() {
                       </TableCell>
                       <TableCell className="text-sm">{r.login_email ?? '—'}</TableCell>
                       <TableCell>{connChip(r.business_suite_connected)}</TableCell>
+                      <TableCell>
+                        {liveInsightsChip(
+                          metricsSourceByDept.get(r.id),
+                          r.business_suite_connected
+                        )}
+                      </TableCell>
                       <TableCell>
                         {r.ig_account_id ? (
                           <Badge variant="default">Monitored</Badge>
