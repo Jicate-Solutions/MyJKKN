@@ -147,7 +147,10 @@ function EditSchoolForm({ schoolId }: { schoolId: string }) {
       pincode: pincode.trim(),
       address: address.trim(),
       intakeYear: intakeYear ? parseInt(intakeYear, 10) : undefined,
-      ...(school.ownership === 'internal' ? { institutionId } : {}),
+      // Only send institutionId when a real value is picked — an empty
+      // string would fail the uuid cast server-side; omitting leaves the
+      // column untouched (keeps the degraded-lookup save path functional).
+      ...(school.ownership === 'internal' && institutionId ? { institutionId } : {}),
     });
   };
 
