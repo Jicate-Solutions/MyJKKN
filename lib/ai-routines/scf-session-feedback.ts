@@ -3,6 +3,7 @@ import { type AIRoutine } from './types';
 export const SCF_ROUTINES: AIRoutine[] = [
   {
     "id": "scf-generate-suggestions",
+    "maxLane": true,
     "name": "SCF Generate Suggestions (autonomous improve step)",
     "category": "scf-session-feedback",
     "type": "cron",
@@ -50,6 +51,7 @@ export const SCF_ROUTINES: AIRoutine[] = [
   },
   {
     "id": "session-feedback-escalation",
+    "maxLane": true,
     "name": "Session Feedback Weekly Escalation Digest",
     "category": "scf-session-feedback",
     "type": "cron",

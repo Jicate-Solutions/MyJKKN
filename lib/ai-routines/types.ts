@@ -52,6 +52,13 @@ export interface AIRoutine {
   sideEffects: string;
   /** true if an on-demand run is safe/idempotent; false if it messages humans / is destructive */
   safeToManualTrigger: boolean;
+  /**
+   * true if this routine runs on the Director's Claude Max subscription via a
+   * Mac-side scheduled runner (the "Max lane"); the API cron is the fallback.
+   * Max-lane routines get a "Run on Max" button on /admin/ai-routines that
+   * queues a request for the Mac poller to pick up (max_lane_requests).
+   */
+  maxLane?: boolean;
   notes?: string;
 }
 

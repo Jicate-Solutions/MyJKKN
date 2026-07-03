@@ -45,7 +45,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { NoAccess } from '../../_lib/no-access';
 
 import { getSchoolDetail, updateSchool } from '../../_lib/api';
 import {
@@ -290,7 +289,7 @@ export default function EditSchoolPage() {
   const schoolId = params?.schoolId ?? '';
 
   return (
-    <PermissionGuard module="schools_network.schools" action="edit" fallback={<NoAccess what="school editing" />}>
+    <PermissionGuard module="schools_network.schools" action="edit">
       <ContentLayout title="Edit School">
         <Breadcrumb>
           <BreadcrumbList>

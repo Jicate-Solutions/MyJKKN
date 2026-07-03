@@ -38,7 +38,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { NoAccess } from '../../../_lib/no-access';
 
 import { listPartners, logContribution } from '../../../_lib/api';
 import type { ContributionKind, CreateContributionInput } from '../../../_lib/types';
@@ -223,7 +222,7 @@ export default function LogContributionPage() {
   const schoolId = params?.schoolId ?? '';
 
   return (
-    <PermissionGuard module="schools_network.contributions" action="create" fallback={<NoAccess what="logging contributions" />}>
+    <PermissionGuard module="schools_network.contributions" action="create">
       <ContentLayout title="Log Contribution">
         <Breadcrumb>
           <BreadcrumbList>

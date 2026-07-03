@@ -40,7 +40,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { NoAccess } from '../../../_lib/no-access';
 
 import { createContact, listContactRoles } from '../../../_lib/api';
 import type { CreateContactInput } from '../../../_lib/types';
@@ -233,7 +232,7 @@ export default function AddContactPage() {
   const schoolId = params?.schoolId ?? '';
 
   return (
-    <PermissionGuard module="schools_network.contacts" action="create" fallback={<NoAccess what="adding school contacts" />}>
+    <PermissionGuard module="schools_network.contacts" action="create">
       <ContentLayout title="Add Contact">
         <Breadcrumb>
           <BreadcrumbList>
