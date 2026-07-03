@@ -123,7 +123,15 @@ function EditSchoolForm({ schoolId }: { schoolId: string }) {
       toast.error('Name is required');
       return;
     }
-    if (school.ownership === 'internal' && !institutionId) {
+    // Require an institution for internal schools — but never let a FAILED
+    // institutions lookup brick unrelated edits: if the list errored and the
+    // school had no institution to begin with, allow the save (the picker is
+    // empty through no fault of the user; review fix).
+    if (
+      school.ownership === 'internal' &&
+      !institutionId &&
+      !institutionsQuery.isError
+    ) {
       toast.error('Institution is required for JKKN (internal) schools');
       return;
     }
