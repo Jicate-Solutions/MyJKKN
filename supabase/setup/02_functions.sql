@@ -21100,3 +21100,313 @@ GRANT EXECUTE ON FUNCTION
 -- adopted-flag JOIN to schools. SECURITY DEFINER, permission-gated inside
 -- (schools_network.schools.view), anon EXECUTE revoked.
 -- Full definition: supabase/migrations/20260703093000_schools_network_feeders_rpc.sql
+
+-- =====================================================================
+-- Department Instagram Monthly Cadence — reader/writer RPCs
+-- Added: 2026-07-04 — mirror of migration 20260704120000_social_monthly_cadence.sql
+-- All SECURITY DEFINER; each self-gates (DEFINER bypasses RLS) and ends
+-- REVOKE anon,PUBLIC; GRANT authenticated. Reach is read ONLY from ig_monthly_audit.
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_ig_monthly_reach(
+  p_account_id UUID,
+  p_month DATE
+)
+RETURNS TABLE (
+  audit_month DATE,
+  total_reach BIGINT,
+  total_impressions BIGINT,
+  total_comments INTEGER,
+  total_saves INTEGER,
+  total_shares INTEGER,
+  health_score NUMERIC,
+  metrics_source TEXT
+)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_institution_id UUID;
+  v_metrics_source TEXT;
+BEGIN
+  SELECT a.institution_id, a.metrics_source INTO v_institution_id, v_metrics_source
+  FROM public.ig_accounts a WHERE a.id = p_account_id;
+  IF v_institution_id IS NULL THEN RETURN; END IF;
+  IF NOT (is_super_admin() OR is_admin()
+      OR (user_has_permission('social.departments.view') AND role_has_institution_access(v_institution_id))) THEN
+    RAISE EXCEPTION 'permission denied: social.departments.view required' USING ERRCODE = '42501';
+  END IF;
+  RETURN QUERY
+  SELECT m.audit_month, m.total_reach, m.total_impressions, m.total_comments,
+         m.total_saves, m.total_shares, m.health_score, v_metrics_source
+  FROM public.ig_monthly_audit m
+  WHERE m.ig_account_id = p_account_id
+    AND m.audit_month = date_trunc('month', p_month)::date
+  LIMIT 1;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_ig_monthly_reach(UUID, DATE) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_ig_monthly_reach(UUID, DATE) TO authenticated;
+
+-- Ownership helper: a scope='own' manager (dept HOD) must not read/act on OTHER
+-- departments' IG cadences in the same tenant. Admins bypass; NULL dept falls
+-- back to the institution gate. LOW #6 (round-2): ownership is the Director-locked
+-- "HOD owns cadence" — restricted to departments.head_of_department_id ONLY (the
+-- earlier "any active staff in the dept" branch was too broad and is removed).
+-- Used by both the SELECT policy and the writer RPCs.
+CREATE OR REPLACE FUNCTION public.fn_social_caller_owns_dept(p_department_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE v_uid UUID := auth.uid();
+BEGIN
+  IF is_super_admin() OR is_admin() THEN RETURN true; END IF;
+  IF p_department_id IS NULL THEN RETURN true; END IF;
+  RETURN EXISTS (
+    SELECT 1 FROM public.departments d
+    WHERE d.id = p_department_id AND d.head_of_department_id = v_uid
+  );
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_social_caller_owns_dept(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_social_caller_owns_dept(UUID) TO authenticated;
+
+-- Round-3 HIGH root fix: NO caller-supplied project_id (open ALWAYS auto-creates
+-- the cadence's own is_okr objective). Drop the old 4-arg overload first.
+DROP FUNCTION IF EXISTS public.fn_social_cadence_open(UUID, TEXT, DATE, UUID);
+CREATE OR REPLACE FUNCTION public.fn_social_cadence_open(
+  p_account_id UUID, p_objective TEXT, p_cadence_month DATE DEFAULT NULL
+)
+RETURNS public.social_monthly_cadence
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_institution_id UUID; v_department_id UUID; v_metrics_source TEXT;
+  v_month DATE; v_baseline_reach BIGINT; v_project_id UUID; v_task_id UUID;
+  v_hod_staff_id UUID; v_type_id UUID; v_uid UUID := auth.uid();
+  v_existing public.social_monthly_cadence; v_row public.social_monthly_cadence;
+BEGIN
+  IF p_objective IS NULL OR btrim(p_objective) = '' THEN
+    RAISE EXCEPTION 'An objective is required to open a cadence' USING ERRCODE = '22023';
+  END IF;
+  SELECT a.institution_id, a.department_id, a.metrics_source
+    INTO v_institution_id, v_department_id, v_metrics_source
+  FROM public.ig_accounts a WHERE a.id = p_account_id;
+  IF v_institution_id IS NULL THEN
+    RAISE EXCEPTION 'Instagram account not found' USING ERRCODE = 'P0002';
+  END IF;
+  IF NOT (is_super_admin() OR is_admin()
+      OR (user_has_permission('social.departments.manage') AND role_has_institution_access(v_institution_id))) THEN
+    RAISE EXCEPTION 'permission denied: social.departments.manage required' USING ERRCODE = '42501';
+  END IF;
+  -- DARK self-gate: opening a NEW cycle requires social.cadence.enabled=true
+  -- (enforced here so direct PostgREST/RPC calls cannot bypass the master switch).
+  IF NOT COALESCE(fn_get_policy_bool('social.cadence.enabled', false, NULL), false) THEN
+    RAISE EXCEPTION 'The monthly cadence engine is disabled (social.cadence.enabled=false)' USING ERRCODE = '42501';
+  END IF;
+  -- Department ownership (scope='own' manager acts only on its own dept).
+  IF NOT fn_social_caller_owns_dept(v_department_id) THEN
+    RAISE EXCEPTION 'permission denied: you can only manage your own department''s Instagram cadence' USING ERRCODE = '42501';
+  END IF;
+  -- MED #5 (round-2): derive month from UTC (matches cron + UI), not session-TZ.
+  v_month := date_trunc('month', COALESCE(p_cadence_month, (now() AT TIME ZONE 'UTC')::date))::date;
+  -- MED #4 (round-2): serialize concurrent opens per (account, month) so project
+  -- auto-create + ledger insert are atomic (no orphan project, no unique_violation).
+  PERFORM pg_advisory_xact_lock(hashtext('social_cadence_open|' || p_account_id::text || '|' || v_month::text));
+  SELECT * INTO v_existing FROM public.social_monthly_cadence
+  WHERE account_id = p_account_id AND cadence_month = v_month;
+  IF FOUND THEN RETURN v_existing; END IF;
+  SELECT m.total_reach INTO v_baseline_reach FROM public.ig_monthly_audit m
+  WHERE m.ig_account_id = p_account_id AND m.audit_month = v_month LIMIT 1;
+  -- Resolve dept HOD -> staff.id (head_of_department_id is a profile id;
+  -- staff.profile_id links it). LOW #7 (round-2): filter staff to the account's
+  -- institution so a profile active in MULTIPLE tenants can't yield a cross-tenant
+  -- owner. Best-effort: NULL owner when no HOD/same-tenant staff.
+  IF v_department_id IS NOT NULL THEN
+    SELECT s.id INTO v_hod_staff_id
+    FROM public.departments d
+    JOIN public.staff s ON s.profile_id = d.head_of_department_id
+      AND s.is_active = true AND s.institution_id = v_institution_id
+    WHERE d.id = v_department_id LIMIT 1;
+  END IF;
+  -- REQUIRED project link: ALWAYS create the unified-OKR objective as a real
+  -- projects row (is_okr=true) + key-result task with the HOD as single RACI Accountable.
+  SELECT id INTO v_type_id FROM public.project_types WHERE key = 'okr_objective' LIMIT 1;
+  INSERT INTO public.projects (
+    title, description, project_type_id, institution_id, owner_staff_id,
+    is_okr, rag_status, start_date, due_date, created_by
+  ) VALUES (
+    left('IG Cadence ' || to_char(v_month, 'Mon YYYY') || ' — ' || btrim(p_objective), 200),
+    'Monthly Instagram reach objective for this department, driven by the Social Loop cadence engine. Objective: ' || btrim(p_objective),
+    v_type_id, v_institution_id, v_hod_staff_id,
+    true, 'green', v_month, (v_month + INTERVAL '1 month' - INTERVAL '1 day')::date, v_uid
+  ) RETURNING id INTO v_project_id;
+  INSERT INTO public.project_tasks (
+    project_id, title, description, task_type, status_key, owner_staff_id, start_date, due_date, created_by
+  ) VALUES (
+    v_project_id, left('Grow monthly IG reach — ' || btrim(p_objective), 200),
+    'Re-measured one calendar month on vs the baseline reach snapshot.',
+    'key_result', 'todo', v_hod_staff_id, v_month,
+    (v_month + INTERVAL '1 month' - INTERVAL '1 day')::date, v_uid
+  ) RETURNING id INTO v_task_id;
+  IF v_hod_staff_id IS NOT NULL THEN
+    INSERT INTO public.project_task_assignees (task_id, staff_id, role, assigned_by)
+    VALUES (v_task_id, v_hod_staff_id, 'accountable', v_uid);
+  END IF;
+  -- MED #4: atomic insert; a losing concurrent open returns the existing row.
+  INSERT INTO public.social_monthly_cadence (
+    institution_id, account_id, department_id, cadence_month, objective,
+    baseline_reach, baseline_month, baseline_metrics_source, status, project_id, created_by
+  ) VALUES (
+    v_institution_id, p_account_id, v_department_id, v_month, btrim(p_objective),
+    v_baseline_reach, v_month, v_metrics_source, 'open', v_project_id, v_uid
+  )
+  ON CONFLICT (account_id, cadence_month) DO NOTHING
+  RETURNING * INTO v_row;
+  IF NOT FOUND THEN
+    SELECT * INTO v_row FROM public.social_monthly_cadence
+    WHERE account_id = p_account_id AND cadence_month = v_month;
+  END IF;
+  RETURN v_row;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_social_cadence_open(UUID, TEXT, DATE) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_social_cadence_open(UUID, TEXT, DATE) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_social_cadence_record_action(
+  p_cadence_id UUID, p_action TEXT, p_feedback_summary JSONB DEFAULT NULL
+)
+RETURNS public.social_monthly_cadence
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE v_institution_id UUID; v_department_id UUID; v_status TEXT; v_row public.social_monthly_cadence;
+BEGIN
+  IF p_action IS NULL OR btrim(p_action) = '' THEN
+    RAISE EXCEPTION 'An action description is required' USING ERRCODE = '22023';
+  END IF;
+  SELECT institution_id, department_id, status INTO v_institution_id, v_department_id, v_status
+  FROM public.social_monthly_cadence WHERE id = p_cadence_id;
+  IF v_institution_id IS NULL THEN
+    RAISE EXCEPTION 'Cadence cycle not found' USING ERRCODE = 'P0002';
+  END IF;
+  IF NOT (is_super_admin() OR is_admin()
+      OR (user_has_permission('social.departments.manage') AND role_has_institution_access(v_institution_id))) THEN
+    RAISE EXCEPTION 'permission denied: social.departments.manage required' USING ERRCODE = '42501';
+  END IF;
+  IF NOT fn_social_caller_owns_dept(v_department_id) THEN
+    RAISE EXCEPTION 'permission denied: you can only manage your own department''s Instagram cadence' USING ERRCODE = '42501';
+  END IF;
+  IF v_status NOT IN ('open', 'awaiting_close') THEN
+    RAISE EXCEPTION 'Cannot record an action on a % cycle', v_status USING ERRCODE = '22023';
+  END IF;
+  UPDATE public.social_monthly_cadence
+  SET action_taken = btrim(p_action),
+      feedback_read_summary = COALESCE(p_feedback_summary, feedback_read_summary),
+      updated_at = now()
+  WHERE id = p_cadence_id RETURNING * INTO v_row;
+  RETURN v_row;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_social_cadence_record_action(UUID, TEXT, JSONB) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_social_cadence_record_action(UUID, TEXT, JSONB) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_social_cadence_close(
+  p_cadence_id UUID, p_learning TEXT
+)
+RETURNS public.social_monthly_cadence
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_row public.social_monthly_cadence; v_remeasure_month DATE; v_remeasure_reach BIGINT;
+  v_current_source TEXT; v_delta BIGINT; v_final_status TEXT; v_win_delta_pct INT; v_progress NUMERIC(5,2);
+  v_pct NUMERIC; v_new_rag TEXT;
+BEGIN
+  IF p_learning IS NULL OR btrim(p_learning) = '' THEN
+    RAISE EXCEPTION 'A one-line learning is required to close the cycle' USING ERRCODE = '22023';
+  END IF;
+  SELECT * INTO v_row FROM public.social_monthly_cadence WHERE id = p_cadence_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Cadence cycle not found' USING ERRCODE = 'P0002'; END IF;
+  IF NOT (is_super_admin() OR is_admin()
+      OR (user_has_permission('social.departments.manage') AND role_has_institution_access(v_row.institution_id))) THEN
+    RAISE EXCEPTION 'permission denied: social.departments.manage required' USING ERRCODE = '42501';
+  END IF;
+  IF NOT fn_social_caller_owns_dept(v_row.department_id) THEN
+    RAISE EXCEPTION 'permission denied: you can only manage your own department''s Instagram cadence' USING ERRCODE = '42501';
+  END IF;
+  -- DARK self-gate (round-3 HIGH root fix): gate close too, so a direct RPC call
+  -- cannot drive the state machine while the engine is DARK.
+  IF NOT COALESCE(fn_get_policy_bool('social.cadence.enabled', false, NULL), false) THEN
+    RAISE EXCEPTION 'The monthly cadence engine is disabled (social.cadence.enabled=false)' USING ERRCODE = '42501';
+  END IF;
+  IF v_row.status IN ('closed', 'unmeasurable') THEN
+    RAISE EXCEPTION 'Cycle already finalised (%)', v_row.status USING ERRCODE = '22023';
+  END IF;
+  v_remeasure_month := (v_row.cadence_month + INTERVAL '1 month')::date;
+  SELECT a.metrics_source INTO v_current_source FROM public.ig_accounts a WHERE a.id = v_row.account_id;
+  IF v_row.remeasure_reach IS NOT NULL THEN
+    v_remeasure_reach := v_row.remeasure_reach;
+  ELSE
+    SELECT m.total_reach INTO v_remeasure_reach FROM public.ig_monthly_audit m
+    WHERE m.ig_account_id = v_row.account_id AND m.audit_month = v_remeasure_month LIMIT 1;
+  END IF;
+  -- Any mismatch in graph-ness between baseline and re-measure -> unmeasurable
+  -- (covers graph->business_discovery downgrade AND business_discovery/NULL->graph
+  -- upgrade, which would otherwise fabricate a green win). Plus the collapse guard.
+  IF v_remeasure_reach IS NULL
+     OR ((COALESCE(v_row.baseline_metrics_source, '') = 'graph') <> (COALESCE(v_current_source, '') = 'graph'))
+     OR (COALESCE(v_row.baseline_reach, 0) > 0 AND COALESCE(v_remeasure_reach, 0) = 0 AND v_current_source <> 'graph')
+  THEN
+    v_final_status := 'unmeasurable'; v_delta := NULL;
+  ELSE
+    v_final_status := 'closed'; v_delta := v_remeasure_reach - COALESCE(v_row.baseline_reach, 0);
+  END IF;
+  -- TOCTOU guard: re-assert non-final in the predicate (a concurrent close/cron
+  -- could have finalised it since the SELECT). 0 rows -> raise, never clobber.
+  UPDATE public.social_monthly_cadence
+  SET remeasure_reach = v_remeasure_reach, remeasure_month = v_remeasure_month,
+      remeasure_metrics_source = v_current_source, reach_delta = v_delta,
+      learning = btrim(p_learning), status = v_final_status, updated_at = now()
+  WHERE id = p_cadence_id AND status NOT IN ('closed', 'unmeasurable')
+  RETURNING * INTO v_row;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Cycle already finalised' USING ERRCODE = '22023';
+  END IF;
+  -- Teeth: measured reach-vs-target -> the linked project's rag_status (canonical
+  -- RAG that evaluateProjectTriggers reads; project_at_risk fires gte 2 = red).
+  -- Hard miss -> red (dormant rule would summon the HOD), soft miss -> amber,
+  -- win -> green. LOW #8 (round-2): 'unmeasurable' RESETS the RAG to neutral
+  -- (green + 0%) so a cron-staged fabricated green/red never persists. LOW #9:
+  -- percent_complete is written on BOTH paths (and the cron) so writers agree.
+  v_win_delta_pct := fn_get_policy_int('social.cadence.win_delta_pct', 10, NULL);
+  -- Tenant guard (HIGH): DEFINER write bypasses projects RLS — never touch a
+  -- project outside this cadence's institution (guards measured write + reset).
+  IF NOT EXISTS (
+    SELECT 1 FROM public.projects
+    WHERE id = v_row.project_id AND institution_id = v_row.institution_id
+  ) THEN
+    RAISE EXCEPTION 'cadence project % is not in institution %', v_row.project_id, v_row.institution_id USING ERRCODE = '42501';
+  END IF;
+  IF v_final_status = 'closed' THEN
+    IF COALESCE(v_row.baseline_reach, 0) > 0 THEN
+      v_pct := (v_delta::numeric / v_row.baseline_reach) * 100;
+      v_new_rag := CASE
+        WHEN v_pct >= GREATEST(v_win_delta_pct, 1) THEN 'green'
+        WHEN v_pct > 0 THEN 'amber'
+        ELSE 'red' END;
+      v_progress := LEAST(100, GREATEST(0,
+        round(v_pct / (GREATEST(v_win_delta_pct, 1)::numeric) * 100, 2)));
+    ELSE
+      v_new_rag := CASE WHEN COALESCE(v_delta, 0) > 0 THEN 'green' ELSE 'amber' END;
+      v_progress := CASE WHEN COALESCE(v_delta, 0) > 0 THEN 100 ELSE 0 END;
+    END IF;
+  ELSE
+    v_new_rag := 'green';  -- unmeasurable: neutral, no fabricated miss/win
+    v_progress := 0;
+  END IF;
+  UPDATE public.projects
+  SET rag_status = v_new_rag, percent_complete = v_progress, updated_at = now()
+  WHERE id = v_row.project_id AND institution_id = v_row.institution_id;
+  RETURN v_row;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_social_cadence_close(UUID, TEXT) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_social_cadence_close(UUID, TEXT) TO authenticated;

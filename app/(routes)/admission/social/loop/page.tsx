@@ -33,6 +33,7 @@ import { ReadTable } from './_components/read-table';
 import { DecideCard } from './_components/decide-card';
 import { PlaybookLog } from './_components/playbook-log';
 import { VoiceCard } from './_components/voice-card';
+import { CadenceCard } from './_components/cadence-card';
 
 const DEFAULT_ACCOUNT = 'jkknpharmacy';
 
@@ -172,6 +173,13 @@ function LoopBody() {
 
       {/* Voice of Audience — AI-classified comments from the feedback spine */}
       {data.voice && <VoiceCard voice={data.voice} />}
+
+      {/* Monthly Cadence — the per-department calendar-month reach loop.
+          Reuses this cycle's Voice-of-Audience as the feedback snapshot. */}
+      <CadenceCard
+        accountUsername={data.account?.username ?? DEFAULT_ACCOUNT}
+        voice={data.voice}
+      />
     </div>
   );
 }
