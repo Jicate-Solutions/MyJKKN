@@ -2,6 +2,9 @@
 -- Department Instagram Monthly Cadence Engine — DB substrate (ships DARK)
 -- Date: 2026-07-04
 -- Spec: specs/dept-ig-monthly-cadence-2026-07-04.md (Director decisions LOCKED)
+-- Review: 4-round deep-review clean; both prior HIGH cross-tenant writes closed at root
+--         (RPC-write-only ledger + no caller-supplied project_id). Independently
+--         adversarial-reviewed "ship-able" (CI deep-review did not fire on this branch).
 -- =====================================================================
 -- Binds three EXISTING ingredients into the chair's per-department MONTHLY
 -- loop (set objective -> measure reach -> read feedback -> act -> wait one
