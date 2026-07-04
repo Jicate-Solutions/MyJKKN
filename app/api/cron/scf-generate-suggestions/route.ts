@@ -57,6 +57,7 @@ import {
   collectEndedBatches,
   markJobCollected,
   partitionInFlight,
+  MAX_COLLECT_ATTEMPTS,
   type SubmitBatchRequest,
   type SubmitBatchResult,
 } from '@/lib/services/platform/ai-clients/batch';
@@ -82,11 +83,8 @@ const STANDOUT_THRESHOLD = 4.5;
 // leadership-only concern; zero → skip.
 const WIDENED_MIN_COMMENTS = 2;
 const WIDENED_MIN_ASKS = 2;
-// Cap on collect re-drains for a job whose domain-record step keeps failing. A
-// persistent failure would otherwise re-claim forever, freezing the course (the
-// in-flight guard blocks on job status). After this many attempts, give up and
-// mark the job terminal 'failed' (items are already settled, so no re-bill).
-const MAX_COLLECT_ATTEMPTS = 6;
+// MAX_COLLECT_ATTEMPTS (the stuck-job cap) is imported from ai-clients/batch so
+// the collect-error path and this domain-record path share one threshold.
 
 // Replicated verbatim from ai-suggest-improvement/route.ts so the model's
 // output shape is identical — the record RPC stores the same JSON structure.

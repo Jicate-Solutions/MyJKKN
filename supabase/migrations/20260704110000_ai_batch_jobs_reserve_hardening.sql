@@ -83,15 +83,20 @@ REVOKE EXECUTE ON FUNCTION public.fn_ai_batch_reserve(text, text, text, jsonb) F
 GRANT  EXECUTE ON FUNCTION public.fn_ai_batch_reserve(text, text, text, jsonb) TO service_role;
 
 -- ── RPC: activate — attach the real batch id, flip 'pending' → 'submitted' ───────
+-- RETURNS true only if a 'pending' row was actually updated. If the reservation
+-- was already swept/aborted (0 rows), the caller MUST treat it as failure and
+-- cancel the already-created batch — otherwise a billed batch is left untracked.
+DROP FUNCTION IF EXISTS public.fn_ai_batch_activate(uuid, text, timestamptz, integer);
 CREATE OR REPLACE FUNCTION public.fn_ai_batch_activate(
   p_job_id             uuid,
   p_anthropic_batch_id text,
   p_expires_at         timestamptz,
   p_request_count      integer
 )
-RETURNS void
+RETURNS boolean
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public
 AS $$
+DECLARE v_updated integer;
 BEGIN
   UPDATE public.ai_batch_jobs
      SET anthropic_batch_id = p_anthropic_batch_id,
@@ -101,6 +106,8 @@ BEGIN
          request_count      = p_request_count,
          updated_at         = now()
    WHERE id = p_job_id AND status = 'pending';
+  GET DIAGNOSTICS v_updated = ROW_COUNT;
+  RETURN v_updated > 0;
 END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.fn_ai_batch_activate(uuid, text, timestamptz, integer) FROM anon, authenticated, PUBLIC;

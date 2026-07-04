@@ -36,6 +36,13 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 // pricing registry stores STANDARD rates, so ledger rows halve the figure.
 const BATCH_COST_MULTIPLIER = 0.5;
 const DEFAULT_LEASE_SECONDS = 600; // reclaim a job whose collector crashed
+// Per-call timeout for every Anthropic request so a hung call can't consume the
+// whole serverless maxDuration (and can't let a reservation age past the sweep).
+const ANTHROPIC_TIMEOUT_MS = 30_000;
+/** After this many ENDED-claim collect failures (record error or stream timeout),
+ *  a job is marked terminal 'failed' so a persistent failure can't re-drain forever
+ *  (which would freeze the course — the in-flight guard blocks on job status). */
+export const MAX_COLLECT_ATTEMPTS = 6;
 const DEFAULT_MAX_JOBS = 50;
 // Only mark a not-yet-ended batch 'expired' well PAST Anthropic's 24h ended-by
 // guarantee, so in practice we always collect it as 'ended' first (no abandoned
@@ -50,6 +57,11 @@ export interface SubmitBatchRequest {
   customId: string;
   params: Anthropic.Messages.MessageCreateParamsNonStreaming;
   context: Record<string, unknown>;
+  /** In-flight guard key. The uniqueness index is (feature_key, dedupe_key), so
+   *  dedupe_key MUST be globally unique WITHIN a feature — for a multi-tenant
+   *  feature, embed the tenant/institution id in the key (as scf does:
+   *  `feature|phase|institution_id|course|faculty`) so one tenant's request is
+   *  never skipped as an in-flight "duplicate" of another tenant's. */
   dedupeKey?: string | null;
 }
 export interface SubmitBatchResult {
@@ -154,9 +166,10 @@ export async function submitBatch(args: {
   let batchId: string;
   let expiresAt: string | null;
   try {
-    const created = await anthropic.messages.batches.create({
-      requests: toSubmit.map((r) => ({ custom_id: r.customId, params: r.params })),
-    });
+    const created = await anthropic.messages.batches.create(
+      { requests: toSubmit.map((r) => ({ custom_id: r.customId, params: r.params })) },
+      { timeout: ANTHROPIC_TIMEOUT_MS },
+    );
     batchId = created.id;
     expiresAt = (created as { expires_at?: string }).expires_at ?? null;
   } catch (createErr) {
@@ -166,22 +179,28 @@ export async function submitBatch(args: {
   }
 
   // Phase 3: ACTIVATE — attach the real batch id, flip 'pending' → 'submitted'.
-  const { error: actErr } = await admin.rpc('fn_ai_batch_activate', {
+  // activate RETURNS false if it matched 0 rows (the reservation was already swept
+  // or aborted between reserve and here). In that case the batch exists + is
+  // billable but no longer tracked, so we MUST cancel it and fail — never return
+  // success on an orphaned batch.
+  const { data: activated, error: actErr } = await admin.rpc('fn_ai_batch_activate', {
     p_job_id: jobId,
     p_anthropic_batch_id: batchId,
     p_expires_at: expiresAt,
     p_request_count: toSubmit.length,
   });
-  if (actErr) {
-    // Persist failed AFTER create — cancel the batch (best-effort) so no untracked
-    // billable batch is left running, then release the reservation.
+  if (actErr || activated !== true) {
     try {
-      await anthropic.messages.batches.cancel(batchId, { timeout: 30_000 });
+      await anthropic.messages.batches.cancel(batchId, { timeout: ANTHROPIC_TIMEOUT_MS });
     } catch {
       /* ignore — auto-expires in 24h */
     }
     await admin.rpc('fn_ai_batch_abort_reservation', { p_job_id: jobId });
-    throw new Error(`fn_ai_batch_activate: ${actErr.message}`);
+    throw new Error(
+      actErr
+        ? `fn_ai_batch_activate: ${actErr.message}`
+        : `fn_ai_batch_activate matched 0 rows (reservation gone) — batch ${batchId} cancelled`,
+    );
   }
 
   return { jobId, batchId, requestCount: toSubmit.length };
@@ -359,17 +378,21 @@ export async function collectEndedBatches(
         items,
       });
     } catch (err) {
-      // Leave the job for the lease to re-admit; release it so it retries
-      // promptly rather than waiting the whole lease. Cost + domain writes are
-      // idempotent, so re-collection is safe.
       console.error(
         `[ai-batch] collect failed for job ${job.id} (${job.anthropic_batch_id}):`,
         err instanceof Error ? err.message : err,
       );
-      try {
-        await admin.rpc('fn_ai_batch_release_job', { p_job_id: job.id });
-      } catch {
-        /* ignore — lease will reclaim it */
+      // A collect error (retrieve/results timeout, settle error) on an ended-ish
+      // batch counts toward the cap — do NOT release+decrement (that nets to zero
+      // and a persistent failure would re-drain forever, freezing the course).
+      // After the cap, mark terminal 'failed'; otherwise leave it 'collecting' and
+      // let the lease re-admit it (no decrement, so the attempt is counted).
+      if (job.collect_attempts >= MAX_COLLECT_ATTEMPTS) {
+        try {
+          await admin.rpc('fn_ai_batch_mark_expired', { p_job_id: job.id, p_status: 'failed' });
+        } catch {
+          /* ignore — lease will reclaim */
+        }
       }
     }
   }
