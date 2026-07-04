@@ -1087,6 +1087,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // CDC — Government Job Readiness (TNPSC / RRB / banking / SSC / TN Police)
   '/cdc/govt-readiness': 'cdc.govt_readiness.view',
+  // Govt-readiness admin surfaces. These /cdc/admin/* pages sit under the
+  // RoutePermissionGuard layout, which only gates routes that HAVE a
+  // MENU_PERMISSIONS entry (an unmapped route falls through as "visible to any
+  // authenticated user"). Mapping them to cdc.training.edit — the same key the
+  // govt-readiness page uses to reveal its "Curate topics" admin link — makes
+  // the page-layer guard actually enforce curator access (deep-review #9).
+  '/cdc/admin/exam-syllabus-topics': 'cdc.training.edit',
+  '/cdc/admin/exam-topic-map': 'cdc.training.edit',
 
   // CDC — UNNATI → UDYOG application tracker
   '/cdc/udyog': 'cdc.udyog.view',

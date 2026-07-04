@@ -37,9 +37,37 @@ interface MapRow { exam_training_type_id: string; topic_id: string }
 
 interface OverlapData { exams: ExamType[]; topics: Topic[]; map: MapRow[] }
 
+// PostgREST caps a single response at 1000 rows by default. The topic↔exam
+// junction is exams × topics, so on a fully-populated map it can exceed 1000 —
+// a silent truncation would skew the computed shared-vs-domain split (the whole
+// point of this page). Page through with an explicit ordered .range() loop until
+// a short page proves the map is exhausted, so the split is always computed over
+// the FULL map (deep-review #2).
+const MAP_PAGE_SIZE = 1000;
+
+async function loadFullTopicMap(
+  db: ReturnType<typeof createClientSupabaseClient>,
+): Promise<MapRow[]> {
+  const all: MapRow[] = [];
+  for (let from = 0; ; from += MAP_PAGE_SIZE) {
+    const { data, error } = await db
+      .from('cdc_exam_topic_map')
+      .select('exam_training_type_id, topic_id')
+      // Stable ordering is required for correct pagination.
+      .order('exam_training_type_id', { ascending: true })
+      .order('topic_id', { ascending: true })
+      .range(from, from + MAP_PAGE_SIZE - 1);
+    if (error) throw error;
+    const rows = (data ?? []) as MapRow[];
+    all.push(...rows);
+    if (rows.length < MAP_PAGE_SIZE) break; // last (short) page → exhausted
+  }
+  return all;
+}
+
 async function loadOverlap(): Promise<OverlapData> {
   const db = createClientSupabaseClient();
-  const [typesRes, topicsRes, mapRes] = await Promise.all([
+  const [typesRes, topicsRes, map] = await Promise.all([
     db.from('cdc_training_types')
       .select('id, config_key, display_name, exam_family')
       .not('exam_family', 'is', null)
@@ -50,18 +78,16 @@ async function loadOverlap(): Promise<OverlapData> {
       .eq('is_active', true)
       .order('is_shared', { ascending: false })
       .order('sort_order', { ascending: true }),
-    db.from('cdc_exam_topic_map')
-      .select('exam_training_type_id, topic_id'),
+    loadFullTopicMap(db),
   ]);
 
   if (typesRes.error) throw typesRes.error;
   if (topicsRes.error) throw topicsRes.error;
-  if (mapRes.error) throw mapRes.error;
 
   return {
     exams: (typesRes.data ?? []) as ExamType[],
     topics: (topicsRes.data ?? []) as Topic[],
-    map: (mapRes.data ?? []) as MapRow[],
+    map,
   };
 }
 
@@ -142,7 +168,11 @@ export default function GovtReadinessPage() {
             </PermissionGuard>
           </div>
 
-          {isLoading ? (
+          {/* Skeleton while auth is still resolving too (query is disabled until
+              then): with enabled:false, react-query reports isLoading=false /
+              data=undefined, which would otherwise flash the "No government-exam
+              types yet" empty state before the real fetch runs (deep-review #7). */}
+          {authLoading || isLoading ? (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-lg" />)}
             </div>
@@ -269,7 +299,7 @@ export default function GovtReadinessPage() {
                 </Card>
               </div>
 
-              {/* Admin link (only where the user can edit masters) */}
+              {/* Admin links (only where the user can edit masters) */}
               <PermissionGuard module="cdc.training" action="edit">
                 <div className="flex items-center gap-3 text-sm text-muted-foreground">
                   <Settings2 className="w-4 h-4" />
@@ -277,6 +307,10 @@ export default function GovtReadinessPage() {
                     Curate topics and the shared/domain flags under{' '}
                     <Link href="/cdc/admin/exam-syllabus-topics" className="text-primary underline underline-offset-2">
                       Exam Syllabus Topics
+                    </Link>
+                    , and map topics to exams under{' '}
+                    <Link href="/cdc/admin/exam-topic-map" className="text-primary underline underline-offset-2">
+                      Exam Topic Map
                     </Link>.
                   </span>
                 </div>

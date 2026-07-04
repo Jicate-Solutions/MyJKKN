@@ -236,25 +236,46 @@ export async function POST(req: NextRequest) {
     }
 
     // Government-exam coaching signal (2026-07-04 govt-job-readiness). Which of
-    // this learner's training enrolments are government-exam coaching — i.e. the
-    // enrolled programme's training-type carries an exam_family tag. Defensive:
-    // wrapped so a missing exam_family column (pre-migration window) degrades to
-    // "no govt signal" rather than failing the whole report.
+    // this learner's ACTIVE training enrolments are government-exam coaching —
+    // i.e. the enrolled programme's training-type carries an exam_family tag.
+    //
+    // Status filter (deep-review #1): only in-progress enrolments count. A
+    // 'dropped' enrolment (never finished) or a long-'completed' one must NOT
+    // permanently reframe the learner as government-aspiring. The active set is
+    // 'enrolled' + 'awaiting_certificate' — the two non-terminal states of
+    // cdc_training_enrollments.status ('enrolled'|'completed'|'dropped'|
+    // 'awaiting_certificate'; see 20260518_cdc_substrate_02).
+    //
+    // Error handling (deep-review #8): supabase-js returns { data:null, error }
+    // on a missing exam_family column (pre-migration window) — it does NOT
+    // throw — so we inspect `error` and degrade to "no govt signal". The
+    // try/catch remains only for a genuinely unexpected throw (client init /
+    // network), which the old data-only destructure could never have caught.
+    const ACTIVE_ENROLMENT_STATES = ['enrolled', 'awaiting_certificate'];
     const govtExamProgrammes: string[] = [];
     try {
-      const { data: govtEnroll } = await svc
+      const { data: govtEnroll, error: govtErr } = await svc
         .from('cdc_training_enrollments')
         .select('programme:cdc_training_programmes(name, training_type:cdc_training_types(display_name, exam_family))')
-        .eq('learner_id', learnerId);
-      for (const row of (govtEnroll ?? []) as any[]) {
-        const tt = row?.programme?.training_type;
-        if (tt?.exam_family) {
-          govtExamProgrammes.push(row.programme?.name || tt.display_name);
+        .eq('learner_id', learnerId)
+        .in('status', ACTIVE_ENROLMENT_STATES);
+      if (govtErr) {
+        // Missing column (pre-migration) or any read failure → no govt signal;
+        // the report continues normally rather than 500-ing.
+        console.warn('[cdc/career-guidance] govt-exam coaching read degraded:', govtErr.message);
+      } else {
+        for (const row of (govtEnroll ?? []) as any[]) {
+          const tt = row?.programme?.training_type;
+          if (tt?.exam_family) {
+            govtExamProgrammes.push(row.programme?.name || tt.display_name);
+          }
         }
       }
     } catch (e) {
-      console.warn('[cdc/career-guidance] govt-exam coaching read skipped:', e);
+      console.warn('[cdc/career-guidance] govt-exam coaching read threw:', e);
     }
+    // Dedupe — the same programme name can recur across multiple enrolment rows.
+    const govtExamProgrammesUnique = Array.from(new Set(govtExamProgrammes));
 
     // These profile fields are JSONB in prod (often empty {}) or text — extract
     // meaningful values, treating empty structures as "not recorded".
@@ -296,12 +317,19 @@ export async function POST(req: NextRequest) {
     // Government-job aspiration (2026-07-04 govt-job-readiness): detected from the
     // learner's free-text aspirations OR active government-exam coaching. Used to
     // steer the model toward exam-readiness next-steps + scholarship framing.
-    const govtKeywords = /\b(gov(ernmen)?t|tnpsc|rrb|ibps|sbi|ssc|tnusrb|police|railway|banking|public\s*service|civil\s*service|group\s*[24])\b/i;
-    const govtAspiring = govtExamProgrammes.length > 0 || (!!aspirations && govtKeywords.test(aspirations));
+    //
+    // Keyword set (deep-review #4): restricted to CLEARLY-government tokens — the
+    // specific exam families (TNPSC, RRB, IBPS, SBI, SSC, TNUSRB) and explicit
+    // government/public-service phrases. Bare private-overlapping words —
+    // "banking" (private banks), "railway" (private/metro), "police" (private
+    // security) — are deliberately NOT matched, so a private-sector aspiration is
+    // not misread as government-aspiring. "TN Police" (govt) is kept as a phrase.
+    const govtKeywords = /\b(gov(ernmen)?t|tnpsc|rrb|ibps|sbi|ssc|tnusrb|public\s*service|civil\s*service|group\s*[24]|tn\s*police)\b/i;
+    const govtAspiring = govtExamProgrammesUnique.length > 0 || (!!aspirations && govtKeywords.test(aspirations));
     const govtBlock = govtAspiring
       ? `\n\nGovernment-job focus DETECTED for this learner:\n` +
-        (govtExamProgrammes.length > 0
-          ? `- Enrolled in government-exam coaching: ${govtExamProgrammes.join(', ')}\n`
+        (govtExamProgrammesUnique.length > 0
+          ? `- Enrolled in government-exam coaching: ${govtExamProgrammesUnique.join(', ')}\n`
           : `- Aspiration text indicates a government-job goal\n`) +
         `Give concrete government-exam readiness next-steps (name the fitting exam family) and relevant government-scholarship framing per the system instructions; do not invent specific deadlines/cut-offs.`
       : '';

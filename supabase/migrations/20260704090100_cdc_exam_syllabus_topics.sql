@@ -165,7 +165,18 @@ ON CONFLICT (exam_training_type_id, topic_id) DO NOTHING;
 
 -- ---------------------------------------------------------------------
 -- 5. RLS — authenticated read, write restricted to CDC Head / super-admin.
---    Mirrors the cdc_offer_types / 20260621T0100Z masters exactly.
+-- ---------------------------------------------------------------------
+-- READ SCOPE (intentional): SELECT USING (auth.uid() IS NOT NULL) grants read
+-- to any authenticated user. This is DELIBERATE and matches the canonical CDC
+-- config-master public-read pattern — cdc_drive_types / cdc_offer_types /
+-- cdc_training_types / cdc_workshop_types all use the identical
+-- `auth.uid() IS NOT NULL` read policy (see
+-- 20260518_cdc_substrate_01_masters_enums_roles_policies.sql lines 442-446 and
+-- 20260621T0100Z_cdc_config_masters.sql). Both tables here hold platform-global
+-- config (no institution_id, no learner PII) — the syllabus topic catalogue and
+-- its topic↔exam map — so there is no cross-tenant data to leak; scoping reads
+-- to a permission would only diverge from the four sibling masters for no
+-- security gain. Write is the real boundary and is gated to is_cdc_head_or_super().
 -- ---------------------------------------------------------------------
 
 ALTER TABLE public.cdc_exam_syllabus_topics ENABLE ROW LEVEL SECURITY;
@@ -176,6 +187,8 @@ DROP POLICY IF EXISTS "cdc_exam_syllabus_topics_write" ON public.cdc_exam_syllab
 DROP POLICY IF EXISTS "cdc_exam_topic_map_read"        ON public.cdc_exam_topic_map;
 DROP POLICY IF EXISTS "cdc_exam_topic_map_write"       ON public.cdc_exam_topic_map;
 
+-- Intended config-master public-read (see block comment above); anon is
+-- inherently excluded (no auth.uid()).
 CREATE POLICY "cdc_exam_syllabus_topics_read"  ON public.cdc_exam_syllabus_topics FOR SELECT USING (auth.uid() IS NOT NULL);
 CREATE POLICY "cdc_exam_topic_map_read"        ON public.cdc_exam_topic_map       FOR SELECT USING (auth.uid() IS NOT NULL);
 

@@ -26,31 +26,48 @@
 BEGIN;
 
 -- Grant the new view key to both seeded CDC system roles. Uses
--- `permissions || jsonb_build_object(...)` so no existing key is clobbered.
+-- COALESCE(permissions, '{}') so a NULL permissions column does not collapse
+-- the whole expression to NULL (jsonb NULL || x = NULL would silently wipe the
+-- grant); the || merge otherwise preserves every existing key.
 UPDATE public.custom_roles
-SET permissions = permissions || jsonb_build_object('cdc.govt_readiness.view', true),
+SET permissions = COALESCE(permissions, '{}'::jsonb) || jsonb_build_object('cdc.govt_readiness.view', true),
     updated_at = now()
 WHERE role_key IN ('cdc_head', 'cdc_coordinator');
 
--- Verify both roles now carry the key.
+-- Verify the grant ONLY on roles that actually exist. A missing seeded role is
+-- outside this additive migration's scope and must NOT abort the whole apply —
+-- guard each check on row existence and RAISE NOTICE (not EXCEPTION) when absent.
 DO $$
 DECLARE
-  v_head  boolean;
-  v_coord boolean;
+  v_head_exists  boolean;
+  v_coord_exists boolean;
+  v_head_ok      boolean;
+  v_coord_ok     boolean;
 BEGIN
-  SELECT COALESCE((permissions->>'cdc.govt_readiness.view')::boolean, false)
-    INTO v_head  FROM public.custom_roles WHERE role_key = 'cdc_head';
-  SELECT COALESCE((permissions->>'cdc.govt_readiness.view')::boolean, false)
-    INTO v_coord FROM public.custom_roles WHERE role_key = 'cdc_coordinator';
+  SELECT EXISTS(SELECT 1 FROM public.custom_roles WHERE role_key = 'cdc_head')        INTO v_head_exists;
+  SELECT EXISTS(SELECT 1 FROM public.custom_roles WHERE role_key = 'cdc_coordinator') INTO v_coord_exists;
 
-  IF NOT v_head THEN
-    RAISE EXCEPTION 'cdc_head missing cdc.govt_readiness.view after backfill';
-  END IF;
-  IF NOT v_coord THEN
-    RAISE EXCEPTION 'cdc_coordinator missing cdc.govt_readiness.view after backfill';
+  IF v_head_exists THEN
+    SELECT COALESCE((permissions->>'cdc.govt_readiness.view')::boolean, false)
+      INTO v_head_ok FROM public.custom_roles WHERE role_key = 'cdc_head';
+    IF NOT v_head_ok THEN
+      RAISE EXCEPTION 'cdc_head missing cdc.govt_readiness.view after backfill';
+    END IF;
+  ELSE
+    RAISE NOTICE 'cdc_head role absent — govt_readiness grant skipped (no row to update)';
   END IF;
 
-  RAISE NOTICE 'CDC govt-readiness permission backfill OK: cdc_head + cdc_coordinator granted cdc.govt_readiness.view';
+  IF v_coord_exists THEN
+    SELECT COALESCE((permissions->>'cdc.govt_readiness.view')::boolean, false)
+      INTO v_coord_ok FROM public.custom_roles WHERE role_key = 'cdc_coordinator';
+    IF NOT v_coord_ok THEN
+      RAISE EXCEPTION 'cdc_coordinator missing cdc.govt_readiness.view after backfill';
+    END IF;
+  ELSE
+    RAISE NOTICE 'cdc_coordinator role absent — govt_readiness grant skipped (no row to update)';
+  END IF;
+
+  RAISE NOTICE 'CDC govt-readiness permission backfill complete (granted where the role exists)';
 END $$;
 
 COMMIT;
