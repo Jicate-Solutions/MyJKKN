@@ -12,19 +12,21 @@
 // The editor is a full matrix — EVERY active topic is a row (including brand-new
 // ones with no mappings yet) and every active government-exam type is a column.
 // Toggling a cell adds/removes one mapping via /api/admin/cdc/exam-topic-map,
-// which is gated to CDC Head / super-admin (RLS is_cdc_head_or_super() plus the
-// route's server auth check). Access to the page itself is enforced by the
-// /cdc/admin RoutePermissionGuard layout on cdc.training.edit.
+// which is gated head-only — is_cdc_head_or_super() at BOTH the route (the same
+// predicate, via RPC) and the table write-RLS, with no service-role bypass
+// (deep-review R4 #1). Access to the page itself is gated head-only by the
+// CdcHeadGuard below; the /cdc/admin RoutePermissionGuard layout still applies
+// cdc.training.edit as a coarse pre-filter.
 // ============================================================
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMemo, useState, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { Check, Loader2, ArrowLeft, ListTree } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { CdcHeadGuard } from '../_components/cdc-head-guard';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -45,7 +47,7 @@ async function loadMatrix(): Promise<MatrixData> {
   // intended config-master public-read pattern (RLS SELECT = auth.uid() IS NOT
   // NULL, no institution scope, no PII), matching the sibling CDC masters. See
   // 20260704090100_cdc_exam_syllabus_topics.sql §5. The map read below is
-  // server-side (route-gated); writes are gated on cdc.training.edit.
+  // server-side (route-gated); writes are gated head-only (is_cdc_head_or_super).
   const db = createClientSupabaseClient();
   const [typesRes, topicsRes, mapRows] = await Promise.all([
     db.from('cdc_training_types')
@@ -79,37 +81,34 @@ async function loadMatrix(): Promise<MatrixData> {
   };
 }
 
+const QUERY_KEY = ['cdc-exam-topic-map-editor'] as const;
+
 export default function ExamTopicMapPage() {
   const { isLoading: authLoading } = useAuth();
+  const queryClient = useQueryClient();
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['cdc-exam-topic-map-editor'],
+    queryKey: QUERY_KEY,
     queryFn: loadMatrix,
     enabled: !authLoading,
     staleTime: 30 * 1000,
   });
 
-  // Local, editable cell set seeded from the server map. Optimistic toggles
-  // mutate this; a failed write reverts the single cell that failed.
-  const [cells, setCells] = useState<Set<string>>(new Set());
-  const [pending, setPending] = useState<Set<string>>(new Set());
+  // Displayed mappings derive DIRECTLY from the react-query cache — there is no
+  // separate `cells` state re-seeded by an effect. Optimistic toggles patch the
+  // cache (after cancelling in-flight fetches) and reconcile via an onSettled
+  // invalidate. This is the canonical react-query guard against a pre-write
+  // background refetch (staleTime 30s / window refocus) resolving late and
+  // reverting a just-persisted toggle (deep-review R4 #4): cancelQueries stops the
+  // stale snapshot from landing, and the invalidate fetches authoritative
+  // post-write truth.
+  const cells = useMemo(() => {
+    const s = new Set<string>();
+    for (const m of data?.map ?? []) s.add(cellKey(m.exam_training_type_id, m.topic_id));
+    return s;
+  }, [data]);
 
-  // Re-seed whenever the server map identity changes (initial load / refetch).
-  const serverMapKey = useMemo(
-    () => (data ? data.map.map((m) => cellKey(m.exam_training_type_id, m.topic_id)).sort().join('|') : ''),
-    [data],
-  );
-  useEffect(() => {
-    // Don't clobber in-flight optimistic toggles: a background refetch
-    // (staleTime 30s / window refocus) changes `serverMapKey` and would re-seed
-    // `cells` from the server snapshot — discarding any optimistic flip whose
-    // POST/DELETE hasn't settled yet (deep-review R3 #4). Skip while writes are
-    // pending; the next refetch after they settle reconciles cleanly. Note we do
-    // NOT add `pending` to the deps: re-running on pending-clear would re-seed
-    // from a now-stale `data` (no refetch fires after a successful write) and
-    // revert the just-persisted toggle.
-    if (pending.size > 0) return;
-    if (data) setCells(new Set(data.map.map((m) => cellKey(m.exam_training_type_id, m.topic_id))));
-  }, [serverMapKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Per-cell in-flight set — drives the spinner and blocks double-submit.
+  const [pending, setPending] = useState<Set<string>>(new Set());
 
   const toggle = useCallback(
     async (examId: string, topicId: string) => {
@@ -117,14 +116,21 @@ export default function ExamTopicMapPage() {
       if (pending.has(key)) return;
       const currentlyOn = cells.has(key);
 
-      // Optimistic flip.
-      setCells((prev) => {
-        const next = new Set(prev);
-        if (currentlyOn) next.delete(key);
-        else next.add(key);
-        return next;
+      // onMutate: cancel in-flight fetches so a stale snapshot can't clobber the
+      // optimistic patch, snapshot for rollback, then patch the cache.
+      await queryClient.cancelQueries({ queryKey: QUERY_KEY });
+      const prev = queryClient.getQueryData<MatrixData>(QUERY_KEY);
+      queryClient.setQueryData<MatrixData>(QUERY_KEY, (old) => {
+        if (!old) return old;
+        const has = old.map.some((m) => m.exam_training_type_id === examId && m.topic_id === topicId);
+        const map = currentlyOn
+          ? old.map.filter((m) => !(m.exam_training_type_id === examId && m.topic_id === topicId))
+          : has
+            ? old.map
+            : [...old.map, { exam_training_type_id: examId, topic_id: topicId }];
+        return { ...old, map };
       });
-      setPending((prev) => new Set(prev).add(key));
+      setPending((p) => new Set(p).add(key));
 
       try {
         const res = currentlyOn
@@ -137,23 +143,20 @@ export default function ExamTopicMapPage() {
         const j = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(j.error ?? 'Save failed');
       } catch (e: any) {
-        // Revert the single failed cell.
-        setCells((prev) => {
-          const next = new Set(prev);
-          if (currentlyOn) next.add(key);
-          else next.delete(key);
-          return next;
-        });
+        // Roll the cache back to the pre-toggle snapshot.
+        if (prev) queryClient.setQueryData(QUERY_KEY, prev);
         toast.error(e?.message ?? 'Save failed');
       } finally {
-        setPending((prev) => {
-          const next = new Set(prev);
+        setPending((p) => {
+          const next = new Set(p);
           next.delete(key);
           return next;
         });
+        // onSettled: reconcile with authoritative server state.
+        queryClient.invalidateQueries({ queryKey: QUERY_KEY });
       }
     },
-    [cells, pending],
+    [cells, pending, queryClient],
   );
 
   const breadcrumbs = [
@@ -163,11 +166,12 @@ export default function ExamTopicMapPage() {
   ];
 
   return (
-    // Defense-in-depth: the /cdc/admin RoutePermissionGuard already gates this
-    // route on cdc.training.edit (via MENU_PERMISSIONS), but wrap the page in an
-    // explicit guard so access never relies solely on the route-guard mapping
-    // (deep-review R3 #5).
-    <PermissionGuard module="cdc.training" action="edit">
+    // HEAD-ONLY reveal (deep-review R4 #1): the matrix writes to a table whose
+    // write-RLS is is_cdc_head_or_super(), and the route now gates on the same
+    // predicate with no service-role bypass — so gate the page on it too, keeping
+    // app == UI == RLS on ONE boundary. The /cdc/admin RoutePermissionGuard still
+    // applies cdc.training.edit as a coarse pre-filter.
+    <CdcHeadGuard title="Exam Topic Map">
     <ContentLayout title="Exam Topic Map">
       <PageBreadcrumb items={breadcrumbs} />
 
@@ -295,6 +299,6 @@ export default function ExamTopicMapPage() {
         </Card>
       )}
     </ContentLayout>
-    </PermissionGuard>
+    </CdcHeadGuard>
   );
 }

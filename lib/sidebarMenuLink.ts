@@ -1090,9 +1090,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Govt-readiness admin surfaces. These /cdc/admin/* pages sit under the
   // RoutePermissionGuard layout, which only gates routes that HAVE a
   // MENU_PERMISSIONS entry (an unmapped route falls through as "visible to any
-  // authenticated user"). Mapping them to cdc.training.edit — the same key the
-  // govt-readiness page uses to reveal its "Curate topics" admin link — makes
-  // the page-layer guard actually enforce curator access (deep-review #9).
+  // authenticated user"), so an entry is REQUIRED. cdc.training.edit is the
+  // COARSE pre-filter here (held by cdc_head + cdc_coordinator); the PRECISE
+  // boundary is head-only and enforced at the page (CdcHeadGuard) and at the
+  // write route + table RLS, all on is_cdc_head_or_super() — app == UI == RLS
+  // (deep-review R4 #1). There is no head-only permission KEY to map to, so the
+  // coarse pre-filter stays and the page guard narrows it to CDC Head / super.
   '/cdc/admin/exam-syllabus-topics': 'cdc.training.edit',
   '/cdc/admin/exam-topic-map': 'cdc.training.edit',
 

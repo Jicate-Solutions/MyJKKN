@@ -22,6 +22,7 @@ import { Target, Check, BookOpen, Info, Settings2 } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { useIsCdcHead } from '../admin/_components/cdc-head-guard';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -103,6 +104,12 @@ async function loadOverlap(): Promise<OverlapData> {
 
 export default function GovtReadinessPage() {
   const { isLoading: authLoading } = useAuth();
+  // Head-only reveal for the CURATE links below — they lead to write surfaces
+  // (cdc_exam_syllabus_topics / cdc_exam_topic_map) whose boundary is
+  // is_cdc_head_or_super(). A cdc_coordinator (who holds cdc.govt_readiness.view
+  // and cdc.training.edit) should see the read-only overlap but NOT curation
+  // links that would dead-end at an "Access restricted" page (deep-review R4 #1).
+  const { isHead } = useIsCdcHead();
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['cdc-govt-readiness-overlap'],
     queryFn: loadOverlap,
@@ -114,14 +121,25 @@ export default function GovtReadinessPage() {
     if (!data) return null;
     const { exams, topics, map } = data;
 
-    const mappedTopicIds = new Set(map.map((m) => m.topic_id));
-    // Only topics actually mapped to at least one exam participate in the split.
+    // Restrict the map to the RENDERED government exams FIRST (active +
+    // exam_family set — the `exams` set already excludes null/'' families and
+    // inactive types). A cdc_exam_topic_map row survives its training type being
+    // DEACTIVATED or having exam_family cleared (the FK CASCADE only fires on
+    // DELETE), so a topic mapped solely to such a now-hidden exam must NOT count
+    // as active — otherwise it renders an all-empty matrix row and inflates the
+    // shared-vs-domain denominator (deep-review R4 #2). Build cells over the
+    // rendered exams, then derive activeTopics from topics mapped to >= 1 of them.
+    const examIds = new Set(exams.map((e) => e.id));
+    const renderedMap = map.filter((m) => examIds.has(m.exam_training_type_id));
+
+    // Cell lookup: which (rendered exam, topic) pairs are mapped.
+    const cell = new Set(renderedMap.map((m) => `${m.exam_training_type_id}::${m.topic_id}`));
+
+    const mappedTopicIds = new Set(renderedMap.map((m) => m.topic_id));
+    // Only topics mapped to at least one RENDERED exam participate in the split.
     const activeTopics = topics.filter((t) => mappedTopicIds.has(t.id));
     const sharedTopics = activeTopics.filter((t) => t.is_shared);
     const domainTopics = activeTopics.filter((t) => !t.is_shared);
-
-    // Cell lookup: which (exam, topic) pairs are mapped.
-    const cell = new Set(map.map((m) => `${m.exam_training_type_id}::${m.topic_id}`));
 
     // Per-exam split — DATA-DRIVEN (count of is_shared over mapped topics).
     const perExam = exams.map((ex) => {
@@ -309,8 +327,8 @@ export default function GovtReadinessPage() {
                 </Card>
               </div>
 
-              {/* Admin links (only where the user can edit masters) */}
-              <PermissionGuard module="cdc.training" action="edit">
+              {/* Admin links — head-only, matching the curation write boundary. */}
+              {isHead && (
                 <div className="flex items-center gap-3 text-sm text-muted-foreground">
                   <Settings2 className="w-4 h-4" />
                   <span>
@@ -324,7 +342,7 @@ export default function GovtReadinessPage() {
                     </Link>.
                   </span>
                 </div>
-              </PermissionGuard>
+              )}
             </>
           )}
         </div>

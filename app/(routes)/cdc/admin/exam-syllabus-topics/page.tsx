@@ -1,18 +1,22 @@
 import { MasterTablePage } from '../_components/master-table-page';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { CdcHeadGuard } from '../_components/cdc-head-guard';
 
 // CDC govt-job-readiness (PR-4 / Option B): CRUD for the shared-vs-domain
 // government-exam syllabus topics. is_shared marks a topic as part of the
 // cross-exam common syllabus — it drives the data-driven overlap computed on
 // the /cdc/govt-readiness cohort-overlap view. Reuses the generic master UI.
 //
-// Defense-in-depth: the /cdc/admin RoutePermissionGuard already gates this route
-// on cdc.training.edit (via MENU_PERMISSIONS); the explicit PermissionGuard
-// below ensures access never relies solely on the route-guard mapping
-// (deep-review R3 #5).
+// HEAD-ONLY reveal (deep-review R4 #1): writes here flow through the RLS-bound
+// generic masters route (createClient) into a table whose write-RLS is
+// is_cdc_head_or_super(). Gating the page reveal on the SAME predicate keeps
+// app == UI == RLS on ONE head-only boundary, so a cdc_coordinator (who holds
+// cdc.training.edit) is not shown an editor whose every write would fail at RLS.
+// The /cdc/admin RoutePermissionGuard still applies cdc.training.edit as a coarse
+// pre-filter; CdcHeadGuard is the precise boundary. Director may broaden later
+// via an explicit RLS change (the guard follows the live predicate automatically).
 export default function ExamSyllabusTopicsPage() {
   return (
-    <PermissionGuard module="cdc.training" action="edit">
+    <CdcHeadGuard title="Exam Syllabus Topics">
     <MasterTablePage
       tableName="cdc_exam_syllabus_topics"
       title="Exam Syllabus Topics"
@@ -46,6 +50,6 @@ export default function ExamSyllabusTopicsPage() {
         },
       ]}
     />
-    </PermissionGuard>
+    </CdcHeadGuard>
   );
 }
