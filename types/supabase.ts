@@ -40805,6 +40805,7 @@ export type Database = {
           reviewed_at: string | null
           review_notes: string | null
           applicant_user_id: string | null
+          promoted_candidate_id: string | null
           submitted_at: string
           created_at: string
           updated_at: string
@@ -40832,6 +40833,7 @@ export type Database = {
           reviewed_at?: string | null
           review_notes?: string | null
           applicant_user_id?: string | null
+          promoted_candidate_id?: string | null
           submitted_at?: string
           created_at?: string
           updated_at?: string
@@ -40859,11 +40861,19 @@ export type Database = {
           reviewed_at?: string | null
           review_notes?: string | null
           applicant_user_id?: string | null
+          promoted_candidate_id?: string | null
           submitted_at?: string
           created_at?: string
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "hr_job_applications_promoted_candidate_id_fkey"
+            columns: ["promoted_candidate_id"]
+            isOneToOne: false
+            referencedRelation: "hr_recruitment_candidates"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "hr_job_applications_job_id_fkey"
             columns: ["job_id"]
@@ -44273,6 +44283,61 @@ export type Database = {
             columns: ["superseded_by"]
             isOneToOne: false
             referencedRelation: "hr_public_holidays"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_recruitment_candidate_comments: {
+        Row: {
+          id: string
+          candidate_id: string
+          hr_organization_id: string
+          commenter_id: string
+          comment: string
+          parent_comment_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          candidate_id: string
+          hr_organization_id: string
+          commenter_id: string
+          comment: string
+          parent_comment_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          candidate_id?: string
+          hr_organization_id?: string
+          commenter_id?: string
+          comment?: string
+          parent_comment_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_recruitment_candidate_comments_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "hr_recruitment_candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_recruitment_candidate_comments_commenter_id_fkey"
+            columns: ["commenter_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_recruitment_candidate_comments_parent_comment_id_fkey"
+            columns: ["parent_comment_id"]
+            isOneToOne: false
+            referencedRelation: "hr_recruitment_candidate_comments"
             referencedColumns: ["id"]
           },
         ]

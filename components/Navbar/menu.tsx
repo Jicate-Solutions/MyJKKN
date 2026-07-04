@@ -423,6 +423,14 @@ export function Menu({ isOpen }: MenuProps) {
                   // Skip Dashboard ('/') — it has no sub-pages and stays a plain link.
                   const moduleSlug = href === '/' ? null : href.replace(/^\//, '').split('/')[0]!;
 
+                  // Rows with hand-authored submenus self-anchor under their full-path
+                  // key so several accordion rows can share one top-level slug (e.g.
+                  // /hr, /hr/recruitment and /hr/admin each expand independently).
+                  // Auto-discovery rows keep the one-anchor-per-slug competition below,
+                  // which exists so siblings never re-list the same manifest children.
+                  const hasExplicitSubmenus = submenus.length > 0 && !noSubmenus;
+                  const accordionKey = hasExplicitSubmenus && moduleSlug ? href.replace(/^\//, '') : moduleSlug;
+
                   // Children source priority:
                   //  1. `noSubmenus: true` on the row → plain link, no
                   //     children at all (skip both submenus and manifest).
@@ -435,7 +443,7 @@ export function Menu({ isOpen }: MenuProps) {
                   //
                   // Only the anchor row for each slug gets sub-pages; non-anchor
                   // siblings render as plain links.
-                  const isAnchor = moduleSlug ? anchorBySlug.get(moduleSlug) === href : false;
+                  const isAnchor = moduleSlug ? (hasExplicitSubmenus || anchorBySlug.get(moduleSlug) === href) : false;
                   const moduleSubPages = (isAnchor && !noSubmenus)
                     ? (submenus.length > 0
                         ? submenus.map((sub) => {
@@ -480,7 +488,7 @@ export function Menu({ isOpen }: MenuProps) {
                   // - No accessible direct children → plain link
                   // - Otherwise → accordion
                   const useAccordion = isOpen !== false && directChildren.length > 0;
-                  const isExpanded = useAccordion && expandedModule === moduleSlug;
+                  const isExpanded = useAccordion && expandedModule === accordionKey;
 
                   return (
                     <div className='w-full group/row' key={href}>
@@ -501,10 +509,10 @@ export function Menu({ isOpen }: MenuProps) {
                                     // via the module's /dashboard sub-page (auto-discovered),
                                     // Ctrl+K, or direct URL.
                                     e.preventDefault();
-                                    toggleModule(moduleSlug!);
+                                    toggleModule(accordionKey!);
                                   }}
                                   aria-expanded={isExpanded}
-                                  aria-controls={isExpanded ? `sidebar-submenu-${moduleSlug}` : undefined}
+                                  aria-controls={isExpanded ? `sidebar-submenu-${accordionKey}` : undefined}
                                   asChild
                                 >
                                   <Link href={href}>
@@ -595,7 +603,7 @@ export function Menu({ isOpen }: MenuProps) {
                         <AnimatePresence initial={false}>
                           {isExpanded && (
                             <motion.ul
-                              id={`sidebar-submenu-${moduleSlug}`}
+                              id={`sidebar-submenu-${accordionKey}`}
                               initial={{ height: 0, opacity: 0 }}
                               animate={{ height: 'auto', opacity: 1 }}
                               exit={{ height: 0, opacity: 0 }}

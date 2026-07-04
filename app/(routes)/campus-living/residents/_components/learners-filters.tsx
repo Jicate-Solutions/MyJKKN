@@ -23,12 +23,16 @@ import {
   useHostelBlocksForFilter, useAvailableYears,
 } from '@/hooks/campus-living/use-learner-hostelites';
 import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
+import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
+import { useRoomsByBlock } from '@/hooks/campus-living/use-hostel-rooms';
+import { genderToCategoryType } from '@/hooks/campus-living/use-gender-categories';
 import { UNASSIGNED_BLOCK } from '@/types/campus-living';
 
 const FILTER_KEYS = [
   'institution_id', 'degree_id', 'department_id', 'program_id',
   'semester_id', 'section_id', 'academic_year_id', 'gender',
   'block_id', 'year_of_study', 'hostel_category_id',
+  'mess_category_id', 'room_id',
 ] as const;
 
 type LocalFilters = Partial<Record<(typeof FILTER_KEYS)[number], string>>;
@@ -63,6 +67,30 @@ export function LearnersFilters() {
   const { data: blockList } = useHostelBlocksForFilter(effectiveInst);
   const { data: availableYears } = useAvailableYears(effectiveInst);
   const { hostelCategories: roomCategories } = useActiveHostelCategories();
+  const { messCategories } = useActiveMessCategories();
+
+  // Hierarchical gender scope for the category dropdowns: a selected block
+  // pins the gender via its hostel_type ('boys'/'girls' — same vocabulary as
+  // category `type`); otherwise the Gender filter maps Male→boys / Female→
+  // girls. No scope → show all active categories.
+  const selectedBlock = (blockList ?? []).find((b) => b.id === local.block_id);
+  const scopeType =
+    selectedBlock?.hostel_type === 'boys' || selectedBlock?.hostel_type === 'girls'
+      ? selectedBlock.hostel_type
+      : genderToCategoryType(local.gender);
+  const inScope = (c: { type?: string | null }) =>
+    !scopeType || c.type === scopeType || c.type === 'mixed';
+  const scopedRoomCategories = roomCategories.filter(inScope);
+  const scopedMessCategories = messCategories.filter(inScope);
+
+  // Rooms cascade under Block (required) and Room Category (optional narrow —
+  // rooms carry their physical category_id).
+  const realBlockId =
+    local.block_id && local.block_id !== UNASSIGNED_BLOCK ? local.block_id : '';
+  const { data: blockRooms } = useRoomsByBlock(realBlockId);
+  const roomOptions = (blockRooms ?? []).filter(
+    (r: any) => !local.hostel_category_id || r.category_id === local.hostel_category_id,
+  );
 
   // Sync local state when the URL changes externally.
   useEffect(() => {
@@ -213,8 +241,8 @@ export function LearnersFilters() {
               {academicYears.map((a) => <SelectItem key={a.id} value={a.id}>{a.academic_year_name}</SelectItem>)}
             </SelectContent>
           </Select>
-          {/* Gender */}
-          <Select value={local.gender || ''} onValueChange={(v) => set({ gender: v === 'all' ? undefined : v })}>
+          {/* Gender — scopes the category dropdowns, so changing it clears them */}
+          <Select value={local.gender || ''} onValueChange={(v) => set({ gender: v === 'all' ? undefined : v, hostel_category_id: undefined, mess_category_id: undefined, room_id: undefined })}>
             <SelectTrigger><SelectValue placeholder='Select Gender' /></SelectTrigger>
             <SelectContent>
               <SelectItem value='all'>All Genders</SelectItem>
@@ -223,8 +251,8 @@ export function LearnersFilters() {
               <SelectItem value='Other'>Other</SelectItem>
             </SelectContent>
           </Select>
-          {/* Block */}
-          <Select value={local.block_id || ''} onValueChange={(v) => set({ block_id: v === 'all' ? undefined : v })}>
+          {/* Block — pins the gender scope + feeds the Room list, so changing it clears downstream picks */}
+          <Select value={local.block_id || ''} onValueChange={(v) => set({ block_id: v === 'all' ? undefined : v, hostel_category_id: undefined, mess_category_id: undefined, room_id: undefined })}>
             <SelectTrigger><SelectValue placeholder='Block' /></SelectTrigger>
             <SelectContent>
               <SelectItem value='all'>All Blocks</SelectItem>
@@ -244,12 +272,32 @@ export function LearnersFilters() {
               ))}
             </SelectContent>
           </Select>
-          {/* Room category */}
-          <Select value={local.hostel_category_id || ''} onValueChange={(v) => set({ hostel_category_id: v === 'all' ? undefined : v })}>
+          {/* Room category — options scoped to the block/gender; narrows the Room list */}
+          <Select value={local.hostel_category_id || ''} onValueChange={(v) => set({ hostel_category_id: v === 'all' ? undefined : v, room_id: undefined })}>
             <SelectTrigger><SelectValue placeholder='Room Category' /></SelectTrigger>
             <SelectContent>
               <SelectItem value='all'>All Room Categories</SelectItem>
-              {roomCategories.map((c) => (
+              {scopedRoomCategories.map((c) => (
+                <SelectItem key={c.id} value={c.id}>{c.name}{c.type ? ` (${c.type})` : ''}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {/* Room — needs a block; narrowed by the selected room category */}
+          <Select value={local.room_id || ''} onValueChange={(v) => set({ room_id: v === 'all' ? undefined : v })} disabled={!realBlockId}>
+            <SelectTrigger><SelectValue placeholder={realBlockId ? 'Room' : 'Room (pick a block first)'} /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value='all'>All Rooms</SelectItem>
+              {roomOptions.map((r: any) => (
+                <SelectItem key={r.id} value={r.id}>Room {r.room_number}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {/* Mess category — options scoped to the block/gender */}
+          <Select value={local.mess_category_id || ''} onValueChange={(v) => set({ mess_category_id: v === 'all' ? undefined : v })}>
+            <SelectTrigger><SelectValue placeholder='Mess Category' /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value='all'>All Mess Categories</SelectItem>
+              {scopedMessCategories.map((c) => (
                 <SelectItem key={c.id} value={c.id}>{c.name}{c.type ? ` (${c.type})` : ''}</SelectItem>
               ))}
             </SelectContent>

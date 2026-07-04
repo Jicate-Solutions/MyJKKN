@@ -1360,3 +1360,9 @@ CREATE TRIGGER trg_touch_updated_at BEFORE UPDATE ON public.event_day_feedback
 DROP TRIGGER IF EXISTS trg_touch_updated_at ON public.event_program_feedback;
 CREATE TRIGGER trg_touch_updated_at BEFORE UPDATE ON public.event_program_feedback
   FOR EACH ROW EXECUTE FUNCTION public.induction_touch_updated_at();
+
+
+-- hr_recruitment_candidate_comments updated_at (migration 20260703130200)
+CREATE TRIGGER hr_rec_cand_comments_updated_at
+  BEFORE UPDATE ON hr_recruitment_candidate_comments
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
