@@ -273,11 +273,12 @@ export async function POST(request: Request) {
         );
       }
 
+      // Round-3 HIGH root fix: no caller-supplied project_id — open ALWAYS
+      // auto-creates the cadence's own is_okr objective server-side.
       const { data, error } = await supabase.rpc('fn_social_cadence_open', {
         p_account_id: account.id,
         p_objective: objective,
         p_cadence_month: body.cadenceMonth ?? null,
-        p_project_id: body.projectId ?? null,
       });
       if (error) {
         return NextResponse.json(

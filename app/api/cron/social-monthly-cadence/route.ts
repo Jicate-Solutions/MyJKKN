@@ -118,6 +118,28 @@ function ragForDelta(
   return delta > 0 ? 'green' : 'amber';
 }
 
+/**
+ * Reach-vs-target -> project percent_complete. Mirrors fn_social_cadence_close so
+ * the cron and the close RPC never disagree on progress (round-2 LOW #9): both
+ * write rag_status AND percent_complete on the same measured re-measure. Returns
+ * null (leave progress untouched) when the cycle is unmeasurable (delta null).
+ */
+function progressForDelta(
+  delta: number | null,
+  baseline: number | null,
+  winPct: number
+): number | null {
+  if (delta === null) return null;
+  const base = baseline ?? 0;
+  const win = Math.max(winPct, 1);
+  if (base > 0) {
+    const pct = (delta / base) * 100;
+    const progress = (pct / win) * 100;
+    return Math.min(100, Math.max(0, Math.round(progress * 100) / 100));
+  }
+  return delta > 0 ? 100 : 0;
+}
+
 export async function GET(request: Request): Promise<Response> {
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -249,10 +271,18 @@ export async function GET(request: Request): Promise<Response> {
         // Institution-scoped (HIGH): the service-role write bypasses RLS — never
         // flip a project outside this cadence's institution.
         const newRag = ragForDelta(reachDelta, baselineReach, winDeltaPct);
-        if (c.project_id && newRag) {
+        const newProgress = progressForDelta(reachDelta, baselineReach, winDeltaPct);
+        // newRag and newProgress are both non-null exactly when the delta is
+        // measurable, so inside this guard newProgress is a number (LOW #9: write
+        // rag_status AND percent_complete together, matching fn_social_cadence_close).
+        if (c.project_id && newRag && newProgress !== null) {
           const { error: ragErr } = await supabase
             .from('projects')
-            .update({ rag_status: newRag, updated_at: new Date().toISOString() })
+            .update({
+              rag_status: newRag,
+              percent_complete: newProgress,
+              updated_at: new Date().toISOString(),
+            })
             .eq('id', c.project_id)
             .eq('institution_id', c.institution_id);
           if (ragErr) throw ragErr;

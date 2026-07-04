@@ -7372,33 +7372,28 @@ CREATE POLICY ess_event_speaker_read ON public.event_session_speakers
 -- (02_functions.sql) also self-gate because DEFINER bypasses RLS.
 -- =====================================================================
 
+-- SELECT-only RLS (round-3). Writes have NO table grant (see 01_tables.sql) and
+-- flow only through the DEFINER RPCs, so INSERT/UPDATE policies are removed.
+-- MED #3 (round-2): the SELECT USING adds fn_social_caller_owns_dept so a
+-- scope='own' HOD reads ONLY its own dept's cadence rows, not every dept's in
+-- the tenant (admins bypass; NULL dept falls back to institution scope). The
+-- helper is defined in 02_functions.sql.
 DROP POLICY IF EXISTS social_monthly_cadence_select ON public.social_monthly_cadence;
 CREATE POLICY social_monthly_cadence_select ON public.social_monthly_cadence
   FOR SELECT TO authenticated
   USING (
     is_super_admin() OR is_admin()
-    OR (user_has_permission('social.departments.view') AND role_has_institution_access(institution_id))
+    OR (
+      user_has_permission('social.departments.view')
+      AND role_has_institution_access(institution_id)
+      AND fn_social_caller_owns_dept(department_id)
+    )
   );
 
+-- Write policies REMOVED (round-3 HIGH root fix): authenticated has no
+-- INSERT/UPDATE/DELETE grant. Dropped idempotently if an earlier apply made them.
 DROP POLICY IF EXISTS social_monthly_cadence_insert ON public.social_monthly_cadence;
-CREATE POLICY social_monthly_cadence_insert ON public.social_monthly_cadence
-  FOR INSERT TO authenticated
-  WITH CHECK (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('social.departments.manage') AND role_has_institution_access(institution_id))
-  );
-
 DROP POLICY IF EXISTS social_monthly_cadence_update ON public.social_monthly_cadence;
-CREATE POLICY social_monthly_cadence_update ON public.social_monthly_cadence
-  FOR UPDATE TO authenticated
-  USING (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('social.departments.manage') AND role_has_institution_access(institution_id))
-  )
-  WITH CHECK (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('social.departments.manage') AND role_has_institution_access(institution_id))
-  );
 
 -- Config seeds (ships DARK): social.cadence.* in the canonical platform_policies store.
 INSERT INTO platform_policies (policy_key, scope_type, scope_id, value, description, data_type, enum_options, is_system) VALUES

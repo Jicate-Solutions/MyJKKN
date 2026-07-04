@@ -30,11 +30,22 @@
 -- re-apply) and mutates NO existing production rows except merging two
 -- permission keys into the HOD role (the locked owner decision).
 --
+-- SECURITY MODEL (round-3 hardening — closes both round-2 HIGHs at the root):
+--   The ledger table social_monthly_cadence is RPC-WRITE-ONLY. `authenticated`
+--   holds SELECT only — it has NO INSERT/UPDATE/DELETE grant — so a raw
+--   PostgREST write cannot bypass the DEFINER RPC guards (ownership, is_okr,
+--   DARK self-gate, immutability) to point project_id at a victim project and
+--   weaponise the close/cron RAG write. ALL writes flow through the three
+--   SECURITY DEFINER writer RPCs. Those RPCs never accept a caller-supplied
+--   project_id: open ALWAYS auto-creates the cadence's own is_okr objective
+--   (owned by the dept HOD, in the account's institution), removing the
+--   cross-tenant/victim-project vector entirely.
+--
 -- House rules honoured:
 --   * every new SECURITY DEFINER RPC ends: REVOKE anon,PUBLIC; GRANT authenticated.
 --   * DEFINER writer RPCs self-gate (is_super_admin/is_admin OR
---     user_has_permission + role_has_institution_access) because DEFINER
---     bypasses RLS. RLS on the ledger mirrors the gate for direct PostgREST.
+--     user_has_permission + role_has_institution_access + dept ownership + the
+--     DARK enabled gate) because DEFINER bypasses RLS.
 -- =====================================================================
 
 -- ── 1. Ledger table: social_monthly_cadence ────────────────────────────────
@@ -80,7 +91,7 @@ CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_project
   ON public.social_monthly_cadence (project_id);
 
 COMMENT ON TABLE public.social_monthly_cadence IS
-  'Per-department monthly Instagram reach cadence ledger (objective -> baseline -> feedback -> action -> re-measure -> close). Reach snapshots come ONLY from ig_monthly_audit; feedback ONLY from feedback_events. project_id is REQUIRED and points at a real projects row (is_okr=true, project_type=okr_objective, owner=HOD) — the unified OKR objective; its rag_status carries the reach-vs-target teeth for the dormant project_at_risk meeting rule.';
+  'Per-department monthly Instagram reach cadence ledger (objective -> baseline -> feedback -> action -> re-measure -> close). RPC-WRITE-ONLY: authenticated has SELECT only; all writes go through the SECURITY DEFINER writer RPCs. Reach snapshots come ONLY from ig_monthly_audit; feedback ONLY from feedback_events. project_id is REQUIRED and points at a real projects row (is_okr=true, project_type=okr_objective, owner=HOD) auto-created by fn_social_cadence_open — the unified OKR objective; its rag_status carries the reach-vs-target teeth for the dormant project_at_risk meeting rule.';
 
 -- Idempotent FK converge: if an earlier apply created this constraint with
 -- ON DELETE CASCADE, drop + re-add it as RESTRICT so re-applying this migration
@@ -98,10 +109,10 @@ CREATE TRIGGER trg_social_monthly_cadence_updated_at
   BEFORE UPDATE ON public.social_monthly_cadence
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
--- project_id is IMMUTABLE post-insert. The UPDATE RLS policy lets a manage user
--- write the row via raw PostgREST; without this guard they could repoint
--- project_id at another project and have close/cron flip THAT project's RAG.
--- The RPC state machine never changes project_id, so this only blocks tampering.
+-- project_id is IMMUTABLE post-insert. Defence-in-depth now that direct DML is
+-- revoked (only the DEFINER RPCs write, and the RPC state machine never changes
+-- project_id) — the trigger still blocks any future write path from repointing
+-- project_id at another project to hijack close/cron's RAG teeth.
 CREATE OR REPLACE FUNCTION public.fn_social_cadence_guard_project_id()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -120,40 +131,82 @@ CREATE TRIGGER trg_social_monthly_cadence_project_immutable
   BEFORE UPDATE ON public.social_monthly_cadence
   FOR EACH ROW EXECUTE FUNCTION public.fn_social_cadence_guard_project_id();
 
--- ── 2. RLS — canonical dynamic-permission pattern (no hardcoded roles) ──────
+-- ── 2. Ownership helper + RLS (SELECT-only; writes go through DEFINER RPCs) ──
 ALTER TABLE public.social_monthly_cadence ENABLE ROW LEVEL SECURITY;
 
+-- Ownership helper (defined before the SELECT policy that references it).
+-- The Director-locked owner of a department's IG cadence is that dept's HEAD
+-- (HOD, scope='own'). The institution-level permission gate alone lets ANY
+-- manage-holding HOD in the tenant read/act on OTHER departments' accounts —
+-- this helper closes that gap on BOTH the SELECT policy and the writer RPCs.
+-- LOW #6 (round-2): ownership is restricted to departments.head_of_department_id
+-- ONLY — the earlier "any active staff in the dept" branch was too broad for the
+-- locked "HOD owns cadence" rule and is removed. Platform admins bypass; a NULL
+-- department (account not dept-scoped) falls back to the institution gate the
+-- caller already passed. DEFINER so it can read departments regardless of the
+-- caller's own row visibility. head_of_department_id is a profiles.id; auth.uid()
+-- is that same id, so they compare directly.
+CREATE OR REPLACE FUNCTION public.fn_social_caller_owns_dept(p_department_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_uid UUID := auth.uid();
+BEGIN
+  IF is_super_admin() OR is_admin() THEN
+    RETURN true;
+  END IF;
+  IF p_department_id IS NULL THEN
+    RETURN true;  -- not department-scoped: institution gate already applied
+  END IF;
+  RETURN EXISTS (
+    SELECT 1 FROM public.departments d
+    WHERE d.id = p_department_id
+      AND d.head_of_department_id = v_uid
+  );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_social_caller_owns_dept(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_social_caller_owns_dept(UUID) TO authenticated;
+
+-- SELECT policy: institution scope AND department ownership (MED #3, round-2).
+-- Without the ownership predicate any social.departments.view holder could read
+-- EVERY department's cadence rows in the tenant; a scope='own' HOD must see only
+-- its own dept's cycles (admins bypass; NULL dept falls back to institution scope).
 DROP POLICY IF EXISTS social_monthly_cadence_select ON public.social_monthly_cadence;
 CREATE POLICY social_monthly_cadence_select ON public.social_monthly_cadence
   FOR SELECT TO authenticated
   USING (
     is_super_admin() OR is_admin()
-    OR (user_has_permission('social.departments.view') AND role_has_institution_access(institution_id))
+    OR (
+      user_has_permission('social.departments.view')
+      AND role_has_institution_access(institution_id)
+      AND fn_social_caller_owns_dept(department_id)
+    )
   );
 
+-- Write policies intentionally REMOVED (round-3 HIGH root fix): authenticated has
+-- NO INSERT/UPDATE/DELETE grant on this table (see grant block below), so table
+-- write-policies would be dead weight and misleading. Dropped idempotently in
+-- case an earlier apply of this migration created them.
 DROP POLICY IF EXISTS social_monthly_cadence_insert ON public.social_monthly_cadence;
-CREATE POLICY social_monthly_cadence_insert ON public.social_monthly_cadence
-  FOR INSERT TO authenticated
-  WITH CHECK (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('social.departments.manage') AND role_has_institution_access(institution_id))
-  );
-
 DROP POLICY IF EXISTS social_monthly_cadence_update ON public.social_monthly_cadence;
-CREATE POLICY social_monthly_cadence_update ON public.social_monthly_cadence
-  FOR UPDATE TO authenticated
-  USING (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('social.departments.manage') AND role_has_institution_access(institution_id))
-  )
-  WITH CHECK (
-    is_super_admin() OR is_admin()
-    OR (user_has_permission('social.departments.manage') AND role_has_institution_access(institution_id))
-  );
 
--- anon hardening (Supabase default-grants anon ALL on new tables).
+-- RPC-WRITE-ONLY grant layer (round-3 HIGH root fix). authenticated may READ but
+-- NEVER directly DML — all writes flow through the DEFINER RPCs which carry the
+-- ownership / is_okr / DARK-gate / immutability guards. The explicit REVOKE of
+-- INSERT/UPDATE/DELETE from authenticated is belt-and-suspenders (only SELECT is
+-- granted below) and makes re-apply safe if a prior apply granted write. The
+-- REVOKE ALL FROM anon,PUBLIC undoes Supabase's default-grant to anon. Neither
+-- REVOKE touches service_role (its explicit Supabase grant stands) so the cron
+-- dispatcher's service-role writes keep working.
 REVOKE ALL ON public.social_monthly_cadence FROM anon, PUBLIC;
-GRANT SELECT, INSERT, UPDATE ON public.social_monthly_cadence TO authenticated;
+REVOKE INSERT, UPDATE, DELETE ON public.social_monthly_cadence FROM authenticated;
+GRANT  SELECT ON public.social_monthly_cadence TO authenticated;
 
 -- ── 3. Reader RPC: fn_ig_monthly_reach — shared reach contract ──────────────
 --    Thin STABLE reader over ig_monthly_audit so the ledger + UI share one
@@ -217,57 +270,24 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_ig_monthly_reach(UUID, DATE) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_ig_monthly_reach(UUID, DATE) TO authenticated;
 
--- ── 3b. Ownership helper: fn_social_caller_owns_dept ────────────────────────
---    The Director-locked owner of a department's IG cadence is that dept's HOD
---    (scope='own'). The institution-level permission gate alone lets ANY manage
---    HOD in the tenant act on OTHER departments' accounts — this helper closes
---    that gap. Platform admins bypass; a NULL department (account not
---    dept-scoped) falls back to the institution gate the caller already passed.
---    DEFINER so it can read departments/staff regardless of the caller's own
---    row visibility. Caller "owns" a dept if they head it OR are active staff in it.
-CREATE OR REPLACE FUNCTION public.fn_social_caller_owns_dept(p_department_id UUID)
-RETURNS BOOLEAN
-LANGUAGE plpgsql
-STABLE
-SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $$
-DECLARE
-  v_uid UUID := auth.uid();
-BEGIN
-  IF is_super_admin() OR is_admin() THEN
-    RETURN true;
-  END IF;
-  IF p_department_id IS NULL THEN
-    RETURN true;  -- not department-scoped: institution gate already applied
-  END IF;
-  RETURN EXISTS (
-    SELECT 1 FROM public.departments d
-    WHERE d.id = p_department_id AND d.head_of_department_id = v_uid
-  ) OR EXISTS (
-    SELECT 1 FROM public.staff s
-    WHERE s.profile_id = v_uid
-      AND s.department_id = p_department_id
-      AND s.is_active = true
-  );
-END;
-$$;
-
-REVOKE EXECUTE ON FUNCTION public.fn_social_caller_owns_dept(UUID) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_social_caller_owns_dept(UUID) TO authenticated;
-
 -- ── 4. Writer RPC: fn_social_cadence_open ───────────────────────────────────
 --    Opens a dept-month cadence: snapshots the baseline reach from
---    ig_monthly_audit, creates (or links) the REQUIRED unified-OKR objective as
+--    ig_monthly_audit, ALWAYS auto-creates the REQUIRED unified-OKR objective as
 --    a real projects row (is_okr=true, project_type='okr_objective',
 --    owner_staff_id=the dept HOD) + a key-result task with the HOD assigned
 --    RACI Accountable (so the dormant project_at_risk meeting rule has a
 --    subject + owner), then inserts the ledger row. Idempotent per (account, month).
+--
+-- Round-3 HIGH root fix: the RPC NEVER accepts a caller-supplied existing
+-- project_id — that path (a scope='own' HOD linking ANY project, then having
+-- close/cron flip its RAG) is removed entirely. The old 4-arg signature is
+-- dropped so no overload lingers.
+DROP FUNCTION IF EXISTS public.fn_social_cadence_open(UUID, TEXT, DATE, UUID);
+
 CREATE OR REPLACE FUNCTION public.fn_social_cadence_open(
   p_account_id UUID,
   p_objective TEXT,
-  p_cadence_month DATE DEFAULT NULL,
-  p_project_id UUID DEFAULT NULL
+  p_cadence_month DATE DEFAULT NULL
 )
 RETURNS public.social_monthly_cadence
 LANGUAGE plpgsql
@@ -309,8 +329,8 @@ BEGIN
   END IF;
 
   -- DARK self-gate: opening a NEW cycle requires social.cadence.enabled=true.
-  -- Enforced HERE (not only in the TS API) so a direct PostgREST/RPC call cannot
-  -- bypass the engine master switch. Ships DARK (default false).
+  -- Enforced HERE (not only in the TS API) so a direct RPC call cannot bypass
+  -- the engine master switch. Ships DARK (default false).
   IF NOT COALESCE(fn_get_policy_bool('social.cadence.enabled', false, NULL), false) THEN
     RAISE EXCEPTION 'The monthly cadence engine is disabled (social.cadence.enabled=false)'
       USING ERRCODE = '42501';
@@ -324,9 +344,19 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
-  v_month := date_trunc('month', COALESCE(p_cadence_month, CURRENT_DATE))::date;
+  -- MED #5 (round-2): derive the month from UTC (matches the cron + UI), never
+  -- session-TZ CURRENT_DATE, so a caller in a +TZ near month-end can't open a
+  -- different month than the dispatcher will re-measure.
+  v_month := date_trunc('month', COALESCE(p_cadence_month, (now() AT TIME ZONE 'UTC')::date))::date;
 
-  -- Idempotent: return an existing cadence for (account, month) unchanged.
+  -- MED #4 (round-2): serialize concurrent opens for the same (account, month)
+  -- so the project auto-creation + ledger insert are atomic — no orphan is_okr
+  -- project and no raw unique_violation surfaced to the caller. Transaction-
+  -- scoped; released at COMMIT/ROLLBACK. Established repo pattern (hashtext).
+  PERFORM pg_advisory_xact_lock(hashtext('social_cadence_open|' || p_account_id::text || '|' || v_month::text));
+
+  -- Idempotent: return an existing cadence for (account, month) unchanged
+  -- (fast-path so the common already-exists case creates no project).
   SELECT * INTO v_existing
   FROM public.social_monthly_cadence
   WHERE account_id = p_account_id AND cadence_month = v_month;
@@ -341,73 +371,65 @@ BEGIN
   LIMIT 1;
 
   -- Resolve the dept HOD -> staff.id. departments.head_of_department_id is a
-  -- PROFILE id; staff.profile_id links a profile to its staff row. Best-effort:
-  -- when a dept has no HOD (or no active staff for that profile) the objective is
-  -- still created with owner_staff_id NULL (no Accountable) so the loop never
-  -- blocks — the missing owner just means the dormant rule has no HOD to summon.
+  -- PROFILE id; staff.profile_id links a profile to its staff row. LOW #7
+  -- (round-2): filter staff to the account's institution so a profile that is
+  -- active staff in MULTIPLE tenants can't yield a cross-tenant owner_staff_id.
+  -- Best-effort: when a dept has no HOD (or no active same-tenant staff for that
+  -- profile) the objective is still created with owner_staff_id NULL (no
+  -- Accountable) so the loop never blocks — the missing owner just means the
+  -- dormant rule has no HOD to summon.
   IF v_department_id IS NOT NULL THEN
     SELECT s.id INTO v_hod_staff_id
     FROM public.departments d
     JOIN public.staff s
-      ON s.profile_id = d.head_of_department_id AND s.is_active = true
+      ON s.profile_id = d.head_of_department_id
+     AND s.is_active = true
+     AND s.institution_id = v_institution_id
     WHERE d.id = v_department_id
     LIMIT 1;
   END IF;
 
-  -- REQUIRED project link: create the unified-OKR objective as a real projects
-  -- row (is_okr=true), or use the given one. OKR was absorbed into Projects
-  -- (locked 2026-05-31) — objectives ARE projects, key results ARE tasks.
-  IF p_project_id IS NULL THEN
-    SELECT id INTO v_type_id FROM public.project_types WHERE key = 'okr_objective' LIMIT 1;
+  -- REQUIRED project link: ALWAYS create the unified-OKR objective as a real
+  -- projects row (is_okr=true). OKR was absorbed into Projects (locked
+  -- 2026-05-31) — objectives ARE projects, key results ARE tasks. No
+  -- caller-supplied project path exists (round-3 HIGH root fix).
+  SELECT id INTO v_type_id FROM public.project_types WHERE key = 'okr_objective' LIMIT 1;
 
-    INSERT INTO public.projects (
-      title, description, project_type_id, institution_id, owner_staff_id,
-      is_okr, rag_status, start_date, due_date, created_by
-    ) VALUES (
-      left('IG Cadence ' || to_char(v_month, 'Mon YYYY') || ' — ' || btrim(p_objective), 200),
-      'Monthly Instagram reach objective for this department, driven by the Social Loop cadence engine. Reach is re-measured one calendar month on vs the baseline snapshot. Objective: ' || btrim(p_objective),
-      v_type_id, v_institution_id, v_hod_staff_id,
-      true, 'green', v_month, (v_month + INTERVAL '1 month' - INTERVAL '1 day')::date, v_uid
-    )
-    RETURNING id INTO v_project_id;
+  INSERT INTO public.projects (
+    title, description, project_type_id, institution_id, owner_staff_id,
+    is_okr, rag_status, start_date, due_date, created_by
+  ) VALUES (
+    left('IG Cadence ' || to_char(v_month, 'Mon YYYY') || ' — ' || btrim(p_objective), 200),
+    'Monthly Instagram reach objective for this department, driven by the Social Loop cadence engine. Reach is re-measured one calendar month on vs the baseline snapshot. Objective: ' || btrim(p_objective),
+    v_type_id, v_institution_id, v_hod_staff_id,
+    true, 'green', v_month, (v_month + INTERVAL '1 month' - INTERVAL '1 day')::date, v_uid
+  )
+  RETURNING id INTO v_project_id;
 
-    -- Key result = a project_task; the HOD is its single RACI Accountable so the
-    -- auto-accountability engine (task_overdue + project_at_risk) has a subject
-    -- and one clear owner (mirrors TaskService.assign's one-Accountable invariant).
-    INSERT INTO public.project_tasks (
-      project_id, title, description, task_type, status_key, owner_staff_id,
-      start_date, due_date, created_by
-    ) VALUES (
-      v_project_id,
-      left('Grow monthly IG reach — ' || btrim(p_objective), 200),
-      'Re-measured one calendar month on vs the baseline reach snapshot.',
-      'key_result', 'todo', v_hod_staff_id,
-      v_month, (v_month + INTERVAL '1 month' - INTERVAL '1 day')::date, v_uid
-    )
-    RETURNING id INTO v_task_id;
+  -- Key result = a project_task; the HOD is its single RACI Accountable so the
+  -- auto-accountability engine (task_overdue + project_at_risk) has a subject
+  -- and one clear owner (mirrors TaskService.assign's one-Accountable invariant).
+  INSERT INTO public.project_tasks (
+    project_id, title, description, task_type, status_key, owner_staff_id,
+    start_date, due_date, created_by
+  ) VALUES (
+    v_project_id,
+    left('Grow monthly IG reach — ' || btrim(p_objective), 200),
+    'Re-measured one calendar month on vs the baseline reach snapshot.',
+    'key_result', 'todo', v_hod_staff_id,
+    v_month, (v_month + INTERVAL '1 month' - INTERVAL '1 day')::date, v_uid
+  )
+  RETURNING id INTO v_task_id;
 
-    IF v_hod_staff_id IS NOT NULL THEN
-      INSERT INTO public.project_task_assignees (task_id, staff_id, role, assigned_by)
-      VALUES (v_task_id, v_hod_staff_id, 'accountable', v_uid);
-    END IF;
-  ELSE
-    -- Tenant guard (HIGH): an externally-supplied project_id must be a REAL OKR
-    -- objective in THIS account's institution. Without this a scope='own' HOD
-    -- could link ANY project in ANY tenant and have close/cron flip its RAG
-    -- (cross-tenant write via this DEFINER function). Reject anything that is not
-    -- an is_okr project in v_institution_id.
-    IF NOT EXISTS (
-      SELECT 1 FROM public.projects
-      WHERE id = p_project_id
-        AND institution_id = v_institution_id
-        AND is_okr = true
-    ) THEN
-      RAISE EXCEPTION 'project_id % is not an OKR objective in this institution', p_project_id
-        USING ERRCODE = '42501';
-    END IF;
-    v_project_id := p_project_id;
+  IF v_hod_staff_id IS NOT NULL THEN
+    INSERT INTO public.project_task_assignees (task_id, staff_id, role, assigned_by)
+    VALUES (v_task_id, v_hod_staff_id, 'accountable', v_uid);
   END IF;
 
+  -- MED #4: atomic insert. ON CONFLICT DO NOTHING backstops the advisory lock so
+  -- a losing concurrent open returns the existing row instead of raising a raw
+  -- unique_violation. (With the lock held this conflict path is effectively
+  -- unreachable, but it keeps the RPC correct if the lock is ever bypassed.)
   INSERT INTO public.social_monthly_cadence (
     institution_id, account_id, department_id, cadence_month, objective,
     baseline_reach, baseline_month, baseline_metrics_source,
@@ -417,14 +439,22 @@ BEGIN
     v_baseline_reach, v_month, v_metrics_source,
     'open', v_project_id, v_uid
   )
+  ON CONFLICT (account_id, cadence_month) DO NOTHING
   RETURNING * INTO v_row;
+
+  IF NOT FOUND THEN
+    -- A concurrent open won the race: return its row (never raise).
+    SELECT * INTO v_row
+    FROM public.social_monthly_cadence
+    WHERE account_id = p_account_id AND cadence_month = v_month;
+  END IF;
 
   RETURN v_row;
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_social_cadence_open(UUID, TEXT, DATE, UUID) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_social_cadence_open(UUID, TEXT, DATE, UUID) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_social_cadence_open(UUID, TEXT, DATE) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_social_cadence_open(UUID, TEXT, DATE) TO authenticated;
 
 -- ── 5. Writer RPC: fn_social_cadence_record_action ──────────────────────────
 --    Records the action taken + the feedback (LoopVoice) snapshot at act time.
@@ -532,6 +562,14 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
+  -- DARK self-gate (round-3 HIGH root fix): the engine master switch gates close
+  -- too, not just open — a direct RPC call cannot drive the state machine while
+  -- the engine is DARK (social.cadence.enabled=false).
+  IF NOT COALESCE(fn_get_policy_bool('social.cadence.enabled', false, NULL), false) THEN
+    RAISE EXCEPTION 'The monthly cadence engine is disabled (social.cadence.enabled=false)'
+      USING ERRCODE = '42501';
+  END IF;
+
   IF v_row.status IN ('closed', 'unmeasurable') THEN
     RAISE EXCEPTION 'Cycle already finalised (%)', v_row.status USING ERRCODE = '22023';
   END IF;
@@ -592,11 +630,29 @@ BEGIN
   -- Teeth: reflect the measured reach-vs-target into the linked project's
   -- rag_status + percent_complete (the CANONICAL project RAG mechanism that
   -- evaluateProjectTriggers reads: green=0/amber=1/red=2, project_at_risk fires
-  -- gte 2 = red). A hard miss goes RED so the DORMANT rule would summon the HOD
-  -- to explain-or-meet; a soft miss is AMBER (informational at the default
-  -- threshold); a win is GREEN. An 'unmeasurable' cycle NEVER fabricates a miss
-  -- — the project RAG is left untouched (verify-not-trust).
+  -- gte 2 = red). A hard miss goes RED so the DORMANT rule would summon the HOD;
+  -- a soft miss is AMBER; a win is GREEN.
+  --
+  -- LOW #8 (round-2): an 'unmeasurable' cycle RESETS the project RAG to neutral
+  -- (green + 0% progress) rather than leaving it — the cron may have staged a
+  -- fabricated green/red into the project before the owner's close revealed the
+  -- cycle is unmeasurable, and that fabricated miss/win must NOT persist.
+  -- LOW #9 (round-2): percent_complete is written on BOTH close paths (and the
+  -- cron), so the two writers never disagree on progress.
   v_win_delta_pct := fn_get_policy_int('social.cadence.win_delta_pct', 10, NULL);
+
+  -- Tenant guard (HIGH): this DEFINER write bypasses projects RLS. NEVER touch
+  -- the RAG/progress of a project outside this cadence's institution. Guards BOTH
+  -- the measured write and the unmeasurable reset. Defence-in-depth even though
+  -- open validates the link and project_id is immutable.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.projects
+    WHERE id = v_row.project_id AND institution_id = v_row.institution_id
+  ) THEN
+    RAISE EXCEPTION 'cadence project % is not in institution %', v_row.project_id, v_row.institution_id
+      USING ERRCODE = '42501';
+  END IF;
+
   IF v_final_status = 'closed' THEN
     IF COALESCE(v_row.baseline_reach, 0) > 0 THEN
       v_pct := (v_delta::numeric / v_row.baseline_reach) * 100;
@@ -613,25 +669,18 @@ BEGIN
       v_new_rag := CASE WHEN COALESCE(v_delta, 0) > 0 THEN 'green' ELSE 'amber' END;
       v_progress := CASE WHEN COALESCE(v_delta, 0) > 0 THEN 100 ELSE 0 END;
     END IF;
-
-    -- Tenant guard (HIGH): this DEFINER write bypasses projects RLS. NEVER flip
-    -- the RAG of a project outside this cadence's institution. Defence-in-depth
-    -- even though open validates the link and project_id is immutable.
-    IF NOT EXISTS (
-      SELECT 1 FROM public.projects
-      WHERE id = v_row.project_id AND institution_id = v_row.institution_id
-    ) THEN
-      RAISE EXCEPTION 'cadence project % is not in institution %', v_row.project_id, v_row.institution_id
-        USING ERRCODE = '42501';
-    END IF;
-
-    UPDATE public.projects
-    SET rag_status = v_new_rag,
-        percent_complete = v_progress,
-        updated_at = now()
-    WHERE id = v_row.project_id
-      AND institution_id = v_row.institution_id;
+  ELSE
+    -- Unmeasurable: reset to neutral so no fabricated miss/win survives.
+    v_new_rag := 'green';
+    v_progress := 0;
   END IF;
+
+  UPDATE public.projects
+  SET rag_status = v_new_rag,
+      percent_complete = v_progress,
+      updated_at = now()
+  WHERE id = v_row.project_id
+    AND institution_id = v_row.institution_id;
 
   RETURN v_row;
 END;

@@ -5640,5 +5640,12 @@ CREATE TRIGGER trg_social_monthly_cadence_project_immutable
   FOR EACH ROW EXECUTE FUNCTION public.fn_social_cadence_guard_project_id();
 
 ALTER TABLE public.social_monthly_cadence ENABLE ROW LEVEL SECURITY;
+-- RPC-WRITE-ONLY (round-3 HIGH root fix): authenticated may READ but NEVER
+-- directly DML — all writes flow through the DEFINER writer RPCs (which carry
+-- the ownership / is_okr / DARK-gate / immutability guards). A raw PostgREST
+-- INSERT/UPDATE would bypass every guard (e.g. point project_id at a victim
+-- project to weaponise close/cron's RAG write). Neither REVOKE touches
+-- service_role, so the cron dispatcher's service-role writes keep working.
 REVOKE ALL ON public.social_monthly_cadence FROM anon, PUBLIC;
-GRANT SELECT, INSERT, UPDATE ON public.social_monthly_cadence TO authenticated;
+REVOKE INSERT, UPDATE, DELETE ON public.social_monthly_cadence FROM authenticated;
+GRANT SELECT ON public.social_monthly_cadence TO authenticated;

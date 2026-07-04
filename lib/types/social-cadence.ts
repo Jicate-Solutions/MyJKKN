@@ -100,8 +100,9 @@ export interface OpenCadenceBody {
   objective: string;
   /** First-of-month DATE; defaults to the current month server-side. */
   cadenceMonth?: string;
-  /** Optional pre-existing project (is_okr) to link instead of auto-creating one. */
-  projectId?: string;
+  // NOTE: no projectId — open ALWAYS auto-creates the cadence's own is_okr
+  // objective server-side (round-3 HIGH root fix; the caller-supplied project
+  // link was a cross-tenant RAG-hijack vector and was removed).
 }
 
 export interface RecordActionBody {
