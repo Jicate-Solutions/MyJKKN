@@ -30,6 +30,48 @@
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
+-- 0) Safe wall-clock parser for the mixed-format blob times. The attendance blob
+--    stores start_time/end_time as free text — mostly "10:00:00" (24h) or "3:00 PM"
+--    (12h), but a slot can legitimately hold an unparseable value ('TBD', 'Period 1')
+--    that the client time parser tolerates. Bare-casting such text with ::time raises
+--    22007/22008 and, in an ORDER BY, aborts the ENTIRE fn_scf_faculty_completion
+--    query. This returns the parsed time-of-day, or NULL for anything unparseable —
+--    it never throws (the regex fast-rejects obvious junk; the EXCEPTION handler is the
+--    last-resort backstop for shaped-but-out-of-range text like '24:70' / '13:00 PM').
+--    Used for chronological sorting only (NULLS LAST). Never bare-cast blob text.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_scf_to_time_or_null(p_text text)
+RETURNS time
+LANGUAGE plpgsql IMMUTABLE
+SET search_path = public
+AS $$
+BEGIN
+  IF p_text IS NULL OR btrim(p_text) = '' THEN
+    RETURN NULL;
+  END IF;
+  -- Fast reject of obviously-non-time text so the exception handler stays a cold path.
+  -- POSIX classes (not \d/\s) to stay unambiguous under standard_conforming_strings and
+  -- consistent with the UUID-shape regex used elsewhere in this file.
+  IF btrim(p_text) !~ '^[0-9]{1,2}:[0-9]{2}(:[0-9]{2})?[ ]*([AaPp][Mm])?$' THEN
+    RETURN NULL;
+  END IF;
+  RETURN btrim(p_text)::time;
+EXCEPTION WHEN others THEN
+  -- Shaped like a time but out of range ('24:70', '13:00 PM'): never abort the caller.
+  RETURN NULL;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_scf_to_time_or_null(text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_scf_to_time_or_null(text) TO authenticated;
+
+COMMENT ON FUNCTION public.fn_scf_to_time_or_null(text) IS
+  'Parse a mixed-format blob wall-clock string ("10:00:00" 24h or "3:00 PM" 12h) to a '
+  'time-of-day, returning NULL (never raising) for empty/unparseable/out-of-range text '
+  '("TBD", "24:70"). Sorts fn_scf_faculty_completion chronologically without a bare '
+  '::time cast that would abort the whole query on a non-time slot value.';
+
+-- ----------------------------------------------------------------------------
 -- 1) PR-A + PR-C — extend fn_scf_faculty_completion with:
 --      start_time / end_time  (blob wall-clock, for the active-period spotlight)
 --      gate_mode              (resolved per session institution via fn_get_policy_text)
@@ -74,7 +116,15 @@ BEGIN
         WHERE st ->> 'status' = 'Present'
           AND EXISTS (
             SELECT 1 FROM public.session_feedback f
-            WHERE f.student_id = (st ->> 'student_id')::uuid
+            -- Guard the ::uuid cast. A malformed blob student_id ('', 'N/A') raises
+            -- 22P02 and aborts the whole completion query. Same UUID-shape regex as the
+            -- sibling fn_scf_effective_attendance, applied AS A CASE so the cast can
+            -- never run on a non-UUID (guaranteed evaluation order, unlike an AND qual).
+            -- A non-UUID yields NULL -> never matches -> the learner just stays pending.
+            WHERE f.student_id = CASE
+                    WHEN (st ->> 'student_id') ~
+                         '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                    THEN (st ->> 'student_id')::uuid END
               AND f.attendance_date = s.attendance_date
               AND f.period_id = s.period_id
               -- Key the confirmation match on the FULL session identity. period_id is
@@ -122,10 +172,12 @@ BEGIN
   FROM derived d
   -- Chronological within a day: sort on the PARSED time-of-day, not the raw blob text.
   -- start_time comes in mixed formats (24h "10:00:00" and 12h "3:00 PM"); a raw text
-  -- sort orders "9:00 AM" after "10:00:00". ::time is the same normalization used
-  -- elsewhere for these blob times (fn_person_conflicts, doctrines TES). NULLIF guards a
-  -- missing/empty value so the cast can never throw; NULLS LAST sends those rows last.
-  ORDER BY d.attendance_date DESC, NULLIF(d.pv ->> 'start_time', '')::time NULLS LAST;
+  -- sort orders "9:00 AM" after "10:00:00". fn_scf_to_time_or_null normalizes both AND
+  -- returns NULL (never raises) for a non-time slot value ('TBD', 'Period 1', '24:70') —
+  -- a bare NULLIF(...)::time would abort the ENTIRE query on such a value (round-3
+  -- regression). NULLS LAST sends the unparseable rows to the end.
+  ORDER BY d.attendance_date DESC,
+           public.fn_scf_to_time_or_null(d.pv ->> 'start_time') ASC NULLS LAST;
 END;
 $$;
 
@@ -198,16 +250,29 @@ BEGIN
   SELECT p.id INTO v_system_actor
   FROM public.profiles p WHERE p.is_super_admin = true ORDER BY p.created_at ASC LIMIT 1;
 
-  WITH pend AS (
-    SELECT DISTINCT lp.profile_id AS recipient_id
+  present_students AS (
+    -- Extract + VALIDATE each Present learner's id ONCE. A malformed blob student_id
+    -- ('', 'N/A') cast with ::uuid raises 22P02 and aborts the whole nudge. Guard the
+    -- cast with the same UUID-shape regex as fn_scf_effective_attendance, applied AS A
+    -- CASE so the cast can never run on a non-UUID (guaranteed order). Malformed ids
+    -- become NULL and are dropped below — they simply aren't nudged, never crash.
+    SELECT CASE
+             WHEN (st ->> 'student_id') ~
+                  '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+             THEN (st ->> 'student_id')::uuid END AS student_uuid
     FROM jsonb_array_elements(v_pv -> 'students') st
-    JOIN public.learners_profiles lp
-      ON lp.id = (st ->> 'student_id')::uuid
-     AND lp.profile_id IS NOT NULL
     WHERE st ->> 'status' = 'Present'
+  ),
+  pend AS (
+    SELECT DISTINCT lp.profile_id AS recipient_id
+    FROM present_students ps
+    JOIN public.learners_profiles lp
+      ON lp.id = ps.student_uuid
+     AND lp.profile_id IS NOT NULL
+    WHERE ps.student_uuid IS NOT NULL
       AND NOT EXISTS (
         SELECT 1 FROM public.session_feedback f
-        WHERE f.student_id      = (st ->> 'student_id')::uuid
+        WHERE f.student_id      = ps.student_uuid
           AND f.attendance_date = p_attendance_date
           AND f.period_id       = p_period_id
           -- Full session identity: feedback for a different class sharing this period
@@ -323,22 +388,36 @@ BEGIN
        = COALESCE(v_scope_id, '00000000-0000-0000-0000-000000000000'::uuid);
 
   IF NOT FOUND THEN
-    INSERT INTO public.platform_policies
-      (policy_key, scope_type, scope_id, value, data_type, enum_options,
-       description, classification, publication_state, is_system, is_active, ui_category,
-       updated_by, updated_at)
-    SELECT
-      'session_feedback.gate_mode', v_scope_type, v_scope_id, to_jsonb(p_mode), 'string',
-      to_jsonb(ARRAY['off', 'visibility', 'hard']),
-      'Post-class feedback gate: off | visibility | hard. Set via SCF break-glass RPC.',
-      'major', 'published', true, true, 'Session Feedback',
-      auth.uid(), now()
-    WHERE NOT EXISTS (
-      SELECT 1 FROM public.platform_policies
+    -- Race guard: two concurrent callers can both see NOT FOUND and both INSERT, so the
+    -- second hits uq_platform_policies_key_scope -> unique_violation, which (without this
+    -- handler) would abort the whole break-glass call. Catch it and re-run the UPDATE so
+    -- the last writer still wins. The kill-switch can never throw a unique_violation.
+    BEGIN
+      INSERT INTO public.platform_policies
+        (policy_key, scope_type, scope_id, value, data_type, enum_options,
+         description, classification, publication_state, is_system, is_active, ui_category,
+         updated_by, updated_at)
+      SELECT
+        'session_feedback.gate_mode', v_scope_type, v_scope_id, to_jsonb(p_mode), 'string',
+        to_jsonb(ARRAY['off', 'visibility', 'hard']),
+        'Post-class feedback gate: off | visibility | hard. Set via SCF break-glass RPC.',
+        'major', 'published', true, true, 'Session Feedback',
+        auth.uid(), now()
+      WHERE NOT EXISTS (
+        SELECT 1 FROM public.platform_policies
+         WHERE policy_key = 'session_feedback.gate_mode'
+           AND scope_type = v_scope_type
+           AND COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)
+             = COALESCE(v_scope_id, '00000000-0000-0000-0000-000000000000'::uuid));
+    EXCEPTION WHEN unique_violation THEN
+      UPDATE public.platform_policies
+         SET value = to_jsonb(p_mode), is_active = true,
+             updated_by = auth.uid(), updated_at = now()
        WHERE policy_key = 'session_feedback.gate_mode'
          AND scope_type = v_scope_type
          AND COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)
-           = COALESCE(v_scope_id, '00000000-0000-0000-0000-000000000000'::uuid));
+           = COALESCE(v_scope_id, '00000000-0000-0000-0000-000000000000'::uuid);
+    END;
   END IF;
 
   RETURN p_mode;
@@ -389,6 +468,17 @@ BEGIN
   IF NOT (is_super_admin() OR is_admin()
           OR user_has_permission('academic.attendance.dashboard.view')) THEN
     RAISE EXCEPTION 'fn_scf_effective_attendance: not authorized';
+  END IF;
+
+  -- Server-side compliance gate (defense in depth). The coupling is DARK by default and
+  -- must stay inert until a super-admin flips session_feedback.attendance_coupling_enabled
+  -- AND legal/compliance sign-off (spec R2). The service layer already checks this flag,
+  -- but re-check it HERE so the derived effective-% can NEVER be computed by a direct RPC
+  -- call that bypasses the service. When OFF: return zero rows, compute/touch nothing.
+  -- Resolves the institution override (p_institution_id) -> global -> default FALSE.
+  IF NOT public.fn_get_policy_bool(
+       'session_feedback.attendance_coupling_enabled', false, p_institution_id) THEN
+    RETURN;
   END IF;
 
   RETURN QUERY
@@ -494,16 +584,21 @@ WHERE NOT EXISTS (
     AND scope_type = 'global' AND scope_id IS NULL);
 
 -- ----------------------------------------------------------------------------
--- 6) SECURITY — arm-side authz guard for the hard gate (arming/reverting symmetry).
---    platform_policies RLS is (is_super_admin() OR is_admin()), so WITHOUT this guard
---    any TENANT ADMIN could write session_feedback.gate_mode='hard' for their institution
---    and ARM hard enforcement — while the break-glass revert (fn_scf_set_gate_mode) is
---    super-admin ONLY. The compliance assurance "only a super-admin can arm hard mode"
---    must hold in BOTH directions. This BEFORE INSERT/UPDATE trigger rejects any
---    authenticated non-super-admin write to the gate_mode control row (SQLSTATE 42501),
---    scoped STRICTLY to that policy_key so no other platform policy is affected.
---    Service-role / migrations (auth.uid() IS NULL) are unaffected; the super-admin
---    break-glass and super-admin admin-UI edits pass (is_super_admin() = true).
+-- 6) SECURITY — arm-side authz guard for BOTH compliance controls (arming symmetry).
+--    platform_policies RLS is (is_super_admin() OR is_admin()), so WITHOUT this guard any
+--    TENANT ADMIN could write either compliance flag for their institution and ARM the
+--    regulated behaviour — while the break-glass revert (fn_scf_set_gate_mode) and the
+--    coupling policy are meant to be super-admin ONLY. The compliance assurance "only a
+--    super-admin can arm the hard gate / the exam-eligibility coupling" must hold in BOTH
+--    directions, for BOTH rows:
+--      * session_feedback.gate_mode                   (hard-gate arming)
+--      * session_feedback.attendance_coupling_enabled (exam-eligibility coupling arming)
+--    This BEFORE INSERT/UPDATE trigger rejects any authenticated non-super-admin write to
+--    EITHER control row (SQLSTATE 42501), scoped STRICTLY to those two policy_keys so no
+--    other platform policy is affected. Service-role / migrations (auth.uid() IS NULL) are
+--    unaffected; the super-admin break-glass and super-admin admin-UI edits pass
+--    (is_super_admin() = true). The coupling row is seeded FALSE below by this same
+--    migration (auth.uid() NULL), so the seed is not blocked.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_guard_gate_mode_super_admin_only()
 RETURNS trigger
@@ -511,15 +606,18 @@ LANGUAGE plpgsql
 SET search_path = public
 AS $$
 BEGIN
-  -- Guard only the compliance-sensitive gate_mode row. Check NEW (INSERT/UPDATE) and,
-  -- on UPDATE, OLD too — so the row cannot be hijacked by renaming a policy_key into or
-  -- out of 'session_feedback.gate_mode'. Reject only an AUTHENTICATED non-super-admin;
-  -- allow service-role/migration writes (auth.uid() IS NULL) and super-admins.
-  IF NEW.policy_key = 'session_feedback.gate_mode'
-     OR (TG_OP = 'UPDATE' AND OLD.policy_key = 'session_feedback.gate_mode') THEN
+  -- Guard BOTH compliance-sensitive control rows. Check NEW (INSERT/UPDATE) and, on
+  -- UPDATE, OLD too — so neither row can be hijacked by renaming a policy_key into or out
+  -- of a guarded key. Reject only an AUTHENTICATED non-super-admin; allow service-role/
+  -- migration writes (auth.uid() IS NULL) and super-admins.
+  IF NEW.policy_key IN ('session_feedback.gate_mode',
+                        'session_feedback.attendance_coupling_enabled')
+     OR (TG_OP = 'UPDATE'
+         AND OLD.policy_key IN ('session_feedback.gate_mode',
+                                'session_feedback.attendance_coupling_enabled')) THEN
     IF auth.uid() IS NOT NULL AND NOT public.is_super_admin() THEN
       RAISE EXCEPTION
-        'session_feedback.gate_mode is a super-admin-only control (hard-gate arming)'
+        'session_feedback compliance controls (gate_mode, attendance_coupling_enabled) are super-admin-only'
         USING ERRCODE = '42501',
               HINT = 'Use the super-admin break-glass RPC or contact a super-admin.';
     END IF;
@@ -532,9 +630,10 @@ REVOKE EXECUTE ON FUNCTION public.fn_guard_gate_mode_super_admin_only() FROM ano
 
 COMMENT ON FUNCTION public.fn_guard_gate_mode_super_admin_only() IS
   'BEFORE INSERT/UPDATE guard on platform_policies: only a super-admin (or service-role/'
-  'migration, auth.uid() NULL) may write the session_feedback.gate_mode control row. '
-  'Makes hard-gate ARMING super-admin-only, symmetric with the super-admin-only '
-  'break-glass revert (fn_scf_set_gate_mode). Scoped strictly to that policy_key.';
+  'migration, auth.uid() NULL) may write the session_feedback.gate_mode OR '
+  'session_feedback.attendance_coupling_enabled control rows. Makes BOTH the hard-gate '
+  'and exam-eligibility-coupling ARMING super-admin-only, symmetric with the super-admin-'
+  'only break-glass revert (fn_scf_set_gate_mode). Scoped strictly to those two keys.';
 
 DROP TRIGGER IF EXISTS trg_guard_gate_mode_super_admin_only ON public.platform_policies;
 CREATE TRIGGER trg_guard_gate_mode_super_admin_only

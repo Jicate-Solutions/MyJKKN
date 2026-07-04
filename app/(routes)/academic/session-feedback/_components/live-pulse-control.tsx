@@ -266,7 +266,11 @@ export function LivePulseSection({ from, to }: { from: string; to: string }) {
       startMin: parseBlobTimeToMinutes(r.start_time),
       endMin: parseBlobTimeToMinutes(r.end_time),
     }))
-    .filter((x) => x.startMin != null);
+    // Only a class with Present students can be pulsed. Excluding present-0 sessions here
+    // means a present-0 active class no longer wins the spotlight and then suppresses it
+    // (the render guard drops present-0) — the spotlight falls back to the next pulseable
+    // class instead. Mirrors the per-row "noPresent" disable in the list below.
+    .filter((x) => x.startMin != null && x.row.present_count > 0);
   const activeNow = withTimes
     .filter((x) => {
       if (x.startMin == null || x.endMin == null) return false;
@@ -317,8 +321,9 @@ export function LivePulseSection({ from, to }: { from: string; to: string }) {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {/* PR-A spotlight: the current/next class, front-and-centre, one big tap. */}
-        {spotlight && spotlight.row.present_count > 0 ? (
+        {/* PR-A spotlight: the current/next class, front-and-centre, one big tap.
+            `spotlight` is already restricted to pulseable (present_count>0) classes. */}
+        {spotlight ? (
           <div className="mb-4 rounded-lg border-2 border-[#0b6d41] bg-[#0b6d41]/5 p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
