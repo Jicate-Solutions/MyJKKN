@@ -1085,6 +1085,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/cdc/training/new': 'cdc.training.create',
   '/cdc/training/[id]': 'cdc.training.view',
 
+  // CDC — Government Job Readiness (TNPSC / RRB / banking / SSC / TN Police)
+  '/cdc/govt-readiness': 'cdc.govt_readiness.view',
+
   // CDC — UNNATI → UDYOG application tracker
   '/cdc/udyog': 'cdc.udyog.view',
 
@@ -2518,6 +2521,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Training Programmes',
           active: pathname.startsWith('/cdc/training'),
           icon: BookOpen,
+          submenus: []
+        },
+        {
+          href: '/cdc/govt-readiness',
+          label: 'Govt Job Readiness',
+          active: pathname.startsWith('/cdc/govt-readiness'),
+          icon: Target,
           submenus: []
         },
         {
