@@ -21,6 +21,7 @@ import type { PendingSession } from '@/types/session-feedback';
 import { FeedbackDialog } from './_components/feedback-dialog';
 import { MyVoiceReceipt } from './_components/my-voice-receipt';
 import { LivePulseBanner } from './_components/live-pulse-banner';
+import { ClassPollBanner } from './_components/class-poll-banner';
 import { LoopClosureCard } from './_components/loop-closure-card';
 import { StrugglingNoteCard } from './_components/struggling-note-card';
 
@@ -77,6 +78,11 @@ export default function LearnerSessionFeedbackPage() {
             </Badge>
           )}
         </div>
+
+        {/* Live class poll (Live Poll Engine Phase B) — the rich builder-driven poll,
+            with realtime word-cloud / scale / checklist question types. Rendered above
+            the older simple live-pulse banner (kept as a fallback discovery path). */}
+        <ClassPollBanner />
 
         {/* Live pulse — answer now if a teacher opened an in-class pulse for you */}
         <LivePulseBanner
