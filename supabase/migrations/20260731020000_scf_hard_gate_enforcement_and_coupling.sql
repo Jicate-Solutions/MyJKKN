@@ -250,7 +250,7 @@ BEGIN
   SELECT p.id INTO v_system_actor
   FROM public.profiles p WHERE p.is_super_admin = true ORDER BY p.created_at ASC LIMIT 1;
 
-  present_students AS (
+  WITH present_students AS (
     -- Extract + VALIDATE each Present learner's id ONCE. A malformed blob student_id
     -- ('', 'N/A') cast with ::uuid raises 22P02 and aborts the whole nudge. Guard the
     -- cast with the same UUID-shape regex as fn_scf_effective_attendance, applied AS A
