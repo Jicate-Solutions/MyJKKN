@@ -37,7 +37,10 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 const BATCH_COST_MULTIPLIER = 0.5;
 const DEFAULT_LEASE_SECONDS = 600; // reclaim a job whose collector crashed
 const DEFAULT_MAX_JOBS = 50;
-const DEFAULT_EXPIRY_GRACE_MS = 60_000;
+// Only mark a not-yet-ended batch 'expired' well PAST Anthropic's 24h ended-by
+// guarantee, so in practice we always collect it as 'ended' first (no abandoned
+// work). This is a defensive backstop for a contract violation, not a normal path.
+const DEFAULT_EXPIRY_GRACE_MS = 2 * 60 * 60 * 1000; // 2h
 
 // ── Submit types ────────────────────────────────────────────────────────────
 /** One request queued for a batch. `context` is persisted verbatim and handed
@@ -78,6 +81,8 @@ interface JobRow {
   anthropic_batch_id: string;
   model_id: string;
   expires_at: string | null;
+  submitted_at: string;
+  request_count: number;
 }
 interface ItemRow {
   id: string;
@@ -186,9 +191,19 @@ export async function collectEndedBatches(
       const status = await anthropic.messages.batches.retrieve(job.anthropic_batch_id);
 
       if (status.processing_status !== 'ended') {
-        const expiredPast =
-          job.expires_at != null && Date.parse(job.expires_at) + graceMs < Date.now();
-        if (expiredPast) {
+        // Not ready — release for a later tick. Expiry fallback covers a null
+        // expires_at (SDK omission) so a stuck batch's dedupe_key can't block the
+        // course FOREVER. Anthropic transitions to 'ended' by 24h (unfinished
+        // requests → result.type='expired'), so we normally collect it as 'ended'
+        // well before this fires; a batch still not ended past expiry+2h is a
+        // contract violation — mark terminal and log the abandoned request count.
+        const expiryMs = job.expires_at
+          ? Date.parse(job.expires_at)
+          : Date.parse(job.submitted_at) + 24 * 60 * 60 * 1000;
+        if (Number.isFinite(expiryMs) && expiryMs + graceMs < Date.now()) {
+          console.error(
+            `[ai-batch] job ${job.id} (${job.anthropic_batch_id}) still '${status.processing_status}' past expiry — marking expired, ABANDONING ${job.request_count} request(s)`,
+          );
           await admin.rpc('fn_ai_batch_mark_expired', { p_job_id: job.id, p_status: 'expired' });
         } else {
           await admin.rpc('fn_ai_batch_release_job', { p_job_id: job.id });
@@ -212,9 +227,11 @@ export async function collectEndedBatches(
           : null;
 
       const items: CollectedItem[] = [];
+      const settledIds = new Set<string>();
       for await (const entry of await anthropic.messages.batches.results(job.anthropic_batch_id)) {
         const row = byCustomId.get(entry.custom_id);
         if (!row) continue; // unknown custom_id — nothing to record against
+        settledIds.add(entry.custom_id);
 
         if (entry.result.type === 'succeeded') {
           const message = entry.result.message;
@@ -267,6 +284,31 @@ export async function collectEndedBatches(
             message: null,
             resultType: rt,
             errorMessage,
+          });
+        }
+      }
+
+      // Reconcile: any persisted item ABSENT from the results stream (Anthropic
+      // guarantees one result per request, so near-unreachable) would otherwise
+      // stay result_status=NULL and keep its dedupe_key in-flight forever, silently
+      // blocking the course. Settle such items 'errored' (no cost) so the key frees.
+      for (const it of (itemData ?? []) as ItemRow[]) {
+        if (it.result_status === null && !settledIds.has(it.custom_id)) {
+          console.error(
+            `[ai-batch] job ${job.id} item ${it.custom_id} absent from results stream — settling 'errored'`,
+          );
+          await admin.rpc('fn_ai_batch_settle_item', {
+            p_item_id: it.id,
+            p_result_status: 'errored',
+            p_feature_key: featureKey,
+            p_provider: 'anthropic',
+            p_model_id: job.model_id,
+            p_input_tokens: null,
+            p_output_tokens: null,
+            p_cost_inr: null,
+            p_duration_ms: null,
+            p_success: false,
+            p_error: 'absent from results stream',
           });
         }
       }

@@ -57,6 +57,16 @@ CREATE TABLE IF NOT EXISTS public.ai_batch_job_items (
 );
 CREATE INDEX IF NOT EXISTS idx_ai_batch_job_items_dedupe ON public.ai_batch_job_items(dedupe_key);
 CREATE INDEX IF NOT EXISTS idx_ai_batch_job_items_job    ON public.ai_batch_job_items(job_id);
+-- Atomic in-flight guard (backs partitionInFlight, which is only advisory): at
+-- most ONE unsettled item per dedupe_key. result_status IS NULL == outstanding
+-- (submitted/collecting); a settled item (collected job, or a settled-then-record-
+-- failed item) has result_status set and does NOT block a legitimate next-window
+-- resubmit. Two concurrent submit runs for the same course conflict here → the
+-- second's fn_ai_batch_record_submission rolls back → submitBatch cancels its
+-- (not-yet-billed) batch. Closes the check-then-act re-bill window.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_batch_job_items_inflight_dedupe
+  ON public.ai_batch_job_items(dedupe_key)
+  WHERE result_status IS NULL AND dedupe_key IS NOT NULL;
 
 ALTER TABLE public.ai_batch_jobs      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_batch_job_items ENABLE ROW LEVEL SECURITY;
@@ -95,7 +105,10 @@ BEGIN
   INSERT INTO public.ai_batch_jobs
     (feature_key, phase, anthropic_batch_id, model_id, status, request_count, expires_at)
   VALUES
-    (p_feature_key, p_phase, p_anthropic_batch_id, p_model_id, 'submitted', v_count, p_expires_at)
+    (p_feature_key, p_phase, p_anthropic_batch_id, p_model_id, 'submitted', v_count,
+     -- Fallback so a null expiry can't leave a stuck batch's dedupe_key blocking
+     -- the course forever (the expiry sweep needs a concrete timestamp).
+     COALESCE(p_expires_at, now() + interval '24 hours'))
   RETURNING id INTO v_job_id;
 
   INSERT INTO public.ai_batch_job_items (job_id, custom_id, context, dedupe_key)

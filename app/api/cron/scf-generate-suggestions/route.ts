@@ -496,6 +496,13 @@ export async function GET(request: NextRequest) {
     for (const job of jobs) {
       try {
         const chainedGen: SubmitBatchRequest[] = [];
+        // If any item was settled+billed but its outcome could NOT be fully
+        // recorded (domain-record failure, or a transient guard-query error on an
+        // elevation), do NOT finalize the job: leave it 'collecting' so the lease
+        // re-drains it. settle_item is idempotent (no re-bill) and every domain
+        // write is an upsert, so re-collection safely completes the record. Without
+        // this, a completed+billed item's suggestion is lost and re-billed next run.
+        let deferFinalize = false;
 
         for (const item of job.items) {
           if (job.phase === 'judge') {
@@ -514,8 +521,10 @@ export async function GET(request: NextRequest) {
                 ctx.recentSince
               );
               if (guardHit === null) {
+                // Transient guard error on a settled+billed elevation — don't lose
+                // it: defer finalize so the lease re-drains and re-attempts.
                 guardErrors++;
-                skipped++;
+                deferFinalize = true;
                 continue;
               }
               if (guardHit) {
@@ -562,7 +571,10 @@ export async function GET(request: NextRequest) {
               if (ok) {
                 leadershipFlagged++;
                 concerns++;
-              } else skipped++;
+              } else {
+                // Settled+billed but concern not recorded — defer finalize to re-drain.
+                deferFinalize = true;
+              }
             } else {
               // 0 genuine asks. A GENUINE 0 resolves a prior lone-voice concern; a
               // judge ERROR must NOT resolve (a transient blip shouldn't clear a real
@@ -600,11 +612,13 @@ export async function GET(request: NextRequest) {
                   await clearLeadershipConcern(admin, ctx.target, 'supersede');
                 }
               } catch (recErr) {
+                // Settled+billed but suggestion not recorded — defer finalize so the
+                // lease re-drains; fn_scf_record_suggestion is an upsert (no dup).
                 console.error(
-                  `[cron/scf-generate-suggestions] record failed for ${ctx.target.course_code}:`,
+                  `[cron/scf-generate-suggestions] record failed for ${ctx.target.course_code} — deferring finalize:`,
                   recErr
                 );
-                skipped++;
+                deferFinalize = true;
               }
             } else {
               skipped++;
@@ -626,8 +640,16 @@ export async function GET(request: NextRequest) {
           if (sub) genChained += sub.requestCount;
         }
 
-        await markJobCollected(job.jobId);
-        collectedJobs++;
+        if (deferFinalize) {
+          // A billed item couldn't be fully recorded — leave the job 'collecting'
+          // so the lease re-admits and re-drains it (idempotent). Do NOT finalize.
+          console.warn(
+            `[cron/scf-generate-suggestions] job ${job.jobId}: a record step failed — deferring finalize for lease re-drain`
+          );
+        } else {
+          await markJobCollected(job.jobId);
+          collectedJobs++;
+        }
       } catch (jobErr) {
         // Leave the job in 'collecting' — the lease re-admits it. All prior writes
         // were idempotent, so re-collection is safe.
