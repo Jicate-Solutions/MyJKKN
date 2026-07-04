@@ -46,10 +46,8 @@ const RESULTS_STREAM_TIMEOUT_MS = 60_000;
  *  (which would freeze the course — the in-flight guard blocks on job status). */
 export const MAX_COLLECT_ATTEMPTS = 6;
 const DEFAULT_MAX_JOBS = 50;
-// Only mark a not-yet-ended batch 'expired' well PAST Anthropic's 24h ended-by
-// guarantee, so in practice we always collect it as 'ended' first (no abandoned
-// work). This is a defensive backstop for a contract violation, not a normal path.
-const DEFAULT_EXPIRY_GRACE_MS = 2 * 60 * 60 * 1000; // 2h
+// (Past-expiry termination is a path-independent age-backstop in the claim RPC,
+//  fn_ai_batch_claim_for_collection — not a per-call timeout here.)
 
 // ── Submit types ────────────────────────────────────────────────────────────
 /** One request queued for a batch. `context` is persisted verbatim and handed
@@ -220,13 +218,12 @@ export async function submitBatch(args: {
 // ============================================================================
 export async function collectEndedBatches(
   featureKey: string,
-  opts?: { leaseSeconds?: number; maxJobs?: number; graceMs?: number },
+  opts?: { leaseSeconds?: number; maxJobs?: number },
 ): Promise<CollectedJob[]> {
   const admin = createServiceRoleClient();
   const anthropic = anthropicClient();
   const leaseSeconds = opts?.leaseSeconds ?? DEFAULT_LEASE_SECONDS;
   const maxJobs = opts?.maxJobs ?? DEFAULT_MAX_JOBS;
-  const graceMs = opts?.graceMs ?? DEFAULT_EXPIRY_GRACE_MS;
 
   const { data: claimed, error: claimErr } = await admin.rpc('fn_ai_batch_claim_for_collection', {
     p_feature_key: featureKey,
@@ -250,36 +247,23 @@ export async function collectEndedBatches(
         timeout: ANTHROPIC_TIMEOUT_MS,
       });
     } catch (retrieveErr) {
+      // Transport error (timeout / transient 5xx / gone). Leave the job
+      // 'collecting' — the lease re-admits it after leaseSeconds (a natural
+      // backoff, no hammer loop), and the claim's age-backstop marks it terminal +
+      // frees its keys if it's past expiry, so a PERMANENT retrieve failure
+      // (404 after retention, purged id, perpetual 5xx) can't freeze the course.
       console.warn(
-        `[ai-batch] retrieve failed for job ${job.id} (${job.anthropic_batch_id}) — releasing:`,
+        `[ai-batch] retrieve failed for job ${job.id} (${job.anthropic_batch_id}) — leaving for lease/backstop:`,
         retrieveErr instanceof Error ? retrieveErr.message : retrieveErr,
       );
-      try {
-        await admin.rpc('fn_ai_batch_release_job', { p_job_id: job.id });
-      } catch {
-        /* lease will reclaim */
-      }
       continue;
     }
 
     if (status.processing_status !== 'ended') {
-      // Not ready — release for a later tick. Expiry fallback covers a null
-      // expires_at (SDK omission) so a stuck batch's dedupe_key can't block the
-      // course FOREVER. Anthropic transitions to 'ended' by 24h (unfinished
-      // requests → result.type='expired'), so we normally collect it as 'ended'
-      // well before this fires; a batch still not ended past expiry+2h is a
-      // contract violation — mark terminal and log the abandoned request count.
-      const expiryMs = job.expires_at
-        ? Date.parse(job.expires_at)
-        : Date.parse(job.submitted_at) + 24 * 60 * 60 * 1000;
-      if (Number.isFinite(expiryMs) && expiryMs + graceMs < Date.now()) {
-        console.error(
-          `[ai-batch] job ${job.id} (${job.anthropic_batch_id}) still '${status.processing_status}' past expiry — marking expired, ABANDONING ${job.request_count} request(s)`,
-        );
-        await admin.rpc('fn_ai_batch_mark_expired', { p_job_id: job.id, p_status: 'expired' });
-      } else {
-        await admin.rpc('fn_ai_batch_release_job', { p_job_id: job.id });
-      }
+      // Still processing — release for a prompt re-check next tick (decrements
+      // collect_attempts; this poll wasn't a productive collect). Past-expiry
+      // termination is handled uniformly by the claim's age-backstop.
+      await admin.rpc('fn_ai_batch_release_job', { p_job_id: job.id });
       continue;
     }
 

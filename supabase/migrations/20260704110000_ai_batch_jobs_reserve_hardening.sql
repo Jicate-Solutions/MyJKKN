@@ -142,6 +142,27 @@ BEGIN
    WHERE feature_key = p_feature_key AND status = 'pending'
      AND created_at < now() - interval '5 minutes';
 
+  -- FREEZE BACKSTOP (path-independent): any submitted/collecting job past its
+  -- expiry+2h can never be productively collected — Anthropic ends every batch by
+  -- 24h — regardless of WHY collection kept failing (permanent retrieve 404/5xx,
+  -- results timeout, record failure). Mark it terminal AND free its item dedupe
+  -- keys so no failure path can freeze the course forever. This single sweep is
+  -- the guarantee; the collect_attempts cap is only a faster bound for the common
+  -- record-failure case.
+  UPDATE public.ai_batch_job_items i
+     SET result_status = 'expired'
+    FROM public.ai_batch_jobs j
+   WHERE i.job_id = j.id
+     AND j.feature_key = p_feature_key
+     AND j.status IN ('submitted','collecting')
+     AND COALESCE(j.expires_at, j.submitted_at + interval '24 hours') + interval '2 hours' < now()
+     AND i.result_status IS NULL;
+  UPDATE public.ai_batch_jobs
+     SET status = 'expired', updated_at = now()
+   WHERE feature_key = p_feature_key
+     AND status IN ('submitted','collecting')
+     AND COALESCE(expires_at, submitted_at + interval '24 hours') + interval '2 hours' < now();
+
   RETURN QUERY
   WITH due AS (
     SELECT j.id
