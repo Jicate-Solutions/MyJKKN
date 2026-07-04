@@ -57,6 +57,7 @@ import {
   collectEndedBatches,
   markJobCollected,
   partitionInFlight,
+  MAX_COLLECT_ATTEMPTS,
   type SubmitBatchRequest,
   type SubmitBatchResult,
 } from '@/lib/services/platform/ai-clients/batch';
@@ -82,6 +83,8 @@ const STANDOUT_THRESHOLD = 4.5;
 // leadership-only concern; zero → skip.
 const WIDENED_MIN_COMMENTS = 2;
 const WIDENED_MIN_ASKS = 2;
+// MAX_COLLECT_ATTEMPTS (the stuck-job cap) is imported from ai-clients/batch so
+// the collect-error path and this domain-record path share one threshold.
 
 // Replicated verbatim from ai-suggest-improvement/route.ts so the model's
 // output shape is identical — the record RPC stores the same JSON structure.
@@ -641,11 +644,25 @@ export async function GET(request: NextRequest) {
         }
 
         if (deferFinalize) {
-          // A billed item couldn't be fully recorded — leave the job 'collecting'
-          // so the lease re-admits and re-drains it (idempotent). Do NOT finalize.
-          console.warn(
-            `[cron/scf-generate-suggestions] job ${job.jobId}: a record step failed — deferring finalize for lease re-drain`
-          );
+          if (job.collectAttempts >= MAX_COLLECT_ATTEMPTS) {
+            // Record has failed on every re-drain up to the cap — a persistent
+            // failure would re-drain forever, freezing the course. Give up: mark
+            // 'failed' (terminal) so the in-flight guard releases it. Items were
+            // already settled (idempotent ledger), so nothing is re-billed.
+            console.error(
+              `[cron/scf-generate-suggestions] job ${job.jobId}: record failed on ${job.collectAttempts} attempts — marking failed (terminal)`
+            );
+            await admin.rpc('fn_ai_batch_mark_expired', {
+              p_job_id: job.jobId,
+              p_status: 'failed',
+            });
+          } else {
+            // A billed item couldn't be fully recorded — leave the job 'collecting'
+            // so the lease re-admits and re-drains it (idempotent). Do NOT finalize.
+            console.warn(
+              `[cron/scf-generate-suggestions] job ${job.jobId}: a record step failed (attempt ${job.collectAttempts}) — deferring finalize for lease re-drain`
+            );
+          }
         } else {
           await markJobCollected(job.jobId);
           collectedJobs++;

@@ -36,11 +36,18 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 // pricing registry stores STANDARD rates, so ledger rows halve the figure.
 const BATCH_COST_MULTIPLIER = 0.5;
 const DEFAULT_LEASE_SECONDS = 600; // reclaim a job whose collector crashed
+// Per-call timeout for every Anthropic request so a hung call can't consume the
+// whole serverless maxDuration (and can't let a reservation age past the sweep).
+const ANTHROPIC_TIMEOUT_MS = 30_000;
+// Results are a JSONL stream (can be larger than a single request), so a longer bound.
+const RESULTS_STREAM_TIMEOUT_MS = 60_000;
+/** After this many ENDED-claim collect failures (record error or stream timeout),
+ *  a job is marked terminal 'failed' so a persistent failure can't re-drain forever
+ *  (which would freeze the course — the in-flight guard blocks on job status). */
+export const MAX_COLLECT_ATTEMPTS = 6;
 const DEFAULT_MAX_JOBS = 50;
-// Only mark a not-yet-ended batch 'expired' well PAST Anthropic's 24h ended-by
-// guarantee, so in practice we always collect it as 'ended' first (no abandoned
-// work). This is a defensive backstop for a contract violation, not a normal path.
-const DEFAULT_EXPIRY_GRACE_MS = 2 * 60 * 60 * 1000; // 2h
+// (Past-expiry termination is a path-independent age-backstop in the claim RPC,
+//  fn_ai_batch_claim_for_collection — not a per-call timeout here.)
 
 // ── Submit types ────────────────────────────────────────────────────────────
 /** One request queued for a batch. `context` is persisted verbatim and handed
@@ -50,6 +57,11 @@ export interface SubmitBatchRequest {
   customId: string;
   params: Anthropic.Messages.MessageCreateParamsNonStreaming;
   context: Record<string, unknown>;
+  /** In-flight guard key. The uniqueness index is (feature_key, dedupe_key), so
+   *  dedupe_key MUST be globally unique WITHIN a feature — for a multi-tenant
+   *  feature, embed the tenant/institution id in the key (as scf does:
+   *  `feature|phase|institution_id|course|faculty`) so one tenant's request is
+   *  never skipped as an in-flight "duplicate" of another tenant's. */
   dedupeKey?: string | null;
 }
 export interface SubmitBatchResult {
@@ -71,6 +83,9 @@ export interface CollectedJob {
   jobId: string;
   phase: string;
   batchId: string;
+  /** How many times this job has been claimed for collection — lets the caller
+   *  cap re-drains and mark a persistently-unrecordable job terminal. */
+  collectAttempts: number;
   items: CollectedItem[];
 }
 
@@ -83,6 +98,7 @@ interface JobRow {
   expires_at: string | null;
   submitted_at: string;
   request_count: number;
+  collect_attempts: number;
 }
 interface ItemRow {
   id: string;
@@ -113,46 +129,91 @@ export async function submitBatch(args: {
   const { featureKey, phase, modelId, requests } = args;
   if (!requests || requests.length === 0) return null;
 
-  const anthropic = anthropicClient();
+  const admin = createServiceRoleClient();
 
-  // 1) Submit — throws on failure (nothing billed).
-  const created = await anthropic.messages.batches.create({
-    requests: requests.map((r) => ({ custom_id: r.customId, params: r.params })),
-  });
-  const batchId = created.id;
-  const expiresAt = (created as { expires_at?: string }).expires_at ?? null;
-
-  // 2) Persist job + items in one tx.
-  try {
-    const admin = createServiceRoleClient();
-    const items = requests.map((r) => ({
+  // Phase 1: RESERVE — persist a 'pending' job + items, CLAIMING the dedupe keys
+  // (via the partial unique index) BEFORE any billable batch exists. Per-item
+  // ON CONFLICT skips items already in-flight, so a concurrent duplicate is
+  // rejected here — not after a batch has already been created and billed.
+  const { data: resData, error: resErr } = await admin.rpc('fn_ai_batch_reserve', {
+    p_feature_key: featureKey,
+    p_phase: phase,
+    p_model_id: modelId,
+    p_items: requests.map((r) => ({
       custom_id: r.customId,
       context: r.context ?? {},
       dedupe_key: r.dedupeKey ?? null,
-    }));
-    const { data, error } = await admin.rpc('fn_ai_batch_record_submission', {
-      p_feature_key: featureKey,
-      p_phase: phase,
-      p_anthropic_batch_id: batchId,
-      p_model_id: modelId,
-      p_expires_at: expiresAt,
-      p_items: items,
-    });
-    if (error) throw new Error(`fn_ai_batch_record_submission: ${error.message}`);
-    return { jobId: data as unknown as string, batchId, requestCount: requests.length };
-  } catch (persistErr) {
-    // Best-effort cancel so we don't leave a billable batch untracked.
-    try {
-      await anthropic.messages.batches.cancel(batchId);
-    } catch {
-      /* ignore — the batch will auto-expire in 24h; nothing tracked to re-bill */
-    }
-    console.error(
-      `[ai-batch] submit persist failed for feature=${featureKey} batch=${batchId} — cancelled:`,
-      persistErr instanceof Error ? persistErr.message : persistErr,
-    );
-    throw persistErr;
+    })),
+  });
+  if (resErr) throw new Error(`fn_ai_batch_reserve: ${resErr.message}`);
+  const reserved = (Array.isArray(resData) ? resData[0] : resData) as
+    | { job_id: string; reserved_custom_ids: string[] }
+    | null;
+  if (!reserved?.job_id) throw new Error('fn_ai_batch_reserve returned no job');
+  const jobId = reserved.job_id;
+  const reservedSet = new Set(reserved.reserved_custom_ids ?? []);
+  const toSubmit = requests.filter((r) => reservedSet.has(r.customId));
+
+  if (toSubmit.length === 0) {
+    // Every candidate was already in-flight — release the empty reservation.
+    // Nothing was created at Anthropic, so nothing is billed.
+    await admin.rpc('fn_ai_batch_abort_reservation', { p_job_id: jobId });
+    return null;
   }
+
+  // Phase 2: CREATE the Anthropic batch for the reserved subset only.
+  const anthropic = anthropicClient();
+  let batchId: string;
+  let expiresAt: string | null;
+  try {
+    const created = await anthropic.messages.batches.create(
+      { requests: toSubmit.map((r) => ({ custom_id: r.customId, params: r.params })) },
+      { timeout: ANTHROPIC_TIMEOUT_MS },
+    );
+    batchId = created.id;
+    expiresAt = (created as { expires_at?: string }).expires_at ?? null;
+  } catch (createErr) {
+    // create() failed or TIMED OUT. On a plain failure nothing was billed. On a
+    // client-side TIMEOUT the batch may have been created server-side after we gave
+    // up — and we have no batchId to cancel, so we can't reclaim it (irreducible
+    // without an Anthropic client-side idempotency key). Log it LOUDLY so an
+    // orphaned billable batch is visible to ops, then free the reservation keys
+    // (course must not freeze) and rethrow. Any orphan auto-expires at Anthropic
+    // in 24h. Known residual — see PR description.
+    console.error(
+      `[ai-batch] batches.create failed/timed-out feature=${featureKey} — POTENTIAL ORPHANED BATCH (no id to cancel; auto-expires 24h):`,
+      createErr instanceof Error ? createErr.message : createErr,
+    );
+    await admin.rpc('fn_ai_batch_abort_reservation', { p_job_id: jobId });
+    throw createErr;
+  }
+
+  // Phase 3: ACTIVATE — attach the real batch id, flip 'pending' → 'submitted'.
+  // activate RETURNS false if it matched 0 rows (the reservation was already swept
+  // or aborted between reserve and here). In that case the batch exists + is
+  // billable but no longer tracked, so we MUST cancel it and fail — never return
+  // success on an orphaned batch.
+  const { data: activated, error: actErr } = await admin.rpc('fn_ai_batch_activate', {
+    p_job_id: jobId,
+    p_anthropic_batch_id: batchId,
+    p_expires_at: expiresAt,
+    p_request_count: toSubmit.length,
+  });
+  if (actErr || activated !== true) {
+    try {
+      await anthropic.messages.batches.cancel(batchId, { timeout: ANTHROPIC_TIMEOUT_MS });
+    } catch {
+      /* ignore — auto-expires in 24h */
+    }
+    await admin.rpc('fn_ai_batch_abort_reservation', { p_job_id: jobId });
+    throw new Error(
+      actErr
+        ? `fn_ai_batch_activate: ${actErr.message}`
+        : `fn_ai_batch_activate matched 0 rows (reservation gone) — batch ${batchId} cancelled`,
+    );
+  }
+
+  return { jobId, batchId, requestCount: toSubmit.length };
 }
 
 // ============================================================================
@@ -167,13 +228,12 @@ export async function submitBatch(args: {
 // ============================================================================
 export async function collectEndedBatches(
   featureKey: string,
-  opts?: { leaseSeconds?: number; maxJobs?: number; graceMs?: number },
+  opts?: { leaseSeconds?: number; maxJobs?: number },
 ): Promise<CollectedJob[]> {
   const admin = createServiceRoleClient();
   const anthropic = anthropicClient();
   const leaseSeconds = opts?.leaseSeconds ?? DEFAULT_LEASE_SECONDS;
   const maxJobs = opts?.maxJobs ?? DEFAULT_MAX_JOBS;
-  const graceMs = opts?.graceMs ?? DEFAULT_EXPIRY_GRACE_MS;
 
   const { data: claimed, error: claimErr } = await admin.rpc('fn_ai_batch_claim_for_collection', {
     p_feature_key: featureKey,
@@ -187,30 +247,48 @@ export async function collectEndedBatches(
   const out: CollectedJob[] = [];
 
   for (const job of jobs) {
+    // Retrieve status in its OWN try: a transport error here (timeout on a batch
+    // that may still be PROCESSING and not yet billed-final) is poll-like — release
+    // + decrement and retry next tick, NOT a cap-counting failure. Only failures
+    // AFTER we confirm 'ended' count toward MAX_COLLECT_ATTEMPTS.
+    let status: Awaited<ReturnType<typeof anthropic.messages.batches.retrieve>>;
     try {
-      const status = await anthropic.messages.batches.retrieve(job.anthropic_batch_id);
-
-      if (status.processing_status !== 'ended') {
-        // Not ready — release for a later tick. Expiry fallback covers a null
-        // expires_at (SDK omission) so a stuck batch's dedupe_key can't block the
-        // course FOREVER. Anthropic transitions to 'ended' by 24h (unfinished
-        // requests → result.type='expired'), so we normally collect it as 'ended'
-        // well before this fires; a batch still not ended past expiry+2h is a
-        // contract violation — mark terminal and log the abandoned request count.
-        const expiryMs = job.expires_at
-          ? Date.parse(job.expires_at)
-          : Date.parse(job.submitted_at) + 24 * 60 * 60 * 1000;
-        if (Number.isFinite(expiryMs) && expiryMs + graceMs < Date.now()) {
-          console.error(
-            `[ai-batch] job ${job.id} (${job.anthropic_batch_id}) still '${status.processing_status}' past expiry — marking expired, ABANDONING ${job.request_count} request(s)`,
-          );
-          await admin.rpc('fn_ai_batch_mark_expired', { p_job_id: job.id, p_status: 'expired' });
-        } else {
-          await admin.rpc('fn_ai_batch_release_job', { p_job_id: job.id });
-        }
-        continue;
+      status = await anthropic.messages.batches.retrieve(job.anthropic_batch_id, {
+        timeout: ANTHROPIC_TIMEOUT_MS,
+      });
+    } catch (retrieveErr) {
+      // Transport error (timeout / transient 5xx / gone) — poll-like: release +
+      // decrement so a still-PROCESSING batch's transient failures don't inflate
+      // collect_attempts toward the ENDED-only cap and trip a later legit collect.
+      // RECONCILES deep-review rounds 5 & 6 (which contradict on this exact line):
+      //   • r6: must decrement here, else cap-inflation abandons a billed batch → this release.
+      //   • r5: if it only ever decrements it never terminates → freeze → handled NOT here
+      //     but by the path-independent age-backstop in fn_ai_batch_claim_for_collection,
+      //     which marks any job past expiry+2h terminal + frees its keys regardless of
+      //     failure mode. So a PERMANENT retrieve failure can't freeze the course, AND
+      //     transient ones don't burn the cap. Do not "fix" this by removing the release.
+      console.warn(
+        `[ai-batch] retrieve failed for job ${job.id} (${job.anthropic_batch_id}) — releasing (backstop bounds permanent failure):`,
+        retrieveErr instanceof Error ? retrieveErr.message : retrieveErr,
+      );
+      try {
+        await admin.rpc('fn_ai_batch_release_job', { p_job_id: job.id });
+      } catch {
+        /* lease will reclaim */
       }
+      continue;
+    }
 
+    if (status.processing_status !== 'ended') {
+      // Still processing — release for a prompt re-check next tick (decrements
+      // collect_attempts; this poll wasn't a productive collect). Past-expiry
+      // termination is handled uniformly by the claim's age-backstop.
+      await admin.rpc('fn_ai_batch_release_job', { p_job_id: job.id });
+      continue;
+    }
+
+    // ENDED — everything below counts toward the cap on failure.
+    try {
       // Ended → load item rows (ids + context) to match results and settle.
       const { data: itemData, error: itemErr } = await admin
         .from('ai_batch_job_items')
@@ -228,7 +306,9 @@ export async function collectEndedBatches(
 
       const items: CollectedItem[] = [];
       const settledIds = new Set<string>();
-      for await (const entry of await anthropic.messages.batches.results(job.anthropic_batch_id)) {
+      for await (const entry of await anthropic.messages.batches.results(job.anthropic_batch_id, {
+        timeout: RESULTS_STREAM_TIMEOUT_MS,
+      })) {
         const row = byCustomId.get(entry.custom_id);
         if (!row) continue; // unknown custom_id — nothing to record against
         settledIds.add(entry.custom_id);
@@ -317,20 +397,25 @@ export async function collectEndedBatches(
         jobId: job.id,
         phase: job.phase,
         batchId: job.anthropic_batch_id,
+        collectAttempts: job.collect_attempts,
         items,
       });
     } catch (err) {
-      // Leave the job for the lease to re-admit; release it so it retries
-      // promptly rather than waiting the whole lease. Cost + domain writes are
-      // idempotent, so re-collection is safe.
       console.error(
         `[ai-batch] collect failed for job ${job.id} (${job.anthropic_batch_id}):`,
         err instanceof Error ? err.message : err,
       );
-      try {
-        await admin.rpc('fn_ai_batch_release_job', { p_job_id: job.id });
-      } catch {
-        /* ignore — lease will reclaim it */
+      // A collect error (retrieve/results timeout, settle error) on an ended-ish
+      // batch counts toward the cap — do NOT release+decrement (that nets to zero
+      // and a persistent failure would re-drain forever, freezing the course).
+      // After the cap, mark terminal 'failed'; otherwise leave it 'collecting' and
+      // let the lease re-admit it (no decrement, so the attempt is counted).
+      if (job.collect_attempts >= MAX_COLLECT_ATTEMPTS) {
+        try {
+          await admin.rpc('fn_ai_batch_mark_expired', { p_job_id: job.id, p_status: 'failed' });
+        } catch {
+          /* ignore — lease will reclaim */
+        }
       }
     }
   }
