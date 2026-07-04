@@ -71,6 +71,9 @@ export interface CollectedJob {
   jobId: string;
   phase: string;
   batchId: string;
+  /** How many times this job has been claimed for collection — lets the caller
+   *  cap re-drains and mark a persistently-unrecordable job terminal. */
+  collectAttempts: number;
   items: CollectedItem[];
 }
 
@@ -83,6 +86,7 @@ interface JobRow {
   expires_at: string | null;
   submitted_at: string;
   request_count: number;
+  collect_attempts: number;
 }
 interface ItemRow {
   id: string;
@@ -113,46 +117,74 @@ export async function submitBatch(args: {
   const { featureKey, phase, modelId, requests } = args;
   if (!requests || requests.length === 0) return null;
 
-  const anthropic = anthropicClient();
+  const admin = createServiceRoleClient();
 
-  // 1) Submit — throws on failure (nothing billed).
-  const created = await anthropic.messages.batches.create({
-    requests: requests.map((r) => ({ custom_id: r.customId, params: r.params })),
-  });
-  const batchId = created.id;
-  const expiresAt = (created as { expires_at?: string }).expires_at ?? null;
-
-  // 2) Persist job + items in one tx.
-  try {
-    const admin = createServiceRoleClient();
-    const items = requests.map((r) => ({
+  // Phase 1: RESERVE — persist a 'pending' job + items, CLAIMING the dedupe keys
+  // (via the partial unique index) BEFORE any billable batch exists. Per-item
+  // ON CONFLICT skips items already in-flight, so a concurrent duplicate is
+  // rejected here — not after a batch has already been created and billed.
+  const { data: resData, error: resErr } = await admin.rpc('fn_ai_batch_reserve', {
+    p_feature_key: featureKey,
+    p_phase: phase,
+    p_model_id: modelId,
+    p_items: requests.map((r) => ({
       custom_id: r.customId,
       context: r.context ?? {},
       dedupe_key: r.dedupeKey ?? null,
-    }));
-    const { data, error } = await admin.rpc('fn_ai_batch_record_submission', {
-      p_feature_key: featureKey,
-      p_phase: phase,
-      p_anthropic_batch_id: batchId,
-      p_model_id: modelId,
-      p_expires_at: expiresAt,
-      p_items: items,
-    });
-    if (error) throw new Error(`fn_ai_batch_record_submission: ${error.message}`);
-    return { jobId: data as unknown as string, batchId, requestCount: requests.length };
-  } catch (persistErr) {
-    // Best-effort cancel so we don't leave a billable batch untracked.
-    try {
-      await anthropic.messages.batches.cancel(batchId);
-    } catch {
-      /* ignore — the batch will auto-expire in 24h; nothing tracked to re-bill */
-    }
-    console.error(
-      `[ai-batch] submit persist failed for feature=${featureKey} batch=${batchId} — cancelled:`,
-      persistErr instanceof Error ? persistErr.message : persistErr,
-    );
-    throw persistErr;
+    })),
+  });
+  if (resErr) throw new Error(`fn_ai_batch_reserve: ${resErr.message}`);
+  const reserved = (Array.isArray(resData) ? resData[0] : resData) as
+    | { job_id: string; reserved_custom_ids: string[] }
+    | null;
+  if (!reserved?.job_id) throw new Error('fn_ai_batch_reserve returned no job');
+  const jobId = reserved.job_id;
+  const reservedSet = new Set(reserved.reserved_custom_ids ?? []);
+  const toSubmit = requests.filter((r) => reservedSet.has(r.customId));
+
+  if (toSubmit.length === 0) {
+    // Every candidate was already in-flight — release the empty reservation.
+    // Nothing was created at Anthropic, so nothing is billed.
+    await admin.rpc('fn_ai_batch_abort_reservation', { p_job_id: jobId });
+    return null;
   }
+
+  // Phase 2: CREATE the Anthropic batch for the reserved subset only.
+  const anthropic = anthropicClient();
+  let batchId: string;
+  let expiresAt: string | null;
+  try {
+    const created = await anthropic.messages.batches.create({
+      requests: toSubmit.map((r) => ({ custom_id: r.customId, params: r.params })),
+    });
+    batchId = created.id;
+    expiresAt = (created as { expires_at?: string }).expires_at ?? null;
+  } catch (createErr) {
+    // Batch not created → nothing billed. Release the reservation and rethrow.
+    await admin.rpc('fn_ai_batch_abort_reservation', { p_job_id: jobId });
+    throw createErr;
+  }
+
+  // Phase 3: ACTIVATE — attach the real batch id, flip 'pending' → 'submitted'.
+  const { error: actErr } = await admin.rpc('fn_ai_batch_activate', {
+    p_job_id: jobId,
+    p_anthropic_batch_id: batchId,
+    p_expires_at: expiresAt,
+    p_request_count: toSubmit.length,
+  });
+  if (actErr) {
+    // Persist failed AFTER create — cancel the batch (best-effort) so no untracked
+    // billable batch is left running, then release the reservation.
+    try {
+      await anthropic.messages.batches.cancel(batchId, { timeout: 30_000 });
+    } catch {
+      /* ignore — auto-expires in 24h */
+    }
+    await admin.rpc('fn_ai_batch_abort_reservation', { p_job_id: jobId });
+    throw new Error(`fn_ai_batch_activate: ${actErr.message}`);
+  }
+
+  return { jobId, batchId, requestCount: toSubmit.length };
 }
 
 // ============================================================================
@@ -188,7 +220,11 @@ export async function collectEndedBatches(
 
   for (const job of jobs) {
     try {
-      const status = await anthropic.messages.batches.retrieve(job.anthropic_batch_id);
+      // Per-call timeouts so a hung Anthropic request can't consume the whole
+      // maxDuration; on timeout the throw drops to the catch → release + lease retry.
+      const status = await anthropic.messages.batches.retrieve(job.anthropic_batch_id, {
+        timeout: 30_000,
+      });
 
       if (status.processing_status !== 'ended') {
         // Not ready — release for a later tick. Expiry fallback covers a null
@@ -228,7 +264,9 @@ export async function collectEndedBatches(
 
       const items: CollectedItem[] = [];
       const settledIds = new Set<string>();
-      for await (const entry of await anthropic.messages.batches.results(job.anthropic_batch_id)) {
+      for await (const entry of await anthropic.messages.batches.results(job.anthropic_batch_id, {
+        timeout: 60_000,
+      })) {
         const row = byCustomId.get(entry.custom_id);
         if (!row) continue; // unknown custom_id — nothing to record against
         settledIds.add(entry.custom_id);
@@ -317,6 +355,7 @@ export async function collectEndedBatches(
         jobId: job.id,
         phase: job.phase,
         batchId: job.anthropic_batch_id,
+        collectAttempts: job.collect_attempts,
         items,
       });
     } catch (err) {
