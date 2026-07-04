@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { getErrorMessage } from '@/lib/utils';
 import { logger } from '@/lib/utils/enhanced-logger';
 import {
   deriveDailyStatus,
@@ -173,9 +174,12 @@ export class AttendanceConsolidationService {
       logger.error('academic/attendance-consolidation', 'Error generating report data', error);
 
       // Update status to failed
+      // Fixed: 2026-07-04 - Supabase errors are plain objects, not Error
+      // instances; instanceof always fell through to "Unknown error" and
+      // hid the real failure from the UI.
       await this.updateReport(reportId, {
         status: 'failed',
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        errorMessage: getErrorMessage(error),
       });
 
       return false;
@@ -192,50 +196,94 @@ export class AttendanceConsolidationService {
     params: ConsolidationReportParams
   ) {
     try {
-      let query = this.supabase
-        .from('student_attendance')
-        .select(`
-          *,
-          section:sections(id, section_name),
-          program:programs(id, program_name),
-          semester:semesters(id, semester_name),
-          department:departments(id, department_name),
-          timetable:timetables(attendance_mode)
-        `)
-        .eq('institution_id', institutionId)
-        .gte('attendance_date', dateFrom)
-        .lte('attendance_date', dateTo);
+      // Fixed: 2026-07-04 - student_attendance has no FK to timetables, so the
+      // former `timetable:timetables(attendance_mode)` embed made PostgREST
+      // reject the whole query (PGRST200) and every report since 2026-06-11
+      // failed. attendance_mode is now resolved in a separate batched query.
+      // Also paginate: PostgREST caps responses at 1000 rows, which silently
+      // truncated long date ranges.
+      const PAGE_SIZE = 1000;
+      const allRecords: any[] = [];
 
-      // Apply filters - filter out empty strings to avoid UUID errors
-      if (params.sections && params.sections.length > 0) {
-        const validSections = params.sections.filter(id => id && id.trim() !== '');
-        if (validSections.length > 0) {
-          query = query.in('section_id', validSections);
+      for (let offset = 0; ; offset += PAGE_SIZE) {
+        let query = this.supabase
+          .from('student_attendance')
+          .select(`
+            *,
+            section:sections(id, section_name),
+            program:programs(id, program_name),
+            semester:semesters(id, semester_name),
+            department:departments(id, department_name)
+          `)
+          .eq('institution_id', institutionId)
+          .gte('attendance_date', dateFrom)
+          .lte('attendance_date', dateTo);
+
+        // Apply filters - filter out empty strings to avoid UUID errors
+        if (params.sections && params.sections.length > 0) {
+          const validSections = params.sections.filter(id => id && id.trim() !== '');
+          if (validSections.length > 0) {
+            query = query.in('section_id', validSections);
+          }
+        }
+
+        if (params.semesters && params.semesters.length > 0) {
+          const validSemesters = params.semesters.filter(id => id && id.trim() !== '');
+          if (validSemesters.length > 0) {
+            query = query.in('semester_id', validSemesters);
+          }
+        }
+
+        if (params.programs && params.programs.length > 0) {
+          const validPrograms = params.programs.filter(id => id && id.trim() !== '');
+          if (validPrograms.length > 0) {
+            query = query.in('program_id', validPrograms);
+          }
+        }
+
+        const { data, error } = await query
+          .order('attendance_date', { ascending: true })
+          .order('id', { ascending: true })
+          .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) {
+          logger.error('academic/attendance-consolidation', 'Failed to fetch attendance records', error);
+          throw error;
+        }
+
+        allRecords.push(...(data || []));
+        if (!data || data.length < PAGE_SIZE) break;
+      }
+
+      // Resolve attendance_mode for session_wise detection (no FK = no embed)
+      const timetableIds = Array.from(
+        new Set(allRecords.map((r) => r.timetable_id).filter(Boolean))
+      );
+      const modeByTimetableId = new Map<string, string | null>();
+      for (let i = 0; i < timetableIds.length; i += 100) {
+        const chunk = timetableIds.slice(i, i + 100);
+        const { data: timetableRows, error: timetableError } = await this.supabase
+          .from('timetables')
+          .select('id, attendance_mode')
+          .in('id', chunk);
+
+        if (timetableError) {
+          logger.error('academic/attendance-consolidation', 'Failed to fetch timetable attendance modes', timetableError);
+          throw timetableError;
+        }
+
+        for (const row of timetableRows || []) {
+          modeByTimetableId.set(row.id, row.attendance_mode);
         }
       }
 
-      if (params.semesters && params.semesters.length > 0) {
-        const validSemesters = params.semesters.filter(id => id && id.trim() !== '');
-        if (validSemesters.length > 0) {
-          query = query.in('semester_id', validSemesters);
-        }
+      for (const record of allRecords) {
+        record.timetable = record.timetable_id
+          ? { attendance_mode: modeByTimetableId.get(record.timetable_id) ?? null }
+          : null;
       }
 
-      if (params.programs && params.programs.length > 0) {
-        const validPrograms = params.programs.filter(id => id && id.trim() !== '');
-        if (validPrograms.length > 0) {
-          query = query.in('program_id', validPrograms);
-        }
-      }
-
-      const { data, error } = await query;
-
-      if (error) {
-        logger.error('academic/attendance-consolidation', 'Failed to fetch attendance records', error);
-        throw error;
-      }
-
-      return data;
+      return allRecords;
     } catch (error) {
       logger.error('academic/attendance-consolidation', 'Error fetching attendance records', error);
       throw error;
