@@ -232,6 +232,13 @@ export class AttendanceConsolidationService {
           .lte('attendance_date', dateTo);
 
         // Apply filters - filter out empty strings to avoid UUID errors
+        if (params.degrees && params.degrees.length > 0) {
+          const validDegrees = params.degrees.filter(id => id && id.trim() !== '');
+          if (validDegrees.length > 0) {
+            query = query.in('degree_id', validDegrees);
+          }
+        }
+
         if (params.departments && params.departments.length > 0) {
           const validDepartments = params.departments.filter(id => id && id.trim() !== '');
           if (validDepartments.length > 0) {

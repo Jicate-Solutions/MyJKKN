@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Building2, Users } from 'lucide-react';
-import toast from 'react-hot-toast';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { LoadingSkeleton } from '@/components/loading-skeleton';
@@ -37,7 +36,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAuth } from '@/hooks/use-auth';
-import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { ReportGenerationForm } from './_components/report-generation-form';
@@ -49,7 +47,6 @@ export default function AttendanceConsolidationPage() {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const { profile, isLoading: authLoading } = useAuth();
-  const { isSuperAdmin } = usePermissions([], { waitForLoad: false });
   const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess({
     isActive: true,
     autoFetch: !!profile
@@ -158,26 +155,10 @@ export default function AttendanceConsolidationPage() {
   };
 
   const handleCreateClick = () => {
-    // A consolidation report targets exactly one institution. When the user can
-    // choose among institutions, require an explicit pick — "All Institutions"
-    // is a valid view filter but not a valid generation target. Otherwise fall
-    // back to the single accessible / home institution.
-    const institutionId = showInstitutionSelector
-      ? selectedInstitutionId
-      : selectedInstitutionId || profile?.institution_id;
-
-    if (!institutionId) {
-      toast.error('Please select an institution before creating a report');
-      return;
-    }
-
+    // Institution is now picked inside the generation form itself (the page
+    // selector only filters the list below), so the dialog always opens.
     setShowCreateDialog(true);
   };
-
-  // Get current institution name for display
-  const currentInstitutionName = selectedInstitutionId
-    ? institutions.find((i) => i.id === selectedInstitutionId)?.name
-    : 'All Institutions';
 
   return (
     <PermissionGuard module="academic.attendance.consolidation" action="view">
@@ -286,15 +267,10 @@ export default function AttendanceConsolidationPage() {
               <DialogTitle>Generate Consolidation Report</DialogTitle>
               <DialogDescription>
                 Configure and generate a new attendance consolidation report
-                {!isSuperAdmin && selectedInstitutionId && (
-                  <span className="block mt-1 text-xs">
-                    Report will be generated for: <strong>{currentInstitutionName}</strong>
-                  </span>
-                )}
               </DialogDescription>
             </DialogHeader>
             <ReportGenerationForm
-              institutionId={selectedInstitutionId || profile?.institution_id!}
+              institutionId={selectedInstitutionId || profile?.institution_id || ''}
               onSuccess={handleSuccess}
             />
           </DialogContent>

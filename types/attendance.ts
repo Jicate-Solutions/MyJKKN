@@ -344,6 +344,7 @@ export type ReportTemplate = 'summary' | 'subjectwise';
 export interface ConsolidationReportParams {
   dateFrom: string; // YYYY-MM-DD
   dateTo: string; // YYYY-MM-DD
+  degrees?: string[]; // Degree IDs to include (Added: 2026-07-04)
   departments?: string[]; // Department IDs to include (Added: 2026-07-04)
   programs?: string[]; // Program IDs to include
   semesters?: string[]; // Semester IDs to include

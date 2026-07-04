@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { format } from 'date-fns';
-import { CalendarIcon, FileText, Loader2, Table2 } from 'lucide-react';
+import { Building2, CalendarIcon, FileText, Loader2, Table2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 
 import { Button } from '@/components/ui/button';
@@ -41,6 +41,8 @@ import { cn } from '@/lib/utils';
 import { useCreateConsolidationReport } from '@/hooks/academic/use-attendance-consolidation';
 import type { GroupByType, ReportFormat, ReportTemplate } from '@/types/attendance';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
@@ -51,6 +53,7 @@ import { CourseMappingService } from '@/lib/services/organization/course-mapping
 const formSchema = z.object({
   reportName: z.string().min(3, 'Report name must be at least 3 characters'),
   reportDescription: z.string().optional(),
+  institutionId: z.string().min(1, 'Institution is required'),
   dateFrom: z.date({
     required_error: 'Start date is required',
   }),
@@ -62,6 +65,7 @@ const formSchema = z.object({
   format: z.enum(['pdf', 'excel', 'csv']),
   includeAbsentDetails: z.boolean().default(false),
   includePeriodBreakdown: z.boolean().default(false),
+  degrees: z.array(z.string()).optional(),
   departments: z.array(z.string()).optional(),
   programs: z.array(z.string()).optional(),
   semesters: z.array(z.string()).optional(),
@@ -82,6 +86,7 @@ interface FilterOption {
 // Checkbox multi-select block (house pattern: bordered scroll list, empty = All)
 function FilterMultiSelect({
   title,
+  step,
   options,
   value,
   onChange,
@@ -89,6 +94,7 @@ function FilterMultiSelect({
   emptyText,
 }: {
   title: string;
+  step: number;
   options: FilterOption[];
   value: string[];
   onChange: (next: string[]) => void;
@@ -98,7 +104,12 @@ function FilterMultiSelect({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium">{title}</span>
+        <span className="text-sm font-medium flex items-center gap-1.5">
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
+            {step}
+          </Badge>
+          {title}
+        </span>
         <Badge variant="secondary" className="text-xs">
           {value.length > 0 ? `${value.length} selected` : 'All'}
         </Badge>
@@ -141,25 +152,29 @@ interface ReportGenerationFormProps {
 }
 
 export function ReportGenerationForm({
-  institutionId,
+  institutionId: initialInstitutionId,
   onSuccess,
 }: ReportGenerationFormProps) {
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [fromDateOpen, setFromDateOpen] = useState(false);
   const [toDateOpen, setToDateOpen] = useState(false);
   const createReport = useCreateConsolidationReport();
   const label = useAdaptiveLabels();
+  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess({
+    isActive: true,
+  });
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       reportName: `Attendance Report - ${format(new Date(), 'MMM yyyy')}`,
       reportDescription: '',
+      institutionId: initialInstitutionId || '',
       template: 'summary',
       groupBy: 'section',
       format: 'pdf',
       includeAbsentDetails: false,
       includePeriodBreakdown: false,
+      degrees: [],
       departments: [],
       programs: [],
       semesters: [],
@@ -169,6 +184,8 @@ export function ReportGenerationForm({
   });
 
   const template = form.watch('template');
+  const selectedInstitutionId = form.watch('institutionId');
+  const selectedDegrees = form.watch('degrees') || [];
   const selectedDepartments = form.watch('departments') || [];
   const selectedPrograms = form.watch('programs') || [];
   const selectedSemesters = form.watch('semesters') || [];
@@ -187,15 +204,38 @@ export function ReportGenerationForm({
     }
   }, [template, form]);
 
-  // Scope lookups — fetched lazily when the Filters section is opened.
+  // Changing institution invalidates every downstream hierarchy selection
+  const handleInstitutionChange = (nextInstitutionId: string) => {
+    form.setValue('institutionId', nextInstitutionId);
+    form.setValue('degrees', []);
+    form.setValue('departments', []);
+    form.setValue('programs', []);
+    form.setValue('semesters', []);
+    form.setValue('sections', []);
+    form.setValue('courses', []);
+  };
+
+  // Scope lookups keyed on the institution picked inside this modal.
   // Services default to limit 10 (silent truncation), so pass explicit limits.
-  const lookupsEnabled = !!institutionId && showAdvanced;
+  const lookupsEnabled = !!selectedInstitutionId;
+
+  const degreesQuery = useQuery({
+    queryKey: ['consolidation-filters', 'degrees', selectedInstitutionId],
+    queryFn: () =>
+      DegreeService.getDegrees({
+        institution_id: selectedInstitutionId,
+        isActive: true,
+        limit: 200,
+      } as any),
+    enabled: lookupsEnabled,
+    staleTime: 5 * 60 * 1000,
+  });
 
   const departmentsQuery = useQuery({
-    queryKey: ['consolidation-filters', 'departments', institutionId],
+    queryKey: ['consolidation-filters', 'departments', selectedInstitutionId],
     queryFn: () =>
       DepartmentService.getDepartments({
-        institution_id: institutionId,
+        institution_id: selectedInstitutionId,
         isActive: true,
         limit: 500,
       }),
@@ -204,10 +244,10 @@ export function ReportGenerationForm({
   });
 
   const programsQuery = useQuery({
-    queryKey: ['consolidation-filters', 'programs', institutionId],
+    queryKey: ['consolidation-filters', 'programs', selectedInstitutionId],
     queryFn: () =>
       ProgramService.getPrograms({
-        institution_id: institutionId,
+        institution_id: selectedInstitutionId,
         isActive: true,
         limit: 500,
       }),
@@ -216,10 +256,10 @@ export function ReportGenerationForm({
   });
 
   const semestersQuery = useQuery({
-    queryKey: ['consolidation-filters', 'semesters', institutionId],
+    queryKey: ['consolidation-filters', 'semesters', selectedInstitutionId],
     queryFn: () =>
       SemesterService.getSemesters({
-        institution_id: institutionId,
+        institution_id: selectedInstitutionId,
         isActive: true,
         limit: 1000,
       }),
@@ -228,10 +268,10 @@ export function ReportGenerationForm({
   });
 
   const sectionsQuery = useQuery({
-    queryKey: ['consolidation-filters', 'sections', institutionId],
+    queryKey: ['consolidation-filters', 'sections', selectedInstitutionId],
     queryFn: () =>
       SectionService.getSections({
-        institution_id: institutionId,
+        institution_id: selectedInstitutionId,
         isActive: true,
         limit: 1000,
       }),
@@ -240,10 +280,10 @@ export function ReportGenerationForm({
   });
 
   const courseMappingsQuery = useQuery({
-    queryKey: ['consolidation-filters', 'course-mappings', institutionId],
+    queryKey: ['consolidation-filters', 'course-mappings', selectedInstitutionId],
     queryFn: () =>
       CourseMappingService.getCourseMappings({
-        institution_id: institutionId,
+        institution_id: selectedInstitutionId,
         isActive: true,
         limit: 1000,
       } as any),
@@ -251,26 +291,41 @@ export function ReportGenerationForm({
     staleTime: 5 * 60 * 1000,
   });
 
-  // Cascade: each level narrows by the selections above it (client-side).
+  // Cascade: Institution → Degree → Department → Program → Semester → Section
+  const degreeOptions = useMemo<FilterOption[]>(
+    () =>
+      (degreesQuery.data?.data || []).map((d: any) => ({
+        id: d.id,
+        label: d.degree_name || d.display_name,
+      })),
+    [degreesQuery.data]
+  );
+
   const departmentOptions = useMemo<FilterOption[]>(
     () =>
-      (departmentsQuery.data?.data || []).map((d: any) => ({
-        id: d.id,
-        label: d.department_name,
-      })),
-    [departmentsQuery.data]
+      (departmentsQuery.data?.data || [])
+        .filter(
+          (d: any) =>
+            selectedDegrees.length === 0 || selectedDegrees.includes(d.degree_id)
+        )
+        .map((d: any) => ({
+          id: d.id,
+          label: d.department_name,
+        })),
+    [departmentsQuery.data, selectedDegrees]
   );
 
   const programOptions = useMemo<FilterOption[]>(
     () =>
       (programsQuery.data?.data || [])
-        .filter(
-          (p: any) =>
-            selectedDepartments.length === 0 ||
-            selectedDepartments.includes(p.department_id)
-        )
+        .filter((p: any) => {
+          if (selectedDepartments.length > 0)
+            return selectedDepartments.includes(p.department_id);
+          if (selectedDegrees.length > 0) return selectedDegrees.includes(p.degree_id);
+          return true;
+        })
         .map((p: any) => ({ id: p.id, label: p.program_name })),
-    [programsQuery.data, selectedDepartments]
+    [programsQuery.data, selectedDepartments, selectedDegrees]
   );
 
   const semesterOptions = useMemo<FilterOption[]>(
@@ -280,6 +335,7 @@ export function ReportGenerationForm({
           if (selectedPrograms.length > 0) return selectedPrograms.includes(s.program_id);
           if (selectedDepartments.length > 0)
             return selectedDepartments.includes(s.department_id);
+          if (selectedDegrees.length > 0) return selectedDegrees.includes(s.degree_id);
           return true;
         })
         .map((s: any) => ({
@@ -288,7 +344,7 @@ export function ReportGenerationForm({
             ? `${s.semester_name} — ${s.program.program_name}`
             : s.semester_name,
         })),
-    [semestersQuery.data, selectedPrograms, selectedDepartments]
+    [semestersQuery.data, selectedPrograms, selectedDepartments, selectedDegrees]
   );
 
   const sectionOptions = useMemo<FilterOption[]>(
@@ -299,6 +355,7 @@ export function ReportGenerationForm({
           if (selectedPrograms.length > 0) return selectedPrograms.includes(s.program_id);
           if (selectedDepartments.length > 0)
             return selectedDepartments.includes(s.department_id);
+          if (selectedDegrees.length > 0) return selectedDegrees.includes(s.degree_id);
           return true;
         })
         .map((s: any) => ({
@@ -307,7 +364,13 @@ export function ReportGenerationForm({
             ? `${s.section_name} — ${s.semester.semester_name}`
             : s.section_name,
         })),
-    [sectionsQuery.data, selectedSemesters, selectedPrograms, selectedDepartments]
+    [
+      sectionsQuery.data,
+      selectedSemesters,
+      selectedPrograms,
+      selectedDepartments,
+      selectedDegrees,
+    ]
   );
 
   const courseOptions = useMemo<FilterOption[]>(() => {
@@ -316,6 +379,7 @@ export function ReportGenerationForm({
       if (selectedPrograms.length > 0) return selectedPrograms.includes(m.program_id);
       if (selectedDepartments.length > 0)
         return selectedDepartments.includes(m.department_id);
+      if (selectedDegrees.length > 0) return selectedDegrees.includes(m.degree_id);
       return true;
     });
     const byCourse = new Map<string, FilterOption>();
@@ -332,7 +396,13 @@ export function ReportGenerationForm({
     return Array.from(byCourse.values()).sort((a, b) =>
       a.label.localeCompare(b.label, undefined, { numeric: true })
     );
-  }, [courseMappingsQuery.data, selectedSemesters, selectedPrograms, selectedDepartments]);
+  }, [
+    courseMappingsQuery.data,
+    selectedSemesters,
+    selectedPrograms,
+    selectedDepartments,
+    selectedDegrees,
+  ]);
 
   // Handler for From Date selection
   const handleFromDateSelect = (date: Date | undefined) => {
@@ -358,6 +428,7 @@ export function ReportGenerationForm({
     const clean = (selected: string[] | undefined, visible: Set<string>) =>
       (selected || []).filter((id) => id && id.trim() !== '' && visible.has(id));
 
+    const cleanDegrees = clean(values.degrees, visibleIds(degreeOptions));
     const cleanDepartments = clean(values.departments, visibleIds(departmentOptions));
     const cleanPrograms = clean(values.programs, visibleIds(programOptions));
     const cleanSemesters = clean(values.semesters, visibleIds(semesterOptions));
@@ -367,7 +438,7 @@ export function ReportGenerationForm({
     const dto = {
       reportName: values.reportName,
       reportDescription: values.reportDescription,
-      institutionId,
+      institutionId: values.institutionId,
       format: values.format as ReportFormat,
       reportParams: {
         dateFrom: format(values.dateFrom, 'yyyy-MM-dd'),
@@ -376,6 +447,7 @@ export function ReportGenerationForm({
         groupBy: values.groupBy as GroupByType,
         includeAbsentDetails: values.includeAbsentDetails,
         includePeriodBreakdown: values.includePeriodBreakdown,
+        degrees: cleanDegrees,
         departments: cleanDepartments,
         programs: cleanPrograms,
         semesters: cleanSemesters,
@@ -478,6 +550,174 @@ export function ReportGenerationForm({
               </FormItem>
             )}
           />
+        </div>
+
+        {/* Report Scope — Institution → Degree → Department → Program → Semester → Section */}
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-lg font-semibold">Report Scope</h3>
+            <p className="text-sm text-muted-foreground">
+              Select in order: Institution → {label('Degree')} → {label('Department')} →{' '}
+              {label('Program')} → {label('Semester')} → {label('Section')}. Leave a level
+              empty to include everything under it.
+            </p>
+          </div>
+
+          <FormField
+            control={form.control}
+            name="institutionId"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="flex items-center gap-1.5">
+                  <Building2 className="h-4 w-4 text-primary" />
+                  Institution <span className="text-red-500">*</span>
+                </FormLabel>
+                <Select onValueChange={handleInstitutionChange} value={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={
+                          institutionsLoading ? 'Loading institutions...' : 'Select institution'
+                        }
+                      />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {institutions.map((institution) => (
+                      <SelectItem key={institution.id} value={institution.id}>
+                        {institution.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          {!selectedInstitutionId ? (
+            <p className="text-sm text-amber-600 border border-amber-200 bg-amber-50 dark:bg-amber-900/10 rounded-md p-3">
+              Select an institution to load its {label('degrees').toLowerCase()},{' '}
+              {label('departments').toLowerCase()}, {label('programs').toLowerCase()},{' '}
+              {label('semesters').toLowerCase()} and {label('sections').toLowerCase()}.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="degrees"
+                render={({ field }) => (
+                  <FormItem>
+                    <FilterMultiSelect
+                      title={label('Degrees')}
+                      step={2}
+                      options={degreeOptions}
+                      value={field.value || []}
+                      onChange={field.onChange}
+                      loading={degreesQuery.isLoading}
+                      emptyText={`No ${label('degrees').toLowerCase()} found`}
+                    />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="departments"
+                render={({ field }) => (
+                  <FormItem>
+                    <FilterMultiSelect
+                      title={label('Departments')}
+                      step={3}
+                      options={departmentOptions}
+                      value={field.value || []}
+                      onChange={field.onChange}
+                      loading={departmentsQuery.isLoading}
+                      emptyText={`No ${label('departments').toLowerCase()} found`}
+                    />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="programs"
+                render={({ field }) => (
+                  <FormItem>
+                    <FilterMultiSelect
+                      title={label('Programs')}
+                      step={4}
+                      options={programOptions}
+                      value={field.value || []}
+                      onChange={field.onChange}
+                      loading={programsQuery.isLoading}
+                      emptyText={`No ${label('programs').toLowerCase()} found`}
+                    />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="semesters"
+                render={({ field }) => (
+                  <FormItem>
+                    <FilterMultiSelect
+                      title={label('Semesters')}
+                      step={5}
+                      options={semesterOptions}
+                      value={field.value || []}
+                      onChange={field.onChange}
+                      loading={semestersQuery.isLoading}
+                      emptyText={`No ${label('semesters').toLowerCase()} found`}
+                    />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="sections"
+                render={({ field }) => (
+                  <FormItem>
+                    <FilterMultiSelect
+                      title={label('Sections')}
+                      step={6}
+                      options={sectionOptions}
+                      value={field.value || []}
+                      onChange={field.onChange}
+                      loading={sectionsQuery.isLoading}
+                      emptyText={`No ${label('sections').toLowerCase()} found`}
+                    />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="courses"
+                render={({ field }) => (
+                  <FormItem>
+                    <FilterMultiSelect
+                      title={`${label('Courses')} (optional)`}
+                      step={7}
+                      options={courseOptions}
+                      value={field.value || []}
+                      onChange={field.onChange}
+                      loading={courseMappingsQuery.isLoading}
+                      emptyText={`No mapped ${label('courses').toLowerCase()} found`}
+                    />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          )}
         </div>
 
         {/* Date Range */}
@@ -689,121 +929,6 @@ export function ReportGenerationForm({
                   </FormItem>
                 )}
               />
-            </div>
-          )}
-        </div>
-
-        {/* Scope Filters */}
-        <div className="space-y-4">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setShowAdvanced(!showAdvanced)}
-          >
-            {showAdvanced ? 'Hide' : 'Show'} Filters
-          </Button>
-
-          {showAdvanced && (
-            <div className="space-y-4 p-4 border rounded-lg">
-              <p className="text-sm text-muted-foreground">
-                Leave a filter empty to include everything at that level. Selections
-                cascade — picking a {label('department')} narrows the{' '}
-                {label('programs')}, {label('semesters')}, {label('sections')} and{' '}
-                {label('courses')} shown below.
-              </p>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="departments"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FilterMultiSelect
-                        title={label('Departments')}
-                        options={departmentOptions}
-                        value={field.value || []}
-                        onChange={field.onChange}
-                        loading={departmentsQuery.isLoading}
-                        emptyText={`No ${label('departments').toLowerCase()} found`}
-                      />
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="programs"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FilterMultiSelect
-                        title={label('Programs')}
-                        options={programOptions}
-                        value={field.value || []}
-                        onChange={field.onChange}
-                        loading={programsQuery.isLoading}
-                        emptyText={`No ${label('programs').toLowerCase()} found`}
-                      />
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="semesters"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FilterMultiSelect
-                        title={label('Semesters')}
-                        options={semesterOptions}
-                        value={field.value || []}
-                        onChange={field.onChange}
-                        loading={semestersQuery.isLoading}
-                        emptyText={`No ${label('semesters').toLowerCase()} found`}
-                      />
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="sections"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FilterMultiSelect
-                        title={label('Sections')}
-                        options={sectionOptions}
-                        value={field.value || []}
-                        onChange={field.onChange}
-                        loading={sectionsQuery.isLoading}
-                        emptyText={`No ${label('sections').toLowerCase()} found`}
-                      />
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="courses"
-                  render={({ field }) => (
-                    <FormItem className="md:col-span-2">
-                      <FilterMultiSelect
-                        title={label('Courses')}
-                        options={courseOptions}
-                        value={field.value || []}
-                        onChange={field.onChange}
-                        loading={courseMappingsQuery.isLoading}
-                        emptyText={`No mapped ${label('courses').toLowerCase()} found`}
-                      />
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
             </div>
           )}
         </div>
