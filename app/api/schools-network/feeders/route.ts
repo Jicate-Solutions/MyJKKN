@@ -73,6 +73,7 @@ export const GET = withAuth(
         p_adopted: adopted,
         p_limit: 1,
         p_offset: 0,
+        p_degree_type: level,
       });
       const parr = (probe.data ?? []) as Array<Record<string, unknown>>;
       total = parr.length > 0 ? Number(parr[0].total_count ?? 0) : 0;
