@@ -5563,13 +5563,11 @@ ALTER TABLE public.induction_event_coordinators ENABLE ROW LEVEL SECURITY;
 -- Added: 2026-07-04 — mirror of migration 20260704120000_social_monthly_cadence.sql
 -- Per-department, calendar-month reach loop (objective -> baseline -> feedback
 -- -> action -> re-measure -> close). Reach snapshots come ONLY from
--- ig_monthly_audit; feedback ONLY from feedback_events. okr_objective_id is
--- REQUIRED (Director-locked OKR integration). RLS policies live in 03_policies.sql;
--- reader/writer RPCs in 02_functions.sql.
+-- ig_monthly_audit; feedback ONLY from feedback_events. project_id is REQUIRED
+-- and points at a real projects row (is_okr=true, project_type='okr_objective',
+-- owner=HOD) — OKR was absorbed into the Projects module (locked 2026-05-31).
+-- RLS policies live in 03_policies.sql; reader/writer RPCs in 02_functions.sql.
 -- =====================================================================
-
--- Extend the OKR cycle grain with 'monthly' (additive, idempotent).
-ALTER TYPE public.okr_cycle_type ADD VALUE IF NOT EXISTS 'monthly';
 
 CREATE TABLE IF NOT EXISTS public.social_monthly_cadence (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -5589,7 +5587,7 @@ CREATE TABLE IF NOT EXISTS public.social_monthly_cadence (
   reach_delta BIGINT NULL,
   status TEXT NOT NULL DEFAULT 'open'
     CHECK (status IN ('open','awaiting_close','closed','unmeasurable')),
-  okr_objective_id UUID NOT NULL REFERENCES public.okr_objectives(id) ON DELETE CASCADE,
+  project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
   learning TEXT NULL,
   created_by UUID NULL REFERENCES public.profiles(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -5605,8 +5603,8 @@ CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_department
   ON public.social_monthly_cadence (department_id) WHERE department_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_open
   ON public.social_monthly_cadence (status) WHERE status IN ('open','awaiting_close');
-CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_okr
-  ON public.social_monthly_cadence (okr_objective_id);
+CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_project
+  ON public.social_monthly_cadence (project_id);
 
 DROP TRIGGER IF EXISTS trg_social_monthly_cadence_updated_at ON public.social_monthly_cadence;
 CREATE TRIGGER trg_social_monthly_cadence_updated_at

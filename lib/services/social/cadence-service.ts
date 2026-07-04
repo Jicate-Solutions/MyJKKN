@@ -76,7 +76,7 @@ async function mutate(
   }
 }
 
-/** Open a dept-month cadence (snapshots baseline + creates/links the monthly OKR objective). */
+/** Open a dept-month cadence (snapshots baseline + creates/links a real is_okr project owned by the HOD). */
 export function openCadence(body: Omit<OpenCadenceBody, 'op'>): Promise<CadenceMutationResponse> {
   return mutate({ op: 'open', ...body });
 }

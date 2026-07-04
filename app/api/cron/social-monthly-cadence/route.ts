@@ -13,6 +13,11 @@ export const dynamic = 'force-dynamic';
 // learning or finalise — per the Director's locked decision the OWNER closes each
 // cycle with a one-line learning (fn_social_cadence_close).
 //
+// Teeth: on a measurable re-measure it also sets the linked project's rag_status
+// (green/amber/red vs the win threshold) — the canonical RAG the dormant
+// project_at_risk auto-accountability rule reads to summon the HOD on a miss.
+// That rule stays INACTIVE until the Director enables it in /meetings/triggers.
+//
 // Ships DARK: if social.cadence.enabled=false the dispatcher is a no-op.
 //
 // Auth: Bearer CRON_SECRET (Vercel-provided) OR ?secret=CRON_SECRET.
@@ -87,6 +92,29 @@ interface OpenCadenceRow {
   cadence_month: string;
   baseline_reach: number | null;
   baseline_metrics_source: string | null;
+  project_id: string | null;
+}
+
+/**
+ * Reach-vs-target -> project RAG (the teeth). Mirrors fn_social_cadence_close:
+ * a hard miss is red (so the dormant project_at_risk rule would summon the HOD),
+ * a soft miss amber, a win green. Returns null (leave RAG untouched) when the
+ * cycle is unmeasurable (delta null) — never fabricate a "reach collapsed".
+ */
+function ragForDelta(
+  delta: number | null,
+  baseline: number | null,
+  winPct: number
+): 'green' | 'amber' | 'red' | null {
+  if (delta === null) return null;
+  const base = baseline ?? 0;
+  if (base > 0) {
+    const pct = (delta / base) * 100;
+    if (pct >= Math.max(winPct, 1)) return 'green';
+    if (pct > 0) return 'amber';
+    return 'red';
+  }
+  return delta > 0 ? 'green' : 'amber';
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -121,6 +149,16 @@ export async function GET(request: Request): Promise<Response> {
       });
     }
 
+    // Win threshold (config, fail-soft to 10%) — drives the project RAG teeth.
+    const { data: winRow } = await supabase
+      .from('platform_policies')
+      .select('value')
+      .eq('policy_key', 'social.cadence.win_delta_pct')
+      .eq('scope_type', 'global')
+      .maybeSingle();
+    const winRaw = (winRow as { value: unknown } | null)?.value;
+    const winDeltaPct = typeof winRaw === 'number' && Number.isFinite(winRaw) ? winRaw : 10;
+
     // Candidate open cycles: opened at least one calendar month ago.
     const oneMonthAgo = (() => {
       const d = new Date(`${currentMonth}T00:00:00Z`);
@@ -132,7 +170,7 @@ export async function GET(request: Request): Promise<Response> {
 
     const { data: openRows, error: openErr } = await supabase
       .from('social_monthly_cadence')
-      .select('id, account_id, cadence_month, baseline_reach, baseline_metrics_source')
+      .select('id, account_id, cadence_month, baseline_reach, baseline_metrics_source, project_id')
       .eq('status', 'open')
       .lte('cadence_month', oneMonthAgo);
     if (openErr) throw openErr;
@@ -191,6 +229,18 @@ export async function GET(request: Request): Promise<Response> {
           .eq('status', 'open'); // guard against a concurrent close
         if (updErr) throw updErr;
 
+        // Teeth: reflect the re-measure into the linked project's rag_status so
+        // the DORMANT project_at_risk rule (fires on red) would summon the HOD.
+        // Only when measurable; an unmeasurable re-measure leaves RAG untouched.
+        const newRag = ragForDelta(reachDelta, baselineReach, winDeltaPct);
+        if (c.project_id && newRag) {
+          const { error: ragErr } = await supabase
+            .from('projects')
+            .update({ rag_status: newRag, updated_at: new Date().toISOString() })
+            .eq('id', c.project_id);
+          if (ragErr) throw ragErr;
+        }
+
         await logCadenceRun(supabase, {
           account_id: c.account_id,
           meta: {
@@ -201,6 +251,8 @@ export async function GET(request: Request): Promise<Response> {
             remeasure_reach: remeasureReach,
             reach_delta: reachDelta,
             guard_tripped: guardTripped,
+            project_id: c.project_id,
+            project_rag: newRag,
           },
         });
 

@@ -20962,14 +20962,15 @@ REVOKE EXECUTE ON FUNCTION public.fn_ig_monthly_reach(UUID, DATE) FROM anon, PUB
 GRANT  EXECUTE ON FUNCTION public.fn_ig_monthly_reach(UUID, DATE) TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.fn_social_cadence_open(
-  p_account_id UUID, p_objective TEXT, p_cadence_month DATE DEFAULT NULL, p_okr_objective_id UUID DEFAULT NULL
+  p_account_id UUID, p_objective TEXT, p_cadence_month DATE DEFAULT NULL, p_project_id UUID DEFAULT NULL
 )
 RETURNS public.social_monthly_cadence
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_institution_id UUID; v_department_id UUID; v_metrics_source TEXT;
-  v_month DATE; v_baseline_reach BIGINT; v_okr_id UUID; v_uid UUID := auth.uid();
+  v_month DATE; v_baseline_reach BIGINT; v_project_id UUID; v_task_id UUID;
+  v_hod_staff_id UUID; v_type_id UUID; v_uid UUID := auth.uid();
   v_existing public.social_monthly_cadence; v_row public.social_monthly_cadence;
 BEGIN
   IF p_objective IS NULL OR btrim(p_objective) = '' THEN
@@ -20991,28 +20992,51 @@ BEGIN
   IF FOUND THEN RETURN v_existing; END IF;
   SELECT m.total_reach INTO v_baseline_reach FROM public.ig_monthly_audit m
   WHERE m.ig_account_id = p_account_id AND m.audit_month = v_month LIMIT 1;
-  IF p_okr_objective_id IS NULL THEN
-    INSERT INTO public.okr_objectives (
-      title, description, tier, level, owner_id, institution_id, department_id,
-      cycle_type, start_date, end_date, status, created_by
+  -- Resolve dept HOD -> staff.id (head_of_department_id is a profile id;
+  -- staff.profile_id links it). Best-effort: NULL owner when no HOD/staff.
+  IF v_department_id IS NOT NULL THEN
+    SELECT s.id INTO v_hod_staff_id
+    FROM public.departments d
+    JOIN public.staff s ON s.profile_id = d.head_of_department_id AND s.is_active = true
+    WHERE d.id = v_department_id LIMIT 1;
+  END IF;
+  -- REQUIRED project link: create the unified-OKR objective as a real projects
+  -- row (is_okr=true) + key-result task with the HOD as single RACI Accountable.
+  IF p_project_id IS NULL THEN
+    SELECT id INTO v_type_id FROM public.project_types WHERE key = 'okr_objective' LIMIT 1;
+    INSERT INTO public.projects (
+      title, description, project_type_id, institution_id, owner_staff_id,
+      is_okr, rag_status, start_date, due_date, created_by
     ) VALUES (
-      left('Social reach — ' || btrim(p_objective), 200),
-      'Monthly Instagram reach cadence (auto-linked from the Social Loop). Objective: ' || btrim(p_objective),
-      'tier_2', 'department', v_uid, v_institution_id, v_department_id,
-      'monthly', v_month, (v_month + INTERVAL '1 month' - INTERVAL '1 day')::date, 'active', v_uid
-    ) RETURNING id INTO v_okr_id;
-  ELSE
-    IF NOT EXISTS (SELECT 1 FROM public.okr_objectives WHERE id = p_okr_objective_id) THEN
-      RAISE EXCEPTION 'okr_objective_id % not found', p_okr_objective_id USING ERRCODE = 'P0002';
+      left('IG Cadence ' || to_char(v_month, 'Mon YYYY') || ' — ' || btrim(p_objective), 200),
+      'Monthly Instagram reach objective for this department, driven by the Social Loop cadence engine. Objective: ' || btrim(p_objective),
+      v_type_id, v_institution_id, v_hod_staff_id,
+      true, 'green', v_month, (v_month + INTERVAL '1 month' - INTERVAL '1 day')::date, v_uid
+    ) RETURNING id INTO v_project_id;
+    INSERT INTO public.project_tasks (
+      project_id, title, description, task_type, status_key, owner_staff_id, start_date, due_date, created_by
+    ) VALUES (
+      v_project_id, left('Grow monthly IG reach — ' || btrim(p_objective), 200),
+      'Re-measured one calendar month on vs the baseline reach snapshot.',
+      'key_result', 'todo', v_hod_staff_id, v_month,
+      (v_month + INTERVAL '1 month' - INTERVAL '1 day')::date, v_uid
+    ) RETURNING id INTO v_task_id;
+    IF v_hod_staff_id IS NOT NULL THEN
+      INSERT INTO public.project_task_assignees (task_id, staff_id, role, assigned_by)
+      VALUES (v_task_id, v_hod_staff_id, 'accountable', v_uid);
     END IF;
-    v_okr_id := p_okr_objective_id;
+  ELSE
+    IF NOT EXISTS (SELECT 1 FROM public.projects WHERE id = p_project_id) THEN
+      RAISE EXCEPTION 'project_id % not found', p_project_id USING ERRCODE = 'P0002';
+    END IF;
+    v_project_id := p_project_id;
   END IF;
   INSERT INTO public.social_monthly_cadence (
     institution_id, account_id, department_id, cadence_month, objective,
-    baseline_reach, baseline_month, baseline_metrics_source, status, okr_objective_id, created_by
+    baseline_reach, baseline_month, baseline_metrics_source, status, project_id, created_by
   ) VALUES (
     v_institution_id, p_account_id, v_department_id, v_month, btrim(p_objective),
-    v_baseline_reach, v_month, v_metrics_source, 'open', v_okr_id, v_uid
+    v_baseline_reach, v_month, v_metrics_source, 'open', v_project_id, v_uid
   ) RETURNING * INTO v_row;
   RETURN v_row;
 END;
@@ -21063,6 +21087,7 @@ AS $$
 DECLARE
   v_row public.social_monthly_cadence; v_remeasure_month DATE; v_remeasure_reach BIGINT;
   v_current_source TEXT; v_delta BIGINT; v_final_status TEXT; v_win_delta_pct INT; v_progress NUMERIC(5,2);
+  v_pct NUMERIC; v_new_rag TEXT;
 BEGIN
   IF p_learning IS NULL OR btrim(p_learning) = '' THEN
     RAISE EXCEPTION 'A one-line learning is required to close the cycle' USING ERRCODE = '22023';
@@ -21097,20 +21122,28 @@ BEGIN
       remeasure_metrics_source = v_current_source, reach_delta = v_delta,
       learning = btrim(p_learning), status = v_final_status, updated_at = now()
   WHERE id = p_cadence_id RETURNING * INTO v_row;
+  -- Teeth: measured reach-vs-target -> the linked project's rag_status (canonical
+  -- RAG that evaluateProjectTriggers reads; project_at_risk fires gte 2 = red).
+  -- Hard miss -> red (dormant rule would summon the HOD), soft miss -> amber,
+  -- win -> green. 'unmeasurable' leaves the project RAG untouched (verify-not-trust).
   v_win_delta_pct := fn_get_policy_int('social.cadence.win_delta_pct', 10, NULL);
-  IF v_final_status = 'closed' AND COALESCE(v_row.baseline_reach, 0) > 0 THEN
-    v_progress := LEAST(100, GREATEST(0,
-      round((v_delta::numeric / v_row.baseline_reach) / (GREATEST(v_win_delta_pct, 1)::numeric / 100) * 100, 2)));
-  ELSIF v_final_status = 'closed' THEN
-    v_progress := CASE WHEN COALESCE(v_delta, 0) > 0 THEN 100 ELSE 0 END;
-  ELSE
-    v_progress := 0;
+  IF v_final_status = 'closed' THEN
+    IF COALESCE(v_row.baseline_reach, 0) > 0 THEN
+      v_pct := (v_delta::numeric / v_row.baseline_reach) * 100;
+      v_new_rag := CASE
+        WHEN v_pct >= GREATEST(v_win_delta_pct, 1) THEN 'green'
+        WHEN v_pct > 0 THEN 'amber'
+        ELSE 'red' END;
+      v_progress := LEAST(100, GREATEST(0,
+        round(v_pct / (GREATEST(v_win_delta_pct, 1)::numeric) * 100, 2)));
+    ELSE
+      v_new_rag := CASE WHEN COALESCE(v_delta, 0) > 0 THEN 'green' ELSE 'amber' END;
+      v_progress := CASE WHEN COALESCE(v_delta, 0) > 0 THEN 100 ELSE 0 END;
+    END IF;
+    UPDATE public.projects
+    SET rag_status = v_new_rag, percent_complete = v_progress, updated_at = now()
+    WHERE id = v_row.project_id;
   END IF;
-  UPDATE public.okr_objectives
-  SET overall_progress = v_progress,
-      status = CASE WHEN v_final_status = 'closed' THEN 'completed'::okr_status ELSE status END,
-      updated_at = now()
-  WHERE id = v_row.okr_objective_id;
   RETURN v_row;
 END;
 $$;

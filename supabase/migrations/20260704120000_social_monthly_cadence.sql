@@ -12,8 +12,18 @@
 --                NEVER re-aggregates ig_post_metrics.
 --   * FEEDBACK : read ONLY via feedback_events (the buildVoice() read path in
 --                app/api/social/loop/route.ts); snapshotted at action time.
---   * OKR      : each dept-month links to a REQUIRED cycle_type='monthly' OKR
---                objective (Director locked "inside the OKR system").
+--   * PROJECTS : each dept-month links to a REQUIRED real project row
+--                (projects.is_okr=true, project_type='okr_objective',
+--                owner_staff_id=the dept HOD). OKR was absorbed into the
+--                Projects module (locked 2026-05-31): objectives ARE projects,
+--                key results ARE project_tasks, RACI lives on
+--                project_task_assignees.role. The legacy okr_* objective tables
+--                were dropped in prod — nothing here touches them.
+--
+-- Teeth: on a measured miss the linked project's rag_status is set amber/red so
+-- the DORMANT project_at_risk auto-accountability rule (evaluateProjectTriggers)
+-- would summon the HOD (owner_staff_id + task Accountable) to explain-or-meet.
+-- That rule stays INACTIVE until the Director enables it in /meetings/triggers.
 --
 -- Ships DARK: social.cadence.enabled defaults false; clock_mode locks to
 -- 'calendar_month' for v1. This file is additive + idempotent (safe to
@@ -26,13 +36,6 @@
 --     user_has_permission + role_has_institution_access) because DEFINER
 --     bypasses RLS. RLS on the ledger mirrors the gate for direct PostgREST.
 -- =====================================================================
-
--- ── 0. Extend OKR cycle grain with 'monthly' (additive enum change) ─────────
---    okr_objectives.cycle_type is ENUM okr_cycle_type (annual|quarterly|
---    semester). ADD VALUE IF NOT EXISTS is idempotent. The new label is never
---    USED as a literal at DDL-execution time in this migration (RPC bodies are
---    stored, parsed lazily at call time), so it is safe under a wrapping txn.
-ALTER TYPE public.okr_cycle_type ADD VALUE IF NOT EXISTS 'monthly';
 
 -- ── 1. Ledger table: social_monthly_cadence ────────────────────────────────
 --    One row per (account_id, cadence_month). Reach/feedback columns are
@@ -55,7 +58,7 @@ CREATE TABLE IF NOT EXISTS public.social_monthly_cadence (
   reach_delta BIGINT NULL,                     -- remeasure_reach - baseline_reach (NULL when unmeasurable)
   status TEXT NOT NULL DEFAULT 'open'
     CHECK (status IN ('open','awaiting_close','closed','unmeasurable')),
-  okr_objective_id UUID NOT NULL REFERENCES public.okr_objectives(id) ON DELETE CASCADE,
+  project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,  -- the unified OKR objective (projects.is_okr=true)
   learning TEXT NULL,                          -- the one human learning written at close
   created_by UUID NULL REFERENCES public.profiles(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -71,11 +74,11 @@ CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_department
   ON public.social_monthly_cadence (department_id) WHERE department_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_open
   ON public.social_monthly_cadence (status) WHERE status IN ('open','awaiting_close');
-CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_okr
-  ON public.social_monthly_cadence (okr_objective_id);
+CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_project
+  ON public.social_monthly_cadence (project_id);
 
 COMMENT ON TABLE public.social_monthly_cadence IS
-  'Per-department monthly Instagram reach cadence ledger (objective -> baseline -> feedback -> action -> re-measure -> close). Reach snapshots come ONLY from ig_monthly_audit; feedback ONLY from feedback_events. okr_objective_id is REQUIRED (Director-locked OKR integration).';
+  'Per-department monthly Instagram reach cadence ledger (objective -> baseline -> feedback -> action -> re-measure -> close). Reach snapshots come ONLY from ig_monthly_audit; feedback ONLY from feedback_events. project_id is REQUIRED and points at a real projects row (is_okr=true, project_type=okr_objective, owner=HOD) — the unified OKR objective; its rag_status carries the reach-vs-target teeth for the dormant project_at_risk meeting rule.';
 
 -- updated_at trigger (helper created by 20260131000000_create_okr_tables).
 DROP TRIGGER IF EXISTS trg_social_monthly_cadence_updated_at ON public.social_monthly_cadence;
@@ -182,13 +185,16 @@ GRANT  EXECUTE ON FUNCTION public.fn_ig_monthly_reach(UUID, DATE) TO authenticat
 
 -- ── 4. Writer RPC: fn_social_cadence_open ───────────────────────────────────
 --    Opens a dept-month cadence: snapshots the baseline reach from
---    ig_monthly_audit, creates (or links) the REQUIRED monthly OKR objective,
---    inserts the ledger row. Idempotent per (account, month).
+--    ig_monthly_audit, creates (or links) the REQUIRED unified-OKR objective as
+--    a real projects row (is_okr=true, project_type='okr_objective',
+--    owner_staff_id=the dept HOD) + a key-result task with the HOD assigned
+--    RACI Accountable (so the dormant project_at_risk meeting rule has a
+--    subject + owner), then inserts the ledger row. Idempotent per (account, month).
 CREATE OR REPLACE FUNCTION public.fn_social_cadence_open(
   p_account_id UUID,
   p_objective TEXT,
   p_cadence_month DATE DEFAULT NULL,
-  p_okr_objective_id UUID DEFAULT NULL
+  p_project_id UUID DEFAULT NULL
 )
 RETURNS public.social_monthly_cadence
 LANGUAGE plpgsql
@@ -201,7 +207,10 @@ DECLARE
   v_metrics_source TEXT;
   v_month DATE;
   v_baseline_reach BIGINT;
-  v_okr_id UUID;
+  v_project_id UUID;
+  v_task_id UUID;
+  v_hod_staff_id UUID;
+  v_type_id UUID;
   v_uid UUID := auth.uid();
   v_existing public.social_monthly_cadence;
   v_row public.social_monthly_cadence;
@@ -242,34 +251,71 @@ BEGIN
   WHERE m.ig_account_id = p_account_id AND m.audit_month = v_month
   LIMIT 1;
 
-  -- REQUIRED OKR link: create a monthly department objective, or use the given one.
-  IF p_okr_objective_id IS NULL THEN
-    INSERT INTO public.okr_objectives (
-      title, description, tier, level, owner_id, institution_id, department_id,
-      cycle_type, start_date, end_date, status, created_by
+  -- Resolve the dept HOD -> staff.id. departments.head_of_department_id is a
+  -- PROFILE id; staff.profile_id links a profile to its staff row. Best-effort:
+  -- when a dept has no HOD (or no active staff for that profile) the objective is
+  -- still created with owner_staff_id NULL (no Accountable) so the loop never
+  -- blocks — the missing owner just means the dormant rule has no HOD to summon.
+  IF v_department_id IS NOT NULL THEN
+    SELECT s.id INTO v_hod_staff_id
+    FROM public.departments d
+    JOIN public.staff s
+      ON s.profile_id = d.head_of_department_id AND s.is_active = true
+    WHERE d.id = v_department_id
+    LIMIT 1;
+  END IF;
+
+  -- REQUIRED project link: create the unified-OKR objective as a real projects
+  -- row (is_okr=true), or use the given one. OKR was absorbed into Projects
+  -- (locked 2026-05-31) — objectives ARE projects, key results ARE tasks.
+  IF p_project_id IS NULL THEN
+    SELECT id INTO v_type_id FROM public.project_types WHERE key = 'okr_objective' LIMIT 1;
+
+    INSERT INTO public.projects (
+      title, description, project_type_id, institution_id, owner_staff_id,
+      is_okr, rag_status, start_date, due_date, created_by
     ) VALUES (
-      left('Social reach — ' || btrim(p_objective), 200),
-      'Monthly Instagram reach cadence (auto-linked from the Social Loop). Objective: ' || btrim(p_objective),
-      'tier_2', 'department', v_uid, v_institution_id, v_department_id,
-      'monthly', v_month, (v_month + INTERVAL '1 month' - INTERVAL '1 day')::date,
-      'active', v_uid
+      left('IG Cadence ' || to_char(v_month, 'Mon YYYY') || ' — ' || btrim(p_objective), 200),
+      'Monthly Instagram reach objective for this department, driven by the Social Loop cadence engine. Reach is re-measured one calendar month on vs the baseline snapshot. Objective: ' || btrim(p_objective),
+      v_type_id, v_institution_id, v_hod_staff_id,
+      true, 'green', v_month, (v_month + INTERVAL '1 month' - INTERVAL '1 day')::date, v_uid
     )
-    RETURNING id INTO v_okr_id;
-  ELSE
-    IF NOT EXISTS (SELECT 1 FROM public.okr_objectives WHERE id = p_okr_objective_id) THEN
-      RAISE EXCEPTION 'okr_objective_id % not found', p_okr_objective_id USING ERRCODE = 'P0002';
+    RETURNING id INTO v_project_id;
+
+    -- Key result = a project_task; the HOD is its single RACI Accountable so the
+    -- auto-accountability engine (task_overdue + project_at_risk) has a subject
+    -- and one clear owner (mirrors TaskService.assign's one-Accountable invariant).
+    INSERT INTO public.project_tasks (
+      project_id, title, description, task_type, status_key, owner_staff_id,
+      start_date, due_date, created_by
+    ) VALUES (
+      v_project_id,
+      left('Grow monthly IG reach — ' || btrim(p_objective), 200),
+      'Re-measured one calendar month on vs the baseline reach snapshot.',
+      'key_result', 'todo', v_hod_staff_id,
+      v_month, (v_month + INTERVAL '1 month' - INTERVAL '1 day')::date, v_uid
+    )
+    RETURNING id INTO v_task_id;
+
+    IF v_hod_staff_id IS NOT NULL THEN
+      INSERT INTO public.project_task_assignees (task_id, staff_id, role, assigned_by)
+      VALUES (v_task_id, v_hod_staff_id, 'accountable', v_uid);
     END IF;
-    v_okr_id := p_okr_objective_id;
+  ELSE
+    IF NOT EXISTS (SELECT 1 FROM public.projects WHERE id = p_project_id) THEN
+      RAISE EXCEPTION 'project_id % not found', p_project_id USING ERRCODE = 'P0002';
+    END IF;
+    v_project_id := p_project_id;
   END IF;
 
   INSERT INTO public.social_monthly_cadence (
     institution_id, account_id, department_id, cadence_month, objective,
     baseline_reach, baseline_month, baseline_metrics_source,
-    status, okr_objective_id, created_by
+    status, project_id, created_by
   ) VALUES (
     v_institution_id, p_account_id, v_department_id, v_month, btrim(p_objective),
     v_baseline_reach, v_month, v_metrics_source,
-    'open', v_okr_id, v_uid
+    'open', v_project_id, v_uid
   )
   RETURNING * INTO v_row;
 
@@ -354,6 +400,8 @@ DECLARE
   v_final_status TEXT;
   v_win_delta_pct INT;
   v_progress NUMERIC(5,2);
+  v_pct NUMERIC;
+  v_new_rag TEXT;
 BEGIN
   IF p_learning IS NULL OR btrim(p_learning) = '' THEN
     RAISE EXCEPTION 'A one-line learning is required to close the cycle' USING ERRCODE = '22023';
@@ -415,22 +463,37 @@ BEGIN
   WHERE id = p_cadence_id
   RETURNING * INTO v_row;
 
-  -- Feed the linked OKR objective (progress vs the win threshold + complete on a measured close).
+  -- Teeth: reflect the measured reach-vs-target into the linked project's
+  -- rag_status + percent_complete (the CANONICAL project RAG mechanism that
+  -- evaluateProjectTriggers reads: green=0/amber=1/red=2, project_at_risk fires
+  -- gte 2 = red). A hard miss goes RED so the DORMANT rule would summon the HOD
+  -- to explain-or-meet; a soft miss is AMBER (informational at the default
+  -- threshold); a win is GREEN. An 'unmeasurable' cycle NEVER fabricates a miss
+  -- — the project RAG is left untouched (verify-not-trust).
   v_win_delta_pct := fn_get_policy_int('social.cadence.win_delta_pct', 10, NULL);
-  IF v_final_status = 'closed' AND COALESCE(v_row.baseline_reach, 0) > 0 THEN
-    v_progress := LEAST(100, GREATEST(0,
-      round((v_delta::numeric / v_row.baseline_reach) / (GREATEST(v_win_delta_pct, 1)::numeric / 100) * 100, 2)));
-  ELSIF v_final_status = 'closed' THEN
-    v_progress := CASE WHEN COALESCE(v_delta, 0) > 0 THEN 100 ELSE 0 END;
-  ELSE
-    v_progress := 0;  -- unmeasurable: leave progress at 0, do not fabricate
-  END IF;
+  IF v_final_status = 'closed' THEN
+    IF COALESCE(v_row.baseline_reach, 0) > 0 THEN
+      v_pct := (v_delta::numeric / v_row.baseline_reach) * 100;
+      v_new_rag := CASE
+        WHEN v_pct >= GREATEST(v_win_delta_pct, 1) THEN 'green'
+        WHEN v_pct > 0 THEN 'amber'
+        ELSE 'red'
+      END;
+      v_progress := LEAST(100, GREATEST(0,
+        round(v_pct / (GREATEST(v_win_delta_pct, 1)::numeric) * 100, 2)));
+    ELSE
+      -- No baseline to compare (0 or NULL): any positive reach is a win; flat is
+      -- amber (needs attention) but never red — there was nothing to miss against.
+      v_new_rag := CASE WHEN COALESCE(v_delta, 0) > 0 THEN 'green' ELSE 'amber' END;
+      v_progress := CASE WHEN COALESCE(v_delta, 0) > 0 THEN 100 ELSE 0 END;
+    END IF;
 
-  UPDATE public.okr_objectives
-  SET overall_progress = v_progress,
-      status = CASE WHEN v_final_status = 'closed' THEN 'completed'::okr_status ELSE status END,
-      updated_at = now()
-  WHERE id = v_row.okr_objective_id;
+    UPDATE public.projects
+    SET rag_status = v_new_rag,
+        percent_complete = v_progress,
+        updated_at = now()
+    WHERE id = v_row.project_id;
+  END IF;
 
   RETURN v_row;
 END;

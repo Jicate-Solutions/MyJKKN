@@ -361,8 +361,9 @@ export function CadenceCard({
 
         <Separator />
         <p className="text-[11px] text-muted-foreground">
-          Each cadence links to a monthly OKR objective, so the loop is visible to leadership in the
-          OKR department dashboard.
+          Each cadence opens a real project (an OKR objective owned by the HOD) with the reach target
+          as its key result — visible to leadership under Projects. A missed month flags the project
+          at-risk so the accountability engine can prompt the HOD to explain.
         </p>
       </CardContent>
     </Card>

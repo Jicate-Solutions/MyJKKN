@@ -43,8 +43,12 @@ export interface MonthlyCadence {
   remeasure_metrics_source: string | null;
   reach_delta: number | null;
   status: CadenceStatus;
-  /** REQUIRED link to a cycle_type='monthly' OKR objective (Director-locked). */
-  okr_objective_id: string;
+  /**
+   * REQUIRED link to the unified-OKR objective — a real `projects` row
+   * (is_okr=true, project_type='okr_objective', owner=HOD). Its rag_status
+   * carries the reach-vs-target teeth for the dormant project_at_risk rule.
+   */
+  project_id: string;
   learning: string | null;
   created_by: string | null;
   created_at: string;
@@ -96,8 +100,8 @@ export interface OpenCadenceBody {
   objective: string;
   /** First-of-month DATE; defaults to the current month server-side. */
   cadenceMonth?: string;
-  /** Optional pre-existing OKR objective to link instead of auto-creating one. */
-  okrObjectiveId?: string;
+  /** Optional pre-existing project (is_okr) to link instead of auto-creating one. */
+  projectId?: string;
 }
 
 export interface RecordActionBody {
