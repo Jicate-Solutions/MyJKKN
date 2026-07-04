@@ -146,9 +146,11 @@ export default async function LoopControlTowerPage() {
           ],
           noteTag: 'Now',
           note:
-            scfResponses7d && scfResponses7d > 0
-              ? 'Reads student session-feedback directly — well fueled (raw ratings received in the last 7 days above; the loop coaches the classes among them with enough responses). It’s early because a tip’s effect is only measurable once that class is re-taught and re-rated, not because of missing input.'
-              : 'Reads student session-feedback directly. Few or no ratings received in the last 7 days — likely a weekend/term-break lull, but worth a glance if it persists, since the loop only coaches classes with enough recent responses.',
+            scfResponses7d == null
+              ? 'Reads student session-feedback directly. The 7-day ratings count didn’t load just now (transient) — reload to refresh; it doesn’t reflect the loop’s health.'
+              : scfResponses7d > 0
+                ? 'Reads student session-feedback directly — well fueled (raw ratings received in the last 7 days above; the loop coaches the classes among them with enough responses). It’s early because a tip’s effect is only measurable once that class is re-taught and re-rated, not because of missing input.'
+                : 'Reads student session-feedback directly. No ratings received in the last 7 days — likely a weekend/term-break lull, but worth a glance if it persists, since the loop only coaches classes with enough recent responses.',
         },
         {
           id: 'induction-session',
