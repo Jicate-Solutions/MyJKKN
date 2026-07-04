@@ -177,12 +177,22 @@ function PendingRosterDialog({ row }: { row: FacultyCompletionRow }) {
         timetableId: row.timetable_id,
         periodId: row.period_id,
       });
-      if (n > 0) {
+      const pending = roster.length;
+      if (n > 0 && n < pending) {
+        // The nudge only reaches learners with an app account; the rest of the pending
+        // list can't be messaged. Surface the gap so the count never silently overstates.
         toast.success(
-          `Reminder sent to ${n} student${n === 1 ? '' : 's'} who haven't submitted yet.`,
+          `Reminder sent to ${n} of ${pending} pending learners. The rest don't have an ` +
+            `app account yet or were already reminded today.`,
+        );
+      } else if (n > 0) {
+        toast.success(
+          `Reminder sent to ${n} pending learner${n === 1 ? '' : 's'} who haven't submitted yet.`,
         );
       } else {
-        toast.info('No new reminders sent — these students were already reminded today.');
+        toast.info(
+          'No new reminders sent — these learners have no app account yet or were already reminded today.',
+        );
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not send reminders.');
@@ -245,12 +255,13 @@ function PendingRosterDialog({ row }: { row: FacultyCompletionRow }) {
               ) : (
                 <>
                   <BellRing className="mr-1.5 h-4 w-4" />
-                  Remind {roster.length} pending student{roster.length === 1 ? '' : 's'}
+                  Remind pending learners
                 </>
               )}
             </Button>
             <p className="text-center text-[11px] text-muted-foreground">
-              Sends a one-tap in-app reminder to confirm. Once per student per day.
+              Sends a one-tap in-app reminder to confirm — only to learners with an app
+              account, once per learner per day.
             </p>
           </>
         )}
@@ -276,7 +287,7 @@ function TopicsToRevisitSection({ from, to }: { from: string; to: string }) {
           <CardTitle>Topics to revisit</CardTitle>
         </div>
         <CardDescription>
-          Your sessions where students reported low understanding (average under 3, at
+          Your sessions where learners reported low understanding (average under 3, at
           least 3 responses). <span className="font-medium">Follow-up</span> shows whether
           understanding recovered the next time you taught that course — and you can ask
           for an AI-suggested fix for any topic.
@@ -425,21 +436,29 @@ function FacultyRewardCard({ rows }: { rows: FacultySummaryRow[] }) {
   const stats = useMemo(() => {
     let respWithAvg = 0;
     let weightedSum = 0;
+    let answeredSessions = 0; // sessions that actually got at least one response
     let goodSessions = 0;
     let cleanSessions = 0;
     for (const r of rows) {
+      // Empty sessions (no responses) must not dilute or inflate the "X of Y" counts —
+      // base BOTH the numerator and the denominator on sessions that got feedback. An
+      // unanswered session has no understanding signal, so it is neither "clean" nor
+      // "good"; it simply doesn't count here.
+      if (r.responses > 0) {
+        answeredSessions += 1;
+        if (r.low_understanding === 0) cleanSessions += 1;
+      }
       if (r.avg_understood != null && !Number.isNaN(r.avg_understood)) {
         respWithAvg += r.responses;
         weightedSum += r.avg_understood * r.responses;
         if (r.avg_understood >= 4) goodSessions += 1;
       }
-      if (r.low_understanding === 0) cleanSessions += 1;
     }
     const overallAvg = respWithAvg > 0 ? weightedSum / respWithAvg : null;
     return {
       overallAvg,
       respWithAvg,
-      sessions: rows.length,
+      sessions: answeredSessions,
       goodSessions,
       cleanSessions,
     };
@@ -463,7 +482,7 @@ function FacultyRewardCard({ rows }: { rows: FacultySummaryRow[] }) {
           <CardTitle>You&apos;re above {REWARD_THRESHOLD.toFixed(1)} — here&apos;s what&apos;s working</CardTitle>
         </div>
         <CardDescription>
-          Your students&apos; average understanding across the last 30 days is{' '}
+          Your learners&apos; average understanding across the last 30 days is{' '}
           <strong className="text-green-800">{stats.overallAvg.toFixed(1)} / 5</strong>. Keep
           doing what you&apos;re doing.
         </CardDescription>
@@ -482,7 +501,7 @@ function FacultyRewardCard({ rows }: { rows: FacultySummaryRow[] }) {
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
             <span>
               <strong>{stats.cleanSessions}</strong> of your sessions had{' '}
-              <strong>zero</strong> students reporting low understanding.
+              <strong>zero</strong> learners reporting low understanding.
             </span>
           </li>
         </ul>
@@ -507,7 +526,7 @@ function CompletionSection({ from, to }: { from: string; to: string }) {
           <CardTitle>Feedback Completion</CardTitle>
         </div>
         <CardDescription>
-          How many of the students you marked Present have confirmed each session by giving
+          How many of the learners you marked Present have confirmed each session by giving
           feedback. Open a session to see who is still pending.
         </CardDescription>
       </CardHeader>
@@ -517,12 +536,12 @@ function CompletionSection({ from, to }: { from: string; to: string }) {
             <Lock className="h-4 w-4 text-red-700" />
             <AlertDescription className="text-red-900">
               <strong>Feedback is required.</strong> Sessions stay{' '}
-              <strong>Incomplete</strong> until every Present student confirms with a
+              <strong>Incomplete</strong> until every Present learner confirms with a
               10-second feedback.{' '}
               {incompleteCount > 0
                 ? `${incompleteCount} of your sessions ${
                     incompleteCount === 1 ? 'is' : 'are'
-                  } currently Incomplete — remind the pending students.`
+                  } currently Incomplete — remind the pending learners.`
                 : 'All your sessions are complete.'}
             </AlertDescription>
           </Alert>

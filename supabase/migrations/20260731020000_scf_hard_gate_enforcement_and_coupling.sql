@@ -50,6 +50,7 @@ RETURNS TABLE (
   gate_mode text, session_status text
 )
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public
+SET statement_timeout = '20s'
 AS $$
 DECLARE v_email text;
 BEGIN
@@ -75,13 +76,22 @@ BEGIN
             SELECT 1 FROM public.session_feedback f
             WHERE f.student_id = (st ->> 'student_id')::uuid
               AND f.attendance_date = s.attendance_date
-              AND f.period_id = s.period_id))::int AS confirmed_count
+              AND f.period_id = s.period_id
+              -- Key the confirmation match on the FULL session identity. period_id is
+              -- only a slot key inside a day; without timetable_id a learner's feedback
+              -- for a different class sharing the same period slot could falsely mark
+              -- this session confirmed.
+              AND f.timetable_id = s.timetable_id))::int AS confirmed_count
     FROM sess s
   ),
   derived AS (
     SELECT c.*,
       (c.present_count - c.confirmed_count) AS pending_ct,
-      (now() <= c.attendance_date::timestamptz
+      -- Anchor the completion window to IST wall-clock, NOT the server TZ. Casting a
+      -- date to timestamptz resolves midnight in the server zone (UTC in prod), which
+      -- shifts the IST day boundary 5.5h earlier and flips session_status at the edge.
+      -- Interpret attendance_date as IST midnight explicitly before adding the window.
+      (now() <= (c.attendance_date::timestamp AT TIME ZONE 'Asia/Kolkata')
          + make_interval(hours => public.fn_get_policy_int(
              'session_feedback.window_hours', 48, c.institution_id))) AS win,
       -- Resolve the gate mode for THIS session's institution (institution override
@@ -139,19 +149,23 @@ CREATE OR REPLACE FUNCTION public.fn_scf_notify_session_pending(
 )
 RETURNS integer
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
+SET statement_timeout = '20s'
 AS $$
 DECLARE
-  v_email        text;
-  v_pv           jsonb;
-  v_course       text;
-  v_system_actor uuid;
-  v_nudged       int := 0;
+  v_email          text;
+  v_pv             jsonb;
+  v_institution_id uuid;
+  v_course         text;
+  v_system_actor   uuid;
+  v_nudged         int := 0;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_scf_notify_session_pending: not authenticated'; END IF;
   SELECT lower(p.email) INTO v_email FROM public.profiles p WHERE p.id = auth.uid();
   IF v_email IS NULL THEN RAISE EXCEPTION 'fn_scf_notify_session_pending: no profile'; END IF;
 
-  SELECT sa.attendance_data -> p_period_id INTO v_pv
+  -- Resolve the session WITH its institution_id so the admin path can be tenant-bounded.
+  SELECT sa.attendance_data -> p_period_id, sa.institution_id
+    INTO v_pv, v_institution_id
   FROM public.student_attendance sa
   WHERE sa.timetable_id = p_timetable_id
     AND sa.attendance_date = p_attendance_date
@@ -159,10 +173,18 @@ BEGIN
   LIMIT 1;
   IF v_pv IS NULL THEN RAISE EXCEPTION 'fn_scf_notify_session_pending: no such session'; END IF;
 
-  -- Caller MUST be the assigned faculty for this session (super/admin may also nudge).
+  -- Authorization. The assigned faculty may always nudge their own session. An admin
+  -- may also nudge, but ONLY within their OWN tenant — mirror the scope-honest guard in
+  -- fn_scf_effective_attendance (super_admin sees all; every other admin is bounded by
+  -- role_has_institution_access). Without the institution bound a tenant-A admin could
+  -- nudge tenant-B learners (cross-tenant), since the session is resolved by
+  -- timetable_id + date alone.
   IF lower(v_pv -> 'assigned_faculty' ->> 'faculty_email') IS DISTINCT FROM v_email
-     AND NOT (is_super_admin() OR is_admin()) THEN
-    RAISE EXCEPTION 'fn_scf_notify_session_pending: not the assigned faculty';
+     AND NOT (
+       is_super_admin()
+       OR (is_admin() AND role_has_institution_access(v_institution_id))
+     ) THEN
+    RAISE EXCEPTION 'fn_scf_notify_session_pending: not authorized for this session';
   END IF;
 
   v_course := COALESCE(NULLIF(v_pv ->> 'course_name', ''),
@@ -182,7 +204,11 @@ BEGIN
         SELECT 1 FROM public.session_feedback f
         WHERE f.student_id      = (st ->> 'student_id')::uuid
           AND f.attendance_date = p_attendance_date
-          AND f.period_id       = p_period_id)
+          AND f.period_id       = p_period_id
+          -- Full session identity: feedback for a different class sharing this period
+          -- slot must NOT mark the learner confirmed for THIS session (else we skip a
+          -- genuinely-pending learner).
+          AND f.timetable_id    = p_timetable_id)
   ),
   ins_notif AS (
     INSERT INTO public.notifications (
@@ -204,17 +230,21 @@ BEGIN
       'work_item',
       FALSE,
       FALSE,
+      -- Key includes timetable_id so two sessions that share a period_id on the same
+      -- day for the same learner cannot collapse into a single nudge.
       'scf-nudge-session:' || pend.recipient_id::text || ':' || p_attendance_date::text
-        || ':' || p_period_id || ':' || CURRENT_DATE::text,
-      jsonb_build_object('source', 'scf_faculty_session_nudge', 'period_id', p_period_id),
+        || ':' || p_timetable_id::text || ':' || p_period_id || ':' || CURRENT_DATE::text,
+      jsonb_build_object('source', 'scf_faculty_session_nudge',
+                         'period_id', p_period_id, 'timetable_id', p_timetable_id),
       NOW(), NOW()
     FROM pend
-    WHERE NOT EXISTS (
-      SELECT 1 FROM public.notifications n2
-      WHERE n2.idempotency_key =
-        'scf-nudge-session:' || pend.recipient_id::text || ':' || p_attendance_date::text
-          || ':' || p_period_id || ':' || CURRENT_DATE::text
-    )
+    -- Atomic idempotency via the partial unique index idx_notifications_idempotency
+    -- (ON notifications(idempotency_key) WHERE idempotency_key IS NOT NULL). Repeating
+    -- that predicate lets ON CONFLICT infer the partial index, so a concurrent
+    -- double-click becomes a no-op instead of a unique_violation that aborts the whole
+    -- call. Skipped (conflicting) rows are NOT returned, so the user_notifications
+    -- fan-out below stays in lock-step (no orphan rows, no duplicates).
+    ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
     RETURNING id, (targeting -> 'user_ids' ->> 0)::uuid AS recipient_id
   ),
   ins_user AS (
@@ -267,20 +297,39 @@ BEGIN
     v_scope_type := 'institution'; v_scope_id := p_institution_id;
   END IF;
 
-  INSERT INTO public.platform_policies
-    (policy_key, scope_type, scope_id, value, data_type, enum_options,
-     description, classification, publication_state, is_system, is_active, ui_category,
-     updated_by, updated_at)
-  VALUES
-    ('session_feedback.gate_mode', v_scope_type, v_scope_id, to_jsonb(p_mode), 'string',
-     to_jsonb(ARRAY['off', 'visibility', 'hard']),
-     'Post-class feedback gate: off | visibility | hard. Set via SCF break-glass RPC.',
-     'major', 'published', true, true, 'Session Feedback',
-     auth.uid(), now())
-  ON CONFLICT (policy_key, scope_type,
-               COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid))
-  DO UPDATE SET value = to_jsonb(p_mode), is_active = true,
-                updated_by = auth.uid(), updated_at = now();
+  -- Break-glass upsert. Deliberately AVOIDS ON CONFLICT so the kill-switch can never
+  -- throw on an index-inference mismatch. platform_policies' uniqueness is the
+  -- EXPRESSION index uq_platform_policies_key_scope
+  -- (policy_key, scope_type, COALESCE(scope_id, '000..')) from
+  -- 20260429000002_platform_policies_substrate.sql. UPDATE-then-INSERT-if-absent is the
+  -- same pattern the coupling-flag seed below uses; it works even if that index is ever
+  -- renamed or rebuilt. The break-glass MUST reliably revert gate_mode with no deploy.
+  UPDATE public.platform_policies
+     SET value = to_jsonb(p_mode), is_active = true,
+         updated_by = auth.uid(), updated_at = now()
+   WHERE policy_key = 'session_feedback.gate_mode'
+     AND scope_type = v_scope_type
+     AND COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)
+       = COALESCE(v_scope_id, '00000000-0000-0000-0000-000000000000'::uuid);
+
+  IF NOT FOUND THEN
+    INSERT INTO public.platform_policies
+      (policy_key, scope_type, scope_id, value, data_type, enum_options,
+       description, classification, publication_state, is_system, is_active, ui_category,
+       updated_by, updated_at)
+    SELECT
+      'session_feedback.gate_mode', v_scope_type, v_scope_id, to_jsonb(p_mode), 'string',
+      to_jsonb(ARRAY['off', 'visibility', 'hard']),
+      'Post-class feedback gate: off | visibility | hard. Set via SCF break-glass RPC.',
+      'major', 'published', true, true, 'Session Feedback',
+      auth.uid(), now()
+    WHERE NOT EXISTS (
+      SELECT 1 FROM public.platform_policies
+       WHERE policy_key = 'session_feedback.gate_mode'
+         AND scope_type = v_scope_type
+         AND COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)
+           = COALESCE(v_scope_id, '00000000-0000-0000-0000-000000000000'::uuid));
+  END IF;
 
   RETURN p_mode;
 END;
@@ -337,6 +386,7 @@ BEGIN
     SELECT
       (st ->> 'student_id')::uuid AS sid,
       sa.attendance_date,
+      sa.timetable_id             AS timetable_id,
       period.key                  AS period_id,
       (st ->> 'status')           AS status
     FROM public.student_attendance sa
@@ -359,12 +409,15 @@ BEGIN
       -- role_has_institution_access.
       AND (is_super_admin() OR role_has_institution_access(sa.institution_id))
   ),
-  -- One mark per (learner, date, period); prefer Present on the rare dual-row tuple.
+  -- One mark per (learner, date, timetable, period); prefer Present on the rare
+  -- dual-row tuple. timetable_id is IN the key so two distinct classes that share a
+  -- period key on the same date do NOT collapse into one mark (which would skew both
+  -- official_pct and effective_pct).
   dedup AS (
-    SELECT DISTINCT ON (sid, attendance_date, period_id)
-      sid, attendance_date, period_id, status
+    SELECT DISTINCT ON (sid, attendance_date, timetable_id, period_id)
+      sid, attendance_date, timetable_id, period_id, status
     FROM marks
-    ORDER BY sid, attendance_date, period_id, (status = 'Present') DESC
+    ORDER BY sid, attendance_date, timetable_id, period_id, (status = 'Present') DESC
   ),
   agg AS (
     SELECT
@@ -376,6 +429,10 @@ BEGIN
         WHERE f.student_id      = d.sid
           AND f.attendance_date = d.attendance_date
           AND f.period_id       = d.period_id
+          -- Match the confirmation on the full session identity (session_feedback.
+          -- timetable_id is NOT NULL) so feedback for a different class sharing the
+          -- same period slot cannot inflate confirmed_present.
+          AND f.timetable_id    = d.timetable_id
       )) AS confirmed_present
     FROM dedup d
     GROUP BY d.sid
