@@ -60,7 +60,9 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   getSchoolDetail,
   listSchoolContributions,
+  listSchoolLearners,
   listSchoolSessions,
+  type SchoolLearnerRow,
 } from '../_lib/api';
 import {
   CONTRIBUTION_LABEL,
@@ -123,6 +125,12 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
   const contribsQuery = useQuery({
     queryKey: ['schools-network', 'contributions', schoolId],
     queryFn: () => listSchoolContributions(schoolId, 50),
+    enabled: !!detailQuery.data,
+  });
+
+  const learnersQuery = useQuery({
+    queryKey: ['schools-network', 'learners', schoolId],
+    queryFn: () => listSchoolLearners(detailQuery.data!.school.name),
     enabled: !!detailQuery.data,
   });
 
@@ -263,6 +271,9 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
           </TabsTrigger>
           <TabsTrigger value="owners">
             JKKN Owners ({owners.length})
+          </TabsTrigger>
+          <TabsTrigger value="learners">
+            Enrolled Learners{learnersQuery.data ? ` (${learnersQuery.data.total})` : ''}
           </TabsTrigger>
         </TabsList>
 
@@ -611,6 +622,68 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
                         <TableCell>{formatDateOnly(o.assignedAt)}</TableCell>
                         <TableCell>
                           {o.isActive ? <Badge>Active</Badge> : <Badge variant="outline">Revoked</Badge>}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ENROLLED LEARNERS */}
+        <TabsContent value="learners">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Enrolled learners</CardTitle>
+              <CardDescription>
+                Students admitted to JKKN from this school
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Students are matched across every spelling of this school&apos;s
+                name, so this count matches the discovery panel.
+                Institution-scoped staff see only their own institution&apos;s
+                learners.
+              </p>
+              {learnersQuery.isLoading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <Skeleton key={i} className="h-10 w-full" />
+                  ))}
+                </div>
+              ) : (learnersQuery.data?.total ?? 0) === 0 ? (
+                <div className="text-center py-8 text-sm text-muted-foreground">
+                  No enrolled learners recorded from this school yet.
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Student</TableHead>
+                      <TableHead>Register No.</TableHead>
+                      <TableHead>Program</TableHead>
+                      <TableHead>Admission Year</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {learnersQuery.data?.rows.map((row: SchoolLearnerRow) => (
+                      <TableRow key={row.learnerId}>
+                        <TableCell className="font-medium">
+                          {row.learnerName ?? '—'}
+                        </TableCell>
+                        <TableCell>{row.registerNumber ?? '—'}</TableCell>
+                        <TableCell>{row.programName ?? '—'}</TableCell>
+                        <TableCell>
+                          {row.yearKnown ? (
+                            row.admissionYear
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              Year not recorded
+                            </span>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}

@@ -1,14 +1,24 @@
 'use client';
 
 /**
- * Feeder-school discovery panel — the Director's "just pull those tables"
- * design. Reads EXISTING data through fn_schools_network_feeders (via
+ * Feeder discovery panel — the Director's "just pull those tables" design,
+ * split into TWO stacked sections by the JKKN program level the learners
+ * joined:
+ *   • "Feeder Schools"   (Undergraduate) — listFeeders({ level: 'ug' })
+ *   • "Feeder Colleges"  (Postgraduate)  — listFeeders({ level: 'pg' })
+ *
+ * Both read EXISTING data through fn_schools_network_feeders (via
  * /api/schools-network/feeders): every distinct school in
- * learners_profiles.last_school (real enrolled feeders) and
- * marketing_leads_database.school_name (prospects), with counts, source
- * badges, and an adopted flag from the schools table. Nothing is copied —
- * "Adopt" pre-fills the Add School form; only adopted schools store
+ * learners_profiles.last_school with per-level enrolled counts, an adopted
+ * flag from the schools table, and per-cycle momentum. A feeder that fed both
+ * levels appears in both sections with its own per-level count. Nothing is
+ * copied — "Adopt" pre-fills the Add School form; only adopted schools store
  * JKKN-side activity (owners / sessions / contributions).
+ *
+ * Because each section is scoped to a JKKN program level, every row is an
+ * enrolled-learner feeder (marketing leads have no program level), so the
+ * old "Marketing leads" and "Source" columns and the source filter are gone —
+ * they would be empty / constant in every typed row.
  */
 
 import { useMemo, useState } from 'react';
@@ -38,103 +48,66 @@ import {
 } from '@/components/ui/table';
 
 import { listFeeders } from '../_lib/api';
+import { FeederPreviewDialog } from './feeder-preview-dialog';
 
 const PAGE_SIZE = 25;
 
-const SOURCE_LABEL: Record<string, string> = {
-  enrolled_learners: 'Enrolled learners',
-  marketing_leads: 'Marketing leads',
-};
+/** The shared filter form's committed state, fed to both sections. */
+interface SectionFilters {
+  search?: string;
+  adopted?: string;
+  sort?: 'priority' | 'volume';
+}
 
 export function FeederDiscovery() {
   const [search, setSearch] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
-  const [source, setSource] = useState<string>('all');
   const [adopted, setAdopted] = useState<string>('all');
   // 'priority' = the visit list the loop re-ranks: schools whose per-cycle
   // enrollment dropped the most come first. 'volume' = all-time count order.
   const [sort, setSort] = useState<'priority' | 'volume'>('priority');
-  const [page, setPage] = useState(1);
 
-  const filters = useMemo(
+  // Memoised so the reference only changes when a filter actually changes —
+  // each section keys its page-reset on this identity.
+  const filters = useMemo<SectionFilters>(
     () => ({
       search: appliedSearch || undefined,
-      source: source === 'all' ? undefined : source,
       adopted: adopted === 'all' ? undefined : adopted,
       sort,
-      limit: PAGE_SIZE,
-      offset: (page - 1) * PAGE_SIZE,
     }),
-    [appliedSearch, source, adopted, sort, page]
+    [appliedSearch, adopted, sort]
   );
-
-  const { data, isLoading } = useQuery({
-    queryKey: ['schools-network', 'feeders', filters],
-    queryFn: () => listFeeders(filters),
-    placeholderData: (prev) => prev,
-  });
-
-  const rows = data?.rows ?? [];
-  const total = data?.total ?? 0;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const apply = (e: React.FormEvent) => {
     e.preventDefault();
-    setPage(1);
     setAppliedSearch(search.trim());
   };
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <span className="flex items-center gap-2">
-            <Compass className="h-5 w-5" /> Discover feeder schools
-          </span>
-          <span className="text-sm font-normal text-muted-foreground">
-            {isLoading ? '…' : `${total.toLocaleString('en-IN')} schools found in existing data`}
-          </span>
+        <CardTitle className="flex items-center gap-2">
+          <Compass className="h-5 w-5" /> Discover feeders
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Every school your enrolled learners and marketing leads came from —
-          read live from the admission database. Adopt one to start tracking
+          Every school and college your enrolled learners came from — read live
+          from the admission database, split by whether they joined an
+          undergraduate or postgraduate programme. Adopt one to start tracking
           visits, contributions and contacts.
         </p>
       </CardHeader>
-      <CardContent>
-        <form onSubmit={apply} className="flex flex-wrap gap-2 mb-4">
+      <CardContent className="space-y-8">
+        <form onSubmit={apply} className="flex flex-wrap gap-2">
           <div className="relative flex-1 min-w-48">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               className="pl-8"
-              placeholder="Search school name…"
+              placeholder="Search name…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <Select
-            value={source}
-            onValueChange={(v) => {
-              setSource(v);
-              setPage(1);
-            }}
-          >
-            <SelectTrigger className="w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All sources</SelectItem>
-              <SelectItem value="enrolled_learners">Enrolled learners</SelectItem>
-              <SelectItem value="marketing_leads">Marketing leads</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select
-            value={adopted}
-            onValueChange={(v) => {
-              setAdopted(v);
-              setPage(1);
-            }}
-          >
+          <Select value={adopted} onValueChange={setAdopted}>
             <SelectTrigger className="w-40">
               <SelectValue />
             </SelectTrigger>
@@ -144,13 +117,7 @@ export function FeederDiscovery() {
               <SelectItem value="not_adopted">Not adopted yet</SelectItem>
             </SelectContent>
           </Select>
-          <Select
-            value={sort}
-            onValueChange={(v) => {
-              setSort(v as 'priority' | 'volume');
-              setPage(1);
-            }}
-          >
+          <Select value={sort} onValueChange={(v) => setSort(v as 'priority' | 'volume')}>
             <SelectTrigger className="w-48">
               <SelectValue />
             </SelectTrigger>
@@ -164,136 +131,223 @@ export function FeederDiscovery() {
           </Button>
         </form>
 
-        {isLoading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="h-9 w-full" />
-            ))}
-          </div>
-        ) : rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-6 text-center">
-            No feeder schools match the current filters.
-          </p>
-        ) : (
-          <>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>School</TableHead>
-                  <TableHead className="text-right">
-                    {rows[0]?.cycleYear && rows[0]?.priorCycleYear
-                      ? `${rows[0].priorCycleYear} → ${rows[0].cycleYear} so far`
-                      : 'Momentum'}
-                  </TableHead>
-                  <TableHead className="text-right">Enrolled learners</TableHead>
-                  <TableHead className="text-right">Marketing leads</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead className="text-right">Network</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((r, i) => (
-                  <TableRow key={`${r.schoolName}__${r.adoptedSchoolId ?? i}`}>
-                    <TableCell className="font-medium">{r.schoolName}</TableCell>
-                    <TableCell
-                      className="text-right whitespace-nowrap"
-                      title={
-                        r.cycleYear > 0 && r.priorCycleYear > 0 && r.cycleDelta !== null
-                          ? `${r.priorCycleEnrolled} enrolled last cycle, ${r.currentCycleEnrolled} so far in ${r.cycleYear} (cycle still in progress — early-cycle drops are expected to shrink as admissions come in). ${r.cohortKnown} of ${r.enrolledCount} learners fall in the two compared cycles; the rest are excluded.`
-                          : 'No admission-cycle data for this school yet — momentum is unknown.'
-                      }
-                    >
-                      {r.cycleYear > 0 && r.priorCycleYear > 0 && r.cycleDelta !== null ? (
-                        <>
-                          <span className="text-xs text-muted-foreground">
-                            {r.priorCycleEnrolled} → {r.currentCycleEnrolled}
-                          </span>{' '}
-                          {r.cycleDelta !== 0 ? (
-                            <Badge
-                              variant={r.cycleDelta < 0 ? 'destructive' : 'secondary'}
-                              className={
-                                r.cycleDelta < 0
-                                  ? 'text-xs'
-                                  : 'text-xs bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
-                              }
-                            >
-                              {r.cycleDelta > 0 ? `+${r.cycleDelta}` : r.cycleDelta}
-                            </Badge>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">±0</span>
-                          )}
-                        </>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {r.enrolledCount > 0 ? r.enrolledCount.toLocaleString('en-IN') : '—'}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {r.leadsCount > 0 ? r.leadsCount.toLocaleString('en-IN') : '—'}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {r.sources.map((s) => (
-                          <Badge key={s} variant="secondary" className="text-xs">
-                            {SOURCE_LABEL[s] ?? s}
-                          </Badge>
-                        ))}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {r.adoptedSchoolId ? (
-                        <Link href={`/admission/schools-network/${r.adoptedSchoolId}`}>
-                          <Badge className="gap-1 cursor-pointer">
-                            <Check className="h-3 w-3" /> In network
-                          </Badge>
-                        </Link>
-                      ) : (
-                        <Link
-                          href={`/admission/schools-network/new?name=${encodeURIComponent(r.schoolName)}`}
-                        >
-                          <Button size="sm" variant="outline" className="h-7 gap-1">
-                            <Plus className="h-3 w-3" /> Adopt
-                          </Button>
-                        </Link>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between mt-4">
-                <p className="text-sm text-muted-foreground">
-                  Page {page} of {totalPages.toLocaleString('en-IN')}
-                </p>
-                <div className="flex gap-1">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={page <= 1}
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={page >= totalPages}
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            )}
-          </>
-        )}
+        <FeederSection
+          level="ug"
+          title="Feeder Schools"
+          subtitle="Undergraduate"
+          filters={filters}
+        />
+        <FeederSection
+          level="pg"
+          title="Feeder Colleges"
+          subtitle="Postgraduate"
+          filters={filters}
+          note="Records are hand-entered at admission time, so this list can include some schools mixed in with colleges. The admission office is tidying these over time."
+        />
       </CardContent>
     </Card>
+  );
+}
+
+function FeederSection({
+  level,
+  title,
+  subtitle,
+  filters,
+  note,
+}: {
+  level: 'ug' | 'pg';
+  title: string;
+  subtitle: string;
+  filters: SectionFilters;
+  note?: React.ReactNode;
+}) {
+  const [page, setPage] = useState(1);
+  const [previewName, setPreviewName] = useState<string | null>(null);
+
+  // Reset to page 1 when the shared filters change — React's documented
+  // "adjust state during render" pattern. Doing it here (rather than in an
+  // effect) means the query key below already sees page 1, avoiding a
+  // transient fetch of a now-out-of-range page.
+  const [prevFilters, setPrevFilters] = useState(filters);
+  if (filters !== prevFilters) {
+    setPrevFilters(filters);
+    setPage(1);
+  }
+
+  const queryFilters = useMemo(
+    () => ({
+      ...filters,
+      level,
+      limit: PAGE_SIZE,
+      offset: (page - 1) * PAGE_SIZE,
+    }),
+    [filters, level, page]
+  );
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['schools-network', 'feeders', level, queryFilters],
+    queryFn: () => listFeeders(queryFilters),
+    placeholderData: (prev) => prev,
+  });
+
+  const rows = data?.rows ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <h3 className="text-base font-semibold leading-none">{title}</h3>
+          <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
+        </div>
+        <span className="whitespace-nowrap text-sm text-muted-foreground">
+          {isLoading ? '…' : `${total.toLocaleString('en-IN')} found`}
+        </span>
+      </div>
+      {note ? <p className="text-sm text-muted-foreground">{note}</p> : null}
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-9 w-full" />
+          ))}
+        </div>
+      ) : rows.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          No feeders match the current filters.
+        </p>
+      ) : (
+        <>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{level === 'pg' ? 'College / school' : 'School'}</TableHead>
+                <TableHead className="text-right">
+                  {rows[0]?.cycleYear && rows[0]?.priorCycleYear
+                    ? `${rows[0].priorCycleYear} → ${rows[0].cycleYear} so far`
+                    : 'Momentum'}
+                </TableHead>
+                <TableHead className="text-right">Enrolled learners</TableHead>
+                <TableHead className="text-right">Network</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((r, i) => (
+                <TableRow key={`${r.schoolName}__${r.adoptedSchoolId ?? i}`}>
+                  <TableCell className="font-medium">
+                    {r.adoptedSchoolId ? (
+                      <Link
+                        href={`/admission/schools-network/${r.adoptedSchoolId}`}
+                        className="cursor-pointer hover:underline"
+                      >
+                        {r.schoolName}
+                      </Link>
+                    ) : (
+                      <button
+                        type="button"
+                        className="text-left hover:underline"
+                        onClick={() => setPreviewName(r.schoolName)}
+                      >
+                        {r.schoolName}
+                      </button>
+                    )}
+                  </TableCell>
+                  <TableCell
+                    className="text-right whitespace-nowrap"
+                    title={
+                      r.cycleYear > 0 && r.priorCycleYear > 0 && r.cycleDelta !== null
+                        ? `${r.priorCycleEnrolled} enrolled last cycle, ${r.currentCycleEnrolled} so far in ${r.cycleYear} (cycle still in progress — early-cycle drops are expected to shrink as admissions come in). ${r.cohortKnown} of ${r.enrolledCount} learners fall in the two compared cycles; the rest are excluded.`
+                        : 'No admission-cycle data for this school yet — momentum is unknown.'
+                    }
+                  >
+                    {r.cycleYear > 0 && r.priorCycleYear > 0 && r.cycleDelta !== null ? (
+                      <>
+                        <span className="text-xs text-muted-foreground">
+                          {r.priorCycleEnrolled} → {r.currentCycleEnrolled}
+                        </span>{' '}
+                        {r.cycleDelta !== 0 ? (
+                          <Badge
+                            variant={r.cycleDelta < 0 ? 'destructive' : 'secondary'}
+                            className={
+                              r.cycleDelta < 0
+                                ? 'text-xs'
+                                : 'text-xs bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
+                            }
+                          >
+                            {r.cycleDelta > 0 ? `+${r.cycleDelta}` : r.cycleDelta}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">±0</span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {r.enrolledCount > 0 ? r.enrolledCount.toLocaleString('en-IN') : '—'}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {r.adoptedSchoolId ? (
+                      <Link href={`/admission/schools-network/${r.adoptedSchoolId}`}>
+                        <Badge className="gap-1 cursor-pointer">
+                          <Check className="h-3 w-3" /> In network
+                        </Badge>
+                      </Link>
+                    ) : (
+                      <Link
+                        href={`/admission/schools-network/new?name=${encodeURIComponent(r.schoolName)}`}
+                      >
+                        <Button size="sm" variant="outline" className="h-7 gap-1">
+                          <Plus className="h-3 w-3" /> Adopt
+                        </Button>
+                      </Link>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+
+          {totalPages > 1 && (
+            <div className="mt-4 flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                Page {page} of {totalPages.toLocaleString('en-IN')}
+              </p>
+              <div className="flex gap-1">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      <FeederPreviewDialog
+        schoolName={previewName ?? ''}
+        open={previewName !== null}
+        onOpenChange={(o) => {
+          if (!o) setPreviewName(null);
+        }}
+      />
+    </section>
   );
 }
