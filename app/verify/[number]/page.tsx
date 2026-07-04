@@ -17,6 +17,7 @@ import {
   Target,
   Clock,
 } from 'lucide-react';
+import { AddToLinkedInButton } from '@/components/linkedin/add-to-linkedin-button';
 
 // ── Types for API response ───────────────────────────────────────────────────
 
@@ -211,6 +212,26 @@ export default function CertificateVerifyPage({
                   <p className="text-xs text-gray-400 mb-1">Certificate Number</p>
                   <p className="text-xs font-mono font-medium text-gray-700">
                     {result.data.certificate_number}
+                  </p>
+                </div>
+
+                {/* Add to LinkedIn profile — pure URL, no API/OAuth needed */}
+                <div className="pt-1">
+                  <AddToLinkedInButton
+                    className="w-full"
+                    cert={{
+                      name:
+                        result.data.course_name ||
+                        result.data.certificate_type.replace(/_/g, ' '),
+                      certId: result.data.certificate_number,
+                      certUrl: `https://www.jkkn.ai/verify/${encodeURIComponent(
+                        result.data.certificate_number
+                      )}`,
+                      issuedAt: result.data.issued_at,
+                    }}
+                  />
+                  <p className="text-[11px] text-gray-400 text-center mt-1.5">
+                    Showcase this credential on your LinkedIn profile
                   </p>
                 </div>
 
