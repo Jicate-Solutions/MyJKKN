@@ -130,7 +130,13 @@ export default async function LoopControlTowerPage() {
     /* fall back to static cfg strings */
   }
   try {
-    const { data } = await admin.from('ai_model_config').select('feature_key, model_id');
+    // Match the canonical resolver getModelForFeature exactly — it only honours
+    // is_active rows; an inactive row means the routine falls back to its
+    // hardcoded model, so showing an inactive model_id here would be drift.
+    const { data } = await admin
+      .from('ai_model_config')
+      .select('feature_key, model_id')
+      .eq('is_active', true);
     for (const r of data ?? []) if (r.model_id) modelByKey.set(r.feature_key, r.model_id);
   } catch {
     /* fall back to static */
