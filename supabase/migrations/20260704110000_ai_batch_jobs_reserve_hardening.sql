@@ -167,6 +167,30 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_ai_batch_claim_for_collection(text, integer, integer) FROM anon, authenticated, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_ai_batch_claim_for_collection(text, integer, integer) TO service_role;
 
+-- ── RPC: mark_expired (updated) — free unrecorded item keys on terminal ─────────
+-- A terminal ('failed'/'expired') job must release its items' dedupe keys, or the
+-- partial unique index (result_status IS NULL) keeps blocking every future submit
+-- for that course — a permanent freeze. Setting unrecorded items' result_status
+-- takes them out of the in-flight index so the course unblocks.
+CREATE OR REPLACE FUNCTION public.fn_ai_batch_mark_expired(p_job_id uuid, p_status text DEFAULT 'expired')
+RETURNS void
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public
+AS $$
+BEGIN
+  IF p_status NOT IN ('expired','failed') THEN
+    RAISE EXCEPTION 'fn_ai_batch_mark_expired: p_status must be expired|failed';
+  END IF;
+  UPDATE public.ai_batch_job_items
+     SET result_status = p_status
+   WHERE job_id = p_job_id AND result_status IS NULL;
+  UPDATE public.ai_batch_jobs
+     SET status = p_status, updated_at = now()
+   WHERE id = p_job_id;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_ai_batch_mark_expired(uuid, text) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_ai_batch_mark_expired(uuid, text) TO service_role;
+
 -- ── RPC: release (updated) — decrement collect_attempts on a non-productive claim
 -- A not-yet-ended job (or a collect error) is released back to 'submitted'; that
 -- claim wasn't a real record-attempt, so undo its increment. Net effect:

@@ -39,6 +39,8 @@ const DEFAULT_LEASE_SECONDS = 600; // reclaim a job whose collector crashed
 // Per-call timeout for every Anthropic request so a hung call can't consume the
 // whole serverless maxDuration (and can't let a reservation age past the sweep).
 const ANTHROPIC_TIMEOUT_MS = 30_000;
+// Results are a JSONL stream (can be larger than a single request), so a longer bound.
+const RESULTS_STREAM_TIMEOUT_MS = 60_000;
 /** After this many ENDED-claim collect failures (record error or stream timeout),
  *  a job is marked terminal 'failed' so a persistent failure can't re-drain forever
  *  (which would freeze the course — the in-flight guard blocks on job status). */
@@ -238,34 +240,51 @@ export async function collectEndedBatches(
   const out: CollectedJob[] = [];
 
   for (const job of jobs) {
+    // Retrieve status in its OWN try: a transport error here (timeout on a batch
+    // that may still be PROCESSING and not yet billed-final) is poll-like — release
+    // + decrement and retry next tick, NOT a cap-counting failure. Only failures
+    // AFTER we confirm 'ended' count toward MAX_COLLECT_ATTEMPTS.
+    let status: Awaited<ReturnType<typeof anthropic.messages.batches.retrieve>>;
     try {
-      // Per-call timeouts so a hung Anthropic request can't consume the whole
-      // maxDuration; on timeout the throw drops to the catch → release + lease retry.
-      const status = await anthropic.messages.batches.retrieve(job.anthropic_batch_id, {
-        timeout: 30_000,
+      status = await anthropic.messages.batches.retrieve(job.anthropic_batch_id, {
+        timeout: ANTHROPIC_TIMEOUT_MS,
       });
-
-      if (status.processing_status !== 'ended') {
-        // Not ready — release for a later tick. Expiry fallback covers a null
-        // expires_at (SDK omission) so a stuck batch's dedupe_key can't block the
-        // course FOREVER. Anthropic transitions to 'ended' by 24h (unfinished
-        // requests → result.type='expired'), so we normally collect it as 'ended'
-        // well before this fires; a batch still not ended past expiry+2h is a
-        // contract violation — mark terminal and log the abandoned request count.
-        const expiryMs = job.expires_at
-          ? Date.parse(job.expires_at)
-          : Date.parse(job.submitted_at) + 24 * 60 * 60 * 1000;
-        if (Number.isFinite(expiryMs) && expiryMs + graceMs < Date.now()) {
-          console.error(
-            `[ai-batch] job ${job.id} (${job.anthropic_batch_id}) still '${status.processing_status}' past expiry — marking expired, ABANDONING ${job.request_count} request(s)`,
-          );
-          await admin.rpc('fn_ai_batch_mark_expired', { p_job_id: job.id, p_status: 'expired' });
-        } else {
-          await admin.rpc('fn_ai_batch_release_job', { p_job_id: job.id });
-        }
-        continue;
+    } catch (retrieveErr) {
+      console.warn(
+        `[ai-batch] retrieve failed for job ${job.id} (${job.anthropic_batch_id}) — releasing:`,
+        retrieveErr instanceof Error ? retrieveErr.message : retrieveErr,
+      );
+      try {
+        await admin.rpc('fn_ai_batch_release_job', { p_job_id: job.id });
+      } catch {
+        /* lease will reclaim */
       }
+      continue;
+    }
 
+    if (status.processing_status !== 'ended') {
+      // Not ready — release for a later tick. Expiry fallback covers a null
+      // expires_at (SDK omission) so a stuck batch's dedupe_key can't block the
+      // course FOREVER. Anthropic transitions to 'ended' by 24h (unfinished
+      // requests → result.type='expired'), so we normally collect it as 'ended'
+      // well before this fires; a batch still not ended past expiry+2h is a
+      // contract violation — mark terminal and log the abandoned request count.
+      const expiryMs = job.expires_at
+        ? Date.parse(job.expires_at)
+        : Date.parse(job.submitted_at) + 24 * 60 * 60 * 1000;
+      if (Number.isFinite(expiryMs) && expiryMs + graceMs < Date.now()) {
+        console.error(
+          `[ai-batch] job ${job.id} (${job.anthropic_batch_id}) still '${status.processing_status}' past expiry — marking expired, ABANDONING ${job.request_count} request(s)`,
+        );
+        await admin.rpc('fn_ai_batch_mark_expired', { p_job_id: job.id, p_status: 'expired' });
+      } else {
+        await admin.rpc('fn_ai_batch_release_job', { p_job_id: job.id });
+      }
+      continue;
+    }
+
+    // ENDED — everything below counts toward the cap on failure.
+    try {
       // Ended → load item rows (ids + context) to match results and settle.
       const { data: itemData, error: itemErr } = await admin
         .from('ai_batch_job_items')
@@ -284,7 +303,7 @@ export async function collectEndedBatches(
       const items: CollectedItem[] = [];
       const settledIds = new Set<string>();
       for await (const entry of await anthropic.messages.batches.results(job.anthropic_batch_id, {
-        timeout: 60_000,
+        timeout: RESULTS_STREAM_TIMEOUT_MS,
       })) {
         const row = byCustomId.get(entry.custom_id);
         if (!row) continue; // unknown custom_id — nothing to record against
