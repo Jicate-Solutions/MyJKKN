@@ -66,11 +66,21 @@ async function loadFullTopicMap(
 }
 
 async function loadOverlap(): Promise<OverlapData> {
+  // Direct client reads of cdc_training_types / cdc_exam_syllabus_topics /
+  // cdc_exam_topic_map are the intended config-master public-read pattern: their
+  // RLS SELECT policy is auth.uid() IS NOT NULL (no institution scope, no PII),
+  // matching the sibling CDC masters (cdc_drive_types / cdc_offer_types / …). See
+  // 20260704090100_cdc_exam_syllabus_topics.sql §5 for the rationale. Writes are
+  // the real boundary and are gated elsewhere.
   const db = createClientSupabaseClient();
   const [typesRes, topicsRes, map] = await Promise.all([
     db.from('cdc_training_types')
       .select('id, config_key, display_name, exam_family')
+      // exam_family is free-text; a blank ('') tag would slip past the null
+      // filter and become a phantom govt-exam column that pollutes the
+      // shared-vs-domain split (deep-review R3 #2), so exclude '' too.
       .not('exam_family', 'is', null)
+      .neq('exam_family', '')
       .eq('is_active', true)
       .order('sort_order', { ascending: true }),
     db.from('cdc_exam_syllabus_topics')

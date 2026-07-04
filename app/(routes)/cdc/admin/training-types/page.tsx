@@ -21,10 +21,13 @@ export default function TrainingTypesPage() {
         {
           // Government-exam family tag (config-key style). Leave blank for
           // ordinary corporate-skill training types. 2026-07-04 govt-job-readiness.
+          // nullifyWhenBlank: a blank tag stores NULL (not '') so the type is not
+          // treated as a phantom govt-exam by the readiness views (R3 #2).
           key: 'exam_family',
           label: 'Government-exam family',
           type: 'text',
           placeholder: 'e.g. tnpsc / rrb / banking / ssc / police (blank if not a govt-exam type)',
+          nullifyWhenBlank: true,
         },
       ]}
       extraListColumns={[

@@ -5,9 +5,27 @@ export const dynamic = 'force-dynamic';
  * POST   /api/admin/cdc/exam-topic-map                       — add one mapping { exam_training_type_id, topic_id }
  * DELETE /api/admin/cdc/exam-topic-map?exam=<id>&topic=<id>  — remove one mapping
  *
- * Role: super_admin OR cdc_head OR administrator (same gate as the CDC master
- * tables). Writes go through the RLS-bound client, so is_cdc_head_or_super() on
- * cdc_exam_topic_map is enforced as a second layer.
+ * Gate: user_has_permission('cdc.training.edit') — the SAME permission the
+ * matrix-editor page (/cdc/admin/exam-topic-map, via the /cdc/admin
+ * RoutePermissionGuard + MENU_PERMISSIONS) and the govt-readiness "Curate"
+ * links require. Both cdc_head AND cdc_coordinator hold this key, so the whole
+ * govt-job-readiness feature is intentionally built for coordinators too.
+ *
+ * WHY service-role writes (the recruiters-route precedent, see
+ * app/api/cdc/recruiters/route.ts):
+ *   cdc_exam_topic_map write-RLS requires is_cdc_head_or_super() — cdc_head /
+ *   super only. But this feature's audience is cdc.training.edit (head +
+ *   coordinator), so a coordinator would open the matrix editor and get a
+ *   confusing RLS rejection on every toggle. The prior hardcoded role list
+ *   (super_admin/cdc_head/administrator) diverged the other way — it 403'd
+ *   coordinators outright AND let `administrator` through the route only to hit
+ *   the RLS wall with a 500. To make app-layer, UI, and the effective write
+ *   boundary all agree on ONE audience (cdc.training.edit), writes go through
+ *   the service-role client (bypassing the head-only RLS) while the route GATES
+ *   on cdc.training.edit. The junction is platform-global config (no PII, no
+ *   institution scope), so widening curation to training-editors is low-risk and
+ *   mirrors the drive-creators-may-add-recruiters director decision. The RLS
+ *   stays as the belt for any direct (non-route) client write.
  *
  * Backs the /cdc/admin/exam-topic-map matrix editor — the in-app CRUD surface
  * for the govt-job-readiness topic↔exam junction (deep-review #3). Before this,
@@ -16,33 +34,27 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
   listExamTopicMap,
   addExamTopicMapping,
   removeExamTopicMapping,
 } from '@/lib/services/admin/cdc-admin-service';
 
-async function requireCdcAdmin() {
+async function requireTrainingEdit() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ok: false as const, status: 401 };
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, is_super_admin')
-    .eq('id', user.id)
-    .single();
+  // Parity with the matrix-editor page gate + RLS-honouring effective boundary:
+  // cdc.training.edit (held by cdc_head + cdc_coordinator). Writes below use the
+  // service-role client so a coordinator who passes this gate is not rejected by
+  // the head-only write-RLS (see header comment).
+  const { data: allowed } = await supabase.rpc('user_has_permission', {
+    permission_name: 'cdc.training.edit',
+  });
 
-  if (!profile) return { ok: false as const, status: 403 };
-
-  const allowed =
-    profile.is_super_admin ||
-    profile.role === 'super_admin' ||
-    profile.role === 'cdc_head' ||
-    profile.role === 'administrator';
-
-  if (!allowed) return { ok: false as const, status: 403 };
+  if (allowed !== true) return { ok: false as const, status: 403 };
   return { ok: true as const, userId: user.id };
 }
 
@@ -51,7 +63,7 @@ function isUuid(v: unknown): v is string {
 }
 
 export async function GET() {
-  const auth = await requireCdcAdmin();
+  const auth = await requireTrainingEdit();
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? 'Unauthorized' : 'Forbidden' },
@@ -59,6 +71,9 @@ export async function GET() {
     );
   }
 
+  // Read via the RLS-bound client — the read policy is auth.uid() IS NOT NULL
+  // (config-master public-read), so any authenticated caller who passed the
+  // gate above sees the full map.
   const supabase = await createClient();
   const { data, error } = await listExamTopicMap(supabase);
   if (error) {
@@ -68,7 +83,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireCdcAdmin();
+  const auth = await requireTrainingEdit();
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? 'Unauthorized' : 'Forbidden' },
@@ -86,8 +101,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const supabase = await createClient();
-  const { error } = await addExamTopicMapping(supabase, examId, topicId, auth.userId);
+  // Service-role write: gate is cdc.training.edit (head + coordinator); the
+  // table's write-RLS is head-only, so bypass it here (see header comment).
+  const db = createServiceRoleClient();
+  const { error } = await addExamTopicMapping(db, examId, topicId, auth.userId);
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -95,7 +112,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const auth = await requireCdcAdmin();
+  const auth = await requireTrainingEdit();
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? 'Unauthorized' : 'Forbidden' },
@@ -113,8 +130,9 @@ export async function DELETE(request: NextRequest) {
     );
   }
 
-  const supabase = await createClient();
-  const { error } = await removeExamTopicMapping(supabase, examId, topicId);
+  // Service-role write (same rationale as POST).
+  const db = createServiceRoleClient();
+  const { error } = await removeExamTopicMapping(db, examId, topicId);
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

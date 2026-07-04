@@ -24,6 +24,7 @@ import toast from 'react-hot-toast';
 import { Check, Loader2, ArrowLeft, ListTree } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -40,11 +41,19 @@ interface MatrixData { exams: ExamType[]; topics: Topic[]; map: MapRow[] }
 const cellKey = (examId: string, topicId: string) => `${examId}::${topicId}`;
 
 async function loadMatrix(): Promise<MatrixData> {
+  // Direct client reads of cdc_training_types / cdc_exam_syllabus_topics are the
+  // intended config-master public-read pattern (RLS SELECT = auth.uid() IS NOT
+  // NULL, no institution scope, no PII), matching the sibling CDC masters. See
+  // 20260704090100_cdc_exam_syllabus_topics.sql §5. The map read below is
+  // server-side (route-gated); writes are gated on cdc.training.edit.
   const db = createClientSupabaseClient();
   const [typesRes, topicsRes, mapRows] = await Promise.all([
     db.from('cdc_training_types')
       .select('id, display_name, exam_family')
+      // exam_family is free-text; exclude blank ('') tags so a blank-tagged
+      // type is not rendered as a phantom govt-exam column (deep-review R3 #2).
       .not('exam_family', 'is', null)
+      .neq('exam_family', '')
       .eq('is_active', true)
       .order('sort_order', { ascending: true }),
     db.from('cdc_exam_syllabus_topics')
@@ -90,6 +99,15 @@ export default function ExamTopicMapPage() {
     [data],
   );
   useEffect(() => {
+    // Don't clobber in-flight optimistic toggles: a background refetch
+    // (staleTime 30s / window refocus) changes `serverMapKey` and would re-seed
+    // `cells` from the server snapshot — discarding any optimistic flip whose
+    // POST/DELETE hasn't settled yet (deep-review R3 #4). Skip while writes are
+    // pending; the next refetch after they settle reconciles cleanly. Note we do
+    // NOT add `pending` to the deps: re-running on pending-clear would re-seed
+    // from a now-stale `data` (no refetch fires after a successful write) and
+    // revert the just-persisted toggle.
+    if (pending.size > 0) return;
     if (data) setCells(new Set(data.map.map((m) => cellKey(m.exam_training_type_id, m.topic_id))));
   }, [serverMapKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -145,6 +163,11 @@ export default function ExamTopicMapPage() {
   ];
 
   return (
+    // Defense-in-depth: the /cdc/admin RoutePermissionGuard already gates this
+    // route on cdc.training.edit (via MENU_PERMISSIONS), but wrap the page in an
+    // explicit guard so access never relies solely on the route-guard mapping
+    // (deep-review R3 #5).
+    <PermissionGuard module="cdc.training" action="edit">
     <ContentLayout title="Exam Topic Map">
       <PageBreadcrumb items={breadcrumbs} />
 
@@ -272,5 +295,6 @@ export default function ExamTopicMapPage() {
         </Card>
       )}
     </ContentLayout>
+    </PermissionGuard>
   );
 }
