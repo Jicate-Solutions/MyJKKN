@@ -168,6 +168,34 @@ export async function resolveCoeInstitutionByMyjkknId(
   };
 }
 
+/** One row of the COE `institutions` bridge, shaped for the REST-compatible
+ *  resolver cache in `internal-marks-access`. */
+export interface CoeInstitutionBridgeRow {
+  id: string;
+  institution_code: string;
+  myjkkn_institution_ids: string[];
+}
+
+/**
+ * All COE institutions with their MyJKKN bridge arrays, read DIRECTLY from the
+ * COE DB. This is the direct-DB fallback for the REST-based
+ * `getCoeInstitutions()` in internal-marks-access — the REST `/api/v1/institutions`
+ * call breaks when the COE API key is expired, whereas this does not. Shape is
+ * kept compatible with that resolver's in-memory cache entry.
+ */
+export async function getAllCoeInstitutions(): Promise<CoeInstitutionBridgeRow[]> {
+  const coe = createCoeDbClient();
+  const { data, error } = await coe
+    .from('institutions')
+    .select('id, institution_code, myjkkn_institution_ids');
+  if (error) throw new Error(`COE institutions list read failed: ${error.message}`);
+  return (data ?? []).map((r) => ({
+    id: r.id as string,
+    institution_code: r.institution_code as string,
+    myjkkn_institution_ids: (r.myjkkn_institution_ids as string[] | null) ?? [],
+  }));
+}
+
 /**
  * Examination sessions, newest first. Optionally filter to one COE institution.
  */
