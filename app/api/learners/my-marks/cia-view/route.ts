@@ -14,6 +14,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { CoeRestClient, CoeApiError } from '@/lib/services/coe/coe-rest-client';
+import { isCoeDbConfigured } from '@/lib/services/coe/coe-db-client';
+import { buildStudentCiaViewFromDb } from '@/lib/services/coe/build-student-cia-view';
 import { resolveCoeInstitutionId } from '@/lib/utils/internal-marks/internal-marks-access';
 import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
 import type { StudentCiaView, CiaViewSession } from '@/types/my-marks';
@@ -123,10 +125,13 @@ export async function GET(_request: NextRequest) {
       );
     }
 
-    const client = CoeRestClient.create();
+    let view: StudentCiaView | null = null;
 
-    let view: StudentCiaView;
+    // Prefer the live COE REST endpoint (richest, publish-gated view). This is
+    // tried first on every request so the route AUTOMATICALLY returns to the
+    // full grid the moment the COE API key is restored.
     try {
+      const client = CoeRestClient.create();
       const raw = await client.get<RawCiaView>('/api/v1/student-cia-view', {
         register_number: registerNumber,
         institution_id: coeInstitutionId,
@@ -136,15 +141,41 @@ export async function GET(_request: NextRequest) {
         `[my-marks/cia-view] register_number=${registerNumber} COE keys=[${Object.keys(raw ?? {}).join(',')}] sessions=${raw?.sessions?.length ?? 'none'} semesters=${raw?.semesters?.length ?? 'none'} → ${view.sessions.length} tab(s)`
       );
     } catch (err) {
-      if (err instanceof CoeApiError && (err.status === 429 || err.status === 404)) {
-        if (err.status === 429) {
-          console.warn(
-            '[my-marks/cia-view] COE 429 (rate limited) — returning empty view to avoid retry storm'
-          );
-        }
+      // Transient rate-limit → empty view (don't fall back to a heavy DB build
+      // on every burst; the next request retries REST).
+      if (err instanceof CoeApiError && err.status === 429) {
+        console.warn(
+          '[my-marks/cia-view] COE 429 (rate limited) — returning empty view to avoid retry storm'
+        );
         return NextResponse.json({ data: emptyView(registerNumber) });
       }
-      throw err;
+
+      // Any other REST failure (expired/absent API key → 401/403, config missing,
+      // 5xx, 404) → fall back to reading the COE database directly so the student
+      // still sees their stored internal marks.
+      if (isCoeDbConfigured()) {
+        try {
+          view = await buildStudentCiaViewFromDb(profile.learner_id, registerNumber);
+          console.warn(
+            `[my-marks/cia-view] COE REST unavailable (${
+              err instanceof CoeApiError ? err.status : 'config'
+            }) → served ${view.sessions.length} session(s) from COE DB fallback for ${registerNumber}`
+          );
+        } catch (dbErr) {
+          console.error('[my-marks/cia-view] COE DB fallback failed:', dbErr);
+        }
+      }
+
+      if (!view) {
+        // Neither path worked — preserve the original error surface.
+        if (err instanceof CoeApiError) {
+          return NextResponse.json(
+            { error: err.message, details: err.details },
+            { status: err.status }
+          );
+        }
+        throw err;
+      }
     }
 
     const res = NextResponse.json({ data: view });
