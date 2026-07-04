@@ -36,6 +36,8 @@ const SYSTEM_PROMPT = `You are a career-counselling assistant for the Career Dev
 
 Use ONLY the data provided. Ground every suggestion in that data. Where key data is missing, still give useful guidance at the program/year level, and list the missing data in "dataToImprove" so the CDC knows what to record for sharper future guidance. Be concrete and India-context aware (placements, higher studies, government exams, entrepreneurship as relevant).
 
+Government-job readiness: many Tamil Nadu learners aim for government jobs rather than private employment. When the data shows a government-job aspiration OR enrolment in government-exam coaching, make the readiness path concrete in "nextSteps": name the relevant exam family (TNPSC Group 2/4, RRB NTPC, IBPS/SBI banking, SSC, or TN Police/TNUSRB) that fits the learner's degree and interests, and give exam-preparation actions (which shared subjects to start — general knowledge, aptitude, reasoning, current affairs, language eligibility — and the domain subjects specific to their target exam). Also surface relevant government-scholarship framing (e.g. National Scholarship Portal / state post-matric schemes) where it helps a government-aspiring learner fund preparation. Do NOT invent specific deadlines, cut-offs, or eligibility numbers — keep scholarship guidance directional and tell the counsellor to confirm current details with the CDC office.
+
 Return ONLY valid JSON — no markdown, no code fences, no commentary — matching exactly:
 {
   "summary": "2-3 sentence overview of where this student stands and the headline recommendation",
@@ -233,6 +235,27 @@ export async function POST(req: NextRequest) {
       counts[tbl] = count ?? 0;
     }
 
+    // Government-exam coaching signal (2026-07-04 govt-job-readiness). Which of
+    // this learner's training enrolments are government-exam coaching — i.e. the
+    // enrolled programme's training-type carries an exam_family tag. Defensive:
+    // wrapped so a missing exam_family column (pre-migration window) degrades to
+    // "no govt signal" rather than failing the whole report.
+    const govtExamProgrammes: string[] = [];
+    try {
+      const { data: govtEnroll } = await svc
+        .from('cdc_training_enrollments')
+        .select('programme:cdc_training_programmes(name, training_type:cdc_training_types(display_name, exam_family))')
+        .eq('learner_id', learnerId);
+      for (const row of (govtEnroll ?? []) as any[]) {
+        const tt = row?.programme?.training_type;
+        if (tt?.exam_family) {
+          govtExamProgrammes.push(row.programme?.name || tt.display_name);
+        }
+      }
+    } catch (e) {
+      console.warn('[cdc/career-guidance] govt-exam coaching read skipped:', e);
+    }
+
     // These profile fields are JSONB in prod (often empty {}) or text — extract
     // meaningful values, treating empty structures as "not recorded".
     const aspirations = jsonbContent(p.career_aspirations);
@@ -270,6 +293,19 @@ export async function POST(req: NextRequest) {
     ];
     const completenessPct = Math.round((signals.filter((s) => s.present).length / signals.length) * 100);
 
+    // Government-job aspiration (2026-07-04 govt-job-readiness): detected from the
+    // learner's free-text aspirations OR active government-exam coaching. Used to
+    // steer the model toward exam-readiness next-steps + scholarship framing.
+    const govtKeywords = /\b(gov(ernmen)?t|tnpsc|rrb|ibps|sbi|ssc|tnusrb|police|railway|banking|public\s*service|civil\s*service|group\s*[24])\b/i;
+    const govtAspiring = govtExamProgrammes.length > 0 || (!!aspirations && govtKeywords.test(aspirations));
+    const govtBlock = govtAspiring
+      ? `\n\nGovernment-job focus DETECTED for this learner:\n` +
+        (govtExamProgrammes.length > 0
+          ? `- Enrolled in government-exam coaching: ${govtExamProgrammes.join(', ')}\n`
+          : `- Aspiration text indicates a government-job goal\n`) +
+        `Give concrete government-exam readiness next-steps (name the fitting exam family) and relevant government-scholarship framing per the system instructions; do not invent specific deadlines/cut-offs.`
+      : '';
+
     // Build the data block for the model (only present signals carry detail).
     const present = signals.filter((s) => s.present).map((s) => `- ${s.label}: ${s.detail}`).join('\n') || '- (only basic profile available)';
     const missing = signals.filter((s) => !s.present).map((s) => `- ${s.label}`).join('\n') || '- (none)';
@@ -284,7 +320,7 @@ Data available:
 ${present}
 
 Data NOT yet recorded (reflect these in dataToImprove):
-${missing}
+${missing}${govtBlock}
 
 Generate the career guidance JSON now.`;
 
