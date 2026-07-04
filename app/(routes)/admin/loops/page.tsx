@@ -132,10 +132,14 @@ export default async function LoopControlTowerPage() {
           metrics: [
             { v: n(scfGen), k: 'tips generated', tone: 'good' },
             { v: n(scfMeasured), k: 'measured yet', tone: 'mute' },
-            { v: n(scfResponses7d), k: 'student ratings (7d)', tone: 'good' },
+            {
+              v: n(scfResponses7d),
+              k: 'ratings received (7d)',
+              tone: scfResponses7d == null ? 'mute' : 'good',
+            },
           ],
           noteTag: 'Now',
-          note: 'Reads student session-feedback directly (the ratings above are the loop’s 7-day window) — well fueled. It’s early because a tip’s effect can only be measured once that class is re-taught and re-rated, not because of missing input.',
+          note: 'Reads student session-feedback directly — well fueled (raw ratings received in the last 7 days shown above; the loop coaches the classes among them with enough responses). It’s early because a tip’s effect can only be measured once that class is re-taught and re-rated, not because of missing input.',
         },
         {
           id: 'induction-session',
