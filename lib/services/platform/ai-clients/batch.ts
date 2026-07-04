@@ -173,7 +173,17 @@ export async function submitBatch(args: {
     batchId = created.id;
     expiresAt = (created as { expires_at?: string }).expires_at ?? null;
   } catch (createErr) {
-    // Batch not created → nothing billed. Release the reservation and rethrow.
+    // create() failed or TIMED OUT. On a plain failure nothing was billed. On a
+    // client-side TIMEOUT the batch may have been created server-side after we gave
+    // up — and we have no batchId to cancel, so we can't reclaim it (irreducible
+    // without an Anthropic client-side idempotency key). Log it LOUDLY so an
+    // orphaned billable batch is visible to ops, then free the reservation keys
+    // (course must not freeze) and rethrow. Any orphan auto-expires at Anthropic
+    // in 24h. Known residual — see PR description.
+    console.error(
+      `[ai-batch] batches.create failed/timed-out feature=${featureKey} — POTENTIAL ORPHANED BATCH (no id to cancel; auto-expires 24h):`,
+      createErr instanceof Error ? createErr.message : createErr,
+    );
     await admin.rpc('fn_ai_batch_abort_reservation', { p_job_id: jobId });
     throw createErr;
   }
@@ -247,15 +257,25 @@ export async function collectEndedBatches(
         timeout: ANTHROPIC_TIMEOUT_MS,
       });
     } catch (retrieveErr) {
-      // Transport error (timeout / transient 5xx / gone). Leave the job
-      // 'collecting' — the lease re-admits it after leaseSeconds (a natural
-      // backoff, no hammer loop), and the claim's age-backstop marks it terminal +
-      // frees its keys if it's past expiry, so a PERMANENT retrieve failure
-      // (404 after retention, purged id, perpetual 5xx) can't freeze the course.
+      // Transport error (timeout / transient 5xx / gone) — poll-like: release +
+      // decrement so a still-PROCESSING batch's transient failures don't inflate
+      // collect_attempts toward the ENDED-only cap and trip a later legit collect.
+      // RECONCILES deep-review rounds 5 & 6 (which contradict on this exact line):
+      //   • r6: must decrement here, else cap-inflation abandons a billed batch → this release.
+      //   • r5: if it only ever decrements it never terminates → freeze → handled NOT here
+      //     but by the path-independent age-backstop in fn_ai_batch_claim_for_collection,
+      //     which marks any job past expiry+2h terminal + frees its keys regardless of
+      //     failure mode. So a PERMANENT retrieve failure can't freeze the course, AND
+      //     transient ones don't burn the cap. Do not "fix" this by removing the release.
       console.warn(
-        `[ai-batch] retrieve failed for job ${job.id} (${job.anthropic_batch_id}) — leaving for lease/backstop:`,
+        `[ai-batch] retrieve failed for job ${job.id} (${job.anthropic_batch_id}) — releasing (backstop bounds permanent failure):`,
         retrieveErr instanceof Error ? retrieveErr.message : retrieveErr,
       );
+      try {
+        await admin.rpc('fn_ai_batch_release_job', { p_job_id: job.id });
+      } catch {
+        /* lease will reclaim */
+      }
       continue;
     }
 

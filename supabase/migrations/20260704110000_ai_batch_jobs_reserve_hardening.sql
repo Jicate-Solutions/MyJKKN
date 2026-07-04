@@ -59,13 +59,22 @@ BEGIN
   VALUES (p_feature_key, p_phase, p_model_id, 'pending', 0)
   RETURNING id INTO v_job_id;
 
-  WITH ins AS (
+  WITH src AS (
+    -- Dedupe dedupe_key WITHIN this request first: two items sharing a dedupe_key
+    -- in the same p_items would otherwise raise unique_violation and abort the whole
+    -- reserve (the exact whole-batch failure this PR closes). Keep the first of each
+    -- non-null key; keep ALL null-key items (they never conflict).
+    SELECT it->>'custom_id'                       AS custom_id,
+           COALESCE(it->'context', '{}'::jsonb)   AS context,
+           NULLIF(it->>'dedupe_key', '')          AS dedupe_key,
+           row_number() OVER (PARTITION BY NULLIF(it->>'dedupe_key', '') ORDER BY ord) AS rn
+    FROM jsonb_array_elements(COALESCE(p_items, '[]'::jsonb)) WITH ORDINALITY AS t(it, ord)
+  ),
+  ins AS (
     INSERT INTO public.ai_batch_job_items (job_id, feature_key, custom_id, context, dedupe_key)
-    SELECT v_job_id, p_feature_key,
-           it->>'custom_id',
-           COALESCE(it->'context', '{}'::jsonb),
-           NULLIF(it->>'dedupe_key', '')
-    FROM jsonb_array_elements(COALESCE(p_items, '[]'::jsonb)) AS it
+    SELECT v_job_id, p_feature_key, custom_id, context, dedupe_key
+    FROM src
+    WHERE dedupe_key IS NULL OR rn = 1
     ON CONFLICT (feature_key, dedupe_key) WHERE result_status IS NULL AND dedupe_key IS NOT NULL
     DO NOTHING
     RETURNING custom_id
