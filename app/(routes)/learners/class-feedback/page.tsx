@@ -20,7 +20,6 @@ import { usePendingSessions } from '@/hooks/use-session-feedback';
 import type { PendingSession } from '@/types/session-feedback';
 import { FeedbackDialog } from './_components/feedback-dialog';
 import { MyVoiceReceipt } from './_components/my-voice-receipt';
-import { LivePulseBanner } from './_components/live-pulse-banner';
 import { ClassPollBanner } from './_components/class-poll-banner';
 import { LoopClosureCard } from './_components/loop-closure-card';
 import { StrugglingNoteCard } from './_components/struggling-note-card';
