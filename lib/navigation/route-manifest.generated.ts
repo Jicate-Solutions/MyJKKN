@@ -97,6 +97,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Star",
         "children": [
           {
+            "path": "/academic/internal-marks/attendance-insight",
+            "label": "Attendance vs Marks",
+            "iconName": "CheckSquare",
+            "children": []
+          },
+          {
             "path": "/academic/internal-marks/monitor",
             "label": "IA Monitor",
             "iconName": "Star",

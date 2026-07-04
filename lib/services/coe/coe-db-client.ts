@@ -264,3 +264,52 @@ export async function getCoeSessionStatistics(
   if (error) throw new Error(`COE examination_session_statistics read failed: ${error.message}`);
   return (data ?? []) as CoeSessionStatistics[];
 }
+
+/** One COE CIA row per student × course, used to pair internal marks with attendance. */
+export interface CoeCiaStudentDetail {
+  student_id: string | null;
+  student_name: string | null;
+  stu_register_no: string | null;
+  course_code: string | null;
+  course_name: string | null;
+  program_code: string | null;
+  internal_percentage: number | null;
+  total_internal_marks: number | null;
+  max_internal_marks: number | null;
+  marks_status: string | null;
+}
+
+/**
+ * Per-student, per-course CIA detail for one session + institution.
+ *
+ * COE PostgREST caps a response at ~1000 rows regardless of the Range header, so
+ * this pages explicitly with `.range()` until a short page is returned — a session
+ * can hold several thousand student×course rows.
+ */
+export async function getCoeCiaStudentDetail(
+  sessionCode: string,
+  institutionCode: string,
+): Promise<CoeCiaStudentDetail[]> {
+  const coe = createCoeDbClient();
+  const cols =
+    'student_id, student_name, stu_register_no, course_code, course_name, ' +
+    'program_code, internal_percentage, total_internal_marks, max_internal_marks, marks_status';
+  const pageSize = 1000;
+  const out: CoeCiaStudentDetail[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await coe
+      .from('cia_marks_detailed_view')
+      .select(cols)
+      .eq('session_code', sessionCode)
+      .eq('institution_code', institutionCode)
+      .eq('is_active', true)
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(`COE cia_marks_detailed_view read failed: ${error.message}`);
+    const rows = (data ?? []) as CoeCiaStudentDetail[];
+    out.push(...rows);
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+  return out;
+}

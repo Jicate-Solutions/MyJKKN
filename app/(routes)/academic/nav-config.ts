@@ -174,6 +174,11 @@ const config: ModuleNavConfig = {
           href: '/academic/internal-marks/monitor',
         },
         {
+          label: 'Attendance vs Marks',
+          icon: 'Scale',
+          href: '/academic/internal-marks/attendance-insight',
+        },
+        {
           label: 'Internal Marks Report',
           icon: 'FileBarChart',
           href: '/academic/internal-marks/report',
