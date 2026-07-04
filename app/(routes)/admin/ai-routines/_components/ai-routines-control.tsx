@@ -284,7 +284,14 @@ export function AiRoutinesControl() {
           takes effect on the next dispatcher tick, no redeploy. Green <strong>Run now</strong> fires immediately.
           Routines that message students or staff show{' '}
           <span className="text-amber-600 dark:text-amber-400">messages people</span> and must be run from their own
-          screen. All times are IST.
+          screen. All times are IST. To see whether each loop is actually{' '}
+          <em>working</em> — measured outcomes, not just that it fired —{' '}
+          <a
+            href="/admin/loops"
+            className="font-medium text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-400"
+          >
+            open the Loop Control Tower →
+          </a>
           {error ? <span className="ml-2 text-red-600">Schedules failed to load: {error}</span> : null}
           {loading ? <span className="ml-2">Loading schedules…</span> : null}
         </p>
