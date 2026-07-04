@@ -35,6 +35,7 @@ export const ALLOWED_MASTER_TABLES: CdcMasterTable[] = [
   'cdc_mentorship_categories',
   'cdc_internship_types',
   'cdc_expertise_areas',
+  'cdc_exam_syllabus_topics', // 2026-07-04 govt-job-readiness (PR-4 / Option B)
 ];
 
 // CDC cron job names as seeded in Sprint 1.
@@ -170,6 +171,82 @@ export async function updateMasterRow(
 }
 
 // =====================================================================================
+// Exam ↔ topic map (govt-job-readiness junction: cdc_exam_topic_map)
+// =====================================================================================
+// The topic↔exam junction cannot be expressed as a flat master (it is a pair of
+// FKs, no display_name/config_key), so it does not fit MasterTablePage. These
+// helpers back the dedicated matrix editor at /cdc/admin/exam-topic-map, which
+// closes the "seed-only, no admin UI" gap (deep-review #3): a CDC head can now
+// map a newly-added topic or exam family in-app instead of via raw SQL.
+
+export const EXAM_TOPIC_MAP_TABLE = 'cdc_exam_topic_map' as const;
+
+export interface ExamTopicMapRow {
+  exam_training_type_id: string;
+  topic_id: string;
+}
+
+/** All topic↔exam mappings, paginated past PostgREST's 1000-row default cap. */
+export async function listExamTopicMap(
+  supabase: SupabaseClient
+): Promise<{ data: ExamTopicMapRow[]; error: Error | null }> {
+  const PAGE = 1000;
+  const all: ExamTopicMapRow[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from(EXAM_TOPIC_MAP_TABLE)
+      .select('exam_training_type_id, topic_id')
+      .order('exam_training_type_id', { ascending: true })
+      .order('topic_id', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) return { data: [], error: new Error(error.message) };
+    const rows = (data ?? []) as ExamTopicMapRow[];
+    all.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return { data: all, error: null };
+}
+
+/** Add one mapping. Idempotent — a duplicate (exam, topic) pair is a no-op. */
+export async function addExamTopicMapping(
+  supabase: SupabaseClient,
+  examTrainingTypeId: string,
+  topicId: string,
+  userId?: string
+): Promise<{ error: Error | null }> {
+  const { error } = await supabase
+    .from(EXAM_TOPIC_MAP_TABLE)
+    .upsert(
+      {
+        exam_training_type_id: examTrainingTypeId,
+        topic_id: topicId,
+        created_by: userId ?? null,
+        updated_by: userId ?? null,
+      },
+      { onConflict: 'exam_training_type_id,topic_id', ignoreDuplicates: true }
+    );
+
+  if (error) return { error: new Error(error.message) };
+  return { error: null };
+}
+
+/** Remove one mapping by its (exam, topic) pair. Missing pair → no-op. */
+export async function removeExamTopicMapping(
+  supabase: SupabaseClient,
+  examTrainingTypeId: string,
+  topicId: string
+): Promise<{ error: Error | null }> {
+  const { error } = await supabase
+    .from(EXAM_TOPIC_MAP_TABLE)
+    .delete()
+    .eq('exam_training_type_id', examTrainingTypeId)
+    .eq('topic_id', topicId);
+
+  if (error) return { error: new Error(error.message) };
+  return { error: null };
+}
+
+// =====================================================================================
 // Cron status
 // =====================================================================================
 
@@ -224,6 +301,18 @@ export class CdcAdminService {
 
   updateMasterRow(table: CdcMasterTable, id: string, payload: Record<string, unknown>) {
     return updateMasterRow(this.supabase, table, id, payload);
+  }
+
+  listExamTopicMap() {
+    return listExamTopicMap(this.supabase);
+  }
+
+  addExamTopicMapping(examTrainingTypeId: string, topicId: string, userId?: string) {
+    return addExamTopicMapping(this.supabase, examTrainingTypeId, topicId, userId);
+  }
+
+  removeExamTopicMapping(examTrainingTypeId: string, topicId: string) {
+    return removeExamTopicMapping(this.supabase, examTrainingTypeId, topicId);
   }
 
   getCronStatus() {

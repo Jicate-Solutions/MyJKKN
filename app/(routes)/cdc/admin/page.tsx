@@ -26,6 +26,8 @@ import {
   Heart,
   Briefcase,
   Tags,
+  BookOpen,
+  Network,
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -123,6 +125,20 @@ const ADMIN_CARDS: AdminCard[] = [
     description: 'The expertise tags available for industry mentors (AI/ML, Cloud, Finance, …). Curate freely — drives the Expertise Areas multi-select on the Add Industry Mentor form.',
     icon: Tags,
     color: 'text-violet-600 bg-violet-50',
+  },
+  {
+    href: '/cdc/admin/exam-syllabus-topics',
+    title: 'Exam Syllabus Topics',
+    description: 'Government-exam syllabus topics for the Govt Job Readiness track. Mark topics "shared" (common across exams) or "domain-specific" — the cohort-overlap view derives its split from these flags (no percentage is hardcoded).',
+    icon: BookOpen,
+    color: 'text-lime-600 bg-lime-50',
+  },
+  {
+    href: '/cdc/admin/exam-topic-map',
+    title: 'Exam Topic Map',
+    description: 'Map each government-exam type to the syllabus topics it covers. Toggle cells in a topic × exam matrix — this is what makes one coaching cohort provably serve multiple exams.',
+    icon: Network,
+    color: 'text-green-600 bg-green-50',
   },
   {
     href: '/cdc/admin/cron-status',
