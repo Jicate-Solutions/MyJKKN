@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState } from 'react';
+import { use, useMemo, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -17,6 +17,9 @@ import { AddEnrollmentDialog } from './_components/add-enrollment-dialog';
 import { BulkEnrollDialog } from './_components/bulk-enroll-dialog';
 import { SemesterScheduleCard } from './_components/semester-schedule-card';
 import type { TrainingProgrammeStatus, EnrollmentStatus } from '@/types/cdc/training';
+import { TrainingPollHostDialog, type TrainingPollHostAdapter } from '@/components/live-poll/training-poll-host-dialog';
+import { TrainingPollAnswerCard, type TrainingAnswerAdapter } from '@/components/live-poll/training-poll-answer-card';
+import { CdcPollService } from '@/lib/services/live-poll/cdc-poll-service';
 
 const STATUS_COLORS: Record<TrainingProgrammeStatus, string> = {
   planned: 'bg-blue-100 text-blue-800',
@@ -60,6 +63,29 @@ function TrainingProgrammeDetailContent({ params }: Props) {
     profile?.role === 'administrator' ||
     profile?.role === 'cdc_head' ||
     profile?.role === 'cdc_coordinator';
+
+  // Live poll (Phase C) — trainer/admin host over the shared engine, keyed by programme.
+  const pollHostAdapter: TrainingPollHostAdapter = useMemo(() => ({
+    getPoll: () => CdcPollService.getPoll(id),
+    upsertPoll: (qs) => CdcPollService.upsertPoll(id, qs),
+    openPoll: (pid) => CdcPollService.openPoll(pid),
+    closePoll: (pid) => CdcPollService.closePoll(pid),
+    getTotals: (pid) => CdcPollService.getTotals(pid),
+    setCurrentQuestion: (pid, qid) => CdcPollService.setCurrentQuestion(pid, qid),
+    getResponders: async (pid) => (await CdcPollService.getResponders(pid)).map((r) => ({
+      id: r.learner_id, code: r.register_number || r.roll_number, name: r.learner_name,
+      questions_answered: r.questions_answered, answered_at: r.answered_at,
+    })),
+  }), [id]);
+  // Enrollee answer surface — renders only when this learner has an open training poll.
+  const pollAnswerAdapter: TrainingAnswerAdapter = useMemo(() => ({
+    getMyOpenPolls: async () => (await CdcPollService.getMyOpenPolls()).map((p) => ({
+      poll_id: p.poll_id, title: p.programme_name, already_answered: p.already_answered,
+    })),
+    getForAnswering: (pid) => CdcPollService.getForAnswering(pid),
+    submit: (pid, ans) => CdcPollService.submit(pid, ans),
+    getQuestionTotals: (pid) => CdcPollService.getLearnerQuestionTotals(pid),
+  }), []);
 
   if (isLoading) {
     return (
@@ -114,13 +140,19 @@ function TrainingProgrammeDetailContent({ params }: Props) {
             )}
           </div>
           {canManage && (
-            <Button variant="outline" size="sm" asChild>
-              <Link href={`/cdc/training/${id}/edit`}>
-                <Pencil className="w-4 h-4 mr-2" /> Edit
-              </Link>
-            </Button>
+            <div className="flex items-center gap-2">
+              <TrainingPollHostDialog adapter={pollHostAdapter} title={programme.name} />
+              <Button variant="outline" size="sm" asChild>
+                <Link href={`/cdc/training/${id}/edit`}>
+                  <Pencil className="w-4 h-4 mr-2" /> Edit
+                </Link>
+              </Button>
+            </div>
           )}
         </div>
+
+        {/* Live training poll — appears only when an enrolled learner has an open poll. */}
+        <TrainingPollAnswerCard adapter={pollAnswerAdapter} />
 
         {/* Details card */}
         <Card>
