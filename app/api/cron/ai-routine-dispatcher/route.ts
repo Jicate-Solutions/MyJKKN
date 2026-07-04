@@ -54,6 +54,34 @@ export async function GET(request: NextRequest) {
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, '') ||
     process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/+$/, '');
 
+  // Compact one-line summary of a routine's OWN JSON result, appended to the
+  // HTTP status so "last run" says what the routine DID (e.g.
+  // "HTTP 200 · generated 3, measured 2, skipped 5"), not just that its
+  // endpoint answered 200. Reads a fixed allowlist of common numeric result
+  // keys; falls back to the bare HTTP status if the body isn't JSON or carries
+  // no known keys. Never throws — status logging must not fail the tick.
+  const SUMMARY_KEYS = [
+    'generated', 'measured', 'skipped', 'created', 'sent', 'updated',
+    'concerns', 'candidates', 'processed', 'recorded', 'escalations',
+    'nudged', 'tipped', 'delivered', 'flagged', 'events', 'count',
+  ];
+  const summarize = async (resp: Response): Promise<string> => {
+    const base = `HTTP ${resp.status}`;
+    try {
+      const body = (await resp.clone().json()) as Record<string, unknown> | null;
+      if (!body || typeof body !== 'object') return base;
+      if (body.ok === false && typeof body.error === 'string') {
+        return `${base} · error: ${body.error}`.slice(0, 190);
+      }
+      const parts = SUMMARY_KEYS.filter((k) => typeof body[k] === 'number').map(
+        (k) => `${k} ${body[k]}`,
+      );
+      return parts.length ? `${base} · ${parts.join(', ')}`.slice(0, 190) : base;
+    } catch {
+      return base; // non-JSON body / already consumed → bare status
+    }
+  };
+
   // 3) Fire each due routine's own cron endpoint (parallel; each bounded).
   // Record helper that never throws — a logging failure must not fail the tick.
   const record = async (rid: string, status: string) => {
@@ -83,7 +111,7 @@ export async function GET(request: NextRequest) {
           cache: 'no-store',
           signal: AbortSignal.timeout(120_000),
         });
-        const status = `HTTP ${resp.status}`;
+        const status = await summarize(resp);
         await record(rid, status);
         return { rid, status };
       } catch (err) {

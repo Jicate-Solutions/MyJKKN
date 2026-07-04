@@ -91,6 +91,20 @@ export function LoopControlTower({
 }) {
   return (
     <div className="space-y-8">
+      {/* Cross-link to the control surface */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 px-4 py-2.5 text-[13px] text-muted-foreground">
+        <span>
+          This is the read-only <strong className="font-semibold text-foreground">health</strong> view. Schedules,
+          models, and “Run now” live on the AI Routines page.
+        </span>
+        <a
+          href="/admin/ai-routines"
+          className="whitespace-nowrap font-medium text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-400"
+        >
+          Open AI Routines →
+        </a>
+      </div>
+
       {/* Primer: the four gates */}
       <div className="rounded-xl border border-border bg-card p-5">
         <p className="mb-3 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
@@ -190,6 +204,24 @@ export function LoopControlTower({
                   {loop.cfg && (
                     <p className="mt-2.5 font-mono text-[11.5px] text-muted-foreground/80">
                       {loop.cfg}
+                      {loop.configHref && (
+                        <>
+                          {' '}
+                          <a
+                            href={loop.configHref}
+                            className="text-emerald-700 no-underline hover:underline dark:text-emerald-400"
+                            aria-label="Configure on AI Routines"
+                          >
+                            ↗
+                          </a>
+                        </>
+                      )}
+                    </p>
+                  )}
+                  {loop.lastRun && (
+                    <p className="mt-1 font-mono text-[11px] text-muted-foreground/70">
+                      last run:{' '}
+                      <span className="text-foreground/80">{loop.lastRun}</span>
                     </p>
                   )}
                 </div>
