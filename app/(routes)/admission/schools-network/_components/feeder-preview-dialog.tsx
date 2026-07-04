@@ -1,0 +1,123 @@
+'use client';
+
+/**
+ * Feeder quick-preview dialog — a lightweight roster popup for an un-adopted
+ * feeder school. Shows every student the admission database recorded as coming
+ * from this school (all name spellings, all admission years, UG + PG together),
+ * so a counsellor can eyeball the volume before deciding to adopt. Reads live
+ * through listSchoolLearners → /api/schools-network/school-learners; nothing is
+ * copied. The single action, "Adopt this school", hands off to the pre-filled
+ * Add-School form (the only place a school becomes JKKN-side writable).
+ */
+
+import type { JSX } from 'react';
+import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
+import { Plus } from 'lucide-react';
+
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+
+import { listSchoolLearners, type SchoolLearnerRow } from '../_lib/api';
+
+export function FeederPreviewDialog(props: {
+  schoolName: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}): JSX.Element {
+  const { schoolName, open, onOpenChange } = props;
+
+  // Dormant until the popup actually opens — lets the parent mount one dialog
+  // per un-adopted row without firing N roster requests up front.
+  const { data, isLoading } = useQuery({
+    queryKey: ['schools-network', 'preview-learners', schoolName],
+    queryFn: () => listSchoolLearners(schoolName),
+    enabled: open && !!schoolName,
+  });
+
+  const rows = data?.rows ?? [];
+  const total = data?.total ?? 0;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="break-words pr-6">{schoolName}</DialogTitle>
+          <DialogDescription>
+            {isLoading
+              ? 'Loading students recorded from this school…'
+              : `${total.toLocaleString('en-IN')} student${
+                  total === 1 ? '' : 's'
+                } came from this school, across all admission years.`}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="-mx-1 max-h-[60vh] overflow-y-auto px-1">
+          {isLoading ? (
+            <div className="space-y-2 py-1">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
+            </div>
+          ) : total === 0 ? (
+            <p className="py-10 text-center text-sm text-muted-foreground">
+              No students recorded from this school yet.
+            </p>
+          ) : (
+            <ul className="divide-y">
+              {rows.map((r: SchoolLearnerRow) => (
+                <li key={r.learnerId} className="py-2.5">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-sm font-medium">
+                      {r.learnerName ?? '—'}
+                    </span>
+                    {r.registerNumber ? (
+                      <span className="whitespace-nowrap text-xs text-muted-foreground">
+                        {r.registerNumber}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="truncate">{r.programName ?? '—'}</span>
+                    {r.yearKnown ? (
+                      <span className="whitespace-nowrap">· {r.admissionYear}</span>
+                    ) : (
+                      <Badge
+                        variant="secondary"
+                        className="text-[10px] font-normal"
+                      >
+                        Year not recorded
+                      </Badge>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Link
+            href={`/admission/schools-network/new?name=${encodeURIComponent(
+              schoolName,
+            )}`}
+            className="w-full sm:w-auto"
+          >
+            <Button className="w-full gap-1.5">
+              <Plus className="h-4 w-4" /> Adopt this school
+            </Button>
+          </Link>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
