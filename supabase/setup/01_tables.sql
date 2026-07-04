@@ -5587,7 +5587,8 @@ CREATE TABLE IF NOT EXISTS public.social_monthly_cadence (
   reach_delta BIGINT NULL,
   status TEXT NOT NULL DEFAULT 'open'
     CHECK (status IN ('open','awaiting_close','closed','unmeasurable')),
-  project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  -- ON DELETE RESTRICT (not CASCADE): preserve the reach-loop audit history.
+  project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE RESTRICT,
   learning TEXT NULL,
   created_by UUID NULL REFERENCES public.profiles(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -5606,10 +5607,37 @@ CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_open
 CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_project
   ON public.social_monthly_cadence (project_id);
 
+-- Idempotent FK converge: fix a stale ON DELETE CASCADE from an earlier apply.
+ALTER TABLE public.social_monthly_cadence
+  DROP CONSTRAINT IF EXISTS social_monthly_cadence_project_id_fkey;
+ALTER TABLE public.social_monthly_cadence
+  ADD CONSTRAINT social_monthly_cadence_project_id_fkey
+  FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE RESTRICT;
+
 DROP TRIGGER IF EXISTS trg_social_monthly_cadence_updated_at ON public.social_monthly_cadence;
 CREATE TRIGGER trg_social_monthly_cadence_updated_at
   BEFORE UPDATE ON public.social_monthly_cadence
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- project_id is IMMUTABLE post-insert (blocks raw-PostgREST tampering that would
+-- repoint the teeth at another project). RPC state machine never changes it.
+CREATE OR REPLACE FUNCTION public.fn_social_cadence_guard_project_id()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.project_id IS DISTINCT FROM OLD.project_id THEN
+    RAISE EXCEPTION 'social_monthly_cadence.project_id is immutable once set'
+      USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_social_monthly_cadence_project_immutable ON public.social_monthly_cadence;
+CREATE TRIGGER trg_social_monthly_cadence_project_immutable
+  BEFORE UPDATE ON public.social_monthly_cadence
+  FOR EACH ROW EXECUTE FUNCTION public.fn_social_cadence_guard_project_id();
 
 ALTER TABLE public.social_monthly_cadence ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.social_monthly_cadence FROM anon, PUBLIC;

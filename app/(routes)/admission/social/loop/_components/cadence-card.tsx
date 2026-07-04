@@ -53,6 +53,14 @@ import {
   closeCadence,
 } from '@/lib/services/social/cadence-service';
 
+/** First-of-current-month DATE string (UTC), matching the DB's cadence_month. */
+function firstOfCurrentMonthUTC(): string {
+  const now = new Date();
+  const y = now.getUTCFullYear();
+  const m = String(now.getUTCMonth() + 1).padStart(2, '0');
+  return `${y}-${m}-01`;
+}
+
 /** Format a first-of-month DATE string to e.g. "Jul 2026". */
 function monthLabel(iso: string | null): string {
   if (!iso) return '—';
@@ -272,9 +280,11 @@ export function CadenceCard({
   }
 
   const cadences = data.cadences ?? [];
-  const currentMonthOpen = cadences.some(
-    (c) => c.status === 'open' || c.status === 'awaiting_close'
-  );
+  // Scope the "open this month" gate to the CURRENT calendar month only. Prior
+  // months left open/awaiting_close must not block opening this month's cycle;
+  // UNIQUE(account, cadence_month) already prevents a duplicate for this month.
+  const currentMonthIso = firstOfCurrentMonthUTC();
+  const currentMonthOpen = cadences.some((c) => c.cadence_month === currentMonthIso);
   const enabled = data.enabled === true;
   const readable = data.readable === true;
 

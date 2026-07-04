@@ -20961,6 +20961,30 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_ig_monthly_reach(UUID, DATE) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_ig_monthly_reach(UUID, DATE) TO authenticated;
 
+-- Ownership helper: a scope='own' manager (dept HOD) must not act on OTHER
+-- departments' IG accounts in the same tenant. Admins bypass; NULL dept falls
+-- back to the institution gate. Caller owns a dept if they head it OR are active
+-- staff in it.
+CREATE OR REPLACE FUNCTION public.fn_social_caller_owns_dept(p_department_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE v_uid UUID := auth.uid();
+BEGIN
+  IF is_super_admin() OR is_admin() THEN RETURN true; END IF;
+  IF p_department_id IS NULL THEN RETURN true; END IF;
+  RETURN EXISTS (
+    SELECT 1 FROM public.departments d
+    WHERE d.id = p_department_id AND d.head_of_department_id = v_uid
+  ) OR EXISTS (
+    SELECT 1 FROM public.staff s
+    WHERE s.profile_id = v_uid AND s.department_id = p_department_id AND s.is_active = true
+  );
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_social_caller_owns_dept(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_social_caller_owns_dept(UUID) TO authenticated;
+
 CREATE OR REPLACE FUNCTION public.fn_social_cadence_open(
   p_account_id UUID, p_objective TEXT, p_cadence_month DATE DEFAULT NULL, p_project_id UUID DEFAULT NULL
 )
@@ -20985,6 +21009,15 @@ BEGIN
   IF NOT (is_super_admin() OR is_admin()
       OR (user_has_permission('social.departments.manage') AND role_has_institution_access(v_institution_id))) THEN
     RAISE EXCEPTION 'permission denied: social.departments.manage required' USING ERRCODE = '42501';
+  END IF;
+  -- DARK self-gate: opening a NEW cycle requires social.cadence.enabled=true
+  -- (enforced here so direct PostgREST/RPC calls cannot bypass the master switch).
+  IF NOT COALESCE(fn_get_policy_bool('social.cadence.enabled', false, NULL), false) THEN
+    RAISE EXCEPTION 'The monthly cadence engine is disabled (social.cadence.enabled=false)' USING ERRCODE = '42501';
+  END IF;
+  -- Department ownership (scope='own' manager acts only on its own dept).
+  IF NOT fn_social_caller_owns_dept(v_department_id) THEN
+    RAISE EXCEPTION 'permission denied: you can only manage your own department''s Instagram cadence' USING ERRCODE = '42501';
   END IF;
   v_month := date_trunc('month', COALESCE(p_cadence_month, CURRENT_DATE))::date;
   SELECT * INTO v_existing FROM public.social_monthly_cadence
@@ -21026,8 +21059,14 @@ BEGIN
       VALUES (v_task_id, v_hod_staff_id, 'accountable', v_uid);
     END IF;
   ELSE
-    IF NOT EXISTS (SELECT 1 FROM public.projects WHERE id = p_project_id) THEN
-      RAISE EXCEPTION 'project_id % not found', p_project_id USING ERRCODE = 'P0002';
+    -- Tenant guard (HIGH): an externally-supplied project_id must be a REAL OKR
+    -- objective in THIS account's institution (else a scope='own' HOD could link
+    -- and later flip the RAG of a project in ANOTHER tenant via this DEFINER fn).
+    IF NOT EXISTS (
+      SELECT 1 FROM public.projects
+      WHERE id = p_project_id AND institution_id = v_institution_id AND is_okr = true
+    ) THEN
+      RAISE EXCEPTION 'project_id % is not an OKR objective in this institution', p_project_id USING ERRCODE = '42501';
     END IF;
     v_project_id := p_project_id;
   END IF;
@@ -21050,12 +21089,12 @@ CREATE OR REPLACE FUNCTION public.fn_social_cadence_record_action(
 RETURNS public.social_monthly_cadence
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
-DECLARE v_institution_id UUID; v_status TEXT; v_row public.social_monthly_cadence;
+DECLARE v_institution_id UUID; v_department_id UUID; v_status TEXT; v_row public.social_monthly_cadence;
 BEGIN
   IF p_action IS NULL OR btrim(p_action) = '' THEN
     RAISE EXCEPTION 'An action description is required' USING ERRCODE = '22023';
   END IF;
-  SELECT institution_id, status INTO v_institution_id, v_status
+  SELECT institution_id, department_id, status INTO v_institution_id, v_department_id, v_status
   FROM public.social_monthly_cadence WHERE id = p_cadence_id;
   IF v_institution_id IS NULL THEN
     RAISE EXCEPTION 'Cadence cycle not found' USING ERRCODE = 'P0002';
@@ -21063,6 +21102,9 @@ BEGIN
   IF NOT (is_super_admin() OR is_admin()
       OR (user_has_permission('social.departments.manage') AND role_has_institution_access(v_institution_id))) THEN
     RAISE EXCEPTION 'permission denied: social.departments.manage required' USING ERRCODE = '42501';
+  END IF;
+  IF NOT fn_social_caller_owns_dept(v_department_id) THEN
+    RAISE EXCEPTION 'permission denied: you can only manage your own department''s Instagram cadence' USING ERRCODE = '42501';
   END IF;
   IF v_status NOT IN ('open', 'awaiting_close') THEN
     RAISE EXCEPTION 'Cannot record an action on a % cycle', v_status USING ERRCODE = '22023';
@@ -21098,6 +21140,9 @@ BEGIN
       OR (user_has_permission('social.departments.manage') AND role_has_institution_access(v_row.institution_id))) THEN
     RAISE EXCEPTION 'permission denied: social.departments.manage required' USING ERRCODE = '42501';
   END IF;
+  IF NOT fn_social_caller_owns_dept(v_row.department_id) THEN
+    RAISE EXCEPTION 'permission denied: you can only manage your own department''s Instagram cadence' USING ERRCODE = '42501';
+  END IF;
   IF v_row.status IN ('closed', 'unmeasurable') THEN
     RAISE EXCEPTION 'Cycle already finalised (%)', v_row.status USING ERRCODE = '22023';
   END IF;
@@ -21109,19 +21154,28 @@ BEGIN
     SELECT m.total_reach INTO v_remeasure_reach FROM public.ig_monthly_audit m
     WHERE m.ig_account_id = v_row.account_id AND m.audit_month = v_remeasure_month LIMIT 1;
   END IF;
+  -- Any mismatch in graph-ness between baseline and re-measure -> unmeasurable
+  -- (covers graph->business_discovery downgrade AND business_discovery/NULL->graph
+  -- upgrade, which would otherwise fabricate a green win). Plus the collapse guard.
   IF v_remeasure_reach IS NULL
-     OR (v_row.baseline_metrics_source = 'graph' AND v_current_source = 'business_discovery')
+     OR ((COALESCE(v_row.baseline_metrics_source, '') = 'graph') <> (COALESCE(v_current_source, '') = 'graph'))
      OR (COALESCE(v_row.baseline_reach, 0) > 0 AND COALESCE(v_remeasure_reach, 0) = 0 AND v_current_source <> 'graph')
   THEN
     v_final_status := 'unmeasurable'; v_delta := NULL;
   ELSE
     v_final_status := 'closed'; v_delta := v_remeasure_reach - COALESCE(v_row.baseline_reach, 0);
   END IF;
+  -- TOCTOU guard: re-assert non-final in the predicate (a concurrent close/cron
+  -- could have finalised it since the SELECT). 0 rows -> raise, never clobber.
   UPDATE public.social_monthly_cadence
   SET remeasure_reach = v_remeasure_reach, remeasure_month = v_remeasure_month,
       remeasure_metrics_source = v_current_source, reach_delta = v_delta,
       learning = btrim(p_learning), status = v_final_status, updated_at = now()
-  WHERE id = p_cadence_id RETURNING * INTO v_row;
+  WHERE id = p_cadence_id AND status NOT IN ('closed', 'unmeasurable')
+  RETURNING * INTO v_row;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Cycle already finalised' USING ERRCODE = '22023';
+  END IF;
   -- Teeth: measured reach-vs-target -> the linked project's rag_status (canonical
   -- RAG that evaluateProjectTriggers reads; project_at_risk fires gte 2 = red).
   -- Hard miss -> red (dormant rule would summon the HOD), soft miss -> amber,
@@ -21140,9 +21194,17 @@ BEGIN
       v_new_rag := CASE WHEN COALESCE(v_delta, 0) > 0 THEN 'green' ELSE 'amber' END;
       v_progress := CASE WHEN COALESCE(v_delta, 0) > 0 THEN 100 ELSE 0 END;
     END IF;
+    -- Tenant guard (HIGH): DEFINER write bypasses projects RLS — never flip a
+    -- project outside this cadence's institution.
+    IF NOT EXISTS (
+      SELECT 1 FROM public.projects
+      WHERE id = v_row.project_id AND institution_id = v_row.institution_id
+    ) THEN
+      RAISE EXCEPTION 'cadence project % is not in institution %', v_row.project_id, v_row.institution_id USING ERRCODE = '42501';
+    END IF;
     UPDATE public.projects
     SET rag_status = v_new_rag, percent_complete = v_progress, updated_at = now()
-    WHERE id = v_row.project_id;
+    WHERE id = v_row.project_id AND institution_id = v_row.institution_id;
   END IF;
   RETURN v_row;
 END;

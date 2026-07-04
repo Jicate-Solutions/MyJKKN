@@ -88,6 +88,7 @@ async function logCadenceRun(
 
 interface OpenCadenceRow {
   id: string;
+  institution_id: string;
   account_id: string;
   cadence_month: string;
   baseline_reach: number | null;
@@ -170,7 +171,7 @@ export async function GET(request: Request): Promise<Response> {
 
     const { data: openRows, error: openErr } = await supabase
       .from('social_monthly_cadence')
-      .select('id, account_id, cadence_month, baseline_reach, baseline_metrics_source, project_id')
+      .select('id, institution_id, account_id, cadence_month, baseline_reach, baseline_metrics_source, project_id')
       .eq('status', 'open')
       .lte('cadence_month', oneMonthAgo);
     if (openErr) throw openErr;
@@ -207,15 +208,19 @@ export async function GET(request: Request): Promise<Response> {
         const baselineReach = c.baseline_reach ?? null;
         const baselineSource = c.baseline_metrics_source ?? null;
 
-        // metrics_source guard — a silent graph->business_discovery revert (or a
-        // 0 read against a >0 baseline on a non-graph source) yields a NULL delta,
-        // never a fabricated "reach collapsed". The owner finalises at close.
+        // metrics_source guard — graph reach and business_discovery/NULL reach are
+        // DIFFERENT scales, so any mismatch in graph-ness across the cycle yields a
+        // NULL delta (covers a graph->business_discovery downgrade AND a
+        // business_discovery/NULL->graph upgrade that would otherwise fabricate a
+        // green win). Plus the collapse guard (a 0 read vs a >0 non-graph baseline).
+        // Never a fabricated result; the owner finalises at close.
+        const graphMismatch = (baselineSource === 'graph') !== (currentSource === 'graph');
         const guardTripped =
-          (baselineSource === 'graph' && currentSource === 'business_discovery') ||
+          graphMismatch ||
           ((baselineReach ?? 0) > 0 && remeasureReach === 0 && currentSource !== 'graph');
         const reachDelta = guardTripped ? null : remeasureReach - (baselineReach ?? 0);
 
-        const { error: updErr } = await supabase
+        const { data: stagedRows, error: updErr } = await supabase
           .from('social_monthly_cadence')
           .update({
             remeasure_reach: remeasureReach,
@@ -226,18 +231,30 @@ export async function GET(request: Request): Promise<Response> {
             updated_at: new Date().toISOString(),
           })
           .eq('id', c.id)
-          .eq('status', 'open'); // guard against a concurrent close
+          .eq('status', 'open') // guard against a concurrent close
+          .select('id');
         if (updErr) throw updErr;
+
+        // If 0 rows staged, a concurrent close/unmeasurable already moved this
+        // cycle — do NOT write the project RAG (it would clobber the close's
+        // decision, e.g. overwrite an 'unmeasurable' outcome with a fake green).
+        if (!stagedRows || stagedRows.length === 0) {
+          skipped++;
+          continue;
+        }
 
         // Teeth: reflect the re-measure into the linked project's rag_status so
         // the DORMANT project_at_risk rule (fires on red) would summon the HOD.
         // Only when measurable; an unmeasurable re-measure leaves RAG untouched.
+        // Institution-scoped (HIGH): the service-role write bypasses RLS — never
+        // flip a project outside this cadence's institution.
         const newRag = ragForDelta(reachDelta, baselineReach, winDeltaPct);
         if (c.project_id && newRag) {
           const { error: ragErr } = await supabase
             .from('projects')
             .update({ rag_status: newRag, updated_at: new Date().toISOString() })
-            .eq('id', c.project_id);
+            .eq('id', c.project_id)
+            .eq('institution_id', c.institution_id);
           if (ragErr) throw ragErr;
         }
 

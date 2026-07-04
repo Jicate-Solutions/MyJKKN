@@ -58,7 +58,9 @@ CREATE TABLE IF NOT EXISTS public.social_monthly_cadence (
   reach_delta BIGINT NULL,                     -- remeasure_reach - baseline_reach (NULL when unmeasurable)
   status TEXT NOT NULL DEFAULT 'open'
     CHECK (status IN ('open','awaiting_close','closed','unmeasurable')),
-  project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,  -- the unified OKR objective (projects.is_okr=true)
+  -- ON DELETE RESTRICT (not CASCADE): the cadence ledger is the audit history of
+  -- the reach loop; deleting the linked project must NOT silently erase it.
+  project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE RESTRICT,  -- the unified OKR objective (projects.is_okr=true)
   learning TEXT NULL,                          -- the one human learning written at close
   created_by UUID NULL REFERENCES public.profiles(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -80,11 +82,43 @@ CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_project
 COMMENT ON TABLE public.social_monthly_cadence IS
   'Per-department monthly Instagram reach cadence ledger (objective -> baseline -> feedback -> action -> re-measure -> close). Reach snapshots come ONLY from ig_monthly_audit; feedback ONLY from feedback_events. project_id is REQUIRED and points at a real projects row (is_okr=true, project_type=okr_objective, owner=HOD) — the unified OKR objective; its rag_status carries the reach-vs-target teeth for the dormant project_at_risk meeting rule.';
 
+-- Idempotent FK converge: if an earlier apply created this constraint with
+-- ON DELETE CASCADE, drop + re-add it as RESTRICT so re-applying this migration
+-- fixes the delete rule regardless of prior state (CREATE TABLE IF NOT EXISTS
+-- above would otherwise leave a stale CASCADE constraint in place).
+ALTER TABLE public.social_monthly_cadence
+  DROP CONSTRAINT IF EXISTS social_monthly_cadence_project_id_fkey;
+ALTER TABLE public.social_monthly_cadence
+  ADD CONSTRAINT social_monthly_cadence_project_id_fkey
+  FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE RESTRICT;
+
 -- updated_at trigger (helper created by 20260131000000_create_okr_tables).
 DROP TRIGGER IF EXISTS trg_social_monthly_cadence_updated_at ON public.social_monthly_cadence;
 CREATE TRIGGER trg_social_monthly_cadence_updated_at
   BEFORE UPDATE ON public.social_monthly_cadence
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- project_id is IMMUTABLE post-insert. The UPDATE RLS policy lets a manage user
+-- write the row via raw PostgREST; without this guard they could repoint
+-- project_id at another project and have close/cron flip THAT project's RAG.
+-- The RPC state machine never changes project_id, so this only blocks tampering.
+CREATE OR REPLACE FUNCTION public.fn_social_cadence_guard_project_id()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.project_id IS DISTINCT FROM OLD.project_id THEN
+    RAISE EXCEPTION 'social_monthly_cadence.project_id is immutable once set'
+      USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_social_monthly_cadence_project_immutable ON public.social_monthly_cadence;
+CREATE TRIGGER trg_social_monthly_cadence_project_immutable
+  BEFORE UPDATE ON public.social_monthly_cadence
+  FOR EACH ROW EXECUTE FUNCTION public.fn_social_cadence_guard_project_id();
 
 -- ── 2. RLS — canonical dynamic-permission pattern (no hardcoded roles) ──────
 ALTER TABLE public.social_monthly_cadence ENABLE ROW LEVEL SECURITY;
@@ -183,6 +217,45 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_ig_monthly_reach(UUID, DATE) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_ig_monthly_reach(UUID, DATE) TO authenticated;
 
+-- ── 3b. Ownership helper: fn_social_caller_owns_dept ────────────────────────
+--    The Director-locked owner of a department's IG cadence is that dept's HOD
+--    (scope='own'). The institution-level permission gate alone lets ANY manage
+--    HOD in the tenant act on OTHER departments' accounts — this helper closes
+--    that gap. Platform admins bypass; a NULL department (account not
+--    dept-scoped) falls back to the institution gate the caller already passed.
+--    DEFINER so it can read departments/staff regardless of the caller's own
+--    row visibility. Caller "owns" a dept if they head it OR are active staff in it.
+CREATE OR REPLACE FUNCTION public.fn_social_caller_owns_dept(p_department_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_uid UUID := auth.uid();
+BEGIN
+  IF is_super_admin() OR is_admin() THEN
+    RETURN true;
+  END IF;
+  IF p_department_id IS NULL THEN
+    RETURN true;  -- not department-scoped: institution gate already applied
+  END IF;
+  RETURN EXISTS (
+    SELECT 1 FROM public.departments d
+    WHERE d.id = p_department_id AND d.head_of_department_id = v_uid
+  ) OR EXISTS (
+    SELECT 1 FROM public.staff s
+    WHERE s.profile_id = v_uid
+      AND s.department_id = p_department_id
+      AND s.is_active = true
+  );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_social_caller_owns_dept(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_social_caller_owns_dept(UUID) TO authenticated;
+
 -- ── 4. Writer RPC: fn_social_cadence_open ───────────────────────────────────
 --    Opens a dept-month cadence: snapshots the baseline reach from
 --    ig_monthly_audit, creates (or links) the REQUIRED unified-OKR objective as
@@ -233,6 +306,22 @@ BEGIN
     OR (user_has_permission('social.departments.manage') AND role_has_institution_access(v_institution_id))
   ) THEN
     RAISE EXCEPTION 'permission denied: social.departments.manage required' USING ERRCODE = '42501';
+  END IF;
+
+  -- DARK self-gate: opening a NEW cycle requires social.cadence.enabled=true.
+  -- Enforced HERE (not only in the TS API) so a direct PostgREST/RPC call cannot
+  -- bypass the engine master switch. Ships DARK (default false).
+  IF NOT COALESCE(fn_get_policy_bool('social.cadence.enabled', false, NULL), false) THEN
+    RAISE EXCEPTION 'The monthly cadence engine is disabled (social.cadence.enabled=false)'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Department ownership: a scope='own' manager may only open a cadence for its
+  -- OWN department's IG account (admins bypass; a NULL dept falls back to the
+  -- institution gate above).
+  IF NOT fn_social_caller_owns_dept(v_department_id) THEN
+    RAISE EXCEPTION 'permission denied: you can only manage your own department''s Instagram cadence'
+      USING ERRCODE = '42501';
   END IF;
 
   v_month := date_trunc('month', COALESCE(p_cadence_month, CURRENT_DATE))::date;
@@ -302,8 +391,19 @@ BEGIN
       VALUES (v_task_id, v_hod_staff_id, 'accountable', v_uid);
     END IF;
   ELSE
-    IF NOT EXISTS (SELECT 1 FROM public.projects WHERE id = p_project_id) THEN
-      RAISE EXCEPTION 'project_id % not found', p_project_id USING ERRCODE = 'P0002';
+    -- Tenant guard (HIGH): an externally-supplied project_id must be a REAL OKR
+    -- objective in THIS account's institution. Without this a scope='own' HOD
+    -- could link ANY project in ANY tenant and have close/cron flip its RAG
+    -- (cross-tenant write via this DEFINER function). Reject anything that is not
+    -- an is_okr project in v_institution_id.
+    IF NOT EXISTS (
+      SELECT 1 FROM public.projects
+      WHERE id = p_project_id
+        AND institution_id = v_institution_id
+        AND is_okr = true
+    ) THEN
+      RAISE EXCEPTION 'project_id % is not an OKR objective in this institution', p_project_id
+        USING ERRCODE = '42501';
     END IF;
     v_project_id := p_project_id;
   END IF;
@@ -340,6 +440,7 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_institution_id UUID;
+  v_department_id UUID;
   v_status TEXT;
   v_row public.social_monthly_cadence;
 BEGIN
@@ -347,7 +448,7 @@ BEGIN
     RAISE EXCEPTION 'An action description is required' USING ERRCODE = '22023';
   END IF;
 
-  SELECT institution_id, status INTO v_institution_id, v_status
+  SELECT institution_id, department_id, status INTO v_institution_id, v_department_id, v_status
   FROM public.social_monthly_cadence WHERE id = p_cadence_id;
   IF v_institution_id IS NULL THEN
     RAISE EXCEPTION 'Cadence cycle not found' USING ERRCODE = 'P0002';
@@ -358,6 +459,12 @@ BEGIN
     OR (user_has_permission('social.departments.manage') AND role_has_institution_access(v_institution_id))
   ) THEN
     RAISE EXCEPTION 'permission denied: social.departments.manage required' USING ERRCODE = '42501';
+  END IF;
+
+  -- Department ownership: a scope='own' manager may only act on its OWN dept.
+  IF NOT fn_social_caller_owns_dept(v_department_id) THEN
+    RAISE EXCEPTION 'permission denied: you can only manage your own department''s Instagram cadence'
+      USING ERRCODE = '42501';
   END IF;
 
   IF v_status NOT IN ('open', 'awaiting_close') THEN
@@ -419,6 +526,12 @@ BEGIN
     RAISE EXCEPTION 'permission denied: social.departments.manage required' USING ERRCODE = '42501';
   END IF;
 
+  -- Department ownership: a scope='own' manager may only close its OWN dept.
+  IF NOT fn_social_caller_owns_dept(v_row.department_id) THEN
+    RAISE EXCEPTION 'permission denied: you can only manage your own department''s Instagram cadence'
+      USING ERRCODE = '42501';
+  END IF;
+
   IF v_row.status IN ('closed', 'unmeasurable') THEN
     RAISE EXCEPTION 'Cycle already finalised (%)', v_row.status USING ERRCODE = '22023';
   END IF;
@@ -440,9 +553,15 @@ BEGIN
     LIMIT 1;
   END IF;
 
-  -- metrics_source guard -> unmeasurable (never a fabricated "reach collapsed").
+  -- metrics_source guard -> unmeasurable (never a fabricated win OR "reach
+  -- collapsed"). graph reach and business_discovery/NULL reach are DIFFERENT
+  -- scales: comparing across the graph boundary in EITHER direction fabricates a
+  -- delta. So any mismatch in graph-ness between baseline and re-measure is
+  -- unmeasurable — this covers both a graph->business_discovery downgrade AND a
+  -- business_discovery/NULL->graph upgrade (the latter would otherwise fake a
+  -- green win). Plus the collapse guard (a 0 read against a >0 non-graph baseline).
   IF v_remeasure_reach IS NULL
-     OR (v_row.baseline_metrics_source = 'graph' AND v_current_source = 'business_discovery')
+     OR ((COALESCE(v_row.baseline_metrics_source, '') = 'graph') <> (COALESCE(v_current_source, '') = 'graph'))
      OR (COALESCE(v_row.baseline_reach, 0) > 0 AND COALESCE(v_remeasure_reach, 0) = 0 AND v_current_source <> 'graph')
   THEN
     v_final_status := 'unmeasurable';
@@ -452,6 +571,9 @@ BEGIN
     v_delta := v_remeasure_reach - COALESCE(v_row.baseline_reach, 0);
   END IF;
 
+  -- TOCTOU guard: re-assert the row is still non-final in the UPDATE predicate
+  -- (a concurrent close/dispatcher could have finalised it between the SELECT
+  -- above and here). If it moved, 0 rows update -> raise instead of clobbering.
   UPDATE public.social_monthly_cadence
   SET remeasure_reach = v_remeasure_reach,
       remeasure_month = v_remeasure_month,
@@ -461,7 +583,11 @@ BEGIN
       status = v_final_status,
       updated_at = now()
   WHERE id = p_cadence_id
+    AND status NOT IN ('closed', 'unmeasurable')
   RETURNING * INTO v_row;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Cycle already finalised' USING ERRCODE = '22023';
+  END IF;
 
   -- Teeth: reflect the measured reach-vs-target into the linked project's
   -- rag_status + percent_complete (the CANONICAL project RAG mechanism that
@@ -488,11 +614,23 @@ BEGIN
       v_progress := CASE WHEN COALESCE(v_delta, 0) > 0 THEN 100 ELSE 0 END;
     END IF;
 
+    -- Tenant guard (HIGH): this DEFINER write bypasses projects RLS. NEVER flip
+    -- the RAG of a project outside this cadence's institution. Defence-in-depth
+    -- even though open validates the link and project_id is immutable.
+    IF NOT EXISTS (
+      SELECT 1 FROM public.projects
+      WHERE id = v_row.project_id AND institution_id = v_row.institution_id
+    ) THEN
+      RAISE EXCEPTION 'cadence project % is not in institution %', v_row.project_id, v_row.institution_id
+        USING ERRCODE = '42501';
+    END IF;
+
     UPDATE public.projects
     SET rag_status = v_new_rag,
         percent_complete = v_progress,
         updated_at = now()
-    WHERE id = v_row.project_id;
+    WHERE id = v_row.project_id
+      AND institution_id = v_row.institution_id;
   END IF;
 
   RETURN v_row;

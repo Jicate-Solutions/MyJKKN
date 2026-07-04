@@ -39,6 +39,16 @@ const DEFAULT_USERNAME = 'jkknpharmacy';
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Cadence-list page size. The ledger holds one row per (account, calendar-month),
+// so 24 rows ≈ two years of history per page. Use ?offset=N to page further back.
+const PAGE_SIZE = 24;
+
+/** Parse a non-negative integer offset from the query (default 0). */
+function parseOffset(raw: string | null): number {
+  const n = Number(raw ?? '0');
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
 interface IgAccountRow {
   id: string;
   username: string | null;
@@ -124,6 +134,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const departmentId = searchParams.get('departmentId');
     const accountId = searchParams.get('accountId');
+    const offset = parseOffset(searchParams.get('offset'));
 
     // ── Department-scoped list (OKR department dashboard card) ────────────────
     if (departmentId && UUID_RE.test(departmentId.trim())) {
@@ -132,7 +143,7 @@ export async function GET(request: Request) {
         .select('*')
         .eq('department_id', departmentId.trim())
         .order('cadence_month', { ascending: false })
-        .limit(24);
+        .range(offset, offset + PAGE_SIZE - 1);
       if (error) {
         return NextResponse.json({ success: false, error: error.message }, { status: 500 });
       }
@@ -169,7 +180,7 @@ export async function GET(request: Request) {
         .select('*')
         .eq('account_id', acct.id)
         .order('cadence_month', { ascending: false })
-        .limit(24),
+        .range(offset, offset + PAGE_SIZE - 1),
       supabase.rpc('fn_ig_monthly_reach', {
         p_account_id: acct.id,
         p_month: firstOfCurrentMonthUTC(),
