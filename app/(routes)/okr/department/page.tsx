@@ -36,6 +36,7 @@ import {
   Shield
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
+import { SocialCadenceCard } from './_components/social-cadence-card';
 import { useObjectives } from '@/hooks/okr/use-objectives';
 import { useDepartmentSummary, useTeamSummary } from '@/hooks/okr/use-team';
 import { useMyComplianceStatus } from '@/hooks/okr/use-compliance';
@@ -387,6 +388,10 @@ export default function DepartmentAdminPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Monthly Instagram cadence — the per-department reach loop,
+                surfaced inside OKR for leadership visibility (locked decision #4). */}
+            <SocialCadenceCard departmentId={filterDepartmentId ?? undefined} />
           </TabsContent>
 
           {/* TIER 2 OKRs Tab */}

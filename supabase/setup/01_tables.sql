@@ -5557,3 +5557,62 @@ CREATE INDEX IF NOT EXISTS idx_iec_event ON public.induction_event_coordinators(
 CREATE INDEX IF NOT EXISTS idx_iec_user  ON public.induction_event_coordinators(user_id);
 
 ALTER TABLE public.induction_event_coordinators ENABLE ROW LEVEL SECURITY;
+
+-- =====================================================================
+-- social_monthly_cadence — Department Instagram Monthly Cadence ledger
+-- Added: 2026-07-04 — mirror of migration 20260704120000_social_monthly_cadence.sql
+-- Per-department, calendar-month reach loop (objective -> baseline -> feedback
+-- -> action -> re-measure -> close). Reach snapshots come ONLY from
+-- ig_monthly_audit; feedback ONLY from feedback_events. okr_objective_id is
+-- REQUIRED (Director-locked OKR integration). RLS policies live in 03_policies.sql;
+-- reader/writer RPCs in 02_functions.sql.
+-- =====================================================================
+
+-- Extend the OKR cycle grain with 'monthly' (additive, idempotent).
+ALTER TYPE public.okr_cycle_type ADD VALUE IF NOT EXISTS 'monthly';
+
+CREATE TABLE IF NOT EXISTS public.social_monthly_cadence (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id UUID NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  account_id UUID NOT NULL REFERENCES public.ig_accounts(id) ON DELETE CASCADE,
+  department_id UUID NULL REFERENCES public.departments(id) ON DELETE SET NULL,
+  cadence_month DATE NOT NULL,
+  objective TEXT NOT NULL,
+  baseline_reach BIGINT NULL,
+  baseline_month DATE NULL,
+  baseline_metrics_source TEXT NULL,
+  feedback_read_summary JSONB NULL,
+  action_taken TEXT NULL,
+  remeasure_reach BIGINT NULL,
+  remeasure_month DATE NULL,
+  remeasure_metrics_source TEXT NULL,
+  reach_delta BIGINT NULL,
+  status TEXT NOT NULL DEFAULT 'open'
+    CHECK (status IN ('open','awaiting_close','closed','unmeasurable')),
+  okr_objective_id UUID NOT NULL REFERENCES public.okr_objectives(id) ON DELETE CASCADE,
+  learning TEXT NULL,
+  created_by UUID NULL REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT social_monthly_cadence_account_month_uniq UNIQUE (account_id, cadence_month)
+);
+
+CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_account
+  ON public.social_monthly_cadence (account_id, cadence_month DESC);
+CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_institution
+  ON public.social_monthly_cadence (institution_id);
+CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_department
+  ON public.social_monthly_cadence (department_id) WHERE department_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_open
+  ON public.social_monthly_cadence (status) WHERE status IN ('open','awaiting_close');
+CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_okr
+  ON public.social_monthly_cadence (okr_objective_id);
+
+DROP TRIGGER IF EXISTS trg_social_monthly_cadence_updated_at ON public.social_monthly_cadence;
+CREATE TRIGGER trg_social_monthly_cadence_updated_at
+  BEFORE UPDATE ON public.social_monthly_cadence
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+ALTER TABLE public.social_monthly_cadence ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.social_monthly_cadence FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON public.social_monthly_cadence TO authenticated;
