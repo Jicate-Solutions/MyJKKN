@@ -12,9 +12,10 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger,
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BarChart3, Plus, X, Radio, Square, Users, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Presentation } from 'lucide-react';
+import { BarChart3, Plus, X, Radio, Square, Users, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Presentation, Download } from 'lucide-react';
 import { InductionPollService, type PollQuestionDraft, type PollQuestionKind, type PollTotals, type PollResponder } from '@/lib/services/induction/induction-poll-service';
 import { useInductionPollRealtime } from '@/hooks/induction/use-induction-poll-realtime';
+import { exportPollResponsesToExcel } from '@/lib/utils/induction-poll-export';
 import { SessionPollPresenter } from './session-poll-presenter';
 
 // Generate the numeric option rows for a SCALE question (labels ARE the numbers),
@@ -159,6 +160,17 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
     catch (e: any) { toast.error(e?.message ?? 'Could not change question'); } finally { setBusy(false); }
   };
   const closeLive = async () => { if (!pollId) return; setBusy(true); try { await InductionPollService.closePoll(pollId); stop(); setStatus('closed'); toast.success('Poll closed.'); } catch (e: any) { toast.error(e?.message ?? 'Could not close'); } finally { setBusy(false); } };
+  // Learner-wise ballots + details Excel (host-gated RPC); works while open or after close.
+  const exportExcel = async () => {
+    if (!pollId) return;
+    setBusy(true);
+    try {
+      const rows = await InductionPollService.getExportRows(pollId);
+      if (!rows.length) { toast.info('No responses to export yet.'); return; }
+      await exportPollResponsesToExcel(rows, sessionTitle);
+      toast.success('Excel downloaded.');
+    } catch (e: any) { toast.error(e?.message ?? 'Could not export'); } finally { setBusy(false); }
+  };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -308,6 +320,11 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
         </div>
 
         <DialogFooter className="gap-2">
+          {pollId && hasVotes && (
+            <Button variant="outline" onClick={exportExcel} disabled={busy} title="Download learner-wise responses as Excel">
+              <Download className="h-4 w-4 mr-1" /> Export Excel
+            </Button>
+          )}
           <Button variant="outline" onClick={savePoll} disabled={busy}>Save poll</Button>
           {status !== 'open'
             ? <Button onClick={openLive} disabled={busy || !pollId}><Radio className="h-4 w-4 mr-1" /> Open live</Button>
