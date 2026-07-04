@@ -157,6 +157,35 @@ export function useVacateAllocation() {
   });
 }
 
+// Admin "Reset" — undo the room allocation (hard delete + bed freed) and/or
+// clear the learner's room/mess category, via fn_cl_admin_reset_allocation.
+export function useResetAllocation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: { resetRoom: boolean; resetRoomCategory: boolean; resetMessCategory: boolean };
+    }) => HostelAllocationService.resetAllocation(id, payload),
+    onSuccess: () => {
+      // The reset can delete the allocation + free its bed and clear the
+      // learner-level categories, so refresh every surface that reads them:
+      // allocations tables (incl. the category columns), rooms/beds occupancy
+      // feeds, and the resident's own My Hostel view.
+      queryClient.invalidateQueries({ queryKey: hostelAllocationKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['hostel-rooms'] });
+      queryClient.invalidateQueries({ queryKey: ['hostel-beds'] });
+      queryClient.invalidateQueries({ queryKey: ['my-hostel'] });
+      toast.success('Reset applied');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to reset: ${error.message}`);
+    },
+  });
+}
+
 // rooms-v2 PR 4b — explicit check-out mutation.
 // Distinct from useVacateAllocation (which only flips status + vacate_reason)
 // because the new schema also needs check_out_date populated for the
