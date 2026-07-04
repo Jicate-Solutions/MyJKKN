@@ -201,6 +201,23 @@ export function useSubmitFeedback() {
   });
 }
 
+/** Faculty-triggered per-session "notify pending" nudge (PR-B). Refreshes the
+ *  completion + pending-roster views so the drawer reflects any change. */
+export function useNotifySessionPending() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { attendanceDate: string; timetableId: string; periodId: string }) =>
+      SessionFeedbackService.notifySessionPending(
+        input.attendanceDate,
+        input.timetableId,
+        input.periodId,
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: scfQueryKeys.all });
+    },
+  });
+}
+
 // ── Live Pulse Check ─────────────────────────────────────────────────────────
 
 /** Teacher opens a live pulse for a class (assigned faculty or HOD/admin). */

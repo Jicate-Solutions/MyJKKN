@@ -6,7 +6,7 @@
 // floor before any breakdown is shown). Auto-closes after 240 min (#6).
 // Spec: specs/live-pulse-check-2026-06-25.md
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { BeatLoader } from 'react-spinners';
 import { Radio, ShieldCheck, AlertTriangle, Clock, Users } from 'lucide-react';
@@ -50,6 +50,48 @@ const UNDERSTOOD_LABELS: Record<string, string> = {
 function minutesLeft(autoCloseAt: string): number {
   const ms = new Date(autoCloseAt).getTime() - Date.now();
   return Math.max(0, Math.round(ms / 60000));
+}
+
+// ── PR-A current-period spotlight helpers ────────────────────────────────────
+// The attendance blob stores per-period start/end times in mixed formats — 24h
+// ("10:00:00") and 12h/meridian ("3:00 PM"). Parse both to minutes-of-day so we
+// can tell which of today's classes is happening RIGHT NOW (the capture moment).
+function parseBlobTimeToMinutes(t?: string | null): number | null {
+  if (!t) return null;
+  const s = t.trim();
+  // 12-hour with meridian, e.g. "3:00 PM" / "9:05 am"
+  const m12 = s.match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])$/);
+  if (m12) {
+    let h = parseInt(m12[1], 10);
+    const min = parseInt(m12[2], 10);
+    const pm = m12[3].toLowerCase() === 'pm';
+    if (h === 12) h = 0;
+    if (pm) h += 12;
+    if (h > 23 || min > 59) return null;
+    return h * 60 + min;
+  }
+  // 24-hour "HH:MM" or "HH:MM:SS"
+  const m24 = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (m24) {
+    const h = parseInt(m24[1], 10);
+    const min = parseInt(m24[2], 10);
+    if (h > 23 || min > 59) return null;
+    return h * 60 + min;
+  }
+  return null;
+}
+
+/** Minutes-since-midnight in IST (Asia/Kolkata) — the wall-clock the blob uses. */
+function nowMinutesIST(): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+  const h = parseInt(parts.find((p) => p.type === 'hour')?.value ?? '0', 10);
+  const m = parseInt(parts.find((p) => p.type === 'minute')?.value ?? '0', 10);
+  return h * 60 + m;
 }
 
 /** Live anonymized totals for one open pulse. Polls every 10s while open. */
@@ -206,6 +248,49 @@ export function LivePulseSection({ from, to }: { from: string; to: string }) {
     (r) => r.attendance_date === today,
   );
 
+  // PR-A — spotlight the class happening RIGHT NOW (or, failing that, the next one
+  // coming up today) so "Open Pulse" is a one-tap, unmissable control at the capture
+  // moment. Degrades gracefully when the RPC pre-dates the start/end_time columns.
+  //
+  // nowMin ticks on a timer so the spotlight stays live. Computed once at mount it would
+  // freeze — keep highlighting a class that has already ended, or never light up the one
+  // that just started. Re-evaluate every 30s.
+  const [nowMin, setNowMin] = useState<number>(() => nowMinutesIST());
+  useEffect(() => {
+    const id = setInterval(() => setNowMin(nowMinutesIST()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const withTimes = todaySessions
+    .map((r) => ({
+      row: r,
+      startMin: parseBlobTimeToMinutes(r.start_time),
+      endMin: parseBlobTimeToMinutes(r.end_time),
+    }))
+    // Only a class with Present students can be pulsed. Excluding present-0 sessions here
+    // means a present-0 active class no longer wins the spotlight and then suppresses it
+    // (the render guard drops present-0) — the spotlight falls back to the next pulseable
+    // class instead. Mirrors the per-row "noPresent" disable in the list below.
+    .filter((x) => x.startMin != null && x.row.present_count > 0);
+  const activeNow = withTimes
+    .filter((x) => {
+      if (x.startMin == null || x.endMin == null) return false;
+      // A class whose end is before its start straddles midnight (e.g. 23:30–00:15):
+      // it is "now" from startMin to end-of-day OR from midnight to endMin. The plain
+      // start<=now<=end test never matches such a class, so it would never be spotlit.
+      return x.endMin >= x.startMin
+        ? nowMin >= x.startMin && nowMin <= x.endMin
+        : nowMin >= x.startMin || nowMin <= x.endMin;
+    })
+    .sort((a, b) => b.startMin! - a.startMin!)[0];
+  const nextUp = withTimes
+    .filter((x) => x.startMin != null && x.startMin! > nowMin)
+    .sort((a, b) => a.startMin! - b.startMin!)[0];
+  const spotlight = activeNow ?? nextUp ?? null;
+  const spotlightKey = spotlight
+    ? `${spotlight.row.timetable_id}-${spotlight.row.period_id}`
+    : null;
+  const isLive = !!activeNow;
+
   async function handlePulse(row: FacultyCompletionRow) {
     const key = `${row.timetable_id}-${row.period_id}`;
     setPendingKey(key);
@@ -236,6 +321,45 @@ export function LivePulseSection({ from, to }: { from: string; to: string }) {
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {/* PR-A spotlight: the current/next class, front-and-centre, one big tap.
+            `spotlight` is already restricted to pulseable (present_count>0) classes. */}
+        {spotlight ? (
+          <div className="mb-4 rounded-lg border-2 border-[#0b6d41] bg-[#0b6d41]/5 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="mb-0.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide" style={{ color: BRAND_GREEN }}>
+                  <Radio className="h-3.5 w-3.5" />
+                  {isLive ? 'Class in progress — pulse now' : 'Up next today'}
+                </div>
+                <div className="truncate text-base font-semibold">
+                  {spotlight.row.course_name || spotlight.row.course_code || 'Class session'}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {spotlight.row.start_time ?? ''}
+                  {spotlight.row.end_time ? ` – ${spotlight.row.end_time}` : ''}
+                  {' · '}
+                  {spotlight.row.present_count} present
+                </div>
+              </div>
+              <Button
+                type="button"
+                onClick={() => handlePulse(spotlight.row)}
+                disabled={pendingKey === spotlightKey}
+                className="h-11 shrink-0 bg-[#0b6d41] px-5 text-base hover:bg-[#0b6d41]/90"
+              >
+                {pendingKey === spotlightKey ? (
+                  <BeatLoader color="#ffffff" size={7} />
+                ) : (
+                  <>
+                    <Radio className="mr-2 h-4 w-4" />
+                    Open Pulse now
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
         {isLoading ? (
           <div className="flex justify-center py-8">
             <BeatLoader color={BRAND_GREEN} size={9} />

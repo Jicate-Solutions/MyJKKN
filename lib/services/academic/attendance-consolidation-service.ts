@@ -5,6 +5,12 @@ import {
   deriveDailyStatus,
   dailyStatusToDays,
 } from '@/lib/utils/academic/attendance-sessions';
+import { getPolicyBool } from '@/lib/policies/get-policy-client';
+import { POLICY_KEYS } from '@/lib/policies/keys';
+import type {
+  EffectiveAttendanceRow,
+  EffectiveAttendanceCoupling,
+} from '@/types/session-feedback';
 import type {
   AttendanceConsolidationReport,
   CreateConsolidationReportDto,
@@ -37,6 +43,83 @@ import type {
 export class AttendanceConsolidationService {
   private static get supabase() {
     return createClientSupabaseClient();
+  }
+
+  /**
+   * PR-D — DERIVED "effective attendance %" coupling (DARK, compliance-gated).
+   * =====================================================================
+   * Returns a per-learner comparison of the OFFICIAL attendance %
+   * (present/(present+absent)) vs an EFFECTIVE % that only counts present marks
+   * the learner CONFIRMED with post-class feedback — so present-but-no-feedback
+   * lowers the effective %.
+   *
+   * SAFETY (non-negotiable):
+   *  - This is a READ-ONLY, recomputable derivation. It NEVER writes
+   *    student_attendance.attendance_data or any official attendance figure.
+   *  - It is GATED behind session_feedback.attendance_coupling_enabled, seeded
+   *    FALSE. While OFF this method computes NOTHING (returns { enabled:false,
+   *    rows:[] }) and the official attendance %/eligibility is entirely untouched.
+   *  - It is deliberately NOT wired into generateReportData / calculateReportData
+   *    (the official-% path). Enabling it and consuming the effective % on an
+   *    eligibility surface requires legal/compliance sign-off first (spec R2).
+   *
+   * @param institutionId scope; omit for the caller's RLS-permitted scope.
+   */
+  static async getEffectiveAttendanceCoupling(
+    from: string,
+    to: string,
+    scope?: {
+      institutionId?: string | null;
+      programId?: string | null;
+      departmentId?: string | null;
+      sectionId?: string | null;
+    }
+  ): Promise<EffectiveAttendanceCoupling> {
+    // Fail-safe: any policy-read failure is treated as OFF (feature dark).
+    let enabled = false;
+    try {
+      enabled = await getPolicyBool(
+        POLICY_KEYS.SESSION_FEEDBACK_ATTENDANCE_COUPLING_ENABLED,
+        false,
+        scope?.institutionId ?? null
+      );
+    } catch (e) {
+      logger.warn(
+        'academic/attendance-consolidation',
+        'attendance_coupling_enabled policy read failed; treating coupling as OFF',
+        e
+      );
+      return { enabled: false, rows: [] };
+    }
+
+    if (!enabled) {
+      return { enabled: false, rows: [] };
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_scf_effective_attendance',
+      {
+        p_from: from,
+        p_to: to,
+        p_institution_id: scope?.institutionId ?? null,
+        p_program_id: scope?.programId ?? null,
+        p_department_id: scope?.departmentId ?? null,
+        p_section_id: scope?.sectionId ?? null,
+      }
+    );
+
+    if (error) {
+      logger.error(
+        'academic/attendance-consolidation',
+        'fn_scf_effective_attendance failed',
+        error
+      );
+      // Fail-safe: never surface a partial/erroring effective % as authoritative.
+      return { enabled: true, rows: [] };
+    }
+
+    return { enabled: true, rows: (data ?? []) as EffectiveAttendanceRow[] };
   }
 
   /**

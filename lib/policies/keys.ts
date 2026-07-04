@@ -329,6 +329,12 @@ export const POLICY_KEYS = {
   // Seeded as global system rows in platform_policies; edited via admin policy UI.
   SESSION_FEEDBACK_GATE_MODE: 'session_feedback.gate_mode',
   SESSION_FEEDBACK_WINDOW_HOURS: 'session_feedback.window_hours',
+  // Faculty-engagement adoption (2026-07-04). When TRUE, the DERIVED, non-destructive
+  // "effective attendance %" (present-but-no-feedback lowers a learner's attendance %)
+  // is computed for eligibility surfaces. Default FALSE (dark). Compliance sign-off
+  // required before enabling — exam-eligibility regulatory surface (spec R2). Never
+  // mutates attendance_data. Seeded by 20260731020000_scf_hard_gate_enforcement_and_coupling.sql.
+  SESSION_FEEDBACK_ATTENDANCE_COUPLING_ENABLED: 'session_feedback.attendance_coupling_enabled',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];

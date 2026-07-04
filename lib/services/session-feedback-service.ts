@@ -142,6 +142,26 @@ export class SessionFeedbackService {
     return (data || []) as PendingRosterRow[];
   }
 
+  /** Faculty-triggered per-session nudge (PR-B): sends ONE in-app bell to each
+   *  Present-but-unconfirmed learner of this session, reusing the canonical
+   *  nudge notification path. The RPC authorizes the caller as the assigned
+   *  faculty (or super/admin). Returns how many learners were newly nudged
+   *  (idempotent per learner/session/day, so a repeat click may return 0). */
+  static async notifySessionPending(
+    attendanceDate: string,
+    timetableId: string,
+    periodId: string,
+  ): Promise<number> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_notify_session_pending', {
+      p_attendance_date: attendanceDate,
+      p_timetable_id: timetableId,
+      p_period_id: periodId,
+    });
+    if (error) throw new Error(`Failed to notify pending learners: ${error.message}`);
+    return Number(data ?? 0);
+  }
+
   /** Institution sessions breaching the understanding threshold (Principal view). */
   static async getEscalations(from: string, to: string): Promise<EscalationRow[]> {
     const supabase = getSupabase();
