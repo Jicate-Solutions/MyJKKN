@@ -169,6 +169,11 @@ const config: ModuleNavConfig = {
           exact: true,
         },
         {
+          label: 'IA Monitor',
+          icon: 'GaugeCircle',
+          href: '/academic/internal-marks/monitor',
+        },
+        {
           label: 'Internal Marks Report',
           icon: 'FileBarChart',
           href: '/academic/internal-marks/report',
