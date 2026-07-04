@@ -112,13 +112,32 @@ BEGIN
        -- the scope check is explicit here. role_has_institution_access() is
        -- the module-standard scope fn (super_admin/admin/scope=all → true for
        -- all; scope=own → own institution + granted access only).
-       AND role_has_institution_access(lp.institution_id)
+       --
+       -- NULL-institution guard: role_has_institution_access(NULL) returns TRUE
+       -- unconditionally ("system-wide records"), so a bare call would hand a
+       -- NULL-institution learner's PII to EVERY scoped viewer — a cross-tenant
+       -- leak (advisory review 2026-07-04, 3-lens consensus). Only org-wide
+       -- viewers (super_admin / admin) see NULL-institution rows, so the admin
+       -- roster length still matches the org-wide panel (the "roster == panel"
+       -- invariant); scope='own' viewers treat NULL as inaccessible. Under-
+       -- showing a NULL row to a non-admin is safe (never a leak); over-showing
+       -- PII is not.
+       AND (
+         is_super_admin()
+         OR is_admin()
+         OR (lp.institution_id IS NOT NULL AND role_has_institution_access(lp.institution_id))
+       )
   )
   SELECT r.learner_id, r.learner_name, r.register_number, r.program_name,
          r.degree_type, r.admission_year, r.year_known,
          count(*) OVER () AS total_count
     FROM roster r
-   ORDER BY r.admission_year DESC NULLS LAST, r.learner_name NULLS LAST;
+   ORDER BY r.admission_year DESC NULLS LAST, r.learner_name NULLS LAST
+   -- Defensive cap on an otherwise-unbounded PII payload (advisory review).
+   -- total_count is a window count over the full roster CTE (computed before
+   -- LIMIT), so it stays exact for the panel-match invariant; the real per-
+   -- school max is < 200, so this never truncates live data.
+   LIMIT 2000;
 END;
 $$;
 

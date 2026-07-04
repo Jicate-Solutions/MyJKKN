@@ -638,15 +638,17 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
             <CardHeader>
               <CardTitle className="text-base">Enrolled learners</CardTitle>
               <CardDescription>
-                Students admitted to JKKN from this school
+                Learners admitted to JKKN from this school
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-xs text-muted-foreground">
-                Students are matched across every spelling of this school&apos;s
-                name, so this count matches the discovery panel.
-                Institution-scoped staff see only their own institution&apos;s
-                learners.
+                Learners are matched across every spelling of this
+                school&apos;s name. This is the combined undergraduate +
+                postgraduate total — the discovery panel splits it into
+                separate school (UG) and college (PG) sections, so each section
+                shows a smaller per-level count. Institution-scoped staff see
+                only their own institution&apos;s learners.
               </p>
               {learnersQuery.isLoading ? (
                 <div className="space-y-2">
@@ -662,7 +664,7 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Student</TableHead>
+                      <TableHead>Learner</TableHead>
                       <TableHead>Register No.</TableHead>
                       <TableHead>Program</TableHead>
                       <TableHead>Admission Year</TableHead>

@@ -343,6 +343,7 @@ function FeederSection({
 
       <FeederPreviewDialog
         schoolName={previewName ?? ''}
+        level={level}
         open={previewName !== null}
         onOpenChange={(o) => {
           if (!o) setPreviewName(null);

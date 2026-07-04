@@ -2,9 +2,11 @@
 
 /**
  * Feeder quick-preview dialog — a lightweight roster popup for an un-adopted
- * feeder school. Shows every student the admission database recorded as coming
- * from this school (all name spellings, all admission years, UG + PG together),
- * so a counsellor can eyeball the volume before deciding to adopt. Reads live
+ * feeder school. Shows the learners the admission database recorded as coming
+ * from this school (all name spellings, all admission years). It is opened from
+ * inside a per-level FeederSection, so `level` scopes the roster to that
+ * section's programme level — the popup count then matches the feeder row it
+ * was opened from (the "roster == panel enrolled_count" invariant). Reads live
  * through listSchoolLearners → /api/schools-network/school-learners; nothing is
  * copied. The single action, "Adopt this school", hands off to the pre-filled
  * Add-School form (the only place a school becomes JKKN-side writable).
@@ -30,16 +32,19 @@ import { listSchoolLearners, type SchoolLearnerRow } from '../_lib/api';
 
 export function FeederPreviewDialog(props: {
   schoolName: string;
+  /** Programme level of the FeederSection this popup opened from. Scopes the
+   *  roster so its count matches the clicked row (undefined → all levels). */
+  level?: 'ug' | 'pg';
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }): JSX.Element {
-  const { schoolName, open, onOpenChange } = props;
+  const { schoolName, level, open, onOpenChange } = props;
 
   // Dormant until the popup actually opens — lets the parent mount one dialog
   // per un-adopted row without firing N roster requests up front.
   const { data, isLoading } = useQuery({
-    queryKey: ['schools-network', 'preview-learners', schoolName],
-    queryFn: () => listSchoolLearners(schoolName),
+    queryKey: ['schools-network', 'preview-learners', schoolName, level ?? 'all'],
+    queryFn: () => listSchoolLearners(schoolName, level),
     enabled: open && !!schoolName,
   });
 
@@ -53,8 +58,8 @@ export function FeederPreviewDialog(props: {
           <DialogTitle className="break-words pr-6">{schoolName}</DialogTitle>
           <DialogDescription>
             {isLoading
-              ? 'Loading students recorded from this school…'
-              : `${total.toLocaleString('en-IN')} student${
+              ? 'Loading learners recorded from this school…'
+              : `${total.toLocaleString('en-IN')} learner${
                   total === 1 ? '' : 's'
                 } came from this school, across all admission years.`}
           </DialogDescription>
@@ -69,7 +74,7 @@ export function FeederPreviewDialog(props: {
             </div>
           ) : total === 0 ? (
             <p className="py-10 text-center text-sm text-muted-foreground">
-              No students recorded from this school yet.
+              No learners recorded from this school yet.
             </p>
           ) : (
             <ul className="divide-y">
