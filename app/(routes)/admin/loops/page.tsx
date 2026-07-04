@@ -163,13 +163,18 @@ export default async function LoopControlTowerPage() {
     featureKey: string | null,
     staticCfg: string,
   ): { cfg: string; lastRun?: string; configHref?: string } => {
-    const sched = routineId ? fmtSchedule(routineId) : null;
+    // "Live" ONLY when the loop has a dispatcher SCHEDULE row — that's what makes
+    // it editable on AI Routines and gives it a real last_status. A model row
+    // alone (direct-cron loops like induction-session) is NOT enough: keep the
+    // accurate static string rather than falsely claim "editable on AI Routines".
+    const live = routineId ? schedById.has(routineId) : false;
+    if (!live) return { cfg: staticCfg };
     const model = featureKey ? modelByKey.get(featureKey) ?? null : null;
-    const parts = [sched, model].filter(Boolean) as string[];
+    const parts = [fmtSchedule(routineId!), model].filter(Boolean) as string[];
     return {
-      cfg: parts.length ? `${parts.join(' · ')} · editable on AI Routines` : staticCfg,
-      lastRun: routineId ? schedById.get(routineId)?.last_status ?? undefined : undefined,
-      configHref: routineId && schedById.has(routineId) ? AI_ROUTINES : undefined,
+      cfg: `${parts.join(' · ')} · editable on AI Routines`,
+      lastRun: schedById.get(routineId!)?.last_status ?? undefined,
+      configHref: AI_ROUTINES,
     };
   };
 
