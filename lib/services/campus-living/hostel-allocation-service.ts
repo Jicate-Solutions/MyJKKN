@@ -471,6 +471,43 @@ export class HostelAllocationService {
     }
   }
 
+  // ── Reset allocation (room and/or learner categories) ─────────────
+  // Routes through fn_cl_admin_reset_allocation (SECURITY DEFINER) so the
+  // undo is atomic and keeps the bed inventory invariant: the allocation row
+  // is hard-deleted AND its bed freed (status='available', occupant NULL) in
+  // one transaction; the learner's room/mess category columns on
+  // learners_profiles are cleared through the RPC's own gate (hostel admins
+  // can't UPDATE that table directly). Gated on campus_living.upgrades.manage.
+  static async resetAllocation(
+    allocationId: string,
+    opts: { resetRoom: boolean; resetRoomCategory: boolean; resetMessCategory: boolean }
+  ) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase.rpc('fn_cl_admin_reset_allocation', {
+        p_allocation_id: allocationId,
+        p_reset_room: opts.resetRoom,
+        p_reset_room_category: opts.resetRoomCategory,
+        p_reset_mess_category: opts.resetMessCategory,
+      });
+
+      if (error) {
+        logger.error('campus-living/allocations', 'Failed to reset allocation', error);
+        throw error;
+      }
+      return data as {
+        success: boolean;
+        allocation_deleted: boolean;
+        freed_bed_id: string | null;
+        room_category_cleared: boolean;
+        mess_category_cleared: boolean;
+      };
+    } catch (error) {
+      logger.error('campus-living/allocations', 'Unexpected error in resetAllocation', error);
+      throw error;
+    }
+  }
+
   // ── Delete allocation ─────────────────────────────────────────────
   static async deleteAllocation(id: string) {
     try {

@@ -234,6 +234,9 @@ export interface LearnerHostelitesFilters {
   // institution). ANDs with block_id when both are present.
   block_ids?: string[];
   hostel_category_id?: string;
+  mess_category_id?: string;
+  // Current allocation room (view column current_room_id).
+  room_id?: string;
   // Academic cascade filters (parity with Learners Profiles).
   degree_id?: string;
   department_id?: string;

@@ -75,6 +75,37 @@ export interface FacultyCompletionRow {
   pending_count: number;
   completion_pct: number;        // 0..100
   within_window: boolean;        // feedback still inside the due window
+  // Added 2026-07-04 (faculty-engagement adoption). Optional so older callers/rows
+  // (and any pre-migration deploy) keep type-checking.
+  start_time?: string | null;    // blob wall-clock, powers the current-period spotlight (PR-A)
+  end_time?: string | null;
+  /** Resolved post-class-feedback gate for this session's institution.
+   *  'visibility' by default (dark) — 'hard' only after the config flip. */
+  gate_mode?: 'off' | 'visibility' | 'hard' | null;
+  /** DERIVED enforcement status (PR-C). 'incomplete' appears ONLY under gate_mode='hard'
+   *  with pending>0 inside the window; inert (never 'incomplete') otherwise. */
+  session_status?: 'complete' | 'incomplete' | 'open' | 'overdue' | null;
+}
+
+/** DERIVED, non-destructive per-learner "effective attendance %" coupling row.
+ *  fn_scf_effective_attendance (PR-D). Counts only — never feedback content. The
+ *  effective_pct only counts CONFIRMED present marks, so present-but-no-feedback
+ *  lowers it vs official_pct. Read-only: attendance_data is never mutated. */
+export interface EffectiveAttendanceRow {
+  student_id: string;
+  present_marks: number;
+  absent_marks: number;
+  confirmed_present: number;
+  official_pct: number;          // present / (present + absent)
+  effective_pct: number;         // confirmed_present / (present + absent)
+}
+
+/** Result of the compliance-gated effective-% read. `enabled` is false (and rows
+ *  empty) whenever session_feedback.attendance_coupling_enabled is OFF (the default),
+ *  in which case NOTHING was computed and the official % is untouched. */
+export interface EffectiveAttendanceCoupling {
+  enabled: boolean;
+  rows: EffectiveAttendanceRow[];
 }
 
 /** A Present student who has NOT submitted feedback. fn_scf_faculty_pending_roster.

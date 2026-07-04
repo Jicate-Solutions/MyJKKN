@@ -92,9 +92,31 @@ async function getCoeInstitutions(): Promise<CoeInstitutionEntry[]> {
   if (coeInstitutionCache && Date.now() < coeInstitutionCacheExpiry) {
     return coeInstitutionCache;
   }
-  const { CoeRestClient } = await import('@/lib/services/coe/coe-rest-client');
-  const client = CoeRestClient.create();
-  const institutions = await client.get<CoeInstitutionEntry[]>('/api/v1/institutions');
+
+  let institutions: CoeInstitutionEntry[];
+
+  // Prefer the REST API (self-heals to the live source the moment the COE key is
+  // restored). On ANY REST failure — including an expired/absent API key — fall
+  // back to reading the same institutions bridge DIRECTLY from the COE DB, so
+  // institution resolution keeps working while the REST key is down. Without this
+  // fallback, every COE-backed route (incl. the student My-Marks views, which
+  // otherwise have a DB marks fallback) throws here before it can degrade.
+  try {
+    const { CoeRestClient } = await import('@/lib/services/coe/coe-rest-client');
+    const client = CoeRestClient.create();
+    institutions = await client.get<CoeInstitutionEntry[]>('/api/v1/institutions');
+  } catch (restErr) {
+    const { isCoeDbConfigured, getAllCoeInstitutions } = await import(
+      '@/lib/services/coe/coe-db-client'
+    );
+    if (!isCoeDbConfigured()) throw restErr;
+    console.warn(
+      '[internal-marks-access] COE REST /institutions unavailable — falling back to COE DB:',
+      restErr instanceof Error ? restErr.message : restErr,
+    );
+    institutions = await getAllCoeInstitutions();
+  }
+
   coeInstitutionCache = institutions;
   coeInstitutionCacheExpiry = Date.now() + CACHE_TTL_MS;
   return institutions;

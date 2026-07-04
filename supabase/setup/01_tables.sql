@@ -5557,3 +5557,119 @@ CREATE INDEX IF NOT EXISTS idx_iec_event ON public.induction_event_coordinators(
 CREATE INDEX IF NOT EXISTS idx_iec_user  ON public.induction_event_coordinators(user_id);
 
 ALTER TABLE public.induction_event_coordinators ENABLE ROW LEVEL SECURITY;
+
+-- =====================================================================
+-- social_monthly_cadence — Department Instagram Monthly Cadence ledger
+-- Added: 2026-07-04 — mirror of migration 20260704120000_social_monthly_cadence.sql
+-- Per-department, calendar-month reach loop (objective -> baseline -> feedback
+-- -> action -> re-measure -> close). Reach snapshots come ONLY from
+-- ig_monthly_audit; feedback ONLY from feedback_events. project_id is REQUIRED
+-- and points at a real projects row (is_okr=true, project_type='okr_objective',
+-- owner=HOD) — OKR was absorbed into the Projects module (locked 2026-05-31).
+-- RLS policies live in 03_policies.sql; reader/writer RPCs in 02_functions.sql.
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS public.social_monthly_cadence (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id UUID NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  account_id UUID NOT NULL REFERENCES public.ig_accounts(id) ON DELETE CASCADE,
+  department_id UUID NULL REFERENCES public.departments(id) ON DELETE SET NULL,
+  cadence_month DATE NOT NULL,
+  objective TEXT NOT NULL,
+  baseline_reach BIGINT NULL,
+  baseline_month DATE NULL,
+  baseline_metrics_source TEXT NULL,
+  feedback_read_summary JSONB NULL,
+  action_taken TEXT NULL,
+  remeasure_reach BIGINT NULL,
+  remeasure_month DATE NULL,
+  remeasure_metrics_source TEXT NULL,
+  reach_delta BIGINT NULL,
+  status TEXT NOT NULL DEFAULT 'open'
+    CHECK (status IN ('open','awaiting_close','closed','unmeasurable')),
+  -- ON DELETE RESTRICT (not CASCADE): preserve the reach-loop audit history.
+  project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE RESTRICT,
+  learning TEXT NULL,
+  created_by UUID NULL REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT social_monthly_cadence_account_month_uniq UNIQUE (account_id, cadence_month)
+);
+
+CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_account
+  ON public.social_monthly_cadence (account_id, cadence_month DESC);
+CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_institution
+  ON public.social_monthly_cadence (institution_id);
+CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_department
+  ON public.social_monthly_cadence (department_id) WHERE department_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_open
+  ON public.social_monthly_cadence (status) WHERE status IN ('open','awaiting_close');
+CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_project
+  ON public.social_monthly_cadence (project_id);
+
+-- Idempotent FK converge: fix a stale ON DELETE CASCADE from an earlier apply.
+ALTER TABLE public.social_monthly_cadence
+  DROP CONSTRAINT IF EXISTS social_monthly_cadence_project_id_fkey;
+ALTER TABLE public.social_monthly_cadence
+  ADD CONSTRAINT social_monthly_cadence_project_id_fkey
+  FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE RESTRICT;
+
+DROP TRIGGER IF EXISTS trg_social_monthly_cadence_updated_at ON public.social_monthly_cadence;
+CREATE TRIGGER trg_social_monthly_cadence_updated_at
+  BEFORE UPDATE ON public.social_monthly_cadence
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- project_id is IMMUTABLE post-insert (blocks raw-PostgREST tampering that would
+-- repoint the teeth at another project). RPC state machine never changes it.
+CREATE OR REPLACE FUNCTION public.fn_social_cadence_guard_project_id()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.project_id IS DISTINCT FROM OLD.project_id THEN
+    RAISE EXCEPTION 'social_monthly_cadence.project_id is immutable once set'
+      USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_social_monthly_cadence_project_immutable ON public.social_monthly_cadence;
+CREATE TRIGGER trg_social_monthly_cadence_project_immutable
+  BEFORE UPDATE ON public.social_monthly_cadence
+  FOR EACH ROW EXECUTE FUNCTION public.fn_social_cadence_guard_project_id();
+
+ALTER TABLE public.social_monthly_cadence ENABLE ROW LEVEL SECURITY;
+-- RPC-WRITE-ONLY (round-3 HIGH root fix): authenticated may READ but NEVER
+-- directly DML — all writes flow through the DEFINER writer RPCs (which carry
+-- the ownership / is_okr / DARK-gate / immutability guards). A raw PostgREST
+-- INSERT/UPDATE would bypass every guard (e.g. point project_id at a victim
+-- project to weaponise close/cron's RAG write). Neither REVOKE touches
+-- service_role, so the cron dispatcher's service-role writes keep working.
+REVOKE ALL ON public.social_monthly_cadence FROM anon, PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON public.social_monthly_cadence FROM authenticated;
+GRANT SELECT ON public.social_monthly_cadence TO authenticated;
+
+-- =====================================================================================
+-- hr_recruitment_candidate_comments — discussion thread on recruitment candidates
+-- (migration 20260703130200). Decision comments stay in approval_chain JSONB;
+-- this is the free-form thread. RLS inherits candidate visibility via EXISTS.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS hr_recruitment_candidate_comments (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  candidate_id       uuid NOT NULL REFERENCES hr_recruitment_candidates(id) ON DELETE CASCADE,
+  hr_organization_id uuid NOT NULL REFERENCES hr_organizations(id),
+  commenter_id       uuid NOT NULL REFERENCES profiles(id),
+  comment            text NOT NULL,
+  parent_comment_id  uuid REFERENCES hr_recruitment_candidate_comments(id),
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_hr_rec_cand_comments_candidate
+  ON hr_recruitment_candidate_comments(candidate_id, created_at);
+
+-- hr_job_applications promotion bridge (migration 20260703130000):
+--   promoted_candidate_id uuid REFERENCES hr_recruitment_candidates(id)
+--   status CHECK extended with 'promoted'
+-- (Base table created in migration 20260627_hr_job_applications.sql — not yet
+--  mirrored here; see that migration for the full definition.)

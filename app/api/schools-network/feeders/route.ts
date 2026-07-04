@@ -30,6 +30,10 @@ export const GET = withAuth(
     // (backward compat during the migration→deploy window); the product
     // default lives here.
     const sort = searchParams.get('sort') === 'volume' ? 'volume' : 'priority';
+    // level: 'ug' → Feeder Schools section, 'pg' → Feeder Colleges section,
+    // null → combined (all levels + marketing leads). Anything else ignored.
+    const levelParam = searchParams.get('level');
+    const level = levelParam === 'ug' || levelParam === 'pg' ? levelParam : null;
 
     const { data, error } = await auth.supabase.rpc('fn_schools_network_feeders', {
       p_search: search,
@@ -39,6 +43,7 @@ export const GET = withAuth(
       p_offset: offset,
       p_sort: sort,
       p_cycle_year: null,
+      p_degree_type: level,
     });
     if (error) return errorResponse(error.message, 500, 'LIST_FAILED');
 
@@ -68,6 +73,7 @@ export const GET = withAuth(
         p_adopted: adopted,
         p_limit: 1,
         p_offset: 0,
+        p_degree_type: level,
       });
       const parr = (probe.data ?? []) as Array<Record<string, unknown>>;
       total = parr.length > 0 ? Number(parr[0].total_count ?? 0) : 0;

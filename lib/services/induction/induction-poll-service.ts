@@ -39,6 +39,16 @@ export interface PollResponder {
   learner_id: string; register_number: string | null; roll_number: string | null;
   learner_name: string | null; questions_answered: number; answered_at: string;
 }
+// One row per (learner x question) with the actual ballots — host-only export.
+export interface PollExportRow {
+  learner_id: string; register_number: string | null; roll_number: string | null;
+  learner_name: string | null; gender: string | null;
+  student_email: string | null; student_mobile: string | null;
+  institution_name: string | null; degree_name: string | null;
+  program_name: string | null; batch_name: string | null;
+  question_id: string; question_position: number; question_prompt: string;
+  question_kind: 'single' | 'multi'; option_labels: string[]; answered_at: string;
+}
 export interface OpenPollForLearner {
   poll_id: string; session_id: string; event_id: string; event_name: string | null;
   title: string | null; day_number: number | null; auto_close_at: string; already_answered: boolean;
@@ -104,6 +114,12 @@ export class InductionPollService {
     const { data, error } = await getSupabase().rpc('fn_induction_session_poll_responders', { p_poll_id: pollId });
     if (error) throw error;
     return (data as PollResponder[]) ?? [];
+  }
+  // Full ballots + learner details for the Excel export — host-gated in the RPC.
+  static async getExportRows(pollId: string): Promise<PollExportRow[]> {
+    const { data, error } = await getSupabase().rpc('fn_induction_session_poll_export', { p_poll_id: pollId });
+    if (error) throw error;
+    return (data as PollExportRow[]) ?? [];
   }
   // ── Learner ──
   static async getMyOpenPolls(): Promise<OpenPollForLearner[]> {

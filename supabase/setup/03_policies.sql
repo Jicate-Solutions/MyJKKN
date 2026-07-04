@@ -7364,3 +7364,69 @@ DROP POLICY IF EXISTS ess_event_speaker_read ON public.event_session_speakers;
 CREATE POLICY ess_event_speaker_read ON public.event_session_speakers
   FOR SELECT TO authenticated
   USING (public.fn_induction_session_in_my_speaker_event(session_id));
+
+-- =====================================================================
+-- social_monthly_cadence — RLS policies + config seeds + HOD owner grant
+-- Added: 2026-07-04 — mirror of migration 20260704120000_social_monthly_cadence.sql
+-- Canonical dynamic-permission pattern (no hardcoded roles). Writer RPCs
+-- (02_functions.sql) also self-gate because DEFINER bypasses RLS.
+-- =====================================================================
+
+-- SELECT-only RLS (round-3). Writes have NO table grant (see 01_tables.sql) and
+-- flow only through the DEFINER RPCs, so INSERT/UPDATE policies are removed.
+-- MED #3 (round-2): the SELECT USING adds fn_social_caller_owns_dept so a
+-- scope='own' HOD reads ONLY its own dept's cadence rows, not every dept's in
+-- the tenant (admins bypass; NULL dept falls back to institution scope). The
+-- helper is defined in 02_functions.sql.
+DROP POLICY IF EXISTS social_monthly_cadence_select ON public.social_monthly_cadence;
+CREATE POLICY social_monthly_cadence_select ON public.social_monthly_cadence
+  FOR SELECT TO authenticated
+  USING (
+    is_super_admin() OR is_admin()
+    OR (
+      user_has_permission('social.departments.view')
+      AND role_has_institution_access(institution_id)
+      AND fn_social_caller_owns_dept(department_id)
+    )
+  );
+
+-- Write policies REMOVED (round-3 HIGH root fix): authenticated has no
+-- INSERT/UPDATE/DELETE grant. Dropped idempotently if an earlier apply made them.
+DROP POLICY IF EXISTS social_monthly_cadence_insert ON public.social_monthly_cadence;
+DROP POLICY IF EXISTS social_monthly_cadence_update ON public.social_monthly_cadence;
+
+-- Config seeds (ships DARK): social.cadence.* in the canonical platform_policies store.
+INSERT INTO platform_policies (policy_key, scope_type, scope_id, value, description, data_type, enum_options, is_system) VALUES
+('social.cadence.enabled', 'global', NULL, 'false'::jsonb,
+  'Master switch for the Department Instagram monthly cadence engine. Ships DARK (false) — flip true only after Director review + jkknpharmacy pilot.',
+  'boolean', NULL, true),
+('social.cadence.clock_mode', 'global', NULL, '"calendar_month"'::jsonb,
+  'Monthly clock for cadence cycles. v1 locks calendar_month (aligned to ig_monthly_audit.audit_month).',
+  'enum', '["calendar_month","days_from_objective"]'::jsonb, true),
+('social.cadence.period_days', 'global', NULL, '30'::jsonb,
+  'Cycle length in days — used ONLY in days_from_objective clock mode (ignored under calendar_month).',
+  'number', NULL, true),
+('social.cadence.win_delta_pct', 'global', NULL, '10'::jsonb,
+  'Minimum month-over-month reach uplift (%) for a cadence cycle to grade as a win.',
+  'number', NULL, true)
+ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO NOTHING;
+
+-- Owner grant (Director-locked): scope='own' HOD owns its dept's cadence.
+UPDATE public.custom_roles
+SET permissions = permissions || jsonb_build_object(
+      'social.departments.view', true,
+      'social.departments.manage', true
+    ),
+    updated_at = now()
+WHERE role_key = 'hod' AND is_active = true;
+
+-- hr_recruitment_candidate_comments (migration 20260703130200) — visibility
+-- inherits the candidate row's RLS via EXISTS.
+ALTER TABLE hr_recruitment_candidate_comments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY hr_rec_cand_comments_select ON hr_recruitment_candidate_comments
+  FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM hr_recruitment_candidates c WHERE c.id = hr_recruitment_candidate_comments.candidate_id));
+CREATE POLICY hr_rec_cand_comments_insert ON hr_recruitment_candidate_comments
+  FOR INSERT TO authenticated
+  WITH CHECK (commenter_id = auth.uid()
+    AND EXISTS (SELECT 1 FROM hr_recruitment_candidates c WHERE c.id = hr_recruitment_candidate_comments.candidate_id));

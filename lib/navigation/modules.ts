@@ -74,12 +74,14 @@ export const MODULES: Module[] = [
   // ── Admission CRM ─────────────────────────────────────────────────────
   { slug: 'admission', label: 'Admission CRM', icon: 'UserPlus', section: 'Admission CRM', hasNavConfig: true },
 
-  // ── Employee Management ───────────────────────────────────────────────
-  // Combined section housing both /staff (Staff) and /hr (HR) modules.
-  // Renamed from 'Facilitators Management' / 'Human Resources' on
-  // 2026-05-09 per product decision to unify under "Employee Management".
+  // ── Employee Management / HR Management ──────────────────────────────
+  // 2026-05-09: /staff + /hr unified under "Employee Management".
+  // 2026-07-03: /hr split back out into its own "HR Management" section
+  // (sidebar group: HR · Recruitment · Admin); /staff stays in
+  // "Employee Management". Section strings MUST match the sidebar
+  // groupLabels in lib/sidebarMenuLink.ts (bottom-nav matches by exact string).
   { slug: 'staff', label: 'Staff', icon: 'Briefcase', section: 'Employee Management', hasNavConfig: false },
-  { slug: 'hr', label: 'HR', icon: 'UsersRound', section: 'Employee Management', hasNavConfig: true },
+  { slug: 'hr', label: 'HR', icon: 'UsersRound', section: 'HR Management', hasNavConfig: true },
 
   // ── Learners ──────────────────────────────────────────────────────────
   { slug: 'learners', label: 'Learners', icon: 'GraduationCap', section: 'Learners', hasNavConfig: false },

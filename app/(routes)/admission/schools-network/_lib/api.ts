@@ -303,6 +303,10 @@ export function listFeeders(opts: {
   source?: string;
   adopted?: string;
   sort?: 'priority' | 'volume';
+  /** JKKN program level of the learners counted: 'ug' → the Feeder Schools
+   *  section, 'pg' → the Feeder Colleges section, undefined → all levels.
+   *  A feeder that fed both levels appears in both sections. */
+  level?: 'ug' | 'pg';
   limit?: number;
   offset?: number;
 }): Promise<{ rows: FeederRow[]; total: number; limit: number; offset: number }> {
@@ -311,7 +315,41 @@ export function listFeeders(opts: {
   if (opts.source) p.set('source', opts.source);
   if (opts.adopted) p.set('adopted', opts.adopted);
   if (opts.sort) p.set('sort', opts.sort);
+  if (opts.level) p.set('level', opts.level);
   p.set('limit', String(opts.limit ?? 25));
   p.set('offset', String(opts.offset ?? 0));
   return call(`${BASE}/feeders?${p.toString()}`);
+}
+
+/* ─── School learner roster (PII, tenant-scoped) ────────── */
+
+export interface SchoolLearnerRow {
+  learnerId: string;
+  learnerName: string | null;
+  registerNumber: string | null;
+  programName: string | null;
+  /** JKKN program level the learner joined ('ug' | 'pg'). */
+  degreeType: string | null;
+  /** Admission year, or null when not recorded (see yearKnown). */
+  admissionYear: number | null;
+  /** false → admission year not recorded; UI labels "Year not recorded". */
+  yearKnown: boolean;
+}
+
+/**
+ * The learners who came from one feeder school/college. Matched on the SAME
+ * canonical name key as the feeder panel, so the roster length equals the
+ * panel's enrolled_count — EXCEPT for institution-scoped viewers: this returns
+ * PII, so it is tenant-scoped (role_has_institution_access). Admins / scope=all
+ * see the full count; scope=own coordinators see only their institution's
+ * slice (the UI notes the difference).
+ */
+export function listSchoolLearners(
+  schoolName: string,
+  level?: 'ug' | 'pg'
+): Promise<{ rows: SchoolLearnerRow[]; total: number }> {
+  const p = new URLSearchParams();
+  p.set('school', schoolName);
+  if (level) p.set('level', level);
+  return call(`${BASE}/school-learners?${p.toString()}`);
 }
