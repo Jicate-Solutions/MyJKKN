@@ -6,7 +6,7 @@
 // floor before any breakdown is shown). Auto-closes after 240 min (#6).
 // Spec: specs/live-pulse-check-2026-06-25.md
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { BeatLoader } from 'react-spinners';
 import { Radio, ShieldCheck, AlertTriangle, Clock, Users } from 'lucide-react';
@@ -251,7 +251,15 @@ export function LivePulseSection({ from, to }: { from: string; to: string }) {
   // PR-A — spotlight the class happening RIGHT NOW (or, failing that, the next one
   // coming up today) so "Open Pulse" is a one-tap, unmissable control at the capture
   // moment. Degrades gracefully when the RPC pre-dates the start/end_time columns.
-  const nowMin = nowMinutesIST();
+  //
+  // nowMin ticks on a timer so the spotlight stays live. Computed once at mount it would
+  // freeze — keep highlighting a class that has already ended, or never light up the one
+  // that just started. Re-evaluate every 30s.
+  const [nowMin, setNowMin] = useState<number>(() => nowMinutesIST());
+  useEffect(() => {
+    const id = setInterval(() => setNowMin(nowMinutesIST()), 30_000);
+    return () => clearInterval(id);
+  }, []);
   const withTimes = todaySessions
     .map((r) => ({
       row: r,
@@ -260,7 +268,15 @@ export function LivePulseSection({ from, to }: { from: string; to: string }) {
     }))
     .filter((x) => x.startMin != null);
   const activeNow = withTimes
-    .filter((x) => x.startMin != null && x.endMin != null && nowMin >= x.startMin! && nowMin <= x.endMin!)
+    .filter((x) => {
+      if (x.startMin == null || x.endMin == null) return false;
+      // A class whose end is before its start straddles midnight (e.g. 23:30–00:15):
+      // it is "now" from startMin to end-of-day OR from midnight to endMin. The plain
+      // start<=now<=end test never matches such a class, so it would never be spotlit.
+      return x.endMin >= x.startMin
+        ? nowMin >= x.startMin && nowMin <= x.endMin
+        : nowMin >= x.startMin || nowMin <= x.endMin;
+    })
     .sort((a, b) => b.startMin! - a.startMin!)[0];
   const nextUp = withTimes
     .filter((x) => x.startMin != null && x.startMin! > nowMin)

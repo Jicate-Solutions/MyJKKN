@@ -120,7 +120,12 @@ BEGIN
            ELSE                                   'overdue'
          END
   FROM derived d
-  ORDER BY d.attendance_date DESC, d.pv ->> 'start_time';
+  -- Chronological within a day: sort on the PARSED time-of-day, not the raw blob text.
+  -- start_time comes in mixed formats (24h "10:00:00" and 12h "3:00 PM"); a raw text
+  -- sort orders "9:00 AM" after "10:00:00". ::time is the same normalization used
+  -- elsewhere for these blob times (fn_person_conflicts, doctrines TES). NULLIF guards a
+  -- missing/empty value so the cast can never throw; NULLS LAST sends those rows last.
+  ORDER BY d.attendance_date DESC, NULLIF(d.pv ->> 'start_time', '')::time NULLS LAST;
 END;
 $$;
 
@@ -231,9 +236,14 @@ BEGIN
       FALSE,
       FALSE,
       -- Key includes timetable_id so two sessions that share a period_id on the same
-      -- day for the same learner cannot collapse into a single nudge.
+      -- day for the same learner cannot collapse into a single nudge. The day component
+      -- is the IST calendar day, NOT the UTC day: CURRENT_DATE rolls at 05:30 IST on a
+      -- UTC prod server, which would let the same learner/session be nudged twice across
+      -- an IST midnight. (now() AT TIME ZONE 'Asia/Kolkata')::date is IST-anchored,
+      -- consistent with the completion-window anchoring above.
       'scf-nudge-session:' || pend.recipient_id::text || ':' || p_attendance_date::text
-        || ':' || p_timetable_id::text || ':' || p_period_id || ':' || CURRENT_DATE::text,
+        || ':' || p_timetable_id::text || ':' || p_period_id || ':'
+        || (now() AT TIME ZONE 'Asia/Kolkata')::date::text,
       jsonb_build_object('source', 'scf_faculty_session_nudge',
                          'period_id', p_period_id, 'timetable_id', p_timetable_id),
       NOW(), NOW()
@@ -482,5 +492,54 @@ WHERE NOT EXISTS (
   SELECT 1 FROM public.platform_policies
   WHERE policy_key = 'session_feedback.attendance_coupling_enabled'
     AND scope_type = 'global' AND scope_id IS NULL);
+
+-- ----------------------------------------------------------------------------
+-- 6) SECURITY — arm-side authz guard for the hard gate (arming/reverting symmetry).
+--    platform_policies RLS is (is_super_admin() OR is_admin()), so WITHOUT this guard
+--    any TENANT ADMIN could write session_feedback.gate_mode='hard' for their institution
+--    and ARM hard enforcement — while the break-glass revert (fn_scf_set_gate_mode) is
+--    super-admin ONLY. The compliance assurance "only a super-admin can arm hard mode"
+--    must hold in BOTH directions. This BEFORE INSERT/UPDATE trigger rejects any
+--    authenticated non-super-admin write to the gate_mode control row (SQLSTATE 42501),
+--    scoped STRICTLY to that policy_key so no other platform policy is affected.
+--    Service-role / migrations (auth.uid() IS NULL) are unaffected; the super-admin
+--    break-glass and super-admin admin-UI edits pass (is_super_admin() = true).
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_guard_gate_mode_super_admin_only()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  -- Guard only the compliance-sensitive gate_mode row. Check NEW (INSERT/UPDATE) and,
+  -- on UPDATE, OLD too — so the row cannot be hijacked by renaming a policy_key into or
+  -- out of 'session_feedback.gate_mode'. Reject only an AUTHENTICATED non-super-admin;
+  -- allow service-role/migration writes (auth.uid() IS NULL) and super-admins.
+  IF NEW.policy_key = 'session_feedback.gate_mode'
+     OR (TG_OP = 'UPDATE' AND OLD.policy_key = 'session_feedback.gate_mode') THEN
+    IF auth.uid() IS NOT NULL AND NOT public.is_super_admin() THEN
+      RAISE EXCEPTION
+        'session_feedback.gate_mode is a super-admin-only control (hard-gate arming)'
+        USING ERRCODE = '42501',
+              HINT = 'Use the super-admin break-glass RPC or contact a super-admin.';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_guard_gate_mode_super_admin_only() FROM anon, PUBLIC;
+
+COMMENT ON FUNCTION public.fn_guard_gate_mode_super_admin_only() IS
+  'BEFORE INSERT/UPDATE guard on platform_policies: only a super-admin (or service-role/'
+  'migration, auth.uid() NULL) may write the session_feedback.gate_mode control row. '
+  'Makes hard-gate ARMING super-admin-only, symmetric with the super-admin-only '
+  'break-glass revert (fn_scf_set_gate_mode). Scoped strictly to that policy_key.';
+
+DROP TRIGGER IF EXISTS trg_guard_gate_mode_super_admin_only ON public.platform_policies;
+CREATE TRIGGER trg_guard_gate_mode_super_admin_only
+  BEFORE INSERT OR UPDATE ON public.platform_policies
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_gate_mode_super_admin_only();
 
 NOTIFY pgrst, 'reload schema';

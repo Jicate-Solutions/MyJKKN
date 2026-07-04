@@ -177,21 +177,19 @@ function PendingRosterDialog({ row }: { row: FacultyCompletionRow }) {
         timetableId: row.timetable_id,
         periodId: row.period_id,
       });
-      const pending = roster.length;
-      if (n > 0 && n < pending) {
-        // The nudge only reaches learners with an app account; the rest of the pending
-        // list can't be messaged. Surface the gap so the count never silently overstates.
+      // n = learners NEWLY reminded — only those with an app account who weren't already
+      // reminded today. It is NOT comparable to roster.length (which counts all pending
+      // identities, including those without accounts or already reminded), so we don't
+      // present a possibly-misleading "n of roster.length" fraction. Label honestly on
+      // the count actually sent.
+      if (n > 0) {
         toast.success(
-          `Reminder sent to ${n} of ${pending} pending learners. The rest don't have an ` +
-            `app account yet or were already reminded today.`,
-        );
-      } else if (n > 0) {
-        toast.success(
-          `Reminder sent to ${n} pending learner${n === 1 ? '' : 's'} who haven't submitted yet.`,
+          `Reminder sent to ${n} pending learner${n === 1 ? '' : 's'}. ` +
+            `Learners already reminded today, or without an app account yet, are not re-sent.`,
         );
       } else {
         toast.info(
-          'No new reminders sent — these learners have no app account yet or were already reminded today.',
+          'No new reminders sent — these learners were already reminded today or have no app account yet.',
         );
       }
     } catch (err) {
@@ -447,11 +445,20 @@ function FacultyRewardCard({ rows }: { rows: FacultySummaryRow[] }) {
       if (r.responses > 0) {
         answeredSessions += 1;
         if (r.low_understanding === 0) cleanSessions += 1;
+        // goodSessions is the "X" against the answeredSessions "Y". Gate it on the SAME
+        // responses>0 base so a zero-response session that happens to carry a non-null
+        // avg_understood can never push the numerator above the denominator (X > Y).
+        if (
+          r.avg_understood != null &&
+          !Number.isNaN(r.avg_understood) &&
+          r.avg_understood >= 4
+        ) {
+          goodSessions += 1;
+        }
       }
       if (r.avg_understood != null && !Number.isNaN(r.avg_understood)) {
         respWithAvg += r.responses;
         weightedSum += r.avg_understood * r.responses;
-        if (r.avg_understood >= 4) goodSessions += 1;
       }
     }
     const overallAvg = respWithAvg > 0 ? weightedSum / respWithAvg : null;
@@ -479,7 +486,7 @@ function FacultyRewardCard({ rows }: { rows: FacultySummaryRow[] }) {
       <CardHeader>
         <div className="flex items-center gap-2">
           <Trophy className="h-5 w-5 text-amber-500" />
-          <CardTitle>You&apos;re above {REWARD_THRESHOLD.toFixed(1)} — here&apos;s what&apos;s working</CardTitle>
+          <CardTitle>You&apos;re at or above {REWARD_THRESHOLD.toFixed(1)} — here&apos;s what&apos;s working</CardTitle>
         </div>
         <CardDescription>
           Your learners&apos; average understanding across the last 30 days is{' '}
