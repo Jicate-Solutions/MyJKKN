@@ -62,12 +62,12 @@ export default async function LoopControlTowerPage() {
 
   const admin = createServiceRoleClient();
   const since14 = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+  const since7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   const [
     scfGen,
     scfMeasured,
-    scfFbTotal,
-    scfFbClassified,
+    scfResponses7d,
     indSessGen,
     indSessMeasured,
     playbookGen,
@@ -81,8 +81,12 @@ export default async function LoopControlTowerPage() {
   ] = await Promise.all([
     cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback')),
     cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').not('outcome_lift', 'is', null)),
-    cnt(admin.from('feedback_events').select('*', { count: 'exact', head: true }).eq('source', 'session_feedback')),
-    cnt(admin.from('feedback_events').select('*', { count: 'exact', head: true }).eq('source', 'session_feedback').not('ai_processed_at', 'is', null)),
+    // The loop's ACTUAL fuel: student ratings in the session_feedback table
+    // (what fn_scf_candidate_windows reads), last 7 days = the loop's window.
+    // NOT the feedback_events spine copy — that's a separate cross-channel
+    // pipeline (feedback-adapter-session → feedback.classify), surfaced on the
+    // Feedback Spine card, not here.
+    cnt(admin.from('session_feedback').select('*', { count: 'exact', head: true }).gte('created_at', since7)),
     cnt(admin.from('induction_session_effectiveness').select('*', { count: 'exact', head: true })),
     cnt(admin.from('induction_session_effectiveness').select('*', { count: 'exact', head: true }).not('net_effect', 'is', null)),
     cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'induction')),
@@ -128,21 +132,10 @@ export default async function LoopControlTowerPage() {
           metrics: [
             { v: n(scfGen), k: 'tips generated', tone: 'good' },
             { v: n(scfMeasured), k: 'measured yet', tone: 'mute' },
-            {
-              v: `${n(scfFbClassified)}/${n(scfFbTotal)}`,
-              k: 'feedback classified',
-              // A failed load (either count null) must read neutral, not green —
-              // "—/—" in a healthy tone would disguise a broken read as "all good".
-              tone:
-                scfFbTotal == null || scfFbClassified == null
-                  ? 'mute'
-                  : scfFbClassified < scfFbTotal
-                    ? 'warn'
-                    : 'good',
-            },
+            { v: n(scfResponses7d), k: 'student ratings (7d)', tone: 'good' },
           ],
           noteTag: 'Now',
-          note: 'Loop closed & live, but early. Watch the intake ratio — the loop can only coach on feedback that has been classified into themes; unclassified feedback starves it.',
+          note: 'Reads student session-feedback directly (the ratings above are the loop’s 7-day window) — well fueled. It’s early because a tip’s effect can only be measured once that class is re-taught and re-rated, not because of missing input.',
         },
         {
           id: 'induction-session',
@@ -270,7 +263,7 @@ export default async function LoopControlTowerPage() {
             },
           ],
           noteTag: 'Why not a loop',
-          note: 'No Generate, no Measure — it’s the input pipe. It feeds the SCF and Mess loops rather than being one. Listed for completeness; intake isn’t a decision, so it can’t be “made into” a loop.',
+          note: 'No Generate, no Measure — it’s the input pipe. It feeds the SCF and Mess loops rather than being one. The classify ratio above is the spine’s own backlog (session ratings arrive faster than the ~50/day classifier drains); it does NOT gate the SCF loop, which reads the session_feedback table directly.',
         },
       ],
     },
