@@ -81,11 +81,12 @@ export default async function LoopControlTowerPage() {
   ] = await Promise.all([
     cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback')),
     cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').not('outcome_lift', 'is', null)),
-    // The loop's ACTUAL fuel: student ratings in the session_feedback table
-    // (what fn_scf_candidate_windows reads), last 7 days = the loop's window.
-    // NOT the feedback_events spine copy — that's a separate cross-channel
-    // pipeline (feedback-adapter-session → feedback.classify), surfaced on the
-    // Feedback Spine card, not here.
+    // Proxy for the loop's fuel: student ratings RECEIVED into session_feedback
+    // (the table fn_scf_candidate_windows reads), by created_at over the last
+    // 7d. Intake, not the exact acted-on set — the loop's candidacy windows on
+    // attendance_date with a >=3-response floor. NOT the feedback_events spine
+    // copy (feedback-adapter-session → feedback.classify), which is the Feedback
+    // Spine card.
     cnt(admin.from('session_feedback').select('*', { count: 'exact', head: true }).gte('created_at', since7)),
     cnt(admin.from('induction_session_effectiveness').select('*', { count: 'exact', head: true })),
     cnt(admin.from('induction_session_effectiveness').select('*', { count: 'exact', head: true }).not('net_effect', 'is', null)),
