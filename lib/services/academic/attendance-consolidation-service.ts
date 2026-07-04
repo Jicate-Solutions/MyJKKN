@@ -16,6 +16,9 @@ import type {
   ReportSummary,
   GroupAttendanceSummary,
   StudentAttendanceSummary,
+  SubjectwiseCourseColumn,
+  SubjectwiseGroup,
+  SubjectwiseStudentRow,
 } from '@/types/attendance';
 
 /**
@@ -150,12 +153,21 @@ export class AttendanceConsolidationService {
         return true;
       }
 
-      // Calculate statistics based on groupBy type
-      const reportData = await this.calculateReportData(
-        attendanceRecords,
-        params,
-        institutionId
-      );
+      // Calculate statistics based on the selected template (Added: 2026-07-04)
+      // 'subjectwise' = Camu-style students x courses % (A/T) matrix;
+      // anything else (incl. old rows without the key) = original summary.
+      const reportData =
+        params.template === 'subjectwise'
+          ? await this.calculateSubjectwiseData(
+              attendanceRecords,
+              params,
+              institutionId
+            )
+          : await this.calculateReportData(
+              attendanceRecords,
+              params,
+              institutionId
+            );
 
       // Update report with generated data
       await this.updateReport(reportId, {
@@ -220,6 +232,13 @@ export class AttendanceConsolidationService {
           .lte('attendance_date', dateTo);
 
         // Apply filters - filter out empty strings to avoid UUID errors
+        if (params.departments && params.departments.length > 0) {
+          const validDepartments = params.departments.filter(id => id && id.trim() !== '');
+          if (validDepartments.length > 0) {
+            query = query.in('department_id', validDepartments);
+          }
+        }
+
         if (params.sections && params.sections.length > 0) {
           const validSections = params.sections.filter(id => id && id.trim() !== '');
           if (validSections.length > 0) {
@@ -301,6 +320,13 @@ export class AttendanceConsolidationService {
     // Group data based on groupBy parameter
     const groups = new Map<string, any>();
 
+    // Course scoping (Added: 2026-07-04) - course lives only inside the JSONB
+    // period slots, so it is filtered here rather than in SQL.
+    const courseFilter =
+      params.courses && params.courses.length > 0
+        ? new Set(params.courses.filter((id) => id && id.trim() !== ''))
+        : null;
+
     // Process each attendance record
     for (const record of attendanceRecords) {
       const attendanceData = record.attendance_data || {};
@@ -310,6 +336,7 @@ export class AttendanceConsolidationService {
       const periodSlots = Object.values(attendanceData);
 
       for (const slot of periodSlots as any[]) {
+        if (courseFilter && !courseFilter.has(slot.course_id)) continue;
         const students = slot.students || [];
 
         for (const student of students) {
@@ -319,6 +346,14 @@ export class AttendanceConsolidationService {
 
           // Determine group based on groupBy type
           switch (params.groupBy) {
+            case 'department':
+              groupKey = record.department?.id || 'unknown';
+              groupName = record.department?.department_name || 'Unknown Department';
+              break;
+            case 'course':
+              groupKey = slot.course_id || 'unknown';
+              groupName = slot.course_name || 'Unknown Course';
+              break;
             case 'program':
               groupKey = record.program?.id || 'unknown';
               groupName = record.program?.program_name || 'Unknown Program';
@@ -565,6 +600,246 @@ export class AttendanceConsolidationService {
       summary,
       groups: groupSummaries.sort((a, b) => a.groupName.localeCompare(b.groupName)),
     };
+  }
+
+  /**
+   * SUBJECTWISE (Camu-format) TEMPLATE — Added: 2026-07-04
+   * Builds one matrix block per group (default: section): students as rows,
+   * courses as columns, each cell = attended/marked period counts per course.
+   * Mirrors the Camu "Attendance Summary Subjectwise %" report.
+   */
+  private static async calculateSubjectwiseData(
+    attendanceRecords: any[],
+    params: ConsolidationReportParams,
+    institutionId: string
+  ): Promise<ConsolidationReportData> {
+    const courseFilter =
+      params.courses && params.courses.length > 0
+        ? new Set(params.courses.filter((id) => id && id.trim() !== ''))
+        : null;
+
+    // Matrix blocks make sense per department/semester/section only; anything
+    // else falls back to the Camu default of one matrix per section.
+    const groupBy = ['department', 'semester', 'section'].includes(params.groupBy)
+      ? params.groupBy
+      : 'section';
+
+    const groups = new Map<string, any>();
+    const allDates = new Set<string>();
+    const allCourseIds = new Set<string>();
+    const academicYearIds = new Set<string>();
+
+    for (const record of attendanceRecords) {
+      const periodSlots = Object.values(record.attendance_data || {});
+      if (record.academic_year_id) academicYearIds.add(record.academic_year_id);
+
+      let groupKey: string;
+      let groupName: string;
+      switch (groupBy) {
+        case 'department':
+          groupKey = record.department?.id || 'unknown';
+          groupName = record.department?.department_name || 'Unknown Department';
+          break;
+        case 'semester':
+          groupKey = record.semester?.id || 'unknown';
+          groupName = record.semester?.semester_name || 'Unknown Semester';
+          break;
+        default:
+          groupKey = record.section?.id || 'unknown';
+          groupName = record.section?.section_name || 'Unknown Section';
+      }
+
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, {
+          groupId: groupKey,
+          groupName,
+          groupType: groupBy,
+          students: new Map<string, any>(),
+          // courseId -> periods marked for the course in this group (header "(T)")
+          courseTotals: new Map<string, number>(),
+          courseNames: new Map<string, string>(),
+        });
+      }
+      const group = groups.get(groupKey);
+
+      for (const slot of periodSlots as any[]) {
+        if (courseFilter && !courseFilter.has(slot.course_id)) continue;
+        const students = slot.students || [];
+        if (students.length === 0) continue;
+
+        // Legacy/manual slots without a course bucket under "General"
+        const courseId = slot.course_id || 'general';
+        allCourseIds.add(courseId);
+        if (!group.courseNames.has(courseId)) {
+          group.courseNames.set(courseId, slot.course_name || 'General');
+        }
+        group.courseTotals.set(
+          courseId,
+          (group.courseTotals.get(courseId) || 0) + 1
+        );
+        allDates.add(record.attendance_date);
+
+        for (const student of students) {
+          const studentId = student.student_id;
+          if (!group.students.has(studentId)) {
+            group.students.set(studentId, {
+              studentId,
+              studentName: studentId, // enriched below
+              perCourse: new Map<string, { present: number; total: number }>(),
+              overallPresent: 0,
+              overallTotal: 0,
+            });
+          }
+          const row = group.students.get(studentId);
+          const cell = row.perCourse.get(courseId) || { present: 0, total: 0 };
+          // Same semantics as the summary template: Present = attended,
+          // Absent = marked but missed, OnDuty excluded from both A and T.
+          if (student.status === 'Present') {
+            cell.present++;
+            cell.total++;
+            row.overallPresent++;
+            row.overallTotal++;
+          } else if (student.status === 'Absent') {
+            cell.total++;
+            row.overallTotal++;
+          }
+          row.perCourse.set(courseId, cell);
+        }
+      }
+    }
+
+    // Drop groups that ended up empty after course filtering
+    for (const [key, group] of groups) {
+      if (group.students.size === 0) groups.delete(key);
+    }
+
+    // Names / roll numbers / hierarchy via the shared learner lookup
+    await this.enrichStudentData(groups, institutionId);
+
+    // Resolve course codes (the Camu column headers) — codes are not in the JSONB
+    const courseLookup = new Map<
+      string,
+      { course_code: string; course_name: string }
+    >();
+    const courseIdList = Array.from(allCourseIds).filter((id) => id !== 'general');
+    for (let i = 0; i < courseIdList.length; i += 100) {
+      const chunk = courseIdList.slice(i, i + 100);
+      const { data: courseRows, error: courseError } = await this.supabase
+        .from('courses')
+        .select('id, course_code, course_name')
+        .in('id', chunk);
+      if (courseError) {
+        logger.error('academic/attendance-consolidation', 'Failed to fetch course codes', courseError);
+        throw courseError;
+      }
+      for (const c of courseRows || []) {
+        courseLookup.set(c.id, {
+          course_code: c.course_code,
+          course_name: c.course_name,
+        });
+      }
+    }
+
+    // Academic year name(s) for the report header line
+    let academicYearName: string | undefined;
+    if (academicYearIds.size > 0) {
+      const { data: ayRows, error: ayError } = await this.supabase
+        .from('academic_years')
+        .select('id, academic_year_name')
+        .in('id', Array.from(academicYearIds).slice(0, 100));
+      if (ayError) {
+        logger.error('academic/attendance-consolidation', 'Failed to fetch academic years', ayError);
+      }
+      academicYearName =
+        (ayRows || [])
+          .map((ay) => (ay.academic_year_name || '').trim())
+          .filter(Boolean)
+          .join(', ') || undefined;
+    }
+
+    // Build the final SubjectwiseGroup[] payload + overall summary numbers
+    const subjectwiseGroups: SubjectwiseGroup[] = [];
+    let totalPresentOverall = 0;
+    let totalAbsentOverall = 0;
+    const distinctStudents = new Set<string>();
+
+    for (const [, group] of groups) {
+      const courses: SubjectwiseCourseColumn[] = Array.from(
+        group.courseTotals.entries() as Iterable<[string, number]>
+      )
+        .map(([courseId, totalPeriods]) => ({
+          courseId,
+          courseCode:
+            courseLookup.get(courseId)?.course_code ||
+            (courseId === 'general' ? 'GEN' : courseId.slice(0, 8)),
+          courseName:
+            courseLookup.get(courseId)?.course_name ||
+            group.courseNames.get(courseId) ||
+            'General',
+          totalPeriods,
+        }))
+        .sort((a, b) =>
+          a.courseCode.localeCompare(b.courseCode, undefined, { numeric: true })
+        );
+
+      const students: SubjectwiseStudentRow[] = [];
+      let firstStudent: any = null;
+      for (const [, row] of group.students) {
+        if (!firstStudent) firstStudent = row;
+        distinctStudents.add(row.studentId);
+        totalPresentOverall += row.overallPresent;
+        totalAbsentOverall += row.overallTotal - row.overallPresent;
+        students.push({
+          studentId: row.studentId,
+          studentName: row.studentName,
+          rollNumber: row.rollNumber,
+          perCourse: Object.fromEntries(row.perCourse),
+          overallPresent: row.overallPresent,
+          overallTotal: row.overallTotal,
+        });
+      }
+      students.sort((a, b) =>
+        (a.rollNumber || a.studentName || '').localeCompare(
+          b.rollNumber || b.studentName || '',
+          undefined,
+          { numeric: true }
+        )
+      );
+
+      subjectwiseGroups.push({
+        groupId: group.groupId,
+        groupName: group.groupName,
+        groupType: group.groupType,
+        degreeName: firstStudent?.degreeName,
+        departmentName: firstStudent?.departmentName,
+        programName: firstStudent?.programName,
+        semesterName: firstStudent?.semesterName,
+        sectionName:
+          group.groupType === 'section'
+            ? group.groupName
+            : firstStudent?.sectionName,
+        academicYearName,
+        courses,
+        students,
+      });
+    }
+
+    subjectwiseGroups.sort((a, b) => a.groupName.localeCompare(b.groupName));
+
+    const totalPeriodsOverall = totalPresentOverall + totalAbsentOverall;
+    const summary: ReportSummary = {
+      totalStudents: distinctStudents.size,
+      totalWorkingDays: allDates.size,
+      averageAttendance:
+        totalPeriodsOverall > 0
+          ? Math.round(((totalPresentOverall / totalPeriodsOverall) * 100) * 100) / 100
+          : 0,
+      totalPresent: totalPresentOverall,
+      totalAbsent: totalAbsentOverall,
+      dateRange: { from: params.dateFrom, to: params.dateTo },
+    };
+
+    return { summary, groups: [], subjectwiseGroups };
   }
 
   /**
