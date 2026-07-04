@@ -11,7 +11,7 @@ import { useState } from 'react';
 import { format } from 'date-fns';
 import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
 import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
-import { useActiveRoutes, useRouteStops } from '@/hooks/tms/use-route-lookup';
+import { useRouteById, useRouteStops } from '@/hooks/tms/use-route-lookup';
 import {
   UserCheck,
   GraduationCap,
@@ -75,9 +75,8 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
 
   // Resolve the Day-Scholar transport route + boarding-point names.
   const transportRouteId = (learner as any).transport_route_id as string | undefined;
-  const { routes: allRoutes } = useActiveRoutes();
+  const { route: routeObj } = useRouteById(transportRouteId);
   const { stops: routeStops } = useRouteStops(transportRouteId);
-  const routeObj = allRoutes.find((r) => r.id === transportRouteId);
   const routeName = routeObj
     ? `${routeObj.route_number} - ${routeObj.route_name}`
     : undefined;
