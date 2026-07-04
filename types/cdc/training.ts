@@ -14,6 +14,7 @@ export interface CdcTrainingType {
   is_active: boolean;
   sort_order: number;
   default_total_hours: number | null;
+  exam_family: string | null;  // 2026-07-04 govt-job-readiness: config-key tag (tnpsc/rrb/banking/ssc/police); NULL = not a govt-exam type
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -37,6 +38,8 @@ export interface CdcTrainingProgramme {
   end_date: string | null;         // ISO date
   status: TrainingProgrammeStatus;
   external_provider: string | null;
+  shared_syllabus_pct: number | null;  // 2026-07-04 govt-job-readiness (Option A): descriptive % label of shared syllabus; no logic derives grouping from it
+  domain_topics: string | null;        // 2026-07-04 govt-job-readiness (Option A): free-text domain-specific topics label
   trainer_name: string | null;     // BUG-004076 — trainer / facilitator name (display snapshot / external name)
   trainer_staff_id: string | null; // FK to staff(id) when trainer is internal MyJKKN staff; NULL = external/vendor
   certificate_template_url: string | null;
