@@ -140,6 +140,7 @@ const PUBLIC_PATH_PREFIXES = [
   '/p/', // Wellness Programs public patient page (/p/[token]) — QR-scanned, no login (token-validated server-side)
   '/api/public/health-programs/', // Wellness Programs public view tracking — token-keyed, no login
   '/api/calendar/feed/', // ICS calendar feed — token-keyed bearer secret, no login (Google Calendar polls this)
+  '/verify/', // Public certificate verification (/verify/[number]) — QR-scanned by recruiters, no login. Also the LinkedIn "See credential" target. Page under app/verify/ is public-by-design but was never allowlisted (307→login bug); pde_certificates was empty so it stayed latent.
 ];
 
 // Regex for static assets - single check instead of multiple endsWith
