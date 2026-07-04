@@ -605,31 +605,39 @@ RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = public
 AS $$
+DECLARE
+  v_guarded boolean := false;
 BEGIN
-  -- Guard BOTH compliance-sensitive control rows. Check NEW (INSERT/UPDATE) and, on
-  -- UPDATE, OLD too — so neither row can be hijacked by renaming a policy_key into or out
-  -- of a guarded key. Reject only an AUTHENTICATED non-super-admin; allow service-role/
-  -- migration writes (auth.uid() IS NULL) and super-admins.
-  IF NEW.policy_key IN ('session_feedback.gate_mode',
-                        'session_feedback.attendance_coupling_enabled')
-     OR (TG_OP = 'UPDATE'
-         AND OLD.policy_key IN ('session_feedback.gate_mode',
-                                'session_feedback.attendance_coupling_enabled')) THEN
-    IF auth.uid() IS NOT NULL AND NOT public.is_super_admin() THEN
-      RAISE EXCEPTION
-        'session_feedback compliance controls (gate_mode, attendance_coupling_enabled) are super-admin-only'
-        USING ERRCODE = '42501',
-              HINT = 'Use the super-admin break-glass RPC or contact a super-admin.';
-    END IF;
+  -- Guard BOTH compliance-sensitive control rows against INSERT, UPDATE, AND DELETE.
+  -- On INSERT/UPDATE check NEW; on UPDATE/DELETE also check OLD — so neither row can be
+  -- created, re-valued, renamed into/out of a guarded key, OR DELETED. (Deleting a
+  -- protective per-institution override silently falls the tenant back to the global
+  -- armed value, so DELETE must be guarded too.) Reject only an AUTHENTICATED
+  -- non-super-admin; allow service-role/migration writes (auth.uid() IS NULL) and super-admins.
+  IF TG_OP <> 'DELETE'
+     AND NEW.policy_key IN ('session_feedback.gate_mode',
+                            'session_feedback.attendance_coupling_enabled') THEN
+    v_guarded := true;
   END IF;
-  RETURN NEW;
+  IF TG_OP <> 'INSERT'
+     AND OLD.policy_key IN ('session_feedback.gate_mode',
+                            'session_feedback.attendance_coupling_enabled') THEN
+    v_guarded := true;
+  END IF;
+  IF v_guarded AND auth.uid() IS NOT NULL AND NOT public.is_super_admin() THEN
+    RAISE EXCEPTION
+      'session_feedback compliance controls (gate_mode, attendance_coupling_enabled) are super-admin-only'
+      USING ERRCODE = '42501',
+            HINT = 'Use the super-admin break-glass RPC or contact a super-admin.';
+  END IF;
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
 END;
 $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_guard_gate_mode_super_admin_only() FROM anon, PUBLIC;
 
 COMMENT ON FUNCTION public.fn_guard_gate_mode_super_admin_only() IS
-  'BEFORE INSERT/UPDATE guard on platform_policies: only a super-admin (or service-role/'
+  'BEFORE INSERT/UPDATE/DELETE guard on platform_policies: only a super-admin (or service-role/'
   'migration, auth.uid() NULL) may write the session_feedback.gate_mode OR '
   'session_feedback.attendance_coupling_enabled control rows. Makes BOTH the hard-gate '
   'and exam-eligibility-coupling ARMING super-admin-only, symmetric with the super-admin-'
@@ -637,7 +645,7 @@ COMMENT ON FUNCTION public.fn_guard_gate_mode_super_admin_only() IS
 
 DROP TRIGGER IF EXISTS trg_guard_gate_mode_super_admin_only ON public.platform_policies;
 CREATE TRIGGER trg_guard_gate_mode_super_admin_only
-  BEFORE INSERT OR UPDATE ON public.platform_policies
+  BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_guard_gate_mode_super_admin_only();
 
