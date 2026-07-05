@@ -78,7 +78,7 @@ Rules 1–4 are SF100-startup-specific (extension layer). Rules 5–14 are gener
 
 ## PHASE 5 — Trainer development adapter (🟡 divergent domain)
 - [ ] 5.1 Adapter: `sh_training_programs`/`sh_cohort_members` → cohort-core (kind='trainer'); earnings/levels stay extension
-- [ ] 5.2 Decide fit vs standalone (re-evaluate after Phases 1–2 prove the spine)
+- [ ] 5.2 Decide fit vs standalone — fold in LAST, re-evaluate after Phases 2–4 prove the spine (D6)
 - [ ] 5.3 Service/hooks + scoped verify + commit
 
 ## PHASE 6 — Shared UI + retire duplicates (🟡 cross-module)
