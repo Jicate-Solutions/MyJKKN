@@ -168,11 +168,16 @@ CREATE OR REPLACE FUNCTION public.fn_bos_clos_for_course(p_course_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public'
 AS $function$
-DECLARE v_code text; v_clos jsonb;
+DECLARE v_code text; v_inst uuid; v_clos jsonb;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_bos_clos_for_course: not authenticated'; END IF;
-  SELECT course_code INTO v_code FROM public.courses WHERE id = p_course_id;
-  IF v_code IS NULL THEN RETURN '[]'::jsonb; END IF;
+  SELECT course_code, institution_id INTO v_code, v_inst FROM public.courses WHERE id = p_course_id;
+  IF v_code IS NULL OR v_inst IS NULL THEN RETURN '[]'::jsonb; END IF;
+  -- Tenant gate: CLOs are institution-scoped academic content — don't let any authed
+  -- user enumerate other institutions' outcomes (deep-review 🟠 2026-07-05).
+  IF NOT (public.is_super_admin() OR public.role_has_institution_access(v_inst)) THEN
+    RAISE EXCEPTION 'fn_bos_clos_for_course: no access to this institution';
+  END IF;
 
   SELECT COALESCE(b.course_learning_outcomes -> 'clos', '[]'::jsonb) INTO v_clos
   FROM public.bos_course_syllabi b
@@ -205,7 +210,7 @@ CREATE OR REPLACE FUNCTION public.fn_curriculum_lesson_upsert(
  RETURNS uuid
  LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path TO 'public'
 AS $function$
-DECLARE v_inst uuid; v_creator uuid; v_role_ok boolean; v_id uuid;
+DECLARE v_inst uuid; v_creator uuid; v_lesson_inst uuid; v_role_ok boolean; v_id uuid;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_curriculum_lesson_upsert: not authenticated'; END IF;
   IF btrim(coalesce(p_title,'')) = '' THEN RAISE EXCEPTION 'fn_curriculum_lesson_upsert: title required'; END IF;
@@ -235,13 +240,17 @@ BEGIN
     RETURN v_id;
   END IF;
 
-  -- EDIT: creator-only (#33), HOD/admin override.
-  SELECT created_by INTO v_creator FROM public.curriculum_lesson WHERE id = p_lesson_id;
+  -- EDIT: creator-only (#33), HOD/admin override. Authority is bound to the TARGET
+  -- lesson's OWN institution, NEVER the caller-supplied p_course_id — otherwise an HOD
+  -- of institution A could edit institution B's lesson by pairing their own course id
+  -- with a foreign lesson id (cross-tenant break; deep-review 🔴 2026-07-05).
+  SELECT created_by, institution_id INTO v_creator, v_lesson_inst
+  FROM public.curriculum_lesson WHERE id = p_lesson_id;
   IF v_creator IS NULL THEN RAISE EXCEPTION 'fn_curriculum_lesson_upsert: no such lesson'; END IF;
   IF NOT (v_creator = auth.uid()
           OR public.is_super_admin()
-          OR (COALESCE(v_role_ok,false) AND public.role_has_institution_access(v_inst))) THEN
-    RAISE EXCEPTION 'fn_curriculum_lesson_upsert: only the lesson creator or an HOD/admin can edit it';
+          OR (COALESCE(v_role_ok,false) AND public.role_has_institution_access(v_lesson_inst))) THEN
+    RAISE EXCEPTION 'fn_curriculum_lesson_upsert: only the lesson creator or an HOD/admin of its institution can edit it';
   END IF;
 
   UPDATE public.curriculum_lesson
@@ -267,14 +276,21 @@ CREATE OR REPLACE FUNCTION public.fn_curriculum_link_lesson(
  LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path TO 'public'
 AS $function$
 DECLARE v_inst uuid; v_course uuid; v_code text; v_name text; v_fac text;
-        v_lesson_course uuid; v_id uuid;
+        v_lesson_course uuid; v_lesson_inst uuid; v_id uuid;
 BEGIN
   SELECT institution_id, course_id, course_code, course_name, faculty_email
     INTO v_inst, v_course, v_code, v_name, v_fac
   FROM public._fn_curriculum_class_ctx(p_timetable_id, p_attendance_date, p_period_id, true);
 
-  SELECT course_id INTO v_lesson_course FROM public.curriculum_lesson WHERE id = p_lesson_id;
+  SELECT course_id, institution_id INTO v_lesson_course, v_lesson_inst
+  FROM public.curriculum_lesson WHERE id = p_lesson_id;
   IF v_lesson_course IS NULL THEN RAISE EXCEPTION 'fn_curriculum_link_lesson: no such lesson'; END IF;
+  -- Tenant guard (ALWAYS): the lesson must belong to this class's institution — this
+  -- also closes the null-course path where the course-match guard below is skipped
+  -- (deep-review 🟠 2026-07-05).
+  IF v_lesson_inst IS DISTINCT FROM v_inst THEN
+    RAISE EXCEPTION 'fn_curriculum_link_lesson: lesson belongs to a different institution than this class';
+  END IF;
   IF v_course IS NOT NULL AND v_lesson_course IS DISTINCT FROM v_course THEN
     RAISE EXCEPTION 'fn_curriculum_link_lesson: lesson belongs to a different course than this class';
   END IF;
@@ -444,6 +460,10 @@ BEGIN
     JOIN public.curriculum_lesson l ON l.id = csl.lesson_id AND l.status = 'published'
     WHERE csl.attendance_date = (now() AT TIME ZONE 'Asia/Kolkata')::date
       AND EXISTS (
+        -- Present-match key: (blob student_id) = learners_profiles.id — the SAME key
+        -- the SHIPPED present-gate uses (fn_live_poll_class_poll_for_learner /
+        -- fn_live_poll_can_answer, Phase B). Verified-consistent, not an assumption
+        -- (deep-review flagged low-confidence 2026-07-05; disposition: matches prod).
         SELECT 1 FROM public.student_attendance sa,
              jsonb_array_elements(COALESCE(sa.attendance_data -> csl.period_id -> 'students','[]'::jsonb)) st
         WHERE sa.timetable_id = csl.timetable_id AND sa.attendance_date = csl.attendance_date
@@ -494,10 +514,14 @@ BEGIN
   SELECT (value #>> '{}')::numeric::int INTO v_normal
     FROM public.platform_policies WHERE policy_key = 'live_poll.reveal_floor_normal'
       AND scope_type = 'global' AND is_active;
-  -- FAIL SAFE: missing config → k≥3 for everyone, and no class counts as "small".
+  -- FAIL SAFE + INVARIANT FLOOR: missing config → k≥3 for everyone, and no class counts
+  -- as "small". The normal floor can NEVER be tuned below 3 and the small floor never
+  -- below 2 — so a mis-set policy row can only TIGHTEN privacy, never defeat the k≥3
+  -- anonymity floor for full classes (#20) or drop a small class below 2 (deep-review
+  -- 🟡 2026-07-05). To reach "k≥3 everywhere", set small_max=0 or reveal_floor_small=3.
   v_small_max := COALESCE(v_small_max, 0);
-  v_normal    := GREATEST(COALESCE(v_normal, 3), 1);
-  v_small     := GREATEST(COALESCE(v_small, v_normal), 1);
+  v_normal    := GREATEST(COALESCE(v_normal, 3), 3);
+  v_small     := GREATEST(COALESCE(v_small, v_normal), 2);
   RETURN CASE WHEN p_present IS NOT NULL AND p_present <= v_small_max THEN v_small ELSE v_normal END;
 END $function$;
 REVOKE EXECUTE ON FUNCTION public._fn_live_poll_reveal_floor(int) FROM anon, PUBLIC;
