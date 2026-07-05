@@ -15,7 +15,10 @@ const getSupabase = (): any => createClientSupabaseClient();
 export type PollQuestionKind = 'single' | 'multi' | 'scale' | 'wordcloud';
 // A question's role in the SCF feedback loop. The three loop questions are what the
 // bridge mirrors into session_feedback; loop_role=null questions are display-only.
-export type PollLoopRole = 'understood' | 'free_text' | 'checklist' | null;
+// 'fink' is the curriculum-aware rotating question (Phase 1): it is LOCKED in the
+// builder like a loop question, but the submit bridge ignores it, so it records votes
+// and feeds nothing yet (INERT — spec #21; the PDE Fink feed is Phase 3).
+export type PollLoopRole = 'understood' | 'free_text' | 'checklist' | 'fink' | null;
 
 export interface PollOptionDraft { id?: string; label: string; position: number; option_key?: string | null }
 export interface PollQuestionDraft {
