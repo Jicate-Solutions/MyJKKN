@@ -28,12 +28,14 @@ function rpcError(
   e: { message?: string; code?: string } | null,
   fallbackCode: string
 ) {
-  const forbidden = e?.code === '42501';
-  return errorResponse(
-    e?.message ?? 'request failed',
-    forbidden ? 403 : 500,
-    forbidden ? 'FORBIDDEN' : fallbackCode
-  );
+  // 42501 = the admin-only RAISE → a real 403 with its (safe, user-facing) text.
+  if (e?.code === '42501') {
+    return errorResponse(e?.message ?? 'permission denied', 403, 'FORBIDDEN');
+  }
+  // Any other DB/RPC error: log the raw text server-side, return a generic
+  // message so internal error text / schema hints don't leak (advisory review LOW).
+  console.error(`[schools-network/feeder-aliases] ${fallbackCode}:`, e?.message);
+  return errorResponse('Something went wrong. Please try again.', 500, fallbackCode);
 }
 
 export const GET = withAuth(
@@ -50,7 +52,7 @@ export const GET = withAuth(
       .from('schools_network_feeder_aliases')
       .select('from_key, to_key, from_name_sample, to_name_sample, created_at')
       .order('created_at', { ascending: false });
-    if (lErr) return errorResponse(lErr.message, 500, 'LIST_FAILED');
+    if (lErr) return rpcError(lErr, 'LIST_FAILED');
 
     const suggestions = ((sugg ?? []) as Array<Record<string, unknown>>).map((r) => ({
       fromKey: r.from_key as string,

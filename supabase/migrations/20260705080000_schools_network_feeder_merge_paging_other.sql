@@ -99,6 +99,13 @@ BEGIN
   IF EXISTS (SELECT 1 FROM public.schools_network_feeder_aliases WHERE to_key = p_from_key) THEN
     RAISE EXCEPTION 'this school is already the target of other merges — unlink those first';
   END IF;
+  -- Reject re-pointing an existing merge to a NEW target. Without this, a direct
+  -- API POST could map A→C while A→B exists, silently un-merging A from B
+  -- (advisory review LOW). Re-sending the SAME target stays idempotent below.
+  IF EXISTS (SELECT 1 FROM public.schools_network_feeder_aliases
+              WHERE from_key = p_from_key AND to_key <> v_primary) THEN
+    RAISE EXCEPTION 'this school is already merged into a different school — unlink it first';
+  END IF;
 
   INSERT INTO public.schools_network_feeder_aliases
     (from_key, to_key, from_name_sample, to_name_sample, created_by)
@@ -223,6 +230,13 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
+  -- INTENTIONALLY ORG-WIDE (Director ruling, carried from #1780): the feeder
+  -- panel is an aggregate of counts + names with NO learner PII, so every
+  -- schools.view holder sees the same org-wide discovery regardless of scope.
+  -- Only the PII roster fn (fn_schools_network_school_learners) is tenant-
+  -- scoped. Do NOT add an institution filter here — that would fork the panel
+  -- per viewer and break the shared discovery model (advisory review MEDIUM:
+  -- flagged the count/roster scope asymmetry — it is by design, not a leak).
   v_sort := CASE WHEN p_sort IN ('priority', 'volume') THEN p_sort ELSE 'volume' END;
 
   v_cycle := COALESCE(
@@ -358,7 +372,11 @@ BEGIN
      CASE WHEN v_sort = 'priority'
           THEN CASE WHEN v_prior IS NULL OR (j.cur_n + j.pri_n) = 0 THEN NULL ELSE j.cur_n - j.pri_n END
      END ASC NULLS LAST,
-     j.enrolled_n DESC, j.leads_n DESC, j.name_disp
+     -- name_norm is the unique GROUP BY key → a stable final tiebreaker so
+     -- LIMIT/OFFSET paging across the 88+ feeder pages can't repeat or skip a
+     -- row when enrolled/leads/name_disp tie (advisory review MEDIUM; mirrors
+     -- the roster fn's learner_id tiebreaker).
+     j.enrolled_n DESC, j.leads_n DESC, j.name_disp, j.name_norm
    LIMIT greatest(1, least(p_limit, 200))
   OFFSET greatest(0, p_offset);
 END;

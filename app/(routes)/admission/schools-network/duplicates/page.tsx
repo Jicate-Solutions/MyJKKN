@@ -106,9 +106,12 @@ function TidyDuplicatesContent() {
     retry: false, // an admin-only 403 shouldn't retry
   });
   // Merging re-groups org-wide feeder data, so it's admin-only on the server.
-  // Rather than replicate role logic here, we let the server say no and surface
-  // its message (keeps the client from drifting out of sync with the RPC gate).
-  const isAccessDenied = !!error && /admin-only|permission denied/i.test((error as Error).message);
+  // Rather than replicate role logic here, we let the server say no (403) and
+  // show the admin-only screen — branching on the HTTP status the route
+  // surfaces, not brittle message text (advisory review LOW). A real admin
+  // never hits this; only a non-admin edit-holder the RPC refuses does.
+  const isAccessDenied =
+    !!error && (error as { status?: number }).status === 403;
 
   const suggestions = data?.suggestions ?? [];
   const links = data?.links ?? [];

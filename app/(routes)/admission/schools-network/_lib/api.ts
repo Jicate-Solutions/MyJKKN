@@ -73,7 +73,13 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     // errorResponse() puts the human-readable text in `message` and the
     // machine code (VALIDATION_ERROR, CONFLICT, …) in `error` — prefer the
     // text so toasts read like sentences, not codes.
-    throw new Error(body?.message || body?.error || `Request failed: ${res.status}`);
+    const err = new Error(
+      body?.message || body?.error || `Request failed: ${res.status}`
+    ) as Error & { status?: number };
+    // Attach the HTTP status so callers can branch on it (e.g. 403 → access
+    // denied) instead of regex-matching the message (advisory review LOW).
+    err.status = res.status;
+    throw err;
   }
   return (body?.data ?? body) as T;
 }
