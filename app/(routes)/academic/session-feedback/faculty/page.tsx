@@ -283,11 +283,19 @@ function TopicsToRevisitSection({ from, to }: { from: string; to: string }) {
   // Derive it from the URL, scroll the matching row into view, and tell that
   // course's button to open its popover (autoOpen prop below).
   const deepCourse = useSearchParams().get('course');
+  // Deep-link handler: once the list has loaded, scroll to the target course —
+  // or, if it isn't in the current window (aged out of the low-understanding
+  // list, or the date range moved on), tell the user instead of silently doing
+  // nothing. `id` dedupes so a re-run doesn't stack toasts.
   useEffect(() => {
-    if (!deepCourse || rows.length === 0) return;
+    if (!deepCourse || isLoading) return;
     const el = document.querySelector(`[data-course-anchor="${CSS.escape(deepCourse)}"]`);
-    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [deepCourse, rows.length]);
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+    toast.info(
+      "This class isn't in your current view — adjust the date range to see its AI summary.",
+      { id: `deeplink-miss-${deepCourse}` },
+    );
+  }, [deepCourse, isLoading, rows.length]);
   // A course can span several session rows; open the popover on the FIRST match
   // only (scrollIntoView above already lands on the first anchor).
   const firstDeepIdx = deepCourse ? rows.findIndex((r) => r.course_code === deepCourse) : -1;
