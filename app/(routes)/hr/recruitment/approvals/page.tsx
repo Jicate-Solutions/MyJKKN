@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -48,8 +49,25 @@ const STATUS_COLORS: Record<CandidateStatus, string> = {
 type ViewMode = 'mine' | 'all';
 
 export default function RecruitmentApprovalsPage() {
-  const [viewMode, setViewMode] = useState<ViewMode>('mine');
+  // useSearchParams (in the inner component) requires a Suspense boundary.
+  return (
+    <Suspense fallback={null}>
+      <RecruitmentApprovalsInner />
+    </Suspense>
+  );
+}
+
+function RecruitmentApprovalsInner() {
+  // ?view=all (sidebar "All Approvals" link) preselects the all-pending view.
+  const searchParams = useSearchParams();
+  const [viewMode, setViewMode] = useState<ViewMode>(
+    searchParams.get('view') === 'all' ? 'all' : 'mine'
+  );
   const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setViewMode(searchParams.get('view') === 'all' ? 'all' : 'mine');
+  }, [searchParams]);
 
   useEffect(() => {
     const supabase = createClientSupabaseClient();

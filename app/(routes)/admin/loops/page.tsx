@@ -113,6 +113,71 @@ export default async function LoopControlTowerPage() {
 
   const messOn = messPolicy === true;
 
+  // ── Live config, read from the SAME tables /admin/ai-routines edits, so the
+  // two pages can't drift. Best-effort: any read failure falls back to each
+  // card's static config string. ────────────────────────────────────────────
+  const schedById = new Map<
+    string,
+    { enabled: boolean; days_of_week: number[] | null; minute_of_day: number; last_status: string | null }
+  >();
+  const modelByKey = new Map<string, string>();
+  try {
+    const { data } = await admin
+      .from('ai_routine_schedules')
+      .select('routine_id, enabled, days_of_week, minute_of_day, last_status');
+    for (const r of data ?? []) schedById.set(r.routine_id, r);
+  } catch {
+    /* fall back to static cfg strings */
+  }
+  try {
+    // Match the canonical resolver getModelForFeature exactly — it only honours
+    // is_active rows; an inactive row means the routine falls back to its
+    // hardcoded model, so showing an inactive model_id here would be drift.
+    const { data } = await admin
+      .from('ai_model_config')
+      .select('feature_key, model_id')
+      .eq('is_active', true);
+    for (const r of data ?? []) if (r.model_id) modelByKey.set(r.feature_key, r.model_id);
+  } catch {
+    /* fall back to static */
+  }
+
+  const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const fmtTime = (m: number) =>
+    `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')} IST`;
+  const fmtSchedule = (rid: string): string | null => {
+    const s = schedById.get(rid);
+    if (!s) return null;
+    const days = Array.isArray(s.days_of_week) ? s.days_of_week : [];
+    const when =
+      days.length >= 7 ? 'daily' : days.length ? days.map((d) => DOW[d] ?? '?').join('/') : 'unscheduled';
+    return `${when} ${fmtTime(s.minute_of_day)}${s.enabled ? '' : ' · paused'}`;
+  };
+
+  // Compose a card's config line + last-run + configure-link from live tables,
+  // falling back to the static string when the loop has no dispatcher routine
+  // (direct-cron or on-demand loops: induction-session, feeder, decisions, arps).
+  const AI_ROUTINES = '/admin/ai-routines';
+  const wire = (
+    routineId: string | null,
+    featureKey: string | null,
+    staticCfg: string,
+  ): { cfg: string; lastRun?: string; configHref?: string } => {
+    // "Live" ONLY when the loop has a dispatcher SCHEDULE row — that's what makes
+    // it editable on AI Routines and gives it a real last_status. A model row
+    // alone (direct-cron loops like induction-session) is NOT enough: keep the
+    // accurate static string rather than falsely claim "editable on AI Routines".
+    const live = routineId ? schedById.has(routineId) : false;
+    if (!live) return { cfg: staticCfg };
+    const model = featureKey ? modelByKey.get(featureKey) ?? null : null;
+    const parts = [fmtSchedule(routineId!), model].filter(Boolean) as string[];
+    return {
+      cfg: `${parts.join(' · ')} · editable on AI Routines`,
+      lastRun: schedById.get(routineId!)?.last_status ?? undefined,
+      configHref: AI_ROUTINES,
+    };
+  };
+
   const tiers: LoopTier[] = [
     {
       title: 'Self-improving loops',
@@ -126,7 +191,11 @@ export default async function LoopControlTowerPage() {
           subid: 'scf',
           plain:
             'Students rate how well they understood each class → AI coaches the teacher → measures whether the next class’s score rose, and feeds that track record into the next tip.',
-          cfg: 'daily 11:15 IST · claude-sonnet-4-6 · schedule editable, thresholds in code',
+          ...wire(
+            'scf-generate-suggestions',
+            'scf.generate_suggestions',
+            'daily 11:15 IST · claude-sonnet-4-6 · schedule editable, thresholds in code',
+          ),
           status: 'Live · measuring',
           tone: 'live',
           gates: ['on', 'on', 'on', 'on'],
@@ -158,7 +227,11 @@ export default async function LoopControlTowerPage() {
           subid: 'induction · per-session',
           plain:
             'A weak induction topic in batch A gets an AI tip for batch B → measures batch B’s rating against a regression-to-the-mean baseline, so only a real lift counts.',
-          cfg: 'every 4h + Max lane · claude-sonnet-4-6 · direct cron, not in the editable table',
+          ...wire(
+            null,
+            'induction.session_effectiveness',
+            'every 4h + Max lane · claude-sonnet-4-6 · direct cron, not in the editable table',
+          ),
           status: 'Live · maturing',
           tone: 'early',
           gates: ['on', 'on', 'on', 'on'],
@@ -176,7 +249,11 @@ export default async function LoopControlTowerPage() {
           subid: 'induction · annual',
           plain:
             'Each year’s cohort gets an AI playbook for next year, grounded in last cohort’s measured referral/value outcome. The slowest loop — one turn per admission year.',
-          cfg: 'Mondays 10:00 IST · claude-sonnet-4-6 · schedule editable',
+          ...wire(
+            'induction-generate-playbook',
+            'induction.generate_playbook',
+            'Mondays 10:00 IST · claude-sonnet-4-6 · schedule editable',
+          ),
           status: 'Scheduled · no cycle yet',
           tone: 'sched',
           gates: ['on', 'on', 'on', 'on'],
@@ -193,7 +270,11 @@ export default async function LoopControlTowerPage() {
           subid: 'campus-living',
           plain:
             'Students vote on menu options → the loop proposes the next cycle’s menu from what scored well, measured against a rolling baseline. The most configurable loop — every dial is a settings row.',
-          cfg: 'Mondays 08:00 IST · schedule editable · 8 dials editable in policy admin',
+          ...wire(
+            'mess-menu-loop',
+            null,
+            'Mondays 08:00 IST · schedule editable · 8 dials editable in policy admin',
+          ),
           status: messOn ? 'Live · running' : 'Dark · gated off',
           tone: messOn ? 'live' : 'dark',
           gates: ['on', 'on', 'on', 'on'],
@@ -243,7 +324,11 @@ export default async function LoopControlTowerPage() {
           subid: 'tick · rotation · anomaly · digest',
           plain:
             'A weekly faculty AI-capability engine: it opens each week’s cycle, draws Pulse teams from a rotation queue so everyone gets a turn, scans for integrity red-flags, and digests engagement to HODs.',
-          cfg: 'daily ticks 07:00–10:30 IST · weekly digest Tue · schedule editable · policy dials in ai_pulse_policies',
+          ...wire(
+            'ai-pulse-tick',
+            null,
+            'daily ticks 07:00–10:30 IST · weekly digest Tue · schedule editable · policy dials in ai_pulse_policies',
+          ),
           status: 'Live · running',
           tone: 'live',
           gates: ['on', 'on', 'off', 'off'],
@@ -260,7 +345,11 @@ export default async function LoopControlTowerPage() {
           subid: 'session · mess · parent · IG-dm · IG-comments',
           plain:
             'Five adapters pull feedback from every channel into one spine and AI-classify it into themes. This is the platform’s senses — it carries feedback in for the loops above to act on; it decides nothing itself.',
-          cfg: 'adapters every 15 min · Haiku classifier · schedule editable',
+          ...wire(
+            'feedback-adapter-session',
+            'feedback.classify',
+            'adapters every 15 min · Haiku classifier · schedule editable',
+          ),
           status: 'Intake · not a loop',
           tone: 'intake',
           gates: ['off', 'off', 'off', 'off'],

@@ -272,7 +272,8 @@
       "WebFetch(domain:docs.claude.com)",
       "mcp__ide__executeCode",
       "Bash(gh pr *)",
-      "WebFetch(domain:hdfcbank-collectnow-docs.razorpay.com)"
+      "WebFetch(domain:hdfcbank-collectnow-docs.razorpay.com)",
+      "mcp__codegraph__codegraph_search"
     ],
     "deny": [],
     "ask": []

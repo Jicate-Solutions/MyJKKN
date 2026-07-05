@@ -36,6 +36,9 @@ import type {
   // Job Applications
   HRJobApplication,
   HRJobApplicationInsert,
+  JobApplicationStatus,
+  HRRecruitmentCandidateComment,
+  MonthlySalaryBand,
 } from '@/types/hr-recruitment';
 
 const BASE = '/api/hr/recruitment';
@@ -631,6 +634,139 @@ export function useApplyForJob() {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['hr-recruitment-job', data.job_id] });
+    },
+  });
+}
+
+// -------------------------------------------------------------------------------------
+// Application screening (HR side): list → review/shortlist/reject → promote to pipeline
+// -------------------------------------------------------------------------------------
+
+export interface JobApplicationFilters {
+  job_id?: string;
+  status?: JobApplicationStatus[];
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export function useJobApplications(filters: JobApplicationFilters = {}) {
+  return useQuery({
+    queryKey: ['hr-job-applications', filters],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.job_id) params.set('job_id', filters.job_id);
+      if (filters.status) filters.status.forEach((s) => params.append('status', s));
+      if (filters.search) params.set('search', filters.search);
+      if (filters.page) params.set('page', String(filters.page));
+      if (filters.pageSize) params.set('pageSize', String(filters.pageSize));
+      const res = await fetch(`${BASE}/applications?${params}`);
+      if (!res.ok) throw new Error(`Applications fetch failed: ${res.status}`);
+      return (await res.json()) as {
+        data: HRJobApplication[];
+        metadata: { total: number; page: number; pageSize: number };
+      };
+    },
+  });
+}
+
+export function useReviewApplication() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      id: string;
+      status: Extract<JobApplicationStatus, 'reviewed' | 'shortlisted' | 'rejected'>;
+      review_notes?: string | null;
+    }) => {
+      const res = await fetch(`${BASE}/applications/${payload.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: payload.status, review_notes: payload.review_notes }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Review failed');
+      }
+      return ((await res.json()).data) as HRJobApplication;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hr-job-applications'] });
+    },
+  });
+}
+
+export function usePromoteApplication() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      id: string;
+      monthly_salary_band?: MonthlySalaryBand | null;
+      is_emergency?: boolean;
+    }) => {
+      const res = await fetch(`${BASE}/applications/${payload.id}/promote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          monthly_salary_band: payload.monthly_salary_band ?? null,
+          is_emergency: payload.is_emergency ?? false,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Promote failed');
+      }
+      return ((await res.json()).data) as {
+        application: HRJobApplication;
+        candidate: HRRecruitmentCandidate;
+      };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hr-job-applications'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-candidates'] });
+    },
+  });
+}
+
+// -------------------------------------------------------------------------------------
+// Candidate discussion thread
+// -------------------------------------------------------------------------------------
+
+export function useCandidateComments(candidateId: string | undefined) {
+  return useQuery({
+    queryKey: ['hr-recruitment-candidate-comments', candidateId],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/candidates/${candidateId}/comments`);
+      if (!res.ok) throw new Error(`Comments fetch failed: ${res.status}`);
+      return ((await res.json()).data) as HRRecruitmentCandidateComment[];
+    },
+    enabled: !!candidateId,
+  });
+}
+
+export function useAddCandidateComment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      candidate_id: string;
+      comment: string;
+      parent_comment_id?: string | null;
+    }) => {
+      const res = await fetch(`${BASE}/candidates/${payload.candidate_id}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          comment: payload.comment,
+          parent_comment_id: payload.parent_comment_id ?? null,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Comment failed');
+      }
+      return ((await res.json()).data) as HRRecruitmentCandidateComment;
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-candidate-comments', data.candidate_id] });
     },
   });
 }

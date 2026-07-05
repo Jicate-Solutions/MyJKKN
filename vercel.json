@@ -24,6 +24,14 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/scf-generate-suggestions?mode=collect&secret=${CRON_SECRET}",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/induction-generate-playbook?mode=collect&secret=${CRON_SECRET}",
+      "schedule": "*/30 * * * *"
+    },
+    {
       "path": "/api/cron/attendance-breach-check?secret=${CRON_SECRET}",
       "schedule": "37 21 * * *"
     },
@@ -218,6 +226,10 @@
     {
       "path": "/api/cron/instagram-monthly-audit?secret=${CRON_SECRET}",
       "schedule": "0 6 1 * *"
+    },
+    {
+      "path": "/api/cron/social-monthly-cadence?secret=${CRON_SECRET}",
+      "schedule": "0 7 1 * *"
     },
     {
       "path": "/api/cron/meta-facebook-poll?secret=${CRON_SECRET}",

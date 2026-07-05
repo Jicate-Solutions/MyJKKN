@@ -29,6 +29,7 @@ import {
   allocationMatchesFilters,
 } from './_components/allocation-filters';
 import { TransferDialog } from './_components/transfer-dialog';
+import { ResetAllocationDialog } from './_components/reset-allocation-dialog';
 import { NotAllocatedTab } from './_components/not-allocated-tab';
 import {
   Plus, BedDouble, Loader2, Users, ArrowRightLeft, LogOut, UserCheck,
@@ -77,6 +78,7 @@ export default function AllocationsPage() {
   const [advancedFilters, setAdvancedFilters] = useState(EMPTY_ALLOCATION_FILTERS);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [transferTarget, setTransferTarget] = useState<Alloc | null>(null);
+  const [resetTarget, setResetTarget] = useState<Alloc | null>(null);
 
   // Type → Block → Floor cascade, all derived from the loaded rows so a value
   // can never match nothing. Block name maps to its hostel_type; floors are the
@@ -112,6 +114,29 @@ export default function AllocationsPage() {
     }
     return [...set].sort((x, y) => x - y);
   }, [allocations, blockFilter]);
+
+  // Rows narrowed by the physical Type → Block → Floor cascade. The advanced
+  // filter panel derives ALL its options (categories, rooms, academics) from
+  // this set, so picking a block (which implies the gender via hostel_type)
+  // hierarchically narrows the Room/Mess Category and Room dropdowns to what
+  // actually exists in that scope.
+  const scopedRows = useMemo(
+    () => (allocations as Alloc[]).filter((a) => {
+      if (hostelTypeFilter !== 'all' && getJoined(a, 'hostel_blocks', 'hostel_type') !== hostelTypeFilter) return false;
+      if (blockFilter !== 'all' && getJoined(a, 'hostel_blocks', 'name') !== blockFilter) return false;
+      if (floorFilter !== 'all' && String((a as Alloc)?.hostel_rooms?.floor ?? '') !== floorFilter) return false;
+      return true;
+    }),
+    [allocations, hostelTypeFilter, blockFilter, floorFilter],
+  );
+
+  // Upstream cascade changes invalidate the scoped advanced picks: a new
+  // type/block offers different categories/rooms; a new floor different rooms.
+  const clearScopedAdvanced = useCallback((roomOnly = false) => {
+    setAdvancedFilters((f) => (roomOnly
+      ? { ...f, room_id: null }
+      : { ...f, room_category_id: null, room_id: null, mess_category_id: null }));
+  }, []);
 
   // True totals over the full set (the old page counted only the first 50 rows).
   const counts = useMemo(() => ({
@@ -233,6 +258,14 @@ export default function AllocationsPage() {
                     <ArrowRightLeft className="mr-2 h-4 w-4" /> Change room / bed
                   </DropdownMenuItem>
                 )}
+                {canTransfer && ['active', 'pending_approval'].includes(a.status) && (
+                  <DropdownMenuItem
+                    onClick={() => setResetTarget(a)}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <RotateCcw className="mr-2 h-4 w-4" /> Reset…
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -321,7 +354,7 @@ export default function AllocationsPage() {
                   {hostelTypes.length > 1 && (
                     <Select
                       value={hostelTypeFilter}
-                      onValueChange={(v) => { setHostelTypeFilter(v); setBlockFilter('all'); setFloorFilter('all'); }}
+                      onValueChange={(v) => { setHostelTypeFilter(v); setBlockFilter('all'); setFloorFilter('all'); clearScopedAdvanced(); }}
                     >
                       <SelectTrigger><SelectValue placeholder="All Types" /></SelectTrigger>
                       <SelectContent>
@@ -332,7 +365,7 @@ export default function AllocationsPage() {
                       </SelectContent>
                     </Select>
                   )}
-                  <Select value={blockFilter} onValueChange={(v) => { setBlockFilter(v); setFloorFilter('all'); }}>
+                  <Select value={blockFilter} onValueChange={(v) => { setBlockFilter(v); setFloorFilter('all'); clearScopedAdvanced(); }}>
                     <SelectTrigger><SelectValue placeholder="All Blocks" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Blocks</SelectItem>
@@ -340,7 +373,7 @@ export default function AllocationsPage() {
                     </SelectContent>
                   </Select>
                   {blockFilter !== 'all' && floorOptions.length > 0 && (
-                    <Select value={floorFilter} onValueChange={setFloorFilter}>
+                    <Select value={floorFilter} onValueChange={(v) => { setFloorFilter(v); clearScopedAdvanced(true); }}>
                       <SelectTrigger><SelectValue placeholder="All Floors" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All Floors</SelectItem>
@@ -348,7 +381,7 @@ export default function AllocationsPage() {
                       </SelectContent>
                     </Select>
                   )}
-                  <AllocationAcademicFilterSelects rows={allocations} value={advancedFilters} onChange={setAdvancedFilters} />
+                  <AllocationAcademicFilterSelects rows={scopedRows} value={advancedFilters} onChange={setAdvancedFilters} />
                 </div>
                 <div className="flex justify-end pt-2">
                   <Button
@@ -416,6 +449,26 @@ export default function AllocationsPage() {
           open={!!transferTarget}
           onOpenChange={(o) => { if (!o) setTransferTarget(null); }}
           onSuccess={() => setTransferTarget(null)}
+        />
+      )}
+
+      {/* Reset modal: clear the room allocation (delete + free bed) and/or the
+          learner's room/mess category, selected independently. Same audience
+          as the transfer action (upgrades.manage). */}
+      {resetTarget && (
+        <ResetAllocationDialog
+          allocationId={resetTarget.id}
+          current={{
+            learnerName: getJoined(resetTarget, 'learner', 'full_name') || null,
+            blockName: getJoined(resetTarget, 'hostel_blocks', 'name') || null,
+            roomNumber: getJoined(resetTarget, 'hostel_rooms', 'room_number') || null,
+            bedNumber: getJoined(resetTarget, 'hostel_beds', 'bed_number') || null,
+            roomCategory: resetTarget.learner?.academic?.room_category?.name ?? null,
+            messCategory: resetTarget.learner?.academic?.mess_category?.name ?? null,
+          }}
+          open={!!resetTarget}
+          onOpenChange={(o) => { if (!o) setResetTarget(null); }}
+          onSuccess={() => setResetTarget(null)}
         />
       )}
     </ContentLayout>

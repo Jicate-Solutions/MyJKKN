@@ -69,7 +69,9 @@ import { useConsolidationReport } from '@/hooks/academic/use-attendance-consolid
 import { cn } from '@/lib/utils';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { exportConsolidationReportToPDF } from '@/lib/utils/pdf-export/consolidation-report-pdf';
+import { exportConsolidationSubjectwisePDF } from '@/lib/utils/pdf-export/consolidation-subjectwise-pdf';
 import { exportConsolidationReportToExcel } from '@/lib/utils/excel-export/consolidation-report-excel';
+import { SubjectwiseReportView } from '../_components/subjectwise-report-view';
 import type { StudentAttendanceSummary, GroupAttendanceSummary } from '@/types/attendance';
 
 interface PageProps {
@@ -427,10 +429,15 @@ export default function ConsolidationReportDetailPage({ params }: PageProps) {
       setIsExportingPDF(true);
       toast.loading('Generating PDF...', { id: 'pdf-export' });
 
-      await exportConsolidationReportToPDF(report, {
-        includeAbsentDetails: report.reportParams.includeAbsentDetails,
-        includePeriodBreakdown: report.reportParams.includePeriodBreakdown,
-      });
+      // Subjectwise (Camu) template has its own dedicated PDF layout
+      if (report.reportParams.template === 'subjectwise') {
+        exportConsolidationSubjectwisePDF(report);
+      } else {
+        await exportConsolidationReportToPDF(report, {
+          includeAbsentDetails: report.reportParams.includeAbsentDetails,
+          includePeriodBreakdown: report.reportParams.includePeriodBreakdown,
+        });
+      }
 
       toast.success('PDF exported successfully!', { id: 'pdf-export' });
     } catch (error) {
@@ -552,9 +559,10 @@ export default function ConsolidationReportDetailPage({ params }: PageProps) {
                 <Loader2 className="h-10 w-10 animate-spin text-primary" />
                 <div className="text-center">
                   <p className="font-medium">Report is being generated...</p>
-                  <p className="text-sm text-muted-foreground mt-1">
+                  {/* div, not p: Badge renders a <div> and <p> cannot contain it (hydration error) */}
+                  <div className="text-sm text-muted-foreground mt-1 flex items-center justify-center gap-1.5">
                     Status: <Badge variant="outline" className="capitalize">{report.status}</Badge>
-                  </p>
+                  </div>
                   {report.errorMessage && (
                     <p className="mt-2 text-sm text-red-600">{report.errorMessage}</p>
                   )}
@@ -767,7 +775,10 @@ export default function ConsolidationReportDetailPage({ params }: PageProps) {
           </div>
         </div>
 
-        {/* Group Statistics Cards */}
+        {/* Subjectwise (Camu) template renders its own matrix view */}
+        {report.reportParams.template === 'subjectwise' ? (
+          <SubjectwiseReportView report={report} />
+        ) : (
         <div>
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Users2 className="h-5 w-5 text-primary" />
@@ -843,6 +854,7 @@ export default function ConsolidationReportDetailPage({ params }: PageProps) {
             })}
           </div>
         </div>
+        )}
 
       </div>
     </ContentLayout>

@@ -2088,7 +2088,12 @@ export const PERMISSION_CATEGORIES = [
 
       // Reports & Exports (NAAC / AICTE / flex)
       { key: 'cdc.exports.view', label: 'View CDC Reports & Exports Page' },
-      { key: 'cdc.exports.download', label: 'Download CDC Reports (NAAC / AICTE / CSV)' }
+      { key: 'cdc.exports.download', label: 'Download CDC Reports (NAAC / AICTE / CSV)' },
+
+      // Government Job Readiness (TNPSC / RRB / banking / SSC / TN Police) — 2026-07-04.
+      // Gates the /cdc/govt-readiness cohort-overlap view. Backfilled onto
+      // cdc_head / cdc_coordinator via 20260704090200 migration.
+      { key: 'cdc.govt_readiness.view', label: 'View Government Job Readiness (exam overlap)' }
     ]
   },
   // ======================================================================

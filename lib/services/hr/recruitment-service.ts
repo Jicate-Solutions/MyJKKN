@@ -23,6 +23,9 @@ import type {
   HRRecruitmentCandidate,
   HRRecruitmentCandidateInsert,
   HRRecruitmentCandidateUpdate,
+  HRRecruitmentCandidateComment,
+  HRJobApplication,
+  JobApplicationStatus,
   CandidateFilters as BaseCandidateFilters,
   CandidateListResponse,
   CandidateStatus,
@@ -84,6 +87,16 @@ export interface ResolvedViewerScope {
 // =====================================================================================
 // Recruitment Service
 // =====================================================================================
+
+/**
+ * Strip PostgREST filter meta-characters before interpolating a user-supplied
+ * search term into a `.or()` string — `,`/`(`/`)` etc. would otherwise be
+ * parsed as filter syntax (RLS still bounds rows, but the filter logic could
+ * be altered or the query broken).
+ */
+function sanitizeSearchTerm(search: string): string {
+  return search.replace(/[,()"\\:*%]/g, ' ').trim();
+}
 
 export class RecruitmentService {
   // ----- Viewer-scope resolver (platform_policies-driven) -----
@@ -285,9 +298,10 @@ export class RecruitmentService {
       q = q.in('status', statuses);
     }
     if (filters.search) {
-      q = q.or(
-        `name.ilike.%${filters.search}%,email.ilike.%${filters.search}%,role_title.ilike.%${filters.search}%`
-      );
+      const s = sanitizeSearchTerm(filters.search);
+      if (s) {
+        q = q.or(`name.ilike.%${s}%,email.ilike.%${s}%,role_title.ilike.%${s}%`);
+      }
     }
 
     const { data, count, error } = await q;
@@ -718,5 +732,190 @@ export class RecruitmentService {
       .single();
     if (error) throw error;
     return data as HRRecruitmentCandidate;
+  }
+
+  // ----- Job applications (screening → promote bridge, 2026-07-03) -----
+  //
+  // The apply wizard writes hr_job_applications (flat applicant records).
+  // HR screens them here and promotes shortlisted ones into
+  // hr_recruitment_candidates, where the frozen approval chain takes over.
+
+  static async listJobApplications(
+    supabase: SupabaseClient,
+    filters: {
+      job_id?: string;
+      status?: JobApplicationStatus[];
+      search?: string;
+      page?: number;
+      pageSize?: number;
+    }
+  ): Promise<{ data: HRJobApplication[]; metadata: { total: number; page: number; pageSize: number } }> {
+    const page = filters.page ?? 1;
+    const pageSize = Math.min(filters.pageSize ?? 50, 100);
+
+    let query = supabase
+      .from('hr_job_applications')
+      .select('*, job:hr_recruitment_jobs(id, title, role_category, institution_id, hr_organization_id)', { count: 'exact' })
+      .order('submitted_at', { ascending: false })
+      .range((page - 1) * pageSize, page * pageSize - 1);
+
+    if (filters.job_id) query = query.eq('job_id', filters.job_id);
+    if (filters.status && filters.status.length > 0) query = query.in('status', filters.status);
+    if (filters.search) {
+      const s = sanitizeSearchTerm(filters.search);
+      if (s) {
+        query = query.or(`first_name.ilike.%${s}%,last_name.ilike.%${s}%,email.ilike.%${s}%`);
+      }
+    }
+
+    const { data, error, count } = await query;
+    if (error) throw error;
+    return {
+      data: (data ?? []) as unknown as HRJobApplication[],
+      metadata: { total: count ?? 0, page, pageSize },
+    };
+  }
+
+  /** Screening decision: shortlist / reject / mark reviewed, with optional notes. */
+  static async reviewJobApplication(
+    supabase: SupabaseClient,
+    id: string,
+    reviewerId: string,
+    status: Extract<JobApplicationStatus, 'reviewed' | 'shortlisted' | 'rejected'>,
+    reviewNotes?: string | null
+  ): Promise<HRJobApplication> {
+    const { data: existing, error: fetchError } = await supabase
+      .from('hr_job_applications')
+      .select('id, status')
+      .eq('id', id)
+      .single();
+    if (fetchError) throw fetchError;
+    if (existing.status === 'promoted') {
+      throw new Error('This application is already in the approval pipeline and can no longer be screened.');
+    }
+
+    const { data, error } = await supabase
+      .from('hr_job_applications')
+      .update({
+        status,
+        review_notes: reviewNotes ?? null,
+        reviewed_by: reviewerId,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as HRJobApplication;
+  }
+
+  /**
+   * Promote a shortlisted application into the approval pipeline:
+   * creates an hr_recruitment_candidates row via submitCandidate (which builds
+   * the frozen approval chain from hr_approval_flows using the JOB's role
+   * category), then links the application (status='promoted').
+   */
+  static async promoteJobApplication(
+    supabase: SupabaseClient,
+    applicationId: string,
+    promotedBy: string,
+    options?: { monthly_salary_band?: MonthlySalaryBand | null; is_emergency?: boolean }
+  ): Promise<{ application: HRJobApplication; candidate: HRRecruitmentCandidate }> {
+    const { data: application, error: appError } = await supabase
+      .from('hr_job_applications')
+      .select('*, job:hr_recruitment_jobs(id, title, role_category, institution_id, hr_organization_id)')
+      .eq('id', applicationId)
+      .single();
+    if (appError) throw appError;
+
+    if (application.promoted_candidate_id) {
+      throw new Error('This application has already been promoted to the approval pipeline.');
+    }
+    if (application.status !== 'shortlisted') {
+      throw new Error('Only shortlisted applications can be promoted. Shortlist it first.');
+    }
+    const job = application.job as {
+      id: string; title: string; role_category: RoleCategory;
+      institution_id: string | null; hr_organization_id: string;
+    } | null;
+    if (!job) throw new Error('The job posting for this application no longer exists.');
+
+    const candidate = await this.submitCandidate(supabase, {
+      hr_organization_id: job.hr_organization_id,
+      institution_id: application.institution_id ?? job.institution_id ?? null,
+      name: `${application.first_name} ${application.last_name}`.trim(),
+      email: application.email,
+      phone: application.phone,
+      cvviz_url: application.resume_url,
+      role_category: job.role_category,
+      role_title: job.title,
+      proposed_monthly_salary_band: options?.monthly_salary_band ?? null,
+      role_specific_details: {
+        job_id: job.id,
+        application_id: application.id,
+        qualification: application.qualification,
+        experience_months: application.experience_months,
+      },
+      is_emergency: options?.is_emergency ?? false,
+      source: application.applicant_user_id ? 'public_careers_page' : 'hr_submission',
+      submitted_by: promotedBy,
+    } as HRRecruitmentCandidateInsert);
+
+    const { data: updated, error: updateError } = await supabase
+      .from('hr_job_applications')
+      .update({
+        status: 'promoted',
+        promoted_candidate_id: candidate.id,
+        reviewed_by: promotedBy,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq('id', applicationId)
+      .select()
+      .single();
+    if (updateError) throw updateError;
+
+    return { application: updated as HRJobApplication, candidate };
+  }
+
+  // ----- Candidate discussion thread (hr_recruitment_candidate_comments) -----
+
+  static async listCandidateComments(
+    supabase: SupabaseClient,
+    candidateId: string
+  ): Promise<HRRecruitmentCandidateComment[]> {
+    const { data, error } = await supabase
+      .from('hr_recruitment_candidate_comments')
+      .select('*, commenter:profiles(full_name, email)')
+      .eq('candidate_id', candidateId)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as unknown as HRRecruitmentCandidateComment[];
+  }
+
+  static async addCandidateComment(
+    supabase: SupabaseClient,
+    candidateId: string,
+    commenterId: string,
+    comment: string,
+    parentCommentId?: string | null
+  ): Promise<HRRecruitmentCandidateComment> {
+    if (!comment.trim()) throw new Error('Comment cannot be empty.');
+
+    const candidate = await this.getCandidate(supabase, candidateId);
+    if (!candidate) throw new Error('Candidate not found.');
+
+    const { data, error } = await supabase
+      .from('hr_recruitment_candidate_comments')
+      .insert({
+        candidate_id: candidateId,
+        hr_organization_id: candidate.hr_organization_id,
+        commenter_id: commenterId,
+        comment: comment.trim(),
+        parent_comment_id: parentCommentId ?? null,
+      })
+      .select('*, commenter:profiles(full_name, email)')
+      .single();
+    if (error) throw error;
+    return data as unknown as HRRecruitmentCandidateComment;
   }
 }

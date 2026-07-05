@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { RichTextDisplay } from '@/components/ui/rich-text-editor';
 import { useJob } from '@/hooks/hr/use-recruitment';
+import { ApplicationsSection } from './applications-section';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import {
@@ -516,6 +517,9 @@ export function JobDetailView({ id }: { id: string }) {
               </div>
             </SectionCard>
           )}
+
+          {/* Applications — screening → promote to approval pipeline */}
+          <ApplicationsSection jobId={id} />
         </div>
 
         {/* ── Right: sidebar ── */}

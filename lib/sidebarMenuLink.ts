@@ -261,12 +261,38 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/leave/balance': 'hr.leave.balance.view',
   '/hr/leave/encashment': 'hr.leave.encashment.view',
   '/hr/leave/[id]': 'hr.leave.view',
-  // HR Recruitment — parent + 3 submenus
+  // HR Recruitment — parent + 5 submenus
   '/hr/recruitment': 'hr.recruitment.view',
+  '/hr/recruitment/jobs': 'hr.recruitment.view',
   '/hr/recruitment/submit': 'hr.recruitment.create',
   '/hr/recruitment/my': 'hr.recruitment.view',
   '/hr/recruitment/candidates': 'hr.recruitment.view',
+  '/hr/recruitment/interviews': 'hr.recruitment.view',
   '/hr/recruitment/approvals': 'hr.recruitment.approve',
+  // "All Approvals" sidebar link — same page, ?view=all preselects the all-pending
+  // view. Keyed with the query string because normalizeRoute() only strips UUIDs.
+  '/hr/recruitment/approvals?view=all': 'hr.recruitment.approve',
+  // HR Admin cluster — all entries share the strict core-HR gate used by the
+  // /hr/admin landing (see PermissionGuard in app/(routes)/hr/admin/page.tsx).
+  '/hr/admin': 'hr.dashboard.view',
+  '/hr/admin/automation-rules': 'hr.dashboard.view',
+  '/hr/admin/disciplinary': 'hr.dashboard.view',
+  '/hr/admin/fdp': 'hr.dashboard.view',
+  '/hr/admin/forms': 'hr.dashboard.view',
+  '/hr/admin/memos': 'hr.dashboard.view',
+  '/hr/admin/offboarding': 'hr.dashboard.view',
+  '/hr/admin/onboarding-checklists': 'hr.dashboard.view',
+  '/hr/admin/payroll': 'hr.dashboard.view',
+  '/hr/admin/performance-reviews': 'hr.dashboard.view',
+  '/hr/admin/policies': 'hr.dashboard.view',
+  '/hr/admin/promotions': 'hr.dashboard.view',
+  '/hr/admin/recruitment-approvals-scope': 'hr.dashboard.view',
+  '/hr/admin/recruitment-maintenance': 'hr.dashboard.view',
+  '/hr/admin/recruitment-need': 'hr.dashboard.view',
+  '/hr/admin/required-documents': 'hr.dashboard.view',
+  '/hr/admin/shift-templates': 'hr.dashboard.view',
+  '/hr/admin/terminations': 'hr.dashboard.view',
+  '/hr/admin/training': 'hr.dashboard.view',
 
   // Staff Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
   // Spec: specs/counselor-taxonomy-spec.md. Role seed:
@@ -1085,6 +1111,20 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/cdc/training/new': 'cdc.training.create',
   '/cdc/training/[id]': 'cdc.training.view',
 
+  // CDC — Government Job Readiness (TNPSC / RRB / banking / SSC / TN Police)
+  '/cdc/govt-readiness': 'cdc.govt_readiness.view',
+  // Govt-readiness admin surfaces. These /cdc/admin/* pages sit under the
+  // RoutePermissionGuard layout, which only gates routes that HAVE a
+  // MENU_PERMISSIONS entry (an unmapped route falls through as "visible to any
+  // authenticated user"), so an entry is REQUIRED. cdc.training.edit is the
+  // COARSE pre-filter here (held by cdc_head + cdc_coordinator); the PRECISE
+  // boundary is head-only and enforced at the page (CdcHeadGuard) and at the
+  // write route + table RLS, all on is_cdc_head_or_super() — app == UI == RLS
+  // (deep-review R4 #1). There is no head-only permission KEY to map to, so the
+  // coarse pre-filter stays and the page guard narrows it to CDC Head / super.
+  '/cdc/admin/exam-syllabus-topics': 'cdc.training.edit',
+  '/cdc/admin/exam-topic-map': 'cdc.training.edit',
+
   // CDC — UNNATI → UDYOG application tracker
   '/cdc/udyog': 'cdc.udyog.view',
 
@@ -1781,11 +1821,22 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/staff/list', label: 'Employee List', active: pathname === '/staff/list' },
             { href: '/staff/class-incharges', label: 'Class Incharges', active: pathname.startsWith('/staff/class-incharges') },
           ]
-        },
+        }
+      ]
+    },
+    {
+      // HR Management — split out of 'Employee Management' 2026-07-03 so the
+      // HR domain (daily HR, hiring pipeline, admin configuration) reads as one
+      // group. Same lock-step rule as above: this groupLabel MUST match the
+      // MODULES `section` string in lib/navigation/modules.ts or the mobile
+      // bottom-nav silently drops the section.
+      groupLabel: 'HR Management',
+      menus: [
         {
           href: '/hr',
           label: 'HR',
-          active: pathname === '/hr' || pathname.startsWith('/hr/'),
+          // Recruitment and Admin live under /hr/ but have their own menu rows.
+          active: pathname === '/hr' || (pathname.startsWith('/hr/') && !pathname.startsWith('/hr/recruitment') && !pathname.startsWith('/hr/admin')),
           icon: Building,
           submenus: [
             { href: '/hr', label: 'HR Command Center', active: pathname === '/hr' },
@@ -1798,10 +1849,54 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/leave/calendar', label: 'Leave · Calendar', active: pathname === '/hr/leave/calendar' },
             { href: '/hr/leave/balance', label: 'Leave · Balance', active: pathname === '/hr/leave/balance' },
             { href: '/hr/leave/encashment', label: 'Leave · Encashment', active: pathname === '/hr/leave/encashment' },
-            { href: '/hr/recruitment', label: 'Recruitment', active: pathname.startsWith('/hr/recruitment') },
-            { href: '/hr/recruitment/submit', label: 'Recruitment · Apply for Jobs', active: pathname === '/hr/recruitment/submit' },
-            { href: '/hr/recruitment/my', label: 'Recruitment · My Candidates', active: pathname === '/hr/recruitment/my' },
-            { href: '/hr/recruitment/approvals', label: 'Recruitment · Approvals', active: pathname === '/hr/recruitment/approvals' },
+          ]
+        },
+        {
+          // Recruitment — own top-level menu (moved out of the HR dropdown so the
+          // hiring pipeline reads as one unit: screen → submit → approve → interview).
+          href: '/hr/recruitment',
+          label: 'Recruitment',
+          active: pathname.startsWith('/hr/recruitment'),
+          icon: UserSearch,
+          submenus: [
+            { href: '/hr/recruitment', label: 'Dashboard', active: pathname === '/hr/recruitment' },
+            { href: '/hr/recruitment/jobs', label: 'Job Postings', active: pathname.startsWith('/hr/recruitment/jobs') },
+            { href: '/hr/recruitment/submit', label: 'Apply for Jobs', active: pathname === '/hr/recruitment/submit' },
+            { href: '/hr/recruitment/my', label: 'My Submissions', active: pathname === '/hr/recruitment/my' },
+            { href: '/hr/recruitment/approvals', label: 'Approvals', active: pathname === '/hr/recruitment/approvals' },
+            { href: '/hr/recruitment/interviews', label: 'Interviews', active: pathname.startsWith('/hr/recruitment/interviews') },
+            { href: '/hr/recruitment/approvals?view=all', label: 'All Approvals', active: false },
+          ]
+        },
+        {
+          // HR Admin cluster (/hr/admin) — one submenu per top-level admin
+          // section. All entries gate on hr.dashboard.view, matching the strict
+          // core-HR-only guard on the /hr/admin landing (Director decision, see
+          // app/(routes)/hr/admin/page.tsx); each page still self-gates deeper.
+          href: '/hr/admin',
+          label: 'Admin',
+          active: pathname.startsWith('/hr/admin'),
+          icon: Settings,
+          submenus: [
+            { href: '/hr/admin', label: 'Dashboard', active: pathname === '/hr/admin' },
+            { href: '/hr/admin/automation-rules', label: 'Automation Rules', active: pathname.startsWith('/hr/admin/automation-rules') },
+            { href: '/hr/admin/disciplinary', label: 'Disciplinary', active: pathname.startsWith('/hr/admin/disciplinary') },
+            { href: '/hr/admin/fdp', label: 'FDP', active: pathname.startsWith('/hr/admin/fdp') },
+            { href: '/hr/admin/forms', label: 'Forms', active: pathname.startsWith('/hr/admin/forms') },
+            { href: '/hr/admin/memos', label: 'Memos', active: pathname.startsWith('/hr/admin/memos') },
+            { href: '/hr/admin/offboarding', label: 'Offboarding', active: pathname.startsWith('/hr/admin/offboarding') },
+            { href: '/hr/admin/onboarding-checklists', label: 'Onboarding Checklists', active: pathname.startsWith('/hr/admin/onboarding-checklists') },
+            { href: '/hr/admin/payroll', label: 'Payroll', active: pathname.startsWith('/hr/admin/payroll') },
+            { href: '/hr/admin/performance-reviews', label: 'Performance Reviews', active: pathname.startsWith('/hr/admin/performance-reviews') },
+            { href: '/hr/admin/policies', label: 'Policies', active: pathname.startsWith('/hr/admin/policies') },
+            { href: '/hr/admin/promotions', label: 'Promotions', active: pathname.startsWith('/hr/admin/promotions') },
+            { href: '/hr/admin/recruitment-approvals-scope', label: 'Recruitment Approvals Scope', active: pathname.startsWith('/hr/admin/recruitment-approvals-scope') },
+            { href: '/hr/admin/recruitment-maintenance', label: 'Recruitment Maintenance', active: pathname.startsWith('/hr/admin/recruitment-maintenance') },
+            { href: '/hr/admin/recruitment-need', label: 'Recruitment Need', active: pathname.startsWith('/hr/admin/recruitment-need') },
+            { href: '/hr/admin/required-documents', label: 'Required Documents', active: pathname.startsWith('/hr/admin/required-documents') },
+            { href: '/hr/admin/shift-templates', label: 'Shift Templates', active: pathname.startsWith('/hr/admin/shift-templates') },
+            { href: '/hr/admin/terminations', label: 'Terminations', active: pathname.startsWith('/hr/admin/terminations') },
+            { href: '/hr/admin/training', label: 'Training', active: pathname.startsWith('/hr/admin/training') },
           ]
         }
       ]
@@ -2518,6 +2613,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Training Programmes',
           active: pathname.startsWith('/cdc/training'),
           icon: BookOpen,
+          submenus: []
+        },
+        {
+          href: '/cdc/govt-readiness',
+          label: 'Govt Job Readiness',
+          active: pathname.startsWith('/cdc/govt-readiness'),
+          icon: Target,
           submenus: []
         },
         {
