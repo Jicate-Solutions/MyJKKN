@@ -281,7 +281,7 @@ export default function AuditCyclesPage() {
                         {formatDate(c.start_date)} — {formatDate(c.end_date)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Link href={`/audit/cycles/${c.id}`}>
+                        <Link href={auditHref(c)}>
                           <Button variant="ghost" size="sm">
                             Open
                             <ArrowRight className="ml-1 h-3 w-3" />
