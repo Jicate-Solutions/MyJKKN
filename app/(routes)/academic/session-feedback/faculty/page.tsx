@@ -7,7 +7,8 @@
 //  2) UNDERSTANDING (quality): anonymized aggregate signal (fn_scf_faculty_summary).
 // Spec: specs/session-feedback-faculty-completion-lane-2026-06-17.md (A — visibility).
 
-import { useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { format, subDays } from 'date-fns';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
@@ -278,6 +279,29 @@ function TopicsToRevisitSection({ from, to }: { from: string; to: string }) {
   // The RPC already returns worst-first (lowest avg, most recent).
   const rows: FacultyFollowupRow[] = data ?? [];
 
+  // P2 deep-link: the "AI result ready" notification links here with ?course=<code>.
+  // Derive it from the URL, scroll the matching row into view, and tell that
+  // course's button to open its popover (autoOpen prop below).
+  const deepCourse = useSearchParams().get('course');
+  // Deep-link handler: once the list has loaded, scroll to the target course —
+  // or, if it isn't in this list (this table only shows the last 30 days of
+  // low-understanding sessions, so an empty/failed deep-link or an aged-out
+  // class won't have a row), tell the user WHY instead of silently doing
+  // nothing. Non-actionable by design: the window is fixed (no date picker), so
+  // the notice states the fact rather than promising a control. `id` dedupes.
+  useEffect(() => {
+    if (!deepCourse || isLoading) return;
+    const el = document.querySelector(`[data-course-anchor="${CSS.escape(deepCourse)}"]`);
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+    toast.info(
+      "This class isn't in your low-understanding list right now, so its AI summary isn't shown here.",
+      { id: `deeplink-miss-${deepCourse}` },
+    );
+  }, [deepCourse, isLoading, rows.length]);
+  // A course can span several session rows; open the popover on the FIRST match
+  // only (scrollIntoView above already lands on the first anchor).
+  const firstDeepIdx = deepCourse ? rows.findIndex((r) => r.course_code === deepCourse) : -1;
+
   return (
     <Card className="mb-6">
       <CardHeader>
@@ -331,9 +355,10 @@ function TopicsToRevisitSection({ from, to }: { from: string; to: string }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((r) => (
+                {rows.map((r, idx) => (
                   <TableRow
                     key={`${r.attendance_date}-${r.period_id}-${r.course_code ?? 'na'}`}
+                    data-course-anchor={r.course_code ?? ''}
                   >
                     <TableCell className="whitespace-nowrap font-medium">
                       {formatDate(r.attendance_date)}
@@ -375,6 +400,7 @@ function TopicsToRevisitSection({ from, to }: { from: string; to: string }) {
                             taskType="session_feedback.suggest_improvement"
                             entityId={r.course_code}
                             label="Summarise (50% AI)"
+                            autoOpen={idx === firstDeepIdx}
                           />
                         </div>
                       ) : (
@@ -683,7 +709,10 @@ export default function FacultySessionInsightPage() {
       <FacultyRewardCard rows={rows} />
 
       {/* Action — your low-understanding topics + the lift + an AI suggested fix */}
-      <TopicsToRevisitSection from={from} to={to} />
+      {/* Suspense required for useSearchParams() inside TopicsToRevisitSection (P2 deep-link). */}
+      <Suspense fallback={null}>
+        <TopicsToRevisitSection from={from} to={to} />
+      </Suspense>
 
       {/* Coverage — who confirmed, who's pending */}
       <CompletionSection from={from} to={to} />

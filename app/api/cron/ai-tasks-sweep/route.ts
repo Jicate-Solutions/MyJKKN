@@ -23,6 +23,49 @@ import { fanoutNotification } from '@/lib/services/_shared/notifications/notify'
 
 const CLAIM_CAP = 50;
 
+// P2: notify the requester on EVERY terminal outcome — not just success — so a
+// click never dead-ends silently (Director decision 2026-07-05). Best-effort +
+// idempotent per (task, outcome) so a re-collect / re-run never double-pings.
+// The deep-link carries ?course= so the notification opens the exact class.
+type TaskOutcome = 'done' | 'empty' | 'failed' | 'unconfigured';
+
+async function notifyOutcome(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  tt: { label: string; resultPath?: string },
+  args: { uid: string | null; courseCode: string | null; taskId: string; outcome: TaskOutcome },
+) {
+  const { uid, courseCode, taskId, outcome } = args;
+  if (!uid) return; // no requester on the row → nobody to notify
+  const where = courseCode ?? 'a class';
+  const url = tt.resultPath
+    ? (courseCode ? `${tt.resultPath}?course=${encodeURIComponent(courseCode)}` : tt.resultPath)
+    : undefined;
+  const spec: Record<TaskOutcome, { title: string; body: string; key: string }> = {
+    done:   { title: 'AI result ready',        body: `Your ${tt.label} for ${where} is ready.`, key: `ai_task_done:${taskId}` },
+    empty:  { title: 'Not enough feedback yet', body: `There isn't enough feedback yet to summarise ${where} (needs at least 3 responses). Try again once more learners respond.`, key: `ai_task_empty:${taskId}` },
+    failed: { title: 'AI summary didn’t finish', body: `We couldn't generate the ${tt.label} for ${where}. Please try again.`, key: `ai_task_failed:${taskId}` },
+    // ai_not_configured is a permanent gate until an admin adds the key — never
+    // tell the user to "try again" (it would re-hit the same gate). Distinct msg.
+    unconfigured: { title: 'AI isn’t set up yet', body: `AI isn't configured yet — an admin needs to enable it before ${where} can be summarised.`, key: `ai_task_unconfigured:${taskId}` },
+  };
+  const s = spec[outcome];
+  try {
+    await fanoutNotification(admin, {
+      title: s.title,
+      body: s.body,
+      userIds: [uid],
+      createdBy: uid,
+      url,
+      category: 'ai_task',
+      kind: 'work_item',
+      idempotencyKey: s.key,
+      source: 'ai-tasks-sweep',
+    });
+  } catch (notifyErr) {
+    console.error('[ai-tasks-sweep] notify failed:', notifyErr);
+  }
+}
+
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
@@ -51,38 +94,22 @@ export async function GET(request: NextRequest) {
       jobs = collected.length;
       for (const job of collected) {
         for (const item of job.items) {
+          const ctx = item.context ?? {};
+          const uid = ctx.requested_by ? String(ctx.requested_by) : null;
+          const courseCode = ctx.course_code ? String(ctx.course_code) : null;
           try {
             if (item.resultType === 'succeeded' && item.message) {
-              const result = await tt.recordResult(admin, item.context ?? {}, item.message);
+              const result = await tt.recordResult(admin, ctx, item.message);
               await admin.rpc('fn_ai_task_mark_done', { p_task_id: item.customId, p_result: result });
               recorded++;
-              // P2: notify the requester their result is ready. Best-effort +
-              // idempotent (idempotencyKey) so a re-collect never double-pings.
-              const ctx = item.context ?? {};
-              const uid = ctx.requested_by ? String(ctx.requested_by) : null;
-              if (uid) {
-                try {
-                  await fanoutNotification(admin, {
-                    title: 'AI result ready',
-                    body: `Your ${tt.label} for ${ctx.course_code ? String(ctx.course_code) : 'a class'} is ready.`,
-                    userIds: [uid],
-                    createdBy: uid,
-                    url: tt.resultPath,
-                    category: 'ai_task',
-                    kind: 'work_item',
-                    idempotencyKey: `ai_task_done:${item.customId}`,
-                    source: 'ai-tasks-sweep',
-                  });
-                } catch (notifyErr) {
-                  console.error('[ai-tasks-sweep] notify failed:', notifyErr);
-                }
-              }
+              await notifyOutcome(admin, tt, { uid, courseCode, taskId: item.customId, outcome: 'done' });
             } else {
               await admin.rpc('fn_ai_task_mark_failed', {
                 p_task_id: item.customId,
                 p_error: item.errorMessage || item.resultType,
               });
               failedCollect++;
+              await notifyOutcome(admin, tt, { uid, courseCode, taskId: item.customId, outcome: 'failed' });
             }
           } catch (e) {
             await admin.rpc('fn_ai_task_mark_failed', {
@@ -90,6 +117,7 @@ export async function GET(request: NextRequest) {
               p_error: e instanceof Error ? e.message : 'record failed',
             });
             failedCollect++;
+            await notifyOutcome(admin, tt, { uid, courseCode, taskId: item.customId, outcome: 'failed' });
           }
         }
       }
@@ -110,17 +138,28 @@ export async function GET(request: NextRequest) {
       const requests: SubmitBatchRequest[] = [];
       let skipped = 0, erroredBuild = 0;
       for (const row of rows) {
+        const uid = row.requested_by ? String(row.requested_by) : null;
+        const rowCtx = (row.context ?? {}) as Record<string, unknown>;
+        const courseCode = rowCtx.course_code ? String(rowCtx.course_code) : null;
         try {
           const built = await tt.buildSubmitItem(admin, row.context ?? {});
           if ('result' in built) {
             await admin.rpc('fn_ai_task_mark_done', { p_task_id: row.id, p_result: built.result });
             skipped++;
+            // A submit-time result = "done, no LLM run" (e.g. the small-n skip).
+            // Tell the requester: 'not enough feedback' → empty; anything else → done.
+            const reason = (built.result as { reason?: string }).reason;
+            await notifyOutcome(admin, tt, {
+              uid, courseCode, taskId: row.id,
+              outcome: reason === 'not_enough_feedback' ? 'empty' : 'done',
+            });
           } else if (!hasKey) {
             await admin.rpc('fn_ai_task_mark_done', {
               p_task_id: row.id,
               p_result: { suggestion: null, reason: 'ai_not_configured' },
             });
             skipped++;
+            await notifyOutcome(admin, tt, { uid, courseCode, taskId: row.id, outcome: 'unconfigured' });
           } else {
             requests.push({
               customId: row.id,
@@ -136,6 +175,7 @@ export async function GET(request: NextRequest) {
             p_error: e instanceof Error ? e.message : 'build failed',
           });
           erroredBuild++;
+          await notifyOutcome(admin, tt, { uid, courseCode, taskId: row.id, outcome: 'failed' });
         }
       }
 
