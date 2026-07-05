@@ -40,6 +40,8 @@ export interface AiTaskType {
   /** 'entity' = one shared result per entity; 'user' = per requester. The pilot
    *  computes a scope-aware key itself, so this is documentary for the UI. */
   dedupeScope: 'entity' | 'user';
+  /** Deep-link surfaced in the "your result is ready" notification (P2). */
+  resultPath?: string;
   /** Runs as the user (session client) at enqueue. Resolves scope + dedupe. */
   resolveEnqueueContext(
     session: SupabaseClient,
@@ -85,8 +87,9 @@ Give 2-4 likelyCauses and 3-5 suggestedAdjustments. whatToWatchNext must referen
 
 const sessionFeedbackSummarize: AiTaskType = {
   featureKey: SF_FEATURE_KEY,
-  label: 'Summarise class feedback',
+  label: 'class-feedback summary',
   dedupeScope: 'entity',
+  resultPath: '/academic/session-feedback/faculty',
 
   async resolveEnqueueContext(session, userId, entityId) {
     const courseCode = (entityId || '').trim();

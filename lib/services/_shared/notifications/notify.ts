@@ -118,6 +118,11 @@ export async function fanoutNotification(
       .eq('idempotency_key', options.idempotencyKey)
       .maybeSingle();
     if (existing?.id) {
+      // Heal a prior PARTIAL fan-out: the notifications row exists but its
+      // user_notifications links may be missing (parent committed, then the
+      // links insert threw). Re-assert idempotently so the bell item is never
+      // permanently lost. No-op when the links already exist.
+      await ensureLinks(supabase, existing.id, userIds);
       return { notified: 0, notificationId: existing.id, skipped: 'idempotent' };
     }
   }
@@ -156,6 +161,7 @@ export async function fanoutNotification(
         .eq('idempotency_key', options.idempotencyKey)
         .maybeSingle();
       if (existing?.id) {
+        await ensureLinks(supabase, existing.id, userIds);
         return { notified: 0, notificationId: existing.id, skipped: 'idempotent' };
       }
     }
@@ -163,16 +169,29 @@ export async function fanoutNotification(
   }
   if (!inserted?.id) return { notified: 0 };
 
-  const links = userIds.map((user_id) => ({
-    notification_id: inserted.id as string,
-    user_id,
-  }));
-
-  const { error: fanoutErr } = await supabase
-    .from('user_notifications')
-    .insert(links);
-
-  if (fanoutErr) throw fanoutErr;
+  // Idempotent upsert (see ensureLinks): consistent with the heal on the
+  // idempotent-skip paths above and safe against a re-run.
+  await ensureLinks(supabase, inserted.id as string, userIds);
 
   return { notified: userIds.length, notificationId: inserted.id as string };
+}
+
+/**
+ * Idempotently ensure a user_notifications link exists for every recipient.
+ * Uses the UNIQUE (notification_id, user_id) index so a re-run — e.g. healing a
+ * partial fan-out on the idempotent-skip path — adds only the missing rows and
+ * never errors on the ones already present. Throws on a real DB error so the
+ * caller's existing try/catch still surfaces it.
+ */
+async function ensureLinks(
+  supabase: SupabaseClient,
+  notificationId: string,
+  userIds: string[]
+): Promise<void> {
+  if (userIds.length === 0) return;
+  const links = userIds.map((user_id) => ({ notification_id: notificationId, user_id }));
+  const { error } = await supabase
+    .from('user_notifications')
+    .upsert(links, { onConflict: 'notification_id,user_id', ignoreDuplicates: true });
+  if (error) throw error;
 }

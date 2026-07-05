@@ -19,6 +19,7 @@ import {
   type SubmitBatchRequest,
 } from '@/lib/services/platform/ai-clients/batch';
 import { allTaskFeatureKeys, getTaskType } from '@/lib/ai-tasks/registry';
+import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 
 const CLAIM_CAP = 50;
 
@@ -55,6 +56,27 @@ export async function GET(request: NextRequest) {
               const result = await tt.recordResult(admin, item.context ?? {}, item.message);
               await admin.rpc('fn_ai_task_mark_done', { p_task_id: item.customId, p_result: result });
               recorded++;
+              // P2: notify the requester their result is ready. Best-effort +
+              // idempotent (idempotencyKey) so a re-collect never double-pings.
+              const ctx = item.context ?? {};
+              const uid = ctx.requested_by ? String(ctx.requested_by) : null;
+              if (uid) {
+                try {
+                  await fanoutNotification(admin, {
+                    title: 'AI result ready',
+                    body: `Your ${tt.label} for ${ctx.course_code ? String(ctx.course_code) : 'a class'} is ready.`,
+                    userIds: [uid],
+                    createdBy: uid,
+                    url: tt.resultPath,
+                    category: 'ai_task',
+                    kind: 'work_item',
+                    idempotencyKey: `ai_task_done:${item.customId}`,
+                    source: 'ai-tasks-sweep',
+                  });
+                } catch (notifyErr) {
+                  console.error('[ai-tasks-sweep] notify failed:', notifyErr);
+                }
+              }
             } else {
               await admin.rpc('fn_ai_task_mark_failed', {
                 p_task_id: item.customId,
@@ -103,7 +125,8 @@ export async function GET(request: NextRequest) {
             requests.push({
               customId: row.id,
               params: built.params,
-              context: built.itemContext,
+              // carry requested_by so the collect step can notify the requester (P2)
+              context: { ...built.itemContext, requested_by: row.requested_by },
               dedupeKey: row.dedupe_key,
             });
           }
