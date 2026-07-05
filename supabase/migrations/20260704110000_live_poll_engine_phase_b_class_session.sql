@@ -267,6 +267,23 @@ BEGIN
                WHERE opt.question_id = v_qid AND NOT (opt.id = ANY(v_keep_o))) THEN
       RAISE EXCEPTION 'fn_live_poll_upsert_class_poll: cannot delete an option that already has votes'; END IF;
     DELETE FROM public.induction_session_poll_option WHERE question_id = v_qid AND NOT (id = ANY(v_keep_o));
+
+    -- The understood question feeds session_feedback.understood via a
+    -- label -> smallint(1..5) parse at submit time. Enforce it HERE so a
+    -- misconfigured scale fails LOUDLY for the teacher at save time, rather than
+    -- silently dropping the whole SCF loop feed when a learner votes.
+    IF v_role = 'understood' THEN
+      IF v_kind <> 'scale' THEN
+        RAISE EXCEPTION 'fn_live_poll_upsert_class_poll: the understood question must be a 1-5 scale';
+      END IF;
+      IF EXISTS (
+        SELECT 1 FROM public.induction_session_poll_option opt
+        WHERE opt.question_id = v_qid
+          AND coalesce(nullif(regexp_replace(opt.label, '\D', '', 'g'), '')::int, 0) NOT BETWEEN 1 AND 5
+      ) THEN
+        RAISE EXCEPTION 'fn_live_poll_upsert_class_poll: every understood scale option must map to 1..5';
+      END IF;
+    END IF;
   END LOOP;
 
   IF EXISTS (SELECT 1 FROM public.induction_session_poll_question qq
@@ -475,9 +492,16 @@ BEGIN
       FROM public.scf_live_pulse lp WHERE lp.id = v_cid;
 
       IF v_ctt IS NOT NULL THEN
-        PERFORM public.fn_scf_submit_feedback(
-          v_cdate, v_ctt, v_cperiod, v_understood,
-          coalesce(v_checklist, '{}'::jsonb), v_free_text, 'live_poll');
+        -- Isolate the loop-bridge write: a failure here must NOT roll back the
+        -- learner's already-recorded poll votes (vote persistence is independent
+        -- of loop-write success). Surface the failure as a warning instead.
+        BEGIN
+          PERFORM public.fn_scf_submit_feedback(
+            v_cdate, v_ctt, v_cperiod, v_understood,
+            coalesce(v_checklist, '{}'::jsonb), v_free_text, 'live_poll');
+        EXCEPTION WHEN OTHERS THEN
+          RAISE WARNING 'class poll loop bridge failed (votes kept): %', SQLERRM;
+        END;
       END IF;
     END IF;
   END IF;

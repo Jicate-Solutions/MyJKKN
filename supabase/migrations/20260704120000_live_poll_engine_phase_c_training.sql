@@ -387,9 +387,16 @@ BEGIN
       FROM public.scf_live_pulse lp WHERE lp.id = v_cid;
 
       IF v_ctt IS NOT NULL THEN
-        PERFORM public.fn_scf_submit_feedback(
-          v_cdate, v_ctt, v_cperiod, v_understood,
-          coalesce(v_checklist, '{}'::jsonb), v_free_text, 'live_poll');
+        -- Isolate the loop-bridge write: a failure here must NOT roll back the
+        -- learner's already-recorded poll votes (vote persistence is independent
+        -- of loop-write success). Surface the failure as a warning instead.
+        BEGIN
+          PERFORM public.fn_scf_submit_feedback(
+            v_cdate, v_ctt, v_cperiod, v_understood,
+            coalesce(v_checklist, '{}'::jsonb), v_free_text, 'live_poll');
+        EXCEPTION WHEN OTHERS THEN
+          RAISE WARNING 'class poll loop bridge failed (votes kept): %', SQLERRM;
+        END;
       END IF;
     END IF;
   END IF;
