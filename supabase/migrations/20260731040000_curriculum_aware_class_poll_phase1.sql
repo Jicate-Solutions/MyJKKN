@@ -76,6 +76,12 @@ CREATE INDEX IF NOT EXISTS idx_curriculum_lesson_course_status
   ON public.curriculum_lesson (course_id, status);
 CREATE INDEX IF NOT EXISTS idx_curriculum_lesson_creator
   ON public.curriculum_lesson (created_by);
+-- A faculty member's published topics are unique by title per course. This both powers
+-- idempotent typed-topic creation AND makes a concurrent double-submit (two tabs/devices)
+-- fail at the DB instead of minting duplicate published lessons (deep-review 🟠 2026-07-05).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_curriculum_lesson_faculty_topic
+  ON public.curriculum_lesson (course_id, created_by, lower(title))
+  WHERE source = 'faculty' AND status = 'published';
 
 ALTER TABLE public.curriculum_lesson ENABLE ROW LEVEL SECURITY;
 
@@ -249,15 +255,26 @@ BEGIN
       WHERE id = v_existing;
       RETURN v_existing;
     END IF;
-    INSERT INTO public.curriculum_lesson
-      (institution_id, course_id, sequence_no, unit_label, title, learning_outcomes,
-       primary_fink_dimension, co_refs, source, status, bos_syllabus_id,
-       created_by, approved_by, approved_at)
-    VALUES
-      (v_inst, p_course_id, p_sequence_no, p_unit_label, btrim(p_title),
-       COALESCE(p_learning_outcomes,'[]'::jsonb), p_primary_fink, COALESCE(p_co_refs,'{}'),
-       'faculty', 'published', p_bos_syllabus_id, auth.uid(), auth.uid(), now())
-    RETURNING id INTO v_id;
+    -- The unique index uq_curriculum_lesson_faculty_topic is the race backstop: if a
+    -- concurrent double-submit slipped past the SELECT above, one INSERT wins and the
+    -- loser reuses the winner's row instead of erroring or duplicating.
+    BEGIN
+      INSERT INTO public.curriculum_lesson
+        (institution_id, course_id, sequence_no, unit_label, title, learning_outcomes,
+         primary_fink_dimension, co_refs, source, status, bos_syllabus_id,
+         created_by, approved_by, approved_at)
+      VALUES
+        (v_inst, p_course_id, p_sequence_no, p_unit_label, btrim(p_title),
+         COALESCE(p_learning_outcomes,'[]'::jsonb), p_primary_fink, COALESCE(p_co_refs,'{}'),
+         'faculty', 'published', p_bos_syllabus_id, auth.uid(), auth.uid(), now())
+      RETURNING id INTO v_id;
+    EXCEPTION WHEN unique_violation THEN
+      SELECT id INTO v_id FROM public.curriculum_lesson
+      WHERE course_id = p_course_id AND created_by = auth.uid()
+        AND source = 'faculty' AND status = 'published'
+        AND lower(title) = lower(btrim(p_title))
+      LIMIT 1;
+    END;
     RETURN v_id;
   END IF;
 
@@ -297,13 +314,13 @@ CREATE OR REPLACE FUNCTION public.fn_curriculum_link_lesson(
  LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path TO 'public'
 AS $function$
 DECLARE v_inst uuid; v_course uuid; v_code text; v_name text; v_fac text;
-        v_lesson_course uuid; v_lesson_inst uuid; v_id uuid;
+        v_lesson_course uuid; v_lesson_inst uuid; v_lesson_creator uuid; v_id uuid;
 BEGIN
   SELECT institution_id, course_id, course_code, course_name, faculty_email
     INTO v_inst, v_course, v_code, v_name, v_fac
   FROM public._fn_curriculum_class_ctx(p_timetable_id, p_attendance_date, p_period_id, true);
 
-  SELECT course_id, institution_id INTO v_lesson_course, v_lesson_inst
+  SELECT course_id, institution_id, created_by INTO v_lesson_course, v_lesson_inst, v_lesson_creator
   FROM public.curriculum_lesson WHERE id = p_lesson_id;
   IF v_lesson_course IS NULL THEN RAISE EXCEPTION 'fn_curriculum_link_lesson: no such lesson'; END IF;
   -- Tenant guard (ALWAYS): the lesson must belong to this class's institution — this
@@ -314,6 +331,12 @@ BEGIN
   END IF;
   IF v_course IS NOT NULL AND v_lesson_course IS DISTINCT FROM v_course THEN
     RAISE EXCEPTION 'fn_curriculum_link_lesson: lesson belongs to a different course than this class';
+  END IF;
+  -- When the class carries no course_id we can't verify subject-match, so restrict to the
+  -- caller's OWN lessons — a manager can't attach an unrelated same-institution lesson of
+  -- a different subject (deep-review 🟡 2026-07-05).
+  IF v_course IS NULL AND v_lesson_creator IS DISTINCT FROM auth.uid() THEN
+    RAISE EXCEPTION 'fn_curriculum_link_lesson: this class has no course on record — you can only link a topic you created';
   END IF;
 
   INSERT INTO public.class_session_lesson
@@ -358,16 +381,21 @@ BEGIN
     AND sequence_no IS NOT NULL AND sequence_no > COALESCE(v_last_seq, -1)
   ORDER BY sequence_no ASC LIMIT 1;
 
-  SELECT COALESCE(jsonb_agg(jsonb_build_object(
-           'id', l.id, 'title', l.title, 'unit_label', l.unit_label, 'sequence_no', l.sequence_no,
-           'primary_fink_dimension', l.primary_fink_dimension, 'status', l.status,
-           'source', l.source, 'co_refs', l.co_refs
-         ) ORDER BY l.sequence_no NULLS LAST, l.created_at), '[]'::jsonb)
+  SELECT COALESCE(jsonb_agg(t.obj ORDER BY t.seq_no NULLS LAST, t.created_at), '[]'::jsonb)
     INTO v_lessons
-  FROM public.curriculum_lesson l
-  WHERE l.course_id = p_course_id
-    AND (l.status = 'published' OR l.created_by = auth.uid())
-    AND l.status <> 'archived';
+  FROM (
+    SELECT jsonb_build_object(
+             'id', l.id, 'title', l.title, 'unit_label', l.unit_label, 'sequence_no', l.sequence_no,
+             'primary_fink_dimension', l.primary_fink_dimension, 'status', l.status,
+             'source', l.source, 'co_refs', l.co_refs) AS obj,
+           l.sequence_no AS seq_no, l.created_at
+    FROM public.curriculum_lesson l
+    WHERE l.course_id = p_course_id
+      AND (l.status = 'published' OR l.created_by = auth.uid())
+      AND l.status <> 'archived'
+    ORDER BY l.sequence_no NULLS LAST, l.created_at
+    LIMIT 300   -- defensive cap; a course spine is naturally far smaller (deep-review 🟡)
+  ) t;
 
   RETURN jsonb_build_object('course_id', p_course_id, 'suggested_next_lesson_id', v_next,
                             'lessons', v_lessons);
@@ -387,14 +415,17 @@ AS $function$
 DECLARE v_topics jsonb;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_curriculum_my_topics_for_course: not authenticated'; END IF;
-  SELECT COALESCE(jsonb_agg(jsonb_build_object(
-           'id', id, 'title', title, 'primary_fink_dimension', primary_fink_dimension,
-           'created_at', created_at
-         ) ORDER BY created_at DESC), '[]'::jsonb)
-    INTO v_topics
-  FROM public.curriculum_lesson
-  WHERE course_id = p_course_id AND created_by = auth.uid()
-    AND source = 'faculty' AND status = 'published';
+  SELECT COALESCE(jsonb_agg(t.obj ORDER BY t.created_at DESC), '[]'::jsonb) INTO v_topics
+  FROM (
+    SELECT jsonb_build_object('id', id, 'title', title,
+             'primary_fink_dimension', primary_fink_dimension, 'created_at', created_at) AS obj,
+           created_at
+    FROM public.curriculum_lesson
+    WHERE course_id = p_course_id AND created_by = auth.uid()
+      AND source = 'faculty' AND status = 'published'
+    ORDER BY created_at DESC
+    LIMIT 50   -- most-recent 50 topics for the reuse dropdown (deep-review 🟡)
+  ) t;
   RETURN COALESCE(v_topics, '[]'::jsonb);
 END $function$;
 REVOKE EXECUTE ON FUNCTION public.fn_curriculum_my_topics_for_course(uuid) FROM anon, PUBLIC;
@@ -566,7 +597,7 @@ CREATE OR REPLACE FUNCTION public.fn_induction_session_poll_totals(p_poll_id uui
 AS $function$
 DECLARE
   v_p public.induction_session_poll; v_batch uuid; v_enrolled int; v_responses int;
-  v_questions jsonb; v_anchor public.scf_live_pulse; v_floor int := 3;
+  v_roster int; v_questions jsonb; v_anchor public.scf_live_pulse; v_floor int := 3;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_session_poll_totals: not authenticated'; END IF;
   SELECT * INTO v_p FROM public.induction_session_poll WHERE id = p_poll_id;
@@ -584,12 +615,17 @@ BEGIN
 
   IF v_p.context_type = 'class_session' THEN
     SELECT * INTO v_anchor FROM public.scf_live_pulse WHERE id = v_p.context_id;
-    SELECT count(*)::int INTO v_enrolled
+    -- v_enrolled = Present (the display denominator). v_roster = the FULL period roster
+    -- (every student in the blob, any status) — a STABLE size that classifies "small"
+    -- so a large class with few present mid-marking is NOT misclassified small and
+    -- revealed at k=2 (deep-review 🟠 2026-07-05). Floor is keyed on the roster.
+    SELECT count(*) FILTER (WHERE st ->> 'status' = 'Present')::int, count(*)::int
+      INTO v_enrolled, v_roster
     FROM public.student_attendance sa,
          jsonb_array_elements(COALESCE(sa.attendance_data -> v_anchor.period_id -> 'students','[]'::jsonb)) st
     WHERE sa.timetable_id = v_anchor.timetable_id AND sa.attendance_date = v_anchor.attendance_date
-      AND sa.attendance_data ? v_anchor.period_id AND st ->> 'status' = 'Present';
-    v_floor := public._fn_live_poll_reveal_floor(v_enrolled);   -- #34: tunable (default 3)
+      AND sa.attendance_data ? v_anchor.period_id;
+    v_floor := public._fn_live_poll_reveal_floor(v_roster);   -- #34: tunable (default 3), by roster
   ELSIF v_p.context_type = 'cdc_training_session' THEN
     SELECT count(*)::int INTO v_enrolled FROM public.cdc_training_enrollments e
     WHERE e.programme_id = v_p.context_id AND e.status NOT IN ('dropped','cancelled');
@@ -614,11 +650,13 @@ BEGIN
         'options', (
           SELECT coalesce(jsonb_agg(jsonb_build_object(
             'id', o.id, 'label', o.label,
-          -- reveal floor (spec #20 + tunable #34): in a CLASS poll with fewer than
-          -- v_floor distinct responders, never ship per-option counts. Normal classes
-          -- keep k≥3; small classes may reveal at the configured floor (default 2,
-          -- "confidential, not anonymous"). Wordcloud keeps its own per-option gate.
-          'count', CASE WHEN v_p.context_type = 'class_session' AND v_responses < v_floor
+          -- reveal floor (spec #20 + tunable #34): gate each question on ITS OWN distinct
+          -- responder count (q_resp.cnt), NOT the poll-wide count — otherwise a sparsely
+          -- answered question (e.g. only 1 learner answered the Fink Q2) rides over the
+          -- floor on other questions' responders and exposes a lone count=1 below the
+          -- anonymity floor (deep-review 🔴 2026-07-05). Normal classes keep k≥3; small
+          -- classes reveal at the configured floor. Wordcloud keeps its own per-word gate.
+          'count', CASE WHEN v_p.context_type = 'class_session' AND q_resp.cnt < v_floor
                           AND q.kind <> 'wordcloud' THEN NULL ELSE oc.cnt END
           ) ORDER BY o.position),'[]'::jsonb)
           FROM public.induction_session_poll_option o
@@ -653,7 +691,7 @@ CREATE OR REPLACE FUNCTION public.fn_induction_session_poll_responders(p_poll_id
                questions_answered bigint, answered_at timestamp with time zone)
  LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public'
 AS $function$
-DECLARE v_ctype text; v_cid uuid; v_floor int := 3; v_present int; v_anchor public.scf_live_pulse;
+DECLARE v_ctype text; v_cid uuid; v_floor int := 3; v_roster int; v_anchor public.scf_live_pulse;
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'fn_induction_session_poll_responders: not authenticated'; END IF;
@@ -667,12 +705,14 @@ BEGIN
   -- stays hidden in the UI.
   IF v_ctype = 'class_session' THEN
     SELECT * INTO v_anchor FROM public.scf_live_pulse WHERE id = v_cid;
-    SELECT count(*)::int INTO v_present
+    -- classify "small" by the STABLE full period roster (any status), not transient
+    -- Present, so a large class mid-marking isn't misclassified small (deep-review 🟠).
+    SELECT count(*)::int INTO v_roster
     FROM public.student_attendance sa,
          jsonb_array_elements(COALESCE(sa.attendance_data -> v_anchor.period_id -> 'students','[]'::jsonb)) st
     WHERE sa.timetable_id = v_anchor.timetable_id AND sa.attendance_date = v_anchor.attendance_date
-      AND sa.attendance_data ? v_anchor.period_id AND st ->> 'status' = 'Present';
-    v_floor := public._fn_live_poll_reveal_floor(v_present);
+      AND sa.attendance_data ? v_anchor.period_id;
+    v_floor := public._fn_live_poll_reveal_floor(v_roster);
 
     IF (SELECT count(DISTINCT v.learner_id)
         FROM public.induction_session_poll_vote v WHERE v.poll_id = p_poll_id) < v_floor THEN
