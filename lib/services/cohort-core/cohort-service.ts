@@ -10,13 +10,18 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
-import { canTransition } from '@/lib/services/cohort-core/lifecycle';
+import {
+  canTransition,
+  isTerminalMembershipStatus,
+  membershipCloseStatus,
+} from '@/lib/services/cohort-core/lifecycle';
 import type {
   Cohort,
   CohortListResponse,
   CohortMembership,
   CohortStatusEvent,
   CohortFilters,
+  CohortCloseStatus,
   CreateCohortDto,
   UpdateCohortDto,
   CreateMembershipDto,
@@ -395,5 +400,188 @@ export class CohortService {
       console.error('CohortService: getStatusEvents error:', error);
       return [];
     }
+  }
+
+  // ── D8: transfer a membership to another cohort (history preserved) ──────────
+
+  /**
+   * Move a membership to a different cohort, PRESERVING its history (rule 14 —
+   * roll-into-next-round; coordinator-gated in the UI). The SAME membership row
+   * is re-pointed at `toCohortId` (so its lifecycle status and every
+   * cohort_status_event that FKs this membership_id stay continuous), a breadcrumb
+   * is appended to config.transfers, and a 'transferred' event is recorded on the
+   * destination cohort.
+   *
+   * Lifecycle guard (per the spine's never-reactivate-terminal rule): a terminal
+   * membership (graduated/removed) is history and may NOT be transferred — that
+   * would be a backdoor around the transition map. The member's status is left
+   * unchanged by the move.
+   */
+  static async transferMembership(
+    membershipId: string,
+    toCohortId: string,
+    opts: TransitionOptions = {}
+  ): Promise<CohortMembership> {
+    try {
+      const current = await this.getMembership(membershipId);
+      if (!current) throw new Error('Membership not found');
+      if (current.cohort_id === toCohortId) {
+        throw new Error('Membership is already in the target cohort');
+      }
+      if (isTerminalMembershipStatus(current.status)) {
+        throw new Error(`Cannot transfer a ${current.status} membership`);
+      }
+
+      // Destination must exist and be visible under RLS (getCohort throws if not).
+      await this.getCohort(toCohortId);
+
+      const existingTransfers = Array.isArray(
+        (current.config as { transfers?: unknown })?.transfers
+      )
+        ? ((current.config as { transfers: unknown[] }).transfers)
+        : [];
+      const nextConfig = {
+        ...current.config,
+        transfers: [
+          ...existingTransfers,
+          {
+            from_cohort_id: current.cohort_id,
+            to_cohort_id: toCohortId,
+            at: new Date().toISOString(),
+            reason: opts.reason ?? null,
+          },
+        ],
+      };
+
+      const { data, error } = await (this.supabase as any)
+        .from('cohort_memberships')
+        .update({
+          cohort_id: toCohortId,
+          config: nextConfig,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', membershipId)
+        .select()
+        .single();
+      if (error) {
+        if (error.code === '23505') {
+          throw new Error('This member already exists in the target cohort');
+        }
+        throw error;
+      }
+
+      // Best-effort audit: never let an event-write failure mask a successful move.
+      try {
+        await this.recordStatusEvent({
+          cohort_id: toCohortId,
+          membership_id: membershipId,
+          event_type: opts.eventType ?? 'transferred',
+          from_status: current.status,
+          to_status: current.status, // a transfer does not change lifecycle status
+          actor_id: opts.actorId ?? null,
+          reason: opts.reason ?? null,
+          metadata: {
+            ...(opts.metadata ?? {}),
+            from_cohort_id: current.cohort_id,
+            to_cohort_id: toCohortId,
+          },
+        });
+      } catch (eventError) {
+        console.error('CohortService: transferMembership audit-event failed:', eventError);
+      }
+
+      toast.success('Member transferred');
+      return data;
+    } catch (error) {
+      console.error('CohortService: transferMembership error:', error);
+      throw error;
+    }
+  }
+
+  // ── D7: close a cohort round and auto-wrap-up its members ────────────────────
+
+  /**
+   * Close a cohort round: move the container to a terminal status ('completed' by
+   * default, or 'archived') AND cascade every still-active / non-terminal
+   * membership to its wrap-up status (rule 14 / D7 — records are KEPT, never
+   * deleted). Both the container move and each membership move go through the
+   * existing guarded + audited transition helpers, so every step is validated
+   * against the lifecycle maps and appended to cohort_status_events.
+   *
+   * A completed round graduates its active members; an archive (or any
+   * non-active member on completion) wraps up as 'removed'. See
+   * membershipCloseStatus() for the pure decision.
+   *
+   * @returns the updated cohort and how many memberships were wrapped up.
+   */
+  static async closeCohort(
+    cohortId: string,
+    opts: TransitionOptions & { toStatus?: CohortCloseStatus } = {}
+  ): Promise<{ cohort: Cohort; membershipsClosed: number }> {
+    const toStatus: CohortCloseStatus = opts.toStatus ?? 'completed';
+
+    // closeCohort must be idempotent / resumable: if a prior call died mid-cascade
+    // (or a member throw was swallowed), re-calling it has to finish wrapping up the
+    // stranded members. So cascade the memberships FIRST, then move the container —
+    // and tolerate the container already sitting at the terminal status (skip its
+    // transition + event instead of throwing on the illegal from===to edge). Both
+    // steps are individually re-drivable: membershipCloseStatus() returns null for
+    // already-terminal members, and the container move is skipped once it has landed.
+
+    // 0. Fail fast on a genuinely illegal close (e.g. a still-draft cohort → completed)
+    //    BEFORE touching any member, preserving the old container-first fail-fast.
+    //    An already-terminal container at the target status is NOT illegal here — it
+    //    is the resume case, handled in step 2.
+    const preCohort = await this.getCohort(cohortId);
+    if (preCohort.status !== toStatus && !canTransition('cohort', preCohort.status, toStatus)) {
+      throw new Error(`Illegal cohort transition: ${preCohort.status} → ${toStatus}`);
+    }
+
+    // 1. Cascade each still-active / non-terminal membership to a terminal state.
+    //    One member failing to wrap up must not abort the whole round close.
+    const memberships = await this.getMemberships(cohortId);
+    let membershipsClosed = 0;
+    for (const m of memberships) {
+      const next = membershipCloseStatus(m.status, toStatus);
+      if (!next) continue;
+      try {
+        await this.transitionStatus(m.id, next, {
+          actorId: opts.actorId ?? null,
+          reason: opts.reason ?? `Cohort ${toStatus} — member auto-wrapped`,
+          metadata: {
+            ...(opts.metadata ?? {}),
+            cohort_close: true,
+            cohort_id: cohortId,
+            cohort_to: toStatus,
+          },
+          eventType: 'round_close',
+        });
+        membershipsClosed += 1;
+      } catch (cascadeError) {
+        console.error(
+          'CohortService: closeCohort cascade error for membership',
+          m.id,
+          cascadeError
+        );
+      }
+    }
+
+    // 2. Move the container to its terminal status (validated + audited). If it is
+    //    already there — e.g. this is a resume after a partially-failed close — skip
+    //    the transition rather than throwing on the from===to guard, so the cascade
+    //    above is still allowed to run to completion.
+    //    (The cascade does not change the container status, so the pre-cascade read
+    //    is still authoritative for this decision.)
+    const cohort =
+      preCohort.status === toStatus
+        ? preCohort
+        : await this.transitionCohortStatus(cohortId, toStatus, {
+            actorId: opts.actorId ?? null,
+            reason: opts.reason ?? null,
+            metadata: opts.metadata ?? {},
+            eventType: opts.eventType ?? 'round_close',
+          });
+
+    return { cohort, membershipsClosed };
   }
 }
