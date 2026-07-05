@@ -24,6 +24,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/schools-network/visit-nudges/cron?secret=${CRON_SECRET}",
+      "schedule": "13 4 * * *"
+    },
+    {
       "path": "/api/cron/ai-tasks-sweep?secret=${CRON_SECRET}",
       "schedule": "*/15 * * * *"
     },
