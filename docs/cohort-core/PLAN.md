@@ -28,6 +28,16 @@
 
 Rules 1–4 are SF100-startup-specific (extension layer). Rules 5–14 are generic cohort lifecycle (shared spine).
 
+## Cross-domain decisions (interview 2 — 2026-07-05) — how the SHARED engine behaves across all 4 programs
+- **D1 · Admin visibility** — KEEP platform-standard (`is_admin()` sees all institutions). Phase-1 RLS is correct as-is; no change needed.
+- **D2 · Rule application** — PER-PROGRAM SWITCHES. Each cohort toggles which shared lifecycle rules it uses via `cohorts.config` (jsonb). Define a rules-config shape with a sensible default per `kind`.
+- **D3 · SF100 migration (Phase 2)** — COPY-OVER + KEEP OLD AS BACKUP. Backfill `sf100_programs`(1) + `sf100_enrollments`(18) into `cohorts`/`cohort_memberships`; leave `sf100_*` tables intact until sign-off. Fully reversible.
+- **D4 · Cross-program membership** — ALLOWED. A person may be active in multiple DIFFERENT programs at once. (Same-program dual membership still needs mentor approval — rule 8.)
+- **D5 · Foundations completion (Phase 3)** — MENTOR SIGN-OFF marks a student complete.
+- **D6 · Trainer development (Phase 5)** — fold in LAST, after Phases 2–4 prove the engine; re-decide fit-vs-standalone at that point.
+- **D7 · Round close/archive** — members AUTO-complete/archive with the round; their record is KEPT as history (cohort-service cascade).
+- **D8 · Member transfer** — ALLOWED between cohorts with history preserved (enables roll-into-next-round, rule 14); coordinator-gated in the UI. Add `transferMembership` to cohort-service.
+
 ## Architecture — thin shared spine + domain extensions
 - `cohorts` — id, kind ('sf100'|'foundations'|'cdc'|'trainer'), name, institution_id, owner_id, opens_at, closes_at, hard_deadline, status, academic_year, config jsonb, archived_at/by
 - `cohort_memberships` — id, cohort_id, member_type ('team'|'student'|'learner'|'staff'), member_ref, status, role, joined_at/by, config jsonb
