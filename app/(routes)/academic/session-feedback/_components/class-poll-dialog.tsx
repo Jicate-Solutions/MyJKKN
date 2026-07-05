@@ -339,7 +339,7 @@ export function ClassPollDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2" style={{ color: BRAND_GREEN }}>Poll — {courseLabel}
             <Badge variant={status === 'open' ? 'default' : 'secondary'}>{status}</Badge></DialogTitle>
-          <DialogDescription>Name today’s topic, build questions, open it live, and watch anonymized results (hidden until enough students answer). The first three locked questions feed the live feedback loop; the topic check-in is recorded separately. Locked questions can&apos;t be removed.</DialogDescription>
+          <DialogDescription>Name today’s topic, build questions, open it live, and watch anonymized results (hidden until enough students answer). The locked questions can&apos;t be removed — the feedback questions feed the live loop, while the topic check-in is recorded separately.</DialogDescription>
           {status === 'open' && autoCloseAt && (
             <p className="text-xs text-amber-600 dark:text-amber-500">
               Auto-closes at {new Date(autoCloseAt).toLocaleString(undefined, { hour: 'numeric', minute: '2-digit', day: 'numeric', month: 'short' })} — reopen with &quot;Open live&quot; to extend.
