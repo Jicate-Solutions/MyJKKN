@@ -270,6 +270,10 @@
     {
       "path": "/api/cron/induction-session-effectiveness?secret=${CRON_SECRET}",
       "schedule": "43 */4 * * *"
+    },
+    {
+      "path": "/api/schools-network/visit-nudges/cron?secret=${CRON_SECRET}",
+      "schedule": "13 4 * * *"
     }
   ]
 }
