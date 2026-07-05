@@ -143,7 +143,10 @@ BEGIN
      GROUP BY COALESCE(al.to_key, base.raw_key)
   ),
   base AS (
-    -- every adopted school, resolved to its canonical (alias-merged) name key
+    -- every adopted feeder school, resolved to its canonical (alias-merged) key.
+    -- Adopted feeders are EXTERNAL (institution_id IS NULL by the ownership CHECK);
+    -- filter to them so an internal/JKKN-own school (should the `schools` table
+    -- ever hold one) can never leak into the worklist / auto-assign / nudges.
     SELECT s.id AS school_id, s.name AS school_name, s.district,
            COALESCE(sa.to_key, skey.k) AS name_key
       FROM public.schools s
@@ -156,6 +159,7 @@ BEGIN
                 END) AS k
       ) skey
       LEFT JOIN public.schools_network_feeder_aliases sa ON sa.from_key = skey.k
+     WHERE s.institution_id IS NULL
   ),
   computed AS (
     SELECT b.school_id, b.school_name, b.district,
@@ -426,8 +430,14 @@ BEGIN
      WHERE cr.role_key IN ('outreach_coordinator', 'program_lead')
   ),
   dedup AS (
-    -- one row per person; prefer 'outreach_coordinator' label if they hold both
-    SELECT uid, min(r) AS r FROM people GROUP BY uid
+    -- one row per person; prefer 'outreach_coordinator', then 'program_lead',
+    -- then anything else. (min(r) would pick the lexicographically-smallest role,
+    -- which is NOT the same as this preference.)
+    SELECT uid, (array_agg(r ORDER BY
+      CASE r WHEN 'outreach_coordinator' THEN 0
+             WHEN 'program_lead'         THEN 1
+             ELSE 2 END))[1] AS r
+      FROM people GROUP BY uid
   )
   SELECT p.id, p.full_name, p.email,
          CASE d.r

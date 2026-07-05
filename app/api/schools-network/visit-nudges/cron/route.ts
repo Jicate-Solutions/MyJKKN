@@ -78,10 +78,11 @@ export async function GET(request: NextRequest): Promise<Response> {
   }
 
   const candidates = (Array.isArray(data) ? data : []) as Candidate[];
-  const stampedSchoolIds: string[] = [];
   let notified = 0;
   let skipped = 0;
   let failed = 0;
+  let stamped = 0;
+  let stampFailed = 0;
 
   for (const c of candidates) {
     if (!c.assigned_to) continue;
@@ -101,9 +102,24 @@ export async function GET(request: NextRequest): Promise<Response> {
       });
       if (res.skipped === 'idempotent') skipped++;
       else notified++;
-      // Fired (or already fired today) → advance the realert window so the same
-      // school isn't re-nudged for another REALERT_DAYS.
-      stampedSchoolIds.push(c.school_id);
+      // Stamp THIS school's realert window immediately, gated on ITS OWN send
+      // succeeding. Per-candidate (not one bulk stamp at the end) so a single
+      // stamp failure can't leave every other nudged school un-stamped and thus
+      // re-nudged every run until the next successful bulk write.
+      const { error: stampErr } = await admin
+        .from('school_visit_assignments')
+        .update({ last_nudged_at: new Date().toISOString() })
+        .eq('school_id', c.school_id);
+      if (stampErr) {
+        stampFailed++;
+        console.error(
+          '[visit-nudges] last_nudged_at stamp failed for school',
+          c.school_id,
+          stampErr.message
+        );
+      } else {
+        stamped++;
+      }
     } catch (e) {
       // Genuine send failure → do NOT stamp, so the next run retries it.
       failed++;
@@ -115,24 +131,17 @@ export async function GET(request: NextRequest): Promise<Response> {
     }
   }
 
-  if (stampedSchoolIds.length > 0) {
-    const { error: stampErr } = await admin
-      .from('school_visit_assignments')
-      .update({ last_nudged_at: new Date().toISOString() })
-      .in('school_id', stampedSchoolIds);
-    if (stampErr) {
-      console.error('[visit-nudges] last_nudged_at stamp failed:', stampErr.message);
-    }
-  }
-
   return NextResponse.json({
-    ok: true,
+    // stampFailed>0 means some schools were notified but not stamped and will be
+    // re-nudged next run — surface it as a non-ok run so it's visible in logs.
+    ok: stampFailed === 0,
     data: {
       candidates: candidates.length,
       notified,
       skipped,
       failed,
-      stamped: stampedSchoolIds.length,
+      stamped,
+      stampFailed,
       duration_ms: Date.now() - started,
     },
   });

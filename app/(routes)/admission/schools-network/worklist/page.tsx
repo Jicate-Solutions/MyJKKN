@@ -13,7 +13,7 @@
  * and the debounced staff picker of the owners/assign form.
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -58,7 +58,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { PermissionGuard, CanEdit } from '@/components/auth/permission-guard';
 
 import {
   autoAssignVisits,
@@ -319,9 +319,13 @@ function WorklistContent() {
     onError: (err: Error) => toast.error(err.message || 'Auto-assign failed'),
   });
 
-  if (error && rows.length === 0 && !isLoading) {
-    toast.error((error as Error).message || 'Failed to load worklist');
-  }
+  // Toast the load error as a side-effect, NOT in the render body (which would
+  // re-fire a new toast on every re-render while the error persists).
+  useEffect(() => {
+    if (error && rows.length === 0 && !isLoading) {
+      toast.error((error as Error).message || 'Failed to load worklist');
+    }
+  }, [error, rows.length, isLoading]);
 
   return (
     <div className="space-y-6">
@@ -385,18 +389,22 @@ function WorklistContent() {
             >
               <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
             </Button>
-            <Button
-              size="sm"
-              onClick={() => autoAssignMutation.mutate()}
-              disabled={autoAssignMutation.isPending}
-            >
-              {autoAssignMutation.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Wand2 className="h-4 w-4 mr-2" />
-              )}
-              Auto-assign
-            </Button>
+            {/* Edit-only: assigning owners needs schools.edit. Hidden (not
+                403-on-click) for schools.view-only viewers. */}
+            <CanEdit module="schools_network.schools">
+              <Button
+                size="sm"
+                onClick={() => autoAssignMutation.mutate()}
+                disabled={autoAssignMutation.isPending}
+              >
+                {autoAssignMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Wand2 className="h-4 w-4 mr-2" />
+                )}
+                Auto-assign
+              </Button>
+            </CanEdit>
           </div>
         </CardHeader>
         <CardContent>
@@ -461,7 +469,9 @@ function WorklistContent() {
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {fmtDate(row.lastVisit)}
-                          {stale !== null && stale >= 60 && (
+                          {stale !== null && stale > 60 && (
+                            // > 60 (not >=) to match the SQL nudge_eligible boundary
+                            // (last_visit < now() - interval '60 days').
                             <div className="text-[11px] text-amber-600">{stale}d ago</div>
                           )}
                         </TableCell>
@@ -469,13 +479,18 @@ function WorklistContent() {
                           <StatusCell row={row} />
                         </TableCell>
                         <TableCell className="text-right">
-                          <AssignControl
-                            row={row}
-                            pending={pendingSchool === row.schoolId && assignMutation.isPending}
-                            onAssign={(schoolId, assignedTo) =>
-                              assignMutation.mutate({ schoolId, assignedTo })
-                            }
-                          />
+                          <CanEdit
+                            module="schools_network.schools"
+                            fallback={<span className="text-xs text-muted-foreground">—</span>}
+                          >
+                            <AssignControl
+                              row={row}
+                              pending={pendingSchool === row.schoolId && assignMutation.isPending}
+                              onAssign={(schoolId, assignedTo) =>
+                                assignMutation.mutate({ schoolId, assignedTo })
+                              }
+                            />
+                          </CanEdit>
                         </TableCell>
                       </TableRow>
                     );
