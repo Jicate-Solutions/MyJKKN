@@ -52,6 +52,23 @@ function formatDate(iso: string | null | undefined) {
   }
 }
 
+// Engagement audits (CARE/CARRE) and compliance audits (NAAC/NBA/…) both live
+// in audit_cycles. Classify each row by framework so it routes to its OWN flow:
+// engagement → the 0–4 two-scorer scoring UI, compliance → attestations/findings.
+const ENGAGEMENT_FRAMEWORKS = new Set(['CARE', 'CARRE']);
+
+function auditKind(frameworks: string[]): 'engagement' | 'compliance' {
+  return frameworks.some((f) => ENGAGEMENT_FRAMEWORKS.has(f))
+    ? 'engagement'
+    : 'compliance';
+}
+
+function auditHref(cycle: { id: string; frameworks: string[] }): string {
+  return auditKind(cycle.frameworks) === 'engagement'
+    ? `/audit/care/${cycle.id}`
+    : `/audit/cycles/${cycle.id}`;
+}
+
 export default function AuditCyclesPage() {
   const [includeClosed, setIncludeClosed] = useState(false);
   const [search, setSearch] = useState('');
