@@ -1,6 +1,6 @@
 // app/api/schools-network/school-learners/route.ts
 // ============================================================================
-// GET /api/schools-network/school-learners?school=<name>&level=<ug|pg>
+// GET /api/schools-network/school-learners?school=<name>&level=<ug|pg|other>&limit=&offset=
 //   → the learner roster for ONE feeder school/college.
 //
 // Backed by fn_schools_network_school_learners (SECURITY DEFINER). Canonical
@@ -29,14 +29,21 @@ export const GET = withAuth(
     if (!school || !school.trim()) {
       return errorResponse('school is required', 400, 'VALIDATION_ERROR');
     }
-    // level: 'ug' | 'pg' filter by the JKKN program level the learner joined;
-    // anything else → all levels.
+    // level: 'ug' | 'pg' | 'other' filter by JKKN program level; anything else → all.
     const levelParam = searchParams.get('level');
-    const level = levelParam === 'ug' || levelParam === 'pg' ? levelParam : null;
+    const level =
+      levelParam === 'ug' || levelParam === 'pg' || levelParam === 'other'
+        ? levelParam
+        : null;
+    // Pagination (server clamps 1..200 / >=0). Defaults mirror the fn (25 / 0).
+    const limitParam = parseInt(searchParams.get('limit') ?? '', 10);
+    const offsetParam = parseInt(searchParams.get('offset') ?? '', 10);
+    const p_limit = Number.isFinite(limitParam) ? limitParam : 25;
+    const p_offset = Number.isFinite(offsetParam) ? offsetParam : 0;
 
     const { data, error } = await auth.supabase.rpc(
       'fn_schools_network_school_learners',
-      { p_school_name: school, p_degree_type: level }
+      { p_school_name: school, p_degree_type: level, p_limit, p_offset }
     );
     if (error) return errorResponse(error.message, 500, 'LIST_FAILED');
 

@@ -303,10 +303,11 @@ export function listFeeders(opts: {
   source?: string;
   adopted?: string;
   sort?: 'priority' | 'volume';
-  /** JKKN program level of the learners counted: 'ug' → the Feeder Schools
-   *  section, 'pg' → the Feeder Colleges section, undefined → all levels.
-   *  A feeder that fed both levels appears in both sections. */
-  level?: 'ug' | 'pg';
+  /** JKKN program level of the learners counted: 'ug' → Feeder Schools,
+   *  'pg' → Feeder Colleges, 'other' → the always-on Other-levels section
+   *  (diploma/PhD/unrecorded), undefined → all levels + marketing leads.
+   *  A feeder that fed multiple levels appears in each matching section. */
+  level?: 'ug' | 'pg' | 'other';
   limit?: number;
   offset?: number;
 }): Promise<{ rows: FeederRow[]; total: number; limit: number; offset: number }> {
@@ -346,10 +347,69 @@ export interface SchoolLearnerRow {
  */
 export function listSchoolLearners(
   schoolName: string,
-  level?: 'ug' | 'pg'
+  opts?: {
+    level?: 'ug' | 'pg' | 'other';
+    /** Page size (server clamps 1..200; server default 25). */
+    limit?: number;
+    offset?: number;
+  }
 ): Promise<{ rows: SchoolLearnerRow[]; total: number }> {
   const p = new URLSearchParams();
   p.set('school', schoolName);
-  if (level) p.set('level', level);
+  if (opts?.level) p.set('level', opts.level);
+  if (opts?.limit !== undefined) p.set('limit', String(opts.limit));
+  if (opts?.offset !== undefined) p.set('offset', String(opts.offset));
   return call(`${BASE}/school-learners?${p.toString()}`);
+}
+
+/* ─── Feeder duplicate merge (Tidy duplicates tool, schools.edit) ────────── */
+
+export interface FeederDupeSuggestion {
+  fromKey: string;
+  fromName: string;
+  fromCount: number;
+  toKey: string;
+  toName: string;
+  toCount: number;
+  /** 0..1 trigram similarity of the two spellings. */
+  similarity: number;
+}
+
+export interface FeederAliasLink {
+  fromKey: string;
+  fromName: string | null;
+  toKey: string;
+  toName: string | null;
+  createdAt: string | null;
+}
+
+/**
+ * The Tidy-duplicates payload: system-suggested likely-same-school pairs plus
+ * the links already made (for the Unlink list). Both gated schools.edit.
+ */
+export function listFeederDupes(): Promise<{
+  suggestions: FeederDupeSuggestion[];
+  links: FeederAliasLink[];
+}> {
+  return call(`${BASE}/feeder-aliases`);
+}
+
+/** Link (merge) two feeder spellings — non-destructive, undoable. */
+export function linkFeeders(input: {
+  fromKey: string;
+  toKey: string;
+  fromName: string;
+  toName: string;
+}): Promise<void> {
+  return call(`${BASE}/feeder-aliases`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/** Undo a merge for one linked spelling. */
+export function unlinkFeeder(fromKey: string): Promise<void> {
+  return call(`${BASE}/feeder-aliases?from=${encodeURIComponent(fromKey)}`, {
+    method: 'DELETE',
+  });
 }

@@ -30,10 +30,14 @@ export const GET = withAuth(
     // (backward compat during the migration→deploy window); the product
     // default lives here.
     const sort = searchParams.get('sort') === 'volume' ? 'volume' : 'priority';
-    // level: 'ug' → Feeder Schools section, 'pg' → Feeder Colleges section,
-    // null → combined (all levels + marketing leads). Anything else ignored.
+    // level: 'ug' → Feeder Schools, 'pg' → Feeder Colleges, 'other' → the
+    // Other-levels section (diploma/PhD/unrecorded), null → combined (all
+    // levels + marketing leads). Anything else ignored.
     const levelParam = searchParams.get('level');
-    const level = levelParam === 'ug' || levelParam === 'pg' ? levelParam : null;
+    const level =
+      levelParam === 'ug' || levelParam === 'pg' || levelParam === 'other'
+        ? levelParam
+        : null;
 
     const { data, error } = await auth.supabase.rpc('fn_schools_network_feeders', {
       p_search: search,
