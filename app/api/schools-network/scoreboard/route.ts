@@ -33,9 +33,17 @@ export const GET = withAuth(
     if (error) {
       // The RPC's own permission gate raises ERRCODE 42501 — surface it as a 403
       // so the page's dedicated access-denied branch fires (not a generic 500).
-      const status = error.code === '42501' ? 403 : 500;
-      const code = error.code === '42501' ? 'FORBIDDEN' : 'SCOREBOARD_FAILED';
-      return errorResponse(error.message, status, code);
+      if (error.code === '42501') {
+        return errorResponse(error.message, 403, 'FORBIDDEN');
+      }
+      // Don't leak raw Postgres internals (function/column names, statement-
+      // timeout details) to the client — log server-side, return a generic message.
+      console.error('[scoreboard] RPC failed:', error.message);
+      return errorResponse(
+        'Could not load the scoreboard. Please try again.',
+        500,
+        'SCOREBOARD_FAILED'
+      );
     }
 
     // The RPC returns a single json object already in the desired shape.
