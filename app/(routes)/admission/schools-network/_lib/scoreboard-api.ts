@@ -10,10 +10,21 @@
 const BASE = '/api/schools-network';
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  });
+  // Abort if the request stalls past 30s (the RPC's own statement_timeout is
+  // 20s) so useQuery(retry:false) surfaces an error rather than an endless
+  // skeleton if the network layer hangs.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      headers: { 'Content-Type': 'application/json' },
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
   const body = (await res.json().catch(() => ({}))) as {
     success?: boolean;
     data?: unknown;

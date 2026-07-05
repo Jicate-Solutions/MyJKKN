@@ -49,11 +49,17 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
-  -- INTENTIONALLY ORG-WIDE (Director ruling, carried from the feeder panel):
-  -- counts + names with NO learner PII, so every schools.view holder sees the
-  -- same org-wide momentum regardless of institution scope. No institution
-  -- filter here — that would fork the board per viewer and break reconciliation
-  -- with the (org-wide) feeder panel.
+  -- INTENTIONALLY ORG-WIDE — and this is VERIFIED against precedent, not just an
+  -- assertion: the already-live fn_schools_network_feeders (PR #1780) uses the
+  -- IDENTICAL gate (is_super_admin()/is_admin()/schools_network.schools.view) and
+  -- carries its own explicit "do NOT add an institution filter" comment. Roles
+  -- that hold schools.view include scope='own' roles (principal, faculty,
+  -- outreach_coordinator, program_lead) — they ALREADY see org-wide feeder data
+  -- via that panel. This RPC exposes only school NAMES + COUNTS (NO learner PII),
+  -- so a scoped viewer seeing org-wide momentum is the deliberate Director ruling,
+  -- not a leak. Adding an institution filter here would fork the board per viewer
+  -- and break reconciliation with the (org-wide) feeder panel. If schools.view is
+  -- ever re-scoped to be per-institution PII-bearing, revisit this fn too.
 
   -- ─── Cycle detection — IDENTICAL to fn_schools_network_feeders v3.6 ────────
   v_cycle := COALESCE(
@@ -158,10 +164,15 @@ BEGIN
       ) adopt ON TRUE
   ),
   scored AS (
-    -- per-school delta: NULL (not a mover) when there's no prior cycle to compare
-    -- against, or the school had no cohort in either compared year. Mirrors the
-    -- feeder fn's cycle_delta masking so gainers/losers never include a school
-    -- that is "up" only because there is no baseline.
+    -- per-school delta: NULL (not a mover) ONLY when there's no prior CYCLE at
+    -- all (v_prior IS NULL) or the school had zero learners in BOTH compared
+    -- years. Note the intended (not accidental) edge behavior:
+    --   • prior=0, current>0  → a brand-new feeder this cycle; a real gainer,
+    --     it DOES appear in gainers.
+    --   • prior>0, current=0  → none enrolled yet in the still-filling cycle; it
+    --     CAN appear as a loser. We do NOT hide these — a genuine drop to 0 is
+    --     indistinguishable from mid-cycle lag, so hiding would lose real signal.
+    -- The page's "so far" framing covers mid-cycle reads.
     SELECT name_disp, name_norm, enrolled_n, cur_n, pri_n, adopted_id,
            CASE WHEN v_prior IS NULL OR (cur_n + pri_n) = 0
                 THEN NULL ELSE cur_n - pri_n END AS delta

@@ -153,9 +153,11 @@ function MoversCard({
                 <span className="w-16 text-right">Change</span>
               </span>
             </div>
-            {rows.map((r) => (
+            {rows.map((r, idx) => (
               <div
-                key={r.school_name}
+                // index-suffixed: two distinct canonical keys can share a display
+                // name, which would otherwise collide as duplicate React keys.
+                key={`${r.school_name}-${idx}`}
                 className="flex items-center justify-between gap-3 py-2.5"
               >
                 <span

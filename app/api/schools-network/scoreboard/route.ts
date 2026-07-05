@@ -21,9 +21,10 @@ export const GET = withAuth(
     const { searchParams } = new URL(request.url);
     // Optional pinned cycle year; the RPC falls back to the latest cycle with
     // learners when null or unrecognised.
+    // Only a bare 4-digit year pins a cycle; junk like '2026abc' (which
+    // parseInt would silently accept as 2026) falls back to the latest cycle.
     const cycleParam = searchParams.get('cycleYear');
-    const parsed = cycleParam ? parseInt(cycleParam, 10) : NaN;
-    const cycleYear = Number.isFinite(parsed) ? parsed : null;
+    const cycleYear = cycleParam && /^\d{4}$/.test(cycleParam) ? Number(cycleParam) : null;
 
     const { data, error } = await auth.supabase.rpc(
       'fn_schools_network_scoreboard',
