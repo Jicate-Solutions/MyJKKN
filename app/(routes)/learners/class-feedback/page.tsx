@@ -27,6 +27,20 @@ import { MyConfirmedAttendanceCard } from '@/components/session-feedback/my-conf
 
 const BRAND = '#0b6d41';
 
+// Decision #11 (2026-07-05): feedback confirms attendance ONLY within this window of the
+// class. Mirrors the server-side session_feedback.window_hours default (48h). This is a
+// UX hint — the confirmed-attendance fns are the source of truth for the actual count.
+const CONFIRM_WINDOW_HOURS = 48;
+
+// Interpret the class day at IST midnight (matching the server fns) and check whether the
+// confirmation window is still open. Feedback for older classes is still welcome — it just
+// no longer counts toward attendance, so we LABEL it rather than hide it.
+function withinConfirmWindow(attendanceDate: string): boolean {
+  const classMidnightIST = new Date(`${attendanceDate}T00:00:00+05:30`).getTime();
+  if (Number.isNaN(classMidnightIST)) return true; // unknown date → never mislabel
+  return Date.now() <= classMidnightIST + CONFIRM_WINDOW_HOURS * 3600 * 1000;
+}
+
 function formatDate(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
   if (Number.isNaN(d.getTime())) return iso;
@@ -69,7 +83,7 @@ export default function LearnerSessionFeedbackPage() {
               Class Feedback
             </h1>
             <p className="text-sm text-muted-foreground">
-              A quick 10-second check after each class. Giving feedback confirms your attendance.
+              A quick 10-second check after each class. Give it within {CONFIRM_WINDOW_HOURS} hours to confirm your attendance.
             </p>
           </div>
           {pendingCount > 0 && (
@@ -128,6 +142,8 @@ export default function LearnerSessionFeedbackPage() {
                   const courseLabel = s.course_name || s.course_code || 'Class session';
                   const time = formatTime(s.start_time);
                   const periodBits = [s.period_name, time].filter(Boolean).join(' · ');
+                  // #11: past the window, feedback is still welcome but no longer confirms attendance.
+                  const confirmsAttendance = withinConfirmWindow(s.attendance_date);
                   return (
                     <li key={`${s.attendance_date}-${s.timetable_id}-${s.period_id}`}>
                       <button
@@ -164,12 +180,24 @@ export default function LearnerSessionFeedbackPage() {
                                 {s.faculty_name}
                               </span>
                             )}
+                            {!confirmsAttendance && (
+                              <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-500">
+                                <Clock className="h-3.5 w-3.5" />
+                                Too late to confirm attendance
+                              </span>
+                            )}
                           </div>
                         </div>
-                        <span className="hidden sm:inline-flex items-center gap-1 text-xs font-medium" style={{ color: BRAND }}>
-                          <CheckCircle2 className="h-4 w-4" />
-                          Give feedback
-                        </span>
+                        {confirmsAttendance ? (
+                          <span className="hidden sm:inline-flex items-center gap-1 text-xs font-medium" style={{ color: BRAND }}>
+                            <CheckCircle2 className="h-4 w-4" />
+                            Give feedback
+                          </span>
+                        ) : (
+                          <span className="hidden sm:inline-flex items-center gap-1 text-xs font-medium text-muted-foreground" title={`The ${CONFIRM_WINDOW_HOURS}-hour window to confirm attendance for this class has passed. Your feedback still helps your faculty, but it no longer counts toward attendance.`}>
+                            Feedback only
+                          </span>
+                        )}
                         <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                       </button>
                     </li>

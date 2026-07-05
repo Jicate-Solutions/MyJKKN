@@ -12,6 +12,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useMyConfirmedAttendance } from '@/hooks/use-session-feedback';
 
 const BRAND = '#0b6d41';
+// Decision #11 — feedback confirms attendance only within this window of the class
+// (mirrors the server session_feedback.window_hours default). Copy hint only.
+const CONFIRM_WINDOW_HOURS = 48;
 
 function fmtDate(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
@@ -42,7 +45,8 @@ export function MyConfirmedAttendanceCard() {
             <p className="font-medium">Your confirmed attendance starts fresh from {fmtDate(enforcement_start)}.</p>
             <p className="text-muted-foreground">
               From now on, a class counts as <strong>confirmed</strong> once you give the
-              quick 10-second feedback after it. Keep it up to stay comfortably above the {pass_line}% line.
+              quick 10-second feedback <strong>within {CONFIRM_WINDOW_HOURS} hours</strong> of it.
+              Keep it up to stay comfortably above the {pass_line}% line.
             </p>
           </div>
         </CardContent>
@@ -61,7 +65,7 @@ export function MyConfirmedAttendanceCard() {
             <p className="text-muted-foreground">
               {confirmed_present} of your {total_marks} classes so far are confirmed with feedback.
               Your confirmed % starts counting toward the {pass_line}% line after {min_marks} classes —
-              keep giving feedback after each class.
+              keep giving feedback within {CONFIRM_WINDOW_HOURS} hours of each class.
             </p>
           </div>
         </CardContent>
@@ -82,9 +86,9 @@ export function MyConfirmedAttendanceCard() {
       ? `Your confirmed attendance is ${confirmed_pct}% — just above the ${pass_line}% line.`
       : `You're at ${confirmed_pct}% confirmed attendance — above the ${pass_line}% line.`;
   const sub = atRisk
-    ? `You attended ${official_pct}% of classes, but only ${confirmed_pct}% are confirmed with feedback. Submit your pending feedback to raise it back above ${pass_line}%.`
+    ? `You attended ${official_pct}% of classes, but only ${confirmed_pct}% are confirmed with feedback. Give feedback within ${CONFIRM_WINDOW_HOURS} hours of each class to raise it back above ${pass_line}%.`
     : close
-      ? `You attended ${official_pct}% of classes. Give feedback after every class so you don't slip below ${pass_line}%.`
+      ? `You attended ${official_pct}% of classes. Give feedback within ${CONFIRM_WINDOW_HOURS} hours of every class so you don't slip below ${pass_line}%.`
       : `You attended ${official_pct}% and confirmed ${confirmed_pct}% with feedback. Keep it up.`;
 
   return (
