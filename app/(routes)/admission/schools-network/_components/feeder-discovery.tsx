@@ -2,10 +2,14 @@
 
 /**
  * Feeder discovery panel — the Director's "just pull those tables" design,
- * split into TWO stacked sections by the JKKN program level the learners
+ * split into THREE stacked sections by the JKKN program level the learners
  * joined:
- *   • "Feeder Schools"   (Undergraduate) — listFeeders({ level: 'ug' })
- *   • "Feeder Colleges"  (Postgraduate)  — listFeeders({ level: 'pg' })
+ *   • "Feeder Schools"      (Undergraduate) — listFeeders({ level: 'ug' })
+ *   • "Feeder Colleges"     (Postgraduate)  — listFeeders({ level: 'pg' })
+ *   • "Feeder — Other Levels" (diploma / PhD / unrecorded) — listFeeders({ level: 'other' })
+ *
+ * The Other-levels section is always on even when empty, so no feeder whose
+ * learners fall outside UG/PG is ever invisible.
  *
  * Both read EXISTING data through fn_schools_network_feeders (via
  * /api/schools-network/feeders): every distinct school in
@@ -24,7 +28,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Search, ChevronLeft, ChevronRight, Compass, Check, Plus } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Compass, Check, Plus, GitMerge } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -86,15 +90,24 @@ export function FeederDiscovery() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Compass className="h-5 w-5" /> Discover feeders
-        </CardTitle>
-        <p className="text-sm text-muted-foreground">
-          Every school and college your enrolled learners came from — read live
-          from the admission database, split by whether they joined an
-          undergraduate or postgraduate programme. Adopt one to start tracking
-          visits, contributions and contacts.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Compass className="h-5 w-5" /> Discover feeders
+            </CardTitle>
+            <p className="mt-1.5 text-sm text-muted-foreground">
+              Every school and college your enrolled learners came from — read
+              live from the admission database, split by whether they joined an
+              undergraduate or postgraduate programme. Adopt one to start
+              tracking visits, contributions and contacts.
+            </p>
+          </div>
+          <Link href="/admission/schools-network/duplicates">
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <GitMerge className="h-4 w-4" /> Tidy duplicates
+            </Button>
+          </Link>
+        </div>
       </CardHeader>
       <CardContent className="space-y-8">
         <form onSubmit={apply} className="flex flex-wrap gap-2">
@@ -144,6 +157,13 @@ export function FeederDiscovery() {
           filters={filters}
           note="Records are hand-entered at admission time, so this list can include some schools mixed in with colleges. The admission office is tidying these over time."
         />
+        <FeederSection
+          level="other"
+          title="Feeder — Other Levels"
+          subtitle="Diploma, PhD & other levels"
+          filters={filters}
+          note="Learners whose JKKN level is diploma, PhD, or wasn't recorded — kept here so no feeder is invisible. Usually a short list."
+        />
       </CardContent>
     </Card>
   );
@@ -156,7 +176,7 @@ function FeederSection({
   filters,
   note,
 }: {
-  level: 'ug' | 'pg';
+  level: 'ug' | 'pg' | 'other';
   title: string;
   subtitle: string;
   filters: SectionFilters;

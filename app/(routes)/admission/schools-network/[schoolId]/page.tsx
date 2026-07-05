@@ -7,7 +7,7 @@
  * Mirrors `app/(routes)/admission/consultants/[id]/page.tsx` shape.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
@@ -15,6 +15,8 @@ import {
   ArrowLeft,
   Building2,
   Calendar as CalendarIcon,
+  ChevronLeft,
+  ChevronRight,
   Edit,
   Gift,
   Handshake,
@@ -128,10 +130,29 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
     enabled: !!detailQuery.data,
   });
 
+  const [learnersPage, setLearnersPage] = useState(1);
+  // Reset paging when the school changes. App Router reuses this component
+  // across [schoolId] changes, so without this, paging deep in a large school
+  // then opening a smaller one fetches a past-the-end offset — and a ≤25-learner
+  // school (no pager) would show an unrecoverable empty roster (advisory review
+  // MEDIUM). This is React's documented "adjust state during render" pattern.
+  const [pagedSchoolId, setPagedSchoolId] = useState(schoolId);
+  if (schoolId !== pagedSchoolId) {
+    setPagedSchoolId(schoolId);
+    setLearnersPage(1);
+  }
   const learnersQuery = useQuery({
-    queryKey: ['schools-network', 'learners', schoolId],
-    queryFn: () => listSchoolLearners(detailQuery.data!.school.name),
+    queryKey: ['schools-network', 'learners', schoolId, learnersPage],
+    queryFn: () =>
+      listSchoolLearners(detailQuery.data!.school.name, {
+        limit: 25,
+        offset: (learnersPage - 1) * 25,
+      }),
     enabled: !!detailQuery.data,
+    // Keep prior data only across page-flips of the SAME school, so switching
+    // schools doesn't briefly show the previous school's roster (advisory review).
+    placeholderData: (prev, prevQuery) =>
+      prevQuery?.queryKey?.[2] === schoolId ? prev : undefined,
   });
 
   if (detailQuery.isLoading || !detailQuery.data) {
@@ -158,6 +179,9 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
 
   const ownerNames = owners.filter((o) => o.isActive);
   const primaryContact = contacts.find((c) => c.isPrimary);
+
+  const learnersTotal = learnersQuery.data?.total ?? 0;
+  const learnersTotalPages = Math.max(1, Math.ceil(learnersTotal / 25));
 
   return (
     <div className="space-y-6">
@@ -661,36 +685,73 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
                   No enrolled learners recorded from this school yet.
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Learner</TableHead>
-                      <TableHead>Register No.</TableHead>
-                      <TableHead>Program</TableHead>
-                      <TableHead>Admission Year</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {learnersQuery.data?.rows.map((row: SchoolLearnerRow) => (
-                      <TableRow key={row.learnerId}>
-                        <TableCell className="font-medium">
-                          {row.learnerName ?? '—'}
-                        </TableCell>
-                        <TableCell>{row.registerNumber ?? '—'}</TableCell>
-                        <TableCell>{row.programName ?? '—'}</TableCell>
-                        <TableCell>
-                          {row.yearKnown ? (
-                            row.admissionYear
-                          ) : (
-                            <span className="text-xs text-muted-foreground">
-                              Year not recorded
-                            </span>
-                          )}
-                        </TableCell>
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Learner</TableHead>
+                        <TableHead>Register No.</TableHead>
+                        <TableHead>Program</TableHead>
+                        <TableHead>Admission Year</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {learnersQuery.data?.rows.map((row: SchoolLearnerRow) => (
+                        <TableRow key={row.learnerId}>
+                          <TableCell className="font-medium">
+                            {row.learnerName ?? '—'}
+                          </TableCell>
+                          <TableCell>{row.registerNumber ?? '—'}</TableCell>
+                          <TableCell>{row.programName ?? '—'}</TableCell>
+                          <TableCell>
+                            {row.yearKnown ? (
+                              row.admissionYear
+                            ) : (
+                              <span className="text-xs text-muted-foreground">
+                                Year not recorded
+                              </span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+
+                  {learnersTotal > 25 && (
+                    <div className="mt-4 flex items-center justify-between">
+                      <p className="text-sm text-muted-foreground">
+                        Page {learnersPage} of{' '}
+                        {learnersTotalPages.toLocaleString('en-IN')}
+                      </p>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() =>
+                            setLearnersPage((p) => Math.max(1, p - 1))
+                          }
+                          disabled={learnersPage <= 1}
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() =>
+                            setLearnersPage((p) =>
+                              Math.min(learnersTotalPages, p + 1)
+                            )
+                          }
+                          disabled={learnersPage >= learnersTotalPages}
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
