@@ -116,6 +116,12 @@ export class PipelineService extends BaseService {
           .eq('event_id', sarvamId)
       : Promise.resolve({ count: 0, error: null });
 
+    // Cohort-core repoint decision (Phase 2.3): this SF100 pipeline count stays on
+    // the sf100_enrollments EXTENSION. cohorts/cohort_memberships are canonical for
+    // "which program + roster", but membership.status is FOLDED (warning/probation
+    // → active), so counting membership.status='active' would ABSORB stalled teams
+    // and change this number. The active-only sub-state is authoritative on the
+    // extension (gotcha #4), so the count is intentionally left here.
     const sf100CountPromise = this.supabase
       .from('sf100_enrollments')
       .select('id', { count: 'exact', head: true })
@@ -209,6 +215,10 @@ export class PipelineService extends BaseService {
     }
 
     if (stage === 'solve_for_100') {
+      // Reads SF100 extension fields (current_phase, cumulative_paid_users) and the
+      // authoritative active sub-state directly from sf100_enrollments — the cohort
+      // spine holds neither live (membership.config is a stale backfill snapshot),
+      // and its folded status would change which teams appear. Left on the extension.
       const { data, error } = await this.supabase
         .from('sf100_enrollments')
         .select(`
