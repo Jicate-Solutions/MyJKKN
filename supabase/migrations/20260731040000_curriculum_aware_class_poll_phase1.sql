@@ -727,7 +727,7 @@ CREATE OR REPLACE FUNCTION public.fn_induction_session_poll_responders(p_poll_id
                questions_answered bigint, answered_at timestamp with time zone)
  LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public'
 AS $function$
-DECLARE v_ctype text; v_cid uuid; v_floor int := 3; v_roster int; v_anchor public.scf_live_pulse;
+DECLARE v_ctype text; v_cid uuid; v_floor int := 3;
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'fn_induction_session_poll_responders: not authenticated'; END IF;
@@ -740,16 +740,11 @@ BEGIN
   -- small classes at the configured floor). Empty result → the "Who answered" list
   -- stays hidden in the UI.
   IF v_ctype = 'class_session' THEN
-    SELECT * INTO v_anchor FROM public.scf_live_pulse WHERE id = v_cid;
-    -- classify "small" by the STABLE full period roster (any status), not transient
-    -- Present, so a large class mid-marking isn't misclassified small (deep-review 🟠).
-    SELECT count(*)::int INTO v_roster
-    FROM public.student_attendance sa,
-         jsonb_array_elements(COALESCE(sa.attendance_data -> v_anchor.period_id -> 'students','[]'::jsonb)) st
-    WHERE sa.timetable_id = v_anchor.timetable_id AND sa.attendance_date = v_anchor.attendance_date
-      AND sa.attendance_data ? v_anchor.period_id;
-    v_floor := public._fn_live_poll_reveal_floor(v_roster);
-
+    -- The NAMED responder roster NEVER reveals at the small-class floor — decision #34
+    -- itself says a small-class reveal "shows only option counts, never names". So names
+    -- use the NORMAL floor (k>=3) regardless of class size; passing NULL forces normal
+    -- (deep-review 🟠 2026-07-05). Only aggregate option counts (in totals) may soften to 2.
+    v_floor := public._fn_live_poll_reveal_floor(NULL);
     IF (SELECT count(DISTINCT v.learner_id)
         FROM public.induction_session_poll_vote v WHERE v.poll_id = p_poll_id) < v_floor THEN
       RETURN;
