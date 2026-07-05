@@ -184,10 +184,14 @@ BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_bos_clos_for_course: not authenticated'; END IF;
   SELECT course_code, institution_id INTO v_code, v_inst FROM public.courses WHERE id = p_course_id;
   IF v_code IS NULL OR v_inst IS NULL THEN RETURN '[]'::jsonb; END IF;
-  -- Tenant gate: CLOs are institution-scoped academic content — don't let any authed
-  -- user enumerate other institutions' outcomes (deep-review 🟠 2026-07-05).
-  IF NOT (public.is_super_admin() OR public.role_has_institution_access(v_inst)) THEN
-    RAISE EXCEPTION 'fn_bos_clos_for_course: no access to this institution';
+  -- Tenant + role gate: CLOs are institution-scoped, STAFF-facing academic content.
+  -- This DEFINER RPC bypasses the table RLS, so the non-student guard the RLS enforces
+  -- must be repeated here or students could read CLOs via supabase.rpc (deep-review
+  -- 🟠 2026-07-05; the RLS fix alone doesn't cover the RPC path).
+  IF NOT (public.is_super_admin()
+          OR (public.role_has_institution_access(v_inst)
+              AND (SELECT public.get_current_user_role()) <> 'student')) THEN
+    RAISE EXCEPTION 'fn_bos_clos_for_course: not available to this role';
   END IF;
 
   -- Institution-scoped: match the syllabus by BOTH course_code AND institutions_id.
@@ -381,8 +385,14 @@ BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_curriculum_lessons_for_course: not authenticated'; END IF;
   SELECT institution_id INTO v_inst FROM public.courses WHERE id = p_course_id;
   IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_curriculum_lessons_for_course: no such course'; END IF;
-  IF NOT (public.is_super_admin() OR public.role_has_institution_access(v_inst)) THEN
-    RAISE EXCEPTION 'fn_curriculum_lessons_for_course: no access to this institution';
+  -- Non-student gate: this DEFINER RPC bypasses the table RLS, so a student could
+  -- otherwise enumerate the whole published spine via supabase.rpc — the exact learner
+  -- browsing the RLS + present-gate prevent. Learners see topics only through the
+  -- present-gated fn_curriculum_topic_for_learner (deep-review 🔴 2026-07-05).
+  IF NOT (public.is_super_admin()
+          OR (public.role_has_institution_access(v_inst)
+              AND (SELECT public.get_current_user_role()) <> 'student')) THEN
+    RAISE EXCEPTION 'fn_curriculum_lessons_for_course: not available to this role';
   END IF;
 
   -- per-teacher position: sequence_no of the caller's most-recent link in this course
@@ -596,7 +606,10 @@ BEGIN
   v_small_max := LEAST(GREATEST(COALESCE(v_small_max, 0), 0), 15);
   v_normal    := GREATEST(COALESCE(v_normal, 3), 3);
   v_small     := GREATEST(COALESCE(v_small, v_normal), 2);
-  RETURN CASE WHEN p_present IS NOT NULL AND p_present <= v_small_max THEN v_small ELSE v_normal END;
+  -- "small" only for a roster BETWEEN 1 AND small_max. A roster of 0 or NULL (empty/
+  -- missing blob) must NOT be treated as small — that would reveal a non-small class at
+  -- k=2 on degenerate data. 0/NULL falls through to the normal k>=3 floor (deep-review 🟠).
+  RETURN CASE WHEN p_present BETWEEN 1 AND v_small_max THEN v_small ELSE v_normal END;
 END $function$;
 REVOKE EXECUTE ON FUNCTION public._fn_live_poll_reveal_floor(int) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public._fn_live_poll_reveal_floor(int) TO authenticated;
