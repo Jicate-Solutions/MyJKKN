@@ -307,12 +307,19 @@ BEGIN
 
   -- A rename that collides with the creator's own published topic in this course would
   -- otherwise raise a raw uq_curriculum_lesson_faculty_topic error (deep-review 🟡).
+  -- Patch-style: an unspecified (NULL) param PRESERVES the current value, so a title-only
+  -- edit doesn't silently wipe learning_outcomes / co_refs / fink / unit / sequence
+  -- (deep-review 🟠 2026-07-05: the old full-replace was destructive for #33 edits).
   BEGIN
     UPDATE public.curriculum_lesson
-    SET title = btrim(p_title), unit_label = p_unit_label, sequence_no = p_sequence_no,
-        learning_outcomes = COALESCE(p_learning_outcomes,'[]'::jsonb),
-        primary_fink_dimension = p_primary_fink, co_refs = COALESCE(p_co_refs,'{}'),
-        bos_syllabus_id = p_bos_syllabus_id, updated_at = now()
+    SET title = btrim(p_title),
+        unit_label = COALESCE(p_unit_label, unit_label),
+        sequence_no = COALESCE(p_sequence_no, sequence_no),
+        learning_outcomes = COALESCE(p_learning_outcomes, learning_outcomes),
+        primary_fink_dimension = COALESCE(p_primary_fink, primary_fink_dimension),
+        co_refs = COALESCE(p_co_refs, co_refs),
+        bos_syllabus_id = COALESCE(p_bos_syllabus_id, bos_syllabus_id),
+        updated_at = now()
     WHERE id = p_lesson_id;
   EXCEPTION WHEN unique_violation THEN
     RAISE EXCEPTION 'fn_curriculum_lesson_upsert: you already have a published topic with that title in this course';
