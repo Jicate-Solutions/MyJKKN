@@ -335,6 +335,11 @@ export const POLICY_KEYS = {
   // required before enabling — exam-eligibility regulatory surface (spec R2). Never
   // mutates attendance_data. Seeded by 20260731020000_scf_hard_gate_enforcement_and_coupling.sql.
   SESSION_FEEDBACK_ATTENDANCE_COUPLING_ENABLED: 'session_feedback.attendance_coupling_enabled',
+  // Forward-only rollout (2026-07-05). Sessions before this IST date are grandfathered:
+  // never marked incomplete/overdue and excluded from confirmed-attendance eligibility.
+  // Resolved by fn_scf_faculty_completion (and, in Build 2, fn_scf_effective_attendance).
+  // Seeded by 20260705_scf_enforcement_start_date_forward_only.sql. Default '2026-07-05'.
+  SESSION_FEEDBACK_ENFORCEMENT_START_DATE: 'session_feedback.enforcement_start_date',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];
