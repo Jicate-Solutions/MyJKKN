@@ -83,3 +83,4 @@ Rules 1–4 are SF100-startup-specific (extension layer). Rules 5–14 are gener
 
 ## Progress log
 - 2026-07-05 10:15 — Worktree `feat/cohort-core` created off jicate/main (@3ad2c343b); SF100 code present; plan written. Next: Phase 1.1.
+- 2026-07-05 10:54 — PHASE 1 COMPLETE → **PR #1797**. Built + adversarially verified via 11-agent ultracode workflow (0 confirmed critical/high; tsc 0, eslint 0). Added CHECK on status_events target; verified FK/trigger targets exist in prod. Migration NOT applied (PR-staged). HELD at Phase-1 checkpoint for Director review before Phase 2 (first phase to touch LIVE SF100 data).
