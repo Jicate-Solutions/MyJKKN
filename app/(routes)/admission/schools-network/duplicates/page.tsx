@@ -139,6 +139,7 @@ function TidyDuplicatesContent() {
   });
 
   function handleMerge(s: FeederDupeSuggestion) {
+    if (linkMutation.isPending) return; // re-entry guard against a double-fire
     // Merge the SMALLER-count spelling INTO the LARGER-count one so the
     // dominant (more-used) name becomes the surviving school everywhere.
     const input =
@@ -268,7 +269,7 @@ function TidyDuplicatesContent() {
                       </Badge>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button size="sm" disabled={linkMutation.isPending}>
+                          <Button size="sm" disabled={isMerging}>
                             {isMerging ? (
                               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                             ) : (

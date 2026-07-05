@@ -131,6 +131,16 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
   });
 
   const [learnersPage, setLearnersPage] = useState(1);
+  // Reset paging when the school changes. App Router reuses this component
+  // across [schoolId] changes, so without this, paging deep in a large school
+  // then opening a smaller one fetches a past-the-end offset — and a ≤25-learner
+  // school (no pager) would show an unrecoverable empty roster (advisory review
+  // MEDIUM). This is React's documented "adjust state during render" pattern.
+  const [pagedSchoolId, setPagedSchoolId] = useState(schoolId);
+  if (schoolId !== pagedSchoolId) {
+    setPagedSchoolId(schoolId);
+    setLearnersPage(1);
+  }
   const learnersQuery = useQuery({
     queryKey: ['schools-network', 'learners', schoolId, learnersPage],
     queryFn: () =>

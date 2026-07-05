@@ -35,11 +35,14 @@ export const GET = withAuth(
       levelParam === 'ug' || levelParam === 'pg' || levelParam === 'other'
         ? levelParam
         : null;
-    // Pagination (server clamps 1..200 / >=0). Defaults mirror the fn (25 / 0).
+    // Pagination — clamped HERE (1..200 / >=0) so out-of-range input can't slip
+    // to the fn and silently return 1 row (advisory review LOW). Defaults 25 / 0.
     const limitParam = parseInt(searchParams.get('limit') ?? '', 10);
     const offsetParam = parseInt(searchParams.get('offset') ?? '', 10);
-    const p_limit = Number.isFinite(limitParam) ? limitParam : 25;
-    const p_offset = Number.isFinite(offsetParam) ? offsetParam : 0;
+    const p_limit = Number.isFinite(limitParam)
+      ? Math.min(200, Math.max(1, limitParam))
+      : 25;
+    const p_offset = Number.isFinite(offsetParam) ? Math.max(0, offsetParam) : 0;
 
     const { data, error } = await auth.supabase.rpc(
       'fn_schools_network_school_learners',
@@ -74,8 +77,11 @@ export const GET = withAuth(
         p_limit: 1,
         p_offset: 0,
       });
-      // Only trust the probe's total if it succeeded; a transient probe error
-      // must not silently zero the total and strand the pager (advisory review).
+      // The probe recovers the window total for a past-the-end page. If the
+      // probe itself errors we can't recover the total — it stays 0 (a rare
+      // double-failure); the guard only avoids trusting a failed probe's null
+      // data, it doesn't invent a total. The detail page resets to page 1 on
+      // school change, so a past-the-end offset is unlikely to arise at all.
       if (!probe.error) {
         const parr = (probe.data ?? []) as Array<Record<string, unknown>>;
         total = parr.length > 0 ? Number(parr[0].total_count ?? 0) : 0;
