@@ -302,12 +302,26 @@ BEGIN
   IF p_school_id IS NULL THEN
     RAISE EXCEPTION 'school_id is required';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.schools s WHERE s.id = p_school_id) THEN
-    RAISE EXCEPTION 'school not found';
+  -- Only external adopted feeders are on the worklist (institution_id IS NULL);
+  -- reject an internal/JKKN-own school so it can't get a never-nudged assignment.
+  IF NOT EXISTS (SELECT 1 FROM public.schools s
+                  WHERE s.id = p_school_id AND s.institution_id IS NULL) THEN
+    RAISE EXCEPTION 'school not found or not an external feeder school';
   END IF;
+  -- Enforce the Director "coordinators & owners only" rule server-side (the
+  -- picker enforces it only client-side): the assignee must be an active school
+  -- owner OR hold an active outreach_coordinator / program_lead role. NULL clears.
   IF p_assigned_to IS NOT NULL
-     AND NOT EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p_assigned_to) THEN
-    RAISE EXCEPTION 'assignee not found';
+     AND NOT EXISTS (
+       SELECT 1 FROM public.school_jkkn_owners o
+        WHERE o.jkkn_user_id = p_assigned_to AND o.is_active
+       UNION
+       SELECT 1 FROM public.user_roles ur
+         JOIN public.custom_roles cr ON cr.id = ur.role_id
+        WHERE ur.user_id = p_assigned_to AND cr.is_active
+          AND cr.role_key IN ('outreach_coordinator', 'program_lead')
+     ) THEN
+    RAISE EXCEPTION 'assignee must be an active outreach coordinator or school owner';
   END IF;
 
   INSERT INTO public.school_visit_assignments (school_id, assigned_to, assigned_by)
@@ -339,8 +353,11 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
-  -- Pass 1 — direct owner: each unassigned school → its active school_jkkn_owners
-  -- owner (prefer the outreach_coordinator; else the most recently assigned).
+  -- Pass 1 — direct owner: each UNASSIGNED external feeder → its active
+  -- school_jkkn_owners owner (prefer outreach_coordinator; else most recent).
+  -- "Unassigned" = no row OR a row with assigned_to IS NULL (Unassign leaves the
+  -- row with a NULL owner) — so a manually-cleared school can be re-filled, not
+  -- skipped forever. institution_id IS NULL keeps it to external feeders.
   WITH candidates AS (
     SELECT s.id AS school_id,
            (SELECT o.jkkn_user_id
@@ -349,13 +366,19 @@ BEGIN
              ORDER BY (o.role = 'outreach_coordinator') DESC, o.assigned_at DESC
              LIMIT 1) AS owner_id
       FROM public.schools s
-     WHERE NOT EXISTS (SELECT 1 FROM public.school_visit_assignments va
-                        WHERE va.school_id = s.id)
+     WHERE s.institution_id IS NULL
+       AND NOT EXISTS (SELECT 1 FROM public.school_visit_assignments va
+                        WHERE va.school_id = s.id AND va.assigned_to IS NOT NULL)
   ),
   ins AS (
     INSERT INTO public.school_visit_assignments (school_id, assigned_to, assigned_by)
     SELECT school_id, owner_id, auth.uid() FROM candidates WHERE owner_id IS NOT NULL
-    ON CONFLICT (school_id) DO NOTHING
+    -- re-fill a persisting NULL row; never overwrite an active assignment.
+    ON CONFLICT (school_id) DO UPDATE
+      SET assigned_to = EXCLUDED.assigned_to,
+          assigned_by = EXCLUDED.assigned_by,
+          updated_at  = now()
+      WHERE public.school_visit_assignments.assigned_to IS NULL
     RETURNING 1
   )
   SELECT count(*) INTO v_n FROM ins;
@@ -369,6 +392,7 @@ BEGIN
       FROM public.school_visit_assignments va
       JOIN public.schools s ON s.id = va.school_id
      WHERE va.assigned_to IS NOT NULL AND s.district IS NOT NULL
+       AND s.institution_id IS NULL
      GROUP BY s.district
   ),
   district_candidates AS (
@@ -376,14 +400,19 @@ BEGIN
       FROM public.schools s
       JOIN assigned_by_district abd ON abd.district = s.district
      WHERE s.district IS NOT NULL
+       AND s.institution_id IS NULL
        AND abd.common_owner IS NOT NULL
        AND NOT EXISTS (SELECT 1 FROM public.school_visit_assignments va
-                        WHERE va.school_id = s.id)
+                        WHERE va.school_id = s.id AND va.assigned_to IS NOT NULL)
   ),
   ins2 AS (
     INSERT INTO public.school_visit_assignments (school_id, assigned_to, assigned_by)
     SELECT school_id, owner_id, auth.uid() FROM district_candidates
-    ON CONFLICT (school_id) DO NOTHING
+    ON CONFLICT (school_id) DO UPDATE
+      SET assigned_to = EXCLUDED.assigned_to,
+          assigned_by = EXCLUDED.assigned_by,
+          updated_at  = now()
+      WHERE public.school_visit_assignments.assigned_to IS NULL
     RETURNING 1
   )
   SELECT count(*) INTO v_n FROM ins2;
@@ -423,11 +452,13 @@ BEGIN
       FROM public.school_jkkn_owners o
      WHERE o.is_active AND o.jkkn_user_id IS NOT NULL
     UNION
-    -- staff explicitly holding the outreach coordinator / program lead role
+    -- staff explicitly holding the (active) outreach coordinator / program lead
+    -- role. cr.is_active so a deactivated role's holders drop out of the picker.
     SELECT ur.user_id AS uid, cr.role_key AS r
       FROM public.user_roles ur
       JOIN public.custom_roles cr ON cr.id = ur.role_id
-     WHERE cr.role_key IN ('outreach_coordinator', 'program_lead')
+     WHERE cr.is_active
+       AND cr.role_key IN ('outreach_coordinator', 'program_lead')
   ),
   dedup AS (
     -- one row per person; prefer 'outreach_coordinator', then 'program_lead',
