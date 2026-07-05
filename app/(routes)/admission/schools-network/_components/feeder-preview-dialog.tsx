@@ -30,11 +30,17 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 import { listSchoolLearners, type SchoolLearnerRow } from '../_lib/api';
 
+// This is a fast-glance popup, not the full roster. Un-adopted schools have no
+// detail page, so there is nowhere to "open the full list" — that lives on the
+// Enrolled Learners tab which only appears AFTER adoption. Cap the fetch here
+// and point the user at the Adopt button for the searchable roster.
+const PREVIEW_LIMIT = 25;
+
 export function FeederPreviewDialog(props: {
   schoolName: string;
   /** Programme level of the FeederSection this popup opened from. Scopes the
    *  roster so its count matches the clicked row (undefined → all levels). */
-  level?: 'ug' | 'pg';
+  level?: 'ug' | 'pg' | 'other';
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }): JSX.Element {
@@ -43,13 +49,21 @@ export function FeederPreviewDialog(props: {
   // Dormant until the popup actually opens — lets the parent mount one dialog
   // per un-adopted row without firing N roster requests up front.
   const { data, isLoading } = useQuery({
-    queryKey: ['schools-network', 'preview-learners', schoolName, level ?? 'all'],
-    queryFn: () => listSchoolLearners(schoolName, level),
+    queryKey: [
+      'schools-network',
+      'preview-learners',
+      schoolName,
+      level ?? 'all',
+      `first${PREVIEW_LIMIT}`,
+    ],
+    queryFn: () => listSchoolLearners(schoolName, { level, limit: PREVIEW_LIMIT }),
     enabled: open && !!schoolName,
   });
 
   const rows = data?.rows ?? [];
   const total = data?.total ?? 0;
+  // `total` is the full count; only up to PREVIEW_LIMIT rows load here.
+  const hasMore = total > PREVIEW_LIMIT;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -108,6 +122,14 @@ export function FeederPreviewDialog(props: {
             </ul>
           )}
         </div>
+
+        {!isLoading && hasMore ? (
+          <p className="px-1 text-xs text-muted-foreground">
+            Showing the first {PREVIEW_LIMIT} of{' '}
+            {total.toLocaleString('en-IN')}. Adopt this school to see the full,
+            searchable roster.
+          </p>
+        ) : null}
 
         <DialogFooter>
           <Link
