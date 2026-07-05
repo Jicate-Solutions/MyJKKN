@@ -24,6 +24,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/ai-tasks-sweep?secret=${CRON_SECRET}",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/scf-generate-suggestions?mode=collect&secret=${CRON_SECRET}",
       "schedule": "*/30 * * * *"
     },

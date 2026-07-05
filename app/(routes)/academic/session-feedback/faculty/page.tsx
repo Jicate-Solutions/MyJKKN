@@ -75,6 +75,7 @@ import type {
 } from '@/types/session-feedback';
 import { FollowupCell } from '../_components/followup-cell';
 import { AiSuggestionDialog } from '../_components/ai-suggestion-dialog';
+import { AiTaskButton } from '@/components/ai-tasks/ai-task-button';
 import { LivePulseSection } from '../_components/live-pulse-control';
 
 const BRAND_GREEN = '#0b6d41';
@@ -363,12 +364,19 @@ function TopicsToRevisitSection({ from, to }: { from: string; to: string }) {
                     </TableCell>
                     <TableCell className="text-right">
                       {r.course_code ? (
-                        <AiSuggestionDialog
-                          courseCode={r.course_code}
-                          courseName={r.course_name}
-                          from={from}
-                          to={to}
-                        />
+                        <div className="flex flex-col items-end gap-1.5">
+                          <AiSuggestionDialog
+                            courseCode={r.course_code}
+                            courseName={r.course_name}
+                            from={from}
+                            to={to}
+                          />
+                          <AiTaskButton
+                            taskType="session_feedback.suggest_improvement"
+                            entityId={r.course_code}
+                            label="Summarise (50% AI)"
+                          />
+                        </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
                       )}
