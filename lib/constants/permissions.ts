@@ -2272,6 +2272,21 @@ export const PERMISSION_CATEGORIES = [
       { key: 'schools_network.master.manage', label: 'Manage Schools Network Master Lists (session types, partner types, contact roles)' },
       { key: 'schools_network.portal.write', label: 'HM Portal Write Access (future v2)' }
     ]
+  },
+  {
+    // Added 2026-07-05 — Cohort Core (shared cohort spine). Keys referenced by
+    // RLS on cohort_* tables (cohorts / cohort_memberships / cohort_status_events;
+    // migration 20260731040000_cohort_core_spine.sql). SELECT→cohort.view,
+    // INSERT→cohort.create, UPDATE→cohort.edit, DELETE→cohort.manage. Grant
+    // 'cohort.manage' to cohort coordinators; super_admin/admin bypass every policy.
+    name: 'Cohort Core',
+    key: 'cohort',
+    permissions: [
+      { key: 'cohort.view', label: 'View Cohorts' },
+      { key: 'cohort.create', label: 'Create Cohorts' },
+      { key: 'cohort.edit', label: 'Edit Cohorts' },
+      { key: 'cohort.manage', label: 'Manage Cohorts (delete, remove members, admin)' }
+    ]
   }
 ];
 

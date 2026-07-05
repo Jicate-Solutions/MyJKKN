@@ -1366,3 +1366,15 @@ CREATE TRIGGER trg_touch_updated_at BEFORE UPDATE ON public.event_program_feedba
 CREATE TRIGGER hr_rec_cand_comments_updated_at
   BEFORE UPDATE ON hr_recruitment_candidate_comments
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Cohort Core updated_at (migration 20260731040000_cohort_core_spine.sql). 2026-07-05.
+-- cohort_status_events is append-only (no updated_at column) → no trigger.
+DROP TRIGGER IF EXISTS trg_cohorts_updated_at ON public.cohorts;
+CREATE TRIGGER trg_cohorts_updated_at
+  BEFORE UPDATE ON public.cohorts
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_cohort_memberships_updated_at ON public.cohort_memberships;
+CREATE TRIGGER trg_cohort_memberships_updated_at
+  BEFORE UPDATE ON public.cohort_memberships
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();

@@ -7430,3 +7430,122 @@ CREATE POLICY hr_rec_cand_comments_insert ON hr_recruitment_candidate_comments
   FOR INSERT TO authenticated
   WITH CHECK (commenter_id = auth.uid()
     AND EXISTS (SELECT 1 FROM hr_recruitment_candidates c WHERE c.id = hr_recruitment_candidate_comments.candidate_id));
+
+-- =====================================================================================
+-- Cohort Core RLS (migration 20260731040000_cohort_core_spine.sql). Added 2026-07-05.
+-- Canonical dynamic-permission pattern: is_super_admin() OR is_admin() first, then
+-- user_has_permission('cohort.<verb>') + tenant scope. cohorts scope directly on
+-- institution_id; memberships/events scope through the parent cohort via EXISTS.
+-- SECDEF calls wrapped as (select fn(...)) → InitPlan-cached once per statement.
+-- DELETE gated on cohort.manage (keeps every referenced key in PERMISSION_CATEGORIES).
+-- Events are append-only: UPDATE/DELETE are admin-only.
+-- =====================================================================================
+ALTER TABLE public.cohorts ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS cohorts_select_permission ON public.cohorts;
+CREATE POLICY cohorts_select_permission ON public.cohorts
+  FOR SELECT USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.view'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohorts_insert_permission ON public.cohorts;
+CREATE POLICY cohorts_insert_permission ON public.cohorts
+  FOR INSERT WITH CHECK (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.create'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohorts_update_permission ON public.cohorts;
+CREATE POLICY cohorts_update_permission ON public.cohorts
+  FOR UPDATE USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.edit'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohorts_delete_permission ON public.cohorts;
+CREATE POLICY cohorts_delete_permission ON public.cohorts
+  FOR DELETE USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.manage'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+ALTER TABLE public.cohort_memberships ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS cohort_memberships_select_permission ON public.cohort_memberships;
+CREATE POLICY cohort_memberships_select_permission ON public.cohort_memberships
+  FOR SELECT USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.view'::text))
+        AND EXISTS (SELECT 1 FROM public.cohorts c
+                    WHERE c.id = cohort_memberships.cohort_id
+                      AND role_has_institution_access(c.institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohort_memberships_insert_permission ON public.cohort_memberships;
+CREATE POLICY cohort_memberships_insert_permission ON public.cohort_memberships
+  FOR INSERT WITH CHECK (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.create'::text))
+        AND EXISTS (SELECT 1 FROM public.cohorts c
+                    WHERE c.id = cohort_memberships.cohort_id
+                      AND role_has_institution_access(c.institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohort_memberships_update_permission ON public.cohort_memberships;
+CREATE POLICY cohort_memberships_update_permission ON public.cohort_memberships
+  FOR UPDATE USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.edit'::text))
+        AND EXISTS (SELECT 1 FROM public.cohorts c
+                    WHERE c.id = cohort_memberships.cohort_id
+                      AND role_has_institution_access(c.institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohort_memberships_delete_permission ON public.cohort_memberships;
+CREATE POLICY cohort_memberships_delete_permission ON public.cohort_memberships
+  FOR DELETE USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.manage'::text))
+        AND EXISTS (SELECT 1 FROM public.cohorts c
+                    WHERE c.id = cohort_memberships.cohort_id
+                      AND role_has_institution_access(c.institution_id)))
+  );
+
+ALTER TABLE public.cohort_status_events ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS cohort_status_events_select_permission ON public.cohort_status_events;
+CREATE POLICY cohort_status_events_select_permission ON public.cohort_status_events
+  FOR SELECT USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.view'::text))
+        AND EXISTS (SELECT 1 FROM public.cohorts c
+                    WHERE (c.id = cohort_status_events.cohort_id
+                           OR c.id = (SELECT m.cohort_id FROM public.cohort_memberships m
+                                      WHERE m.id = cohort_status_events.membership_id))
+                      AND role_has_institution_access(c.institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohort_status_events_insert_permission ON public.cohort_status_events;
+CREATE POLICY cohort_status_events_insert_permission ON public.cohort_status_events
+  FOR INSERT WITH CHECK (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.edit'::text))
+        AND EXISTS (SELECT 1 FROM public.cohorts c
+                    WHERE (c.id = cohort_status_events.cohort_id
+                           OR c.id = (SELECT m.cohort_id FROM public.cohort_memberships m
+                                      WHERE m.id = cohort_status_events.membership_id))
+                      AND role_has_institution_access(c.institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohort_status_events_update_permission ON public.cohort_status_events;
+CREATE POLICY cohort_status_events_update_permission ON public.cohort_status_events
+  FOR UPDATE USING ((select is_super_admin()) OR (select is_admin()));
+
+DROP POLICY IF EXISTS cohort_status_events_delete_permission ON public.cohort_status_events;
+CREATE POLICY cohort_status_events_delete_permission ON public.cohort_status_events
+  FOR DELETE USING ((select is_super_admin()) OR (select is_admin()));
