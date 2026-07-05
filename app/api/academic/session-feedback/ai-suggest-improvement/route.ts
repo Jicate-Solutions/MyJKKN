@@ -253,7 +253,10 @@ Generate the teaching-improvement JSON now.`;
     try {
       resp = await anthropic.messages.create({
         model: modelId,
-        max_tokens: 1024,
+        // 2048 (was 1024): a comment-rich class produces summary + 3-5
+        // adjustments that overflow 1024 → truncated JSON → JSON.parse throws →
+        // 500 for the user. Verified on MR3691 (16 comments → 1232 output tokens).
+        max_tokens: 2048,
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userPrompt }],
       });
