@@ -52,6 +52,23 @@ function formatDate(iso: string | null | undefined) {
   }
 }
 
+// Engagement audits (CARE/CARRE) and compliance audits (NAAC/NBA/…) both live
+// in audit_cycles. Classify each row by framework so it routes to its OWN flow:
+// engagement → the 0–4 two-scorer scoring UI, compliance → attestations/findings.
+const ENGAGEMENT_FRAMEWORKS = new Set(['CARE', 'CARRE']);
+
+function auditKind(frameworks: string[]): 'engagement' | 'compliance' {
+  return frameworks.some((f) => ENGAGEMENT_FRAMEWORKS.has(f))
+    ? 'engagement'
+    : 'compliance';
+}
+
+function auditHref(cycle: { id: string; frameworks: string[] }): string {
+  return auditKind(cycle.frameworks) === 'engagement'
+    ? `/audit/care/${cycle.id}`
+    : `/audit/cycles/${cycle.id}`;
+}
+
 export default function AuditCyclesPage() {
   const [includeClosed, setIncludeClosed] = useState(false);
   const [search, setSearch] = useState('');
@@ -97,20 +114,30 @@ export default function AuditCyclesPage() {
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <Layers className="h-5 w-5 text-primary" />
-                  Audit Cycles
+                  Audits
                 </CardTitle>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Time-boxed institutional audit runs. Each cycle freezes a parameter
-                  snapshot on its first draft→in-progress transition so that changes
-                  to the master catalog don&apos;t retro-contaminate past attestations.
+                  Every audit in one place — <strong>compliance</strong> cycles
+                  (NAAC/NBA and other bodies) and <strong>engagement</strong> audits
+                  (CARE/CARRE). Each row opens its own flow: engagement audits use
+                  0–4 two-scorer scoring; compliance cycles use attestations and
+                  findings.
                 </p>
               </div>
-              <Link href="/audit/cycles/new">
-                <Button size="sm">
-                  <Plus className="mr-2 h-4 w-4" />
-                  Create cycle
-                </Button>
-              </Link>
+              <div className="flex flex-wrap items-center gap-2">
+                <Link href="/audit/care/new">
+                  <Button size="sm" variant="outline">
+                    <Plus className="mr-2 h-4 w-4" />
+                    New CARRE audit
+                  </Button>
+                </Link>
+                <Link href="/audit/cycles/new">
+                  <Button size="sm">
+                    <Plus className="mr-2 h-4 w-4" />
+                    New compliance cycle
+                  </Button>
+                </Link>
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -226,7 +253,19 @@ export default function AuditCyclesPage() {
                         <CyclePhaseBadge phase={c.phase} />
                       </TableCell>
                       <TableCell>
-                        <div className="flex flex-wrap gap-1">
+                        <div className="flex flex-wrap items-center gap-1">
+                          <Badge
+                            variant="outline"
+                            className={
+                              auditKind(c.frameworks) === 'engagement'
+                                ? 'text-[10px] border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
+                                : 'text-[10px] border-indigo-300 bg-indigo-50 text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-200'
+                            }
+                          >
+                            {auditKind(c.frameworks) === 'engagement'
+                              ? 'Engagement'
+                              : 'Compliance'}
+                          </Badge>
                           {c.frameworks.map((f) => (
                             <Badge
                               key={f}
@@ -242,7 +281,7 @@ export default function AuditCyclesPage() {
                         {formatDate(c.start_date)} — {formatDate(c.end_date)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Link href={`/audit/cycles/${c.id}`}>
+                        <Link href={auditHref(c)}>
                           <Button variant="ghost" size="sm">
                             Open
                             <ArrowRight className="ml-1 h-3 w-3" />
