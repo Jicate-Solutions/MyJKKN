@@ -125,9 +125,15 @@ function RescueContent() {
   const candidateRows = candidates.data?.candidates ?? [];
   const accessDenied = is403(overview.error);
 
-  // The groups the admin has ticked (real pincodes only).
+  // The groups the admin has ticked (real, still-unclaimed pincodes only). The
+  // `!alreadyConfirmed` guard matters after a refetch: a pincode another admin
+  // just confirmed must drop out of the submission even if it's still in
+  // `checked` — otherwise a stale tick would feed a duplicate-claim confirm.
   const selectedGroups = useMemo(
-    () => candidateRows.filter((c) => c.pincode !== null && checked.has(c.pincode)),
+    () =>
+      candidateRows.filter(
+        (c) => c.pincode !== null && !c.alreadyConfirmed && checked.has(c.pincode)
+      ),
     [candidateRows, checked]
   );
   const selectedLearners = selectedGroups.reduce((s, g) => s + g.learnerCount, 0);

@@ -158,6 +158,7 @@ RETURNS TABLE(
 LANGUAGE plpgsql
 STABLE SECURITY DEFINER
 SET search_path TO 'public'
+SET statement_timeout TO '20000'   -- cap the full learners_profiles scan (mirrors list_generic_feeders)
 AS $$
 DECLARE
   v_key     text;
@@ -292,6 +293,46 @@ BEGIN
   -- concurrent confirms can't both claim the same pincodes.
   PERFORM pg_advisory_xact_lock(hashtext('schools_network_feeder_split:' || v_primary));
 
+  -- (1) DOUBLE-CLAIM GUARD (the reason the lock exists): reject if ANY submitted
+  -- pincode is already part of a confirmed split for this feeder. Without this,
+  -- the lock serialises but enforces nothing — a replay / concurrent confirm /
+  -- stale client would mint a duplicate school claiming the same pincode. (The
+  -- UI already_confirmed disable is display-only.)
+  IF EXISTS (
+    SELECT 1 FROM public.schools_network_feeder_splits s
+     WHERE s.generic_key = v_primary
+       AND s.pincodes && v_pincodes          -- array overlap
+  ) THEN
+    RAISE EXCEPTION 'one or more selected pincodes are already part of a confirmed split for this school';
+  END IF;
+
+  -- (2) ROSTER GUARD: every submitted pincode must actually belong to THIS
+  -- feeder's learners — don't mint a school + audit row for bogus pincodes.
+  IF EXISTS (
+    SELECT 1 FROM unnest(v_pincodes) AS want(pin)
+     WHERE NOT EXISTS (
+       SELECT 1 FROM public.learners_profiles lp
+        WHERE NULLIF(regexp_replace(btrim(coalesce(lp.permanent_address_pin_code, '')), '\s+', '', 'g'), '') = want.pin
+          AND (CASE WHEN lp.last_school ~ '[^[:ascii:]]'
+                 THEN regexp_replace(trim(lower(lp.last_school)), '\s+', ' ', 'g')
+                 ELSE COALESCE(
+                   NULLIF(regexp_replace(lower(lp.last_school), '[^a-z0-9]', '', 'g'), ''),
+                   regexp_replace(trim(lower(lp.last_school)), '\s+', ' ', 'g'))
+               END) IN (
+                 SELECT v_primary
+                 UNION
+                 SELECT from_key FROM public.schools_network_feeder_aliases WHERE to_key = v_primary)
+     )
+  ) THEN
+    RAISE EXCEPTION 'one or more selected pincodes do not belong to this feeder';
+  END IF;
+
+  -- (3) If an institution is attributed (internal school), it must be real.
+  IF p_institution_id IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM public.institutions i WHERE i.id = p_institution_id) THEN
+    RAISE EXCEPTION 'institution not found';
+  END IF;
+
   -- Derive ownership from institution to satisfy schools_internal_requires_institution.
   v_ownership := CASE WHEN p_institution_id IS NULL THEN 'external' ELSE 'internal' END;
 
@@ -326,7 +367,6 @@ SET search_path TO 'public'
 AS $$
 DECLARE
   v_school_id uuid;
-  v_has_work  boolean;
 BEGIN
   IF NOT (is_super_admin() OR is_admin()) THEN
     RAISE EXCEPTION 'permission denied — undoing a feeder split is admin-only'
@@ -343,23 +383,23 @@ BEGIN
     RETURN;
   END IF;
 
+  -- Serialise cleanup of THIS school so two concurrent unconfirms can't both
+  -- act on it.
+  PERFORM pg_advisory_xact_lock(hashtext('schools_network_feeder_school:' || v_school_id::text));
+
   -- Remove the split record first.
   DELETE FROM public.schools_network_feeder_splits WHERE id = p_split_id;
 
-  -- Only clean up the created school if it is still pristine — no field work
-  -- has been logged against it. Any attached work means deleting would cascade
-  -- real data, so we leave the school standing.
-  SELECT
-      EXISTS (SELECT 1 FROM public.school_sessions       WHERE school_id = v_school_id)
-   OR EXISTS (SELECT 1 FROM public.school_contributions  WHERE school_id = v_school_id)
-   OR EXISTS (SELECT 1 FROM public.school_jkkn_owners     WHERE school_id = v_school_id)
-    INTO v_has_work;
-
-  IF NOT v_has_work THEN
-    -- school_contacts (if any auto-created) cascade on delete; safe for a
-    -- pristine school that was only just created by the confirm.
-    DELETE FROM public.schools WHERE id = v_school_id;
-  END IF;
+  -- Clean up the created school ONLY if it is still pristine (no field work
+  -- logged). Done as a SINGLE conditional DELETE — not a separate has_work check
+  -- then delete — so the NOT EXISTS is re-evaluated atomically at delete time and
+  -- a row that just received real work can't be dropped through a check-then-act
+  -- gap.
+  DELETE FROM public.schools s
+   WHERE s.id = v_school_id
+     AND NOT EXISTS (SELECT 1 FROM public.school_sessions      ss WHERE ss.school_id = s.id)
+     AND NOT EXISTS (SELECT 1 FROM public.school_contributions sc WHERE sc.school_id = s.id)
+     AND NOT EXISTS (SELECT 1 FROM public.school_jkkn_owners    so WHERE so.school_id = s.id);
 END;
 $$;
 

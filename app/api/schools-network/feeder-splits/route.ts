@@ -33,6 +33,13 @@ function rpcError(
   if (e?.code === '42501') {
     return errorResponse(e?.message ?? 'permission denied', 403, 'FORBIDDEN');
   }
+  // P0001 = our own RAISE EXCEPTION validation (pincodes already claimed / not in
+  // this feeder / institution not found / name required). These messages are safe
+  // and actionable — surface them as a 422 so the admin sees the real reason
+  // (e.g. "already part of a confirmed split") instead of a generic error.
+  if (e?.code === 'P0001') {
+    return errorResponse(e?.message ?? 'Invalid request', 422, 'VALIDATION_ERROR');
+  }
   // Any other DB/RPC error: log raw text server-side, return a generic message
   // so internal error text / schema hints don't leak (advisory LOW).
   console.error(`[schools-network/feeder-splits] ${fallbackCode}:`, e?.message);
