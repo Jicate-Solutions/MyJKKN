@@ -69,7 +69,7 @@ Rules 1–4 are SF100-startup-specific (extension layer). Rules 5–14 are gener
 - [ ] 2.4 Scoped verify + commit
 
 ## PHASE 3 — Foundations onto the core (🟢 empty)
-- [ ] 3.1 Map `ss_foundations_cohorts/enrollments` → cohort-core (kind='foundations')
+- [ ] 3.1 Map `ss_foundations_cohorts/enrollments` → cohort-core (kind='foundations'); completion = MENTOR SIGN-OFF (D5) → graduates the membership
 - [ ] 3.2 Service/hooks + scoped verify + commit
 
 ## PHASE 4 — CDC training onto the core (🟢 empty)
