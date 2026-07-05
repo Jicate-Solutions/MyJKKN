@@ -62,9 +62,9 @@ Rules 1–4 are SF100-startup-specific (extension layer). Rules 5–14 are gener
 - [x] 1.7 Scoped verify (tsc/eslint on touched files) + commit — tsc 0 / eslint 0; 11-agent adversarial review = 0 confirmed critical/high
 
 ## PHASE 2 — SF100 onto the core as reference (🟡 live data: 19 rows) — approach = COPY-OVER + KEEP OLD (D3)
-- [ ] 2.0 Engine: per-program rule-config shape on `cohorts.config` + defaults per kind (D2); add `transferMembership` (D8) and round-close cascade that auto-archives members (D7) to cohort-service + lifecycle
-- [ ] 2.1 Map `sf100_programs` → register into `cohorts` (kind='sf100'); `sf100_enrollments` → `cohort_memberships`
-- [ ] 2.2 Backfill migration for the 1 program + 18 enrollments (idempotent, COPY only — leave sf100_* intact as backup per D3)
+- [x] 2.0 Engine: per-program rule-config shape on `cohorts.config` + defaults per kind (D2); add `transferMembership` (D8) and round-close cascade that auto-archives members (D7) to cohort-service + lifecycle
+- [x] 2.1 Map `sf100_programs` → register into `cohorts` (kind='sf100'); `sf100_enrollments` → `cohort_memberships`
+- [x] 2.2 Backfill migration for the 1 program + 18 enrollments (idempotent, COPY only — leave sf100_* intact as backup per D3)
 - [ ] 2.3 Point SF100 service/hooks at cohort-core for lifecycle; keep startup-specific tables as extensions
 - [ ] 2.4 Scoped verify + commit
 
@@ -95,3 +95,4 @@ Rules 1–4 are SF100-startup-specific (extension layer). Rules 5–14 are gener
 ## Progress log
 - 2026-07-05 10:15 — Worktree `feat/cohort-core` created off jicate/main (@3ad2c343b); SF100 code present; plan written. Next: Phase 1.1.
 - 2026-07-05 10:54 — PHASE 1 COMPLETE → **PR #1797**. Built + adversarially verified via 11-agent ultracode workflow (0 confirmed critical/high; tsc 0, eslint 0). Added CHECK on status_events target; verified FK/trigger targets exist in prod. Migration NOT applied (PR-staged). HELD at Phase-1 checkpoint for Director review before Phase 2 (first phase to touch LIVE SF100 data).
+- 2026-07-05 — PHASE 2.0–2.2 BUILT (engine + backfill, PR-staged, NOT applied). **Engine (D2/D7/D8):** `lib/types/cohort-core.ts` adds `CohortRuleConfig`/`CohortConfig`/`CohortCloseStatus`/`TransferMembershipDto`/`CloseCohortDto`; `lifecycle.ts` adds pure `defaultRuleConfigForKind(kind)` (sf100+foundations = full lifecycle; cdc+trainer = inactivity-only), `isRuleEnabled`, `membershipCloseStatus`, `isTerminalMembershipStatus/isTerminalCohortStatus`; `cohort-service.ts` adds `transferMembership` (re-points cohort_id, keeps history + 'transferred' event, blocks terminal rows) and `closeCohort` (container→completed/archived + guarded/audited member cascade); hooks add `useTransferMembership`/`useCloseCohort`. No Phase-1 API broken (append-only). **Backfill:** `20260731050000_cohort_core_sf100_backfill.sql` — COPY-only, non-destructive, idempotent (1 program→cohort, 18 enrollments→team memberships). Status maps: program enrollment_open→enrolling; enrollment warning/probation→active (original kept in config.sf100_status), withdrawn→removed. DATE→timestamptz at IST boundaries. sf100_* left intact (D3, no cutover). **2.3 (repoint SF100 reads) still pending — held for Director sign-off.**

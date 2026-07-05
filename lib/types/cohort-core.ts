@@ -172,3 +172,74 @@ export interface CohortListResponse {
     totalPages: number;
   };
 }
+
+// ── D2 · Per-program rule configuration (stored under cohorts.config.rules) ────
+// Each cohort toggles which SHARED lifecycle rules (PLAN rules 5/9/11) apply to
+// it, and with what thresholds. Sensible defaults per kind come from
+// defaultRuleConfigForKind() in lib/services/cohort-core/lifecycle.ts.
+
+/** The shared lifecycle rules a cohort can switch on/off. */
+export type CohortRuleKey = 'inactivity' | 'escalation' | 'grace';
+
+/** Rule 11 — nudge→pause inactivity ladder. */
+export interface InactivityRuleConfig {
+  enabled: boolean;
+  /** idle days before a member is nudged. */
+  nudgeAfterDays: number;
+  /** idle days before a nudged member is paused. */
+  pauseAfterDays: number;
+}
+
+/** Rule 9 — escalate to the coordinator after N business days of mentor silence. */
+export interface EscalationRuleConfig {
+  enabled: boolean;
+  businessDays: number;
+}
+
+/** Rule 5 — grace window after dropping below target. */
+export interface GraceRuleConfig {
+  enabled: boolean;
+  graceDays: number;
+}
+
+/**
+ * Per-cohort switches for the shared lifecycle rules (D2). Persisted as
+ * `cohorts.config.rules`; read by the lifecycle engine to decide which generic
+ * rules apply and with what thresholds. The SF100 backfill writes the full
+ * `defaultRuleConfigForKind('sf100')` block into every migrated cohort.
+ */
+export interface CohortRuleConfig {
+  inactivity: InactivityRuleConfig;
+  escalation: EscalationRuleConfig;
+  grace: GraceRuleConfig;
+}
+
+/**
+ * Typed view of `cohorts.config` for the fields the shared engine reads. It is
+ * still a superset of the untyped JSONB (domains stash their own keys too), so
+ * every field is optional — read defensively.
+ */
+export interface CohortConfig {
+  rules?: CohortRuleConfig;
+  [key: string]: unknown;
+}
+
+// ── D7 · Round-close cascade ──────────────────────────────────────────────────
+
+/** The two terminal container statuses a round-close can target. */
+export type CohortCloseStatus = Extract<CohortStatus, 'completed' | 'archived'>;
+
+/** mutate() variables for the useCloseCohort hook. */
+export interface CloseCohortDto extends TransitionOptions {
+  cohortId: string;
+  /** terminal container status to move the cohort to; defaults to 'completed'. */
+  toStatus?: CohortCloseStatus;
+}
+
+// ── D8 · Member transfer between cohorts (history preserved) ───────────────────
+
+/** mutate() variables for the useTransferMembership hook. */
+export interface TransferMembershipDto extends TransitionOptions {
+  membershipId: string;
+  toCohortId: string;
+}

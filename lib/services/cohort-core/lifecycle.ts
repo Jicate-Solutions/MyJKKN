@@ -10,7 +10,14 @@
  * Created: 2026-07-05 (PLAN.md Phase 1.5)
  */
 
-import type { CohortStatus, MembershipStatus } from '@/lib/types/cohort-core';
+import type {
+  CohortCloseStatus,
+  CohortKind,
+  CohortRuleConfig,
+  CohortRuleKey,
+  CohortStatus,
+  MembershipStatus,
+} from '@/lib/types/cohort-core';
 
 // ── Tunable defaults (callers may override) ───────────────────────────────────
 
@@ -199,4 +206,99 @@ export function canTransition(
       : (MEMBERSHIP_TRANSITIONS as Record<string, string[]>);
   const allowed = map[from as string];
   return Array.isArray(allowed) && allowed.includes(to as string);
+}
+
+/** True if a membership status is terminal (no outgoing transitions). */
+export function isTerminalMembershipStatus(status: MembershipStatus): boolean {
+  return (MEMBERSHIP_TRANSITIONS[status] ?? []).length === 0;
+}
+
+/** True if a cohort status is terminal (no outgoing transitions). */
+export function isTerminalCohortStatus(status: CohortStatus): boolean {
+  return (COHORT_TRANSITIONS[status] ?? []).length === 0;
+}
+
+// ── D2: per-program rule configuration (which shared rules a cohort runs) ──────
+
+/** All shared rules ON at the locked default thresholds (rules 5/9/11). */
+function fullRuleConfig(): CohortRuleConfig {
+  return {
+    inactivity: {
+      enabled: true,
+      nudgeAfterDays: DEFAULT_NUDGE_AFTER_DAYS,
+      pauseAfterDays: DEFAULT_PAUSE_AFTER_DAYS,
+    },
+    escalation: { enabled: true, businessDays: DEFAULT_ESCALATION_BUSINESS_DAYS },
+    grace: { enabled: true, graceDays: DEFAULT_GRACE_DAYS },
+  };
+}
+
+/**
+ * D2 — the default rule-config for a cohort of the given `kind`.
+ *
+ * SF100 (mentor-verified startup teams) and the mentor-driven Foundations track
+ * run the FULL lifecycle: nudge→pause, escalate-after-3-business-days, and the
+ * 30-day drop-below-target grace window. The lighter CDC and Trainer tracks keep
+ * only the nudge→pause inactivity ladder — they have no mentor-escalation clock
+ * and no "dropped below target" grace semantics — so those two rules default OFF
+ * (their thresholds are still carried so a cohort can switch them on later).
+ *
+ * A cohort persists this under `config.rules`; the shared engine reads it via
+ * isRuleEnabled() and passes the thresholds into the pure rule functions above.
+ */
+export function defaultRuleConfigForKind(kind: CohortKind): CohortRuleConfig {
+  const cfg = fullRuleConfig();
+  switch (kind) {
+    case 'sf100':
+    case 'foundations':
+      return cfg;
+    case 'cdc':
+    case 'trainer':
+    default:
+      cfg.escalation.enabled = false;
+      cfg.grace.enabled = false;
+      return cfg;
+  }
+}
+
+/**
+ * True if `rule` is switched on for the given rule-config. A missing or partial
+ * config (e.g. a cohort created before D2) reads as DISABLED for that rule, so
+ * callers fall back to their own explicit defaults rather than silently applying
+ * a rule the cohort never opted into.
+ */
+export function isRuleEnabled(
+  config: Partial<CohortRuleConfig> | null | undefined,
+  rule: CohortRuleKey
+): boolean {
+  return Boolean(config?.[rule]?.enabled);
+}
+
+// ── D7: round-close cascade (pure decision) ───────────────────────────────────
+
+/**
+ * D7 — when a cohort closes, decide the terminal status each membership should
+ * wrap up to. A successfully COMPLETED round graduates its still-active members;
+ * every other non-terminal member (and everyone when the cohort is ARCHIVED) is
+ * wrapped up as 'removed'. The membership vocabulary has no 'archived', so
+ * 'removed' is the archived-equivalent terminal — the row is KEPT as history and
+ * is never deleted (rule 11 / D7). Members already terminal (graduated/removed)
+ * return null (no move).
+ *
+ * Every non-null value returned here is a legal MEMBERSHIP_TRANSITIONS edge from
+ * `current`, so callers can safely feed it back through canTransition/
+ * transitionStatus:
+ *   active   --completed--> graduated   (active → graduated ✓)
+ *   active   --archived --> removed     (active → removed   ✓)
+ *   enrolled --any------->  removed     (enrolled → removed ✓)
+ *   invited  --any------->  removed     (invited → removed  ✓)
+ *   paused   --any------->  removed     (paused → removed   ✓)
+ */
+export function membershipCloseStatus(
+  current: MembershipStatus,
+  cohortTo: CohortCloseStatus
+): MembershipStatus | null {
+  if (current === 'graduated' || current === 'removed') return null;
+  if (cohortTo === 'completed' && current === 'active') return 'graduated';
+  return 'removed';
 }

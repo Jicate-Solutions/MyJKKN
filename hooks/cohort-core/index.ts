@@ -28,6 +28,8 @@ import type {
   UpdateMembershipDto,
   RecordStatusEventDto,
   TransitionOptions,
+  TransferMembershipDto,
+  CloseCohortDto,
   CohortKind,
   CohortStatus,
   MembershipStatus,
@@ -198,6 +200,56 @@ export function useTransitionMembershipStatus() {
       });
       queryClient.invalidateQueries({
         queryKey: cohortKeys.events({ membershipId: updated.id }),
+      });
+    },
+  });
+}
+
+/**
+ * D8 — transfer a membership to another cohort (history preserved). Invalidates
+ * BOTH cohorts' membership lists (via memberships.all), the moved membership, and
+ * the destination cohort's + membership's event streams.
+ */
+export function useTransferMembership() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ membershipId, toCohortId, ...opts }: TransferMembershipDto) =>
+      CohortService.transferMembership(membershipId, toCohortId, opts),
+    onSuccess: (updated, variables) => {
+      queryClient.invalidateQueries({ queryKey: cohortKeys.memberships.detail(updated.id) });
+      // updated.cohort_id is the destination; memberships.all covers the source list too.
+      queryClient.invalidateQueries({
+        queryKey: cohortKeys.memberships.list(updated.cohort_id),
+      });
+      queryClient.invalidateQueries({ queryKey: cohortKeys.memberships.all });
+      queryClient.invalidateQueries({
+        queryKey: cohortKeys.events({ membershipId: updated.id }),
+      });
+      queryClient.invalidateQueries({
+        queryKey: cohortKeys.events({ cohortId: variables.toCohortId }),
+      });
+    },
+  });
+}
+
+/**
+ * D7 — close a cohort round (container → completed/archived) and auto-wrap-up its
+ * members. Invalidates the cohort, its membership list, and its event stream.
+ */
+export function useCloseCohort() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ cohortId, ...opts }: CloseCohortDto) =>
+      CohortService.closeCohort(cohortId, opts),
+    onSuccess: (_result, variables) => {
+      queryClient.invalidateQueries({ queryKey: cohortKeys.cohorts.detail(variables.cohortId) });
+      queryClient.invalidateQueries({ queryKey: cohortKeys.cohorts.all });
+      queryClient.invalidateQueries({
+        queryKey: cohortKeys.memberships.list(variables.cohortId),
+      });
+      queryClient.invalidateQueries({ queryKey: cohortKeys.memberships.all });
+      queryClient.invalidateQueries({
+        queryKey: cohortKeys.events({ cohortId: variables.cohortId }),
       });
     },
   });
