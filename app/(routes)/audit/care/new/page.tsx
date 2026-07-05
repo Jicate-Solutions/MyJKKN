@@ -1,9 +1,13 @@
 // app/(routes)/audit/care/new/page.tsx
-// Open a CARRE audit (v2.0) — initiative, audience, setting, re-audit date.
-// Spec: specs/carre-v2-upgrade-spec-2026-07-05.md §3.
+// Open a CARRE audit (v2.0) — initiative, audience, module, setting, re-audit date.
+// Spec: specs/carre-v2-upgrade-spec-2026-07-05.md §3 + CARRE coverage-map brief.
 //
 // New audits default to CARRE (5 pillars incl. Respect, 25 items). Historical
 // CARE v1 audits stay readable elsewhere; this page only opens CARRE.
+//
+// The optional Module picker tags the audit to the people-facing module it
+// assesses (CARRE_AUDITABLE_MODULES) so it lands on the Coverage Map. Deep-links
+// from the coverage page ("Audit now →") prefill it via ?module=<key>.
 //
 // ANY staff member can open one — the page has no PermissionGuard;
 // fn_carre_create_audit enforces staff-only server-side and denials render
@@ -11,9 +15,9 @@
 
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,19 +25,28 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { AlertCircle, Check, HeartHandshake, Info } from 'lucide-react';
-import { useCreateCarreAudit } from '@/hooks/audit';
+import { useCreateCarreAudit, useSetAuditModule } from '@/hooks/audit';
 import {
   SETTING_CODES,
   SETTING_LABELS,
   type SettingCode,
 } from '@/lib/services/audit/carre-scoring-service';
 import type { CarreRpcDenial } from '@/lib/services/audit/carre-audit-service';
+import { CARRE_AUDITABLE_MODULES } from '@/lib/constants/carre-auditable-modules';
 
 /**
  * navMeta — invoked via the "New CARRE audit" button on the audit dashboard's
- * culture-audit section. Required by `scripts/assert-nav-coverage.mjs`.
+ * culture-audit section and the coverage map. Required by
+ * `scripts/assert-nav-coverage.mjs`.
  */
 export const navMeta = {
   invokedFrom: '/audit/dashboard',
@@ -46,6 +59,9 @@ const SETTING_HINTS: Record<SettingCode, string> = {
   EVENT: 'Fests, competitions, camps, one-off initiatives.',
 };
 
+// Sentinel for the "no module" option — Radix Select forbids an empty value.
+const NO_MODULE = '__none__';
+
 function defaultReAuditDate(): string {
   // Framework: re-audit after 90 days or one initiative cycle, whichever is shorter.
   const d = new Date();
@@ -53,15 +69,24 @@ function defaultReAuditDate(): string {
   return d.toISOString().slice(0, 10);
 }
 
-export default function NewCarreAuditPage() {
+function NewCarreAuditForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const createAudit = useCreateCarreAudit();
+  const setAuditModule = useSetAuditModule();
+
+  // Prefill the module from ?module=<key> when it names a tracked module.
+  const prefillModule = searchParams.get('module') ?? '';
+  const prefillIsValid = CARRE_AUDITABLE_MODULES.some((m) => m.key === prefillModule);
 
   const [name, setName] = useState('');
   const [audience, setAudience] = useState('');
+  const [moduleKey, setModuleKey] = useState(prefillIsValid ? prefillModule : '');
   const [settingCode, setSettingCode] = useState<SettingCode>('ACAD');
   const [reAuditDate, setReAuditDate] = useState(defaultReAuditDate());
   const [error, setError] = useState<string | null>(null);
+
+  const submitting = createAudit.isPending || setAuditModule.isPending;
 
   async function handleCreate() {
     setError(null);
@@ -97,6 +122,21 @@ export default function NewCarreAuditPage() {
         setError(reasons[denialReason] ?? `Could not create the audit (${denialReason}).`);
         return;
       }
+
+      // Best-effort module tag — the owner (this creator) can always set it.
+      // A failure here does not block navigation: the audit exists and can be
+      // re-tagged from the coverage page later.
+      if (moduleKey) {
+        try {
+          await setAuditModule.mutateAsync({
+            cycleId: result.cycle_id,
+            moduleKey,
+          });
+        } catch {
+          // Non-fatal: proceed to the audit; module tag can be retried.
+        }
+      }
+
       router.push(`/audit/care/${result.cycle_id}`);
     } catch (e) {
       setError((e as Error)?.message ?? 'Could not create the audit.');
@@ -160,6 +200,31 @@ export default function NewCarreAuditPage() {
             </div>
 
             <div>
+              <Label htmlFor="carre-module">Module (optional)</Label>
+              <Select
+                value={moduleKey || NO_MODULE}
+                onValueChange={(v) => setModuleKey(v === NO_MODULE ? '' : v)}
+              >
+                <SelectTrigger id="carre-module" className="mt-1">
+                  <SelectValue placeholder="Which platform module does this audit cover?" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_MODULE}>No specific module</SelectItem>
+                  {CARRE_AUDITABLE_MODULES.map((m) => (
+                    <SelectItem key={m.key} value={m.key}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Tag the module this audit assesses so it lands on the CARRE
+                Coverage Map. Leave as “No specific module” for one-off
+                initiatives.
+              </p>
+            </div>
+
+            <div>
               <Label>Setting</Label>
               <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {SETTING_CODES.map((code) => {
@@ -216,8 +281,8 @@ export default function NewCarreAuditPage() {
               >
                 ← Back to audit dashboard
               </Link>
-              <Button onClick={handleCreate} disabled={createAudit.isPending}>
-                {createAudit.isPending ? (
+              <Button onClick={handleCreate} disabled={submitting}>
+                {submitting ? (
                   'Creating…'
                 ) : (
                   <>
@@ -231,5 +296,14 @@ export default function NewCarreAuditPage() {
         </Card>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function NewCarreAuditPage() {
+  // useSearchParams (module prefill) needs a Suspense boundary for the build.
+  return (
+    <Suspense fallback={null}>
+      <NewCarreAuditForm />
+    </Suspense>
   );
 }
