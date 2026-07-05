@@ -153,7 +153,7 @@ function RescueContent() {
   const confirmMutation = useMutation({
     mutationFn: confirmSplit,
     onSuccess: () => {
-      toast.success('School created — it can now be adopted and worked.');
+      toast.success('School record created — you can now adopt and track it.');
       setDialogOpen(false);
       setChecked(new Set());
       queryClient.invalidateQueries({ queryKey: OVERVIEW_KEY });

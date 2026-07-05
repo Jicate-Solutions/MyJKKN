@@ -77,7 +77,8 @@ export const GET = withAuth(
     const { data: splitsRaw, error: sErr } = await auth.supabase
       .from('schools_network_feeder_splits')
       .select('id, generic_key, pincodes, confirmed_school_id, confirmed_name, district, created_at')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(200); // cap the confirmed-splits list (grows over time)
     if (sErr) return rpcError(sErr, 'SPLITS_FAILED');
 
     const feeders = ((feedersRaw ?? []) as Array<Record<string, unknown>>).map((r) => ({
@@ -113,7 +114,7 @@ export const POST = withAuth(
     };
 
     if (!body.genericKey?.trim()) {
-      return errorResponse('genericKey is required', 400, 'VALIDATION_ERROR');
+      return errorResponse('genericKey is required', 422, 'VALIDATION_ERROR');
     }
     if (!body.name?.trim()) {
       return errorResponse('a school name is required', 422, 'VALIDATION_ERROR');

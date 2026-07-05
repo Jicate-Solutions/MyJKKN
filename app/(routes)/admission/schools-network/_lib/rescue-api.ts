@@ -22,6 +22,12 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
       ...init,
       signal: controller.signal,
     });
+  } catch (e) {
+    // Map the raw AbortError from the timeout to an actionable message.
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw new Error('Request timed out — please try again.');
+    }
+    throw e;
   } finally {
     clearTimeout(timer);
   }

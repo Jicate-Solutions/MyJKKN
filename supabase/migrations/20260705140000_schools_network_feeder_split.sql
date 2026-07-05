@@ -399,6 +399,16 @@ BEGIN
     RETURN;
   END IF;
 
+  -- Symmetric with confirm: only a super admin may undo (and delete) an INTERNAL,
+  -- institution-scoped rescued school, since only a super admin could create one —
+  -- a regular admin must not delete another tenant's internal school.
+  IF NOT is_super_admin()
+     AND EXISTS (SELECT 1 FROM public.schools s
+                  WHERE s.id = v_school_id AND s.institution_id IS NOT NULL) THEN
+    RAISE EXCEPTION 'only a super admin may undo a split of an institution-scoped school'
+      USING ERRCODE = '42501';
+  END IF;
+
   -- Serialise cleanup of THIS school so two concurrent unconfirms can't both
   -- act on it.
   PERFORM pg_advisory_xact_lock(hashtext('schools_network_feeder_school:' || v_school_id::text));
@@ -411,11 +421,19 @@ BEGIN
   -- then delete — so the NOT EXISTS is re-evaluated atomically at delete time and
   -- a row that just received real work can't be dropped through a check-then-act
   -- gap.
+  -- Pristine = NO "real work" child rows. Every one of schools.id's FK children is
+  -- ON DELETE CASCADE, so a missing guard here would SILENTLY cascade-delete real
+  -- data — this list MUST enumerate every CASCADE child of public.schools
+  -- (verified 2026-07-05: sessions, contributions, jkkn_owners, contacts,
+  -- visit_assignments; feeder_splits is SET NULL and already removed above). Keep
+  -- in sync if a new schools child table is added.
   DELETE FROM public.schools s
    WHERE s.id = v_school_id
-     AND NOT EXISTS (SELECT 1 FROM public.school_sessions      ss WHERE ss.school_id = s.id)
-     AND NOT EXISTS (SELECT 1 FROM public.school_contributions sc WHERE sc.school_id = s.id)
-     AND NOT EXISTS (SELECT 1 FROM public.school_jkkn_owners    so WHERE so.school_id = s.id);
+     AND NOT EXISTS (SELECT 1 FROM public.school_sessions          x WHERE x.school_id = s.id)
+     AND NOT EXISTS (SELECT 1 FROM public.school_contributions     x WHERE x.school_id = s.id)
+     AND NOT EXISTS (SELECT 1 FROM public.school_jkkn_owners        x WHERE x.school_id = s.id)
+     AND NOT EXISTS (SELECT 1 FROM public.school_contacts          x WHERE x.school_id = s.id)
+     AND NOT EXISTS (SELECT 1 FROM public.school_visit_assignments x WHERE x.school_id = s.id);
 END;
 $$;
 
