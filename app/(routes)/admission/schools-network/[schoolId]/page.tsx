@@ -139,7 +139,10 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
         offset: (learnersPage - 1) * 25,
       }),
     enabled: !!detailQuery.data,
-    placeholderData: (prev) => prev, // smooth page-flips
+    // Keep prior data only across page-flips of the SAME school, so switching
+    // schools doesn't briefly show the previous school's roster (advisory review).
+    placeholderData: (prev, prevQuery) =>
+      prevQuery?.queryKey?.[2] === schoolId ? prev : undefined,
   });
 
   if (detailQuery.isLoading || !detailQuery.data) {

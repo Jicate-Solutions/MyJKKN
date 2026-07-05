@@ -74,8 +74,12 @@ export const GET = withAuth(
         p_limit: 1,
         p_offset: 0,
       });
-      const parr = (probe.data ?? []) as Array<Record<string, unknown>>;
-      total = parr.length > 0 ? Number(parr[0].total_count ?? 0) : 0;
+      // Only trust the probe's total if it succeeded; a transient probe error
+      // must not silently zero the total and strand the pager (advisory review).
+      if (!probe.error) {
+        const parr = (probe.data ?? []) as Array<Record<string, unknown>>;
+        total = parr.length > 0 ? Number(parr[0].total_count ?? 0) : 0;
+      }
     }
     return successResponse({ rows, total });
   },

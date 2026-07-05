@@ -21,6 +21,21 @@ import { successResponse, errorResponse } from '@/lib/api/response';
 
 const EDIT_PERM = 'schools_network.schools.edit';
 
+// The link/unlink/suggestions RPCs RAISE with ERRCODE 42501 for non-admins
+// (merging is admin-only). Map that to a real 403 so the client can branch on
+// status, not brittle message text (advisory review LOW).
+function rpcError(
+  e: { message?: string; code?: string } | null,
+  fallbackCode: string
+) {
+  const forbidden = e?.code === '42501';
+  return errorResponse(
+    e?.message ?? 'request failed',
+    forbidden ? 403 : 500,
+    forbidden ? 'FORBIDDEN' : fallbackCode
+  );
+}
+
 export const GET = withAuth(
   async (_request, auth) => {
     await connection();
@@ -29,7 +44,7 @@ export const GET = withAuth(
       'fn_schools_network_feeder_dupe_suggestions',
       { p_limit: 50 }
     );
-    if (sErr) return errorResponse(sErr.message, 500, 'SUGGEST_FAILED');
+    if (sErr) return rpcError(sErr, 'SUGGEST_FAILED');
 
     const { data: links, error: lErr } = await auth.supabase
       .from('schools_network_feeder_aliases')
@@ -81,7 +96,7 @@ export const POST = withAuth(
       p_from_name: body.fromName ?? null,
       p_to_name: body.toName ?? null,
     });
-    if (error) return errorResponse(error.message, 500, 'LINK_FAILED');
+    if (error) return rpcError(error, 'LINK_FAILED');
     return successResponse({ ok: true });
   },
   { allowApiKey: false, requirePermission: EDIT_PERM }
@@ -97,7 +112,7 @@ export const DELETE = withAuth(
     const { error } = await auth.supabase.rpc('fn_schools_network_unlink_feeder', {
       p_from_key: from,
     });
-    if (error) return errorResponse(error.message, 500, 'UNLINK_FAILED');
+    if (error) return rpcError(error, 'UNLINK_FAILED');
     return successResponse({ ok: true });
   },
   { allowApiKey: false, requirePermission: EDIT_PERM }

@@ -15,6 +15,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  AlertTriangle,
   ArrowLeftRight,
   GitMerge,
   Link2Off,
@@ -205,6 +206,28 @@ function TidyDuplicatesContent() {
                 limited to administrators.
               </p>
             </div>
+          ) : error ? (
+            // A real failure (DB error / suggestions-scan timeout) must NOT fall
+            // through to the "list looks tidy" empty state — that would falsely
+            // tell an admin there are zero duplicates (advisory review MEDIUM).
+            <div className="text-center py-12">
+              <AlertTriangle className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+              <h3 className="text-lg font-medium mb-1">
+                Couldn&apos;t load duplicate suggestions
+              </h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                {(error as Error).message || 'Something went wrong. Please try again.'}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  queryClient.invalidateQueries({ queryKey: DUPES_KEY })
+                }
+              >
+                Try again
+              </Button>
+            </div>
           ) : visibleSuggestions.length === 0 ? (
             <div className="text-center py-12">
               <School className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
@@ -221,8 +244,11 @@ function TidyDuplicatesContent() {
                 const key = pairKey(s);
                 const isMerging = mergingKey === key && linkMutation.isPending;
                 // Merge folds the smaller-count spelling into the larger one.
-                const keepName = s.fromCount >= s.toCount ? s.fromName : s.toName;
-                const foldName = s.fromCount >= s.toCount ? s.toName : s.fromName;
+                // Use the SAME `<=` comparator as handleMerge so the survivor
+                // named here matches what actually merges on an exact tie
+                // (advisory review MEDIUM: dialog named the opposite school).
+                const keepName = s.fromCount <= s.toCount ? s.toName : s.fromName;
+                const foldName = s.fromCount <= s.toCount ? s.fromName : s.toName;
                 const keepCount = Math.max(s.fromCount, s.toCount);
                 const foldCount = Math.min(s.fromCount, s.toCount);
                 return (
