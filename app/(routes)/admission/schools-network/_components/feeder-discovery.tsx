@@ -28,7 +28,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Search, ChevronLeft, ChevronRight, Compass, Check, Plus, GitMerge } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Compass, Check, Plus, GitMerge, TrendingUp } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -102,11 +102,18 @@ export function FeederDiscovery() {
               tracking visits, contributions and contacts.
             </p>
           </div>
-          <Link href="/admission/schools-network/duplicates">
-            <Button variant="outline" size="sm" className="gap-1.5">
-              <GitMerge className="h-4 w-4" /> Tidy duplicates
-            </Button>
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href="/admission/schools-network/scoreboard">
+              <Button variant="outline" size="sm" className="gap-1.5">
+                <TrendingUp className="h-4 w-4" /> Scoreboard
+              </Button>
+            </Link>
+            <Link href="/admission/schools-network/duplicates">
+              <Button variant="outline" size="sm" className="gap-1.5">
+                <GitMerge className="h-4 w-4" /> Tidy duplicates
+              </Button>
+            </Link>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-8">
