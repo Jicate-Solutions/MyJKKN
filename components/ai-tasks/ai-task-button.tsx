@@ -4,11 +4,17 @@
 // The "AI Max button". Click → enqueues an async AI task on the 50% batch lane
 // (NEVER the Max subscription) → shows an ETA → reflects the result back when the
 // */15 sweep finishes. Resumes state on mount so returning to the page shows a
-// ready result. Spec: specs/ai-max-button-async-lane-2026-07-04.md (P1).
+// ready result. Spec: specs/ai-max-button-async-lane-2026-07-04.md (P1/P2).
+//
+// The ready summary lives in a Popover (not an inline card) so it never expands
+// the table row it sits in. `autoOpen` opens that popover on mount — used by the
+// P2 deep-link (?course=) so clicking the "ready" notification lands on the class
+// AND pops the summary open in one step.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Sparkles, Loader2, RefreshCw, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { Sparkles, Loader2, RefreshCw, AlertCircle } from 'lucide-react';
 
 type TaskStatus = 'queued' | 'submitting' | 'submitted' | 'done' | 'failed' | 'skipped';
 
@@ -36,27 +42,36 @@ interface Props {
   entityId: string;
   label?: string;
   className?: string;
+  /** Open the result popover on mount (P2 deep-link to the exact class). */
+  autoOpen?: boolean;
 }
 
 const OUTSTANDING: TaskStatus[] = ['queued', 'submitting', 'submitted'];
 const POLL_MS = 20000;
 
-export function AiTaskButton({ taskType, entityId, label = 'Summarise with AI', className }: Props) {
+export function AiTaskButton({ taskType, entityId, label = 'Summarise with AI', className, autoOpen = false }: Props) {
   const [phase, setPhase] = useState<'idle' | 'pending' | 'ready' | 'failed'>('idle');
   const [taskId, setTaskId] = useState<string | null>(null);
   const [eta, setEta] = useState<string>('');
   const [result, setResult] = useState<TaskResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string>('');
-  const [expanded, setExpanded] = useState(false);
+  const [popoverOpen, setPopoverOpen] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const applyRow = useCallback((row: TaskRow | undefined) => {
     if (!row) { setPhase('idle'); return; }
     setTaskId(row.id);
-    if (row.status === 'done') { setResult(row.result ?? null); setPhase('ready'); }
+    if (row.status === 'done') {
+      setResult(row.result ?? null);
+      setPhase('ready');
+      // P2 deep-link: if we arrived here via the ready notification (?course=),
+      // pop the summary open. Runs inside the resume fetch callback (async), so
+      // it's not a synchronous setState-in-effect.
+      if (autoOpen && row.result?.suggestion) setPopoverOpen(true);
+    }
     else if (row.status === 'failed') { setErrorMsg(row.error || 'Could not generate.'); setPhase('failed'); }
     else if (OUTSTANDING.includes(row.status)) { setPhase('pending'); }
-  }, []);
+  }, [autoOpen]);
 
   const stopPoll = useCallback(() => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
@@ -93,7 +108,7 @@ export function AiTaskButton({ taskType, entityId, label = 'Summarise with AI', 
   }, [phase, taskId, stopPoll]);
 
   const enqueue = useCallback(async () => {
-    setPhase('pending'); setResult(null); setErrorMsg('');
+    setPhase('pending'); setResult(null); setErrorMsg(''); setPopoverOpen(false);
     try {
       const res = await fetch('/api/ai-tasks/enqueue', {
         method: 'POST',
@@ -153,48 +168,51 @@ export function AiTaskButton({ taskType, entityId, label = 'Summarise with AI', 
       );
     }
     return (
-      <div className={`rounded-lg border bg-card p-4 ${className ?? ''}`}>
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <Sparkles className="h-4 w-4 text-primary" /> AI summary of this class's feedback
-          </div>
-          <Button variant="ghost" size="sm" onClick={enqueue} title="Regenerate">
-            <RefreshCw className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-        {s.summary && <p className="mt-2 text-sm">{s.summary}</p>}
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-        >
-          {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-          {expanded ? 'Hide details' : 'Show details'}
-        </button>
-        {expanded && (
-          <div className="mt-3 space-y-3 text-sm">
-            {Array.isArray(s.likelyCauses) && s.likelyCauses.length > 0 && (
-              <div>
-                <p className="font-medium">Likely causes</p>
-                <ul className="ml-4 list-disc text-muted-foreground">
-                  {s.likelyCauses.map((c, i) => <li key={i}>{c}</li>)}
-                </ul>
+      <div className={className}>
+        <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-primary/40 bg-primary/5 text-primary hover:bg-primary/10 hover:text-primary"
+            >
+              <Sparkles className="mr-1.5 h-4 w-4" /> AI summary ready
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-96 max-h-[70vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Sparkles className="h-4 w-4 text-primary" /> AI summary of this class&apos;s feedback
               </div>
-            )}
-            {Array.isArray(s.suggestedAdjustments) && s.suggestedAdjustments.length > 0 && (
-              <div>
-                <p className="font-medium">Suggested adjustments</p>
-                <ul className="ml-4 list-disc text-muted-foreground">
-                  {s.suggestedAdjustments.map((a, i) => (
-                    <li key={i}><span className="font-medium text-foreground">{a.title}</span>{a.how ? ` — ${a.how}` : ''}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {s.quickWin && <div><p className="font-medium">Quick win</p><p className="text-muted-foreground">{s.quickWin}</p></div>}
-            {s.whatToWatchNext && <div><p className="font-medium">What to watch next</p><p className="text-muted-foreground">{s.whatToWatchNext}</p></div>}
-          </div>
-        )}
+              <Button variant="ghost" size="sm" className="h-7 px-2" onClick={enqueue} title="Regenerate">
+                <RefreshCw className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+            {s.summary && <p className="mt-2 text-sm">{s.summary}</p>}
+            <div className="mt-3 space-y-3 text-sm">
+              {Array.isArray(s.likelyCauses) && s.likelyCauses.length > 0 && (
+                <div>
+                  <p className="font-medium">Likely causes</p>
+                  <ul className="ml-4 list-disc text-muted-foreground">
+                    {s.likelyCauses.map((c, i) => <li key={i}>{c}</li>)}
+                  </ul>
+                </div>
+              )}
+              {Array.isArray(s.suggestedAdjustments) && s.suggestedAdjustments.length > 0 && (
+                <div>
+                  <p className="font-medium">Suggested adjustments</p>
+                  <ul className="ml-4 list-disc text-muted-foreground">
+                    {s.suggestedAdjustments.map((a, i) => (
+                      <li key={i}><span className="font-medium text-foreground">{a.title}</span>{a.how ? ` — ${a.how}` : ''}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {s.quickWin && <div><p className="font-medium">Quick win</p><p className="text-muted-foreground">{s.quickWin}</p></div>}
+              {s.whatToWatchNext && <div><p className="font-medium">What to watch next</p><p className="text-muted-foreground">{s.whatToWatchNext}</p></div>}
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
     );
   }

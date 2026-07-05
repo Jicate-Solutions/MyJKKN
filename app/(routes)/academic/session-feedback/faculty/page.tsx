@@ -7,7 +7,8 @@
 //  2) UNDERSTANDING (quality): anonymized aggregate signal (fn_scf_faculty_summary).
 // Spec: specs/session-feedback-faculty-completion-lane-2026-06-17.md (A — visibility).
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { format, subDays } from 'date-fns';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
@@ -278,6 +279,16 @@ function TopicsToRevisitSection({ from, to }: { from: string; to: string }) {
   // The RPC already returns worst-first (lowest avg, most recent).
   const rows: FacultyFollowupRow[] = data ?? [];
 
+  // P2 deep-link: the "AI result ready" notification links here with ?course=<code>.
+  // Derive it from the URL, scroll the matching row into view, and tell that
+  // course's button to open its popover (autoOpen prop below).
+  const deepCourse = useSearchParams().get('course');
+  useEffect(() => {
+    if (!deepCourse || rows.length === 0) return;
+    const el = document.querySelector(`[data-course-anchor="${CSS.escape(deepCourse)}"]`);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [deepCourse, rows.length]);
+
   return (
     <Card className="mb-6">
       <CardHeader>
@@ -334,6 +345,7 @@ function TopicsToRevisitSection({ from, to }: { from: string; to: string }) {
                 {rows.map((r) => (
                   <TableRow
                     key={`${r.attendance_date}-${r.period_id}-${r.course_code ?? 'na'}`}
+                    data-course-anchor={r.course_code ?? ''}
                   >
                     <TableCell className="whitespace-nowrap font-medium">
                       {formatDate(r.attendance_date)}
@@ -375,6 +387,7 @@ function TopicsToRevisitSection({ from, to }: { from: string; to: string }) {
                             taskType="session_feedback.suggest_improvement"
                             entityId={r.course_code}
                             label="Summarise (50% AI)"
+                            autoOpen={!!deepCourse && r.course_code === deepCourse}
                           />
                         </div>
                       ) : (

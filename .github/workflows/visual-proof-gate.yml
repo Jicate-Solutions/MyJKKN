@@ -120,7 +120,12 @@ jobs:
           # never renders JSX. Same class as the other lib/ backend layers; the
           # folder just hadn't been hit by a gated PR before. NOT broadened to
           # all of `lib/` (lib/hooks, lib/components ARE UI — see lib/services).
-          NON_UI_REGEX='^(supabase/|scripts/|docs/|specs/|\.claude/|\.github/|lib/services/|lib/utils/|lib/db/|lib/auth/|lib/api/|lib/instagram/|lib/types/|types/|app/api/|__tests__/|e2e/|next\.config\.ts|playwright\.config\.ts|serwist\.config\.mjs|package\.json|vercel\.json|README\.md|CHANGELOG\.md|LICENSE|\.gitignore|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig\.json|tsconfig\..*\.json)'
+          # `lib/ai-tasks/` added 2026-07-05 (AI Max-button async lane): the
+          # task-type registry (registry.ts) + ETA math (eta.ts) — Anthropic +
+          # Supabase calls, never render JSX. Same class as the other lib/ backend
+          # layers. NOTE: `components/ai-tasks/` is deliberately NOT exempt — the
+          # AiTaskButton renders and must keep requiring visual proof.
+          NON_UI_REGEX='^(supabase/|scripts/|docs/|specs/|\.claude/|\.github/|lib/services/|lib/utils/|lib/db/|lib/auth/|lib/api/|lib/instagram/|lib/ai-tasks/|lib/types/|types/|app/api/|__tests__/|e2e/|next\.config\.ts|playwright\.config\.ts|serwist\.config\.mjs|package\.json|vercel\.json|README\.md|CHANGELOG\.md|LICENSE|\.gitignore|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig\.json|tsconfig\..*\.json)'
 
           # Anything outside the non-UI set means the gate applies.
           UI_TOUCHING=$(echo "$CHANGED" | grep -vE "$NON_UI_REGEX" || true)
