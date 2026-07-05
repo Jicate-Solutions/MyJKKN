@@ -20,7 +20,7 @@ import { usePendingSessions } from '@/hooks/use-session-feedback';
 import type { PendingSession } from '@/types/session-feedback';
 import { FeedbackDialog } from './_components/feedback-dialog';
 import { MyVoiceReceipt } from './_components/my-voice-receipt';
-import { LivePulseBanner } from './_components/live-pulse-banner';
+import { ClassPollBanner } from './_components/class-poll-banner';
 import { LoopClosureCard } from './_components/loop-closure-card';
 import { StrugglingNoteCard } from './_components/struggling-note-card';
 
@@ -78,13 +78,13 @@ export default function LearnerSessionFeedbackPage() {
           )}
         </div>
 
-        {/* Live pulse — answer now if a teacher opened an in-class pulse for you */}
-        <LivePulseBanner
-          onAnswer={(s, src) => {
-            setActiveSource(src);
-            setActiveSession(s);
-          }}
-        />
+        {/* Live class poll (Live Poll Engine Phase B) — the rich builder-driven poll
+            (realtime word-cloud / scale / checklist). This is now the SOLE in-class
+            live surface: opening a class poll flips scf_live_pulse.is_open, so the old
+            simple LivePulseBanner would double-show the same class. The old banner is
+            intentionally retired here; class-poll answers still feed the SCF loop via
+            the bridge (fn_induction_submit_poll_response -> fn_scf_submit_feedback). */}
+        <ClassPollBanner />
 
         {/* A warm, private support note if you've found a course harder lately (hidden until a real AI note exists) */}
         <StrugglingNoteCard />
