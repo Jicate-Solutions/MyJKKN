@@ -871,6 +871,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Audit Workflow Sprint 01
   '/audit': 'audit.cycle.view',
   '/audit/dashboard': 'audit.cycle.view',
+  '/audit/care/coverage': 'audit.cycle.view', // CARRE Coverage Map (leadership view)
   '/audit/cycles': 'audit.cycle.view',
   '/audit/cycles/new': 'audit.cycle.manage',
   '/audit/cycles/[id]': 'audit.cycle.view',
