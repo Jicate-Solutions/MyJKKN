@@ -5673,3 +5673,69 @@ CREATE INDEX IF NOT EXISTS idx_hr_rec_cand_comments_candidate
 --   status CHECK extended with 'promoted'
 -- (Base table created in migration 20260627_hr_job_applications.sql — not yet
 --  mirrored here; see that migration for the full definition.)
+
+-- =====================================================================================
+-- Cohort Core — shared cohort spine (migration 20260731040000_cohort_core_spine.sql).
+-- Domain-agnostic engine registered into by SF100 / Foundations / CDC / Trainer.
+-- Statuses enforced via CHECK (repo convention, not pg ENUM). institution_id is
+-- NOT NULL on cohorts to close the role_has_institution_access(NULL)=TRUE tenant hole.
+-- RLS → 03_policies.sql; updated_at triggers → 04_triggers.sql. Added 2026-07-05.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS public.cohorts (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind            text NOT NULL
+                    CHECK (kind IN ('sf100','foundations','cdc','trainer')),
+  name            text NOT NULL,
+  institution_id  uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  owner_id        uuid,
+  academic_year   text,
+  opens_at        timestamptz,
+  closes_at       timestamptz,
+  hard_deadline   timestamptz,
+  status          text NOT NULL DEFAULT 'draft'
+                    CHECK (status IN ('draft','enrolling','active','completed','archived')),
+  config          jsonb NOT NULL DEFAULT '{}'::jsonb,
+  archived_at     timestamptz,
+  archived_by     uuid,
+  created_by      uuid,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_cohorts_institution_id ON public.cohorts (institution_id);
+CREATE INDEX IF NOT EXISTS idx_cohorts_kind_status     ON public.cohorts (kind, status);
+
+CREATE TABLE IF NOT EXISTS public.cohort_memberships (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  cohort_id    uuid NOT NULL REFERENCES public.cohorts(id) ON DELETE CASCADE,
+  member_type  text NOT NULL
+                 CHECK (member_type IN ('team','student','learner','staff')),
+  member_ref   uuid NOT NULL,
+  status       text NOT NULL DEFAULT 'invited'
+                 CHECK (status IN ('invited','enrolled','active','graduated','removed','paused')),
+  role         text,
+  joined_at    timestamptz,
+  joined_by    uuid,
+  config       jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT cohort_memberships_cohort_member_uidx UNIQUE (cohort_id, member_type, member_ref)
+);
+CREATE INDEX IF NOT EXISTS idx_cohort_memberships_cohort_id ON public.cohort_memberships (cohort_id);
+CREATE INDEX IF NOT EXISTS idx_cohort_memberships_member    ON public.cohort_memberships (member_type, member_ref);
+
+CREATE TABLE IF NOT EXISTS public.cohort_status_events (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  cohort_id      uuid REFERENCES public.cohorts(id) ON DELETE CASCADE,
+  membership_id  uuid REFERENCES public.cohort_memberships(id) ON DELETE CASCADE,
+  event_type     text NOT NULL,
+  from_status    text,
+  to_status      text,
+  actor_id       uuid,
+  reason         text,
+  metadata       jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT cohort_status_events_target_chk
+    CHECK (cohort_id IS NOT NULL OR membership_id IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_cohort_status_events_cohort_id     ON public.cohort_status_events (cohort_id);
+CREATE INDEX IF NOT EXISTS idx_cohort_status_events_membership_id ON public.cohort_status_events (membership_id);
