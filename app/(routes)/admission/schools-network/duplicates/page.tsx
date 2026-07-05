@@ -20,6 +20,7 @@ import {
   Link2Off,
   Loader2,
   School,
+  ShieldAlert,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -43,6 +44,17 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { toast } from 'sonner';
 
@@ -87,10 +99,15 @@ function TidyDuplicatesContent() {
   const [mergingKey, setMergingKey] = useState<string | null>(null);
   const [unlinkingKey, setUnlinkingKey] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: DUPES_KEY,
     queryFn: listFeederDupes,
+    retry: false, // an admin-only 403 shouldn't retry
   });
+  // Merging re-groups org-wide feeder data, so it's admin-only on the server.
+  // Rather than replicate role logic here, we let the server say no and surface
+  // its message (keeps the client from drifting out of sync with the RPC gate).
+  const isAccessDenied = !!error && /admin-only|permission denied/i.test((error as Error).message);
 
   const suggestions = data?.suggestions ?? [];
   const links = data?.links ?? [];
@@ -179,6 +196,15 @@ function TidyDuplicatesContent() {
                 <Skeleton key={i} className="h-24 w-full" />
               ))}
             </div>
+          ) : isAccessDenied ? (
+            <div className="text-center py-12">
+              <ShieldAlert className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+              <h3 className="text-lg font-medium mb-1">Administrators only</h3>
+              <p className="text-sm text-muted-foreground">
+                Merging duplicate schools changes network-wide data, so it&apos;s
+                limited to administrators.
+              </p>
+            </div>
           ) : visibleSuggestions.length === 0 ? (
             <div className="text-center py-12">
               <School className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
@@ -194,6 +220,11 @@ function TidyDuplicatesContent() {
               {visibleSuggestions.map((s) => {
                 const key = pairKey(s);
                 const isMerging = mergingKey === key && linkMutation.isPending;
+                // Merge folds the smaller-count spelling into the larger one.
+                const keepName = s.fromCount >= s.toCount ? s.fromName : s.toName;
+                const foldName = s.fromCount >= s.toCount ? s.toName : s.fromName;
+                const keepCount = Math.max(s.fromCount, s.toCount);
+                const foldCount = Math.min(s.fromCount, s.toCount);
                 return (
                   <div
                     key={key}
@@ -209,18 +240,37 @@ function TidyDuplicatesContent() {
                       <Badge variant="outline" className="whitespace-nowrap">
                         {Math.round(s.similarity * 100)}% match
                       </Badge>
-                      <Button
-                        size="sm"
-                        onClick={() => handleMerge(s)}
-                        disabled={linkMutation.isPending}
-                      >
-                        {isMerging ? (
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        ) : (
-                          <GitMerge className="h-4 w-4 mr-2" />
-                        )}
-                        Same school — merge
-                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button size="sm" disabled={linkMutation.isPending}>
+                            {isMerging ? (
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                              <GitMerge className="h-4 w-4 mr-2" />
+                            )}
+                            Same school — merge
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              Combine these two schools?
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              &ldquo;{foldName}&rdquo; ({learners(foldCount)}) will be
+                              combined into &ldquo;{keepName}&rdquo; ({learners(keepCount)}
+                              ). Their learners will count as one school everywhere in
+                              the network. You can undo this at any time.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => handleMerge(s)}>
+                              Combine
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                       <Button
                         size="sm"
                         variant="ghost"

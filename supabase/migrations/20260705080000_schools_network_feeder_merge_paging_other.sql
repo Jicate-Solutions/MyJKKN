@@ -43,11 +43,10 @@ ALTER TABLE public.schools_network_feeder_aliases ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS sn_feeder_alias_select ON public.schools_network_feeder_aliases;
 -- Reads for view-permission holders (the fns are SECURITY DEFINER and read it
 -- internally regardless; this only governs the Unlink-list direct SELECT).
+-- Admin-only read: the merge map is an admin-tool artifact (see link RPC), so
+-- match its actors — not the broader schools.view audience (advisory review LOW).
 CREATE POLICY sn_feeder_alias_select ON public.schools_network_feeder_aliases
-  FOR SELECT USING (
-    is_super_admin() OR is_admin()
-    OR user_has_permission('schools_network.schools.view')
-  );
+  FOR SELECT USING (is_super_admin() OR is_admin());
 -- No INSERT/UPDATE/DELETE policy → all writes go through the SECDEF link/unlink
 -- RPCs (which enforce schools.edit). anon gets nothing.
 GRANT SELECT ON public.schools_network_feeder_aliases TO authenticated;
@@ -68,9 +67,12 @@ AS $$
 DECLARE
   v_primary text;
 BEGIN
-  IF NOT (is_super_admin() OR is_admin()
-          OR user_has_permission('schools_network.schools.edit')) THEN
-    RAISE EXCEPTION 'permission denied for schools_network.schools.edit'
+  -- ADMIN-ONLY (advisory review 2026-07-05 HIGH): a merge re-groups the
+  -- ORG-WIDE feeder panel (Director ruling: the panel is an org-wide aggregate),
+  -- so it is an org-wide action. A scope='own' coordinator holding schools.edit
+  -- must NOT be able to silently re-group every tenant's counts. Gate to admins.
+  IF NOT (is_super_admin() OR is_admin()) THEN
+    RAISE EXCEPTION 'permission denied — merging feeder duplicates is admin-only'
       USING ERRCODE = '42501';
   END IF;
   IF p_from_key IS NULL OR p_to_key IS NULL OR btrim(p_from_key) = ''
@@ -78,12 +80,24 @@ BEGIN
     RAISE EXCEPTION 'invalid merge keys';
   END IF;
 
-  -- Resolve the target to its ultimate primary so we never build a chain.
+  -- Serialize merges (rare admin action) so two concurrent merges on overlapping
+  -- keys can't race the resolve→check→insert (advisory review MEDIUM: TOCTOU).
+  PERFORM pg_advisory_xact_lock(hashtext('schools_network_feeder_merge'));
+
+  -- Resolve the target to its ultimate primary.
   v_primary := COALESCE(
     (SELECT to_key FROM public.schools_network_feeder_aliases WHERE from_key = p_to_key),
     p_to_key);
   IF v_primary = p_from_key THEN
     RAISE EXCEPTION 'circular merge';
+  END IF;
+  -- Keep the map STRICTLY one hop so every unlink is a clean reverse. Blocking a
+  -- source that is itself a primary (other keys merged INTO it) replaces the old
+  -- flatten-UPDATE, which rewrote dependents and made chained merges
+  -- irreversible (advisory review HIGH: A→B then B→C stranded A on C after
+  -- unlinking B). A source with no dependents strands nothing on unlink.
+  IF EXISTS (SELECT 1 FROM public.schools_network_feeder_aliases WHERE to_key = p_from_key) THEN
+    RAISE EXCEPTION 'this school is already the target of other merges — unlink those first';
   END IF;
 
   INSERT INTO public.schools_network_feeder_aliases
@@ -95,11 +109,6 @@ BEGIN
         to_name_sample = EXCLUDED.to_name_sample,
         created_by = EXCLUDED.created_by,
         created_at = now();
-
-  -- Flatten: anything that pointed at the now-merged key follows it to primary.
-  UPDATE public.schools_network_feeder_aliases
-     SET to_key = v_primary
-   WHERE to_key = p_from_key;
 END;
 $$;
 
@@ -113,9 +122,8 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
 BEGIN
-  IF NOT (is_super_admin() OR is_admin()
-          OR user_has_permission('schools_network.schools.edit')) THEN
-    RAISE EXCEPTION 'permission denied for schools_network.schools.edit'
+  IF NOT (is_super_admin() OR is_admin()) THEN
+    RAISE EXCEPTION 'permission denied — unmerging feeder duplicates is admin-only'
       USING ERRCODE = '42501';
   END IF;
   DELETE FROM public.schools_network_feeder_aliases WHERE from_key = p_from_key;
@@ -137,11 +145,12 @@ RETURNS TABLE(
 LANGUAGE plpgsql
 STABLE SECURITY DEFINER
 SET search_path TO 'public', 'extensions'
+SET statement_timeout TO '15000'   -- cap the trigram scan (advisory review LOW)
 AS $$
 BEGIN
-  IF NOT (is_super_admin() OR is_admin()
-          OR user_has_permission('schools_network.schools.edit')) THEN
-    RAISE EXCEPTION 'permission denied for schools_network.schools.edit'
+  -- Admin-only: this feeds the admin-only merge tool (see link RPC).
+  IF NOT (is_super_admin() OR is_admin()) THEN
+    RAISE EXCEPTION 'permission denied — feeder tidy is admin-only'
       USING ERRCODE = '42501';
   END IF;
 
@@ -175,7 +184,7 @@ BEGIN
     JOIN feeders b
       ON a.k < b.k
      AND left(a.k, 2) = left(b.k, 2)                    -- blocking → performant
-     AND extensions.similarity(a.nm, b.nm) > 0.40
+     AND extensions.similarity(a.nm, b.nm) > 0.60       -- ↑ from 0.40: fewer false pairs (advisory)
    ORDER BY extensions.similarity(a.nm, b.nm) DESC, (a.n + b.n) DESC
    LIMIT greatest(1, least(p_limit, 200));
 END;
@@ -392,7 +401,10 @@ BEGIN
            END;
   -- Resolve the requested school to its merge primary, then gather every key
   -- that belongs to that primary (itself + all keys merged into it), so a
-  -- merged school's roster spans all its spellings and matches the panel count.
+  -- merged school's roster spans all its spellings. NOTE: roster length equals
+  -- the org-wide panel's enrolled_count only for admin / scope='all' viewers —
+  -- a scope='own' viewer's roster is institution-scoped (PII guard below) while
+  -- the panel fn is org-wide (no guard), so their roster reads lower (advisory).
   v_primary := COALESCE(
     (SELECT to_key FROM public.schools_network_feeder_aliases WHERE from_key = v_key), v_key);
 
@@ -440,7 +452,10 @@ BEGIN
          r.degree_type, r.admission_year, r.year_known,
          count(*) OVER () AS total_count      -- exact total (pre-LIMIT window)
     FROM roster r
-   ORDER BY r.admission_year DESC NULLS LAST, r.learner_name NULLS LAST
+   -- learner_id is the UNIQUE tiebreaker: without it, learners sharing a
+   -- year+name (or NULL name) sort nondeterministically and LIMIT/OFFSET can
+   -- skip or repeat rows across pages (advisory review MEDIUM — new with paging).
+   ORDER BY r.admission_year DESC NULLS LAST, r.learner_name NULLS LAST, r.learner_id
    LIMIT  greatest(1, least(p_limit, 200))
   OFFSET greatest(0, p_offset);
 END;

@@ -61,7 +61,22 @@ export const GET = withAuth(
       yearKnown: Boolean(r.year_known),
     }));
     // total_count travels on every row (window count); 0 rows ⇒ empty roster.
-    const total = arr.length > 0 ? Number(arr[0].total_count ?? rows.length) : 0;
+    let total = arr.length > 0 ? Number(arr[0].total_count ?? rows.length) : 0;
+    // Past-the-end page (offset beyond the last row — e.g. after an unmerge
+    // shrinks a roster while the user sits on a later page): total_count rides
+    // only on returned rows, so an empty page would misreport total=0 and strand
+    // the pager (advisory review). Recover the window total with a 1-row probe
+    // at offset 0, mirroring the feeders route.
+    if (arr.length === 0 && p_offset > 0) {
+      const probe = await auth.supabase.rpc('fn_schools_network_school_learners', {
+        p_school_name: school,
+        p_degree_type: level,
+        p_limit: 1,
+        p_offset: 0,
+      });
+      const parr = (probe.data ?? []) as Array<Record<string, unknown>>;
+      total = parr.length > 0 ? Number(parr[0].total_count ?? 0) : 0;
+    }
     return successResponse({ rows, total });
   },
   { allowApiKey: false, requirePermission: 'schools_network.schools.view' }

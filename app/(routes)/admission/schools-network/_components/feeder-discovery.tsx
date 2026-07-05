@@ -363,9 +363,6 @@ function FeederSection({
 
       <FeederPreviewDialog
         schoolName={previewName ?? ''}
-        // Dialog's prop type is 'ug' | 'pg' but it only forwards level to
-        // listSchoolLearners, which accepts 'other' — cast so the Other-levels
-        // roster stays scoped without editing the dialog file.
         level={level}
         open={previewName !== null}
         onOpenChange={(o) => {
