@@ -124,12 +124,20 @@ export default function AuditCyclesPage() {
                   findings.
                 </p>
               </div>
-              <Link href="/audit/cycles/new">
-                <Button size="sm">
-                  <Plus className="mr-2 h-4 w-4" />
-                  Create cycle
-                </Button>
-              </Link>
+              <div className="flex flex-wrap items-center gap-2">
+                <Link href="/audit/care/new">
+                  <Button size="sm" variant="outline">
+                    <Plus className="mr-2 h-4 w-4" />
+                    New CARRE audit
+                  </Button>
+                </Link>
+                <Link href="/audit/cycles/new">
+                  <Button size="sm">
+                    <Plus className="mr-2 h-4 w-4" />
+                    New compliance cycle
+                  </Button>
+                </Link>
+              </div>
             </div>
           </CardHeader>
           <CardContent>
