@@ -384,12 +384,16 @@ const NAV_EXCLUDE = new Set<string>([
   //    from the chip-reachable /audit/dashboard CARE section.
   //  - /audit/care/score          : token-less fallback for the invite-link
   //    scoring route (/audit/care/[cycleId]); no chip surface by design.
+  //  - /audit/care/coverage       : CARRE Coverage Map (leadership view),
+  //    button-invoked from the chip-reachable /audit/cycles header + the
+  //    /audit/dashboard CARE/CARRE section; gated audit.cycle.view.
   // ════════════════════════════════════════════════════════════
   '/academic/session-feedback',
   '/moments',
   '/audit/care',
   '/audit/care/new',
   '/audit/care/score',
+  '/audit/care/coverage',
 
   // NOTE (2026-06-23): /admission/social/governance is NO LONGER excluded.
   // It is now a properly-gated chip (MENU_PERMISSIONS['/admission/social/governance']

@@ -34,6 +34,7 @@ import {
   Inbox,
   ArrowRight,
   RefreshCw,
+  LayoutGrid,
 } from 'lucide-react';
 import { useAuditCycles } from '@/hooks/audit';
 import { CyclePhaseBadge } from '../_components/cycle-phase-badge';
@@ -125,6 +126,12 @@ export default function AuditCyclesPage() {
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <Link href="/audit/care/coverage">
+                  <Button size="sm" variant="outline">
+                    <LayoutGrid className="mr-2 h-4 w-4" />
+                    Coverage map
+                  </Button>
+                </Link>
                 <Link href="/audit/care/new">
                   <Button size="sm" variant="outline">
                     <Plus className="mr-2 h-4 w-4" />
