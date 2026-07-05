@@ -210,7 +210,7 @@ CREATE OR REPLACE FUNCTION public.fn_curriculum_lesson_upsert(
  RETURNS uuid
  LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path TO 'public'
 AS $function$
-DECLARE v_inst uuid; v_creator uuid; v_lesson_inst uuid; v_role_ok boolean; v_id uuid;
+DECLARE v_inst uuid; v_creator uuid; v_lesson_inst uuid; v_role_ok boolean; v_role text; v_existing uuid; v_id uuid;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_curriculum_lesson_upsert: not authenticated'; END IF;
   IF btrim(coalesce(p_title,'')) = '' THEN RAISE EXCEPTION 'fn_curriculum_lesson_upsert: title required'; END IF;
@@ -218,15 +218,36 @@ BEGIN
   SELECT institution_id INTO v_inst FROM public.courses WHERE id = p_course_id;
   IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_curriculum_lesson_upsert: no such course'; END IF;
 
-  SELECT (p.role = ANY (ARRAY['super_admin','administrator','institution_admin','dean','hod','principal','coordinator'])
+  SELECT p.role,
+         (p.role = ANY (ARRAY['super_admin','administrator','institution_admin','dean','hod','principal','coordinator'])
           OR p.is_super_admin = true)
-    INTO v_role_ok FROM public.profiles p WHERE p.id = auth.uid();
+    INTO v_role, v_role_ok FROM public.profiles p WHERE p.id = auth.uid();
 
   IF p_lesson_id IS NULL THEN
-    -- CREATE: any authenticated user with access to the course's institution may
-    -- author a faculty lesson. Published-on-create (#31), self-approved.
-    IF NOT (public.is_super_admin() OR public.role_has_institution_access(v_inst)) THEN
-      RAISE EXCEPTION 'fn_curriculum_lesson_upsert: no access to this institution';
+    -- CREATE: only TEACHING staff may author a lesson (published-on-create #31,
+    -- self-approved). role_has_institution_access alone is NOT enough — LEARNERS also
+    -- have institution access and would otherwise inject published lessons into the
+    -- shared course spine (deep-review 🟠 2026-07-05). Requiring a teaching role
+    -- excludes role='student' (and other non-teaching roles).
+    IF NOT (public.is_super_admin()
+            OR (v_role = ANY (ARRAY['faculty','school_faculty','staff','hod','principal','dean',
+                                    'coordinator','institution_admin','administrator','system_admin'])
+                AND public.role_has_institution_access(v_inst))) THEN
+      RAISE EXCEPTION 'fn_curriculum_lesson_upsert: only teaching staff can create a lesson';
+    END IF;
+    -- Idempotent on (course, creator, title): a link-after-create retry that failed, or
+    -- the teacher re-typing the same topic, REUSES the existing published lesson rather
+    -- than minting a duplicate that pollutes the my-topics reuse list (deep-review 🟡).
+    SELECT id INTO v_existing FROM public.curriculum_lesson
+    WHERE course_id = p_course_id AND created_by = auth.uid()
+      AND source = 'faculty' AND status = 'published'
+      AND lower(title) = lower(btrim(p_title))
+    LIMIT 1;
+    IF v_existing IS NOT NULL THEN
+      UPDATE public.curriculum_lesson
+      SET primary_fink_dimension = COALESCE(p_primary_fink, primary_fink_dimension), updated_at = now()
+      WHERE id = v_existing;
+      RETURN v_existing;
     END IF;
     INSERT INTO public.curriculum_lesson
       (institution_id, course_id, sequence_no, unit_label, title, learning_outcomes,
@@ -519,7 +540,13 @@ BEGIN
   -- below 2 — so a mis-set policy row can only TIGHTEN privacy, never defeat the k≥3
   -- anonymity floor for full classes (#20) or drop a small class below 2 (deep-review
   -- 🟡 2026-07-05). To reach "k≥3 everywhere", set small_max=0 or reveal_floor_small=3.
-  v_small_max := COALESCE(v_small_max, 0);
+  -- HARD SIZE CAP: a class can never count as "small" beyond 15 present, no matter what
+  -- an admin sets small_class_max_present to — otherwise the SIZE knob could reclassify a
+  -- large class as small and reveal it at k=2, defeating k>=3 via the size knob rather
+  -- than the floor knob (deep-review 🟠 2026-07-05). Floor-value clamps below already
+  -- bound normal>=3 / small>=2; together they mean NO config makes a >15-present class
+  -- reveal below k=3.
+  v_small_max := LEAST(GREATEST(COALESCE(v_small_max, 0), 0), 15);
   v_normal    := GREATEST(COALESCE(v_normal, 3), 3);
   v_small     := GREATEST(COALESCE(v_small, v_normal), 2);
   RETURN CASE WHEN p_present IS NOT NULL AND p_present <= v_small_max THEN v_small ELSE v_normal END;
