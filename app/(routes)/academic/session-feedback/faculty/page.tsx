@@ -7,7 +7,7 @@
 //  2) UNDERSTANDING (quality): anonymized aggregate signal (fn_scf_faculty_summary).
 // Spec: specs/session-feedback-faculty-completion-lane-2026-06-17.md (A — visibility).
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { format, subDays } from 'date-fns';
 import { BeatLoader } from 'react-spinners';
@@ -288,6 +288,9 @@ function TopicsToRevisitSection({ from, to }: { from: string; to: string }) {
     const el = document.querySelector(`[data-course-anchor="${CSS.escape(deepCourse)}"]`);
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [deepCourse, rows.length]);
+  // A course can span several session rows; open the popover on the FIRST match
+  // only (scrollIntoView above already lands on the first anchor).
+  const firstDeepIdx = deepCourse ? rows.findIndex((r) => r.course_code === deepCourse) : -1;
 
   return (
     <Card className="mb-6">
@@ -342,7 +345,7 @@ function TopicsToRevisitSection({ from, to }: { from: string; to: string }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((r) => (
+                {rows.map((r, idx) => (
                   <TableRow
                     key={`${r.attendance_date}-${r.period_id}-${r.course_code ?? 'na'}`}
                     data-course-anchor={r.course_code ?? ''}
@@ -387,7 +390,7 @@ function TopicsToRevisitSection({ from, to }: { from: string; to: string }) {
                             taskType="session_feedback.suggest_improvement"
                             entityId={r.course_code}
                             label="Summarise (50% AI)"
-                            autoOpen={!!deepCourse && r.course_code === deepCourse}
+                            autoOpen={idx === firstDeepIdx}
                           />
                         </div>
                       ) : (
@@ -696,7 +699,10 @@ export default function FacultySessionInsightPage() {
       <FacultyRewardCard rows={rows} />
 
       {/* Action — your low-understanding topics + the lift + an AI suggested fix */}
-      <TopicsToRevisitSection from={from} to={to} />
+      {/* Suspense required for useSearchParams() inside TopicsToRevisitSection (P2 deep-link). */}
+      <Suspense fallback={null}>
+        <TopicsToRevisitSection from={from} to={to} />
+      </Suspense>
 
       {/* Coverage — who confirmed, who's pending */}
       <CompletionSection from={from} to={to} />

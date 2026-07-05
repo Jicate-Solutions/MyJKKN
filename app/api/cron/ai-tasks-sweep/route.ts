@@ -27,7 +27,7 @@ const CLAIM_CAP = 50;
 // click never dead-ends silently (Director decision 2026-07-05). Best-effort +
 // idempotent per (task, outcome) so a re-collect / re-run never double-pings.
 // The deep-link carries ?course= so the notification opens the exact class.
-type TaskOutcome = 'done' | 'empty' | 'failed';
+type TaskOutcome = 'done' | 'empty' | 'failed' | 'unconfigured';
 
 async function notifyOutcome(
   admin: ReturnType<typeof createServiceRoleClient>,
@@ -42,8 +42,11 @@ async function notifyOutcome(
     : undefined;
   const spec: Record<TaskOutcome, { title: string; body: string; key: string }> = {
     done:   { title: 'AI result ready',        body: `Your ${tt.label} for ${where} is ready.`, key: `ai_task_done:${taskId}` },
-    empty:  { title: 'Not enough feedback yet', body: `There isn't enough feedback yet to summarise ${where} (needs at least 3 responses). Try again once more students respond.`, key: `ai_task_empty:${taskId}` },
+    empty:  { title: 'Not enough feedback yet', body: `There isn't enough feedback yet to summarise ${where} (needs at least 3 responses). Try again once more learners respond.`, key: `ai_task_empty:${taskId}` },
     failed: { title: 'AI summary didn’t finish', body: `We couldn't generate the ${tt.label} for ${where}. Please try again.`, key: `ai_task_failed:${taskId}` },
+    // ai_not_configured is a permanent gate until an admin adds the key — never
+    // tell the user to "try again" (it would re-hit the same gate). Distinct msg.
+    unconfigured: { title: 'AI isn’t set up yet', body: `AI isn't configured yet — an admin needs to enable it before ${where} can be summarised.`, key: `ai_task_unconfigured:${taskId}` },
   };
   const s = spec[outcome];
   try {
@@ -156,7 +159,7 @@ export async function GET(request: NextRequest) {
               p_result: { suggestion: null, reason: 'ai_not_configured' },
             });
             skipped++;
-            await notifyOutcome(admin, tt, { uid, courseCode, taskId: row.id, outcome: 'failed' });
+            await notifyOutcome(admin, tt, { uid, courseCode, taskId: row.id, outcome: 'unconfigured' });
           } else {
             requests.push({
               customId: row.id,
