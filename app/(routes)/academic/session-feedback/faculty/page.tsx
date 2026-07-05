@@ -284,15 +284,17 @@ function TopicsToRevisitSection({ from, to }: { from: string; to: string }) {
   // course's button to open its popover (autoOpen prop below).
   const deepCourse = useSearchParams().get('course');
   // Deep-link handler: once the list has loaded, scroll to the target course —
-  // or, if it isn't in the current window (aged out of the low-understanding
-  // list, or the date range moved on), tell the user instead of silently doing
-  // nothing. `id` dedupes so a re-run doesn't stack toasts.
+  // or, if it isn't in this list (this table only shows the last 30 days of
+  // low-understanding sessions, so an empty/failed deep-link or an aged-out
+  // class won't have a row), tell the user WHY instead of silently doing
+  // nothing. Non-actionable by design: the window is fixed (no date picker), so
+  // the notice states the fact rather than promising a control. `id` dedupes.
   useEffect(() => {
     if (!deepCourse || isLoading) return;
     const el = document.querySelector(`[data-course-anchor="${CSS.escape(deepCourse)}"]`);
     if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
     toast.info(
-      "This class isn't in your current view — adjust the date range to see its AI summary.",
+      "This class isn't in your low-understanding list right now, so its AI summary isn't shown here.",
       { id: `deeplink-miss-${deepCourse}` },
     );
   }, [deepCourse, isLoading, rows.length]);
