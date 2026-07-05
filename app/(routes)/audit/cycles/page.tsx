@@ -253,7 +253,19 @@ export default function AuditCyclesPage() {
                         <CyclePhaseBadge phase={c.phase} />
                       </TableCell>
                       <TableCell>
-                        <div className="flex flex-wrap gap-1">
+                        <div className="flex flex-wrap items-center gap-1">
+                          <Badge
+                            variant="outline"
+                            className={
+                              auditKind(c.frameworks) === 'engagement'
+                                ? 'text-[10px] border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
+                                : 'text-[10px] border-indigo-300 bg-indigo-50 text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-200'
+                            }
+                          >
+                            {auditKind(c.frameworks) === 'engagement'
+                              ? 'Engagement'
+                              : 'Compliance'}
+                          </Badge>
                           {c.frameworks.map((f) => (
                             <Badge
                               key={f}
