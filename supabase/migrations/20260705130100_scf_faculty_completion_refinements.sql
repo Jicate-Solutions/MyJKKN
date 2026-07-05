@@ -132,3 +132,8 @@ BEGIN
            public.fn_scf_to_time_or_null(d.pv ->> 'start_time') ASC NULLS LAST;
 END;
 $function$
+
+-- Explicit anon-lock (CLAUDE.md standing rule; idempotent for CREATE OR REPLACE — the
+-- live fn is already anon-locked, this keeps the migration file self-documenting + green).
+REVOKE EXECUTE ON FUNCTION public.fn_scf_faculty_completion(date, date) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_scf_faculty_completion(date, date) TO authenticated;
