@@ -91,6 +91,11 @@ export async function GET(request: NextRequest): Promise<Response> {
         title: 'A school you own needs a visit',
         body: bodyFor(c.school_name ?? '', c.reason),
         userIds: [c.assigned_to],
+        // createdBy = the recipient coordinator. This is deliberate and delivers:
+        // fanoutNotification inserts a user_notifications row for every userId
+        // regardless of created_by, and NO notification read-path filters out
+        // self-created rows — so the coordinator receives their own nudge. (A
+        // system actor id would be more semantically pure but isn't required.)
         createdBy: c.assigned_to,
         url: WORKLIST_URL,
         category: 'schools_network',
@@ -104,12 +109,21 @@ export async function GET(request: NextRequest): Promise<Response> {
       else notified++;
       // Stamp THIS school's realert window immediately, gated on ITS OWN send
       // succeeding. Per-candidate (not one bulk stamp at the end) so a single
-      // stamp failure can't leave every other nudged school un-stamped and thus
-      // re-nudged every run until the next successful bulk write.
+      // stamp failure can't leave every other nudged school un-stamped.
+      //
+      // Stamping on an 'idempotent' return is SAFE (not a suppressed nudge): the
+      // idempotent path in fanoutNotification calls ensureLinks() to HEAL any
+      // missing user_notifications rows before returning, and THROWS on a
+      // persistent failure (→ our catch below, no stamp). So an idempotent return
+      // means the bell item is present — delivered — hence safe to stamp.
       const { error: stampErr } = await admin
         .from('school_visit_assignments')
         .update({ last_nudged_at: new Date().toISOString() })
-        .eq('school_id', c.school_id);
+        .eq('school_id', c.school_id)
+        // Scope by assigned_to too: if the school was reassigned between the
+        // candidate query and now, don't stamp the new coordinator's window
+        // (they haven't been nudged) — the update simply matches 0 rows.
+        .eq('assigned_to', c.assigned_to);
       if (stampErr) {
         stampFailed++;
         console.error(
@@ -132,9 +146,10 @@ export async function GET(request: NextRequest): Promise<Response> {
   }
 
   return NextResponse.json({
-    // stampFailed>0 means some schools were notified but not stamped and will be
-    // re-nudged next run — surface it as a non-ok run so it's visible in logs.
-    ok: stampFailed === 0,
+    // Non-ok when anything went wrong so Vercel cron monitoring flags the run:
+    //  - failed>0      → a fanout genuinely failed (coordinator not notified)
+    //  - stampFailed>0 → notified but not stamped (will be re-nudged next run)
+    ok: stampFailed === 0 && failed === 0,
     data: {
       candidates: candidates.length,
       notified,
