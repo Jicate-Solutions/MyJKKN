@@ -126,3 +126,8 @@ BEGIN
 END $$;
 
 COMMIT;
+
+-- Explicit anon-lock (CLAUDE.md standing rule; idempotent for CREATE OR REPLACE — the
+-- live fn is already anon-locked, this keeps the migration file self-documenting + green).
+REVOKE EXECUTE ON FUNCTION public.fn_scf_faculty_completion(date, date) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_scf_faculty_completion(date, date) TO authenticated;
