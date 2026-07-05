@@ -315,3 +315,20 @@ export interface PulseTotals {
   dist: Record<string, number> | null;               // {"1":n,...,"5":n} or null
   checklist_counts: Record<string, number> | null;   // {item_key:n} or null
 }
+
+/** The caller learner's OWN confirmed-attendance snapshot (fn_scf_my_confirmed_attendance).
+ *  Forward-only from enforcement_start: confirmed_pct = present-AND-feedback / (present+absent).
+ *  Below min_marks the % is still "building up" (settle-in floor, #6) and is not yet judged
+ *  against pass_line. Never mutates attendance; official_pct is shown for context only. */
+export interface MyConfirmedAttendance {
+  present_marks: number;
+  absent_marks: number;
+  confirmed_present: number;
+  total_marks: number;
+  official_pct: number;
+  confirmed_pct: number;
+  enforcement_start: string;
+  gate_mode: 'off' | 'visibility' | 'hard';
+  pass_line: number;   // 75
+  min_marks: number;   // 10 — settle-in floor
+}

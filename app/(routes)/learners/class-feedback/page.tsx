@@ -23,6 +23,7 @@ import { MyVoiceReceipt } from './_components/my-voice-receipt';
 import { ClassPollBanner } from './_components/class-poll-banner';
 import { LoopClosureCard } from './_components/loop-closure-card';
 import { StrugglingNoteCard } from './_components/struggling-note-card';
+import { MyConfirmedAttendanceCard } from '@/components/session-feedback/my-confirmed-attendance-card';
 
 const BRAND = '#0b6d41';
 
@@ -77,6 +78,9 @@ export default function LearnerSessionFeedbackPage() {
             </Badge>
           )}
         </div>
+
+        {/* Your confirmed-attendance % + early warning (advisory; hidden when enforcement is off) */}
+        <MyConfirmedAttendanceCard />
 
         {/* Live class poll (Live Poll Engine Phase B) — the rich builder-driven poll
             (realtime word-cloud / scale / checklist). This is now the SOLE in-class

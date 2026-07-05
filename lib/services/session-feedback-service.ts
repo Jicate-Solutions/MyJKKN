@@ -26,6 +26,7 @@ import type {
   LivePulseRow,
   OpenPulseForLearner,
   PulseTotals,
+  MyConfirmedAttendance,
 } from '@/types/session-feedback';
 
 // Untyped client — session_feedback tables are not in the generated types yet.
@@ -61,6 +62,17 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to load pending sessions: ${error.message}`);
     return (data || []) as PendingSession[];
+  }
+
+  /** The caller learner's OWN confirmed-attendance snapshot (transparency, #7).
+   *  Forward-only; NOT gated on attendance_coupling_enabled — a learner may always see
+   *  their own number. Returns null when the caller is not a learner or has no in-scope marks. */
+  static async getMyConfirmedAttendance(): Promise<MyConfirmedAttendance | null> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_my_confirmed_attendance', {});
+    if (error) throw new Error(`Failed to load confirmed attendance: ${error.message}`);
+    const row = Array.isArray(data) ? data[0] : data;
+    return (row as MyConfirmedAttendance) ?? null;
   }
 
   /** Carry-forward re-asks: prior same-course sessions the learner flagged, for their

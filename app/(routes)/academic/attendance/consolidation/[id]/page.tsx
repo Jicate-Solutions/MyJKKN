@@ -72,6 +72,7 @@ import { exportConsolidationReportToPDF } from '@/lib/utils/pdf-export/consolida
 import { exportConsolidationSubjectwisePDF } from '@/lib/utils/pdf-export/consolidation-subjectwise-pdf';
 import { exportConsolidationReportToExcel } from '@/lib/utils/excel-export/consolidation-report-excel';
 import { SubjectwiseReportView } from '../_components/subjectwise-report-view';
+import { ConfirmedAttendanceAdvisoryPanel } from '../_components/confirmed-attendance-advisory-panel';
 import type { StudentAttendanceSummary, GroupAttendanceSummary } from '@/types/attendance';
 
 interface PageProps {
@@ -773,6 +774,16 @@ export default function ConsolidationReportDetailPage({ params }: PageProps) {
               </CardContent>
             </Card>
           </div>
+        </div>
+
+        {/* Feedback-confirmed attendance (advisory, Build 2b) — surfaces the confirmed %
+            for the report scope without altering the official figures above. */}
+        <div className="mb-6">
+          <ConfirmedAttendanceAdvisoryPanel
+            institutionId={report.institutionId}
+            dateFrom={report.reportParams.dateFrom}
+            dateTo={report.reportParams.dateTo}
+          />
         </div>
 
         {/* Subjectwise (Camu) template renders its own matrix view */}

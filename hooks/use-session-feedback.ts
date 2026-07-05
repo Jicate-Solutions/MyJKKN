@@ -40,6 +40,7 @@ export const scfQueryKeys = {
     [...scfQueryKeys.all, 'facilitator-coverage', from, to] as const,
   openPulsesForLearner: () => [...scfQueryKeys.all, 'open-pulses-learner'] as const,
   pulseTotals: (pulseId: string) => [...scfQueryKeys.all, 'pulse-totals', pulseId] as const,
+  myConfirmedAttendance: () => [...scfQueryKeys.all, 'my-confirmed-attendance'] as const,
 };
 
 export function useChecklistConfig(institutionId?: string | null) {
@@ -250,5 +251,14 @@ export function usePulseTotals(pulseId: string | null, enabled: boolean) {
     queryFn: () => SessionFeedbackService.getPulseTotals(pulseId as string),
     enabled: enabled && !!pulseId,
     refetchInterval: 10 * 1000,
+  });
+}
+
+/** The caller learner's OWN confirmed-attendance snapshot (transparency + early warning, #7). */
+export function useMyConfirmedAttendance() {
+  return useQuery({
+    queryKey: scfQueryKeys.myConfirmedAttendance(),
+    queryFn: () => SessionFeedbackService.getMyConfirmedAttendance(),
+    staleTime: 60 * 1000,
   });
 }
