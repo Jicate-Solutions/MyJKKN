@@ -114,12 +114,14 @@ export default function AuditCyclesPage() {
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <Layers className="h-5 w-5 text-primary" />
-                  Audit Cycles
+                  Audits
                 </CardTitle>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Time-boxed institutional audit runs. Each cycle freezes a parameter
-                  snapshot on its first draft→in-progress transition so that changes
-                  to the master catalog don&apos;t retro-contaminate past attestations.
+                  Every audit in one place — <strong>compliance</strong> cycles
+                  (NAAC/NBA and other bodies) and <strong>engagement</strong> audits
+                  (CARE/CARRE). Each row opens its own flow: engagement audits use
+                  0–4 two-scorer scoring; compliance cycles use attestations and
+                  findings.
                 </p>
               </div>
               <Link href="/audit/cycles/new">
