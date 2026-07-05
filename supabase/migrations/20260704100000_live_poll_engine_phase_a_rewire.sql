@@ -419,6 +419,12 @@ BEGIN
     RAISE EXCEPTION 'fn_induction_close_session_poll: not authorized'; END IF;
   UPDATE public.induction_session_poll SET status='closed', updated_at=now()
   WHERE id = p_poll_id RETURNING * INTO v_row;
+  -- Class anchor state: a MANUAL close must also clear scf_live_pulse.is_open, so
+  -- #1626 pulse consumers don't see a stale-open flag. (Auto-close in the totals RPC
+  -- already does this; the manual path previously did not — state-drift fix.)
+  IF v_ctype = 'class_session' THEN
+    UPDATE public.scf_live_pulse SET is_open=false, updated_at=now() WHERE id = v_cid;
+  END IF;
   RETURN v_row;
 END $function$;
 REVOKE EXECUTE ON FUNCTION public.fn_induction_close_session_poll(uuid) FROM anon, PUBLIC;
@@ -524,6 +530,16 @@ BEGIN
   SELECT p.context_type, p.context_id INTO v_ctype, v_cid FROM public.induction_session_poll p WHERE p.id = p_poll_id;
   IF v_cid IS NULL OR NOT public.fn_live_poll_can_manage(v_ctype, v_cid) THEN
     RAISE EXCEPTION 'fn_induction_session_poll_responders: not allowed'; END IF;
+
+  -- k>=3 anonymity floor (spec #20): for a CLASS poll, withhold the named responder
+  -- roster until >=3 distinct students have answered. At low N a named roster (even
+  -- without the answer breakdown) narrows who-answered-what and de-anonymizes students
+  -- to the teacher. Empty result → the "Who answered" list stays hidden in the UI.
+  IF v_ctype = 'class_session'
+     AND (SELECT count(DISTINCT v.learner_id)
+          FROM public.induction_session_poll_vote v WHERE v.poll_id = p_poll_id) < 3 THEN
+    RETURN;
+  END IF;
 
   RETURN QUERY
   SELECT v.learner_id,

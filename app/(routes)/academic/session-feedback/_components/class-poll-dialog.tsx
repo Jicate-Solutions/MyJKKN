@@ -209,7 +209,13 @@ export function ClassPollDialog({
         if (q.kind === 'wordcloud') return { ...q, position: i, options: [] } as PollQuestionDraft;
         return { ...q, position: i, options: q.options.filter((o) => o.label.trim()).map((o, k) => ({ ...o, position: k })) } as PollQuestionDraft;
       })
-      .filter((q) => q.prompt.trim() && (q.kind === 'wordcloud' || q.options.length >= 2));
+      // loop_role questions (understood/free_text/checklist) are locked system
+      // questions that feed session_feedback — never drop them. The checklist (multi)
+      // loop question can legitimately have <2 options when the institution checklist
+      // config is small/empty; the >=2 filter must not silently discard it (which
+      // permanently broke the checklist→feedback bridge). Author-created choice
+      // questions still require >=2 options.
+      .filter((q) => q.prompt.trim() && (q.kind === 'wordcloud' || !!q.loop_role || q.options.length >= 2));
     if (!payload.length) { toast.error('Add at least one question (options: two for a choice question, none for a word cloud).'); return; }
     setBusy(true);
     try { const id = await ClassPollService.upsertPoll(classKey, payload); setPollId(id); toast.success('Poll saved.'); await load(); }

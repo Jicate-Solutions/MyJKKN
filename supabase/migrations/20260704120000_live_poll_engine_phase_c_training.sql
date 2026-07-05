@@ -456,7 +456,12 @@ BEGIN
         'response_count', q_resp.cnt,
         'options', (
           SELECT coalesce(jsonb_agg(jsonb_build_object(
-            'id', o.id, 'label', o.label, 'count', oc.cnt
+            'id', o.id, 'label', o.label,
+          -- k>=3 anonymity floor (spec #20): in a CLASS poll with <3 distinct
+          -- responders, never ship per-option counts — they de-anonymize students
+          -- to the teacher at low N. Wordcloud keeps its own per-option >=3 gate.
+          'count', CASE WHEN v_p.context_type = 'class_session' AND v_responses < 3
+                          AND q.kind <> 'wordcloud' THEN NULL ELSE oc.cnt END
           ) ORDER BY o.position),'[]'::jsonb)
           FROM public.induction_session_poll_option o
           CROSS JOIN LATERAL (SELECT count(*)::int AS cnt
@@ -473,7 +478,8 @@ BEGIN
   ) qx;
 
   RETURN jsonb_build_object('status', v_p.status, 'auto_close_at', v_p.auto_close_at,
-    'enrolled_count', v_enrolled, 'response_count', v_responses, 'suppressed', false,
+    'enrolled_count', v_enrolled, 'response_count', v_responses,
+    'suppressed', (v_p.context_type = 'class_session' AND v_responses < 3),
     'questions', v_questions);
 END $function$;
 REVOKE EXECUTE ON FUNCTION public.fn_induction_session_poll_totals(uuid) FROM anon, PUBLIC;
