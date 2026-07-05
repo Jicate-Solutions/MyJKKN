@@ -85,17 +85,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_curriculum_lesson_faculty_topic
 
 ALTER TABLE public.curriculum_lesson ENABLE ROW LEVEL SECURITY;
 
--- Direct SELECT: published lessons (shared plan #10) to anyone with institution
--- access, plus a creator seeing their own drafts. WRITES have NO direct policy →
--- they flow ONLY through the SECURITY DEFINER RPCs below (which enforce creator-only
+-- Direct SELECT: published lessons (shared plan #10) to non-student staff with
+-- institution access, plus a creator seeing their own drafts. STUDENTS are excluded
+-- from direct table reads — they see only their present-gated topics via the DEFINER
+-- RPC fn_curriculum_topic_for_learner (which bypasses RLS), so the whole published
+-- catalogue isn't browsable by any learner (deep-review 🟠 2026-07-05). WRITES have NO
+-- direct policy → they flow ONLY through the SECURITY DEFINER RPCs below (creator-only
 -- edit #33 + HOD override). institution_id is NOT NULL, so role_has_institution_access
 -- is never called with NULL (avoids the NULL-institution PII-leak pattern).
 DROP POLICY IF EXISTS curriculum_lesson_select ON public.curriculum_lesson;
 CREATE POLICY curriculum_lesson_select ON public.curriculum_lesson
 FOR SELECT USING (
   public.is_super_admin() OR public.is_admin()
-  OR (public.role_has_institution_access(institution_id)
-      AND (status = 'published' OR created_by = auth.uid()))
+  OR created_by = auth.uid()
+  OR (status = 'published'
+      AND public.role_has_institution_access(institution_id)
+      AND (SELECT public.get_current_user_role()) <> 'student')
 );
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -185,9 +190,14 @@ BEGIN
     RAISE EXCEPTION 'fn_bos_clos_for_course: no access to this institution';
   END IF;
 
+  -- Institution-scoped: match the syllabus by BOTH course_code AND institutions_id.
+  -- course_code ALONE is shared across tenants (e.g. 24EVS01A exists in two colleges),
+  -- so a code-only match would return another institution's CLOs to this caller
+  -- (deep-review 🔴 2026-07-05). institutions_id is 100% populated on latest syllabi.
   SELECT COALESCE(b.course_learning_outcomes -> 'clos', '[]'::jsonb) INTO v_clos
   FROM public.bos_course_syllabi b
-  WHERE b.course_code = v_code AND b.is_latest AND NOT b.is_archived
+  WHERE b.course_code = v_code AND b.institutions_id = v_inst
+    AND b.is_latest AND NOT b.is_archived
     AND b.course_learning_outcomes ? 'clos'
   ORDER BY b.updated_at DESC NULLS LAST
   LIMIT 1;
@@ -291,12 +301,18 @@ BEGIN
     RAISE EXCEPTION 'fn_curriculum_lesson_upsert: only the lesson creator or an HOD/admin of its institution can edit it';
   END IF;
 
-  UPDATE public.curriculum_lesson
-  SET title = btrim(p_title), unit_label = p_unit_label, sequence_no = p_sequence_no,
-      learning_outcomes = COALESCE(p_learning_outcomes,'[]'::jsonb),
-      primary_fink_dimension = p_primary_fink, co_refs = COALESCE(p_co_refs,'{}'),
-      bos_syllabus_id = p_bos_syllabus_id, updated_at = now()
-  WHERE id = p_lesson_id;
+  -- A rename that collides with the creator's own published topic in this course would
+  -- otherwise raise a raw uq_curriculum_lesson_faculty_topic error (deep-review 🟡).
+  BEGIN
+    UPDATE public.curriculum_lesson
+    SET title = btrim(p_title), unit_label = p_unit_label, sequence_no = p_sequence_no,
+        learning_outcomes = COALESCE(p_learning_outcomes,'[]'::jsonb),
+        primary_fink_dimension = p_primary_fink, co_refs = COALESCE(p_co_refs,'{}'),
+        bos_syllabus_id = p_bos_syllabus_id, updated_at = now()
+    WHERE id = p_lesson_id;
+  EXCEPTION WHEN unique_violation THEN
+    RAISE EXCEPTION 'fn_curriculum_lesson_upsert: you already have a published topic with that title in this course';
+  END;
   RETURN p_lesson_id;
 END $function$;
 REVOKE EXECUTE ON FUNCTION public.fn_curriculum_lesson_upsert(uuid, uuid, text, text, int, jsonb, text, text[], uuid) FROM anon, PUBLIC;
@@ -537,8 +553,8 @@ INSERT INTO public.platform_policies
   (policy_key, scope_type, value, data_type, description, is_system, is_active,
    classification, publication_state, ui_widget, ui_category)
 SELECT * FROM (VALUES
-  ('live_poll.small_class_max_present','global','8'::jsonb,'number',
-   'Class polls with at most this many students present use the small-class reveal floor.',
+  ('live_poll.small_class_max_roster','global','8'::jsonb,'number',
+   'A class whose FULL period roster (all students, any attendance status) is at most this many uses the small-class reveal floor. Capped at 15 in code so large classes can never be reclassified small.',
    false, true, 'major','published','number','live_poll'),
   ('live_poll.reveal_floor_small','global','2'::jsonb,'number',
    'Minimum distinct responders before a SMALL class poll reveals per-option counts (spec #34; confidential, not anonymous).',
@@ -558,7 +574,7 @@ AS $function$
 DECLARE v_small_max int; v_small int; v_normal int;
 BEGIN
   SELECT (value #>> '{}')::numeric::int INTO v_small_max
-    FROM public.platform_policies WHERE policy_key = 'live_poll.small_class_max_present'
+    FROM public.platform_policies WHERE policy_key = 'live_poll.small_class_max_roster'
       AND scope_type = 'global' AND is_active;
   SELECT (value #>> '{}')::numeric::int INTO v_small
     FROM public.platform_policies WHERE policy_key = 'live_poll.reveal_floor_small'
@@ -572,7 +588,7 @@ BEGIN
   -- anonymity floor for full classes (#20) or drop a small class below 2 (deep-review
   -- 🟡 2026-07-05). To reach "k≥3 everywhere", set small_max=0 or reveal_floor_small=3.
   -- HARD SIZE CAP: a class can never count as "small" beyond 15 present, no matter what
-  -- an admin sets small_class_max_present to — otherwise the SIZE knob could reclassify a
+  -- an admin sets small_class_max_roster to — otherwise the SIZE knob could reclassify a
   -- large class as small and reveal it at k=2, defeating k>=3 via the size knob rather
   -- than the floor knob (deep-review 🟠 2026-07-05). Floor-value clamps below already
   -- bound normal>=3 / small>=2; together they mean NO config makes a >15-present class
