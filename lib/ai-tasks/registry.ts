@@ -210,8 +210,13 @@ Generate the teaching-improvement JSON now.`;
     return {
       skip: false,
       params: {
+        // 2048 (not the sync route's 1024): a comment-rich class produces a
+        // summary + 3-5 adjustments that overflow 1024 → truncated JSON →
+        // JSON.parse throws at collect → task fails. Verified on MR3691 (16
+        // comments → 1232 output tokens). The sync ai-suggest-improvement route
+        // has the same latent 1024 cap; left untouched (out of scope) but noted.
         model: modelId,
-        max_tokens: 1024,
+        max_tokens: 2048,
         system: SF_SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userPrompt }],
       },
