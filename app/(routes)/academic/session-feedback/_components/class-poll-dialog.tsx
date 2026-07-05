@@ -339,7 +339,7 @@ export function ClassPollDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2" style={{ color: BRAND_GREEN }}>Poll — {courseLabel}
             <Badge variant={status === 'open' ? 'default' : 'secondary'}>{status}</Badge></DialogTitle>
-          <DialogDescription>Name today’s topic, build questions, open it live, and watch anonymized results (hidden until enough students answer). The locked questions feed the live feedback loop and can&apos;t be removed.</DialogDescription>
+          <DialogDescription>Name today’s topic, build questions, open it live, and watch anonymized results (hidden until enough students answer). The first three locked questions feed the live feedback loop; the topic check-in is recorded separately. Locked questions can&apos;t be removed.</DialogDescription>
           {status === 'open' && autoCloseAt && (
             <p className="text-xs text-amber-600 dark:text-amber-500">
               Auto-closes at {new Date(autoCloseAt).toLocaleString(undefined, { hour: 'numeric', minute: '2-digit', day: 'numeric', month: 'short' })} — reopen with &quot;Open live&quot; to extend.
@@ -420,6 +420,11 @@ export function ClassPollDialog({
           <div className="flex items-center gap-2 text-sm font-medium" style={{ color: BRAND_GREEN }}>
             <BookOpen className="h-4 w-4" /> Today’s topic
           </div>
+          {status === 'open' && (
+            <p className="text-[11px] text-amber-600 dark:text-amber-500">
+              The poll is live: changing the topic updates what’s shown here, but the live poll question keeps its current wording until you close and reopen the poll.
+            </p>
+          )}
           {seed?.has_topic && !changingTopic ? (
             <div className="flex items-center justify-between gap-2">
               <div className="text-sm">
