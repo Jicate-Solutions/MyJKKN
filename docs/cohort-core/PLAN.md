@@ -42,14 +42,14 @@ Rules 1–4 are SF100-startup-specific (extension layer). Rules 5–14 are gener
 
 ---
 
-## PHASE 1 — Core spine (additive, 🟢 no live data touched)
-- [ ] 1.1 Migration: `cohorts`, `cohort_memberships`, `cohort_status_events` tables + enums + indexes + RLS (institution-scoped) + updated_at triggers
-- [ ] 1.2 Update `supabase/setup/01_tables.sql`, `03_policies.sql`, `04_triggers.sql`, `SQL_FILE_INDEX.md`
-- [ ] 1.3 Shared TS types `lib/types/cohort-core.ts` (Cohort, CohortMembership, statuses)
-- [ ] 1.4 Shared service `lib/services/cohort-core/cohort-service.ts` (CRUD + status transitions)
-- [ ] 1.5 Lifecycle engine `lib/services/cohort-core/lifecycle.ts` (nudge→pause, escalation-after-3d, grace-period) — pure functions, unit-testable
-- [ ] 1.6 React Query hooks `hooks/cohort-core/index.ts`
-- [ ] 1.7 Scoped verify (tsc/eslint on touched files) + commit
+## PHASE 1 — Core spine (additive, 🟢 no live data touched) — ✅ DONE → PR #1797
+- [x] 1.1 Migration: `cohorts`, `cohort_memberships`, `cohort_status_events` tables + enums + indexes + RLS (institution-scoped) + updated_at triggers
+- [x] 1.2 Update `supabase/setup/01_tables.sql`, `03_policies.sql`, `04_triggers.sql`, `SQL_FILE_INDEX.md`
+- [x] 1.3 Shared TS types `lib/types/cohort-core.ts` (Cohort, CohortMembership, statuses)
+- [x] 1.4 Shared service `lib/services/cohort-core/cohort-service.ts` (CRUD + status transitions)
+- [x] 1.5 Lifecycle engine `lib/services/cohort-core/lifecycle.ts` (nudge→pause, escalation-after-3d, grace-period) — pure functions, unit-testable
+- [x] 1.6 React Query hooks `hooks/cohort-core/index.ts`
+- [x] 1.7 Scoped verify (tsc/eslint on touched files) + commit — tsc 0 / eslint 0; 11-agent adversarial review = 0 confirmed critical/high
 
 ## PHASE 2 — SF100 onto the core as reference (🟡 live data: 19 rows)
 - [ ] 2.1 Map `sf100_programs` → register into `cohorts` (kind='sf100'); `sf100_enrollments` → `cohort_memberships`
