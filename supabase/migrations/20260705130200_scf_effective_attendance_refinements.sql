@@ -136,3 +136,8 @@ BEGIN
   FROM agg a;
 END;
 $function$
+
+-- Explicit anon-lock (CLAUDE.md standing rule; idempotent for CREATE OR REPLACE — the
+-- live fn is already anon-locked, this keeps the migration file self-documenting + green).
+REVOKE EXECUTE ON FUNCTION public.fn_scf_effective_attendance(date, date, uuid, uuid, uuid, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_scf_effective_attendance(date, date, uuid, uuid, uuid, uuid) TO authenticated;
