@@ -22,6 +22,15 @@ export type {
   CareSnapshot,
   CareSnapshotParameter,
 } from './care-audit-service';
+export { CarreAuditService } from './carre-audit-service';
+export type {
+  CarreAuditDetail,
+  CarreAuditListItem,
+  CarreRpcDenial,
+  CarreScoreRow,
+  CarreSnapshot,
+  CarreSnapshotParameter,
+} from './carre-audit-service';
 export { AuditReportService } from './audit-report-service';
 export type {
   AuditReportFormat,

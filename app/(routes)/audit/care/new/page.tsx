@@ -1,11 +1,13 @@
 // app/(routes)/audit/care/new/page.tsx
-// Open a CARE audit — initiative, audience, re-audit date.
-// Spec: specs/care-audit-module-spec-2026-06-12.md §5 (pattern: /audit/cycles/new,
-// collapsed to a single card — three fields, no wizard needed).
+// Open a CARRE audit (v2.0) — initiative, audience, setting, re-audit date.
+// Spec: specs/carre-v2-upgrade-spec-2026-07-05.md §3.
 //
-// ANY staff member can open a CARE audit (Director decision #2) — the page has
-// no PermissionGuard; fn_care_create_audit enforces staff-only server-side and
-// denials render explicitly (rule #27).
+// New audits default to CARRE (5 pillars incl. Respect, 25 items). Historical
+// CARE v1 audits stay readable elsewhere; this page only opens CARRE.
+//
+// ANY staff member can open one — the page has no PermissionGuard;
+// fn_carre_create_audit enforces staff-only server-side and denials render
+// explicitly (rule #27).
 
 'use client';
 
@@ -19,17 +21,30 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
 import { AlertCircle, Check, HeartHandshake, Info } from 'lucide-react';
-import { useCreateCareAudit } from '@/hooks/audit';
-import type { CareRpcDenial } from '@/lib/services/audit/care-audit-service';
+import { useCreateCarreAudit } from '@/hooks/audit';
+import {
+  SETTING_CODES,
+  SETTING_LABELS,
+  type SettingCode,
+} from '@/lib/services/audit/carre-scoring-service';
+import type { CarreRpcDenial } from '@/lib/services/audit/carre-audit-service';
 
 /**
- * navMeta — invoked via the "New CARE audit" button on the audit dashboard's
- * CARE section. Required by `scripts/assert-nav-coverage.mjs`.
+ * navMeta — invoked via the "New CARRE audit" button on the audit dashboard's
+ * culture-audit section. Required by `scripts/assert-nav-coverage.mjs`.
  */
 export const navMeta = {
   invokedFrom: '/audit/dashboard',
 } as const;
+
+const SETTING_HINTS: Record<SettingCode, string> = {
+  ACAD: 'Courses, studios, semesters — teaching & learning.',
+  CLIN: 'Clinical rotations, postings, chairside — patient-facing training.',
+  ADMIN: 'Processes, teams, back-office operations.',
+  EVENT: 'Fests, competitions, camps, one-off initiatives.',
+};
 
 function defaultReAuditDate(): string {
   // Framework: re-audit after 90 days or one initiative cycle, whichever is shorter.
@@ -38,12 +53,13 @@ function defaultReAuditDate(): string {
   return d.toISOString().slice(0, 10);
 }
 
-export default function NewCareAuditPage() {
+export default function NewCarreAuditPage() {
   const router = useRouter();
-  const createAudit = useCreateCareAudit();
+  const createAudit = useCreateCarreAudit();
 
   const [name, setName] = useState('');
   const [audience, setAudience] = useState('');
+  const [settingCode, setSettingCode] = useState<SettingCode>('ACAD');
   const [reAuditDate, setReAuditDate] = useState(defaultReAuditDate());
   const [error, setError] = useState<string | null>(null);
 
@@ -65,17 +81,19 @@ export default function NewCareAuditPage() {
       const result = await createAudit.mutateAsync({
         name: name.trim(),
         audience: audience.trim(),
+        settingCode,
         reAuditDate,
       });
       if (!result.success) {
         const reasons: Record<string, string> = {
-          staff_only: 'CARE audits are opened by staff initiative owners. Your account is a learner account — ask the initiative owner to invite you as the second scorer instead.',
+          staff_only: 'CARRE audits are opened by staff initiative owners. Your account is a learner account — ask the initiative owner to invite you as the second scorer instead.',
+          invalid_setting: 'Pick a setting — Academic, Clinical, Administrative, or Event.',
           invalid_re_audit_date: 'Re-audit date must be today or later.',
           invalid_name: 'Name the initiative being audited (min 4 characters).',
-          catalog_incomplete: 'The CARE parameter catalog is incomplete — contact the platform team.',
+          catalog_incomplete: 'The CARRE parameter catalog is incomplete — contact the platform team.',
           not_authenticated: 'Your session expired. Re-login and try again.',
         };
-        const denialReason = (result as CareRpcDenial).reason;
+        const denialReason = (result as CarreRpcDenial).reason;
         setError(reasons[denialReason] ?? `Could not create the audit (${denialReason}).`);
         return;
       }
@@ -86,12 +104,12 @@ export default function NewCareAuditPage() {
   }
 
   return (
-    <ContentLayout title="New CARE Audit">
+    <ContentLayout title="New CARRE Audit">
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/dashboard' },
           { label: 'Audit', href: '/audit' },
-          { label: 'New CARE Audit', href: '/audit/care/new' },
+          { label: 'New CARRE Audit', href: '/audit/care/new' },
         ]}
       />
 
@@ -100,7 +118,7 @@ export default function NewCareAuditPage() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <HeartHandshake className="h-4 w-4 text-rose-600" />
-              Open a CARE audit
+              Open a CARRE audit
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -109,18 +127,19 @@ export default function NewCareAuditPage() {
                 <Info className="h-4 w-4 flex-shrink-0 text-blue-600" />
                 <span>
                   <strong>Define the unit of audit: one initiative, one audience.</strong>{' '}
-                  You will score 20 items (Clarity · Appreciation · Recognition ·
-                  Empowerment) on a 0–4 scale — score what <em>exists and is
-                  verifiable</em>, not what is intended. The 20 items are frozen
-                  for this audit the moment you create it.
+                  You will score 25 items (Clarity · Appreciation · Recognition ·
+                  Respect · Empowerment) on a 0–4 scale — score what <em>exists and
+                  is verifiable</em>, not what is intended. The 25 items are frozen
+                  for this audit the moment you create it. The setting you pick
+                  selects the evidence anchors shown against each item.
                 </span>
               </p>
             </div>
 
             <div>
-              <Label htmlFor="care-name">Initiative</Label>
+              <Label htmlFor="carre-name">Initiative</Label>
               <Input
-                id="care-name"
+                id="carre-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="mt-1"
@@ -129,9 +148,9 @@ export default function NewCareAuditPage() {
             </div>
 
             <div>
-              <Label htmlFor="care-audience">Audience</Label>
+              <Label htmlFor="carre-audience">Audience</Label>
               <Textarea
-                id="care-audience"
+                id="carre-audience"
                 value={audience}
                 onChange={(e) => setAudience(e.target.value)}
                 className="mt-1"
@@ -141,9 +160,37 @@ export default function NewCareAuditPage() {
             </div>
 
             <div>
-              <Label htmlFor="care-readit">Re-audit date</Label>
+              <Label>Setting</Label>
+              <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {SETTING_CODES.map((code) => {
+                  const active = settingCode === code;
+                  return (
+                    <button
+                      key={code}
+                      type="button"
+                      onClick={() => setSettingCode(code)}
+                      className={cn(
+                        'rounded-md border px-2 py-2 text-left transition',
+                        active
+                          ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                          : 'border-muted-foreground/20 hover:border-foreground/40',
+                      )}
+                    >
+                      <div className="text-xs font-semibold">{SETTING_LABELS[code]}</div>
+                      <div className="text-[10px] text-muted-foreground">{code}</div>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {SETTING_HINTS[settingCode]}
+              </p>
+            </div>
+
+            <div>
+              <Label htmlFor="carre-readit">Re-audit date</Label>
               <Input
-                id="care-readit"
+                id="carre-readit"
                 type="date"
                 value={reAuditDate}
                 onChange={(e) => setReAuditDate(e.target.value)}
