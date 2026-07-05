@@ -61,9 +61,10 @@ Rules 1–4 are SF100-startup-specific (extension layer). Rules 5–14 are gener
 - [x] 1.6 React Query hooks `hooks/cohort-core/index.ts`
 - [x] 1.7 Scoped verify (tsc/eslint on touched files) + commit — tsc 0 / eslint 0; 11-agent adversarial review = 0 confirmed critical/high
 
-## PHASE 2 — SF100 onto the core as reference (🟡 live data: 19 rows)
+## PHASE 2 — SF100 onto the core as reference (🟡 live data: 19 rows) — approach = COPY-OVER + KEEP OLD (D3)
+- [ ] 2.0 Engine: per-program rule-config shape on `cohorts.config` + defaults per kind (D2); add `transferMembership` (D8) and round-close cascade that auto-archives members (D7) to cohort-service + lifecycle
 - [ ] 2.1 Map `sf100_programs` → register into `cohorts` (kind='sf100'); `sf100_enrollments` → `cohort_memberships`
-- [ ] 2.2 Backfill migration for the 1 program + 18 enrollments (idempotent)
+- [ ] 2.2 Backfill migration for the 1 program + 18 enrollments (idempotent, COPY only — leave sf100_* intact as backup per D3)
 - [ ] 2.3 Point SF100 service/hooks at cohort-core for lifecycle; keep startup-specific tables as extensions
 - [ ] 2.4 Scoped verify + commit
 
