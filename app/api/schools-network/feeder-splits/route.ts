@@ -148,9 +148,14 @@ export const POST = withAuth(
 export const DELETE = withAuth(
   async (request, auth) => {
     await connection();
-    const splitId = new URL(request.url).searchParams.get('splitId');
-    if (!splitId?.trim()) {
+    const splitId = new URL(request.url).searchParams.get('splitId')?.trim();
+    if (!splitId) {
       return errorResponse('splitId is required', 400, 'VALIDATION_ERROR');
+    }
+    // Validate the UUID shape before the RPC so a malformed id returns a clean
+    // 400 rather than a Postgres cast error mapped to a generic 500.
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(splitId)) {
+      return errorResponse('splitId must be a valid UUID', 400, 'VALIDATION_ERROR');
     }
     const { error } = await auth.supabase.rpc('fn_schools_network_unconfirm_split', {
       p_split_id: splitId,

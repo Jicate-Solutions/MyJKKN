@@ -244,6 +244,7 @@ RETURNS uuid
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path TO 'public'
+SET statement_timeout TO '20000'   -- cap the roster-guard learners_profiles scan run INSIDE the advisory lock
 AS $$
 DECLARE
   v_primary   text;
@@ -327,10 +328,18 @@ BEGIN
     RAISE EXCEPTION 'one or more selected pincodes do not belong to this feeder';
   END IF;
 
-  -- (3) If an institution is attributed (internal school), it must be real.
-  IF p_institution_id IS NOT NULL
-     AND NOT EXISTS (SELECT 1 FROM public.institutions i WHERE i.id = p_institution_id) THEN
-    RAISE EXCEPTION 'institution not found';
+  -- (3) Attributing a rescued school to a specific JKKN institution (an INTERNAL
+  -- school) is super-admin-only: the Director ruling is that rescued schools are
+  -- network-wide/external, so a regular (org-global) is_admin gets only the
+  -- external path and CANNOT mint an internal school pointed at any institution
+  -- (cross-tenant attribution). If attributed, the institution must be real.
+  IF p_institution_id IS NOT NULL THEN
+    IF NOT is_super_admin() THEN
+      RAISE EXCEPTION 'only a super admin may attribute a rescued school to a specific institution';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.institutions i WHERE i.id = p_institution_id) THEN
+      RAISE EXCEPTION 'institution not found';
+    END IF;
   END IF;
 
   -- Derive ownership from institution to satisfy schools_internal_requires_institution.
@@ -377,8 +386,15 @@ BEGIN
     FROM public.schools_network_feeder_splits
    WHERE id = p_split_id;
 
+  -- Unknown split id → real error, so the client can surface a 404/422 instead of
+  -- a misleading "Split undone." for something that never existed.
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'split not found';
+  END IF;
+
   IF v_school_id IS NULL THEN
-    -- split not found, or its school was already deleted elsewhere (FK SET NULL).
+    -- split exists but its school was already deleted elsewhere (FK SET NULL) →
+    -- just drop the orphaned split record.
     DELETE FROM public.schools_network_feeder_splits WHERE id = p_split_id;
     RETURN;
   END IF;

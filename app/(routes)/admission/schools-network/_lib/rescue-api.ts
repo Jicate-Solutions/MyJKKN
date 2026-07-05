@@ -11,10 +11,20 @@
 /** Canonical envelope unwrap — matches the module's other clients. Attaches the
  *  HTTP status to the thrown Error so callers can branch on 403 → admin-only. */
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  });
+  // Abort a stalled request after 30s so a hung fetch doesn't strand a
+  // retry:false query/mutation (and its confirm/unlink spinner) forever.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  let r: Response;
+  try {
+    r = await fetch(path, {
+      headers: { 'Content-Type': 'application/json' },
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
   const b = (await r.json().catch(() => ({}))) as {
     success?: boolean;
     data?: unknown;

@@ -123,7 +123,10 @@ function RescueContent() {
   const feeders = overview.data?.feeders ?? [];
   const splits = overview.data?.splits ?? [];
   const candidateRows = candidates.data?.candidates ?? [];
-  const accessDenied = is403(overview.error);
+  // A 403 from EITHER RPC means admin-only — route both to the admin-only screen
+  // (not just overview), so a candidates 403 doesn't fall through to the generic
+  // "Could not load pincode groups" and mask the real permission cause.
+  const accessDenied = is403(overview.error) || is403(candidates.error);
 
   // The groups the admin has ticked (real, still-unclaimed pincodes only). The
   // `!alreadyConfirmed` guard matters after a refetch: a pincode another admin
