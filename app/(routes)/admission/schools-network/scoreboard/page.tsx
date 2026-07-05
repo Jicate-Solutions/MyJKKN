@@ -4,7 +4,7 @@
  * Leadership Scoreboard — Schools Network feeder momentum.
  *
  * A director/admin board that answers one question at a glance: are we GAINING
- * or LOSING students from our feeder schools this admission cycle vs last? The
+ * or LOSING learners from our feeder schools this admission cycle vs last? The
  * headline is the org-wide net change; below it, the biggest per-school gainers
  * and losers so leadership knows where to look.
  *
@@ -235,7 +235,7 @@ function ScoreboardContent() {
       </Card>
     );
   }
-  if (!data || data.feeder_count === 0) {
+  if (!data || typeof data.feeder_count !== 'number' || data.feeder_count === 0) {
     return (
       <Card>
         <CardContent className="py-16 text-center">
@@ -251,16 +251,28 @@ function ScoreboardContent() {
   }
 
   const delta = data.total_delta ?? 0;
-  const hasBaseline = data.prior_cycle_year !== null;
-  const up = delta > 0;
-  const down = delta < 0;
+  // `!= null` so an undefined prior_cycle_year (defensive) is treated as "no
+  // baseline", not a real one.
+  const hasBaseline = data.prior_cycle_year != null;
+  // A signed delta + trend arrow only means something against a prior cycle.
+  // Without a baseline the headline shows the absolute current count neutrally.
+  const up = hasBaseline && delta > 0;
+  const down = hasBaseline && delta < 0;
 
-  const HeadlineIcon = up ? TrendingUp : down ? TrendingDown : Minus;
-  const headlineColor = up
-    ? 'text-emerald-600'
-    : down
-      ? 'text-red-600'
-      : 'text-muted-foreground';
+  const HeadlineIcon = !hasBaseline
+    ? School
+    : up
+      ? TrendingUp
+      : down
+        ? TrendingDown
+        : Minus;
+  const headlineColor = !hasBaseline
+    ? 'text-foreground'
+    : up
+      ? 'text-emerald-600'
+      : down
+        ? 'text-red-600'
+        : 'text-muted-foreground';
   const headlineWord = up ? 'gaining' : down ? 'losing' : 'holding steady on';
 
   return (
@@ -276,8 +288,14 @@ function ScoreboardContent() {
               <div className={`mt-1 flex items-baseline gap-2 ${headlineColor}`}>
                 <HeadlineIcon className="h-8 w-8 shrink-0 self-center" />
                 <span className="text-5xl font-bold tabular-nums">
-                  {delta > 0 ? '+' : ''}
-                  {n(delta)}
+                  {hasBaseline ? (
+                    <>
+                      {delta > 0 ? '+' : ''}
+                      {n(delta)}
+                    </>
+                  ) : (
+                    n(data.total_current)
+                  )}
                 </span>
                 <span className="text-lg font-medium text-muted-foreground">
                   learners
@@ -290,7 +308,7 @@ function ScoreboardContent() {
                     <span className="font-medium text-foreground">
                       {headlineWord}
                     </span>{' '}
-                    students from feeder schools this cycle vs{' '}
+                    learners from feeder schools this cycle vs{' '}
                     {data.prior_cycle_year} — <span className="italic">so far</span>{' '}
                     (the {data.cycle_year} cycle is still filling).
                   </>

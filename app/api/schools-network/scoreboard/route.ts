@@ -29,7 +29,13 @@ export const GET = withAuth(
       'fn_schools_network_scoreboard',
       { p_cycle_year: cycleYear }
     );
-    if (error) return errorResponse(error.message, 500, 'SCOREBOARD_FAILED');
+    if (error) {
+      // The RPC's own permission gate raises ERRCODE 42501 — surface it as a 403
+      // so the page's dedicated access-denied branch fires (not a generic 500).
+      const status = error.code === '42501' ? 403 : 500;
+      const code = error.code === '42501' ? 'FORBIDDEN' : 'SCOREBOARD_FAILED';
+      return errorResponse(error.message, status, code);
+    }
 
     // The RPC returns a single json object already in the desired shape.
     return successResponse(data ?? {});
