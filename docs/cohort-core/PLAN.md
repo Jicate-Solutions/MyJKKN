@@ -86,6 +86,26 @@ Rules 1–4 are SF100-startup-specific (extension layer). Rules 5–14 are gener
 - [ ] 6.2 Retire/park dead duplicate cohort screens
 - [ ] 6.3 Scoped verify + commit
 
+## PHASE 7 — THE MOAT (self-improving loop) — spec'd 2026-07-05; BUILD after fuel exists
+> **Moat audit (moat-loop skill, 2026-07-05): verdict = NO LOOP today.** Parts 4 (outcome-vs-baseline) + 5 (feed-forward) are ABSENT; 0 fuel (0 graduations, 0 verified paid users, 1 program). The **verified-paying-user** metric is the moat SEED — a hard, external, non-replayable signal. Certify with a REAL 2-cycle sim once cohorts complete; never "verified by construction."
+
+Decisions (interview 3, 2026-07-05):
+- **M1 · Success metric** = BLENDED score (success-rate + verified-revenue + speed, **EQUAL weights**). Same fixed estimator on baseline AND outcome (no double-count).
+- **M2 · Capture** outcome + baseline AT COHORT CLOSE, from cohort #1. Fold into D7 `closeCohort`. **MUST ship before any cohort closes — a baseline can't be reconstructed later.**
+- **M3 · Feed-forward** = system AUTO-ADJUSTS the program (deadlines / targets / mentor assignment) from measured outcomes.
+- **M4 · Alumni flywheel** = graduates AUTO-eligible as mentors next cohort (`member_type='staff'`, `role='mentor'`, referencing the graduated member).
+- **M5 · When it may act** = auto-adjust allowed after **1** completed cohort…
+- **M6 · Reality check** = …but ALWAYS gated by a no-change CONTROL group (within-cohort team-level A/B, since 1 cohort has no prior). This kills the regression-to-mean confound AND is exactly what makes the 2-cycle sim certifiable.
+- **M7 · Safety brake** = …and a HUMAN approves each auto-change until trusted, then loosen.
+
+Build items (deferred until fuel / explicit go):
+- [ ] 7.0 Fold M2 outcome-capture into `closeCohort` (store blended score + baseline) — **SHIP BEFORE FIRST COHORT CLOSE**
+- [ ] 7.1 Blended cohort-outcome metric (equal-weight) + baseline storage; fixed estimator both ends
+- [ ] 7.2 Control-group assignment (within-cohort A/B) + lift calc with confound check
+- [ ] 7.3 Feed-forward proposer (auto-adjust) gated by M5 (≥1 cohort) + M7 (human approval)
+- [ ] 7.4 Alumni→mentor pipeline (graduate → eligible mentor next cohort)
+- [ ] 7.5 CERTIFY with 2-cycle sim + confound check (seed → assert lift==known delta → prove N+1 changes → cleanup)
+
 ## FINAL GATE
 - [ ] Run `tsc --noEmit` → 0 new errors in touched files
 - [ ] Run `eslint` on touched files → clean
