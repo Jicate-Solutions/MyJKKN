@@ -56,12 +56,12 @@ export async function GET(request: Request): Promise<NextResponse<HandleFeedResp
       return NextResponse.json({ success: true, handle: null, feed: [], myRota: null, myPendingContributions: 0 });
     }
 
-    // Current week's Monday (so "it's your week" surfaces the current/upcoming turn, not a
-    // stale last-week rota). Uses UTC day math — good to ±1 day, adequate for a weekly banner.
-    const now = new Date();
-    const dow = now.getUTCDay(); // 0=Sun..6=Sat
-    const monday = new Date(now);
-    monday.setUTCDate(now.getUTCDate() + (dow === 0 ? -6 : 1 - dow));
+    // Current week's Monday in IST (the ERP's operating timezone) so the rota window doesn't
+    // shift a day near the Sun/Mon boundary. Surfaces the current/upcoming turn, not a stale one.
+    const istNow = new Date(Date.now() + 5.5 * 3600 * 1000);
+    const dow = istNow.getUTCDay(); // 0=Sun..6=Sat on the IST-shifted clock
+    const monday = new Date(istNow);
+    monday.setUTCDate(istNow.getUTCDate() + (dow === 0 ? -6 : 1 - dow));
     const weekStart = monday.toISOString().slice(0, 10);
 
     // 2) Feed + loop hooks in parallel. Each is fail-soft. Both hooks are scoped to THIS handle.

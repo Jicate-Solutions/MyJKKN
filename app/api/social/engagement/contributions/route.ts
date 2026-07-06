@@ -52,12 +52,23 @@ export async function GET(request: Request): Promise<NextResponse<ContributionsR
     } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
 
-    const deptAccountId = new URL(request.url).searchParams.get('deptAccountId');
+    const params = new URL(request.url).searchParams;
+    const deptAccountId = params.get('deptAccountId');
+    const rawLimit = Number(params.get('limit'));
+    const rawOffset = Number(params.get('offset'));
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(Math.trunc(rawLimit), 1), 200) : 50;
+    const offset = Number.isFinite(rawOffset) ? Math.max(Math.trunc(rawOffset), 0) : 0;
 
-    let query = supabase.from('social_contributions').select(SELECT_COLS).order('created_at', { ascending: false }).limit(100);
+    // count:'exact' returns the full match count so a busy handle's older rows are never
+    // silently dropped — the caller sees `total` and can page with offset/limit.
+    let query = supabase
+      .from('social_contributions')
+      .select(SELECT_COLS, { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
     if (deptAccountId) query = query.eq('dept_account_id', deptAccountId);
 
-    const { data, error } = await query;
+    const { data, count, error } = await query;
     if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
 
     const rows = (data as Omit<Contribution, 'contributor_name'>[] | null) ?? [];
@@ -67,7 +78,7 @@ export async function GET(request: Request): Promise<NextResponse<ContributionsR
       contributor_name: names.get(r.contributor_profile_id) ?? null,
     }));
 
-    return NextResponse.json({ success: true, contributions });
+    return NextResponse.json({ success: true, contributions, total: count ?? contributions.length });
   } catch (err) {
     return NextResponse.json(
       { success: false, error: err instanceof Error ? err.message : 'Failed to load contributions.' },

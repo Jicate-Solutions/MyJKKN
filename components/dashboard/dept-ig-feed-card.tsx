@@ -23,6 +23,21 @@ function mediaIcon(type: string | null) {
   return <ImageIcon className="h-3.5 w-3.5" />;
 }
 
+/** Current week's Monday as YYYY-MM-DD, in IST (the ERP's operating timezone). */
+function currentMondayIST(): string {
+  const istNow = new Date(Date.now() + 5.5 * 3600 * 1000); // shift to IST wall-clock
+  const dow = istNow.getUTCDay(); // 0=Sun..6=Sat on the shifted clock
+  const monday = new Date(istNow);
+  monday.setUTCDate(istNow.getUTCDate() + (dow === 0 ? -6 : 1 - dow));
+  return monday.toISOString().slice(0, 10);
+}
+
+/** Friendly "week of 12 Aug" label for an upcoming rota turn. */
+function weekLabel(iso: string): string {
+  const d = new Date(iso + 'T00:00:00Z');
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+}
+
 export function DeptIgFeedCard() {
   const [handle, setHandle] = useState<DeptHandle | null>(null);
   const [feed, setFeed] = useState<FeedPost[]>([]);
@@ -99,7 +114,11 @@ export function DeptIgFeedCard() {
         {myRota && (
           <div className="flex items-start gap-2 rounded-md border border-fuchsia-200 bg-fuchsia-50 px-3 py-2 text-sm text-fuchsia-900 dark:border-fuchsia-900/40 dark:bg-fuchsia-950/30 dark:text-fuchsia-200">
             <Sparkles className="h-4 w-4 mt-0.5 shrink-0" />
-            <span>It&apos;s your week to shape the feed — share an idea below.</span>
+            <span>
+              {myRota.week_start === currentMondayIST()
+                ? <>It&apos;s your week to shape the feed — share an idea below.</>
+                : <>Your turn is coming up (week of {weekLabel(myRota.week_start)}) — start gathering ideas.</>}
+            </span>
           </div>
         )}
 

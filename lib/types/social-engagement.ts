@@ -137,6 +137,8 @@ export interface LeaderboardResponse {
 export interface ContributionsResponse {
   success: boolean;
   contributions?: Contribution[];
+  /** Total rows matching the query (for pagination — the page may be capped below this). */
+  total?: number;
   error?: string;
 }
 
