@@ -42,6 +42,7 @@ export const CARRE_AUDITABLE_MODULES: CarreAuditableModule[] = [
   { key: 'learn', label: 'Learning' },
   { key: 'vac', label: 'Value Added Courses' },
   { key: 'bos', label: 'Board of Studies' }, // borderline: faculty curriculum governance (participatory)
+  { key: 'foundation', label: 'Foundation Programme' }, // school students take diagnostics (participant-facing)
 
   // ── Learner-facing life on campus ─────────────────────────────────────
   { key: 'campus-living', label: 'Campus Living' }, // hostel / mess
