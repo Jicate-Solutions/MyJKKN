@@ -133,7 +133,7 @@ CREATE OR REPLACE FUNCTION public.fn_curriculum_lesson_upsert(p_lesson_id uuid, 
  SET search_path TO 'public'
 AS $function$
 DECLARE v_inst uuid; v_creator uuid; v_lesson_inst uuid; v_role_ok boolean; v_role text;
-        v_email text; v_priv_create boolean; v_teaches boolean; v_existing uuid; v_id uuid;
+        v_email text; v_staff_id uuid; v_priv_create boolean; v_teaches boolean; v_existing uuid; v_id uuid;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_curriculum_lesson_upsert: not authenticated'; END IF;
   IF btrim(coalesce(p_title,'')) = '' THEN RAISE EXCEPTION 'fn_curriculum_lesson_upsert: title required'; END IF;
@@ -141,7 +141,7 @@ BEGIN
   SELECT institution_id INTO v_inst FROM public.courses WHERE id = p_course_id;
   IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_curriculum_lesson_upsert: no such course'; END IF;
 
-  SELECT p.role, lower(p.email),
+  SELECT p.role, lower(btrim(p.email)),
          (p.role = ANY (ARRAY['super_admin','administrator','institution_admin','dean','hod','principal','coordinator'])
           OR p.is_super_admin = true)
     INTO v_role, v_email, v_role_ok FROM public.profiles p WHERE p.id = auth.uid();
@@ -159,7 +159,20 @@ BEGIN
     v_priv_create := public.is_super_admin()
                      OR v_role = ANY (ARRAY['hod','principal','dean','coordinator',
                                             'institution_admin','administrator','system_admin']);
-    v_teaches := EXISTS (
+    -- Teaching identity is matched PRIMARILY on the stable staff id (blob
+    -- assigned_faculty.faculty_id = staff.id, 100% populated), NOT the email string —
+    -- an email match is fragile: a NULL profile email, or casing/whitespace drift in the
+    -- blob (real rows carry e.g. 'Senthil.m@jkkn.ac.in'), would make the equality NULL and
+    -- SILENTLY lock out a genuinely-teaching faculty (fail-closed availability regression;
+    -- deep-review 3-lens consensus 2026-07-06). The lowercased+btrim'd email is kept only
+    -- as a NULL-guarded FALLBACK for the rare row missing a staff link.
+    SELECT s.id INTO v_staff_id FROM public.staff s WHERE s.profile_id = auth.uid() LIMIT 1;
+    -- EXISTS short-circuits on the first matching period. The institution-scoped jsonb
+    -- scan is on the low-frequency CREATE path only (a faculty typing a topic); the full
+    -- scan is paid only when a NON-teacher is (correctly) rejected. A normalized taught-
+    -- course index would remove even that, deferred as not worth a new table+backfill for
+    -- a rare write (deep-review 🟠 perf note 2026-07-06).
+    v_teaches := (v_staff_id IS NOT NULL OR v_email IS NOT NULL) AND EXISTS (
       SELECT 1
       FROM public.student_attendance sa
       CROSS JOIN LATERAL jsonb_each(
@@ -167,7 +180,8 @@ BEGIN
       ) AS pd(period_id, pv)
       WHERE sa.institution_id = v_inst
         AND pv ->> 'course_id' = p_course_id::text
-        AND lower(pv -> 'assigned_faculty' ->> 'faculty_email') = v_email
+        AND ( (v_staff_id IS NOT NULL AND pv -> 'assigned_faculty' ->> 'faculty_id' = v_staff_id::text)
+              OR (v_email IS NOT NULL AND lower(btrim(pv -> 'assigned_faculty' ->> 'faculty_email')) = v_email) )
     );
     IF NOT (public.is_super_admin()
             OR (v_priv_create AND public.role_has_institution_access(v_inst))
