@@ -335,3 +335,39 @@ export function formatInr(value: number | null | undefined): string {
     maximumFractionDigits: 0,
   }).format(value);
 }
+
+/* ─── Program-partner member schools + status ────────────── */
+export type AiSessionStatus =
+  | 'not_started'
+  | 'interested'
+  | 'scheduled'
+  | 'conducted'
+  | 'declined';
+export type WebsiteStatus = 'not_started' | 'in_progress' | 'live';
+
+export const AI_SESSION_STATUS_LABEL: Record<AiSessionStatus, string> = {
+  not_started: 'Not started',
+  interested: 'Interested',
+  scheduled: 'Scheduled',
+  conducted: 'Conducted',
+  declined: 'Declined',
+};
+export const WEBSITE_STATUS_LABEL: Record<WebsiteStatus, string> = {
+  not_started: 'Not started',
+  in_progress: 'In progress',
+  live: 'Live',
+};
+
+export interface PartnerSchool {
+  id: string;
+  schoolId: string;
+  schoolName: string | null;
+  district: string | null;
+  aiSessionStatus: AiSessionStatus;
+  websiteStatus: WebsiteStatus;
+  domainUrl: string | null;
+  brandingDone: boolean;
+  nanMudhalvan: boolean;
+  ownerName: string | null;
+  updatedAt: string;
+}
