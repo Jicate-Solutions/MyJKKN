@@ -43,7 +43,7 @@
 //   replicate, so a blanket root guard could over-deny those edge cases.
 // ============================================================================
 
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 
 import { usePermissions } from '@/hooks/use-permissions';
@@ -64,12 +64,22 @@ interface RoutePermissionGuardProps {
    * prefix on the current pathname.
    */
   exemptPrefixes?: string[];
+  /**
+   * Optional per-resource access check, invoked ONLY when the static permission
+   * check denies. Lets a subtree grant access on a basis the static permission map
+   * cannot express — e.g. an induction event-coordinator, who is authorized by the
+   * module's RPCs but may hold no matching permission key. Returns true to allow.
+   * Must be a STABLE reference (define it at module scope or memoize) so the guard
+   * does not re-invoke it every render.
+   */
+  fallbackCheck?: () => Promise<boolean>;
 }
 
 export function RoutePermissionGuard({
   children,
   loading = null,
   exemptPrefixes,
+  fallbackCheck,
 }: RoutePermissionGuardProps) {
   // Hooks first, unconditionally (Rules of Hooks — no early return above these).
   const pathname = usePathname() ?? '';
@@ -77,9 +87,37 @@ export function RoutePermissionGuard({
     waitForLoad: true,
   });
 
+  // Resolve the route's declared permission from the canonical map. Wildcard
+  // ([id]) segments are handled by the matcher. `undefined` => no declared
+  // permission => isPageAccessible allows it (parity with the sidebar).
+  const exempt = isExemptPath(pathname, exemptPrefixes);
+  const permission = routeMatcher.match(pathname)?.permission;
+  const staticAllowed =
+    !exempt &&
+    !isLoading &&
+    isPageAccessible(pathname, permission, permissions, isSuperAdmin, userProfile?.role ?? '');
+
+  // Per-resource fallback (audit 2026-07-06 #3): when the static permission check
+  // denies, an opt-in subtree may still grant access on a basis the permission map
+  // can't express (e.g. an induction event-coordinator). Runs ONLY on static-deny;
+  // deps are stable booleans, so it never re-invokes fallbackCheck in a render loop.
+  // null = not yet resolved. When fallbackCheck is undefined this effect is inert and
+  // the render path below is identical to the original guard.
+  const [fallbackAllowed, setFallbackAllowed] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!fallbackCheck || isLoading || exempt || staticAllowed) return;
+    let active = true;
+    setFallbackAllowed(null);
+    Promise.resolve()
+      .then(fallbackCheck)
+      .then((v) => { if (active) setFallbackAllowed(!!v); })
+      .catch(() => { if (active) setFallbackAllowed(false); });
+    return () => { active = false; };
+  }, [fallbackCheck, isLoading, exempt, staticAllowed]);
+
   // Intentionally-public subpaths (payment callbacks, token pages) opt out of
   // permission gating — they enforce access by their own means. See isExemptPath.
-  if (isExemptPath(pathname, exemptPrefixes)) {
+  if (exempt) {
     return <>{children}</>;
   }
 
@@ -88,28 +126,25 @@ export function RoutePermissionGuard({
     return <>{loading}</>;
   }
 
-  // Resolve the route's declared permission from the canonical map. Wildcard
-  // ([id]) segments are handled by the matcher. `undefined` => no declared
-  // permission => isPageAccessible allows it (parity with the sidebar).
-  const permission = routeMatcher.match(pathname)?.permission;
-  const userRole = userProfile?.role ?? '';
-
-  const allowed = isPageAccessible(
-    pathname,
-    permission,
-    permissions,
-    isSuperAdmin,
-    userRole,
-  );
-
-  if (!allowed) {
-    return (
-      <PermissionError
-        message="You do not have permission to access this page."
-        requiredPermission={permission}
-      />
-    );
+  if (staticAllowed) {
+    return <>{children}</>;
   }
 
-  return <>{children}</>;
+  // Static check denied. If an opt-in fallback was provided, honour its verdict
+  // (null => still resolving, show the loading placeholder rather than a denial flash).
+  if (fallbackCheck) {
+    if (fallbackAllowed === null) {
+      return <>{loading}</>;
+    }
+    if (fallbackAllowed) {
+      return <>{children}</>;
+    }
+  }
+
+  return (
+    <PermissionError
+      message="You do not have permission to access this page."
+      requiredPermission={permission}
+    />
+  );
 }
