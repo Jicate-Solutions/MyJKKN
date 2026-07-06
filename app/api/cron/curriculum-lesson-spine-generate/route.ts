@@ -183,90 +183,100 @@ function parseSpineMessage(message: Anthropic.Message | null): ParsedSpine | nul
 }
 
 // Records every lesson + brief for one course via the service-role-only draft
-// writer. Never throws for a single bad lesson — logs and continues so one
-// malformed item doesn't sink the whole course's spine.
+// writer. Never throws for a single bad item — logs, counts the failure, and
+// continues so one malformed item doesn't sink the whole course's spine. The
+// caller MUST inspect `failed`: a non-zero count means the spine is only partly
+// written and the batch job must NOT be finalized (it needs a re-drain), else
+// the initial-mint-only guard permanently skips the half-populated course.
+// NOTE: supabase `.rpc()` returns { error } and does NOT throw on an RPC error,
+// so each call's `.error` must be checked explicitly — a try/catch alone (which
+// only trips on network/thrown faults) would silently over-count successes.
 async function recordSpine(
   admin: ReturnType<typeof createServiceRoleClient>,
   courseId: string,
   bosSyllabusId: string,
   batchKey: string,
   spine: ParsedSpine,
-): Promise<{ lessonsRecorded: number; briefsRecorded: number }> {
+): Promise<{ lessonsRecorded: number; briefsRecorded: number; failed: number }> {
   let lessonsRecorded = 0;
   let briefsRecorded = 0;
+  let failed = 0;
 
   for (const l of Array.isArray(spine.lessons) ? spine.lessons : []) {
     if (!l.title || typeof l.title !== 'string') continue;
-    try {
-      await admin.rpc('fn_curriculum_lesson_ai_draft_upsert', {
-        p_course_id: courseId,
-        p_artifact_kind: 'lesson',
-        p_sequence_no: typeof l.sequence_no === 'number' ? l.sequence_no : null,
-        p_unit_label: typeof l.unit_label === 'string' ? l.unit_label : null,
-        p_title: l.title,
-        p_learning_outcomes: Array.isArray(l.learning_outcomes) ? l.learning_outcomes : [],
-        p_primary_fink: typeof l.primary_fink_dimension === 'string' ? l.primary_fink_dimension : null,
-        p_co_refs: Array.isArray(l.learning_outcomes)
-          ? [...new Set(l.learning_outcomes.map((o) => (o as { co_ref?: string })?.co_ref).filter((x): x is string => typeof x === 'string'))]
-          : [],
-        p_bos_syllabus_id: bosSyllabusId,
-        p_source: 'bos_ai',
-        p_gemini_prompt: null,
-        p_ai_batch_key: batchKey,
-      });
+    const { error } = await admin.rpc('fn_curriculum_lesson_ai_draft_upsert', {
+      p_course_id: courseId,
+      p_artifact_kind: 'lesson',
+      p_sequence_no: typeof l.sequence_no === 'number' ? l.sequence_no : null,
+      p_unit_label: typeof l.unit_label === 'string' ? l.unit_label : null,
+      p_title: l.title,
+      p_learning_outcomes: Array.isArray(l.learning_outcomes) ? l.learning_outcomes : [],
+      p_primary_fink: typeof l.primary_fink_dimension === 'string' ? l.primary_fink_dimension : null,
+      p_co_refs: Array.isArray(l.learning_outcomes)
+        ? [...new Set(l.learning_outcomes.map((o) => (o as { co_ref?: string })?.co_ref).filter((x): x is string => typeof x === 'string'))]
+        : [],
+      p_bos_syllabus_id: bosSyllabusId,
+      p_source: 'bos_ai',
+      p_gemini_prompt: null,
+      p_ai_batch_key: batchKey,
+    });
+    if (error) {
+      console.error(`[cron/curriculum-lesson-spine-generate] lesson record failed (course ${courseId}):`, error);
+      failed++;
+    } else {
       lessonsRecorded++;
-    } catch (e) {
-      console.error(`[cron/curriculum-lesson-spine-generate] lesson record failed (course ${courseId}):`, e);
     }
   }
 
   for (const b of Array.isArray(spine.concept_briefs) ? spine.concept_briefs : []) {
     if (!b.title || typeof b.title !== 'string' || !b.unit_label) continue;
-    try {
-      await admin.rpc('fn_curriculum_lesson_ai_draft_upsert', {
-        p_course_id: courseId,
-        p_artifact_kind: 'concept_brief',
-        p_sequence_no: null,
-        p_unit_label: b.unit_label,
-        p_title: b.title,
-        p_learning_outcomes: [{ text: b.text ?? '', co_ref: b.co_ref ?? [] }],
-        p_primary_fink: null,
-        p_co_refs: Array.isArray(b.co_ref) ? b.co_ref : [],
-        p_bos_syllabus_id: bosSyllabusId,
-        p_source: 'bos_ai',
-        p_gemini_prompt: null,
-        p_ai_batch_key: batchKey,
-      });
+    const { error } = await admin.rpc('fn_curriculum_lesson_ai_draft_upsert', {
+      p_course_id: courseId,
+      p_artifact_kind: 'concept_brief',
+      p_sequence_no: null,
+      p_unit_label: b.unit_label,
+      p_title: b.title,
+      p_learning_outcomes: [{ text: b.text ?? '', co_ref: Array.isArray(b.co_ref) ? b.co_ref : [] }],
+      p_primary_fink: null,
+      p_co_refs: Array.isArray(b.co_ref) ? b.co_ref : [],
+      p_bos_syllabus_id: bosSyllabusId,
+      p_source: 'bos_ai',
+      p_gemini_prompt: null,
+      p_ai_batch_key: batchKey,
+    });
+    if (error) {
+      console.error(`[cron/curriculum-lesson-spine-generate] concept_brief record failed (course ${courseId}):`, error);
+      failed++;
+    } else {
       briefsRecorded++;
-    } catch (e) {
-      console.error(`[cron/curriculum-lesson-spine-generate] concept_brief record failed (course ${courseId}):`, e);
     }
   }
 
   const cap = spine.capstone_brief;
   if (cap && typeof cap.title === 'string') {
-    try {
-      await admin.rpc('fn_curriculum_lesson_ai_draft_upsert', {
-        p_course_id: courseId,
-        p_artifact_kind: 'capstone_brief',
-        p_sequence_no: null,
-        p_unit_label: null,
-        p_title: cap.title,
-        p_learning_outcomes: [{ text: cap.text ?? '', co_ref: cap.co_ref ?? [] }],
-        p_primary_fink: null,
-        p_co_refs: Array.isArray(cap.co_ref) ? cap.co_ref : [],
-        p_bos_syllabus_id: bosSyllabusId,
-        p_source: 'bos_ai',
-        p_gemini_prompt: null,
-        p_ai_batch_key: batchKey,
-      });
+    const { error } = await admin.rpc('fn_curriculum_lesson_ai_draft_upsert', {
+      p_course_id: courseId,
+      p_artifact_kind: 'capstone_brief',
+      p_sequence_no: null,
+      p_unit_label: null,
+      p_title: cap.title,
+      p_learning_outcomes: [{ text: cap.text ?? '', co_ref: Array.isArray(cap.co_ref) ? cap.co_ref : [] }],
+      p_primary_fink: null,
+      p_co_refs: Array.isArray(cap.co_ref) ? cap.co_ref : [],
+      p_bos_syllabus_id: bosSyllabusId,
+      p_source: 'bos_ai',
+      p_gemini_prompt: null,
+      p_ai_batch_key: batchKey,
+    });
+    if (error) {
+      console.error(`[cron/curriculum-lesson-spine-generate] capstone_brief record failed (course ${courseId}):`, error);
+      failed++;
+    } else {
       briefsRecorded++;
-    } catch (e) {
-      console.error(`[cron/curriculum-lesson-spine-generate] capstone_brief record failed (course ${courseId}):`, e);
     }
   }
 
-  return { lessonsRecorded, briefsRecorded };
+  return { lessonsRecorded, briefsRecorded, failed };
 }
 
 // ── GET handler ──────────────────────────────────────────────────────────────
@@ -337,7 +347,7 @@ export async function GET(request: NextRequest) {
           const spine = parseSpineMessage(item.message);
           if (spine !== null) {
             try {
-              const { lessonsRecorded, briefsRecorded } = await recordSpine(
+              const { lessonsRecorded, briefsRecorded, failed } = await recordSpine(
                 admin,
                 ctx.course_id,
                 ctx.bos_syllabus_id,
@@ -347,9 +357,20 @@ export async function GET(request: NextRequest) {
               generated += lessonsRecorded;
               briefsGenerated += briefsRecorded;
               recorded++;
+              // A partial write (some draft upserts returned an error) must NOT finalize
+              // the job — defer so the batch re-drains and the initial-mint-only guard
+              // doesn't permanently skip a half-populated course (deep-review MEDIUM
+              // 2026-07-06: .rpc() doesn't throw, so this signal comes from `failed`, not
+              // the catch below which only trips on a genuine throw).
+              if (failed > 0) {
+                console.error(
+                  `[cron/curriculum-lesson-spine-generate] course ${ctx.course_id}: ${failed} draft write(s) failed — deferring finalize`,
+                );
+                deferFinalize = true;
+              }
             } catch (recErr) {
               console.error(
-                `[cron/curriculum-lesson-spine-generate] record failed for course ${ctx.course_id} — deferring finalize:`,
+                `[cron/curriculum-lesson-spine-generate] record threw for course ${ctx.course_id} — deferring finalize:`,
                 recErr,
               );
               deferFinalize = true;
@@ -463,12 +484,28 @@ export async function GET(request: NextRequest) {
     const courseIds = tenantMatched.map((c) => c.course_id);
     let alreadyHasSpine = new Set<string>();
     if (courseIds.length > 0) {
-      const { data: existing } = await admin
-        .from('curriculum_lesson')
-        .select('course_id')
-        .in('course_id', courseIds)
-        .limit(10000);
-      alreadyHasSpine = new Set((existing ?? []).map((r) => String(r.course_id)));
+      // Chunk the .in() — a single filter over ~839 UUIDs risks a 414 URI-too-long, and
+      // the initial-mint guard's integrity depends on this read SUCCEEDING. On ANY chunk
+      // error, poison the guard (treat EVERY course as already-having-a-spine) so nothing
+      // is submitted this run — a silent-empty set would re-mint already-populated courses
+      // and waste an AI batch (deep-review MEDIUM 2026-07-06). Retries cleanly next run.
+      const CHUNK = 200;
+      for (let i = 0; i < courseIds.length; i += CHUNK) {
+        const slice = courseIds.slice(i, i + CHUNK);
+        const { data: existing, error: existErr } = await admin
+          .from('curriculum_lesson')
+          .select('course_id')
+          .in('course_id', slice);
+        if (existErr) {
+          console.error(
+            '[cron/curriculum-lesson-spine-generate] existing-spine lookup failed — skipping mint this run to avoid re-submitting populated courses:',
+            existErr,
+          );
+          alreadyHasSpine = new Set(courseIds.map(String));
+          break;
+        }
+        for (const r of existing ?? []) alreadyHasSpine.add(String(r.course_id));
+      }
     }
 
     const allCandidates = tenantMatched.filter((c) => !alreadyHasSpine.has(c.course_id));

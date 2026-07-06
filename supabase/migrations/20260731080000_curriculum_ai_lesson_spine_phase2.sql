@@ -203,9 +203,16 @@ REVOKE EXECUTE ON FUNCTION public.fn_curriculum_lesson_ai_draft_upsert(uuid, tex
 GRANT  EXECUTE ON FUNCTION public.fn_curriculum_lesson_ai_draft_upsert(uuid, text, int, text, text, jsonb, text, text[], uuid, text, text, text) TO service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 3) Read RPCs for the faculty review UI. Same non-student, teaching-staff/HOD/
---    admin authority gate as Phase 1's fn_curriculum_lessons_for_course /
---    fn_curriculum_lesson_upsert CREATE branch (reused verbatim as a role list).
+-- 3) Read RPCs for the faculty review UI. Non-student, institution-scoped
+--    teaching-staff/HOD/admin gate (same role list + role_has_institution_access
+--    as Phase 1's fn_curriculum_lessons_for_course). NOTE: the READ scope is
+--    deliberately institution-WIDE, NOT per-course (unlike the approve/reject WRITE
+--    gate, which requires teaching the course). Draft lesson content is unpublished
+--    academic material (no PII), and a department reviewer / HOD / peer faculty must
+--    be able to SEE drafts across the department's courses to coordinate review;
+--    only PUBLISHING (approve) and archiving (reject) are bound to teaching the
+--    course. Asymmetry is intentional: look institution-wide, mutate per-course
+--    (deep-review LOW 2026-07-06, accepted).
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.fn_curriculum_lesson_drafts_for_course(p_course_id uuid)
  RETURNS jsonb
@@ -258,7 +265,11 @@ BEGIN
   SELECT c.id, c.course_code, c.course_name, c.institution_id, count(l.id)
   FROM public.curriculum_lesson l
   JOIN public.courses c ON c.id = l.course_id
-  WHERE l.status = 'draft' AND l.source IN ('bos_ai','title_ai') AND l.artifact_kind = 'lesson'
+  -- Count ALL draft artifact_kinds (lesson + concept_brief + capstone_brief), not just
+  -- 'lesson' — otherwise once a course's lessons are all approved/rejected it would drop
+  -- off the review inbox while its brief drafts stay draft forever, orphaned & unreviewable
+  -- (deep-review MEDIUM 2026-07-06). A course stays in the inbox while ANY draft remains.
+  WHERE l.status = 'draft' AND l.source IN ('bos_ai','title_ai')
     AND (public.is_super_admin()
          OR (public.role_has_institution_access(c.institution_id)
              AND v_role = ANY (ARRAY['faculty','school_faculty','staff','hod','principal','dean',
@@ -277,8 +288,11 @@ GRANT  EXECUTE ON FUNCTION public.fn_curriculum_courses_with_pending_ai_drafts()
 --    authority check is "creator = auth.uid() OR HOD/admin", which would lock
 --    OUT the very teaching staff Phase 2 needs to approve (an AI draft's
 --    creator is NULL, not the reviewing faculty). This function's authority is
---    "any teaching staff of the lesson's institution, or HOD/admin" — the SAME
---    role list Phase 1 uses to gate lesson CREATION, applied here to approval.
+--    the SAME as Phase 1's HARDENED CREATE gate (PR #1819): plain faculty must
+--    actually TEACH the lesson's course (assigned_faculty.faculty_id = staff.id,
+--    email fallback); privileged roles (HOD/principal/dean/coordinator/admin/
+--    super) keep the department override — approving PUBLISHES into the shared
+--    spine, so it must not be looser than authoring.
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.fn_curriculum_lesson_ai_approve(
   p_lesson_id          uuid,

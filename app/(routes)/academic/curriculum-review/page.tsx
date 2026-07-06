@@ -123,10 +123,15 @@ export default function CurriculumReviewPage() {
     setBusyId(draft.id);
     try {
       // co_refs derived from the (possibly edited) outcomes so the lesson's CLO
-      // mapping stays consistent with what the faculty ratified.
-      const coRefs = e
-        ? [...new Set(e.outcomes.map((o) => o.co_ref).filter((x): x is string => !!x))]
-        : draft.co_refs;
+      // mapping stays consistent with what the faculty ratified. Only LESSON
+      // outcomes carry a string `co_ref` per outcome; brief artifacts store co_ref
+      // as an ARRAY, so deriving from their outcomes would emit malformed co_refs
+      // (deep-review LOW 2026-07-06) — briefs use the draft's already-correct
+      // co_refs array instead.
+      const coRefs =
+        draft.artifact_kind === 'lesson' && e
+          ? [...new Set(e.outcomes.map((o) => o.co_ref).filter((x): x is string => !!x))]
+          : draft.co_refs;
       await CurriculumService.approveDraft(draft.id, {
         title: e?.title,
         primaryFink: (e?.primaryFink || undefined) as FinkDimension | undefined,
