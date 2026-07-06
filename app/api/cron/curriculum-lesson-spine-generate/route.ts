@@ -59,7 +59,11 @@ import {
 const FEATURE_KEY = 'curriculum.lesson_spine_generate';
 const DEFAULT_BATCH_CAP = 25;
 const DEFAULT_EMIT_BRIEFS = true;
-const MAX_TOKENS = 4096; // a full multi-unit spine (+ optional briefs) can run long
+// Sized so a full multi-unit lesson spine fits without truncation → unparseable output.
+// A truncated (unparseable) response yields no drafts, so the course stays a candidate and
+// is re-submitted next run; a larger budget minimises that wasted-resubmit loop. The brief
+// lane (which lengthens output further) is OFF by default until it is hardened separately.
+const MAX_TOKENS = 8192;
 
 // ── prompt ───────────────────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `You are a curriculum designer for an Indian higher-education institution (JKKN), building a teaching "lesson spine" for one course from its Board-of-Studies (BoS) approved syllabus.
@@ -385,6 +389,23 @@ export async function GET(request: NextRequest) {
             console.error(
               `[cron/curriculum-lesson-spine-generate] job ${job.jobId}: record failed on ${job.collectAttempts} attempts — marking failed (terminal)`,
             );
+            // Remove the partial spine this job wrote so the initial-mint guard doesn't see
+            // a half-populated course as "already has a spine" and permanently skip it — the
+            // course re-qualifies for a clean re-mint next run (deep-review MEDIUM 2026-07-06).
+            // Scoped to this job's own DRAFT AI rows: never touches a faculty-approved
+            // (published) lesson or another job's drafts.
+            const { error: cleanupErr } = await admin
+              .from('curriculum_lesson')
+              .delete()
+              .eq('ai_batch_key', job.jobId)
+              .eq('status', 'draft')
+              .in('source', ['bos_ai', 'title_ai']);
+            if (cleanupErr) {
+              console.error(
+                `[cron/curriculum-lesson-spine-generate] job ${job.jobId}: partial-draft cleanup failed:`,
+                cleanupErr,
+              );
+            }
             await admin.rpc('fn_ai_batch_mark_expired', { p_job_id: job.jobId, p_status: 'failed' });
           } else {
             console.warn(

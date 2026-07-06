@@ -276,7 +276,10 @@ BEGIN
                                       'coordinator','institution_admin','administrator','system_admin'])))
   GROUP BY c.id, c.course_code, c.course_name, c.institution_id
   ORDER BY count(l.id) DESC, c.course_code
-  LIMIT 200;   -- defensive cap — an operator dashboard, not a full export
+  -- Cap sized above the full BoS-covered catalog (~839 courses) so no course with pending
+  -- drafts is stranded below a truncating limit while the ~30+ weekly mint runs proceed
+  -- (deep-review MEDIUM 2026-07-06). Keyset pagination can replace this if the catalog grows.
+  LIMIT 1000;
 END $function$;
 REVOKE EXECUTE ON FUNCTION public.fn_curriculum_courses_with_pending_ai_drafts() FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_curriculum_courses_with_pending_ai_drafts() TO authenticated;
@@ -309,8 +312,10 @@ DECLARE v_inst uuid; v_course uuid; v_status text; v_source text; v_role text;
         v_email text; v_staff_id uuid; v_priv boolean; v_teaches boolean; v_ok boolean;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_curriculum_lesson_ai_approve: not authenticated'; END IF;
+  -- FOR UPDATE: lock the draft row so two concurrent approve/reject calls can't both pass
+  -- the status='draft' check and double-process (deep-review LOW 2026-07-06).
   SELECT institution_id, course_id, status, source INTO v_inst, v_course, v_status, v_source
-  FROM public.curriculum_lesson WHERE id = p_lesson_id;
+  FROM public.curriculum_lesson WHERE id = p_lesson_id FOR UPDATE;
   IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_curriculum_lesson_ai_approve: no such lesson'; END IF;
   IF v_status <> 'draft' OR v_source NOT IN ('bos_ai','title_ai') THEN
     RAISE EXCEPTION 'fn_curriculum_lesson_ai_approve: only an AI draft lesson can be approved via this function';
@@ -334,10 +339,20 @@ BEGIN
     CROSS JOIN LATERAL jsonb_each(
       CASE WHEN jsonb_typeof(sa.attendance_data) = 'object' THEN sa.attendance_data ELSE '{}'::jsonb END
     ) AS pd(period_id, pv)
+    -- assigned_faculty is a scalar object for a single-teacher period but an ARRAY of
+    -- {faculty_id, faculty_email, ...} for a co-taught / substitute period (~19% of prod
+    -- periods). Normalize both shapes so a co-teacher is not false-blocked from approving
+    -- their own course's drafts (deep-review LOW 2026-07-06; mirrors PR #1819's 3b fix).
+    CROSS JOIN LATERAL jsonb_array_elements(
+      CASE jsonb_typeof(pv -> 'assigned_faculty')
+        WHEN 'array'  THEN pv -> 'assigned_faculty'
+        WHEN 'object' THEN jsonb_build_array(pv -> 'assigned_faculty')
+        ELSE '[]'::jsonb END
+    ) AS fac
     WHERE sa.institution_id = v_inst
       AND pv ->> 'course_id' = v_course::text
-      AND ( (v_staff_id IS NOT NULL AND pv -> 'assigned_faculty' ->> 'faculty_id' = v_staff_id::text)
-            OR (v_email IS NOT NULL AND lower(btrim(pv -> 'assigned_faculty' ->> 'faculty_email')) = v_email) )
+      AND ( (v_staff_id IS NOT NULL AND fac ->> 'faculty_id' = v_staff_id::text)
+            OR (v_email IS NOT NULL AND lower(btrim(fac ->> 'faculty_email')) = v_email) )
   );
   v_ok := public.is_super_admin()
           OR (v_priv AND public.role_has_institution_access(v_inst))
@@ -376,8 +391,10 @@ DECLARE v_inst uuid; v_course uuid; v_status text; v_source text; v_role text;
         v_email text; v_staff_id uuid; v_priv boolean; v_teaches boolean; v_ok boolean;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_curriculum_lesson_ai_reject: not authenticated'; END IF;
+  -- FOR UPDATE: lock the draft row so two concurrent approve/reject calls can't both pass
+  -- the status='draft' check and double-process (deep-review LOW 2026-07-06).
   SELECT institution_id, course_id, status, source INTO v_inst, v_course, v_status, v_source
-  FROM public.curriculum_lesson WHERE id = p_lesson_id;
+  FROM public.curriculum_lesson WHERE id = p_lesson_id FOR UPDATE;
   IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_curriculum_lesson_ai_reject: no such lesson'; END IF;
   IF v_status <> 'draft' OR v_source NOT IN ('bos_ai','title_ai') THEN
     RAISE EXCEPTION 'fn_curriculum_lesson_ai_reject: only an AI draft lesson can be rejected via this function';
@@ -396,10 +413,20 @@ BEGIN
     CROSS JOIN LATERAL jsonb_each(
       CASE WHEN jsonb_typeof(sa.attendance_data) = 'object' THEN sa.attendance_data ELSE '{}'::jsonb END
     ) AS pd(period_id, pv)
+    -- assigned_faculty is a scalar object for a single-teacher period but an ARRAY of
+    -- {faculty_id, faculty_email, ...} for a co-taught / substitute period (~19% of prod
+    -- periods). Normalize both shapes so a co-teacher is not false-blocked from approving
+    -- their own course's drafts (deep-review LOW 2026-07-06; mirrors PR #1819's 3b fix).
+    CROSS JOIN LATERAL jsonb_array_elements(
+      CASE jsonb_typeof(pv -> 'assigned_faculty')
+        WHEN 'array'  THEN pv -> 'assigned_faculty'
+        WHEN 'object' THEN jsonb_build_array(pv -> 'assigned_faculty')
+        ELSE '[]'::jsonb END
+    ) AS fac
     WHERE sa.institution_id = v_inst
       AND pv ->> 'course_id' = v_course::text
-      AND ( (v_staff_id IS NOT NULL AND pv -> 'assigned_faculty' ->> 'faculty_id' = v_staff_id::text)
-            OR (v_email IS NOT NULL AND lower(btrim(pv -> 'assigned_faculty' ->> 'faculty_email')) = v_email) )
+      AND ( (v_staff_id IS NOT NULL AND fac ->> 'faculty_id' = v_staff_id::text)
+            OR (v_email IS NOT NULL AND lower(btrim(fac ->> 'faculty_email')) = v_email) )
   );
   v_ok := public.is_super_admin()
           OR (v_priv AND public.role_has_institution_access(v_inst))
@@ -467,8 +494,8 @@ SELECT * FROM (VALUES
   ('curriculum_ai.batch_cap','global','25'::jsonb,'number',
    'Max BoS-covered courses the bulk lesson-spine-generate cron mints per weekly run (excess is logged and picked up next run).',
    false, true, 'operational','published','number','curriculum_ai'),
-  ('curriculum_ai.emit_assessment_briefs','global','true'::jsonb,'boolean',
-   'Whether the lesson-spine generator also drafts a Concept-Application brief per unit + a team-capstone brief per course, for BoS/A&S courses whose syllabus assessment_structure carries populated capstones/components (the v1.2 assessment structure). Skipped entirely for courses with no such data (e.g. PDE tier-3 pure-theory, or any course whose BoS syllabus has not yet been filled in with an assessment structure).',
+  ('curriculum_ai.emit_assessment_briefs','global','false'::jsonb,'boolean',
+   'Whether the lesson-spine generator also drafts a Concept-Application brief per unit + a team-capstone brief per course, for BoS/A&S courses whose syllabus assessment_structure carries populated capstones/components (the v1.2 assessment structure). DEFAULT OFF: the lesson lane ships first; the brief review/approve path (co_ref-array handling, brief-vs-lesson spine separation) is hardened in a follow-up before this is flipped on. Prod currently has 0 populated capstones so it would emit nothing regardless. Skipped entirely for courses with no such data (PDE tier-3 pure-theory, or any BoS syllabus without a filled-in assessment structure).',
    false, true, 'operational','published','boolean','curriculum_ai')
 ) v(policy_key, scope_type, value, data_type, description, is_system, is_active,
     classification, publication_state, ui_widget, ui_category)
