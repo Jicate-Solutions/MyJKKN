@@ -28,28 +28,35 @@ export async function GET(_request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Faculty analytics dashboard — gate to the analytics-view permission
-    // (super-admin bypass is built into user_has_permission). This route
-    // returns institution-wide aggregates, so a plain authenticated learner
-    // must not reach it.
-    const { data: canView, error: permErr } = await supabase.rpc(
-      'user_has_permission',
-      { permission_name: 'pde.faculty.analytics.view' }
-    );
-    if (permErr || !canView) {
+    // Platform-wide PDE analytics — restricted to super-admin / administrator.
+    // This route aggregates across ALL learners (see below), which is only a
+    // safe, coherent view for a GLOBAL-scoped admin. It is deliberately NOT
+    // opened to the per-college `pde.faculty.analytics.view` permission: a
+    // service-role read spans every institution, so gating it per-college would
+    // leak College A's engagement/at-risk/pass-rate into College B's dashboard.
+    // Correct per-institution faculty scoping is a flagged follow-up — it needs
+    // a dedicated scoped RPC/view because these tables have no institution_id
+    // and `learner_id` maps to a learner's institution differently across the
+    // quest-enrollment (`profiles.id`) vs submission (`learners_profiles.id`)
+    // pipelines. Global-only gating is the safe interim boundary.
+    const { data: profile } = await (supabase as any)
+      .from('profiles')
+      .select('role, is_super_admin')
+      .eq('id', user.id)
+      .single();
+    const allowed =
+      !!profile &&
+      (profile.is_super_admin ||
+        profile.role === 'super_admin' ||
+        profile.role === 'administrator');
+    if (!allowed) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // The three sources must aggregate over ALL learners consistently.
-    // pde_quest_enrollments carries only per-learner (own-row) RLS, whereas
-    // pde_engagement_daily / pde_submissions are admin-readable (USING true).
-    // Reading enrollments with the RLS-scoped client would collapse the
-    // enrollment / quest / at-risk metrics to the caller's own rows (~0 for a
-    // faculty user) while engagement / pass-rate spanned everyone — a
-    // self-inconsistent dashboard. Now that the caller is authorised, use the
-    // service-role client so every source spans all learners consistently.
-    // (These tables carry no institution_id, so institution-scoped analytics
-    // would require a schema change — flagged, not built here.)
+    // pde_quest_enrollments carries only per-learner (own-row) RLS — even a
+    // super-admin's RLS-scoped client would see only their own enrollments — so
+    // read the aggregate sources via the service-role client. This spans all
+    // learners, consistent with the global (super-admin) audience gated above.
     const reader = createServiceRoleClient();
 
     // Last-30-days cutoff for engagement.
