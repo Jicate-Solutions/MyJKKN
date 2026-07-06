@@ -104,6 +104,15 @@ export function useApplyProposal() {
   });
 }
 
+/** Operator action: analyze a program's closed cohorts and emit any proposals. */
+export function useGenerateAdjustments() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (programId: string) => CohortFeedForwardService.generateForProgram(programId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['cohort-core', 'proposals'] }),
+  });
+}
+
 // ── Alumni → mentor flywheel (M7.4) ───────────────────────────────────────────
 
 export function useAlumniMentorPool(filters?: AlumniMentorFilters) {

@@ -144,4 +144,48 @@ export class CohortFeedForwardService {
       throw error;
     }
   }
+
+  // ── Generation (operator "check for new adjustments") ────────────────────────
+
+  /**
+   * Analyze a program's CLOSED cohorts and emit feed-forward proposals for any
+   * that clear the gates. Best-effort per cohort: assign experiment arms
+   * (idempotent), compute the experiment, then run the proposer — swallowing the
+   * EXPECTED rejections (M5 open-cohort / NULL causal lift / below min-arm-n), so
+   * a cohort without both arms or a computed causal lift simply yields nothing.
+   * Returns how many proposals were emitted vs how many cohorts were considered.
+   *
+   * NOTE: for the causal lift to be MEANINGFUL, arms must be assigned at enrol and
+   * the treatment arm must receive a real intervention — that lifecycle wiring is a
+   * follow-up. Today this surfaces whatever the data supports (typically nothing,
+   * or an 'inconclusive' proposal when a lift is computed but below threshold).
+   */
+  static async generateForProgram(
+    programId: string
+  ): Promise<{ generated: number; considered: number }> {
+    const { data: cohorts, error } = await (this.supabase as any)
+      .from('cohorts')
+      .select('id')
+      .eq('kind', 'sf100')
+      .filter('config->>sf100_program_id', 'eq', programId)
+      .in('status', ['completed', 'archived']);
+    if (error) throw error;
+
+    const ids: string[] = (cohorts ?? []).map((c: { id: string }) => c.id);
+    let generated = 0;
+    for (const id of ids) {
+      try {
+        await (this.supabase as any).rpc('fn_assign_experiment_arms_for_cohort', { p_cohort_id: id });
+        await (this.supabase as any).rpc('fn_compute_cohort_experiment', { p_cohort_id: id });
+        const { data: prop, error: perr } = await (this.supabase as any).rpc(
+          'fn_propose_cohort_adjustments',
+          { p_cohort_id: id }
+        );
+        if (!perr && prop) generated += 1;
+      } catch {
+        // expected: M5 gate / NULL causal lift / below min-arm-n → no proposal
+      }
+    }
+    return { generated, considered: ids.length };
+  }
 }
