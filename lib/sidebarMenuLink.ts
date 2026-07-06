@@ -146,6 +146,10 @@ interface MenuPermissions {
 }
 
 export const MENU_PERMISSIONS: MenuPermissions = {
+  // Foundation & Competitive-Exam Programme
+  '/foundation': 'foundation.dashboard.view',
+  '/foundation/console': 'foundation.cohorts.view',
+
   // Overview
   '/': 'view_dashboard', // Dashboard should have a permission too
 
