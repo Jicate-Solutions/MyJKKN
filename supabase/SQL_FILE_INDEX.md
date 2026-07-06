@@ -1726,3 +1726,9 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - RLS (all 5 tables): read = `fn_fp_can_view_student/attempt` (super-admin only + student/guardian + teacher + school mgmt; NO is_admin cross-tenant bypass); write = manage helpers. Verified: impersonated non-super user sees 0 weakness + 0 attempts, no recursion.
 - Direct student writes route through a future record-attempt RPC (SECURITY DEFINER); table writes gated to managers.
 - Location: `supabase/migrations/20260706065000_fp_performance_diagnostic.sql`. Applied to prod via Management API 2026-07-06 (verified). Completes the Foundation DB layer (PR-A + PR-B1 + PR-B2a + PR-B2b).
+
+### Foundation — unify college mappings into shared exam_topic_map (PR-C, DB step) — 2026-07-06
+- Backfills the 68 college exam→topic mappings from legacy `cdc_exam_topic_map` into the shared `exam_topic_map` (via `exam_definitions.cdc_training_type_id`), making `exam_topic_map` the single unified junction (77 rows = 68 college + 9 school).
+- ADDITIVE: does NOT modify `cdc_exam_topic_map` (still 68, CDC reads it unchanged). PARITY PROVEN: 0 CDC mappings unmirrored.
+- Location: `supabase/migrations/20260706070000_exam_topic_map_backfill_college.sql`. Applied via Management API 2026-07-06 (verified).
+- REMAINING (separate CODE PR, browser-verified): switch the 5 CDC consumers (`cdc/admin/exam-syllabus-topics`, `cdc/admin/exam-topic-map`, `cdc/govt-readiness`, `api/admin/cdc/exam-topic-map`, `lib/services/admin/cdc-admin-service.ts`, `types/admin/cdc.ts`) to read `exam_topic_map`; verify govt-readiness page + syllabus-overlap % identical; then DROP `cdc_exam_topic_map`. THIS is the one true live-CDC touch — do NOT ship without browser verification.
