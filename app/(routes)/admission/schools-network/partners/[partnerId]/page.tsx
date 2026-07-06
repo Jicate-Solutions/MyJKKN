@@ -149,7 +149,16 @@ function MemberSchoolsCard({ partnerId }: { partnerId: string }) {
                 {rows.map((row) => (
                   <TableRow key={row.id}>
                     <TableCell className="font-medium">
-                      {row.schoolName ?? '—'}
+                      {row.schoolName ? (
+                        <Link
+                          href={`/admission/schools-network/${row.schoolId}`}
+                          className="text-primary hover:underline"
+                        >
+                          {row.schoolName}
+                        </Link>
+                      ) : (
+                        '—'
+                      )}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {row.district ?? '—'}
