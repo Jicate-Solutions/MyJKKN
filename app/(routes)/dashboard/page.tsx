@@ -33,6 +33,8 @@ import { getWidgetsForRole } from '@/lib/services/dashboard/widget-config-servic
 import { LimitedHero } from '@/components/dashboard/limited-hero';
 import { StudentHeroStrip } from '@/components/dashboard/student-hero-strip';
 import { UdyogStudentCard } from '@/components/dashboard/udyog-student-card';
+import { DeptIgFeedCard } from '@/components/dashboard/dept-ig-feed-card';
+import { DeptMomentumCard } from '@/components/dashboard/dept-momentum-card';
 import HodHeroStrip from '@/components/dashboard/hod-hero-strip';
 import { DashboardBreadcrumb } from '@/components/dashboard/dashboard-breadcrumb';
 import { DecisionQueue } from '@/components/dashboard/decision-queue';
@@ -404,6 +406,23 @@ export default async function DashboardV2Page({
               <UdyogStudentCard />
             </div>
           </DashboardErrorBoundary>
+        )}
+
+        {/* Department Instagram — engagement loop for learners (2026-07-06).
+            Two client islands that self-fetch and self-hide when the learner's
+            department has no graph-tier handle: the feed-IN card (deep-linked posts +
+            share-an-idea loop hook) and the within-college momentum leaderboard
+            (ranked on real signal + momentum, never likes/followers). Silent
+            boundaries — neither may ever break the dashboard. */}
+        {isStudent && (
+          <div className='grid grid-cols-1 lg:grid-cols-2 gap-4'>
+            <DashboardErrorBoundary label='Department Instagram feed' mode='silent'>
+              <DeptIgFeedCard />
+            </DashboardErrorBoundary>
+            <DashboardErrorBoundary label='Department momentum' mode='silent'>
+              <DeptMomentumCard />
+            </DashboardErrorBoundary>
+          </div>
         )}
 
         {/* Streak badge — Director + Counselor only (spec §4.3). Silent: non-essential. */}
