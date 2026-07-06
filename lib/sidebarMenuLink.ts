@@ -371,6 +371,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Internal Marks (CIA) - Mark Entry & Reports
   '/academic/internal-marks': 'academic.internal-marks.view',
+  '/academic/internal-marks/monitor': 'academic.internal-marks.view',
+  '/academic/internal-marks/attendance-insight': 'academic.internal-marks.view',
   '/academic/internal-marks/report': 'academic.internal-marks.view',
 
   // Regulations Management

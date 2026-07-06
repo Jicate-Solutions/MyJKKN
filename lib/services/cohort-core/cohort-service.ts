@@ -35,6 +35,82 @@ import type {
 export class CohortService {
   private static supabase = createClientSupabaseClient();
 
+  // ── D9: member identity is ALWAYS profile-linked ────────────────────────────
+
+  /**
+   * Member types whose `member_ref` MUST resolve to a real MyJKKN identity
+   * (profiles.id or learners_profiles.id). `team` is intentionally EXCLUDED:
+   * a team membership's `member_ref` is the team's enrollment id (not a
+   * profile), per the SF100 per-team pattern, so it must NOT be resolved here.
+   */
+  private static readonly IDENTITY_MEMBER_TYPES: ReadonlySet<MembershipType> =
+    new Set<MembershipType>(['student', 'learner', 'staff']);
+
+  /**
+   * D9 (Cohort Core, PLAN.md) — every cohort member of an identity-bearing type
+   * is an EXISTING MyJKKN user, so `member_ref` MUST resolve to a real profile
+   * (`profiles.id`) or learner (`learners_profiles.id`). No free-text-only
+   * members. The generic member-add / transfer paths call this BEFORE any write
+   * and throw a clean 400 (route maps `.status`) when nothing resolves.
+   *
+   * This is the shared-engine lift of the per-domain guard that SF100
+   * (`requestRosterChange`) and Foundations added — enforced once, here, for
+   * every domain that mints memberships through the spine.
+   *
+   * Safe under RLS: `profiles_select_policy` lets any authenticated user SELECT
+   * profiles, so a member the coordinator could pick from the directory always
+   * resolves — this can only reject genuine free text (an invalid/absent uuid).
+   */
+  private static async assertMemberIdentity(
+    memberType: MembershipType,
+    memberRef: string
+  ): Promise<void> {
+    // Non-identity types (team) carry an enrollment id in member_ref — skip.
+    if (!this.IDENTITY_MEMBER_TYPES.has(memberType)) return;
+
+    const ref = (memberRef ?? '').trim();
+    const reject = (): never => {
+      const err = new Error(
+        `Cohort member must be an existing MyJKKN user. member_ref "${memberRef}" ` +
+          `(member_type "${memberType}") did not resolve to a profile or learner ` +
+          `record. Select the member from the directory instead of entering free text.`
+      );
+      (err as Error & { status?: number }).status = 400;
+      throw err;
+    };
+
+    // A free-text name/email is never a uuid identity.
+    if (!ref) reject();
+
+    try {
+      // 1. profiles.id — the canonical MyJKKN user identity (what the picker returns).
+      const { data: profileMatch, error: profileErr } = await (this.supabase as any)
+        .from('profiles')
+        .select('id')
+        .eq('id', ref)
+        .maybeSingle();
+      if (profileErr) throw profileErr;
+      if (profileMatch?.id) return;
+
+      // 2. learners_profiles.id — a learner-typed member_ref.
+      const { data: learnerMatch, error: learnerErr } = await (this.supabase as any)
+        .from('learners_profiles')
+        .select('id')
+        .eq('id', ref)
+        .maybeSingle();
+      if (learnerErr) throw learnerErr;
+      if (learnerMatch?.id) return;
+    } catch (lookupError) {
+      // A malformed uuid raises Postgres 22P02 — that IS free text, so reject as a
+      // clean 400 (never a masked 500). Any OTHER db/RLS error is genuine infra —
+      // rethrow it so it is not silently turned into "unresolvable".
+      const code = (lookupError as { code?: string })?.code;
+      if (code && code !== '22P02') throw lookupError;
+    }
+
+    reject();
+  }
+
   // ── Cohorts (CRUD) ──────────────────────────────────────────────────────────
 
   static async getCohorts(
@@ -215,6 +291,9 @@ export class CohortService {
     dto: CreateMembershipDto
   ): Promise<CohortMembership> {
     try {
+      // D9 — reject a free-text / unresolvable member BEFORE any write (400).
+      await this.assertMemberIdentity(dto.member_type, dto.member_ref);
+
       const { data, error } = await (this.supabase as any)
         .from('cohort_memberships')
         .insert([{ ...dto, config: dto.config ?? {} }])
@@ -431,6 +510,11 @@ export class CohortService {
       if (isTerminalMembershipStatus(current.status)) {
         throw new Error(`Cannot transfer a ${current.status} membership`);
       }
+
+      // D9 — a transfer must never carry a free-text / unresolvable member into a
+      // new cohort. member_ref is unchanged by the move, so a picker-minted member
+      // re-validates as a no-op; a legacy free-text ref is rejected (400).
+      await this.assertMemberIdentity(current.member_type, current.member_ref);
 
       // Destination must exist and be visible under RLS (getCohort throws if not).
       await this.getCohort(toCohortId);

@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
         .from('pde_agency_index')
         .select('*')
         .eq('learner_id', learnerId)
-        .order('calculated_at', { ascending: true });
+        .order('created_at', { ascending: true });
 
       if (courseId) query = query.eq('course_id', courseId);
 
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
       .from('pde_agency_index')
       .select('*')
       .eq('learner_id', learnerId)
-      .order('calculated_at', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(1);
 
     if (courseId) query = query.eq('course_id', courseId);
@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
         learner_id: learnerId,
         course_id: courseId || null,
         ...agencyIndex,
-        calculated_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
       })
       .select()
       .single();

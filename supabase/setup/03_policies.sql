@@ -7549,3 +7549,28 @@ CREATE POLICY cohort_status_events_update_permission ON public.cohort_status_eve
 DROP POLICY IF EXISTS cohort_status_events_delete_permission ON public.cohort_status_events;
 CREATE POLICY cohort_status_events_delete_permission ON public.cohort_status_events
   FOR DELETE USING ((select is_super_admin()) OR (select is_admin()));
+
+-- Cohort Core — Foundations self-enrol carve-out on cohort_memberships
+-- (migration 20260731080000_foundations_demote_to_cohort_core.sql, 2026-07-06).
+-- The Foundations self-enrol POST runs RLS-scoped AS THE STUDENT (never
+-- service-role); the standard cohort_memberships_insert_permission needs
+-- cohort.create, which a student does not hold, so mirroring their membership would
+-- 403. This permissive INSERT policy OR-adds a narrow self-insert path (mirrors the
+-- ssf_responses_insert `submitted_by = auth.uid()` self-policy): the caller may
+-- insert ONLY a non-terminal member_type='student' row referencing THEIR OWN uid
+-- into a kind='foundations' cohort. Graduation stays mentor-gated (D5) — a student
+-- cannot self-insert a 'graduated' membership. The facilitator-add path is
+-- unaffected (member_ref = the enrolled student, not the caller).
+DROP POLICY IF EXISTS cohort_memberships_foundations_self_insert ON public.cohort_memberships;
+CREATE POLICY cohort_memberships_foundations_self_insert ON public.cohort_memberships
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    member_type = 'student'
+    AND member_ref = (select auth.uid())
+    AND status IN ('invited', 'enrolled', 'active')
+    AND EXISTS (
+      SELECT 1 FROM public.cohorts c
+      WHERE c.id = cohort_memberships.cohort_id
+        AND c.kind = 'foundations'
+    )
+  );

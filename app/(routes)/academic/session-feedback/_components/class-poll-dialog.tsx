@@ -23,7 +23,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Plus, X, Radio, Square, Users, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
-  Presentation, Sparkles, Lock,
+  Presentation, Sparkles, Lock, BookOpen,
 } from 'lucide-react';
 import {
   ClassPollService,
@@ -33,6 +33,10 @@ import {
   type PollTotals,
   type PollResponder,
 } from '@/lib/services/live-poll/class-poll-service';
+import {
+  CurriculumService, FINK_OPTIONS, finkLabel,
+  type CurriculumSeed, type MyTopic, type FinkDimension,
+} from '@/lib/services/curriculum/curriculum-service';
 import { useInductionPollRealtime } from '@/hooks/induction/use-induction-poll-realtime';
 import { useChecklistConfig } from '@/hooks/use-session-feedback';
 import type { ChecklistConfigItem } from '@/types/session-feedback';
@@ -75,6 +79,37 @@ function buildDefaultLoopQuestions(checklist: ChecklistConfigItem[]): PollQuesti
   ];
 }
 
+// Make the seeded question set curriculum-aware when a PUBLISHED topic is linked:
+// rename the understood Q1 to name the topic, and ensure the rotating Fink Q2 is
+// present right after it (locked, loop_role='fink'). No topic → return unchanged
+// (the generic poll, spec #13). Re-applied on re-link so the poll tracks the topic
+// (#29/#30 — votes are poll-keyed, so renaming Q1 never loses answers).
+function applyCurriculumQuestions(seed: CurriculumSeed | null, base: PollQuestionDraft[]): PollQuestionDraft[] {
+  if (!seed?.has_topic) return base;
+  let out = base.map((q) => {
+    if (q.loop_role === 'understood') return { ...q, prompt: seed.q1_prompt ?? q.prompt };
+    if (q.loop_role === 'fink') return {
+      ...q, prompt: seed.q2_prompt ?? q.prompt,
+      scale_min_label: seed.q2_min_label ?? q.scale_min_label ?? null,
+      scale_max_label: seed.q2_max_label ?? q.scale_max_label ?? null,
+    };
+    return q;
+  });
+  if (!out.some((q) => q.loop_role === 'fink')) {
+    const finkQ: PollQuestionDraft = {
+      prompt: seed.q2_prompt ?? 'How ready do you feel to apply this?',
+      kind: 'scale', position: 0, loop_role: 'fink',
+      scale_min: 1, scale_max: 5,
+      scale_min_label: seed.q2_min_label ?? 'Not yet',
+      scale_max_label: seed.q2_max_label ?? 'Fully',
+      options: [1, 2, 3, 4, 5].map((n, i) => ({ label: String(n), position: i })),
+    };
+    const idx = out.findIndex((q) => q.loop_role === 'understood');
+    out = idx >= 0 ? [...out.slice(0, idx + 1), finkQ, ...out.slice(idx + 1)] : [finkQ, ...out];
+  }
+  return out.map((q, i) => ({ ...q, position: i }));
+}
+
 function LoopBadge() {
   return (
     <Badge variant="outline" className="gap-1 shrink-0 border-emerald-500/50 px-1.5 py-0 text-[10px] text-emerald-700 dark:text-emerald-400">
@@ -102,6 +137,13 @@ export function ClassPollDialog({
   const [currentQid, setCurrentQid] = useState<string | null>(null);
   const [presenting, setPresenting] = useState(false);
   const [busy, setBusy] = useState(false);
+  // curriculum-aware topic (Phase 1)
+  const [seed, setSeed] = useState<CurriculumSeed | null>(null);
+  const [myTopics, setMyTopics] = useState<MyTopic[]>([]);
+  const [topicInput, setTopicInput] = useState('');
+  const [finkInput, setFinkInput] = useState<FinkDimension>('foundational');
+  const [changingTopic, setChangingTopic] = useState(false);
+  const [settingTopic, setSettingTopic] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { data: checklistConfig, isSuccess: checklistReady } = useChecklistConfig();
@@ -115,12 +157,24 @@ export function ClassPollDialog({
   useEffect(() => stop, []);
 
   const load = useCallback(async () => {
+    // Curriculum topic (best-effort): if a published lesson is linked to this class,
+    // the poll goes curriculum-aware; any failure falls back to the generic poll (#13).
+    let curSeed: CurriculumSeed | null = null;
+    try {
+      curSeed = await CurriculumService.pollSeed(classKey);
+      setSeed(curSeed);
+      setChangingTopic(false);
+      if (curSeed?.course_id) {
+        try { setMyTopics(await CurriculumService.myTopics(curSeed.course_id)); } catch { /* non-fatal */ }
+      }
+    } catch { setSeed(null); }
+
     try {
       const p = await ClassPollService.getPoll(classKey);
       if (p && p.questions.length > 0) {
         setPollId(p.id); setStatus(p.status); setHasVotes(p.has_votes); setAutoCloseAt(p.auto_close_at);
         setCurrentQid(p.current_question_id);
-        setQuestions(p.questions.map((q) => {
+        const mapped = p.questions.map((q) => {
           const opts = q.options.map((o) => ({ id: o.id, label: o.label, position: o.position, option_key: o.option_key ?? undefined }));
           // Re-hydrate the scale range from the numeric option labels so the builder
           // shows the same min..max on re-open.
@@ -133,14 +187,20 @@ export function ClassPollDialog({
               ? { scale_min: Math.min(...nums), scale_max: Math.max(...nums) }
               : {}),
           } as PollQuestionDraft;
-        }));
+        });
+        // If a topic is linked, keep the DRAFT poll in sync with it (renames Q1, adds
+        // the Fink Q2 if missing). Existing votes are untouched — they follow the topic.
+        // Skip once the poll is OPEN: the saved question set is authoritative for the
+        // live counter, and we don't mutate an open poll's local list under it.
+        setQuestions(p.status === 'open' ? mapped : applyCurriculumQuestions(curSeed, mapped));
         if (p.status === 'open') { await refresh(p.id); startPoll(p.id); }
       } else {
         // No poll yet (or a poll anchor with no questions) — seed the 3 loop
-        // questions. Nothing is saved to the server until "Save poll".
+        // questions, made curriculum-aware if a topic is linked. Nothing is saved
+        // to the server until "Save poll".
         setPollId(p?.id ?? null); setStatus(p?.status ?? 'draft'); setHasVotes(p?.has_votes ?? false);
         setAutoCloseAt(p?.auto_close_at ?? null); setCurrentQid(p?.current_question_id ?? null);
-        setQuestions(buildDefaultLoopQuestions(checklistConfig ?? []));
+        setQuestions(applyCurriculumQuestions(curSeed, buildDefaultLoopQuestions(checklistConfig ?? [])));
       }
     } catch (e: any) { toast.error(e?.message ?? 'Could not load poll'); }
   }, [classKey, checklistConfig]);
@@ -239,6 +299,33 @@ export function ClassPollDialog({
   };
   const closeLive = async () => { if (!pollId) return; setBusy(true); try { await ClassPollService.closePoll(pollId); stop(); setStatus('closed'); toast.success('Poll closed.'); } catch (e: any) { toast.error(e?.message ?? 'Could not close'); } finally { setBusy(false); } };
 
+  // ── curriculum topic (Phase 1) ──
+  // Reuse an already-published lesson (a past typed topic, #32) for this class.
+  const linkExisting = async (lessonId: string) => {
+    if (!lessonId) return;
+    setSettingTopic(true);
+    try {
+      await CurriculumService.linkLesson(classKey, lessonId);
+      toast.success('Topic set for this class.');
+      await load();   // re-seeds the poll curriculum-aware; existing votes are kept (#30)
+    } catch (e: any) { toast.error(e?.message ?? 'Could not set topic'); }
+    finally { setSettingTopic(false); }
+  };
+  // Type a new one-line topic → published faculty lesson (#31), remembered (#32), linked.
+  const setNewTopic = async () => {
+    const title = topicInput.trim();
+    if (!title || !seed?.course_id) return;
+    setSettingTopic(true);
+    try {
+      const lessonId = await CurriculumService.typeTopic(seed.course_id, title, finkInput);
+      await CurriculumService.linkLesson(classKey, lessonId);
+      setTopicInput('');
+      toast.success('Topic set for this class.');
+      await load();
+    } catch (e: any) { toast.error(e?.message ?? 'Could not set topic'); }
+    finally { setSettingTopic(false); }
+  };
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -252,7 +339,7 @@ export function ClassPollDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2" style={{ color: BRAND_GREEN }}>Poll — {courseLabel}
             <Badge variant={status === 'open' ? 'default' : 'secondary'}>{status}</Badge></DialogTitle>
-          <DialogDescription>Build questions, open it live, and watch anonymized results (hidden until 3 answers). The first three questions feed the live feedback loop and can&apos;t be removed.</DialogDescription>
+          <DialogDescription>Name today’s topic, build questions, open it live, and watch anonymized results (hidden until enough students answer). The locked questions can&apos;t be removed — the feedback questions feed the live loop, while the topic check-in is recorded separately.</DialogDescription>
           {status === 'open' && autoCloseAt && (
             <p className="text-xs text-amber-600 dark:text-amber-500">
               Auto-closes at {new Date(autoCloseAt).toLocaleString(undefined, { hour: 'numeric', minute: '2-digit', day: 'numeric', month: 'short' })} — reopen with &quot;Open live&quot; to extend.
@@ -281,7 +368,7 @@ export function ClassPollDialog({
                 Next question <ChevronRight className="h-4 w-4 ml-1" />
               </Button>
             </div>
-            <div className="text-xs text-muted-foreground">{totals.response_count}{totals.enrolled_count ? ` / ${totals.enrolled_count}` : ''} answered{totals.suppressed ? ' · results hidden until 3' : ''}</div>
+            <div className="text-xs text-muted-foreground">{totals.response_count}{totals.enrolled_count ? ` / ${totals.enrolled_count}` : ''} answered{totals.suppressed ? ' · results hidden until enough answer' : ''}</div>
             {totals.questions.map((q) => {
               const tot = q.options.reduce((a, o) => a + (o.count ?? 0), 0) || 1;
               return (
@@ -328,6 +415,62 @@ export function ClassPollDialog({
           </div>
         )}
 
+        {/* Today's topic (curriculum-aware, Phase 1) */}
+        <div className="rounded-md border p-3 space-y-2">
+          <div className="flex items-center gap-2 text-sm font-medium" style={{ color: BRAND_GREEN }}>
+            <BookOpen className="h-4 w-4" /> Today’s topic
+          </div>
+          {status === 'open' && (
+            <p className="text-[11px] text-amber-600 dark:text-amber-500">
+              The poll is live: changing the topic updates what’s shown here, but the live poll question keeps its current wording until you close and reopen the poll.
+            </p>
+          )}
+          {seed?.has_topic && !changingTopic ? (
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm">
+                <span className="font-medium">{seed.lesson_title}</span>
+                {seed.primary_fink_dimension && (
+                  <Badge variant="outline" className="ml-2 text-[10px]">{finkLabel(seed.primary_fink_dimension)}</Badge>
+                )}
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => setChangingTopic(true)}>Change</Button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {!seed?.course_id && (
+                <p className="text-xs text-muted-foreground">This class isn’t linked to a course, so a topic can’t be set here.</p>
+              )}
+              {myTopics.length > 0 && (
+                <Select disabled={settingTopic || !seed?.course_id} onValueChange={(id) => linkExisting(id)}>
+                  <SelectTrigger><SelectValue placeholder="Reuse a past topic…" /></SelectTrigger>
+                  <SelectContent>
+                    {myTopics.map((t) => <SelectItem key={t.id} value={t.id}>{t.title}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              )}
+              <div className="flex gap-2">
+                <Input placeholder="Type today’s topic (e.g. Binary Trees)" value={topicInput}
+                  onChange={(e) => setTopicInput(e.target.value)} disabled={settingTopic || !seed?.course_id} />
+                <Select value={finkInput} disabled={settingTopic || !seed?.course_id}
+                  onValueChange={(v) => setFinkInput(v as FinkDimension)}>
+                  <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {FINK_OPTIONS.map((f) => <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Button size="sm" onClick={setNewTopic} disabled={settingTopic || !topicInput.trim() || !seed?.course_id}
+                  style={{ backgroundColor: BRAND_GREEN }}>Set</Button>
+              </div>
+              {seed?.has_topic && changingTopic && (
+                <Button size="sm" variant="ghost" onClick={() => setChangingTopic(false)}>Cancel</Button>
+              )}
+              <p className="text-[11px] text-muted-foreground">
+                Naming the topic makes the poll ask about today’s actual lesson. Confidential — students and classmates see only the class total.
+              </p>
+            </div>
+          )}
+        </div>
+
         {/* builder */}
         <div className="space-y-3">
           {questions.map((q, i) => {
@@ -357,10 +500,12 @@ export function ClassPollDialog({
                 {q.kind === 'wordcloud' ? (
                   <p className="pl-3 text-xs text-muted-foreground">Learners type one word or short phrase — the most-common answers grow largest. No options to set.</p>
                 ) : q.kind === 'scale' ? (
-                  q.loop_role === 'understood' ? (
+                  (q.loop_role === 'understood' || q.loop_role === 'fink') ? (
                     <div className="space-y-2 pl-3">
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Lock className="h-3.5 w-3.5" /> Scale locked at 1–5 so it maps cleanly into the feedback loop.
+                        <Lock className="h-3.5 w-3.5" /> {q.loop_role === 'fink'
+                          ? 'Curriculum check-in about today’s topic — scale locked at 1–5.'
+                          : 'Scale locked at 1–5 so it maps cleanly into the feedback loop.'}
                       </div>
                       <div className="flex gap-2">
                         <Input placeholder="Low label (optional, e.g. Lost)" value={q.scale_min_label ?? ''}

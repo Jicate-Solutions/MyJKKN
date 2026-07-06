@@ -35,13 +35,20 @@ export const POST = withAuth(
     const { id: cohortId } = await context!.params!
     const body = await request.json()
     if (!body.student_id) return errorResponse('student_id is required', 400)
-    const enrollment = await FoundationsService.enroll(
-      cohortId,
-      body.student_id,
-      'facilitator',
-      auth.user.id
-    )
-    return createdResponse(enrollment)
+    try {
+      const enrollment = await FoundationsService.enroll(
+        cohortId,
+        body.student_id,
+        'facilitator',
+        auth.user.id
+      )
+      return createdResponse(enrollment)
+    } catch (err) {
+      // D9 (400 — unresolvable member) / RLS denial (403) are client errors, not 500s.
+      const status = (err as { status?: number })?.status
+      if (status === 400 || status === 403) return errorResponse((err as Error).message, status)
+      throw err
+    }
   },
   { requiredPermission: 'write', requirePermission: 'startup_studio.foundations.manage' }
 )

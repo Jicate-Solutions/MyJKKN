@@ -97,6 +97,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Star",
         "children": [
           {
+            "path": "/academic/internal-marks/attendance-insight",
+            "label": "Attendance vs Marks",
+            "iconName": "CheckSquare",
+            "children": []
+          },
+          {
+            "path": "/academic/internal-marks/monitor",
+            "label": "IA Monitor",
+            "iconName": "Star",
+            "children": []
+          },
+          {
             "path": "/academic/internal-marks/report",
             "label": "Report",
             "iconName": "Star",
@@ -1386,6 +1398,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admission/social/departments",
             "label": "Departments",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/social/engagement",
+            "label": "Engagement",
             "iconName": "GraduationCap",
             "children": []
           },

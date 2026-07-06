@@ -5739,3 +5739,146 @@ CREATE TABLE IF NOT EXISTS public.cohort_status_events (
 );
 CREATE INDEX IF NOT EXISTS idx_cohort_status_events_cohort_id     ON public.cohort_status_events (cohort_id);
 CREATE INDEX IF NOT EXISTS idx_cohort_status_events_membership_id ON public.cohort_status_events (membership_id);
+
+-- SF100 demote link (migration 20260731060000_sf100_demote_to_extension.sql, 2026-07-05).
+-- cohorts/cohort_memberships are canonical; sf100_enrollments is demoted to an SF100
+-- per-team EXTENSION linked to its team membership by this one nullable FK. NULLABLE
+-- (NOT NULL deferred) + ON DELETE SET NULL (a LINK, not identity — never cascade-delete
+-- the live extension row). sf100_enrollments' own CREATE TABLE lives in
+-- supabase/migrations/20260331000002_sf100_solve_for_100.sql (SF100 DDL is migration-only,
+-- like CDC), so this is mirrored here as a guarded ALTER rather than folded into a column list.
+ALTER TABLE public.sf100_enrollments
+  ADD COLUMN IF NOT EXISTS cohort_membership_id uuid;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname  = 'sf100_enrollments_cohort_membership_id_fkey'
+      AND conrelid = 'public.sf100_enrollments'::regclass
+  ) THEN
+    ALTER TABLE public.sf100_enrollments
+      ADD CONSTRAINT sf100_enrollments_cohort_membership_id_fkey
+      FOREIGN KEY (cohort_membership_id)
+      REFERENCES public.cohort_memberships(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_sf100_enrollments_cohort_membership
+  ON public.sf100_enrollments (cohort_membership_id);
+
+-- Cohort Core — D9: SF100 roster members must be profile-linked
+-- (migration 20260731070000_sf100_roster_profile_required.sql).
+-- Every roster member resolves to a real MyJKKN identity — profile_id (profiles)
+-- OR learner_id (learners_profiles); free-text-only members are disallowed.
+-- sf100_roster_changes' own CREATE TABLE lives in
+-- supabase/migrations/20260331000002_sf100_solve_for_100.sql (SF100 DDL is
+-- migration-only, like CDC), so this is mirrored here as a guarded ALTER.
+-- Postgres has no ADD CONSTRAINT IF NOT EXISTS → guard on pg_constraint.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname  = 'sf100_roster_changes_identity_required'
+      AND conrelid = 'public.sf100_roster_changes'::regclass
+  ) THEN
+    ALTER TABLE public.sf100_roster_changes
+      ADD CONSTRAINT sf100_roster_changes_identity_required
+      CHECK (profile_id IS NOT NULL OR learner_id IS NOT NULL);
+  END IF;
+END $$;
+
+-- Cohort Core — Foundations demote to cohort core
+-- (migration 20260731080000_foundations_demote_to_cohort_core.sql, 2026-07-06).
+-- cohorts (kind='foundations') + cohort_memberships (member_type='student') are the
+-- canonical spine roster/lifecycle; ss_foundations_enrollments is demoted to a
+-- per-student EXTENSION linked to its membership by this one nullable FK. NULLABLE
+-- (NOT NULL deferred) + ON DELETE SET NULL (a LINK, not identity — never
+-- cascade-delete the live extension row that owns responses via student_id).
+-- ss_foundations_enrollments' own CREATE TABLE lives in
+-- supabase/migrations/20260602000001_ss_foundations_substrate.sql, so this is
+-- mirrored here as a guarded ALTER rather than folded into a column list.
+ALTER TABLE public.ss_foundations_enrollments
+  ADD COLUMN IF NOT EXISTS cohort_membership_id uuid;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname  = 'ss_foundations_enrollments_cohort_membership_id_fkey'
+      AND conrelid = 'public.ss_foundations_enrollments'::regclass
+  ) THEN
+    ALTER TABLE public.ss_foundations_enrollments
+      ADD CONSTRAINT ss_foundations_enrollments_cohort_membership_id_fkey
+      FOREIGN KEY (cohort_membership_id)
+      REFERENCES public.cohort_memberships(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_ssf_enroll_cohort_membership
+  ON public.ss_foundations_enrollments (cohort_membership_id);
+-- D9: the per-student member must link a real student profile. member_ref ==
+-- student_id (a real profiles(id)) is service-enforced (member_ref is polymorphic);
+-- this explicit CHECK is the audit-trail signal that the identity column is non-null.
+-- Safe: student_id is already NOT NULL and the table has 0 rows.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname  = 'ss_foundations_enrollments_student_required'
+      AND conrelid = 'public.ss_foundations_enrollments'::regclass
+  ) THEN
+    ALTER TABLE public.ss_foundations_enrollments
+      ADD CONSTRAINT ss_foundations_enrollments_student_required
+      CHECK (student_id IS NOT NULL);
+  END IF;
+END $$;
+-- Cohort Core — dedupe guard for the Foundations spine mirror (migration 20260731080000).
+-- Makes the ss_foundations_cohort → cohorts(kind='foundations') mirror 1:1 at the DB level,
+-- so a concurrent-enrol race can never leak duplicate mirror cohorts. Partial so it never
+-- constrains other cohort kinds.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cohorts_foundations_ss_id
+  ON public.cohorts ((config->>'ss_foundations_cohort_id'))
+  WHERE kind = 'foundations';
+
+-- 2026-07-06 — PDE pilot scoping (interview-driven; applied to prod same day).
+-- Lets a quest be limited to one institution's students, and labels each
+-- enrollment as pilot vs stray. See app/api/pde/quests/route.ts (visibility),
+-- app/api/pde/quests/[id]/enroll/route.ts (label),
+-- app/api/pde/admin/quests/[id]/reset/route.ts (clean reset).
+ALTER TABLE public.pde_quests
+  ADD COLUMN IF NOT EXISTS target_institution_id uuid REFERENCES public.institutions(id);
+-- NULL = visible to all institutions; set = only that institution's students see it in the catalog.
+
+ALTER TABLE public.pde_quest_enrollments
+  ADD COLUMN IF NOT EXISTS is_pilot boolean NOT NULL DEFAULT false;
+-- TRUE when the learner belongs to the quest's target_institution_id at enroll time.
+
+
+-- CDC Training demote link (migration 20260731090000_cdc_training_demote_to_cohort_core.sql,
+-- 2026-07-06). cohorts/cohort_memberships are canonical; cdc_training_enrollments is
+-- demoted to a per-learner EXTENSION (attendance + certificate + semester-schedule stay
+-- authoritative on it) linked to its cohort membership by this one nullable FK. NULLABLE
+-- (populated best-effort forward by TrainingService.addEnrollment) + ON DELETE SET NULL
+-- (a LINK, not identity — never cascade-delete the live extension row). CDC DDL is
+-- migration-only (zero cdc_* tables in setup/*), so this is mirrored here as a guarded
+-- ALTER rather than folded into a column list.
+ALTER TABLE public.cdc_training_enrollments
+  ADD COLUMN IF NOT EXISTS cohort_membership_id uuid;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname  = 'cdc_training_enrollments_cohort_membership_id_fkey'
+      AND conrelid = 'public.cdc_training_enrollments'::regclass
+  ) THEN
+    ALTER TABLE public.cdc_training_enrollments
+      ADD CONSTRAINT cdc_training_enrollments_cohort_membership_id_fkey
+      FOREIGN KEY (cohort_membership_id)
+      REFERENCES public.cohort_memberships(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_cdc_training_enrollments_cohort_membership
+  ON public.cdc_training_enrollments (cohort_membership_id);
+-- L3 race guard: one cohorts mirror per CDC programme (kind='cdc'), keyed on
+-- config->>'cdc_training_programme_id'. Partial so it never collides with the
+-- sf100/foundations/trainer mirrors sharing public.cohorts.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cohorts_cdc_training_programme
+  ON public.cohorts ((config->>'cdc_training_programme_id'))
+  WHERE kind = 'cdc';

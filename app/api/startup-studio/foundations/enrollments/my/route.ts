@@ -23,13 +23,21 @@ export const POST = withAuth(
   async (request, auth) => {
     const body = await request.json()
     if (!body.cohort_id) return errorResponse('cohort_id is required', 400)
-    const enrollment = await FoundationsService.enroll(
-      body.cohort_id,
-      auth.user.id,
-      'self',
-      auth.user.id
-    )
-    return createdResponse(enrollment)
+    try {
+      const enrollment = await FoundationsService.enroll(
+        body.cohort_id,
+        auth.user.id,
+        'self',
+        auth.user.id
+      )
+      return createdResponse(enrollment)
+    } catch (err) {
+      // D9 (400 — unresolvable member) and enrollment-mode/RLS denial (403) are client
+      // errors, not 500s. Surface the tagged status cleanly.
+      const status = (err as { status?: number })?.status
+      if (status === 400 || status === 403) return errorResponse((err as Error).message, status)
+      throw err
+    }
   },
   { requiredPermission: 'write' }
 )
