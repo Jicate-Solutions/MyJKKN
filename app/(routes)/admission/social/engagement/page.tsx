@@ -28,16 +28,17 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  Target, CheckCircle2, XCircle, Send, Heart, ShieldAlert, CalendarClock, Save,
+  Target, CheckCircle2, XCircle, Send, Heart, ShieldAlert, CalendarClock, Save, Link2 as LinkIcon,
 } from 'lucide-react';
 import {
   getManagedHandles, setBrief,
   getContributions, reviewContribution,
   getConcerns, resolveConcern,
   getRota, assignRota,
+  getRecentPostsForHandle,
 } from '@/lib/services/social/engagement-service';
 import type {
-  ManagedHandle, Contribution, ConcernReport, RotaEntry,
+  ManagedHandle, Contribution, ConcernReport, RotaEntry, RecentPost,
 } from '@/lib/types/social-engagement';
 
 const breadcrumbItems = [
@@ -125,14 +126,44 @@ function EngagementConsole() {
     else setBriefMsg(res.error ?? 'Could not save.');
   };
 
-  const doReview = async (id: string, status: 'approved' | 'declined' | 'posted', thank = false) => {
+  const doReview = async (
+    id: string,
+    status: 'approved' | 'declined' | 'posted',
+    thank = false,
+    igPostId?: string,
+  ) => {
     setBusyId(id);
-    const res = await reviewContribution({ id, status, thank });
+    const res = await reviewContribution({ id, status, thank, ig_post_id: igPostId });
     if (res.success && selected) {
       const c = await getContributions(selected.dept_account_id, true);
       setContributions(c.success ? c.contributions ?? [] : []);
     }
     setBusyId(null);
+  };
+
+  // Post-attribution picker — the owner links a contribution to the IG post it
+  // became, so the recognition nudge credits the contributor with the post's REAL
+  // signal (saves+shares+comments). Optional: if the post isn't polled in yet, the
+  // owner can mark posted without a link and attribute it later.
+  const [pickerFor, setPickerFor] = useState<string | null>(null);
+  const [recentPosts, setRecentPosts] = useState<RecentPost[]>([]);
+  const [loadingPosts, setLoadingPosts] = useState(false);
+  const [chosenPostId, setChosenPostId] = useState('');
+
+  const openPicker = async (contributionId: string) => {
+    if (!selected) return;
+    setPickerFor(contributionId);
+    setChosenPostId('');
+    setRecentPosts([]);
+    setLoadingPosts(true);
+    const res = await getRecentPostsForHandle(selected.dept_account_id);
+    setRecentPosts(res.success ? res.posts ?? [] : []);
+    setLoadingPosts(false);
+  };
+  const closePicker = () => { setPickerFor(null); setRecentPosts([]); setChosenPostId(''); };
+  const confirmPosted = async (contributionId: string, igPostId?: string) => {
+    await doReview(contributionId, 'posted', false, igPostId);
+    closePicker();
   };
 
   const doResolveConcern = async (id: string, status: 'reviewing' | 'resolved') => {
@@ -291,7 +322,7 @@ function EngagementConsole() {
                       <div className="min-w-0">
                         <div className="text-sm">{c.title || c.caption || <span className="text-muted-foreground">Untitled idea</span>}</div>
                         <div className="text-[11px] text-muted-foreground mt-0.5">
-                          {c.contributor_name ?? 'A member'} · <StatusBadge status={c.status} />{c.thanked_at ? ' · thanked' : ''}
+                          {c.contributor_name ?? 'A member'} · <StatusBadge status={c.status} />{c.thanked_at ? ' · thanked' : ''}{c.status === 'posted' && c.ig_post_id ? ' · linked ✓' : ''}
                         </div>
                       </div>
                       {c.status === 'submitted' && (
@@ -304,12 +335,74 @@ function EngagementConsole() {
                           </Button>
                         </div>
                       )}
-                      {c.status === 'approved' && (
-                        <Button size="sm" variant="outline" disabled={busyId === c.id} onClick={() => doReview(c.id, 'posted')}>
+                      {c.status === 'approved' && pickerFor !== c.id && (
+                        <Button size="sm" variant="outline" disabled={busyId === c.id} onClick={() => openPicker(c.id)}>
                           <CheckCircle2 className="h-3.5 w-3.5 mr-1 text-emerald-600" /> Mark posted
                         </Button>
                       )}
+                      {c.status === 'posted' && !c.ig_post_id && pickerFor !== c.id && (
+                        <Button size="sm" variant="ghost" disabled={busyId === c.id} onClick={() => openPicker(c.id)}>
+                          <LinkIcon className="h-3.5 w-3.5 mr-1 text-sky-600" /> Link IG post
+                        </Button>
+                      )}
                     </div>
+
+                    {/* Attribution picker — link this contribution to the post it became so
+                        the contributor is credited for its real signal (saves/shares/comments). */}
+                    {pickerFor === c.id && (
+                      <div className="mt-3 rounded-md border border-sky-200 bg-sky-50/60 p-3 dark:border-sky-900/50 dark:bg-sky-950/20">
+                        <p className="text-xs text-muted-foreground mb-2">
+                          Which Instagram post did this become? Linking it lets the contributor hear
+                          that their post earned real signal.
+                        </p>
+                        {loadingPosts ? (
+                          <Skeleton className="h-9 w-full" />
+                        ) : (
+                          <>
+                            <select
+                              value={chosenPostId}
+                              onChange={(e) => setChosenPostId(e.target.value)}
+                              className="w-full rounded-md border border-input bg-background px-2 py-2 text-sm"
+                            >
+                              <option value="">Pick the post…</option>
+                              {recentPosts.map((p) => (
+                                <option key={p.post_id} value={p.post_id}>
+                                  {p.posted_at ? p.posted_at.slice(0, 10) + ' · ' : ''}
+                                  {(p.caption ?? 'Untitled post').slice(0, 60)}
+                                </option>
+                              ))}
+                            </select>
+                            {recentPosts.length === 0 && (
+                              <p className="text-[11px] text-muted-foreground mt-1">
+                                No recent posts found for this handle yet (they sync in periodically).
+                              </p>
+                            )}
+                            <div className="flex items-center gap-2 mt-2">
+                              <Button
+                                size="sm"
+                                disabled={!chosenPostId || busyId === c.id}
+                                onClick={() => confirmPosted(c.id, chosenPostId)}
+                              >
+                                <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Confirm posted + link
+                              </Button>
+                              {c.status === 'approved' && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={busyId === c.id}
+                                  onClick={() => confirmPosted(c.id, undefined)}
+                                >
+                                  Post not listed — mark without link
+                                </Button>
+                              )}
+                              <Button size="sm" variant="ghost" disabled={busyId === c.id} onClick={closePicker}>
+                                Cancel
+                              </Button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))
               )}

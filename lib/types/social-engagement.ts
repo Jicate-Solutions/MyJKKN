@@ -195,6 +195,27 @@ export interface ReviewContributionBody {
   review_note?: string;
   /** Set thanked_at when approving/posting to fire the "thank you" (Appreciation). */
   thank?: boolean;
+  /**
+   * When marking 'posted', the ig_posts.id this contribution became. Links the
+   * contribution to its real post so the recognition nudge can compute real-signal
+   * (saves+shares+comments) truthfully. Ignored for approved/declined.
+   */
+  ig_post_id?: string;
+}
+
+// ── Owner post-attribution picker (fn_social_recent_posts_for_handle) ──
+export interface RecentPost {
+  post_id: string;
+  caption: string | null;
+  permalink: string | null;
+  media_type: string | null;
+  posted_at: string | null;
+}
+
+export interface RecentPostsResponse {
+  success: boolean;
+  posts?: RecentPost[];
+  error?: string;
 }
 
 export interface AssignRotaBody {

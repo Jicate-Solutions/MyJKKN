@@ -170,6 +170,44 @@ export async function PATCH(request: Request): Promise<NextResponse<Contribution
       patch.thanked_at = new Date().toISOString();
     }
 
+    // Attribution: when marking posted, link the contribution to its real IG post so
+    // the recognition nudge computes real-signal truthfully. Validate the chosen post
+    // is one of THIS handle's recent posts via the manager-gated DEFINER picker RPC —
+    // it returns only posts of a dept the caller manages, so this doubles as a
+    // cross-dept guard (a foreign ig_post_id is simply not in the set → rejected).
+    if (body.status === 'posted' && body.ig_post_id) {
+      const { data: contrib } = await supabase
+        .from('social_contributions')
+        .select('dept_account_id')
+        .eq('id', body.id)
+        .maybeSingle();
+      if (!contrib) {
+        return NextResponse.json({ success: false, error: 'Not found or not permitted.' }, { status: 403 });
+      }
+      const { data: recent, error: recentErr } = await supabase.rpc('fn_social_recent_posts_for_handle', {
+        p_dept_account_id: (contrib as { dept_account_id: string }).dept_account_id,
+        p_limit: 50,
+      });
+      if (recentErr) {
+        // A transient RPC failure must not masquerade as "post not found" (a misleading
+        // 400 for a legitimate post). Surface it honestly so the owner can retry.
+        return NextResponse.json(
+          { success: false, error: `Could not verify the post right now: ${recentErr.message}` },
+          { status: 500 },
+        );
+      }
+      const belongs = ((recent as Array<{ post_id: string }> | null) ?? []).some(
+        (p) => p.post_id === body.ig_post_id,
+      );
+      if (!belongs) {
+        return NextResponse.json(
+          { success: false, error: 'That post is not one of this handle’s recent posts.' },
+          { status: 400 },
+        );
+      }
+      patch.ig_post_id = body.ig_post_id;
+    }
+
     const { data, error } = await supabase
       .from('social_contributions')
       .update(patch)
