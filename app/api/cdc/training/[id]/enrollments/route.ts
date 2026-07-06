@@ -57,6 +57,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+    // NOTE (cohort spine): this thin REST path inserts the authoritative extension
+    // row but does NOT mint the cohort_memberships mirror inline (to keep the route
+    // lean and avoid duplicating the service twin under a different client). The
+    // mirror is minted by TrainingService.addEnrollment (the UI Add/Bulk hook path)
+    // and self-heals via the best-effort upsert in TrainingService.updateEnrollment
+    // on the first status change. Roster reads stay authoritative on the extension
+    // (nullable link, FK ON DELETE SET NULL), so a lagging mirror never drops a
+    // learner. If a bulk API-import path that never updates is added later, route it
+    // through TrainingService.addEnrollment or run a one-off spine backfill.
     return NextResponse.json({ data }, { status: 201 });
   } catch (err) {
     console.error('[cdc/training] POST enrollment unexpected:', err);

@@ -381,7 +381,91 @@ export class TrainingService {
       console.error('[cdc/training] updateEnrollment failed:', error);
       throw error;
     }
-    return data as CdcTrainingEnrollment;
+    const enrollment = data as CdcTrainingEnrollment;
+
+    // WRITE-SIDE TWIN (cohort spine) — a status transition on the extension must
+    // FOLD onto the mirrored membership (completed→graduated, dropped→removed). The
+    // addEnrollment twin only ever mints 'enrolled'; the graduated/removed
+    // transitions happen ONLY here (the "Mark completed / dropped" actions), so
+    // without this the spine freezes every member at 'enrolled' for life and the
+    // lifecycle half of the demote is dead. The upsert also self-heals a membership
+    // that was never minted (e.g. an enrollment created straight via the REST
+    // route). BEST-EFFORT: the extension row is authoritative + already committed,
+    // so any mirror failure is logged, never rolled back.
+    try {
+      if (enrollment.learner_id) {
+        const cohortId = await this.ensureCdcCohortMirror(enrollment.programme_id);
+        if (cohortId) {
+          const membershipStatus = foldCdcMembershipStatus(enrollment.status);
+          const { data: existing } = await db()
+            .from('cohort_memberships')
+            .select('id, status')
+            .eq('cohort_id', cohortId)
+            .eq('member_type', 'learner')
+            .eq('member_ref', enrollment.learner_id)
+            .maybeSingle();
+          if (!existing || existing.status !== membershipStatus) {
+            const { data: membership, error: memErr } = await db()
+              .from('cohort_memberships')
+              .upsert(
+                {
+                  cohort_id: cohortId,
+                  member_type: 'learner',
+                  member_ref: enrollment.learner_id,
+                  status: membershipStatus,
+                  role: 'trainee',
+                  joined_at: enrollment.enrolled_at ?? new Date().toISOString(),
+                  config: {
+                    cdc_training_enrollment_id: enrollment.id,
+                    cdc_training_programme_id: enrollment.programme_id,
+                  },
+                },
+                { onConflict: 'cohort_id,member_type,member_ref' }
+              )
+              .select('id')
+              .single();
+            if (memErr) {
+              console.error('[cdc/training] updateEnrollment cohort membership fold failed:', memErr);
+            } else if (membership?.id) {
+              if (!enrollment.cohort_membership_id) {
+                await db()
+                  .from('cdc_training_enrollments')
+                  .update({ cohort_membership_id: membership.id })
+                  .eq('id', enrollment.id);
+                enrollment.cohort_membership_id = membership.id;
+              }
+              const { error: evtErr } = await db()
+                .from('cohort_status_events')
+                .insert({
+                  cohort_id: cohortId,
+                  membership_id: membership.id,
+                  event_type:
+                    membershipStatus === 'graduated'
+                      ? 'graduated'
+                      : membershipStatus === 'removed'
+                        ? 'removed'
+                        : 'status_changed',
+                  from_status: existing?.status ?? null,
+                  to_status: membershipStatus,
+                  reason: 'CDC training status change mirrored to cohort spine.',
+                  metadata: {
+                    source: 'cdc_training',
+                    cdc_training_enrollment_id: enrollment.id,
+                    cdc_training_programme_id: enrollment.programme_id,
+                  },
+                });
+              if (evtErr) {
+                console.error('[cdc/training] updateEnrollment cohort_status_events append failed:', evtErr);
+              }
+            }
+          }
+        }
+      }
+    } catch (twinErr) {
+      console.error('[cdc/training] updateEnrollment cohort twin error:', twinErr);
+    }
+
+    return enrollment;
   }
 
   // ─── Semester Schedules (BUG-004200) ───────────────────────────────────
