@@ -250,7 +250,7 @@ function AppointMentorDialog({ eventId, onAppointed }: { eventId: string; onAppo
         <DialogHeader>
           <DialogTitle>Appoint a Senior Peer Mentor</DialogTitle>
           <DialogDescription>
-            Pick a member of this college with a login to act as a Senior Peer Mentor. Freshers being inducted here can&apos;t be appointed.
+            Only 3rd-year students (or final-year students of a 2-year PG programme) can be Senior Peer Mentors — the list below is already filtered to them. Freshers being inducted here can&apos;t be appointed.
           </DialogDescription>
         </DialogHeader>
         <div className="relative">
