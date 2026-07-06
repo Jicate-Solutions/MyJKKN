@@ -66,8 +66,9 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * Body: { flow_name, role_category, steps: ApprovalFlowStepTemplate[],
- *         hr_organization_ids: string[], is_active? }
+ * Body: { flow_name, role_categories: RoleCategory[], steps:
+ *         ApprovalFlowStepTemplate[], hr_organization_ids: string[], is_active? }
+ * (legacy single `role_category` string also accepted).
  * Gated on hr.recruitment.edit (or super-admin). RLS additionally restricts
  * which orgs a non-admin can actually write.
  */
@@ -92,9 +93,14 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    if (!body.flow_name || !body.role_category || !Array.isArray(body.steps)) {
+    const roleCategories: string[] = Array.isArray(body.role_categories)
+      ? body.role_categories
+      : body.role_category
+      ? [body.role_category]
+      : [];
+    if (!body.flow_name || roleCategories.length === 0 || !Array.isArray(body.steps)) {
       return NextResponse.json(
-        { error: 'flow_name, role_category and steps are required' },
+        { error: 'flow_name, role_categories and steps are required' },
         { status: 400 }
       );
     }
@@ -104,7 +110,7 @@ export async function POST(request: NextRequest) {
 
     const result = await RecruitmentService.upsertRecruitmentFlow(supabase, {
       flow_name: body.flow_name,
-      role_category: body.role_category,
+      role_categories: roleCategories as import('@/types/hr-recruitment').RoleCategory[],
       steps: body.steps,
       hr_organization_ids: body.hr_organization_ids,
       is_active: body.is_active ?? true,

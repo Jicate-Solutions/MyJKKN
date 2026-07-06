@@ -28,12 +28,11 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { useQuery } from '@tanstack/react-query';
 import {
   useApprovalFlows,
   useUpsertApprovalFlow,
   useRoleUserCounts,
+  useRoleUsers,
   useHrOrganizations,
 } from '@/hooks/hr/use-recruitment';
 import {
@@ -71,6 +70,9 @@ export function FlowBuilderClient() {
   const [flowName, setFlowName] = useState('');
   const [steps, setSteps] = useState<DraftStep[]>([]);
   const [selectedOrgIds, setSelectedOrgIds] = useState<Set<string>>(new Set());
+  // Multi-category apply: the edited category is always included; extra
+  // categories receive the same chain on save (each keeps its own row).
+  const [extraCategories, setExtraCategories] = useState<Set<RoleCategory>>(new Set());
   const [loadedFromFlowId, setLoadedFromFlowId] = useState<string | null>(null);
 
   const { data: flows, isLoading: flowsLoading, error: flowsError } = useApprovalFlows();
@@ -149,6 +151,10 @@ export function FlowBuilderClient() {
     s.mode === 'role' ? !!s.approver_role : !!s.approver_user_id,
   );
   const canSave = stepsValid && steps.length > 0 && selectedOrgIds.size > 0 && !!flowName.trim();
+  const targetCategories: RoleCategory[] = [
+    category,
+    ...Array.from(extraCategories).filter((c) => c !== category),
+  ];
 
   const handleSave = () => {
     const payload: ApprovalFlowStepTemplate[] = steps.map((s, idx) => ({
@@ -163,15 +169,17 @@ export function FlowBuilderClient() {
     upsert.mutate(
       {
         flow_name: flowName.trim(),
-        role_category: category,
+        role_categories: targetCategories,
         steps: payload,
         hr_organization_ids: Array.from(selectedOrgIds),
       },
       {
         onSuccess: ({ updated, created }) => {
           toast.success(
-            `Flow saved — ${updated} organization${updated === 1 ? '' : 's'} updated, ${created} created.`,
+            `Flow saved across ${targetCategories.length} categor${targetCategories.length === 1 ? 'y' : 'ies'} — ` +
+            `${updated} flow${updated === 1 ? '' : 's'} updated, ${created} created.`,
           );
+          setExtraCategories(new Set());
           setLoadedFromFlowId(null); // allow reload of fresh data
         },
         onError: (err) => toast.error(err.message),
@@ -218,7 +226,11 @@ export function FlowBuilderClient() {
                 <button
                   key={cat}
                   type="button"
-                  onClick={() => { setCategory(cat); setLoadedFromFlowId(null); }}
+                  onClick={() => {
+                    setCategory(cat);
+                    setExtraCategories(new Set());
+                    setLoadedFromFlowId(null);
+                  }}
                   className={`w-full flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm transition-colors cursor-pointer ${
                     active
                       ? 'bg-primary text-primary-foreground font-medium'
@@ -295,6 +307,44 @@ export function FlowBuilderClient() {
                         ))}
                       </div>
                     </div>
+                    <div className="sm:col-span-2">
+                      <Label>Applies to role categories</Label>
+                      <p className="text-xs text-muted-foreground mb-1">
+                        The category you&rsquo;re editing is always included. Tick more to save this
+                        same chain for them too — each category keeps its own copy and can be
+                        edited separately later.
+                      </p>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1.5 rounded-md border border-border p-2">
+                        {CATEGORIES.map((cat) => {
+                          const isCurrent = cat === category;
+                          return (
+                            <label
+                              key={cat}
+                              className={`flex items-center gap-2 text-sm ${
+                                isCurrent ? 'font-medium' : 'cursor-pointer'
+                              }`}
+                            >
+                              <Checkbox
+                                checked={isCurrent || extraCategories.has(cat)}
+                                disabled={isCurrent}
+                                onCheckedChange={(v) =>
+                                  setExtraCategories((prev) => {
+                                    const next = new Set(prev);
+                                    if (v === true) next.add(cat);
+                                    else next.delete(cat);
+                                    return next;
+                                  })
+                                }
+                              />
+                              {ROLE_CATEGORY_LABELS[cat]}
+                              {isCurrent && (
+                                <span className="text-[10px] text-muted-foreground">(editing)</span>
+                              )}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -368,7 +418,7 @@ export function FlowBuilderClient() {
                   )}
                   {upsert.isPending
                     ? 'Saving…'
-                    : `Save for ${selectedOrgIds.size} organization${selectedOrgIds.size === 1 ? '' : 's'}`}
+                    : `Save ${targetCategories.length} categor${targetCategories.length === 1 ? 'y' : 'ies'} × ${selectedOrgIds.size} organization${selectedOrgIds.size === 1 ? '' : 's'}`}
                 </Button>
               </div>
             </>
@@ -490,6 +540,7 @@ function StepEditor({
             <PinnedUserPicker
               value={step.approver_user_id}
               displayName={step.approver_name}
+              roleCounts={roleCounts}
               onPick={(u) =>
                 onChange({
                   approver_user_id: u.profile_id,
@@ -537,8 +588,10 @@ function StepEditor({
   );
 }
 
-// ---- Pinned-user typeahead (searches staff, pins profile_id) -----------------------
-// State isolated in this child so keystrokes don't re-render the whole builder.
+// ---- Pinned-person picker: role filter first, then search ---------------------------
+// Sourced from profiles + user_roles via the role-users API (NOT the staff
+// table — super admins have no staff row and must be pickable). State is
+// isolated in this child so keystrokes don't re-render the whole builder.
 
 interface PickedUser {
   profile_id: string;
@@ -547,41 +600,23 @@ interface PickedUser {
 }
 
 function PinnedUserPicker({
-  value, displayName, onPick,
+  value, displayName, roleCounts, onPick,
 }: {
   value: string | null;
   displayName: string | null;
+  roleCounts: Array<{ role_key: string; role_name: string; users: number }>;
   onPick: (u: PickedUser) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [roleFilter, setRoleFilter] = useState('all');
   const [query, setQuery] = useState('');
 
-  const { data: results, isFetching } = useQuery({
-    queryKey: ['flow-builder-staff-search', query],
-    queryFn: async () => {
-      const supabase = createClientSupabaseClient();
-      const q = query.trim();
-      let req = supabase
-        .from('staff')
-        .select('profile_id, first_name, last_name, designation, institution_email, email')
-        .not('profile_id', 'is', null)
-        .eq('is_active', true)
-        .limit(15);
-      if (q) req = req.or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,email.ilike.%${q}%`);
-      const { data, error } = await req;
-      if (error) throw error;
-      return (data ?? []) as Array<{
-        profile_id: string;
-        first_name: string;
-        last_name: string;
-        designation: string | null;
-        institution_email: string | null;
-        email: string;
-      }>;
-    },
-    enabled: open,
-    staleTime: 60 * 1000,
-  });
+  // 'all' needs ≥2 chars (server refuses to dump the whole directory);
+  // any concrete filter lists its holders immediately.
+  const canFetch = open && (roleFilter !== 'all' || query.trim().length >= 2);
+  const { data: results, isFetching } = useRoleUsers(roleFilter, query, canFetch);
+
+  const roleNameByKey = new Map(roleCounts.map((r) => [r.role_key, r.role_name] as const));
 
   return (
     <div className="relative">
@@ -591,50 +626,104 @@ function PinnedUserPicker({
         className="flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 text-sm cursor-pointer"
       >
         <span className={value ? 'text-foreground truncate' : 'text-muted-foreground'}>
-          {value ? (displayName ?? 'Selected person') : 'Search staff…'}
+          {value ? (displayName ?? 'Selected person') : 'Pick a person…'}
         </span>
         <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       </button>
       {open && (
-        <div className="absolute z-50 mt-1 w-full min-w-[260px] rounded-md border border-border bg-popover shadow-md p-2 space-y-1.5">
+        <div className="absolute z-50 mt-1 w-full min-w-[300px] rounded-md border border-border bg-popover shadow-md p-2 space-y-1.5">
+          {/* Step 1 — role filter */}
+          <Select value={roleFilter} onValueChange={(v) => setRoleFilter(v)}>
+            <SelectTrigger className="h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="max-h-64">
+              <SelectItem value="all">All roles (search by name)</SelectItem>
+              <SelectItem value="super_admin">
+                <span className="inline-flex items-center gap-2">
+                  Super Administrators
+                </span>
+              </SelectItem>
+              {roleCounts
+                .filter((r) => r.users > 0)
+                .map((r) => (
+                  <SelectItem key={r.role_key} value={r.role_key}>
+                    <span className="inline-flex items-center gap-2">
+                      {r.role_name}
+                      <span className="text-[10px] tabular-nums text-muted-foreground">
+                        {r.users}
+                      </span>
+                    </span>
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+
+          {/* Step 2 — person search within the filter */}
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Name or email…"
+              placeholder={roleFilter === 'all' ? 'Type ≥2 characters…' : 'Filter by name or email…'}
               className="h-8 pl-7 text-sm"
             />
           </div>
+
           <div className="max-h-56 overflow-y-auto">
-            {isFetching && (
+            {!canFetch && (
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                Pick a role above, or type at least 2 characters to search everyone.
+              </p>
+            )}
+            {canFetch && isFetching && (
               <p className="px-2 py-1.5 text-xs text-muted-foreground">Searching…</p>
             )}
-            {!isFetching && (results ?? []).length === 0 && (
-              <p className="px-2 py-1.5 text-xs text-muted-foreground">No active staff match.</p>
+            {canFetch && !isFetching && (results ?? []).length === 0 && (
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">No people match.</p>
             )}
-            {(results ?? []).map((s) => (
-              <button
-                key={s.profile_id}
-                type="button"
-                onClick={() => {
-                  onPick({
-                    profile_id: s.profile_id,
-                    name: `${s.first_name} ${s.last_name}`.trim(),
-                    role_hint: s.designation,
-                  });
-                  setOpen(false);
-                  setQuery('');
-                }}
-                className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted cursor-pointer"
-              >
-                <span className="font-medium">{s.first_name} {s.last_name}</span>
-                <span className="block text-xs text-muted-foreground truncate">
-                  {s.designation ? `${s.designation} · ` : ''}{s.institution_email ?? s.email}
-                </span>
-              </button>
-            ))}
+            {(results ?? []).map((p) => {
+              const name = p.full_name ?? p.email ?? 'Unknown';
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => {
+                    onPick({
+                      profile_id: p.id,
+                      name,
+                      role_hint:
+                        roleFilter !== 'all' && roleFilter !== 'super_admin'
+                          ? roleFilter
+                          : p.is_super_admin
+                          ? 'super_admin'
+                          : p.roles[0] ?? null,
+                    });
+                    setOpen(false);
+                    setQuery('');
+                  }}
+                  className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted cursor-pointer"
+                >
+                  <span className="font-medium inline-flex items-center gap-1.5">
+                    {name}
+                    {p.is_super_admin && (
+                      <Badge className="text-[9px] px-1 py-0 bg-primary text-primary-foreground">
+                        Super Admin
+                      </Badge>
+                    )}
+                  </span>
+                  <span className="block text-xs text-muted-foreground truncate">
+                    {p.email}
+                    {p.roles.length > 0 &&
+                      ` · ${p.roles
+                        .slice(0, 2)
+                        .map((k) => roleNameByKey.get(k.toLowerCase()) ?? k)
+                        .join(', ')}${p.roles.length > 2 ? ` +${p.roles.length - 2}` : ''}`}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

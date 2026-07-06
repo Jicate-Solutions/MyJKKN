@@ -1027,7 +1027,10 @@ export class RecruitmentService {
   }
 
   /**
-   * Create-or-update the band-less role-category flow for each given org.
+   * Create-or-update the band-less flow for each given org × role category.
+   * Multi-category (2026-07-06): the same chain can be applied to several
+   * role categories in one save — each (org, category) pair keeps its own row
+   * so later per-category edits stay independent.
    * RLS on hr_approval_flows already allows super-admin / HR-admin to write
    * any org (tenant policy has is_super_admin() OR fn_is_hr_admin() arms).
    */
@@ -1035,7 +1038,7 @@ export class RecruitmentService {
     supabase: SupabaseClient,
     payload: {
       flow_name: string;
-      role_category: RoleCategory;
+      role_categories: RoleCategory[];
       steps: ApprovalFlowStepTemplate[];
       hr_organization_ids: string[];
       is_active?: boolean;
@@ -1044,6 +1047,9 @@ export class RecruitmentService {
     this.validateFlowSteps(payload.steps);
     if (!payload.hr_organization_ids.length) {
       throw new Error('Pick at least one organization.');
+    }
+    if (!payload.role_categories.length) {
+      throw new Error('Pick at least one role category.');
     }
 
     // Normalize: sequential chain_order, explicit step_type.
@@ -1057,45 +1063,47 @@ export class RecruitmentService {
 
     let updated = 0;
     let created = 0;
-    for (const orgId of payload.hr_organization_ids) {
-      const { data: existing, error: findErr } = await supabase
-        .from('hr_approval_flows')
-        .select('id, conditions')
-        .eq('flow_for', 'recruitment_approval')
-        .eq('hr_organization_id', orgId)
-        .eq('conditions->>role_category', payload.role_category)
-        .eq('is_active', true);
-      if (findErr) throw findErr;
-
-      // Band-less template only (conditions carry role_category alone).
-      const bandless = (existing ?? []).find(
-        (f) => !(f.conditions as Record<string, string> | null)?.monthly_salary_band
-      );
-
-      if (bandless) {
-        const { error } = await supabase
+    for (const roleCategory of payload.role_categories) {
+      for (const orgId of payload.hr_organization_ids) {
+        const { data: existing, error: findErr } = await supabase
           .from('hr_approval_flows')
-          .update({
-            flow_name: payload.flow_name,
-            steps,
-            is_active: payload.is_active ?? true,
-          })
-          .eq('id', bandless.id);
-        if (error) throw error;
-        updated += 1;
-      } else {
-        const { error } = await supabase
-          .from('hr_approval_flows')
-          .insert({
-            flow_name: payload.flow_name,
-            flow_for: 'recruitment_approval',
-            conditions: { role_category: payload.role_category },
-            steps,
-            is_active: payload.is_active ?? true,
-            hr_organization_id: orgId,
-          });
-        if (error) throw error;
-        created += 1;
+          .select('id, conditions')
+          .eq('flow_for', 'recruitment_approval')
+          .eq('hr_organization_id', orgId)
+          .eq('conditions->>role_category', roleCategory)
+          .eq('is_active', true);
+        if (findErr) throw findErr;
+
+        // Band-less template only (conditions carry role_category alone).
+        const bandless = (existing ?? []).find(
+          (f) => !(f.conditions as Record<string, string> | null)?.monthly_salary_band
+        );
+
+        if (bandless) {
+          const { error } = await supabase
+            .from('hr_approval_flows')
+            .update({
+              flow_name: payload.flow_name,
+              steps,
+              is_active: payload.is_active ?? true,
+            })
+            .eq('id', bandless.id);
+          if (error) throw error;
+          updated += 1;
+        } else {
+          const { error } = await supabase
+            .from('hr_approval_flows')
+            .insert({
+              flow_name: payload.flow_name,
+              flow_for: 'recruitment_approval',
+              conditions: { role_category: roleCategory },
+              steps,
+              is_active: payload.is_active ?? true,
+              hr_organization_id: orgId,
+            });
+          if (error) throw error;
+          created += 1;
+        }
       }
     }
     return { updated, created };

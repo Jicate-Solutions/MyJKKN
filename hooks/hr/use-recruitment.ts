@@ -933,7 +933,7 @@ export function useUpsertApprovalFlow() {
   return useMutation({
     mutationFn: async (payload: {
       flow_name: string;
-      role_category: RoleCategory;
+      role_categories: RoleCategory[];
       steps: ApprovalFlowStepTemplate[];
       hr_organization_ids: string[];
       is_active?: boolean;
@@ -1094,6 +1094,35 @@ export function useRoleUserCounts() {
       }>;
     },
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * People directory for the flow builder's pinned-approver picker.
+ * roleKey: 'all' (free search, needs ≥2 chars) | 'super_admin' | a role_key.
+ */
+export function useRoleUsers(roleKey: string, search: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['hr-role-users', roleKey, search],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set('role_key', roleKey);
+      if (search.trim()) params.set('search', search.trim());
+      const res = await fetch(`${BASE}/approval-flows/role-users?${params}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `People fetch failed: ${res.status}`);
+      }
+      return ((await res.json()).data) as Array<{
+        id: string;
+        full_name: string | null;
+        email: string | null;
+        is_super_admin: boolean;
+        roles: string[];
+      }>;
+    },
+    enabled,
+    staleTime: 60 * 1000,
   });
 }
 
