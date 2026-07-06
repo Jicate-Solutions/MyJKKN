@@ -52,12 +52,29 @@ export async function GET(request: Request): Promise<NextResponse<ContributionsR
     } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
 
-    const deptAccountId = new URL(request.url).searchParams.get('deptAccountId');
+    const params = new URL(request.url).searchParams;
+    const deptAccountId = params.get('deptAccountId');
+    // `actionable=true` returns only the review-critical working set (submitted + approved) so the
+    // owner queue can render ALL of them and no pending item is ever pushed past a page cap.
+    const actionable = params.get('actionable') === 'true';
+    // Truncate FIRST, then require >= 1 — guards both a missing param (Number(null)=0) and a
+    // fractional one (0.5 → trunc 0), either of which would otherwise yield an empty/1-row page.
+    const nLimit = Math.trunc(Number(params.get('limit')));
+    const nOffset = Math.trunc(Number(params.get('offset')));
+    const limit = Number.isFinite(nLimit) && nLimit >= 1 ? Math.min(nLimit, 200) : actionable ? 200 : 50;
+    const offset = Number.isFinite(nOffset) && nOffset >= 0 ? nOffset : 0;
 
-    let query = supabase.from('social_contributions').select(SELECT_COLS).order('created_at', { ascending: false }).limit(100);
+    // count:'exact' returns the full match count so a busy handle's older rows are never
+    // silently dropped — the caller sees `total` and can page with offset/limit.
+    let query = supabase
+      .from('social_contributions')
+      .select(SELECT_COLS, { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
     if (deptAccountId) query = query.eq('dept_account_id', deptAccountId);
+    if (actionable) query = query.in('status', ['submitted', 'approved']);
 
-    const { data, error } = await query;
+    const { data, count, error } = await query;
     if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
 
     const rows = (data as Omit<Contribution, 'contributor_name'>[] | null) ?? [];
@@ -67,7 +84,7 @@ export async function GET(request: Request): Promise<NextResponse<ContributionsR
       contributor_name: names.get(r.contributor_profile_id) ?? null,
     }));
 
-    return NextResponse.json({ success: true, contributions });
+    return NextResponse.json({ success: true, contributions, total: count ?? contributions.length });
   } catch (err) {
     return NextResponse.json(
       { success: false, error: err instanceof Error ? err.message : 'Failed to load contributions.' },
