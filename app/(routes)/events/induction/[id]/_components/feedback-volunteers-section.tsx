@@ -13,6 +13,7 @@ import {
   InductionVolunteerService,
   type FeedbackVolunteer,
   type AssignablePeerMentor,
+  type TrainingSession,
 } from '@/lib/services/induction/induction-volunteer-service';
 import { InductionService, type FeedbackMethodMix } from '@/lib/services/induction/induction-service';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -23,7 +24,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger,
 } from '@/components/ui/dialog';
-import { MessagesSquare, UserPlus, X, Loader2, Search, Scale, GraduationCap, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { MessagesSquare, UserPlus, X, Loader2, Search, Scale, GraduationCap, AlertTriangle, ShieldCheck, CalendarClock, UserCheck } from 'lucide-react';
 
 export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
   const [hidden, setHidden] = useState(false);
@@ -224,7 +225,10 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
           </div>
         )}
 
-        <AppointMentorDialog eventId={eventId} onAppointed={load} />
+        <div className="flex flex-wrap gap-2">
+          <AppointMentorDialog eventId={eventId} onAppointed={load} />
+          <TrainingSessionsDialog eventId={eventId} mentors={vols} onChanged={load} />
+        </div>
       </CardContent>
     </Card>
   );
@@ -302,6 +306,196 @@ function AppointMentorDialog({ eventId, onAppointed }: { eventId: string; onAppo
                   ? <Loader2 className="h-4 w-4 animate-spin shrink-0" />
                   : <UserPlus className="h-4 w-4 text-primary shrink-0" />}
               </button>
+            ))
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Training sessions (P2b fast-follow) — schedule a Senior Peer Mentor training
+// session and record who attended. Attendance sets ONLY the admin training leg
+// (admin_trained_at); a mentor is fully trained — is_trained, tools unlocked —
+// only once they've ALSO read the in-app guide and self-acknowledged. The copy
+// here says so plainly so an admin isn't misled into thinking attendance alone
+// unlocks a mentor. All three RPCs are gated by fn_induction_can_manage_training.
+function TrainingSessionsDialog({
+  eventId, mentors, onChanged,
+}: {
+  eventId: string;
+  mentors: FeedbackVolunteer[];
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [sessions, setSessions] = useState<TrainingSession[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [title, setTitle] = useState('');
+  const [scheduledAt, setScheduledAt] = useState('');
+  const [venue, setVenue] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [attendingSession, setAttendingSession] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [marking, setMarking] = useState(false);
+
+  const loadSessions = useCallback(async () => {
+    setLoadingSessions(true);
+    try {
+      setSessions(await InductionVolunteerService.listTrainingSessions(eventId));
+    } catch (e: any) {
+      toast.error(`Couldn't load training sessions: ${e.message ?? e}`);
+    } finally {
+      setLoadingSessions(false);
+    }
+  }, [eventId]);
+  useEffect(() => { if (open) loadSessions(); }, [open, loadSessions]);
+
+  const activeMentors = mentors.filter((m) => m.is_active);
+
+  const create = async () => {
+    if (!title.trim()) { toast.error('Give the session a title.'); return; }
+    setCreating(true);
+    try {
+      await InductionVolunteerService.createTrainingSession(
+        eventId, title.trim(),
+        scheduledAt ? new Date(scheduledAt).toISOString() : null,
+        venue.trim() || null,
+      );
+      toast.success('Training session scheduled.');
+      setTitle(''); setScheduledAt(''); setVenue('');
+      loadSessions();
+    } catch (e: any) {
+      toast.error(`Couldn't schedule: ${e.message ?? e}`);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const openAttendance = (sessionId: string) => {
+    if (attendingSession === sessionId) { setAttendingSession(null); return; }
+    setAttendingSession(sessionId);
+    // Default-select mentors who still need the admin leg (skip the already-fully-trained).
+    setSelected(new Set(activeMentors.filter((m) => !m.is_trained).map((m) => m.learner_id)));
+  };
+
+  const toggle = (learnerId: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(learnerId)) next.delete(learnerId); else next.add(learnerId);
+      return next;
+    });
+  };
+
+  const markAttended = async (sessionId: string) => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) { toast.error('Select at least one mentor.'); return; }
+    setMarking(true);
+    try {
+      const n = await InductionVolunteerService.markTrainingAttended(sessionId, ids);
+      toast.success(
+        `Recorded ${n} mentor${n === 1 ? '' : 's'} as present — the admin training step is done for them. ` +
+        `Each becomes fully trained (tools unlocked) once they've also read the guide and self-acknowledged.`,
+      );
+      setAttendingSession(null);
+      setSelected(new Set());
+      onChanged(); // is_trained may have flipped for mentors who'd already done the mentor steps
+    } catch (e: any) {
+      toast.error(`Couldn't record attendance: ${e.message ?? e}`);
+    } finally {
+      setMarking(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline"><CalendarClock className="h-3.5 w-3.5 mr-1" /> Training sessions</Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Senior Peer Mentor training sessions</DialogTitle>
+          <DialogDescription>
+            Schedule a training session and record who attended. Attendance completes the
+            admin training step — a mentor is fully trained (their attendance &amp; feedback
+            tools unlock) only once they&apos;ve also read the in-app guide and self-acknowledged.
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Schedule form */}
+        <div className="space-y-2 rounded-lg border p-3">
+          <div className="space-y-1">
+            <Label htmlFor="ts-title" className="text-xs text-muted-foreground">Session title</Label>
+            <Input id="ts-title" value={title} onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Peer Mentor orientation" className="h-8" />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <div className="space-y-1 flex-1 min-w-[9rem]">
+              <Label htmlFor="ts-when" className="text-xs text-muted-foreground">Date &amp; time (optional)</Label>
+              <Input id="ts-when" type="datetime-local" value={scheduledAt}
+                onChange={(e) => setScheduledAt(e.target.value)} className="h-8" />
+            </div>
+            <div className="space-y-1 flex-1 min-w-[9rem]">
+              <Label htmlFor="ts-venue" className="text-xs text-muted-foreground">Venue (optional)</Label>
+              <Input id="ts-venue" value={venue} onChange={(e) => setVenue(e.target.value)}
+                placeholder="e.g. Seminar Hall" className="h-8" />
+            </div>
+          </div>
+          <Button size="sm" onClick={create} disabled={creating || !title.trim()}>
+            {creating ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <CalendarClock className="h-3.5 w-3.5 mr-1" />}
+            Schedule session
+          </Button>
+        </div>
+
+        {/* Session list */}
+        <div className="max-h-80 overflow-auto space-y-2">
+          {loadingSessions ? (
+            <p className="text-sm text-muted-foreground py-2">Loading sessions…</p>
+          ) : sessions.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-2">No training sessions scheduled yet.</p>
+          ) : (
+            sessions.map((s) => (
+              <div key={s.id} className="rounded-lg border p-2.5 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{s.title}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {s.scheduled_at ? new Date(s.scheduled_at).toLocaleString() : 'No date set'}
+                      {s.venue ? ` · ${s.venue}` : ''}
+                    </div>
+                  </div>
+                  <Button size="sm" variant="outline" className="h-7 text-xs shrink-0"
+                    onClick={() => openAttendance(s.id)} disabled={activeMentors.length === 0}>
+                    <UserCheck className="h-3.5 w-3.5 mr-1" />
+                    {attendingSession === s.id ? 'Close' : 'Attendance'}
+                  </Button>
+                </div>
+
+                {attendingSession === s.id && (
+                  <div className="space-y-1.5 border-t pt-2">
+                    <div className="max-h-44 overflow-auto space-y-1">
+                      {activeMentors.map((m) => (
+                        <label key={m.learner_id}
+                          className="flex items-center gap-2 rounded-md border p-1.5 text-sm cursor-pointer hover:border-primary">
+                          <input type="checkbox" checked={selected.has(m.learner_id)}
+                            onChange={() => toggle(m.learner_id)} className="h-4 w-4 shrink-0" />
+                          <span className="min-w-0 flex-1 truncate">{m.full_name || 'Unnamed'}</span>
+                          {m.is_trained ? (
+                            <Badge variant="default" className="text-[10px] shrink-0">Trained</Badge>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground shrink-0">
+                              {m.guide_read && m.self_ack ? 'awaiting admin' : 'awaiting mentor steps'}
+                            </span>
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                    <Button size="sm" onClick={() => markAttended(s.id)} disabled={marking || selected.size === 0}>
+                      {marking ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <UserCheck className="h-3.5 w-3.5 mr-1" />}
+                      Mark {selected.size} present
+                    </Button>
+                  </div>
+                )}
+              </div>
             ))
           )}
         </div>
