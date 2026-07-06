@@ -1363,6 +1363,16 @@ export function GetPages(pathname: string): MenuGroup[] {
         // across JKKN's 8+ high-traffic modules. URLs UNCHANGED — preserves
         // faculty daily workflow bookmarks.
         {
+          // Foundation & Competitive-Exam Programme — school-grade foundation +
+          // govt/competitive-exam coaching. Gated by
+          // '/foundation' -> 'foundation.dashboard.view' (MENU_PERMISSIONS).
+          href: '/foundation',
+          label: 'Foundation Programme',
+          active: pathname === '/foundation' || pathname.startsWith('/foundation/'),
+          icon: Target,
+          submenus: []
+        },
+        {
           // D3: click → module root. `/academic` resolves to the in-page
           // AcademicNav (nav-config.ts) which handles all drill-down.
           href: '/academic',
