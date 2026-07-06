@@ -14,11 +14,13 @@ import type {
   ContributionsResponse,
   RotaResponse,
   ConcernsResponse,
+  ManagedHandlesResponse,
   SubmitContributionBody,
   ReviewContributionBody,
   AssignRotaBody,
   ReportConcernBody,
   ResolveConcernBody,
+  SetBriefBody,
 } from '@/lib/types/social-engagement';
 
 async function getJson<T extends { success: boolean; error?: string }>(
