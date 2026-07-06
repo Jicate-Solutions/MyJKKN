@@ -3281,6 +3281,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Console",
         "iconName": "FileText",
         "children": []
+      },
+      {
+        "path": "/foundation/students",
+        "label": "Students",
+        "iconName": "GraduationCap",
+        "children": []
       }
     ]
   },
