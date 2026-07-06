@@ -90,8 +90,8 @@ Rules 1–4 are SF100-startup-specific (extension layer). Rules 5–14 are gener
 - **Gotcha #1 (self-enrol under RLS):** the self-enrol POST runs AS THE STUDENT (never service-role); the carve-out lets the `member_type='student'` self-insert succeed while graduation stays mentor-gated. **D5/D9 write via direct `this.supabase` (server-side), NOT `CohortService` (client-only browser client).** All spine writes are BEST-EFFORT — the extension roster is authoritative, so a lagging/RLS-denied mirror can never drop a real enrollee.
 
 ## PHASE 4 — CDC training onto the core (🟢 empty)
-- [ ] 4.1 Map `cdc_training_programmes` + `cdc_training_enrollments` → cohort-core (kind='cdc'); keep attendance/cert extension
-- [ ] 4.2 Service/hooks + scoped verify + commit
+- [x] 4.1 Map `cdc_training_programmes` + `cdc_training_enrollments` → cohort-core (kind='cdc'); keep attendance/cert extension — migration `20260731090000_cdc_training_demote_to_cohort_core.sql` (link column + FK ON DELETE SET NULL + reverse index + L3 partial unique index on the `cdc` mirror; greenfield, no backfill). member_type='learner' (member_ref = learner_id → learners_profiles). PR-staged `feat/cohort-cdc-demote`, NOT applied.
+- [x] 4.2 Service/hooks + scoped verify + commit — `TrainingService.addEnrollment` best-effort spine twin (lazy-mint `ensureCdcCohortMirror`, L4 status fold, back-link, `cohort_status_events` audit); routes L5 clean 400/403/409 wraps; `types/cdc/training.ts` link column. No self-serve carve-out (staff-driven enrolment; 03_policies untouched).
 
 ## PHASE 5 — Trainer development adapter (🟡 divergent domain)
 - [ ] 5.1 Adapter: `sh_training_programs`/`sh_cohort_members` → cohort-core (kind='trainer'); earnings/levels stay extension

@@ -77,6 +77,11 @@ export interface CdcTrainingEnrollment {
   certificate_url: string | null;
   certificate_issued_at: string | null;
   notes: string | null;
+  // Cohort Core (Phase 4): nullable link to the cohort spine membership mirror.
+  // Best-effort, populated forward by TrainingService.addEnrollment; the
+  // enrollment row itself stays the authoritative roster. See migration
+  // 20260731090000_cdc_training_demote_to_cohort_core.sql.
+  cohort_membership_id?: string | null;
   created_at: string;
   updated_at: string;
   // Joined
@@ -133,7 +138,7 @@ export interface CreateTrainingProgrammeDto {
   academic_year_label?: string | null;   // BUG-004073 — cohort binding: batch / academic year
 }
 
-export interface UpdateTrainingProgrammeDto extends Partial<CreateTrainingProgrammeDto> {}
+export type UpdateTrainingProgrammeDto = Partial<CreateTrainingProgrammeDto>;
 
 export interface CreateEnrollmentDto {
   programme_id: string;

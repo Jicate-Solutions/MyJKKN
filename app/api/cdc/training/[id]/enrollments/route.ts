@@ -19,7 +19,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: 'learner_id is required' }, { status: 400 });
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const sb = supabase as any;
 
     // Prevent duplicate enrollment
@@ -42,6 +42,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     if (error) {
       console.error('[cdc/training] POST enrollment error:', error);
+      // L5: surface an RLS denial (42501) as a clean 403, not a masked 500.
+      if (error.code === '42501') {
+        return NextResponse.json({ error: 'You do not have permission to enroll learners in this programme' }, { status: 403 });
+      }
+      // D9 / clean-400: a learner_id (or programme_id) that does not resolve to a
+      // real row fails the FK (23503) — surface as a 400, not a 500.
+      if (error.code === '23503') {
+        return NextResponse.json({ error: 'learner_id does not reference an existing learner' }, { status: 400 });
+      }
+      // Duplicate enrollment via the unique (programme_id, learner_id) index.
+      if (error.code === '23505') {
+        return NextResponse.json({ error: 'Learner is already enrolled in this programme' }, { status: 409 });
+      }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
     return NextResponse.json({ data }, { status: 201 });

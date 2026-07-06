@@ -17,10 +17,121 @@ import type {
   UpdateSemesterScheduleDto,
 } from '@/types/cdc/training';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 const db = (): any => createClientSupabaseClient();
 
+// ---------------------------------------------------------------------------
+// Cohort Core spine twin (Phase 4 · kind='cdc')
+// ---------------------------------------------------------------------------
+// cdc_training_enrollments stays the AUTHORITATIVE roster (its attendance,
+// certificate, and semester-schedule extension all hang off it). public.cohorts
+// (kind='cdc') is an ADDITIVE MIRROR for roster + lifecycle, minted FORWARD here
+// on first enrol and mapped 1:1 via cohorts.config->>'cdc_training_programme_id'.
+// EVERY spine write below is BEST-EFFORT (try/catch, log-and-continue): a lagging
+// or RLS-denied mirror must NEVER fail the primary enrollment write nor drop a
+// real member — the extension is the source of truth.
+
+// L4: fold the authoritative CDC enrollment status into the membership status
+// lifecycle ('invited'→'enrolled'→'active'→'graduated'|'removed'|'paused'), never
+// hardcode 'enrolled'. A re-mirror of a terminal row must not resurrect it.
+// enrollment status is 'enrolled' | 'in_progress' | 'completed' | 'dropped'.
+function foldCdcMembershipStatus(enrollmentStatus: string | null | undefined): string {
+  switch (enrollmentStatus) {
+    case 'completed':
+      return 'graduated';
+    case 'dropped':
+      return 'removed';
+    case 'in_progress':
+      return 'active';
+    case 'enrolled':
+    default:
+      return 'enrolled';
+  }
+}
+
 export class TrainingService {
+  // ─── Cohort spine mirror (best-effort) ─────────────────────────────────
+  /**
+   * Lazy-mint (or fetch) the public.cohorts mirror row for a CDC programme.
+   * Keyed on config->>'cdc_training_programme_id'; a partial unique index
+   * (uq_cohorts_cdc_training_programme WHERE kind='cdc') makes the mint
+   * race-safe. Returns the cohort id, or null when the mirror cannot be minted
+   * (e.g. the programme carries no institution_id — cohorts.institution_id is
+   * NOT NULL precisely so role_has_institution_access(NULL) can never leak, so a
+   * NULL-institution programme must NOT be mirrored).
+   *
+   * L3 discipline: the initial lookup does NOT swallow errors (it re-selects on
+   * error rather than falling through to a duplicate INSERT), and an INSERT
+   * 23505 (unique-violation, i.e. a concurrent first-enrol won) re-SELECTs the
+   * winner instead of surfacing.
+   */
+  private static async ensureCdcCohortMirror(programmeId: string): Promise<string | null> {
+    const sb = db();
+
+    const selectExisting = async (): Promise<string | null> => {
+      const { data, error } = await sb
+        .from('cohorts')
+        .select('id')
+        .eq('kind', 'cdc')
+        .eq('config->>cdc_training_programme_id', programmeId)
+        .maybeSingle();
+      if (error) {
+        // L3: do NOT swallow → re-select once; if it still errors, propagate to
+        // the best-effort catch in the twin (mirror skipped, roster unaffected).
+        const retry = await sb
+          .from('cohorts')
+          .select('id')
+          .eq('kind', 'cdc')
+          .eq('config->>cdc_training_programme_id', programmeId)
+          .maybeSingle();
+        if (retry.error) throw retry.error;
+        return (retry.data?.id as string) ?? null;
+      }
+      return (data?.id as string) ?? null;
+    };
+
+    const existing = await selectExisting();
+    if (existing) return existing;
+
+    // Mint. Copy institution_id FROM THE CONTAINER so the tenant guard holds.
+    const { data: programme, error: progErr } = await sb
+      .from('cdc_training_programmes')
+      .select('id, name, institution_id, academic_year_label, status, created_by')
+      .eq('id', programmeId)
+      .maybeSingle();
+    if (progErr) throw progErr;
+    if (!programme?.institution_id) {
+      // Cannot mint a tenant-safe cohort with a NULL institution_id → skip the
+      // mirror (best-effort). The extension roster is unaffected.
+      console.warn('[cdc/training] cohort mirror skipped: programme has no institution_id', programmeId);
+      return null;
+    }
+
+    const { data: inserted, error: insErr } = await sb
+      .from('cohorts')
+      .insert({
+        kind: 'cdc',
+        name: programme.name ?? 'CDC Training Programme',
+        institution_id: programme.institution_id,
+        owner_id: programme.created_by ?? null,
+        academic_year: programme.academic_year_label ?? null,
+        status: 'active',
+        config: { cdc_training_programme_id: programmeId },
+      })
+      .select('id')
+      .single();
+
+    if (insErr) {
+      // L3: a concurrent first-enrol won the unique index → re-select the winner.
+      if ((insErr as { code?: string }).code === '23505') {
+        return await selectExisting();
+      }
+      throw insErr;
+    }
+    return (inserted?.id as string) ?? null;
+  }
+
+
   // ─── Training Types ────────────────────────────────────────────────────
 
   static async getTrainingTypes(): Promise<CdcTrainingType[]> {
@@ -177,7 +288,86 @@ export class TrainingService {
       console.error('[cdc/training] addEnrollment failed:', error);
       throw error;
     }
-    return data as CdcTrainingEnrollment;
+
+    const enrollment = data as CdcTrainingEnrollment;
+
+    // WRITE-SIDE TWIN (cohort spine) — mirror the new enrollment as a 'learner'
+    // membership on the CDC cohort so cohort-scoped roster + lifecycle reads see
+    // it, then back-link the enrollment. BEST-EFFORT + IDEMPOTENT: the enrollment
+    // is already committed and AUTHORITATIVE, so any mirror failure (no cohort
+    // mintable, RLS denial, lag) is logged and swallowed — never rolled back,
+    // never a dropped member. The learner reappears on the cohort path on the
+    // next enrol or a backfill re-run.
+    try {
+      // D9 identity guard: member_ref must resolve to a real MyJKKN identity.
+      // learner_id is NOT NULL + FK-enforced to learners_profiles(id), so the
+      // committed enrollment row is already profile-resolved; a missing/free-text
+      // learner could never have been inserted above (the FK would have thrown).
+      if (enrollment.learner_id) {
+        const cohortId = await this.ensureCdcCohortMirror(enrollment.programme_id);
+        if (cohortId) {
+          const now = new Date().toISOString();
+          const membershipStatus = foldCdcMembershipStatus(enrollment.status);
+          const { data: membership, error: memErr } = await db()
+            .from('cohort_memberships')
+            .upsert(
+              {
+                cohort_id: cohortId,
+                member_type: 'learner',
+                member_ref: enrollment.learner_id,
+                status: membershipStatus,
+                role: 'trainee',
+                joined_at: enrollment.enrolled_at ?? now,
+                config: {
+                  cdc_training_enrollment_id: enrollment.id,
+                  cdc_training_programme_id: enrollment.programme_id,
+                },
+              },
+              { onConflict: 'cohort_id,member_type,member_ref' }
+            )
+            .select('id')
+            .single();
+
+          if (memErr) {
+            console.error('[cdc/training] addEnrollment cohort membership mirror failed:', memErr);
+          } else if (membership?.id) {
+            const { error: linkErr } = await db()
+              .from('cdc_training_enrollments')
+              .update({ cohort_membership_id: membership.id })
+              .eq('id', enrollment.id);
+            if (linkErr) {
+              console.error('[cdc/training] addEnrollment cohort_membership_id back-link failed:', linkErr);
+            } else {
+              enrollment.cohort_membership_id = membership.id;
+            }
+
+            // Append an audit event (append-only lifecycle trail). Best-effort.
+            const { error: evtErr } = await db()
+              .from('cohort_status_events')
+              .insert({
+                cohort_id: cohortId,
+                membership_id: membership.id,
+                event_type: 'enrolled',
+                from_status: null,
+                to_status: membershipStatus,
+                reason: 'CDC training enrollment mirrored to cohort spine.',
+                metadata: {
+                  source: 'cdc_training',
+                  cdc_training_enrollment_id: enrollment.id,
+                  cdc_training_programme_id: enrollment.programme_id,
+                },
+              });
+            if (evtErr) {
+              console.error('[cdc/training] addEnrollment cohort_status_events append failed:', evtErr);
+            }
+          }
+        }
+      }
+    } catch (twinErr) {
+      console.error('[cdc/training] addEnrollment cohort twin error:', twinErr);
+    }
+
+    return enrollment;
   }
 
   static async updateEnrollment(id: string, dto: UpdateEnrollmentDto): Promise<CdcTrainingEnrollment> {
