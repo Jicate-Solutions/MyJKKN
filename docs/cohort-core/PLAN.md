@@ -116,7 +116,7 @@ Decisions (interview 3, 2026-07-05):
 - **M7 · Safety brake** = …and a HUMAN approves each auto-change until trusted, then loosen.
 
 Build items (deferred until fuel / explicit go):
-- [ ] 7.0 Fold M2 outcome-capture into `closeCohort` (store blended score + baseline) — **SHIP BEFORE FIRST COHORT CLOSE**
+- [x] 7.0 M2 outcome-capture-at-close — **SHIP BEFORE FIRST COHORT CLOSE** — BUILT 2026-07-05 (PR-staged in `feat/cohort-moat-m2-outcome-capture`, NOT applied). Captured via a DATABASE TRIGGER (`fn_capture_cohort_outcome` / `trg_cohort_capture_outcome` on `cohort_memberships`), NOT folded into `closeCohort` — a trigger is the single chokepoint every close passes through, so the baseline can't be stranded by any service/RPC/admin path that forgets. NEW `public.cohort_outcomes` table (migration `20260731091000_cohort_outcome_capture.sql`; institution_id NOT NULL copied from the parent cohort; RLS canonical; partial-unique per membership; NO backfill of pre-trigger terminals). Read/write: `lib/services/cohort-core/outcome-service.ts` + `hooks/cohort-core/useCohortOutcomes.ts`. The **blended-score / baseline VALUE** (M1) lands in `outcome_snapshot` in 7.1.
 - [ ] 7.1 Blended cohort-outcome metric (equal-weight) + baseline storage; fixed estimator both ends
 - [ ] 7.2 Control-group assignment (within-cohort A/B) + lift calc with confound check
 - [ ] 7.3 Feed-forward proposer (auto-adjust) gated by M5 (≥1 cohort) + M7 (human approval)

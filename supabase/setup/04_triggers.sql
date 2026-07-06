@@ -1378,3 +1378,76 @@ DROP TRIGGER IF EXISTS trg_cohort_memberships_updated_at ON public.cohort_member
 CREATE TRIGGER trg_cohort_memberships_updated_at
   BEFORE UPDATE ON public.cohort_memberships
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- ── Cohort Core — M2: outcome-capture-at-close (Phase 7 · THE MOAT) ───────────
+-- Migration: supabase/migrations/20260731091000_cohort_outcome_capture.sql (2026-07-05).
+-- Snapshots ONE public.cohort_outcomes row when a cohort_memberships row
+-- transitions INTO a terminal status (graduated | removed) from a non-terminal
+-- one. The trigger is the single chokepoint every close passes through, so the
+-- moat's fuel cannot be stranded by a service that forgets to record it.
+-- SECURITY DEFINER (must INSERT regardless of who closed); anon/PUBLIC revoked
+-- (invoked only by the trigger, never called directly). institution_id is copied
+-- from the parent cohort — never a NULL-institution row.
+CREATE OR REPLACE FUNCTION public.fn_capture_cohort_outcome()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_kind           text;
+  v_institution_id uuid;
+BEGIN
+  IF NEW.status NOT IN ('graduated','removed') THEN
+    RETURN NEW;
+  END IF;
+  IF OLD.status IS NOT DISTINCT FROM NEW.status THEN
+    RETURN NEW;
+  END IF;
+  IF OLD.status IN ('graduated','removed') THEN
+    RETURN NEW;  -- never re-capture / resurrect an already-terminal row
+  END IF;
+
+  SELECT c.kind, c.institution_id
+    INTO v_kind, v_institution_id
+    FROM public.cohorts c
+    WHERE c.id = NEW.cohort_id;
+
+  IF v_institution_id IS NULL THEN
+    RAISE NOTICE 'cohort_outcome capture skipped for membership % — parent cohort % has no institution', NEW.id, NEW.cohort_id;
+    RETURN NEW;
+  END IF;
+
+  INSERT INTO public.cohort_outcomes (
+    cohort_id, membership_id, member_ref, member_type, kind,
+    captured_at, outcome_snapshot, source, institution_id
+  ) VALUES (
+    NEW.cohort_id, NEW.id, NEW.member_ref, NEW.member_type, v_kind,
+    now(),
+    jsonb_build_object(
+      'from_status',       OLD.status,
+      'to_status',         NEW.status,
+      'role',              NEW.role,
+      'joined_at',         NEW.joined_at,
+      'membership_config', NEW.config,
+      'captured_by',       'trigger'
+    ),
+    'trigger', v_institution_id
+  )
+  ON CONFLICT (membership_id) WHERE membership_id IS NOT NULL DO NOTHING;
+
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_capture_cohort_outcome() FROM anon, PUBLIC;
+
+DROP TRIGGER IF EXISTS trg_cohort_capture_outcome ON public.cohort_memberships;
+CREATE TRIGGER trg_cohort_capture_outcome
+  AFTER UPDATE OF status ON public.cohort_memberships
+  FOR EACH ROW
+  WHEN (
+    NEW.status IN ('graduated','removed')
+    AND OLD.status IS DISTINCT FROM NEW.status
+  )
+  EXECUTE FUNCTION public.fn_capture_cohort_outcome();
