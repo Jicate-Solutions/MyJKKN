@@ -419,6 +419,7 @@ function RevisionPlanCard({ plan }: { plan: RevisionPlan }) {
  */
 function extractSteps(
   plan: any,
+  nameById?: Map<string, string>,
 ): { title: string; detail?: string }[] {
   if (!plan) return [];
   const arr =
@@ -433,10 +434,36 @@ function extractSteps(
     .map((entry: any) => {
       if (typeof entry === 'string') return { title: entry };
       if (entry && typeof entry === 'object') {
+        // fn_fp_generate_revision_plan emits { topic_id, mastery_score,
+        // attempts_count, recommended_item_ids } with NO display name — resolve
+        // the topic_id to a readable name and synthesize a detail line from the
+        // numeric fields, so the plan renders as steps rather than a JSON blob.
         const title =
-          entry.title ?? entry.topic ?? entry.name ?? entry.label ?? '';
-        const detail =
+          entry.title ??
+          entry.topic ??
+          entry.name ??
+          entry.label ??
+          (entry.topic_id
+            ? (nameById?.get(entry.topic_id) ?? 'Weak topic')
+            : '');
+        let detail =
           entry.detail ?? entry.reason ?? entry.description ?? entry.note;
+        if (
+          detail == null &&
+          (entry.mastery_score != null ||
+            Array.isArray(entry.recommended_item_ids))
+        ) {
+          const bits: string[] = [];
+          if (entry.mastery_score != null)
+            bits.push(`${Math.round(Number(entry.mastery_score) * 100)}% mastery`);
+          if (Array.isArray(entry.recommended_item_ids))
+            bits.push(
+              `${entry.recommended_item_ids.length} practice item${
+                entry.recommended_item_ids.length === 1 ? '' : 's'
+              }`,
+            );
+          detail = bits.join(' · ') || undefined;
+        }
         if (!title && !detail) return null;
         return { title: String(title || detail), detail: title ? detail : undefined };
       }
