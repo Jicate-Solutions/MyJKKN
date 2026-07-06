@@ -13,7 +13,7 @@ import { MessageSquare, BarChart3, AlertTriangle } from 'lucide-react';
 const LANES = [
   {
     href: '/learners/class-feedback',
-    title: 'Give Class Feedback',
+    title: 'Give Learning Studio Feedback',
     who: 'Learners',
     desc: 'After each class, a 10-second checklist + “did I understand?” — submitting confirms your attendance. Also shows which sessions are confirmed vs still present-pending.',
     icon: MessageSquare,

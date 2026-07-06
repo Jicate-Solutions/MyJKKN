@@ -1980,12 +1980,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           // 2026-07-06: absorbed the old "My Attendance Feedback" tab — this one
           // page now shows BOTH pending sessions (with inline confirm) AND the
           // confirmed-session history, so there is a single feedback tab, not two.
-          // The old /learners/my-attendance-feedback route redirects here.
+          // Renamed to the JKKN house term "Learning Studio Feedback" (JKKN calls
+          // classrooms "Learning Studios"). The old /learners/my-attendance-feedback
+          // route now redirects here via next.config.ts, which also drops it from
+          // the auto-generated nav surfaces.
           href: '/learners/class-feedback',
-          label: 'Class Feedback',
-          active:
-            pathname.startsWith('/learners/class-feedback') ||
-            pathname.startsWith('/learners/my-attendance-feedback'),
+          label: 'Learning Studio Feedback',
+          active: pathname.startsWith('/learners/class-feedback'),
           icon: MessageSquare,
           submenus: []
         },
