@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 
 // GET /api/pde/analytics — faculty analytics dashboard data
 // Aggregates from the REAL quest-centric PDE schema.
@@ -28,6 +28,30 @@ export async function GET(_request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Faculty analytics dashboard — gate to the analytics-view permission
+    // (super-admin bypass is built into user_has_permission). This route
+    // returns institution-wide aggregates, so a plain authenticated learner
+    // must not reach it.
+    const { data: canView, error: permErr } = await supabase.rpc(
+      'user_has_permission',
+      { permission_name: 'pde.faculty.analytics.view' }
+    );
+    if (permErr || !canView) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    // The three sources must aggregate over ALL learners consistently.
+    // pde_quest_enrollments carries only per-learner (own-row) RLS, whereas
+    // pde_engagement_daily / pde_submissions are admin-readable (USING true).
+    // Reading enrollments with the RLS-scoped client would collapse the
+    // enrollment / quest / at-risk metrics to the caller's own rows (~0 for a
+    // faculty user) while engagement / pass-rate spanned everyone — a
+    // self-inconsistent dashboard. Now that the caller is authorised, use the
+    // service-role client so every source spans all learners consistently.
+    // (These tables carry no institution_id, so institution-scoped analytics
+    // would require a schema change — flagged, not built here.)
+    const reader = createServiceRoleClient();
+
     // Last-30-days cutoff for engagement.
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -40,18 +64,18 @@ export async function GET(_request: NextRequest) {
       submissionsResult,
     ] = await Promise.all([
       // Quest enrollments — status-based, not percentage-based.
-      (supabase as any)
+      (reader as any)
         .from('pde_quest_enrollments')
         .select('id, learner_id, status, started_at, completed_at'),
 
       // Daily engagement (last 30 days).
-      (supabase as any)
+      (reader as any)
         .from('pde_engagement_daily')
         .select('learner_id, time_spent_minutes, lessons_completed, date')
         .gte('date', cutoffDate),
 
       // Assessment submissions — real score column is `final_score`.
-      (supabase as any)
+      (reader as any)
         .from('pde_submissions')
         .select('id, final_score, completed_at'),
     ]);
