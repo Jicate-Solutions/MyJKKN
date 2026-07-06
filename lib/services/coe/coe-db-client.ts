@@ -137,6 +137,9 @@ export interface CoeInstitutionRef {
   coeId: string;
   institutionCode: string;
   name: string | null;
+  /** ALL MyJKKN institution ids this COE institution maps to (the "split college"
+   *  halves). Used to merge attendance across a Self/Aided-style split. */
+  myjkknInstitutionIds: string[];
 }
 
 // ── Read helpers ──────────────────────────────────────────────────────────────
@@ -165,7 +168,84 @@ export async function resolveCoeInstitutionByMyjkknId(
     coeId: data.id as string,
     institutionCode: data.institution_code as string,
     name: (data.name as string) ?? null,
+    myjkknInstitutionIds: ((data.myjkkn_institution_ids as string[] | null) ?? []).filter(
+      Boolean,
+    ),
   };
+}
+
+/**
+ * Auto-detect the "current" exam term for a COE institution.
+ *
+ * COE has no is_current/is_active flag and session_status is unreliable (several
+ * rows per code: Planned / Registration Open / Results Declared), so we infer it
+ * from the exam calendar: the earliest session whose exam window has not yet
+ * ended (the ongoing-or-next exam the current teaching semester feeds into). If
+ * every session is already over, we fall back to the most recently ended one.
+ *
+ * This is a best-effort heuristic — the page surfaces which term it picked and
+ * lets an admin override, so a wrong guess is visible and correctable.
+ */
+export interface CoeCurrentTerm {
+  session_code: string;
+  session_name: string | null;
+  exam_start_date: string | null;
+  exam_end_date: string | null;
+  reason: 'ongoing_or_next' | 'most_recent_past';
+}
+
+export async function getCoeCurrentTerm(
+  coeInstitutionId: string | undefined,
+  today: string,
+): Promise<CoeCurrentTerm | null> {
+  const sessions = await getCoeExaminationSessions(coeInstitutionId);
+  // Collapse to one entry per session_code, keeping the widest window seen.
+  const byCode = new Map<
+    string,
+    { name: string | null; start: string | null; end: string | null }
+  >();
+  for (const s of sessions) {
+    const code = s.session_code;
+    if (!code) continue;
+    const cur = byCode.get(code);
+    if (!cur) {
+      byCode.set(code, { name: s.session_name, start: s.exam_start_date, end: s.exam_end_date });
+    } else {
+      if (s.exam_start_date && (!cur.start || s.exam_start_date < cur.start)) cur.start = s.exam_start_date;
+      if (s.exam_end_date && (!cur.end || s.exam_end_date > cur.end)) cur.end = s.exam_end_date;
+    }
+  }
+  const terms = [...byCode.entries()].map(([code, v]) => ({ code, ...v }));
+
+  // Ongoing-or-next: exam window not yet ended, earliest start wins.
+  const upcoming = terms
+    .filter((t) => t.end && t.end >= today)
+    .sort((a, b) => (a.start ?? '').localeCompare(b.start ?? ''));
+  if (upcoming.length > 0) {
+    const t = upcoming[0];
+    return {
+      session_code: t.code,
+      session_name: t.name,
+      exam_start_date: t.start,
+      exam_end_date: t.end,
+      reason: 'ongoing_or_next',
+    };
+  }
+  // Fallback: most recently ended.
+  const past = terms
+    .filter((t) => t.end)
+    .sort((a, b) => (b.end ?? '').localeCompare(a.end ?? ''));
+  if (past.length > 0) {
+    const t = past[0];
+    return {
+      session_code: t.code,
+      session_name: t.name,
+      exam_start_date: t.start,
+      exam_end_date: t.end,
+      reason: 'most_recent_past',
+    };
+  }
+  return null;
 }
 
 /** One row of the COE `institutions` bridge, shaped for the REST-compatible
@@ -263,4 +343,53 @@ export async function getCoeSessionStatistics(
   const { data, error } = await q;
   if (error) throw new Error(`COE examination_session_statistics read failed: ${error.message}`);
   return (data ?? []) as CoeSessionStatistics[];
+}
+
+/** One COE CIA row per student × course, used to pair internal marks with attendance. */
+export interface CoeCiaStudentDetail {
+  student_id: string | null;
+  student_name: string | null;
+  stu_register_no: string | null;
+  course_code: string | null;
+  course_name: string | null;
+  program_code: string | null;
+  internal_percentage: number | null;
+  total_internal_marks: number | null;
+  max_internal_marks: number | null;
+  marks_status: string | null;
+}
+
+/**
+ * Per-student, per-course CIA detail for one session + institution.
+ *
+ * COE PostgREST caps a response at ~1000 rows regardless of the Range header, so
+ * this pages explicitly with `.range()` until a short page is returned — a session
+ * can hold several thousand student×course rows.
+ */
+export async function getCoeCiaStudentDetail(
+  sessionCode: string,
+  institutionCode: string,
+): Promise<CoeCiaStudentDetail[]> {
+  const coe = createCoeDbClient();
+  const cols =
+    'student_id, student_name, stu_register_no, course_code, course_name, ' +
+    'program_code, internal_percentage, total_internal_marks, max_internal_marks, marks_status';
+  const pageSize = 1000;
+  const out: CoeCiaStudentDetail[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await coe
+      .from('cia_marks_detailed_view')
+      .select(cols)
+      .eq('session_code', sessionCode)
+      .eq('institution_code', institutionCode)
+      .eq('is_active', true)
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(`COE cia_marks_detailed_view read failed: ${error.message}`);
+    const rows = (data ?? []) as CoeCiaStudentDetail[];
+    out.push(...rows);
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+  return out;
 }
