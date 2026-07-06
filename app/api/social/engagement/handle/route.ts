@@ -38,8 +38,10 @@ export async function GET(request: Request): Promise<NextResponse<HandleFeedResp
     }
 
     const url = new URL(request.url);
-    const rawLimit = Number(url.searchParams.get('limit'));
-    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(Math.trunc(rawLimit), 1), 24) : DEFAULT_LIMIT;
+    // Truncate first, then require >= 1 — guards a missing param (Number(null)=0) AND a fractional
+    // one (0.5 → trunc 0), either of which would otherwise defeat the default.
+    const nLimit = Math.trunc(Number(url.searchParams.get('limit')));
+    const limit = Number.isFinite(nLimit) && nLimit >= 1 ? Math.min(nLimit, 24) : DEFAULT_LIMIT;
 
     // 1) Handle identity (safe columns, graph-tier, caller's own dept).
     const { data: handleRows, error: handleErr } = await supabase.rpc('fn_social_my_dept_handle');
@@ -56,12 +58,12 @@ export async function GET(request: Request): Promise<NextResponse<HandleFeedResp
       return NextResponse.json({ success: true, handle: null, feed: [], myRota: null, myPendingContributions: 0 });
     }
 
-    // Current week's Monday (so "it's your week" surfaces the current/upcoming turn, not a
-    // stale last-week rota). Uses UTC day math — good to ±1 day, adequate for a weekly banner.
-    const now = new Date();
-    const dow = now.getUTCDay(); // 0=Sun..6=Sat
-    const monday = new Date(now);
-    monday.setUTCDate(now.getUTCDate() + (dow === 0 ? -6 : 1 - dow));
+    // Current week's Monday in IST (the ERP's operating timezone) so the rota window doesn't
+    // shift a day near the Sun/Mon boundary. Surfaces the current/upcoming turn, not a stale one.
+    const istNow = new Date(Date.now() + 5.5 * 3600 * 1000);
+    const dow = istNow.getUTCDay(); // 0=Sun..6=Sat on the IST-shifted clock
+    const monday = new Date(istNow);
+    monday.setUTCDate(istNow.getUTCDate() + (dow === 0 ? -6 : 1 - dow));
     const weekStart = monday.toISOString().slice(0, 10);
 
     // 2) Feed + loop hooks in parallel. Each is fail-soft. Both hooks are scoped to THIS handle.

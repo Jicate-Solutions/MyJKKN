@@ -113,6 +113,33 @@ export interface ConcernReport {
   created_at: string;
 }
 
+// ── Owner-facing: a handle the caller may curate (fn_social_managed_handles) ──
+export interface ManagedHandle {
+  dept_account_id: string;
+  username: string;
+  department_name: string | null;
+  college_label: string | null;
+  purpose_line: string | null;
+  content_playbook: string | null;
+  posting_cadence_days: number | null;
+  lifecycle_status: string | null;
+  metrics_source: string | null;
+  is_owner: boolean;
+}
+
+export interface ManagedHandlesResponse {
+  success: boolean;
+  handles?: ManagedHandle[];
+  error?: string;
+}
+
+export interface SetBriefBody {
+  dept_account_id: string;
+  purpose_line?: string;
+  content_playbook?: string;
+  posting_cadence_days?: number;
+}
+
 // ── API response shapes (all fail-soft: { success:false, error } instead of throwing) ──
 export interface HandleFeedResponse {
   success: boolean;
@@ -137,6 +164,8 @@ export interface LeaderboardResponse {
 export interface ContributionsResponse {
   success: boolean;
   contributions?: Contribution[];
+  /** Total rows matching the query (for pagination — the page may be capped below this). */
+  total?: number;
   error?: string;
 }
 
