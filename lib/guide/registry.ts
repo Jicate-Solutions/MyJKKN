@@ -48,6 +48,7 @@ import { GUIDES as RESOURCES_GUIDES, REQUIRES as RESOURCES_REQUIRES } from "../r
 import { GUIDES as VAC_GUIDES, REQUIRES as VAC_REQUIRES } from "../vac/guide/content";
 import { GUIDES as OKR_GUIDES, REQUIRES as OKR_REQUIRES } from "../okr/guide/content";
 import { GUIDES as SCHOOLS_NETWORK_GUIDES, REQUIRES as SCHOOLS_NETWORK_REQUIRES } from "../admission/schools-network/guide/content";
+import { GUIDES as FOUNDATION_GUIDES, REQUIRES as FOUNDATION_REQUIRES } from "../foundation/guide/content";
 
 /* ────────────────────────────────────────────────────────────────────────
  * PERSONA ACCESS — which permission keys grant each canonical persona (OR'd
