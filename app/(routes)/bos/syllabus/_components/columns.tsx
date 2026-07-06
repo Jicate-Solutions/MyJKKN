@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { Badge } from '@/components/ui/badge';
 import { BosCourseSyllabus } from '@/types/bos';
-import { DataTableRowActions, SyllabusPdfDownloadButton, SyllabusDocxDownloadButton } from './row-actions';
+import { DataTableRowActions, SyllabusPdfDownloadButton, SyllabusDocxDownloadButton, SyllabusCloneButton } from './row-actions';
 
 function buildColumns(institutionName?: string): ColumnDef<BosCourseSyllabus>[] {
   return [
@@ -101,6 +101,7 @@ function buildColumns(institutionName?: string): ColumnDef<BosCourseSyllabus>[] 
         <div className='flex items-center gap-1'>
           <SyllabusPdfDownloadButton syllabus={row.original} institutionName={institutionName} />
           <SyllabusDocxDownloadButton syllabus={row.original} institutionName={institutionName} />
+          <SyllabusCloneButton syllabus={row.original} />
           <DataTableRowActions row={row} />
         </div>
       ),

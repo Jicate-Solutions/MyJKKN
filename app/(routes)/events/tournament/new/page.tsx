@@ -120,7 +120,7 @@ export default function CreateTournamentPage() {
         ]}
       />
 
-      <div className="mx-auto mt-6 max-w-2xl">
+      <div className="mx-auto mt-6 max-w-full">
         <Card>
           <CardHeader>
             <CardTitle>Create Sports Tournament</CardTitle>

@@ -63,7 +63,8 @@ export type CdcMasterTable =
   | 'cdc_mentor_categories'
   | 'cdc_mentorship_categories'
   | 'cdc_internship_types'
-  | 'cdc_expertise_areas';
+  | 'cdc_expertise_areas'
+  | 'cdc_exam_syllabus_topics';  // 2026-07-04 govt-job-readiness (PR-4 / Option B)
 
 /** Minimal row shape used for listing; full shapes live in types/cdc.ts. */
 export interface CdcMasterRow {

@@ -53,6 +53,10 @@ const SIDEBAR = 'lib/sidebarMenuLink.ts';
  * etc.). This mirrors `NAV_EXCLUDE` in the predecessor script.
  */
 const NAV_EXCLUDE = new Set<string>([
+  // Induction Session Catalog — the curated cross-college "best sessions" library.
+  // Reached via the "Session catalog" button on the chip-reachable /events/induction
+  // landing page (not a tier-strip destination). Gated induction.view in MENU_PERMISSIONS.
+  '/events/induction/catalog',
   // Top-bar avatar / bell targets
   '/profile',
   '/notifications',
@@ -340,6 +344,15 @@ const NAV_EXCLUDE = new Set<string>([
   '/consultant-portal/profile',
   '/consultant-portal/rewards',
 
+  // Schools Network HM portal — external (headmaster/principal) persona
+  // reached via magic-link email, NOT the staff sidebar. No staff chip
+  // surface by design (HMs are not auth.users).
+  '/schools-portal',
+  '/schools-portal/login',
+  '/schools-portal/verify',
+  '/schools-portal/dashboard',
+  '/schools-portal/update-contact',
+
   // 2026-06-10 admin-cluster relocation — consultants. Super-admin policy
   // pages relocated from /admin/consultants/* ("one module = one URL
   // prefix"). Under /admin they were chip-reachable only via manifest
@@ -371,12 +384,16 @@ const NAV_EXCLUDE = new Set<string>([
   //    from the chip-reachable /audit/dashboard CARE section.
   //  - /audit/care/score          : token-less fallback for the invite-link
   //    scoring route (/audit/care/[cycleId]); no chip surface by design.
+  //  - /audit/care/coverage       : CARRE Coverage Map (leadership view),
+  //    button-invoked from the chip-reachable /audit/cycles header + the
+  //    /audit/dashboard CARE/CARRE section; gated audit.cycle.view.
   // ════════════════════════════════════════════════════════════
   '/academic/session-feedback',
   '/moments',
   '/audit/care',
   '/audit/care/new',
   '/audit/care/score',
+  '/audit/care/coverage',
 
   // NOTE (2026-06-23): /admission/social/governance is NO LONGER excluded.
   // It is now a properly-gated chip (MENU_PERMISSIONS['/admission/social/governance']

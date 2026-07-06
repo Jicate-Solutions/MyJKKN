@@ -35,6 +35,7 @@ const ALWAYS_VISIBLE = new Set([
   '/admin/bug-reports',             // Always-visible parent — line ~3007
   '/my-bug-reports',                // Student self-service bug reports
   '/bug-leaderboard',               // Public bug leaderboard
+  '/learner/idp',                   // My Development Plan — ungated student self-service (isStudentPortalRoute)
 ]);
 
 // UUID normalization — mirror of normalizeRoute() in sidebarMenuLink.ts. When

@@ -15,8 +15,10 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select';
 import { useMentorPairingList } from '@/hooks/cdc/use-cdc-mentors';
+import { useAuth } from '@/hooks/use-auth';
+import { canEditMentorPairing } from '@/lib/services/cdc/mentor-access';
 import type { MentorPairingFilters, MentoringStatus } from '@/types/cdc/mentors';
-import { Plus, UserCog, Activity } from 'lucide-react';
+import { Plus, UserCog, Activity, Building2, Eye } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 
 const STATUS_COLORS: Record<MentoringStatus, string> = {
@@ -28,6 +30,7 @@ const STATUS_COLORS: Record<MentoringStatus, string> = {
 export default function MentorPairingsPage() {
   const [filters, setFilters] = useState<MentorPairingFilters>({ page: 1, limit: 20 });
   const { data, isLoading, error } = useMentorPairingList(filters);
+  const { profile } = useAuth();
 
   const handleStatusChange = (val: string) => {
     setFilters(f => ({
@@ -103,7 +106,12 @@ export default function MentorPairingsPage() {
 
         {!isLoading && !error && (
           <>
-            <p className="text-sm text-gray-500">{data?.total ?? 0} pairings</p>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <p className="text-sm text-gray-500">{data?.total ?? 0} pairings</p>
+              <p className="text-xs text-gray-400">
+                Showing mentor pairings across all colleges. You can edit only your own college&apos;s pairs.
+              </p>
+            </div>
             <div className="grid gap-3">
               {(data?.data ?? []).length === 0 ? (
                 <Card>
@@ -113,22 +121,39 @@ export default function MentorPairingsPage() {
                 </Card>
               ) : (
                 (data?.data ?? []).map(p => {
-                  const mentor = p.mentor as { name?: string } | null;
-                  const mentee = p.mentee as { name?: string } | null;
+                  // A pairing's owning college is the mentee's institution (falls
+                  // back to the mentor's if the mentee has none). This mirrors the
+                  // write-RLS anchor so the view-only cue matches who can edit.
+                  const college =
+                    p.mentee?.institution?.name ?? p.mentor?.institution?.name ?? null;
+                  const ownerInstitutionId =
+                    p.mentee?.institution_id ?? p.mentor?.institution_id ?? null;
+                  const canEdit = canEditMentorPairing(profile, ownerInstitutionId);
                   return (
                     <Link key={p.id} href={`/cdc/mentors/${p.id}`}>
                       <Card className="hover:border-blue-300 transition-colors cursor-pointer">
                         <CardHeader className="pb-2">
                           <div className="flex items-center justify-between gap-2">
                             <CardTitle className="text-base">
-                              {mentor?.name ?? 'Unknown'} → {mentee?.name ?? 'Unknown'}
+                              {p.mentor?.name ?? 'Unknown'} → {p.mentee?.name ?? 'Unknown'}
                             </CardTitle>
-                            <Badge className={`text-xs border ${STATUS_COLORS[p.status as MentoringStatus]}`} variant="outline">
-                              {p.status}
-                            </Badge>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {!canEdit && (
+                                <Badge variant="outline" className="text-xs border-gray-200 text-gray-500 gap-1">
+                                  <Eye className="w-3 h-3" /> View only
+                                </Badge>
+                              )}
+                              <Badge className={`text-xs border ${STATUS_COLORS[p.status as MentoringStatus]}`} variant="outline">
+                                {p.status}
+                              </Badge>
+                            </div>
                           </div>
                         </CardHeader>
-                        <CardContent className="text-sm text-gray-500">
+                        <CardContent className="text-sm text-gray-500 space-y-1">
+                          <p className="flex items-center gap-1.5">
+                            <Building2 className="w-3.5 h-3.5 text-gray-400" />
+                            {college ?? 'College not set'}
+                          </p>
                           <p>Paired: {new Date(p.paired_at).toLocaleDateString()}</p>
                           {p.concluded_at && (
                             <p>Concluded: {new Date(p.concluded_at).toLocaleDateString()}</p>

@@ -20,20 +20,45 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { LoopResponse } from '@/lib/types/social-loop';
+import type { LoopResponse, LoopLastCycleGrade } from '@/lib/types/social-loop';
 import { getLoop } from '@/lib/services/social/loop-service';
 import { CycleHeader } from './_components/cycle-header';
 import { ReadTable } from './_components/read-table';
 import { DecideCard } from './_components/decide-card';
 import { PlaybookLog } from './_components/playbook-log';
+import { VoiceCard } from './_components/voice-card';
+import { CadenceCard } from './_components/cadence-card';
 
 const DEFAULT_ACCOUNT = 'jkknpharmacy';
+
+/** One-line banner showing whether the last cycle's advice moved the needle. */
+function LastCycleGradeBanner({ grade }: { grade: LoopLastCycleGrade }) {
+  const Icon =
+    grade.improved === true
+      ? TrendingUp
+      : grade.improved === false
+        ? TrendingDown
+        : Minus;
+  const colorClass =
+    grade.improved === true
+      ? 'border-green-200 bg-green-50/60 text-green-900 dark:border-green-800 dark:bg-green-950/30 dark:text-green-200'
+      : grade.improved === false
+        ? 'border-amber-200 bg-amber-50/60 text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200'
+        : 'border-border bg-muted/40 text-muted-foreground';
+
+  return (
+    <div className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${colorClass}`}>
+      <Icon className="h-3.5 w-3.5 shrink-0" />
+      <span>{grade.message}</span>
+    </div>
+  );
+}
 
 const breadcrumbItems = [
   { label: 'Home', href: '/' },
@@ -132,6 +157,11 @@ function LoopBody() {
         notReadableMessage={data.notReadableMessage}
       />
 
+      {/* Self-grade banner — shown when there is at least one closed cycle to grade */}
+      {data.lastCycleGrade && (
+        <LastCycleGradeBanner grade={data.lastCycleGrade} />
+      )}
+
       {/* READ — what the audience rewarded */}
       <ReadTable read={data.read} />
 
@@ -140,6 +170,16 @@ function LoopBody() {
         <DecideCard decide={data.decide} barToBeat={data.read.barToBeat} />
         <PlaybookLog playbook={data.playbook ?? []} onClose={handleCycleClosed} />
       </div>
+
+      {/* Voice of Audience — AI-classified comments from the feedback spine */}
+      {data.voice && <VoiceCard voice={data.voice} />}
+
+      {/* Monthly Cadence — the per-department calendar-month reach loop.
+          Reuses this cycle's Voice-of-Audience as the feedback snapshot. */}
+      <CadenceCard
+        accountUsername={data.account?.username ?? DEFAULT_ACCOUNT}
+        voice={data.voice}
+      />
     </div>
   );
 }

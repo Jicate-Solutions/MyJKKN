@@ -95,7 +95,7 @@ export default function NewMentorPairingPage() {
       <div className="mt-6 max-w-lg">
         <h1 className="text-2xl font-semibold mb-6">Create Mentor Pairing</h1>
         <p className="text-sm text-gray-500 mb-6">
-          Pair a senior learner (mentor) with a fresher learner (mentee) for peer mentoring.
+          Pair a peer mentor with a fresher learner (mentee) for peer mentoring.
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -103,18 +103,18 @@ export default function NewMentorPairingPage() {
             <CardHeader><CardTitle className="text-base">Pairing Details</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-1">
-                <Label htmlFor="mentor_id">Mentor (senior learner) <span className="text-red-500">*</span></Label>
+                <Label htmlFor="mentor_id">Peer Mentor <span className="text-red-500">*</span></Label>
                 <SearchableSelect
                   value={mentorId}
                   onValueChange={setMentorId}
                   options={learnerOptions}
-                  placeholder="Search the senior learner…"
+                  placeholder="Search the peer mentor…"
                   searchPlaceholder="Type to search learners…"
                   emptyMessage="No matching learners"
                   loading={learnersLoading}
                   className="w-full"
                 />
-                <p className="text-xs text-gray-400">This is the senior learner who will guide the mentee.</p>
+                <p className="text-xs text-gray-400">This is the peer mentor who will guide the mentee.</p>
               </div>
 
               <div className="space-y-1">

@@ -59,7 +59,29 @@ function formatDate(iso: string | null): string {
   }
 }
 
+// A program whose run window has already closed is still stored as 'active'
+// (or 'scheduled') until an admin changes it — the status enum is an
+// admin-controlled state machine, not auto-advanced. Mirror the read-time
+// derivation getActivePrograms() uses for learners (PR #1635: drop programs
+// once end_date passes) so the admin list never presents a finished program as
+// live. Display-only: the stored status and the editor dropdown are untouched.
+const ENDED_STYLE = 'border-slate-300 text-slate-600 bg-slate-100';
+
+function isEndedByDate(program: HealthProgram): boolean {
+  if (!program.end_date) return false; // open-ended programs never auto-end
+  if (program.status !== 'active' && program.status !== 'scheduled') {
+    return false; // draft / completed / archived keep their explicit status
+  }
+  // end_date is a DATE ('YYYY-MM-DD'); compare ISO date strings to dodge
+  // Date-parse timezone drift. Use the SAME UTC basis as getActivePrograms()
+  // (toISOString) so the admin badge and the learner-facing window can never
+  // disagree at the day boundary. Ended = end date strictly before today.
+  const todayUTC = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+  return program.end_date.slice(0, 10) < todayUTC;
+}
+
 function ProgramCard({ program }: { program: HealthProgram }) {
+  const ended = isEndedByDate(program);
   return (
     <Card className="overflow-hidden transition-shadow hover:shadow-md">
       <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -70,9 +92,16 @@ function ProgramCard({ program }: { program: HealthProgram }) {
             </h3>
             <Badge
               variant="outline"
-              className={`capitalize text-xs ${STATUS_STYLES[program.status]}`}
+              className={`capitalize text-xs ${
+                ended ? ENDED_STYLE : STATUS_STYLES[program.status]
+              }`}
+              title={
+                ended
+                  ? `Run window ended — stored status: ${program.status}`
+                  : undefined
+              }
             >
-              {program.status}
+              {ended ? 'Ended' : program.status}
             </Badge>
           </div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">

@@ -261,12 +261,38 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/leave/balance': 'hr.leave.balance.view',
   '/hr/leave/encashment': 'hr.leave.encashment.view',
   '/hr/leave/[id]': 'hr.leave.view',
-  // HR Recruitment — parent + 3 submenus
+  // HR Recruitment — parent + 5 submenus
   '/hr/recruitment': 'hr.recruitment.view',
+  '/hr/recruitment/jobs': 'hr.recruitment.view',
   '/hr/recruitment/submit': 'hr.recruitment.create',
   '/hr/recruitment/my': 'hr.recruitment.view',
   '/hr/recruitment/candidates': 'hr.recruitment.view',
+  '/hr/recruitment/interviews': 'hr.recruitment.view',
   '/hr/recruitment/approvals': 'hr.recruitment.approve',
+  // "All Approvals" sidebar link — same page, ?view=all preselects the all-pending
+  // view. Keyed with the query string because normalizeRoute() only strips UUIDs.
+  '/hr/recruitment/approvals?view=all': 'hr.recruitment.approve',
+  // HR Admin cluster — all entries share the strict core-HR gate used by the
+  // /hr/admin landing (see PermissionGuard in app/(routes)/hr/admin/page.tsx).
+  '/hr/admin': 'hr.dashboard.view',
+  '/hr/admin/automation-rules': 'hr.dashboard.view',
+  '/hr/admin/disciplinary': 'hr.dashboard.view',
+  '/hr/admin/fdp': 'hr.dashboard.view',
+  '/hr/admin/forms': 'hr.dashboard.view',
+  '/hr/admin/memos': 'hr.dashboard.view',
+  '/hr/admin/offboarding': 'hr.dashboard.view',
+  '/hr/admin/onboarding-checklists': 'hr.dashboard.view',
+  '/hr/admin/payroll': 'hr.dashboard.view',
+  '/hr/admin/performance-reviews': 'hr.dashboard.view',
+  '/hr/admin/policies': 'hr.dashboard.view',
+  '/hr/admin/promotions': 'hr.dashboard.view',
+  '/hr/admin/recruitment-approvals-scope': 'hr.dashboard.view',
+  '/hr/admin/recruitment-maintenance': 'hr.dashboard.view',
+  '/hr/admin/recruitment-need': 'hr.dashboard.view',
+  '/hr/admin/required-documents': 'hr.dashboard.view',
+  '/hr/admin/shift-templates': 'hr.dashboard.view',
+  '/hr/admin/terminations': 'hr.dashboard.view',
+  '/hr/admin/training': 'hr.dashboard.view',
 
   // Staff Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
   // Spec: specs/counselor-taxonomy-spec.md. Role seed:
@@ -279,6 +305,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // have sub-permissions continue seeing the Academic sidebar row even
   // though the row now points at /academic instead of /academic/years.
   '/academic': 'academic.years.view',
+  '/events/induction': 'induction.view',
+  '/events/induction/new': 'induction.manage',
+  '/events/induction/catalog': 'induction.view',
   '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
   '/academic/leave-calendar': 'academic.leaves.view',
@@ -338,6 +367,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Internal Marks (CIA) - Mark Entry & Reports
   '/academic/internal-marks': 'academic.internal-marks.view',
+  '/academic/internal-marks/monitor': 'academic.internal-marks.view',
+  '/academic/internal-marks/attendance-insight': 'academic.internal-marks.view',
   '/academic/internal-marks/report': 'academic.internal-marks.view',
 
   // Regulations Management
@@ -392,6 +423,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/bug-reports': 'system.bugs.view',
   '/ai-query/admin': 'super_admin', // Super admin only - AI Query Tools Registry
   '/admin/ai-models': 'super_admin', // Super admin only - AI Model Config (provider/model picker + spend caps + usage)
+  '/admin/loops': 'super_admin', // Super admin only - Loop Control Tower (live health of every self-improving/cadence/accountability loop)
+  '/admin/learner-notes': 'super_admin', // Super admin only - Learner Notes approval queue (AI-drafted support notes reviewed before students see them)
   '/admin/page-metadata': 'super_admin', // Super admin only - Page Search Metadata
 
   // Social Media module (added 2026-05-31 for Meta integration nav-bar
@@ -574,6 +607,22 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/commissions': 'admission.consultants.commissions.view',
   '/admission/consultants/referrals': 'admission.consultants.referrals.view',
   '/admission/consultants/rewards': 'admission.consultants.rewards.view',
+
+  // Schools Network (2026-06-30) — track external K-12 schools the org engages
+  // with + JKKN's own Matric/CBSE schools. Sessions conducted, contributions
+  // made, JKKN ownership, and program-partner (CSR/grant/corporate) funding
+  // chains. Keys gated by schools_network.* per /tmp/schools-network-spec.md §4.
+  '/admission/schools-network': 'schools_network.schools.view',
+  '/admission/schools-network/new': 'schools_network.schools.create',
+  '/admission/schools-network/[schoolId]': 'schools_network.schools.view',
+  '/admission/schools-network/[schoolId]/edit': 'schools_network.schools.edit',
+  '/admission/schools-network/[schoolId]/sessions/log': 'schools_network.sessions.create',
+  '/admission/schools-network/[schoolId]/contributions/new': 'schools_network.contributions.create',
+  '/admission/schools-network/[schoolId]/contacts/new': 'schools_network.contacts.create',
+  '/admission/schools-network/[schoolId]/owners/assign': 'schools_network.owners.manage',
+  '/admission/schools-network/partners': 'schools_network.partners.view',
+  '/admission/schools-network/partners/new': 'schools_network.partners.manage',
+  '/admission/schools-network/partners/[partnerId]': 'schools_network.partners.view',
 
   // Admission Marketing
   '/admission/marketing/campaigns/monitoring': 'admission.marketing.view',
@@ -824,6 +873,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Audit Workflow Sprint 01
   '/audit': 'audit.cycle.view',
   '/audit/dashboard': 'audit.cycle.view',
+  '/audit/care/coverage': 'audit.cycle.view', // CARRE Coverage Map (leadership view)
   '/audit/cycles': 'audit.cycle.view',
   '/audit/cycles/new': 'audit.cycle.manage',
   '/audit/cycles/[id]': 'audit.cycle.view',
@@ -1064,6 +1114,20 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/cdc/training/new': 'cdc.training.create',
   '/cdc/training/[id]': 'cdc.training.view',
 
+  // CDC — Government Job Readiness (TNPSC / RRB / banking / SSC / TN Police)
+  '/cdc/govt-readiness': 'cdc.govt_readiness.view',
+  // Govt-readiness admin surfaces. These /cdc/admin/* pages sit under the
+  // RoutePermissionGuard layout, which only gates routes that HAVE a
+  // MENU_PERMISSIONS entry (an unmapped route falls through as "visible to any
+  // authenticated user"), so an entry is REQUIRED. cdc.training.edit is the
+  // COARSE pre-filter here (held by cdc_head + cdc_coordinator); the PRECISE
+  // boundary is head-only and enforced at the page (CdcHeadGuard) and at the
+  // write route + table RLS, all on is_cdc_head_or_super() — app == UI == RLS
+  // (deep-review R4 #1). There is no head-only permission KEY to map to, so the
+  // coarse pre-filter stays and the page guard narrows it to CDC Head / super.
+  '/cdc/admin/exam-syllabus-topics': 'cdc.training.edit',
+  '/cdc/admin/exam-topic-map': 'cdc.training.edit',
+
   // CDC — UNNATI → UDYOG application tracker
   '/cdc/udyog': 'cdc.udyog.view',
 
@@ -1071,6 +1135,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/cdc/bulletin': 'cdc.bulletin.view',
   '/cdc/bulletin/new': 'cdc.bulletin.create',
   '/cdc/bulletin/[id]': 'cdc.bulletin.view',
+
+  // CDC — Employer Requirement Intake
+  '/cdc/requirements': 'cdc.requirements.view',
+  '/cdc/requirements/new': 'cdc.requirements.create',
+  '/cdc/requirements/[id]': 'cdc.requirements.view',
 
   // CDC — Industry Mentors directory
   '/cdc/industry-mentors': 'cdc.industry_mentors.view',
@@ -1151,6 +1220,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Service Requests — All Services chip (admin/staff cross-institution view)
   '/service-requests/all-services': 'service_requests.view_all',
+
+  // Feedback Dashboard — Universal Feedback Spine (added 2026-06-26).
+  // Admin / super-admin always have access via RLS; feedback.view grants
+  // access to non-admin roles (e.g. dedicated feedback reviewers).
+  '/feedback': 'feedback.view',
 };
 
 /**
@@ -1296,6 +1370,29 @@ export function GetPages(pathname: string): MenuGroup[] {
           // Flat link — the Academic sub-pages (incl. Parent Portal Content)
           // are surfaced by the in-module tab bar (academic/nav-config.ts),
           // NOT as sidebar submenus. Adding submenus here would hide the rest.
+          submenus: []
+        },
+        {
+          // Fresher Induction — guided onboarding program per college. Lives
+          // under the Events module (/events/induction); kept as a sidebar
+          // shortcut for prominence (institution-wide, recurring, student-facing).
+          // Gated by '/events/induction' -> 'induction.view' (MENU_PERMISSIONS).
+          href: '/events/induction',
+          label: 'Induction',
+          active: pathname === '/events/induction' || pathname.startsWith('/events/induction/'),
+          icon: Rocket,
+          submenus: []
+        },
+        {
+          // "My Induction Sessions" — a CREDITED resource person's own lane on
+          // their session feedback. UNGATED on purpose (no MENU_PERMISSIONS entry):
+          // a resource person needs NO induction.view, and the page self-scopes to
+          // the sessions you led (non-presenters see an empty state). Distinct from
+          // the gated coordinator console above.
+          href: '/my-induction-sessions',
+          label: 'My Induction Sessions',
+          active: pathname.startsWith('/my-induction-sessions'),
+          icon: MessageSquare,
           submenus: []
         },
         // NOTE: the learner lanes (Class Feedback /learn, My Attendance Feedback
@@ -1512,6 +1609,29 @@ export function GetPages(pathname: string): MenuGroup[] {
           ]
         },
         {
+          // Added 2026-06-30 — Schools Network module. Tracks external K-12
+          // schools JKKN engages with + own Matric/CBSE schools, sessions,
+          // contributions, JKKN ownership, and CSR/grant/corporate funding.
+          // Spec: /tmp/schools-network-spec.md (Agent A) + service layer in
+          // a sibling PR (Agent B).
+          href: '/admission/schools-network',
+          label: 'Schools Network',
+          active: pathname.startsWith('/admission/schools-network'),
+          icon: School,
+          submenus: [
+            {
+              href: '/admission/schools-network',
+              label: 'All Schools',
+              active: pathname === '/admission/schools-network'
+            },
+            {
+              href: '/admission/schools-network/partners',
+              label: 'Program Partners',
+              active: pathname.startsWith('/admission/schools-network/partners')
+            }
+          ]
+        },
+        {
           href: '/admission/insights',
           label: 'AI Insights',
           active: pathname.startsWith('/admission/insights'),
@@ -1686,8 +1806,12 @@ export function GetPages(pathname: string): MenuGroup[] {
     },
 
     {
-      // Wave 2 merged 'Employee Management' into 'Human Resources'.
-      groupLabel: 'Human Resources',
+      // Section renamed to 'Employee Management' on 2026-05-09 (product
+      // decision) to unify /staff + /hr. This groupLabel MUST stay in lock-step
+      // with the MODULES `section` string in lib/navigation/modules.ts — the
+      // mobile bottom-nav matches sections by exact groupLabel===section string,
+      // so any drift silently drops the whole section from the bottom bar.
+      groupLabel: 'Employee Management',
       menus: [
         {
           href: '/staff',
@@ -1700,11 +1824,22 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/staff/list', label: 'Employee List', active: pathname === '/staff/list' },
             { href: '/staff/class-incharges', label: 'Class Incharges', active: pathname.startsWith('/staff/class-incharges') },
           ]
-        },
+        }
+      ]
+    },
+    {
+      // HR Management — split out of 'Employee Management' 2026-07-03 so the
+      // HR domain (daily HR, hiring pipeline, admin configuration) reads as one
+      // group. Same lock-step rule as above: this groupLabel MUST match the
+      // MODULES `section` string in lib/navigation/modules.ts or the mobile
+      // bottom-nav silently drops the section.
+      groupLabel: 'HR Management',
+      menus: [
         {
           href: '/hr',
           label: 'HR',
-          active: pathname === '/hr' || pathname.startsWith('/hr/'),
+          // Recruitment and Admin live under /hr/ but have their own menu rows.
+          active: pathname === '/hr' || (pathname.startsWith('/hr/') && !pathname.startsWith('/hr/recruitment') && !pathname.startsWith('/hr/admin')),
           icon: Building,
           submenus: [
             { href: '/hr', label: 'HR Command Center', active: pathname === '/hr' },
@@ -1717,10 +1852,54 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/leave/calendar', label: 'Leave · Calendar', active: pathname === '/hr/leave/calendar' },
             { href: '/hr/leave/balance', label: 'Leave · Balance', active: pathname === '/hr/leave/balance' },
             { href: '/hr/leave/encashment', label: 'Leave · Encashment', active: pathname === '/hr/leave/encashment' },
-            { href: '/hr/recruitment', label: 'Recruitment', active: pathname.startsWith('/hr/recruitment') },
-            { href: '/hr/recruitment/submit', label: 'Recruitment · Submit Candidate', active: pathname === '/hr/recruitment/submit' },
-            { href: '/hr/recruitment/my', label: 'Recruitment · My Candidates', active: pathname === '/hr/recruitment/my' },
-            { href: '/hr/recruitment/approvals', label: 'Recruitment · Approvals', active: pathname === '/hr/recruitment/approvals' },
+          ]
+        },
+        {
+          // Recruitment — own top-level menu (moved out of the HR dropdown so the
+          // hiring pipeline reads as one unit: screen → submit → approve → interview).
+          href: '/hr/recruitment',
+          label: 'Recruitment',
+          active: pathname.startsWith('/hr/recruitment'),
+          icon: UserSearch,
+          submenus: [
+            { href: '/hr/recruitment', label: 'Dashboard', active: pathname === '/hr/recruitment' },
+            { href: '/hr/recruitment/jobs', label: 'Job Postings', active: pathname.startsWith('/hr/recruitment/jobs') },
+            { href: '/hr/recruitment/submit', label: 'Apply for Jobs', active: pathname === '/hr/recruitment/submit' },
+            { href: '/hr/recruitment/my', label: 'My Submissions', active: pathname === '/hr/recruitment/my' },
+            { href: '/hr/recruitment/approvals', label: 'Approvals', active: pathname === '/hr/recruitment/approvals' },
+            { href: '/hr/recruitment/interviews', label: 'Interviews', active: pathname.startsWith('/hr/recruitment/interviews') },
+            { href: '/hr/recruitment/approvals?view=all', label: 'All Approvals', active: false },
+          ]
+        },
+        {
+          // HR Admin cluster (/hr/admin) — one submenu per top-level admin
+          // section. All entries gate on hr.dashboard.view, matching the strict
+          // core-HR-only guard on the /hr/admin landing (Director decision, see
+          // app/(routes)/hr/admin/page.tsx); each page still self-gates deeper.
+          href: '/hr/admin',
+          label: 'Admin',
+          active: pathname.startsWith('/hr/admin'),
+          icon: Settings,
+          submenus: [
+            { href: '/hr/admin', label: 'Dashboard', active: pathname === '/hr/admin' },
+            { href: '/hr/admin/automation-rules', label: 'Automation Rules', active: pathname.startsWith('/hr/admin/automation-rules') },
+            { href: '/hr/admin/disciplinary', label: 'Disciplinary', active: pathname.startsWith('/hr/admin/disciplinary') },
+            { href: '/hr/admin/fdp', label: 'FDP', active: pathname.startsWith('/hr/admin/fdp') },
+            { href: '/hr/admin/forms', label: 'Forms', active: pathname.startsWith('/hr/admin/forms') },
+            { href: '/hr/admin/memos', label: 'Memos', active: pathname.startsWith('/hr/admin/memos') },
+            { href: '/hr/admin/offboarding', label: 'Offboarding', active: pathname.startsWith('/hr/admin/offboarding') },
+            { href: '/hr/admin/onboarding-checklists', label: 'Onboarding Checklists', active: pathname.startsWith('/hr/admin/onboarding-checklists') },
+            { href: '/hr/admin/payroll', label: 'Payroll', active: pathname.startsWith('/hr/admin/payroll') },
+            { href: '/hr/admin/performance-reviews', label: 'Performance Reviews', active: pathname.startsWith('/hr/admin/performance-reviews') },
+            { href: '/hr/admin/policies', label: 'Policies', active: pathname.startsWith('/hr/admin/policies') },
+            { href: '/hr/admin/promotions', label: 'Promotions', active: pathname.startsWith('/hr/admin/promotions') },
+            { href: '/hr/admin/recruitment-approvals-scope', label: 'Recruitment Approvals Scope', active: pathname.startsWith('/hr/admin/recruitment-approvals-scope') },
+            { href: '/hr/admin/recruitment-maintenance', label: 'Recruitment Maintenance', active: pathname.startsWith('/hr/admin/recruitment-maintenance') },
+            { href: '/hr/admin/recruitment-need', label: 'Recruitment Need', active: pathname.startsWith('/hr/admin/recruitment-need') },
+            { href: '/hr/admin/required-documents', label: 'Required Documents', active: pathname.startsWith('/hr/admin/required-documents') },
+            { href: '/hr/admin/shift-templates', label: 'Shift Templates', active: pathname.startsWith('/hr/admin/shift-templates') },
+            { href: '/hr/admin/terminations', label: 'Terminations', active: pathname.startsWith('/hr/admin/terminations') },
+            { href: '/hr/admin/training', label: 'Training', active: pathname.startsWith('/hr/admin/training') },
           ]
         }
       ]
@@ -1786,6 +1965,27 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Profile',
           active: pathname === '/learners/my-profile',
           icon: Users,
+          submenus: []
+        },
+        {
+          // Fresher induction — the student's own induction view (their batch
+          // schedule + per-session 1–5 rating + a Day-10 profile-completion
+          // nudge). Auto student-visible via isStudentPortalRoute (/learners/my-).
+          href: '/learners/my-induction',
+          label: 'My Induction',
+          active: pathname.startsWith('/learners/my-induction'),
+          icon: Rocket,
+          submenus: []
+        },
+        {
+          // My Individual Development Plan — learner self-service (BUG-004298).
+          // UNGATED by design (student self-scopes via RLS on cdc_idp_responses),
+          // so it is student-visible via the isStudentPortalRoute special-case
+          // below, NOT a MENU_PERMISSIONS entry. Distinct path from /learners/*.
+          href: '/learner/idp',
+          label: 'My Development Plan',
+          active: pathname.startsWith('/learner/idp'),
+          icon: ClipboardList,
           submenus: []
         },
         {
@@ -2419,6 +2619,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          href: '/cdc/govt-readiness',
+          label: 'Govt Job Readiness',
+          active: pathname.startsWith('/cdc/govt-readiness'),
+          icon: Target,
+          submenus: []
+        },
+        {
           href: '/cdc/career-guidance',
           label: 'AI Career Guidance',
           active: pathname.startsWith('/cdc/career-guidance'),
@@ -2430,6 +2637,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Opportunities Bulletin',
           active: pathname.startsWith('/cdc/bulletin'),
           icon: Megaphone,
+          submenus: []
+        },
+        {
+          // Employer Requirement Intake — company job-vacancy submissions
+          // (public self-submit + CDC staff entry). Public URL: /employers/submit.
+          href: '/cdc/requirements',
+          label: 'Employer Requirements',
+          active: pathname.startsWith('/cdc/requirements'),
+          icon: Building2,
           submenus: []
         },
         {
@@ -2446,6 +2662,22 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: FileDown,
           submenus: []
         },
+      ]
+    },
+    {
+      // Feedback Dashboard — Universal Feedback Spine.
+      // Added 2026-06-26: admin-level view of AI-classified feedback_events
+      // (sentiment, themes, complaints, troll-storm concentration). Gated by
+      // feedback.view; super-admin and admin always see it via RLS bypass.
+      groupLabel: 'Feedback',
+      menus: [
+        {
+          href: '/feedback',
+          label: 'Feedback',
+          active: pathname === '/feedback' || pathname.startsWith('/feedback/'),
+          icon: MessageSquare,
+          submenus: [],
+        }
       ]
     },
     {
@@ -2502,8 +2734,33 @@ export function isStudentPortalRoute(href: string): boolean {
     href === '/learners/leave-onduty/my-applications' ||
     // Post-class feedback (Class Feedback) — student-only lane relocated out of
     // /academic. (My Attendance Feedback already matches /learners/my- above.)
-    href === '/learners/class-feedback'
+    href === '/learners/class-feedback' ||
+    // My Development Plan (learner self-service IDP, BUG-004298) — ungated,
+    // student-visible; distinct /learner/ path doesn't match /learners/my-.
+    href === '/learner/idp'
   );
+}
+
+// Pre-onboarding (induction-only) learners may navigate to ONLY these two pages
+// (mirrors the proxy.ts whitelist). Second-stage filter applied AFTER
+// GetRoleBasedPages in the nav consumers (menu.tsx, bottom-navbar.tsx) so the
+// sidebar shows only what they can actually reach. The proxy is the real gate.
+// Spec: specs/pre-onboarding-induction-access-2026-06-29.md
+const INDUCTION_ONLY_NAV_HREFS = new Set<string>([
+  '/learners/my-induction',
+  '/learners/my-profile',
+]);
+
+/** Keep only the My Induction + My Profile menu entries; drop everything else. */
+export function filterToInductionOnlyMenu(groups: MenuGroup[]): MenuGroup[] {
+  return groups
+    .map((group) => ({
+      ...group,
+      menus: group.menus
+        .filter((menu) => INDUCTION_ONLY_NAV_HREFS.has(menu.href))
+        .map((menu) => ({ ...menu, submenus: [] })),
+    }))
+    .filter((group) => group.menus.length > 0);
 }
 
 // New function to filter menus based on user role permissions
@@ -2627,6 +2884,15 @@ export function GetRoleBasedPages(
 
           // Platform Guide is always visible for all users (universal in-app help)
           if (menu.href === '/guide') return true;
+
+          // "My Induction Sessions" is SELF-SCOPED: its RPCs gate on speakership
+          // (event_session_speakers.profile_id = auth.uid()); non-presenters just
+          // see an empty state. It deliberately has no MENU_PERMISSIONS entry, but
+          // the default-deny below hides unmapped routes from every non-super-admin
+          // — exactly the resource persons the page exists for (found live
+          // 2026-07-03: presenter couldn't discover his own feedback + live-pulse
+          // page). Always visible, same pattern as /guide.
+          if (menu.href === '/my-induction-sessions') return true;
 
           // Check if menu requires super admin
           if ((menu as any).requiresSuperAdmin) {

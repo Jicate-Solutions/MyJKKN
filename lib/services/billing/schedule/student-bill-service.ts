@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { getErrorMessage } from '@/lib/utils';
 import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
 import type {
   StudentBill,
@@ -821,7 +822,8 @@ export class StudentBillService {
         }
       };
     } catch (error) {
-      console.error('Error fetching student bills:', error);
+      // Supabase errors are plain objects — console.error alone prints "{}".
+      console.error('Error fetching student bills:', getErrorMessage(error), error);
       throw error;
     }
   }

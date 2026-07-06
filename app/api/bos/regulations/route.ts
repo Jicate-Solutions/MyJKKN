@@ -46,6 +46,7 @@ export async function GET(request: NextRequest) {
       title: `${reg.regulation_code} (${reg.regulation_year})`,
       regulation_year: reg.regulation_year,
       regulation_code: reg.regulation_code,
+      institution_id: reg.institution_id,
     }));
     if (preferId) {
       mapped.sort((a, b) => {

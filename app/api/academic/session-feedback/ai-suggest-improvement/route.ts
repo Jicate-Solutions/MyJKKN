@@ -21,8 +21,15 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import Anthropic from '@anthropic-ai/sdk';
+import {
+  resolveChatModel,
+  recordChatCall,
+} from '@/lib/services/platform/ai-clients/chat';
 
-const MODEL = 'claude-sonnet-4-6';
+// Model resolves at runtime from ai_model_config (feature_key below);
+// resolveChatModel never throws — hardcoded fallback on any config failure.
+const FEATURE_KEY = 'session_feedback.suggest_improvement';
+
 
 // Roles that may see institution-wide signals (non-super leadership). A plain
 // faculty/staff caller falls through to the self-scoped (own-email) path.
@@ -113,6 +120,17 @@ export async function POST(req: NextRequest) {
       pFacultyEmail = (profile?.email as string | null)?.toLowerCase() ?? null;
     }
 
+    // Institution the self-improving loop row is recorded/looked-up under. The
+    // faculty-self path scopes the AI read by email (pInstitutionId=null), but the
+    // stored suggestion MUST carry the resolved institution — otherwise the row is
+    // NULL-institution and readable by every authenticated user (the
+    // role_has_institution_access(NULL)=true gap). Super-admin course-level rows
+    // legitimately stay NULL (super/admin-only read). NOTE: the super/leadership
+    // lane records at faculty_email=NULL (course-level) while the faculty-self lane
+    // records the real email — two intentionally disjoint loop lanes.
+    const loopInstitutionId =
+      pInstitutionId ?? ((profile?.institution_id as string | null) ?? null);
+
     // 4) Read the aggregate + anonymized comments via the SERVICE-ROLE-ONLY RPC.
     const admin = createServiceRoleClient();
     const { data, error: rpcError } = await admin.rpc('fn_scf_ai_signal', {
@@ -151,6 +169,56 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // 5b) SELF-IMPROVING: fetch this class's most recent prior suggestion and
+    //     whether it actually moved understanding, so the model proposes a
+    //     BETTER adjustment instead of repeating itself. The prior is OUR OWN
+    //     past AI output (not user input) — no new injection surface.
+    let trackRecordBlock = '';
+    try {
+      const { data: priorData } = await admin.rpc('fn_scf_prior_suggestion', {
+        p_course_code: courseCode,
+        p_faculty_email: pFacultyEmail,
+        p_institution_id: loopInstitutionId,
+      });
+      const prior = Array.isArray(priorData) ? priorData[0] : priorData;
+      if (prior?.suggestion) {
+        const priorSummary =
+          prior.suggestion && typeof prior.suggestion === 'object'
+            ? String(prior.suggestion.summary ?? JSON.stringify(prior.suggestion)).slice(0, 600)
+            : String(prior.suggestion).slice(0, 600);
+        const lift = prior.outcome_lift !== null && prior.outcome_lift !== undefined
+          ? Number(prior.outcome_lift)
+          : null;
+        // Sample-size guard: outcome_lift on the follow-up session can be a
+        // tiny-sample delta. Only let the model assert "this did/didn't help" when
+        // enough learners answered the follow-up; otherwise flag it low-confidence
+        // so the model treats the prior outcome as a weak signal, not a verdict.
+        const outcomeN =
+          prior.outcome_responses !== null && prior.outcome_responses !== undefined
+            ? Number(prior.outcome_responses)
+            : null;
+        let liftLine: string;
+        if (!prior.has_outcome || lift === null) {
+          liftLine = `The outcome of that advice is not measured yet.`;
+        } else if (outcomeN !== null && outcomeN >= 5) {
+          // Strong-enough evidence: assert the direction.
+          liftLine = `After that advice, the next class's understanding moved ${lift >= 0 ? '+' : ''}${prior.outcome_lift} (from ${prior.input_avg}/5, ${outcomeN} learners). ${lift >= 0.5 ? 'It helped somewhat — build on it.' : 'It did NOT meaningfully help — change the approach; do not repeat the same advice.'}`;
+        } else if (outcomeN !== null && outcomeN >= 3) {
+          // Weak evidence: report the number but caveat it; do not let the model treat it as proof.
+          liftLine = `After that advice, the next class's understanding moved ${lift >= 0 ? '+' : ''}${prior.outcome_lift} (from ${prior.input_avg}/5) — but this is WEAK EVIDENCE: only ${outcomeN} learners answered the next session, so treat it as a hint, not proof. Do not conclude the advice did or didn't work from this alone.`;
+        } else {
+          // Below the floor (or unknown N): explicitly low-confidence.
+          liftLine = `An outcome was recorded for that advice${outcomeN !== null ? ` but only ${outcomeN} learner${outcomeN === 1 ? '' : 's'} answered the next session` : ''}, so it is LOW-CONFIDENCE — do not treat it as evidence the advice worked or failed.`;
+        }
+        const verdictLine = prior.human_verdict
+          ? ` The teacher marked it: ${String(prior.human_verdict)}.`
+          : '';
+        trackRecordBlock = `\n\nYOUR PREVIOUS ADVICE FOR THIS CLASS (${String(prior.generated_at).slice(0, 10)}): ${priorSummary}\n${liftLine}${verdictLine}\nUse this track record: keep what worked, and propose a DIFFERENT, more specific adjustment for anything that did not move.`;
+      }
+    } catch (priorErr) {
+      console.error('[academic/ai-suggest-improvement] prior fetch failed:', priorErr);
+    }
+
     // 6) Build the prompt + call Claude.
     const commentBlock =
       freeTexts.length > 0
@@ -163,7 +231,7 @@ Low-understanding responses (understood <= 2 of 5): ${lowResponses}
 Average understanding (1-5): ${avgUnderstood ?? 'n/a'}
 
 Anonymized student comments:
-${commentBlock}
+${commentBlock}${trackRecordBlock}
 
 Generate the teaching-improvement JSON now.`;
 
@@ -175,13 +243,30 @@ Generate the teaching-improvement JSON now.`;
       );
     }
 
+    // Resolved AFTER the cheap-exit paths (small-n floor, 503-on-missing-key)
+    // so config resolution never runs for requests that skip the LLM.
+    const { model_id: modelId } = await resolveChatModel(FEATURE_KEY);
+
     const anthropic = new Anthropic({ apiKey });
-    const resp = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userPrompt }],
-    });
+    const aiStartedAt = Date.now();
+    let resp: Anthropic.Message;
+    try {
+      resp = await anthropic.messages.create({
+        model: modelId,
+        // 2048 (was 1024): a comment-rich class produces summary + 3-5
+        // adjustments that overflow 1024 → truncated JSON → JSON.parse throws →
+        // 500 for the user. Verified on MR3691 (16 comments → 1232 output tokens).
+        max_tokens: 2048,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userPrompt }],
+      });
+    } catch (aiErr) {
+      // Record the failed invocation (recordChatCall is internally
+      // non-throwing), then rethrow — the outer catch keeps the existing 500.
+      await recordChatCall(FEATURE_KEY, 'anthropic', modelId, aiStartedAt, null, aiErr);
+      throw aiErr;
+    }
+    await recordChatCall(FEATURE_KEY, 'anthropic', modelId, aiStartedAt, resp);
 
     const text = resp.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
@@ -196,11 +281,40 @@ Generate the teaching-improvement JSON now.`;
       .trim();
     const suggestion = JSON.parse(jsonStr);
 
-    // ANONYMITY: response carries ONLY the synthesized suggestion + numeric meta.
-    // freeTexts is deliberately excluded.
+    // 7) SELF-IMPROVING: record this suggestion + the input state it was based on,
+    //    so the daily outcome job can attribute the next-class lift and the NEXT
+    //    suggestion can learn from it. Best-effort — a record failure must never
+    //    break the user-facing suggestion. Only the synthesized guidance is
+    //    stored; the raw free_texts are NOT.
+    // suggestionId is the recorded loop-memory row — returned so the UI can attach
+    // the teacher's human verdict (fn_scf_set_verdict) to THIS suggestion. Null if
+    // recording failed (the suggestion still renders; only the verdict buttons hide).
+    let suggestionId: string | null = null;
+    try {
+      const { data: recordedId } = await admin.rpc('fn_scf_record_suggestion', {
+        p_institution_id: loopInstitutionId,
+        p_course_code: courseCode,
+        p_faculty_email: pFacultyEmail,
+        p_window_from: from,
+        p_window_to: to,
+        p_input_responses: responses,
+        p_input_low: lowResponses,
+        p_input_avg: avgUnderstood,
+        p_suggestion: suggestion,
+        p_model: resp.model,
+      });
+      // RETURNS uuid → the new scf_ai_suggestions row id.
+      suggestionId = typeof recordedId === 'string' ? recordedId : null;
+    } catch (recErr) {
+      console.error('[academic/ai-suggest-improvement] record failed:', recErr);
+    }
+
+    // ANONYMITY: response carries ONLY the synthesized suggestion + numeric meta +
+    // the loop-memory row id. freeTexts is deliberately excluded.
     return NextResponse.json({
       ok: true,
       suggestion,
+      suggestion_id: suggestionId,
       meta: {
         responses,
         low_responses: lowResponses,

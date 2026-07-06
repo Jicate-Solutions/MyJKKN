@@ -77,6 +77,55 @@ async function ensureFolderPath(drive: Drive, segments: Array<string | null | un
   return parent;
 }
 
+export interface ResumeUploadOptions {
+  jobTitle: string;
+  jobCode?: string | null;
+  jobId: string;
+  file: File;
+}
+
+export interface ResumeUploadResult {
+  url: string;
+  driveFileId: string;
+}
+
+/**
+ * Upload a resume file to HR Recruitment / {Job Title} [{code}] / {timestamp}-{filename}.
+ * The folder path is auto-created on first upload and cached per server process.
+ * Returns the Drive webViewLink to store as resume_url.
+ */
+export async function uploadResumeToJobFolder(opts: ResumeUploadOptions): Promise<ResumeUploadResult> {
+  if (!isDriveConfigured()) throw new Error('Google Drive is not configured for this server.');
+  const drive = createDriveClient();
+
+  const jobLabel = (opts.jobCode?.trim() || opts.jobId.slice(0, 8)).toUpperCase();
+  const jobFolderName = `${opts.jobTitle.slice(0, 80).trim()} [${jobLabel}]`;
+
+  const folderId = await ensureFolderPath(drive, ['HR Recruitment', jobFolderName]);
+
+  const buffer = Buffer.from(await opts.file.arrayBuffer());
+  const safeName = (opts.file.name || 'resume').replace(/[\r\n]/g, ' ').slice(0, 200);
+  const storedName = `${Date.now()}-${safeName}`;
+
+  const created = await drive.files.create({
+    requestBody: { name: storedName, parents: [folderId] },
+    media: { mimeType: opts.file.type || 'application/octet-stream', body: Readable.from(buffer) },
+    fields: 'id, webViewLink',
+    supportsAllDrives: true,
+  });
+
+  const fileId = created.data.id;
+  if (!fileId) throw new Error('Drive upload returned no file id.');
+
+  // No public permission — resumes contain PII. Access is via the service account
+  // only; HR staff view resumes through the authenticated /resume proxy route.
+
+  return {
+    url: `https://drive.google.com/file/d/${fileId}/view`,
+    driveFileId: fileId,
+  };
+}
+
 export interface UploadOptions {
   feature: PPFeature;
   institutionName: string;

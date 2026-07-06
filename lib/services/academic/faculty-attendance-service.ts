@@ -102,50 +102,27 @@ export class FacultyAttendanceService {
 
       logger.dev('academic/faculty-attendance', 'Staff found', { staffId: staffData.id, institutionId: staffData.institution_id });
 
-      // Updated: 2026-03-10 - Pick the academic year that contains the target date
-      // Previously used order('start_date', desc).limit(1) which could pick a future academic year
-      const { data: academicYears, error: yearError } = (await this.supabase
-        .from('academic_years')
-        .select('id, academic_year_name, start_date, end_date')
-        .eq('institution_id', staffData.institution_id)
-        .eq('is_active', true)
-        .lte('start_date', targetDate)
-        .gte('end_date', targetDate)
-        .limit(1)) as { data: AcademicYearBasic[] | null; error: any };
-
-      let academicYear: AcademicYearBasic;
-
-      if (yearError || !academicYears || academicYears.length === 0) {
-        // Fallback: if no academic year contains the target date, use the most recent one
-        const { data: fallbackYears } = (await this.supabase
-          .from('academic_years')
-          .select('id, academic_year_name')
-          .eq('institution_id', staffData.institution_id)
-          .eq('is_active', true)
-          .order('start_date', { ascending: false })
-          .limit(1)) as { data: AcademicYearBasic[] | null; error: any };
-
-        if (!fallbackYears || fallbackYears.length === 0) {
-          logger.error('academic/faculty-attendance', 'No active academic year found', yearError);
-          return { periods: [], searchContext: {} };
-        }
-
-        logger.warn('academic/faculty-attendance', 'No academic year contains target date, using most recent', {
-          targetDate, fallbackYear: fallbackYears[0].academic_year_name
-        });
-
-        academicYear = fallbackYears[0];
-      } else {
-        academicYear = academicYears[0];
-      }
-
-      logger.dev('academic/faculty-attendance', 'Academic year found', { id: academicYear.id, name: academicYear.academic_year_name });
-
-      // Get timetables with all related data in a single query (LEFT JOINs to avoid excluding timetables with null FKs)
+      // Updated: 2026-06-29 - Do NOT derive the academic year from the target date
+      // and hard-filter timetables on it. A timetable's validity is defined by its
+      // OWN start_date/end_date window (+ format-specific selected_dates), NOT by the
+      // calendar bounds of the academic_year row it is tagged with. Timetables are
+      // routinely scheduled into a window that crosses the academic-year boundary —
+      // e.g. "SEM VIII 25-26" is tagged academic_year 2025-26 (which ends 2026-05-31)
+      // yet runs Jun–Oct 2026, a window the academic_years calendar assigns to
+      // 2026-27. The previous code resolved the academic year from the target date
+      // (→ 2026-27) and filtered timetables with .eq('academic_year_id', …); since the
+      // tag (2025-26) and the date-derived year (2026-27) disagreed, this matched
+      // ZERO timetables and EVERY assigned faculty saw "No classes scheduled for
+      // today" — regardless of role. (Admins were unaffected because their search
+      // supplies academic_year_id explicitly from the chosen criteria.) We now scope
+      // only by institution + is_active and let isDateInTimetableRange() below do the
+      // per-format date gating it already implements. The matched timetable's own
+      // academic_year_id is captured for searchContext instead of a date-derived guess.
       const { data: timetables, error: timetableError } = (await this.supabase
         .from('timetables')
         .select(`
           id,
+          academic_year_id,
           timetable_format,
           start_date,
           end_date,
@@ -162,7 +139,6 @@ export class FacultyAttendanceService {
           degrees(id, degree_name)
         `)
         .eq('institution_id', staffData.institution_id)
-        .eq('academic_year_id', academicYear.id)
         .eq('is_active', true)) as { data: TimetableWithRelations[] | null; error: any };
 
       if (timetableError || !timetables || timetables.length === 0) {
@@ -178,6 +154,10 @@ export class FacultyAttendanceService {
       // Extract all unique course IDs first, then batch fetch
       const courseIds = new Set<string>();
       const facultyPeriods: AttendancePeriodOption[] = [];
+      // Academic year of the first timetable this staff actually teaches on the
+      // target date. Used for searchContext (the marking flow re-reads the real
+      // academic_year_id from the timetable record itself, so this is advisory).
+      let resolvedAcademicYearId: string | null = null;
 
       for (const timetable of timetables) {
         // Check if this date is valid for this timetable
@@ -353,7 +333,32 @@ export class FacultyAttendanceService {
               subSlot.staff_ids.includes(staffId)
             );
 
-          if (!isAssignedToSlot && !isAssignedToSubSlot) continue;
+          // Added: 2026-06-29 - Practical periods (period_mode='practical') store
+          // their staff per BATCH inside practical_config.batches[].staff_mapping —
+          // an object keyed by course_id whose VALUES are arrays of staff_ids — NOT
+          // in staff_ids / primary_staff_id / sub_slots. Without this check a
+          // practical period never matched its assigned faculty and silently
+          // vanished from "My Classes" while standard periods in the same timetable
+          // showed correctly.
+          const practicalBatches =
+            slot.period_mode === 'practical' &&
+            slot.practical_config && Array.isArray(slot.practical_config.batches)
+              ? slot.practical_config.batches
+              : [];
+          const isAssignedToPractical = practicalBatches.some((batch: any) => {
+            const mapping = batch?.staff_mapping;
+            if (!mapping || typeof mapping !== 'object') return false;
+            return Object.values(mapping).some(
+              (list: any) => Array.isArray(list) && list.includes(staffId)
+            );
+          });
+
+          if (!isAssignedToSlot && !isAssignedToSubSlot && !isAssignedToPractical) continue;
+
+          // Capture the academic year from the first timetable the staff teaches.
+          if (!resolvedAcademicYearId) {
+            resolvedAcademicYearId = (timetable as any).academic_year_id || null;
+          }
 
           // Find period definition (handles both array and object format)
           const periodDef = findPeriodDef(periodId);
@@ -444,6 +449,48 @@ export class FacultyAttendanceService {
               semester_name: (timetable.semesters as any)?.semester_name,
               section_name: (timetable.sections as any)?.section_name || ''
             } as any);
+          } else if (isAssignedToPractical) {
+            // Practical period — emit ONE card (mirrors the admin search path).
+            // The mark page reads practical_config from the slot and drives
+            // batch/course selection at runtime, so we carry period_mode +
+            // practical_config to switch the UI into practical mode. The course
+            // shown is the one this staff teaches (first matching batch mapping),
+            // enriched with code/name by the batch fetch below.
+            const timetableSlotId = slot.slot_id || `${timetable.id}_${dayOfWeek}_${periodId}`;
+
+            let practicalCourseId: string | undefined;
+            for (const batch of practicalBatches) {
+              const mapping = batch?.staff_mapping || {};
+              for (const [courseId, list] of Object.entries(mapping)) {
+                if (Array.isArray(list) && list.includes(staffId)) {
+                  practicalCourseId = courseId;
+                  break;
+                }
+              }
+              if (practicalCourseId) break;
+            }
+            if (practicalCourseId) courseIds.add(practicalCourseId);
+
+            facultyPeriods.push({
+              id: timetableSlotId,
+              timetable_slot_id: timetableSlotId,
+              timetable_id: timetable.id,
+              institution_id: staffData.institution_id,
+              period_name: periodDef.period_name,
+              start_time: this.formatTo12Hour(periodDef.start_time || ''),
+              end_time: this.formatTo12Hour(periodDef.end_time || ''),
+              period_type: 'regular',
+              period_mode: 'practical',
+              practical_config: slot.practical_config,
+              course: practicalCourseId ? { id: practicalCourseId } : undefined,
+              sections: [],
+              section_ids: [],
+              degree_name: (timetable.degrees as any)?.degree_name,
+              program_name: (timetable.programs as any)?.program_name,
+              department_name: (timetable.departments as any)?.department_name,
+              semester_name: (timetable.semesters as any)?.semester_name,
+              section_name: (timetable.sections as any)?.section_name || ''
+            } as any);
           }
         }
       }
@@ -494,7 +541,7 @@ export class FacultyAttendanceService {
       // Create search context
       const searchContext: any = {
         institution_id: staffData.institution_id,
-        academic_year_id: academicYear.id,
+        academic_year_id: resolvedAcademicYearId,
         attendance_date: targetDate
       };
 

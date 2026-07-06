@@ -65,7 +65,11 @@ export async function GET(
         is_correct: isCorrect,
         points: isCorrect ? (q.points || 1) : 0,
         max_points: q.points || 1,
-        fink_category: q.fink_category || null,
+        // Real column is `finks_dimension` (Fink's Taxonomy dimension). The
+        // legacy `fink_category` column never existed → breakdown silently
+        // collapsed to "uncategorized". Output key kept as `fink_category`
+        // for API-contract stability.
+        fink_category: q.finks_dimension || null,
         explanation: q.explanation || null,
       };
     });
@@ -96,7 +100,10 @@ export async function GET(
         assessment_id: assessmentId,
         learner_id: submission.learner_id,
         attempt_number: submission.attempt_number,
-        score_pct: submission.score_pct ?? (maxPoints > 0 ? Math.round((totalPoints / maxPoints) * 100) : 0),
+        // Real score column is `final_score` (numeric 0-100). The legacy
+        // `score_pct` column never existed → this branch was always undefined
+        // and silently fell through to the recomputed value.
+        score_pct: submission.final_score ?? (maxPoints > 0 ? Math.round((totalPoints / maxPoints) * 100) : 0),
         total_points: totalPoints,
         max_points: maxPoints,
         time_spent_seconds: submission.time_spent_seconds,

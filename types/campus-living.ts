@@ -234,6 +234,9 @@ export interface LearnerHostelitesFilters {
   // institution). ANDs with block_id when both are present.
   block_ids?: string[];
   hostel_category_id?: string;
+  mess_category_id?: string;
+  // Current allocation room (view column current_room_id).
+  room_id?: string;
   // Academic cascade filters (parity with Learners Profiles).
   degree_id?: string;
   department_id?: string;
@@ -244,6 +247,39 @@ export interface LearnerHostelitesFilters {
   // Sort (driven by the advanced DataTable column headers).
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
+}
+
+// ─── Unallocated candidate (fn_hostel_unallocated_candidates) ────────────
+// Returned by the RPC for every active hostelite who does NOT yet have an
+// active or pending-approval bed. Includes block-independent readiness flags
+// so the admin UI can surface exactly what data is missing per student.
+export interface UnallocatedCandidate {
+  learner_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  full_name: string | null;
+  email: string | null;
+  gender: string | null;
+  institution_id: string;
+  institution_name: string | null;
+  program_name: string | null;
+  semester_name: string | null;
+  academic_year_id: string | null;
+  academic_year_name: string | null;
+  // Readiness flags (block-independent)
+  has_profile: boolean;
+  gender_set: boolean;
+  academic_year_set: boolean;
+  room_category_resolved: boolean;
+  mess_category_resolved: boolean;
+  resolved_room_category_name: string | null;
+  resolved_mess_category_name: string | null;
+  // 'matched'|'different_year'|'untagged'|'none'
+  bill_state: 'matched' | 'different_year' | 'untagged' | 'none';
+  // 'ready' = all blocking conditions pass; 'incomplete' = something missing
+  readiness: 'ready' | 'incomplete';
+  // Human-readable list of what is blocking placement (empty when ready)
+  missing_items: string[];
 }
 
 // ─── Detail drawer bundle (BUG-003326) ────────────────────────────────
@@ -507,9 +543,24 @@ export interface RoomBedOccupancy {
   occupant_roll: string | null;
 }
 
-// A room in a block the learner can actually be allocated to — physical (student
-// room, gender, institution-serving, cohort eligibility, free beds) + category
-// conditions applied server-side by fn_cl_admin_allocatable_rooms.
+// One student room in a block with per-condition verdict flags from
+// fn_cl_admin_allocatable_rooms (gender, institution-serving, cohort
+// eligibility, category, free beds — computed server-side, mirrors the
+// auto-allocate preview pattern). is_allocatable = all conditions pass;
+// the allocate dialog picks from allocatable rooms and explains the rest.
+// One hostel block annotated with how many rooms/beds a given learner can
+// actually be allocated (fn_cl_admin_allocatable_blocks — same predicates as
+// AllocatableRoom, aggregated). Ranks the allocate dialog's block picker.
+export interface AllocatableBlock {
+  block_id: string;
+  block_name: string;
+  block_code: string | null;
+  hostel_type: string | null;
+  gender_ok: boolean;
+  allocatable_rooms: number;
+  free_beds: number;
+}
+
 export interface AllocatableRoom {
   room_id: string;
   room_number: string | null;
@@ -518,6 +569,12 @@ export interface AllocatableRoom {
   category_name: string | null;
   capacity: number | null;
   available_beds: number | null;
+  is_allocatable: boolean;
+  gender_ok: boolean;
+  institution_ok: boolean;
+  eligibility_ok: boolean;
+  category_ok: boolean;
+  has_free_beds: boolean;
 }
 
 export interface WardenFilters {

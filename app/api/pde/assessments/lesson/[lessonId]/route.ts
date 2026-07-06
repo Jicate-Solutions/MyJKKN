@@ -37,7 +37,9 @@ export async function GET(
 
       const { data: submissions } = await (supabase as any)
         .from('pde_submissions')
-        .select('assessment_id, id, attempt_number, score_pct, completed_at')
+        // Alias final_score -> score_pct to keep the output key stable and
+        // consistent with the results route (real column is `final_score`).
+        .select('assessment_id, id, attempt_number, score_pct:final_score, completed_at')
         .eq('learner_id', learnerId)
         .in('assessment_id', assessmentIds)
         .order('attempt_number', { ascending: false });

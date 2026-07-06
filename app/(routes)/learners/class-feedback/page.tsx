@@ -20,8 +20,26 @@ import { usePendingSessions } from '@/hooks/use-session-feedback';
 import type { PendingSession } from '@/types/session-feedback';
 import { FeedbackDialog } from './_components/feedback-dialog';
 import { MyVoiceReceipt } from './_components/my-voice-receipt';
+import { ClassPollBanner } from './_components/class-poll-banner';
+import { LoopClosureCard } from './_components/loop-closure-card';
+import { StrugglingNoteCard } from './_components/struggling-note-card';
+import { MyConfirmedAttendanceCard } from '@/components/session-feedback/my-confirmed-attendance-card';
 
 const BRAND = '#0b6d41';
+
+// Decision #11 (2026-07-05): feedback confirms attendance ONLY within this window of the
+// class. Mirrors the server-side session_feedback.window_hours default (48h). This is a
+// UX hint — the confirmed-attendance fns are the source of truth for the actual count.
+const CONFIRM_WINDOW_HOURS = 48;
+
+// Interpret the class day at IST midnight (matching the server fns) and check whether the
+// confirmation window is still open. Feedback for older classes is still welcome — it just
+// no longer counts toward attendance, so we LABEL it rather than hide it.
+function withinConfirmWindow(attendanceDate: string): boolean {
+  const classMidnightIST = new Date(`${attendanceDate}T00:00:00+05:30`).getTime();
+  if (Number.isNaN(classMidnightIST)) return true; // unknown date → never mislabel
+  return Date.now() <= classMidnightIST + CONFIRM_WINDOW_HOURS * 3600 * 1000;
+}
 
 function formatDate(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
@@ -43,6 +61,7 @@ function formatTime(t: string | null): string | null {
 export default function LearnerSessionFeedbackPage() {
   const { data: pending, isLoading, isError, error } = usePendingSessions(30);
   const [activeSession, setActiveSession] = useState<PendingSession | null>(null);
+  const [activeSource, setActiveSource] = useState<'async' | 'live_poll'>('async');
 
   const sessions = pending ?? [];
   const pendingCount = sessions.length;
@@ -64,7 +83,7 @@ export default function LearnerSessionFeedbackPage() {
               Class Feedback
             </h1>
             <p className="text-sm text-muted-foreground">
-              A quick 10-second check after each class. Giving feedback confirms your attendance.
+              A quick 10-second check after each class. Give it within {CONFIRM_WINDOW_HOURS} hours to confirm your attendance.
             </p>
           </div>
           {pendingCount > 0 && (
@@ -73,6 +92,23 @@ export default function LearnerSessionFeedbackPage() {
             </Badge>
           )}
         </div>
+
+        {/* Your confirmed-attendance % + early warning (advisory; hidden when enforcement is off) */}
+        <MyConfirmedAttendanceCard />
+
+        {/* Live class poll (Live Poll Engine Phase B) — the rich builder-driven poll
+            (realtime word-cloud / scale / checklist). This is now the SOLE in-class
+            live surface: opening a class poll flips scf_live_pulse.is_open, so the old
+            simple LivePulseBanner would double-show the same class. The old banner is
+            intentionally retired here; class-poll answers still feed the SCF loop via
+            the bridge (fn_induction_submit_poll_response -> fn_scf_submit_feedback). */}
+        <ClassPollBanner />
+
+        {/* A warm, private support note if you've found a course harder lately (hidden until a real AI note exists) */}
+        <StrugglingNoteCard />
+
+        {/* Loop closed — the specific change your feedback caused + your own before/after (hidden until a real chain exists) */}
+        <LoopClosureCard />
 
         {/* Receipt — your participation + whether flagged classes improved (hidden until you have history) */}
         <MyVoiceReceipt />
@@ -106,11 +142,16 @@ export default function LearnerSessionFeedbackPage() {
                   const courseLabel = s.course_name || s.course_code || 'Class session';
                   const time = formatTime(s.start_time);
                   const periodBits = [s.period_name, time].filter(Boolean).join(' · ');
+                  // #11: past the window, feedback is still welcome but no longer confirms attendance.
+                  const confirmsAttendance = withinConfirmWindow(s.attendance_date);
                   return (
                     <li key={`${s.attendance_date}-${s.timetable_id}-${s.period_id}`}>
                       <button
                         type="button"
-                        onClick={() => setActiveSession(s)}
+                        onClick={() => {
+                          setActiveSource('async');
+                          setActiveSession(s);
+                        }}
                         className="w-full text-left px-4 py-4 flex items-center gap-4 hover:bg-muted/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6d41]/30 focus-visible:ring-inset"
                       >
                         <div className="min-w-0 flex-1 space-y-1">
@@ -139,12 +180,24 @@ export default function LearnerSessionFeedbackPage() {
                                 {s.faculty_name}
                               </span>
                             )}
+                            {!confirmsAttendance && (
+                              <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-500">
+                                <Clock className="h-3.5 w-3.5" />
+                                Too late to confirm attendance
+                              </span>
+                            )}
                           </div>
                         </div>
-                        <span className="hidden sm:inline-flex items-center gap-1 text-xs font-medium" style={{ color: BRAND }}>
-                          <CheckCircle2 className="h-4 w-4" />
-                          Give feedback
-                        </span>
+                        {confirmsAttendance ? (
+                          <span className="hidden sm:inline-flex items-center gap-1 text-xs font-medium" style={{ color: BRAND }}>
+                            <CheckCircle2 className="h-4 w-4" />
+                            Give feedback
+                          </span>
+                        ) : (
+                          <span className="hidden sm:inline-flex items-center gap-1 text-xs font-medium text-muted-foreground" title={`The ${CONFIRM_WINDOW_HOURS}-hour window to confirm attendance for this class has passed. Your feedback still helps your faculty, but it no longer counts toward attendance.`}>
+                            Feedback only
+                          </span>
+                        )}
                         <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                       </button>
                     </li>
@@ -164,6 +217,7 @@ export default function LearnerSessionFeedbackPage() {
 
       <FeedbackDialog
         session={activeSession}
+        source={activeSource}
         onOpenChange={(open) => {
           if (!open) setActiveSession(null);
         }}

@@ -28,6 +28,7 @@ import {
   useUpdateCandidateStatus,
 } from '@/hooks/hr/use-recruitment';
 import { useAlumniSignal } from '@/hooks/hr/use-alumni-signal';
+import { CandidateDiscussionThread } from '../../_components/candidate-discussion-thread';
 import { useAuth } from '@/hooks/use-auth';
 import {
   CANDIDATE_STATUS_LABELS,
@@ -746,7 +747,10 @@ export default function CandidateDetailPage() {
           </CardContent>
         </Card>
 
-        {/* 6. Bottom actions */}
+        {/* 6. Discussion thread */}
+        <CandidateDiscussionThread candidateId={id} />
+
+        {/* 7. Bottom actions */}
         {(canWithdraw || canMarkJoined) && (
           <div className="flex gap-2 flex-wrap">
             {canWithdraw && (

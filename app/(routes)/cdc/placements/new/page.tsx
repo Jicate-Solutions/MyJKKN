@@ -19,12 +19,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ArrowLeft, Loader2, Paperclip, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useCreateCdcPlacement } from '@/hooks/cdc/use-cdc-placements';
 import { useCdcLookups, useCdcDrives } from '@/hooks/cdc/use-cdc-drives';
-import type { CdcPlacementInsert } from '@/types/cdc/placements';
+import type { CdcPlacementInsert, CdcPlacementMode } from '@/types/cdc/placements';
+import { CDC_PLACEMENT_MODES, CDC_PLACEMENT_MODE_LABELS } from '@/types/cdc/placements';
 
 /**
  * Local form-state shape. Extends the shared CdcPlacementInsert with the two
@@ -83,6 +85,7 @@ export default function NewCdcPlacementPage() {
   const [form, setForm] = useState<CdcPlacementFormState>({
     is_remote: false,
     is_walk_in: false,
+    placement_mode: 'on_campus',
     batch_no: 1,
     has_service_agreement: false,
   });
@@ -162,12 +165,15 @@ export default function NewCdcPlacementPage() {
     [lookups]
   );
 
-  const handleWalkInToggle = (checked: boolean) => {
+  const handlePlacementModeChange = (mode: CdcPlacementMode) => {
     setForm((f) => ({
       ...f,
-      is_walk_in: checked,
-      // Walk-ins have no drive; clear any prior selection
-      drive_id: checked ? null : f.drive_id,
+      placement_mode: mode,
+      // Keep the legacy is_walk_in boolean in sync so the drive-required conditional
+      // and the NAAC/AICTE export-service (both still read is_walk_in) stay correct.
+      is_walk_in: mode === 'walk_in',
+      // Walk-ins have no pre-registered drive; clear any prior selection.
+      drive_id: mode === 'walk_in' ? null : f.drive_id,
     }));
   };
 
@@ -232,19 +238,26 @@ export default function NewCdcPlacementPage() {
                   className="w-full"
                 />
               </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="is_walk_in"
-                  checked={form.is_walk_in ?? false}
-                  onChange={(e) => handleWalkInToggle(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300"
-                />
-                <Label htmlFor="is_walk_in" className="cursor-pointer">
-                  Walk-in placement (no pre-registered drive)
-                </Label>
+              <div className="space-y-1">
+                <Label htmlFor="placement_mode">Placement Mode <span className="text-destructive">*</span></Label>
+                <Select
+                  value={form.placement_mode ?? 'on_campus'}
+                  onValueChange={(v) => handlePlacementModeChange(v as CdcPlacementMode)}
+                >
+                  <SelectTrigger id="placement_mode" className="w-full">
+                    <SelectValue placeholder="Select placement mode" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CDC_PLACEMENT_MODES.map((m) => (
+                      <SelectItem key={m} value={m}>{CDC_PLACEMENT_MODE_LABELS[m]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Walk-in placements have no pre-registered drive.
+                </p>
               </div>
-              {!form.is_walk_in && (
+              {form.placement_mode !== 'walk_in' && (
                 <div className="space-y-1">
                   <Label htmlFor="drive_id">Drive (optional)</Label>
                   <SearchableSelect

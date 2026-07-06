@@ -9,9 +9,112 @@ import type {
   DashboardFilters,
   AttendanceTrendData
 } from '@/types/attendance-dashboard';
+import { getPolicyString, getPolicyInt } from '@/lib/policies/get-policy-client';
+import { POLICY_KEYS } from '@/lib/policies/keys';
+
+/**
+ * Post-class-feedback attendance-confirmation split for the admin dashboard.
+ * VISIBILITY-ONLY: derived from student_attendance + session_feedback via the
+ * fn_scf_confirmation_rollup RPC. Does NOT affect the official attendance %.
+ * When gate_mode = 'off' the split is not computed and `split` is null.
+ */
+export type SessionFeedbackGateMode = 'off' | 'visibility' | 'hard';
+
+export interface ConfirmationSplit {
+  totalPresent: number;
+  confirmed: number;
+  pendingWithin: number;
+  pendingOverdue: number;
+}
+
+export interface ConfirmationSplitResult {
+  gateMode: SessionFeedbackGateMode;
+  windowHours: number;
+  split: ConfirmationSplit | null;
+  /** Set when the rollup RPC errored — lets the UI distinguish failure from empty. */
+  error?: string;
+}
 
 export class AttendanceDashboardService {
   private static supabase = createClientSupabaseClient();
+
+  /**
+   * Confirmation split for the selected date + institution scope.
+   * Reads session_feedback.gate_mode: when 'off', returns early without hitting
+   * the RPC. Otherwise reads window_hours and calls fn_scf_confirmation_rollup
+   * (SECURITY DEFINER; enforces the same institution scope as the dashboard RLS).
+   */
+  static async getConfirmationSplit(
+    fromDate: string,
+    toDate: string,
+    institutionId?: string
+  ): Promise<ConfirmationSplitResult> {
+    // A failed policy read must not surface an error card for a feature that may
+    // well be 'off'. getPolicy* already fail-soft on the RPC's error field, but a
+    // thrown/rejected fetch would otherwise propagate to the query and render the
+    // error card — so treat any policy-read failure as 'off' (feature hidden).
+    let gateMode: SessionFeedbackGateMode = 'off';
+    let windowHours = 48;
+    try {
+      gateMode = (await getPolicyString(
+        POLICY_KEYS.SESSION_FEEDBACK_GATE_MODE,
+        'off'
+      )) as SessionFeedbackGateMode;
+      windowHours = await getPolicyInt(
+        POLICY_KEYS.SESSION_FEEDBACK_WINDOW_HOURS,
+        48
+      );
+    } catch (e) {
+      logger.warn(
+        'academic/attendance-dashboard',
+        'session_feedback policy read failed; treating gate as off',
+        e
+      );
+      return { gateMode: 'off', windowHours, split: null };
+    }
+
+    if (gateMode === 'off') {
+      return { gateMode, windowHours, split: null };
+    }
+
+    // Institution + date scoped, matching the sibling attendance stat cards.
+    // The RPC also accepts p_program_id/p_department_id/p_section_id, but the
+    // attendance dashboard's Statistics section (DashboardFilterState) exposes
+    // no program/department/section filter — only institution + academic year —
+    // so there is nothing narrower to forward here. academic_year is redundant
+    // for a single date (a day maps to one academic year), so it is not passed.
+    // If a finer dashboard filter is added later, thread it through to these
+    // already-present RPC params.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_scf_confirmation_rollup',
+      {
+        p_from: fromDate,
+        p_to: toDate,
+        p_institution_id: institutionId ?? null,
+        p_window_hours: windowHours
+      }
+    );
+
+    if (error) {
+      logger.error(
+        'academic/attendance-dashboard',
+        'fn_scf_confirmation_rollup failed',
+        error
+      );
+      return { gateMode, windowHours, split: null, error: error.message };
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    const split: ConfirmationSplit = {
+      totalPresent: Number(row?.total_present ?? 0),
+      confirmed: Number(row?.confirmed ?? 0),
+      pendingWithin: Number(row?.pending_within ?? 0),
+      pendingOverdue: Number(row?.pending_overdue ?? 0)
+    };
+
+    return { gateMode, windowHours, split };
+  }
 
   /**
    * Get today's attendance statistics with hierarchical structure
@@ -1006,7 +1109,7 @@ export class AttendanceDashboardService {
    * Useful for trend analysis
    */
   static async getAttendanceTrend(
-    institutionId: string,
+    institutionId: string | null | undefined,
     days: number = 7
   ): Promise<AttendanceTrendData[]> {
     try {
@@ -1023,12 +1126,20 @@ export class AttendanceDashboardService {
         dates.push(d.toISOString().split('T')[0]);
       }
 
-      const { data: attendanceData, error } = await this.supabase
+      // All-colleges viewer (scope='all', no institution selected) passes null/undefined:
+      // omit the .eq filter so every RLS-permitted institution's rows come back and the
+      // per-day loop below sums them into a combined overall %. A concrete institutionId
+      // still scopes to that one college. RLS keeps the no-filter branch scope-honest.
+      let query = this.supabase
         .from('student_attendance')
         .select('attendance_date, attendance_data')
-        .eq('institution_id', institutionId)
-        .in('attendance_date', dates)
-        .order('attendance_date');
+        .in('attendance_date', dates);
+
+      if (institutionId) {
+        query = query.eq('institution_id', institutionId);
+      }
+
+      const { data: attendanceData, error } = await query.order('attendance_date');
 
       if (error) throw error;
 

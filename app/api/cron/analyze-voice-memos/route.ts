@@ -67,6 +67,32 @@ import { getModel } from '@/lib/services/platform/ai-providers';
 const BATCH_LIMIT = 20; // rate-limit transcription API calls per run
 const STORAGE_BUCKET = 'call-memos';
 
+// Per-row failure budget. Rows that fail for row-specific reasons (silent
+// audio → empty transcript, oversized/corrupt file → provider 4xx, missing
+// storage object) consume one unit per attempt; once exhausted the sweep
+// skips the row so it can't monopolize the batch. Transient provider-wide
+// failures (429 quota/rate-limit, 5xx) do NOT consume budget — see the
+// circuit breaker in the catch block below.
+//
+// Bug receipt (2026-07-03): 'failed' rows were re-swept forever with no cap.
+// ~20 rows with <5-char transcripts, sorted oldest-first, filled the entire
+// 20-row batch every 5 min — 162K wasted transcription calls in 6 weeks,
+// 2,454 pending memos starved (zero progress even while the API was healthy),
+// and enough call volume to burn through both the Groq free tier and the
+// OpenAI account quota.
+const MAX_ANALYZE_ATTEMPTS = 5;
+
+// Slow persistent backstop for chronic rows whose failures always look
+// provider-wide (so same-run health evidence never charges them): every
+// UNCHARGED transient-class failure increments memo_transient_failures;
+// at this threshold it converts to one memo_analyze_attempts charge and
+// resets. Lone chronic row (probed ~12x/hr): +1 attempt per ~50 min →
+// parks in ~4h. Real fleet-wide outage: rotation spreads ~2 probes/run
+// across the whole queue, so a specific row needs days of unbroken outage
+// per single charge — valid rows effectively never park from outages, and
+// the counter stops growing the moment the provider heals.
+const TRANSIENT_CHARGE_THRESHOLD = 10;
+
 /**
  * Extracts the storage path-relative form from a memo_audio_url that may be
  * stored in any of THREE formats due to historical inconsistency between the
@@ -109,6 +135,11 @@ interface MemoCandidate {
   id: string;
   institution_id: string;
   memo_audio_url: string;
+  memo_analyze_attempts: number | null;
+  memo_analyze_status: string | null;
+  memo_transcript: string | null;
+  memo_transcript_language: string | null;
+  memo_transient_failures: number | null;
 }
 
 interface AnalysisResult {
@@ -163,6 +194,72 @@ function normalizeAnalysis(raw: Record<string, unknown>): AnalysisResult {
 }
 
 // ============================================================================
+// FAILURE CLASSIFICATION — final design after 7 deep-review rounds
+// ============================================================================
+// Two classes only:
+//   'ratelimit' — 429/quota/rate-limit. Request-level throttling: charges
+//     NOTHING (neither attempts nor the transient counter). Waited out.
+//   'transient' — everything else (5xx, 4xx of any kind, storage, network,
+//     timeout, unknown). NEVER charges attempts directly — every uncharged
+//     failure increments the persistent memo_transient_failures counter,
+//     which converts to one attempts charge at TRANSIENT_CHARGE_THRESHOLD.
+//
+// WHY NO EVIDENCE-BASED CHARGING: rounds 1–7 oscillated between "charge
+// look-alikes or poison rows never park" and "charging under partial
+// degradation parks valid memos". Both poles are covered structurally now:
+//   - The ONLY immediate attempts charge in this route is the
+//     empty-transcript guard — it fires after a SUCCESSFUL transcription,
+//     which is unambiguous row-specific evidence (the provider processed
+//     this file and returned nothing). That is the exact 2026-07-03 poison
+//     receipt, still parked at full speed (5 runs).
+//   - Every other pathology parks via the counter: a lone chronic row in a
+//     drained queue parks in ~4h; in a deep queue it costs ~1 wasted call
+//     per full rotation (~10h) until it parks. No storm of ANY class (5xx,
+//     404 model-retired, 400 bad flip, 413 oversize wave, bucket rename,
+//     network) can charge the backlog — all of them wait out or halt, and
+//     the backlog auto-recovers untouched when the cause is fixed.
+function classifyFailure(err: unknown): 'ratelimit' | 'transient' {
+  const anyErr = err as { status?: unknown; code?: unknown } | null;
+  const msg = err instanceof Error ? err.message : String(err);
+  let status = typeof anyErr?.status === 'number' ? (anyErr.status as number) : null;
+  if (status === null) {
+    // Only trust a status embedded in message text when it sits in an explicit
+    // provider-error shape — a bare \b\d\d\d\b would match incidental numbers
+    // like "404KB downloaded" or "took 500ms".
+    const m =
+      msg.match(/(?:API|HTTP|status(?:\s+code)?)[ :]+(4\d\d|5\d\d)\b/i) ||
+      msg.match(
+        /\b(4\d\d|5\d\d)\s+(?:Too Many|Bad Request|Unauthorized|Forbidden|Not Found|Request Entity|Payload|Unprocessable|Internal|Bad Gateway|Service Unavailable|Gateway Time)/i,
+      );
+    if (m) status = Number(m[1]);
+  }
+  if (status === 429 || /quota|rate.?limit/i.test(msg)) return 'ratelimit';
+  return 'transient';
+}
+
+// Bounded per-call timeout: converts a hung provider call into a classified
+// classified failure for one row instead of silently eating the whole
+// maxDuration=60s budget (orphan recovery remains the backstop).
+const withTimeout = <T,>(p: Promise<T>, ms: number, label: string): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, rej) => {
+    timer = setTimeout(() => rej(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  // Swallow the losing branch's late rejection so a timed-out provider call
+  // can't surface as an unhandledRejection. (It is not CANCELLED — the
+  // dispatchers expose no AbortSignal; maxDuration + orphan recovery bound
+  // the worst case.)
+  p.catch(() => {});
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer)) as Promise<T>;
+};
+
+// admission_call_logs has NO updated_at auto-bump trigger (verified in prod
+// 2026-07-03: only an AFTER INSERT lead-touch trigger exists). Every UPDATE
+// in this route therefore stamps updated_at EXPLICITLY — the CAS claims, the
+// orphan age guard, and the least-recently-touched rotation all depend on it.
+const nowIso = () => new Date().toISOString();
+
+// ============================================================================
 // CRON HANDLER
 // ============================================================================
 
@@ -190,31 +287,62 @@ export async function GET(request: NextRequest) {
   const supabase = createServiceRoleClient();
 
   // --- Find candidates ---------------------------------------------
-  // memo_audio_url IS NOT NULL AND (
-  //   status IN ('pending','failed')
-  //   OR (status = 'transcribing' AND updated_at < now - 5 min)
-  // )
+  // memo_audio_url IS NOT NULL
+  //   AND memo_analyze_attempts < MAX_ANALYZE_ATTEMPTS
+  //   AND (
+  //     status IN ('pending','failed')
+  //     OR (status IN ('transcribing','analyzing') AND updated_at < now - 5 min)
+  //   )
   //
-  // The 'transcribing' branch recovers orphaned soft-locks from crashed
-  // cron runs. The status is set on line ~224 as a soft lock against
-  // concurrent invocation; if the run crashes (OOM, timeout, network
-  // partition) the row stays stuck in 'transcribing' forever. The 5-min
-  // age guard ensures we don't race a still-running invocation (cron
-  // schedule is */5 * * * *, max single-memo duration ≤ 30s in practice).
-  const ORPHAN_AGE_MS = 5 * 60 * 1000;
+  // The 'transcribing'/'analyzing' branches recover orphaned soft-locks from
+  // crashed cron runs. Those statuses are set mid-pipeline as soft locks
+  // against concurrent invocation; if the run crashes (OOM, timeout, network
+  // partition) the row stays stuck forever. ('analyzing' orphan recovery
+  // added 2026-07-03 — 28 rows from May were stuck permanently because only
+  // 'transcribing' was recovered.) The 5-min age guard ensures we don't race
+  // a still-running invocation (cron schedule is */5 * * * *, max
+  // single-memo duration ≤ 30s in practice).
+  //
+  // The attempts filter is the poison-pill guard: rows whose per-row failure
+  // budget is exhausted stay visible as 'failed' in the monitor but are never
+  // re-swept, so they can't starve the queue (oldest-first ordering otherwise
+  // lets ~20 permanently-failing rows fill every batch forever).
+  // Strictly SMALLER than the */5 cron interval — a window equal to the
+  // interval makes just-deferred rows ineligible on the very next tick
+  // (equal-not-less-than), delaying sentiment recovery by an extra cycle.
+  const ORPHAN_AGE_MS = 4 * 60 * 1000;
   const orphanCutoffIso = new Date(Date.now() - ORPHAN_AGE_MS).toISOString();
-  // Build the OR clause as three equality branches plus a nested AND for the
-  // orphan-recovery branch. Using three top-level branches (eq.pending /
-  // eq.failed / and(eq.transcribing,lt.cutoff)) is friendlier to the
-  // PostgREST parser than .in.(...) when an ISO timestamp (containing ':'
-  // and '.') is in the same expression.
+  // Build the OR clause as equality branches plus nested ANDs for the
+  // orphan-recovery branches. Top-level branches (eq.pending / eq.failed /
+  // and(eq.<status>,lt.cutoff)) are friendlier to the PostgREST parser than
+  // .in.(...) when an ISO timestamp (containing ':' and '.') is in the same
+  // expression.
+  // Budget-exhausted rows stuck mid-pipeline ('transcribing'/'analyzing' with
+  // attempts >= cap) are excluded from the candidate sweep below by the .lt
+  // filter, so without this pass they would stay mislabeled forever.
+  await supabase
+    .from('admission_call_logs')
+    .update({ memo_analyze_status: 'failed', updated_at: nowIso() })
+    .gte('memo_analyze_attempts', MAX_ANALYZE_ATTEMPTS)
+    .in('memo_analyze_status', ['transcribing', 'analyzing'])
+    .lt('updated_at', orphanCutoffIso);
+
   const { data: candidatesRaw, error: candidatesErr } = await supabase
     .from('admission_call_logs')
-    .select('id, institution_id, memo_audio_url')
-    .not('memo_audio_url', 'is', null)
-    .or(
-      `memo_analyze_status.eq.pending,memo_analyze_status.eq.failed,and(memo_analyze_status.eq.transcribing,updated_at.lt.${orphanCutoffIso})`,
+    .select(
+      'id, institution_id, memo_audio_url, memo_analyze_attempts, memo_analyze_status, memo_transcript, memo_transcript_language, memo_transient_failures',
     )
+    .not('memo_audio_url', 'is', null)
+    .lt('memo_analyze_attempts', MAX_ANALYZE_ATTEMPTS)
+    .or(
+      `memo_analyze_status.eq.pending,memo_analyze_status.eq.failed,and(memo_analyze_status.eq.transcribing,updated_at.lt.${orphanCutoffIso}),and(memo_analyze_status.eq.analyzing,updated_at.lt.${orphanCutoffIso})`,
+    )
+    // Least-recently-touched first (NOT created_at): rows the previous run
+    // touched sink to the back, so front-row failures can never permanently
+    // stall the rest of the queue (deep-review v2 MEDIUM).
+    // updated_at verified in prod: DEFAULT now(), zero NULL rows — nullsFirst
+    // is belt-and-braces so a future NULL can never hide behind touched rows.
+    .order('updated_at', { ascending: true, nullsFirst: true })
     .order('created_at', { ascending: true })
     .limit(BATCH_LIMIT);
 
@@ -233,142 +361,253 @@ export async function GET(request: NextRequest) {
   let completed = 0;
   let rejected = 0;
   let failed = 0;
+  let halted: string | null = null;
   const errors: string[] = [];
 
+  // Run-level provider-health evidence (see classifyFailure above).
+  let txTransientStreak = 0; // consecutive distinct-row transient-class transcription failures
+  let stTransientStreak = 0;
+  let skipSentiment = false; // transcribe-only mode after repeated sentiment provider failures
+  let skipTranscribe = false; // sentiment-only mode after transcribe provider confirmed down
+  let transcribeSkipped = 0; // fresh rows skipped while skipTranscribe (untouched, next run's problem)
+  let sentimentDeferred = 0; // rows left in 'analyzing' for a later sentiment resume
+  let claimMissed = 0; // rows another concurrent run claimed first (CAS returned 0 rows)
+
   for (const c of candidates) {
+    // Don't START a row without enough wall-clock left for it to finish —
+    // per-call timeouts below are additionally capped by remaining budget so
+    // a row started late can never push past maxDuration=60s mid-write.
+    if (Date.now() - started > 45000) break;
+    const attempts = c.memo_analyze_attempts ?? 0;
+    let phase: 'transcribe' | 'sentiment' = 'transcribe';
     try {
-      // Mark transcribing (acts as a soft lock against another invocation).
-      await supabase
-        .from('admission_call_logs')
-        .update({ memo_analyze_status: 'transcribing' })
-        .eq('id', c.id);
+      // Resume-at-sentiment: an 'analyzing' orphan (or a sentiment-phase
+      // 'failed' row) that already carries a valid English transcript must
+      // NOT be re-downloaded and re-transcribed — that burned the very
+      // transcription calls this fix exists to cut (deep-review 2026-07-03).
+      const storedTranscript = (c.memo_transcript || '').trim();
+      const canResumeAtSentiment =
+        (c.memo_analyze_status === 'analyzing' || c.memo_analyze_status === 'failed') &&
+        storedTranscript.length >= 5 &&
+        !NON_LATIN_REGEX.test(storedTranscript) &&
+        normalizeLanguageCode(c.memo_transcript_language || 'en') === 'en';
 
-      // Download audio from Supabase Storage. Path normalization handles all
-      // 3 historical memo_audio_url formats (full URL / bucket-prefixed / bare).
-      const { data: audioBlob, error: dlErr } = await supabase.storage
-        .from(STORAGE_BUCKET)
-        .download(normalizeMemoStoragePath(c.memo_audio_url));
-
-      if (dlErr || !audioBlob) {
-        throw new Error(`storage download: ${dlErr?.message || 'no blob'}`);
-      }
-      const audioBuffer = await audioBlob.arrayBuffer();
-      const audioMime = audioBlob.type || 'audio/webm';
-
-      // ----- Transcription (provider dispatch) -----
-      const txStart = Date.now();
-      let transcript = '';
-      let language = 'unknown';
-      try {
-        const result = await transcribeAudio({
-          audioBuffer,
-          filename: `${c.id}.${audioMime.includes('mp4') ? 'm4a' : 'webm'}`,
-          provider: transcribeConfig.provider,
-          modelId: transcribeConfig.model_id,
-          language: 'en',
-          mimeType: audioMime,
-        });
-        transcript = result.text;
-        language = result.language;
-
-        // Cost estimate: pass the audio duration parsed from the provider's
-        // verbose_json `duration` field. Without it the estimator returns null
-        // and the admin Cost panel reports ₹0 even when thousands of calls
-        // fire (the bug receipt this comment replaces — 2026-05-21).
-        await recordUsage(
-          'voice_memo.transcribe',
-          transcribeConfig.provider,
-          transcribeConfig.model_id,
-          {
-            duration_ms: Date.now() - txStart,
-            success: true,
-            cost_inr: estimateTranscriptionCostInr(
-              transcribePricing?.perMinuteInr,
-              result.durationSeconds,
-            ),
-            call_log_id: c.id,
-          },
-        );
-      } catch (txErr) {
-        const msg = txErr instanceof Error ? txErr.message : String(txErr);
-        await recordUsage(
-          'voice_memo.transcribe',
-          transcribeConfig.provider,
-          transcribeConfig.model_id,
-          {
-            duration_ms: Date.now() - txStart,
-            success: false,
-            error_message: msg.slice(0, 500),
-            call_log_id: c.id,
-          },
-        );
-        throw txErr;
-      }
-
-      // Language guardrail:
-      //   (a) Transcription response.language must resolve to ISO 'en'.
-      //   (b) Transcript must not contain non-Latin scripts.
-      //
-      // The transcription dispatcher already normalizes the language field at
-      // source (Whisper's "English" → "en"; Sarvam's "en-IN" → "en"). Belt-
-      // and-braces: re-normalize here so any future provider that returns a
-      // full-word name or BCP-47 code still passes the guard. The original
-      // bug (100% rejection of English memos, 2026-05-22) was caused by a
-      // raw `language !== 'en'` compare against the unnormalized lowercase
-      // value "english".
-      const normalizedLanguage = normalizeLanguageCode(language);
-      const hasNonLatin = NON_LATIN_REGEX.test(transcript);
-      if (normalizedLanguage !== 'en' || hasNonLatin) {
-        await supabase
-          .from('admission_call_logs')
-          .update({
-            memo_transcript: transcript || null,
-            memo_transcript_language: normalizedLanguage,
-            memo_analyze_status: 'rejected_non_english',
-            memo_analyzed_at: new Date().toISOString(),
-          })
-          .eq('id', c.id);
-        rejected++;
+      if (skipTranscribe && !canResumeAtSentiment) {
+        // Transcribe provider confirmed down this run — leave fresh rows
+        // untouched, but keep draining sentiment-ready rows below (their
+        // provider is independent and may be healthy).
+        transcribeSkipped++;
         continue;
       }
 
-      // Empty transcript guard — Whisper sometimes returns nothing for silence.
-      if (!transcript || transcript.length < 5) {
-        await supabase
+      let transcript = storedTranscript;
+
+      if (canResumeAtSentiment) {
+        phase = 'sentiment';
+        if (skipSentiment) {
+          // Sentiment provider is down this run. Do NOT touch the row —
+          // leaving updated_at unbumped keeps it immediately eligible for
+          // the next run instead of hiding behind the 5-min orphan guard.
+          sentimentDeferred++;
+          continue;
+        }
+        // Atomic claim (CAS): only proceed if the row is still in the state
+        // the sweep saw AND still older than the orphan cutoff — a concurrent
+        // run (Vercel retry / manual trigger) that claimed it first bumped
+        // updated_at or flipped the status, making this UPDATE match 0 rows.
+        let claimQuery = supabase
+          .from('admission_call_logs')
+          .update({ memo_analyze_status: 'analyzing', updated_at: nowIso() })
+          .eq('id', c.id)
+          .eq('memo_analyze_status', c.memo_analyze_status as string);
+        if (c.memo_analyze_status === 'analyzing') {
+          claimQuery = claimQuery.lt('updated_at', orphanCutoffIso);
+        }
+        const { data: claimedRows } = await claimQuery.select('id');
+        if (!claimedRows || claimedRows.length === 0) {
+          claimMissed++;
+          continue;
+        }
+      } else {
+        // Atomic claim (CAS) as the transcribing soft lock: pending/failed →
+        // 'transcribing' is a real transition, so of two racing runs exactly
+        // one sees a matched row; 'transcribing' orphans additionally require
+        // the pre-claim updated_at to be older than the orphan cutoff.
+        let claimQuery = supabase
+          .from('admission_call_logs')
+          .update({ memo_analyze_status: 'transcribing', updated_at: nowIso() })
+          .eq('id', c.id)
+          .eq('memo_analyze_status', c.memo_analyze_status as string);
+        if (c.memo_analyze_status === 'transcribing') {
+          claimQuery = claimQuery.lt('updated_at', orphanCutoffIso);
+        }
+        const { data: claimedRows } = await claimQuery.select('id');
+        if (!claimedRows || claimedRows.length === 0) {
+          claimMissed++;
+          continue;
+        }
+
+        // Download audio from Supabase Storage. Path normalization handles all
+        // 3 historical memo_audio_url formats (full URL / bucket-prefixed / bare).
+        const { data: audioBlob, error: dlErr } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .download(normalizeMemoStoragePath(c.memo_audio_url));
+
+        if (dlErr || !audioBlob) {
+          throw new Error(`storage download: ${dlErr?.message || 'no blob'}`);
+        }
+        const audioBuffer = await audioBlob.arrayBuffer();
+        const audioMime = audioBlob.type || 'audio/webm';
+
+        // ----- Transcription (provider dispatch) -----
+        const txStart = Date.now();
+        let language = 'unknown';
+        try {
+          const result = await withTimeout(
+            transcribeAudio({
+              audioBuffer,
+              filename: `${c.id}.${audioMime.includes('mp4') ? 'm4a' : 'webm'}`,
+              provider: transcribeConfig.provider,
+              modelId: transcribeConfig.model_id,
+              language: 'en',
+              mimeType: audioMime,
+            }),
+            // Capped by remaining run budget so tx + sentiment + overhead
+            // always fit under maxDuration=60s (round-6 MEDIUM).
+            Math.min(35000, Math.max(5000, 52000 - (Date.now() - started))),
+            'transcription',
+          );
+          transcript = result.text;
+          language = result.language;
+          txTransientStreak = 0; // provider proven up this run
+
+          // Cost estimate: pass the audio duration parsed from the provider's
+          // verbose_json `duration` field. Without it the estimator returns null
+          // and the admin Cost panel reports ₹0 even when thousands of calls
+          // fire (the bug receipt this comment replaces — 2026-05-21).
+          await recordUsage(
+            'voice_memo.transcribe',
+            transcribeConfig.provider,
+            transcribeConfig.model_id,
+            {
+              duration_ms: Date.now() - txStart,
+              success: true,
+              cost_inr: estimateTranscriptionCostInr(
+                transcribePricing?.perMinuteInr,
+                result.durationSeconds,
+              ),
+              call_log_id: c.id,
+            },
+          );
+        } catch (txErr) {
+          const msg = txErr instanceof Error ? txErr.message : String(txErr);
+          await recordUsage(
+            'voice_memo.transcribe',
+            transcribeConfig.provider,
+            transcribeConfig.model_id,
+            {
+              duration_ms: Date.now() - txStart,
+              success: false,
+              error_message: msg.slice(0, 500),
+              call_log_id: c.id,
+            },
+          );
+          throw txErr;
+        }
+
+        // Language guardrail:
+        //   (a) Transcription response.language must resolve to ISO 'en'.
+        //   (b) Transcript must not contain non-Latin scripts.
+        //
+        // The transcription dispatcher already normalizes the language field at
+        // source (Whisper's "English" → "en"; Sarvam's "en-IN" → "en"). Belt-
+        // and-braces: re-normalize here so any future provider that returns a
+        // full-word name or BCP-47 code still passes the guard. The original
+        // bug (100% rejection of English memos, 2026-05-22) was caused by a
+        // raw `language !== 'en'` compare against the unnormalized lowercase
+        // value "english".
+        const normalizedLanguage = normalizeLanguageCode(language);
+        const hasNonLatin = NON_LATIN_REGEX.test(transcript);
+        if (normalizedLanguage !== 'en' || hasNonLatin) {
+          await supabase
+            .from('admission_call_logs')
+            .update({
+              memo_transcript: transcript || null,
+              memo_transcript_language: normalizedLanguage,
+              memo_analyze_status: 'rejected_non_english',
+              memo_analyzed_at: nowIso(),
+              updated_at: nowIso(),
+            })
+            .eq('id', c.id);
+          rejected++;
+          continue;
+        }
+
+        // Empty transcript guard — Whisper sometimes returns nothing for silence.
+        // Row-specific failure: consume one unit of the retry budget so a
+        // silent/corrupt recording parks after MAX_ANALYZE_ATTEMPTS instead of
+        // being re-transcribed every 5 minutes forever (the 2026-07-03 poison
+        // loop: same ~17 rows transcribed ~280x/day each with zero progress).
+        if (!transcript || transcript.length < 5) {
+          await supabase
+            .from('admission_call_logs')
+            .update({
+              memo_transcript: transcript || null,
+              memo_transcript_language: normalizedLanguage,
+              memo_analyze_status: 'failed',
+              memo_analyze_attempts: attempts + 1,
+              memo_analyzed_at: nowIso(),
+              updated_at: nowIso(),
+            })
+            .eq('id', c.id);
+          failed++;
+          errors.push(`${c.id}: empty transcript`);
+          continue;
+        }
+
+        // Move to analyzing (transcript persists — a sentiment-phase failure
+        // later resumes HERE, never back at transcription). Store the
+        // NORMALIZED language code for cross-path consistency.
+        const { error: persistErr } = await supabase
           .from('admission_call_logs')
           .update({
-            memo_transcript: transcript || null,
+            memo_transcript: transcript,
             memo_transcript_language: normalizedLanguage,
-            memo_analyze_status: 'failed',
-            memo_analyzed_at: new Date().toISOString(),
+            memo_analyze_status: 'analyzing',
+            updated_at: nowIso(),
           })
           .eq('id', c.id);
-        failed++;
-        errors.push(`${c.id}: empty transcript`);
-        continue;
-      }
+        if (persistErr) {
+          // Transcript NOT persisted — proceeding would strand sentiment
+          // results on a row with no transcript, and silently losing this
+          // write re-burns a full transcription next run. Throw into the
+          // transient lane (no charge; orphan recovery re-picks the row).
+          throw new Error(`transcript persist: ${persistErr.message}`);
+        }
 
-      // Move to analyzing.
-      await supabase
-        .from('admission_call_logs')
-        .update({
-          memo_transcript: transcript,
-          memo_transcript_language: language,
-          memo_analyze_status: 'analyzing',
-        })
-        .eq('id', c.id);
+        if (skipSentiment) {
+          sentimentDeferred++;
+          continue; // transcript saved; sentiment resumes on a later run
+        }
+        phase = 'sentiment';
+      }
 
       // ----- Sentiment / structured extraction (provider dispatch) -----
       const stStart = Date.now();
       let analysis: AnalysisResult;
       try {
-        const raw = await analyzeStructured({
-          provider: sentimentConfig.provider,
-          modelId: sentimentConfig.model_id,
-          systemPrompt: SENTIMENT_SYSTEM_PROMPT,
-          userPrompt: `Transcript:\n\n${transcript}`,
-        });
+        const raw = await withTimeout(
+          analyzeStructured({
+            provider: sentimentConfig.provider,
+            modelId: sentimentConfig.model_id,
+            systemPrompt: SENTIMENT_SYSTEM_PROMPT,
+            userPrompt: `Transcript:\n\n${transcript}`,
+          }),
+          Math.min(15000, Math.max(3000, 55000 - (Date.now() - started))),
+          'sentiment',
+        );
         analysis = normalizeAnalysis(raw.parsed);
+        stTransientStreak = 0; // provider proven up this run
 
         await recordUsage(
           'voice_memo.sentiment',
@@ -404,7 +643,7 @@ export async function GET(request: NextRequest) {
         throw stErr;
       }
 
-      await supabase
+      const { error: doneErr } = await supabase
         .from('admission_call_logs')
         .update({
           memo_sentiment: analysis.sentiment,
@@ -412,26 +651,102 @@ export async function GET(request: NextRequest) {
           memo_summary: analysis.summary,
           memo_categories: analysis.categories,
           memo_analyze_status: 'completed',
-          memo_analyzed_at: new Date().toISOString(),
+          memo_analyzed_at: nowIso(),
+          updated_at: nowIso(),
         })
         .eq('id', c.id);
+      if (doneErr) {
+        // Results not persisted — row stays 'analyzing'; resume-at-sentiment
+        // redoes the (cheap) sentiment call next run.
+        throw new Error(`completed persist: ${doneErr.message}`);
+      }
 
       completed++;
     } catch (e) {
-      failed++;
       const msg = e instanceof Error ? e.message : String(e);
-      errors.push(`${c.id}: ${msg}`);
-      try {
-        await supabase
-          .from('admission_call_logs')
-          .update({
-            memo_analyze_status: 'failed',
-            memo_analyzed_at: new Date().toISOString(),
-          })
-          .eq('id', c.id);
-      } catch {
-        // best-effort — already in error path
+      const cls = classifyFailure(e);
+      errors.push(`${c.id}: [${phase}] ${msg}`);
+
+      if (phase === 'sentiment') {
+        // Transcript is saved and status is 'analyzing' — leave the row
+        // there; resume-at-sentiment picks it up next run without
+        // re-transcribing. Never halt TRANSCRIPTION work over a sentiment
+        // failure (different provider); after two distinct-row failures
+        // switch to transcribe-only mode for the rest of the run.
+        sentimentDeferred++;
+        stTransientStreak++;
+        if (stTransientStreak >= 2) skipSentiment = true;
+        if (cls !== 'ratelimit') {
+          const stTransientCount = (c.memo_transient_failures ?? 0) + 1;
+          try {
+            await supabase
+              .from('admission_call_logs')
+              .update(
+                stTransientCount >= TRANSIENT_CHARGE_THRESHOLD
+                  ? {
+                      // Backstop conversion (see TRANSIENT_CHARGE_THRESHOLD).
+                      memo_analyze_status: 'failed',
+                      memo_analyze_attempts: attempts + 1,
+                      memo_transient_failures: 0,
+                      updated_at: nowIso(),
+                    }
+                  : { memo_transient_failures: stTransientCount, updated_at: nowIso() },
+              )
+              .eq('id', c.id);
+          } catch {
+            // best-effort
+          }
+        }
+        continue;
       }
+
+      failed++;
+      txTransientStreak++;
+      if (cls !== 'ratelimit') {
+        const txTransientCount = (c.memo_transient_failures ?? 0) + 1;
+        try {
+          await supabase
+            .from('admission_call_logs')
+            .update(
+              txTransientCount >= TRANSIENT_CHARGE_THRESHOLD
+                ? {
+                    // Backstop conversion (see TRANSIENT_CHARGE_THRESHOLD).
+                    memo_analyze_status: 'failed',
+                    memo_analyze_attempts: attempts + 1,
+                    memo_transient_failures: 0,
+                    updated_at: nowIso(),
+                  }
+                : {
+                    memo_analyze_status: 'failed',
+                    memo_transient_failures: txTransientCount,
+                    updated_at: nowIso(),
+                  },
+            )
+            .eq('id', c.id);
+        } catch {
+          // best-effort — already in error path
+        }
+      } else {
+        // Rate-limited: park for a later run; charge nothing anywhere.
+        try {
+          await supabase
+            .from('admission_call_logs')
+            .update({ memo_analyze_status: 'failed', updated_at: nowIso() })
+            .eq('id', c.id);
+        } catch {
+          // best-effort
+        }
+      }
+      if (txTransientStreak >= 2) {
+        // Two distinct rows failed with zero successes — stop burning
+        // transcribe calls this run (resume-at-sentiment rows keep
+        // draining; rotation prevents any front-row stall). Receipt
+        // 2026-07-03: a quota-dead account ate ~5,400 calls/day for 29
+        // days; this caps a dead provider at ~576 probe calls/day.
+        halted = msg.slice(0, 200);
+        skipTranscribe = true;
+      }
+      // First transient failure this run: probe one more row before halting.
     }
   }
 
@@ -461,6 +776,10 @@ export async function GET(request: NextRequest) {
       rejected,
       failed,
       remaining,
+      halted,
+      sentiment_deferred: sentimentDeferred,
+      transcribe_skipped: transcribeSkipped,
+      claim_missed: claimMissed,
       transcribe_provider: `${transcribeConfig.provider}/${transcribeConfig.model_id}`,
       sentiment_provider: `${sentimentConfig.provider}/${sentimentConfig.model_id}`,
       first_errors: errors.slice(0, 5),
@@ -475,6 +794,13 @@ export async function GET(request: NextRequest) {
     rejected,
     failed,
     remaining,
+    // Non-null when the run stopped early on a provider-wide failure
+    // (quota exhaustion / rate limit / 5xx) — the remaining candidates were
+    // left untouched for the next run rather than burned against the same wall.
+    halted,
+    sentiment_deferred: sentimentDeferred,
+    transcribe_skipped: transcribeSkipped,
+    claim_missed: claimMissed,
     transcribe_provider: `${transcribeConfig.provider}/${transcribeConfig.model_id}`,
     sentiment_provider: `${sentimentConfig.provider}/${sentimentConfig.model_id}`,
     errors: errors.slice(0, 10),

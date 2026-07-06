@@ -984,7 +984,9 @@ export class StaffPlanService {
             id,
             first_name,
             last_name,
-            staff_id
+            staff_id,
+            is_active,
+            institution_email
           )
         `
         )

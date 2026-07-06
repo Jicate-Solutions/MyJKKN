@@ -12,6 +12,8 @@ export const scfQueryKeys = {
   checklistConfig: (institutionId?: string | null) =>
     [...scfQueryKeys.all, 'checklist-config', institutionId ?? null] as const,
   pending: (lookbackDays: number) => [...scfQueryKeys.all, 'pending', lookbackDays] as const,
+  carryforward: (lookbackDays: number) =>
+    [...scfQueryKeys.all, 'carryforward', lookbackDays] as const,
   confirmation: (from: string, to: string) =>
     [...scfQueryKeys.all, 'confirmation', from, to] as const,
   facultySummary: (from: string, to: string) =>
@@ -34,6 +36,11 @@ export const scfQueryKeys = {
     [...scfQueryKeys.all, 'admin-faculty-summary', from, to] as const,
   adminTrend: (from: string, to: string) =>
     [...scfQueryKeys.all, 'admin-trend', from, to] as const,
+  facilitatorCoverage: (from: string, to: string) =>
+    [...scfQueryKeys.all, 'facilitator-coverage', from, to] as const,
+  openPulsesForLearner: () => [...scfQueryKeys.all, 'open-pulses-learner'] as const,
+  pulseTotals: (pulseId: string) => [...scfQueryKeys.all, 'pulse-totals', pulseId] as const,
+  myConfirmedAttendance: () => [...scfQueryKeys.all, 'my-confirmed-attendance'] as const,
 };
 
 export function useChecklistConfig(institutionId?: string | null) {
@@ -48,6 +55,15 @@ export function usePendingSessions(lookbackDays = 30) {
   return useQuery({
     queryKey: scfQueryKeys.pending(lookbackDays),
     queryFn: () => SessionFeedbackService.getPending(lookbackDays),
+    staleTime: 30 * 1000,
+  });
+}
+
+/** Carry-forward re-asks for the learner's pending sessions ("better this time?"). */
+export function useCarryforward(lookbackDays = 30) {
+  return useQuery({
+    queryKey: scfQueryKeys.carryforward(lookbackDays),
+    queryFn: () => SessionFeedbackService.getCarryforward(lookbackDays),
     staleTime: 30 * 1000,
   });
 }
@@ -165,6 +181,16 @@ export function useAdminTrend(from: string, to: string) {
   });
 }
 
+/** All-college per-learning-facilitator FEEDBACK coverage (drivers first, 0% last). */
+export function useFacilitatorFeedbackCoverage(from: string, to: string) {
+  return useQuery({
+    queryKey: scfQueryKeys.facilitatorCoverage(from, to),
+    queryFn: () => SessionFeedbackService.getFacilitatorFeedbackCoverage(from, to),
+    enabled: !!from && !!to,
+    staleTime: 60 * 1000,
+  });
+}
+
 /** Submit feedback; refreshes the pending + confirmation views on success. */
 export function useSubmitFeedback() {
   const qc = useQueryClient();
@@ -173,5 +199,66 @@ export function useSubmitFeedback() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: scfQueryKeys.all });
     },
+  });
+}
+
+/** Faculty-triggered per-session "notify pending" nudge (PR-B). Refreshes the
+ *  completion + pending-roster views so the drawer reflects any change. */
+export function useNotifySessionPending() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { attendanceDate: string; timetableId: string; periodId: string }) =>
+      SessionFeedbackService.notifySessionPending(
+        input.attendanceDate,
+        input.timetableId,
+        input.periodId,
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: scfQueryKeys.all });
+    },
+  });
+}
+
+// ── Live Pulse Check ─────────────────────────────────────────────────────────
+
+/** Teacher opens a live pulse for a class (assigned faculty or HOD/admin). */
+export function useOpenPulse() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { attendanceDate: string; timetableId: string; periodId: string }) =>
+      SessionFeedbackService.openPulse(input.attendanceDate, input.timetableId, input.periodId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: scfQueryKeys.all });
+    },
+  });
+}
+
+/** Open pulses for the caller learner's Present sessions. Polls so the answer
+ *  banner appears within ~20s of a teacher opening a pulse. */
+export function useOpenPulsesForLearner() {
+  return useQuery({
+    queryKey: scfQueryKeys.openPulsesForLearner(),
+    queryFn: () => SessionFeedbackService.getOpenPulsesForLearner(),
+    staleTime: 15 * 1000,
+    refetchInterval: 20 * 1000,
+  });
+}
+
+/** Anonymized live totals for one pulse. Polls every 10s while enabled (dialog open). */
+export function usePulseTotals(pulseId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: scfQueryKeys.pulseTotals(pulseId ?? ''),
+    queryFn: () => SessionFeedbackService.getPulseTotals(pulseId as string),
+    enabled: enabled && !!pulseId,
+    refetchInterval: 10 * 1000,
+  });
+}
+
+/** The caller learner's OWN confirmed-attendance snapshot (transparency + early warning, #7). */
+export function useMyConfirmedAttendance() {
+  return useQuery({
+    queryKey: scfQueryKeys.myConfirmedAttendance(),
+    queryFn: () => SessionFeedbackService.getMyConfirmedAttendance(),
+    staleTime: 60 * 1000,
   });
 }

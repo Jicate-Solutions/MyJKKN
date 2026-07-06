@@ -8,6 +8,7 @@ import type {
   VacateReason,
   RoomBedOccupancy,
   AllocatableRoom,
+  AllocatableBlock,
 } from '@/types/campus-living';
 
 // Row shape returned by fn_cl_transfer_room_options (transfer-modal availability).
@@ -244,9 +245,10 @@ export class HostelAllocationService {
   }
 
   // ── Allocatable rooms (fn_cl_admin_allocatable_rooms) ─────────────
-  // Rooms in a block the learner can actually be allocated to — physical
-  // (student room, gender, institution-serving, cohort eligibility, free beds)
-  // + category conditions applied server-side. Drives the dialog's room picker.
+  // ALL student rooms in a block with per-condition verdict flags (gender,
+  // institution-serving, cohort eligibility, category, free beds) computed
+  // server-side. is_allocatable rooms drive the dialog's room picker; the
+  // failing flags drive its "why not allocatable" diagnostics.
   static async getAllocatableRooms(
     learnerProfileId: string,
     blockId: string,
@@ -261,6 +263,24 @@ export class HostelAllocationService {
       throw error;
     }
     return (data ?? []) as AllocatableRoom[];
+  }
+
+  // ── Allocatable blocks (fn_cl_admin_allocatable_blocks) ───────────
+  // Every hostel block with the count of rooms/beds this learner can actually
+  // be allocated (same predicates as getAllocatableRooms, aggregated). Ranks
+  // the dialog's block picker and drives its auto-select.
+  static async getAllocatableBlocks(
+    learnerProfileId: string,
+  ): Promise<AllocatableBlock[]> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.rpc('fn_cl_admin_allocatable_blocks', {
+      p_learner_profile_id: learnerProfileId,
+    });
+    if (error) {
+      logger.error('campus-living/allocations', 'Failed to load allocatable blocks', error);
+      throw error;
+    }
+    return (data ?? []) as AllocatableBlock[];
   }
 
   // ── Admin allocate bed (fn_cl_admin_allocate_bed) ─────────────────
@@ -447,6 +467,43 @@ export class HostelAllocationService {
       return data as HostelAllocation;
     } catch (error) {
       logger.error('campus-living/allocations', 'Unexpected error in vacate', error);
+      throw error;
+    }
+  }
+
+  // ── Reset allocation (room and/or learner categories) ─────────────
+  // Routes through fn_cl_admin_reset_allocation (SECURITY DEFINER) so the
+  // undo is atomic and keeps the bed inventory invariant: the allocation row
+  // is hard-deleted AND its bed freed (status='available', occupant NULL) in
+  // one transaction; the learner's room/mess category columns on
+  // learners_profiles are cleared through the RPC's own gate (hostel admins
+  // can't UPDATE that table directly). Gated on campus_living.upgrades.manage.
+  static async resetAllocation(
+    allocationId: string,
+    opts: { resetRoom: boolean; resetRoomCategory: boolean; resetMessCategory: boolean }
+  ) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase.rpc('fn_cl_admin_reset_allocation', {
+        p_allocation_id: allocationId,
+        p_reset_room: opts.resetRoom,
+        p_reset_room_category: opts.resetRoomCategory,
+        p_reset_mess_category: opts.resetMessCategory,
+      });
+
+      if (error) {
+        logger.error('campus-living/allocations', 'Failed to reset allocation', error);
+        throw error;
+      }
+      return data as {
+        success: boolean;
+        allocation_deleted: boolean;
+        freed_bed_id: string | null;
+        room_category_cleared: boolean;
+        mess_category_cleared: boolean;
+      };
+    } catch (error) {
+      logger.error('campus-living/allocations', 'Unexpected error in resetAllocation', error);
       throw error;
     }
   }

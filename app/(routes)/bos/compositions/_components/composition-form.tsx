@@ -272,10 +272,13 @@ export function CompositionForm({
                     );
                   };
                   const q = boardSearch.trim().toLowerCase();
+                  // Guard against a malformed/non-array payload (e.g. COE
+                  // envelope drift) so rendering can never throw on .filter/.map.
+                  const boards = Array.isArray(boardsRaw) ? boardsRaw : [];
                   const filtered = q
-                    ? boardsRaw.filter((b) =>
+                    ? boards.filter((b) =>
                         `${b.board_name} ${b.board_code}`.toLowerCase().includes(q))
-                    : boardsRaw;
+                    : boards;
                   return (
                     <FormItem className={isSuperAdmin ? '' : 'md:col-span-2'}>
                       <FormLabel>
@@ -290,7 +293,7 @@ export function CompositionForm({
                         )}
                       </FormLabel>
                       <div className='rounded-md border'>
-                        {!!boardInstitutionId && boardsRaw.length > 0 && (
+                        {!!boardInstitutionId && boards.length > 0 && (
                           <div className='border-b p-2'>
                             <Input
                               value={boardSearch}
@@ -305,7 +308,7 @@ export function CompositionForm({
                             <p className='p-3 text-sm text-muted-foreground'>Select institution first</p>
                           ) : loadingBoards ? (
                             <p className='p-3 text-sm text-muted-foreground'>Loading boards…</p>
-                          ) : boardsRaw.length === 0 ? (
+                          ) : boards.length === 0 ? (
                             <p className='p-3 text-sm text-muted-foreground'>No boards for this institution.</p>
                           ) : filtered.length === 0 ? (
                             <p className='p-3 text-sm text-muted-foreground'>No boards match “{boardSearch}”.</p>

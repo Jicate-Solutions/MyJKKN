@@ -16,6 +16,7 @@
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { format, parseISO } from 'date-fns';
 import { Pencil, RefreshCw, AlertTriangle } from 'lucide-react';
@@ -32,8 +33,30 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { getModelLabel } from '@/lib/services/platform/ai-providers';
+import { AI_ROUTINES } from '@/lib/ai-routines/registry';
+import type { AIRoutine } from '@/lib/ai-routines/types';
 
 import { AiModelEditDialog } from './ai-model-edit-dialog';
+
+// Reverse cross-link: which /admin/ai-routines entries run on each feature row.
+// Static registry data, computed once at module scope (no hooks involved).
+const ROUTINES_BY_FEATURE: Map<string, AIRoutine[]> = (() => {
+  const m = new Map<string, AIRoutine[]>();
+  for (const r of AI_ROUTINES) {
+    if (!r.featureKey) continue;
+    const list = m.get(r.featureKey) ?? [];
+    list.push(r);
+    m.set(r.featureKey, list);
+  }
+  return m;
+})();
+
+const ROUTINE_TYPE_LABELS: Record<AIRoutine['type'], string> = {
+  cron: 'Scheduled',
+  endpoint: 'Endpoint',
+  interactive: 'On-demand',
+  service: 'Service',
+};
 
 interface FeatureRow {
   feature_key: string;
@@ -165,6 +188,7 @@ export function AiModelsDataTable() {
                     <TableRow>
                       <TableHead className="w-[280px]">Feature</TableHead>
                       <TableHead>Current Model</TableHead>
+                      <TableHead>Used by</TableHead>
                       <TableHead className="text-right">This month</TableHead>
                       <TableHead className="text-right">Last 24h</TableHead>
                       <TableHead className="text-right">Cap (INR/mo)</TableHead>
@@ -207,6 +231,35 @@ export function AiModelsDataTable() {
                                 </div>
                               )}
                             </div>
+                          </TableCell>
+                          <TableCell>
+                            {(() => {
+                              const usedBy = ROUTINES_BY_FEATURE.get(f.feature_key) ?? [];
+                              if (usedBy.length === 0) {
+                                return <span className="text-xs text-muted-foreground">—</span>;
+                              }
+                              return (
+                                <div className="space-y-1">
+                                  {usedBy.map((r) => (
+                                    <div key={r.id} className="flex items-center gap-1.5">
+                                      <Link
+                                        href="/admin/ai-routines"
+                                        className="text-xs hover:underline"
+                                        title="See this routine on the AI Routines page"
+                                      >
+                                        {r.name}
+                                      </Link>
+                                      <Badge
+                                        variant="outline"
+                                        className="px-1 py-0 text-[10px] font-normal text-muted-foreground"
+                                      >
+                                        {ROUTINE_TYPE_LABELS[r.type]}
+                                      </Badge>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })()}
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="space-y-0.5">

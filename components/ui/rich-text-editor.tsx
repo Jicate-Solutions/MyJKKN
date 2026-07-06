@@ -334,20 +334,40 @@ export function RichTextDisplay({
 }) {
   if (!content) return null;
 
-  // If content doesn't contain HTML tags, render as plain text
+  // If content doesn't contain HTML tags, render as plain text preserving whitespace
   if (!/<[a-z][\s\S]*>/i.test(content)) {
-    return <span className={className}>{content}</span>;
+    return <span className={cn('whitespace-pre-wrap text-sm leading-relaxed', className)}>{content}</span>;
   }
 
   return (
     <div
       className={cn(
-        'prose prose-sm max-w-none',
-        'prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5',
-        '[&_ul]:list-disc [&_ul]:pl-5',
-        '[&_ol]:list-decimal [&_ol]:pl-5',
-        '[&_a]:text-blue-600 [&_a]:underline',
-        '[&_hr]:my-2 [&_hr]:border-border',
+        'max-w-none text-sm leading-relaxed text-foreground',
+        // Paragraphs — TipTap wraps each line in <p>
+        '[&_p]:mb-3 [&_p:last-child]:mb-0 [&_p]:leading-relaxed',
+        '[&_p:empty]:min-h-[1em]', // preserve empty paragraph spacing (blank lines)
+        // Headings
+        '[&_h1]:mb-3 [&_h1]:mt-4 [&_h1]:text-xl [&_h1]:font-bold',
+        '[&_h2]:mb-2 [&_h2]:mt-4 [&_h2]:text-lg [&_h2]:font-semibold',
+        '[&_h3]:mb-2 [&_h3]:mt-3 [&_h3]:text-base [&_h3]:font-semibold',
+        // Lists
+        '[&_ul]:mb-3 [&_ul]:mt-1 [&_ul]:list-disc [&_ul]:pl-5',
+        '[&_ol]:mb-3 [&_ol]:mt-1 [&_ol]:list-decimal [&_ol]:pl-5',
+        '[&_li]:mb-1 [&_li]:leading-relaxed',
+        // Inline styles
+        '[&_strong]:font-semibold',
+        '[&_em]:italic',
+        '[&_u]:underline',
+        '[&_s]:line-through',
+        // Links
+        '[&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2',
+        // Horizontal rule
+        '[&_hr]:my-4 [&_hr]:border-border',
+        // Blockquote
+        '[&_blockquote]:my-3 [&_blockquote]:border-l-4 [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-muted-foreground',
+        // Code
+        '[&_code]:rounded [&_code]:bg-muted [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-xs',
+        '[&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-4 [&_pre]:text-xs',
         className
       )}
       dangerouslySetInnerHTML={{ __html: content }}

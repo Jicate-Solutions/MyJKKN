@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -8,10 +7,11 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { UserX } from 'lucide-react';
+import { EmptyState } from '@/components/empty-state';
 import { useMyApplications, useWithdrawApplication, useCancelApplication } from '@/hooks/hr/use-leave';
+import { useCurrentEmployee } from '@/hooks/hr/use-regularization';
 import { LEAVE_STATUS_LABELS, LEAVE_DURATION_LABELS, type LeaveApplicationStatus } from '@/types/hr';
 
 const STATUS_COLORS: Record<LeaveApplicationStatus, string> = {
@@ -24,8 +24,10 @@ const STATUS_COLORS: Record<LeaveApplicationStatus, string> = {
 };
 
 export default function MyApplicationsPage() {
-  const [employeeId, setEmployeeId] = useState('');
-  const { data, isLoading } = useMyApplications(employeeId || undefined);
+  // Auto-resolve the employee from the logged-in user (same pattern as Apply —
+  // BUG-003319: never expose raw UUID inputs to end users).
+  const { data: employee, isLoading: employeeLoading } = useCurrentEmployee();
+  const { data, isLoading } = useMyApplications(employee?.id);
   const withdraw = useWithdrawApplication();
   const cancel = useCancelApplication();
 
@@ -43,21 +45,24 @@ export default function MyApplicationsPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
+      {employeeLoading ? (
+        <div className="mt-6 text-sm text-muted-foreground">Loading your profile…</div>
+      ) : !employee ? (
+        <div className="mt-6 max-w-2xl">
+          <EmptyState
+            icon={<UserX className="h-10 w-10 text-muted-foreground" />}
+            title="No HR employee profile linked"
+            description="Leave history is available for staff with an HR employee record. Please contact HR if you believe this is an error."
+          />
+        </div>
+      ) : (
       <div className="mt-6 space-y-4">
         <Card>
           <CardHeader><CardTitle className="text-base">Your Leave History</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            <div className="max-w-md">
-              <Label htmlFor="employeeId">Employee ID (staff.id)</Label>
-              <Input id="employeeId" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} placeholder="uuid — paste your staff.id" />
-              <p className="text-xs text-muted-foreground mt-1">
-                Sprint 3.1 will auto-resolve this from your logged-in profile.
-              </p>
-            </div>
-
             {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
 
-            {!isLoading && applications.length === 0 && employeeId && (
+            {!isLoading && applications.length === 0 && (
               <p className="text-sm text-muted-foreground">No applications yet.</p>
             )}
 
@@ -127,6 +132,7 @@ export default function MyApplicationsPage() {
           </Button>
         </div>
       </div>
+      )}
     </ContentLayout>
   );
 }

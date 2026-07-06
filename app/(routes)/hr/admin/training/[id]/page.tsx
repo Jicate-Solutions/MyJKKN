@@ -11,7 +11,7 @@
 
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -43,6 +43,8 @@ import {
   type EnrollmentStatus,
   type TrainingCategory,
 } from '@/lib/services/hr/training-service';
+import { TrainingPollHostDialog, type TrainingPollHostAdapter } from '@/components/live-poll/training-poll-host-dialog';
+import { HrPollService } from '@/lib/services/live-poll/hr-poll-service';
 
 const STATUS_LABELS: Record<TrainingStatus, string> = {
   draft: 'Draft',
@@ -86,6 +88,20 @@ export default function AdminTrainingDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
+
+  // Live poll (Phase C) — HR trainer/admin host over the shared engine, keyed by session.
+  const pollHostAdapter: TrainingPollHostAdapter = useMemo(() => ({
+    getPoll: () => HrPollService.getPoll(id ?? ''),
+    upsertPoll: (qs) => HrPollService.upsertPoll(id ?? '', qs),
+    openPoll: (pid) => HrPollService.openPoll(pid),
+    closePoll: (pid) => HrPollService.closePoll(pid),
+    getTotals: (pid) => HrPollService.getTotals(pid),
+    setCurrentQuestion: (pid, qid) => HrPollService.setCurrentQuestion(pid, qid),
+    getResponders: async (pid) => (await HrPollService.getResponders(pid)).map((r) => ({
+      id: r.staff_id, code: r.staff_code, name: r.staff_name,
+      questions_answered: r.questions_answered, answered_at: r.answered_at,
+    })),
+  }), [id]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -188,6 +204,9 @@ export default function AdminTrainingDetailPage() {
 
         {program && (
           <>
+            <div className="flex justify-end">
+              <TrainingPollHostDialog adapter={pollHostAdapter} title={program.title} />
+            </div>
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Program Details</CardTitle>

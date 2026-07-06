@@ -20,6 +20,7 @@ export interface AllocationAdvancedFilters {
   program_id: string | null;
   semester_id: string | null;
   room_category_id: string | null;
+  room_id: string | null;
   mess_category_id: string | null;
 }
 
@@ -28,6 +29,7 @@ export const EMPTY_ALLOCATION_FILTERS: AllocationAdvancedFilters = {
   program_id: null,
   semester_id: null,
   room_category_id: null,
+  room_id: null,
   mess_category_id: null,
 };
 
@@ -53,6 +55,7 @@ export function allocationMatchesFilters(
   if (f.semester_id && ac?.semester_id !== f.semester_id) return false;
   if (f.room_category_id && ac?.hostel_category_id !== f.room_category_id)
     return false;
+  if (f.room_id && a?.room_id !== f.room_id) return false;
   if (f.mess_category_id && ac?.mess_category_id !== f.mess_category_id)
     return false;
   return true;
@@ -120,6 +123,30 @@ export function AllocationAcademicFilterSelects({
     [rows]
   );
 
+  // Rooms cascade one level below Room Category: with a category picked, only
+  // rooms holding an allocation of that category are offered. Room numbers
+  // repeat across blocks, so labels carry the block name whenever the current
+  // scope spans more than one block (no block selected upstream).
+  const roomOptions = useMemo(() => {
+    const scoped = value.room_category_id
+      ? rows.filter(
+          (a) => academic(a)?.hostel_category_id === value.room_category_id
+        )
+      : rows;
+    const multiBlock =
+      new Set(scoped.map((a) => a?.hostel_blocks?.name).filter(Boolean)).size >
+      1;
+    return distinctOptions(scoped, (a) => {
+      const num = a?.hostel_rooms?.room_number;
+      if (!num) return { value: null, label: null };
+      const block = a?.hostel_blocks?.name;
+      return {
+        value: a?.room_id,
+        label: multiBlock && block ? `${block} · Room ${num}` : `Room ${num}`,
+      };
+    });
+  }, [rows, value.room_category_id]);
+
   const set = (patch: Partial<AllocationAdvancedFilters>) =>
     onChange({ ...value, ...patch });
 
@@ -182,7 +209,11 @@ export function AllocationAcademicFilterSelects({
       {roomCategoryOptions.length > 0 && (
         <Select
           value={value.room_category_id ?? 'all'}
-          onValueChange={(v) => set({ room_category_id: v === 'all' ? null : v })}
+          onValueChange={(v) =>
+            // Room options are scoped under the category, so a category change
+            // invalidates the current room pick — clear it in the same update.
+            set({ room_category_id: v === 'all' ? null : v, room_id: null })
+          }
         >
           <SelectTrigger>
             <SelectValue placeholder='All Room Categories' />
@@ -190,6 +221,24 @@ export function AllocationAcademicFilterSelects({
           <SelectContent>
             <SelectItem value='all'>All Room Categories</SelectItem>
             {roomCategoryOptions.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+      {roomOptions.length > 0 && (
+        <Select
+          value={value.room_id ?? 'all'}
+          onValueChange={(v) => set({ room_id: v === 'all' ? null : v })}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder='All Rooms' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='all'>All Rooms</SelectItem>
+            {roomOptions.map((o) => (
               <SelectItem key={o.value} value={o.value}>
                 {o.label}
               </SelectItem>

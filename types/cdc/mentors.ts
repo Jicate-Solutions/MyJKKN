@@ -1,5 +1,5 @@
 // types/cdc/mentors.ts
-// CDC Mentor Pairings (senior-learner ↔ fresher-learner) — type definitions from live DB
+// CDC Mentor Pairings (peer mentor ↔ fresher-learner) — type definitions from live DB
 
 export type MentoringStatus = 'active' | 'concluded' | 'paused';
 
@@ -16,19 +16,21 @@ export interface CdcMentorPairing {
   updated_at: string;
 }
 
+// The pairing's owning college is the learner's institution. `institution`
+// carries the resolved college name (embedded via learners_profiles.institution_id
+// → institutions) so the cross-college pairings list can label each row's college
+// without a second lookup (BUG-004291).
+export interface CdcMentorLearner {
+  id: string;
+  name: string;
+  roll_number: string | null;
+  institution_id: string | null;
+  institution: { id: string; name: string } | null;
+}
+
 export interface CdcMentorPairingWithLearners extends CdcMentorPairing {
-  mentor: {
-    id: string;
-    name: string;
-    roll_number: string | null;
-    institution_id: string | null;
-  } | null;
-  mentee: {
-    id: string;
-    name: string;
-    roll_number: string | null;
-    institution_id: string | null;
-  } | null;
+  mentor: CdcMentorLearner | null;
+  mentee: CdcMentorLearner | null;
 }
 
 export interface CreateMentorPairingDto {

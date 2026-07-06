@@ -477,7 +477,11 @@ BEGIN
     -- Only proceed if this is a NEW profile without learner_id
     IF TG_OP = 'INSERT' AND NEW.learner_id IS NULL AND NEW.email IS NOT NULL THEN
 
-        -- Check if there's an approved/active/graduated learner with matching college_email
+        -- Match an eligible learner by college_email. 'approved'/'active'/
+        -- 'graduated' = full access; the 4 induction statuses = pre-onboarding
+        -- induction-only access (scoped by proxy.ts). Keep in sync with
+        -- INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES + the OAuth callback lookup.
+        -- (20260629100000_induction_only_access_widen_provisioning.sql)
         SELECT
             id,
             first_name,
@@ -488,7 +492,10 @@ BEGIN
         INTO v_learner_record
         FROM learners_profiles
         WHERE LOWER(college_email) = LOWER(NEW.email)
-        AND lifecycle_status IN ('approved', 'active', 'graduated')
+        AND lifecycle_status IN (
+            'approved', 'active', 'graduated',
+            'admitted', 'reserved', 'enquiry_submitted', 'enquiry', 'account'
+        )
         LIMIT 1;
 
         -- If learner found, link it to this profile
@@ -1334,3 +1341,40 @@ CREATE TRIGGER trg_tms_fee_bill_cleanup_linked_billing
 BEFORE DELETE ON tms_fee_bill
 FOR EACH ROW
 EXECUTE FUNCTION tms_fee_bill_cleanup_linked_billing();
+
+-- Auto-derive hr_recruitment_jobs.hr_organization_id from the chosen college.
+-- Mirrors 20260625120000_hr_recruitment_jobs_autofill_org.sql.
+DROP TRIGGER IF EXISTS hr_recruitment_jobs_fill_org_biu ON public.hr_recruitment_jobs;
+CREATE TRIGGER hr_recruitment_jobs_fill_org_biu
+  BEFORE INSERT OR UPDATE OF institution_id, hr_organization_id
+  ON public.hr_recruitment_jobs
+  FOR EACH ROW
+  EXECUTE FUNCTION public.hr_recruitment_jobs_fill_org();
+
+-- Induction day/program feedback updated_at touch (2026-07-30).
+-- Migration: supabase/migrations/20260730110000_induction_day_program_feedback.sql
+DROP TRIGGER IF EXISTS trg_touch_updated_at ON public.event_day_feedback;
+CREATE TRIGGER trg_touch_updated_at BEFORE UPDATE ON public.event_day_feedback
+  FOR EACH ROW EXECUTE FUNCTION public.induction_touch_updated_at();
+
+DROP TRIGGER IF EXISTS trg_touch_updated_at ON public.event_program_feedback;
+CREATE TRIGGER trg_touch_updated_at BEFORE UPDATE ON public.event_program_feedback
+  FOR EACH ROW EXECUTE FUNCTION public.induction_touch_updated_at();
+
+
+-- hr_recruitment_candidate_comments updated_at (migration 20260703130200)
+CREATE TRIGGER hr_rec_cand_comments_updated_at
+  BEFORE UPDATE ON hr_recruitment_candidate_comments
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Cohort Core updated_at (migration 20260731040000_cohort_core_spine.sql). 2026-07-05.
+-- cohort_status_events is append-only (no updated_at column) → no trigger.
+DROP TRIGGER IF EXISTS trg_cohorts_updated_at ON public.cohorts;
+CREATE TRIGGER trg_cohorts_updated_at
+  BEFORE UPDATE ON public.cohorts
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_cohort_memberships_updated_at ON public.cohort_memberships;
+CREATE TRIGGER trg_cohort_memberships_updated_at
+  BEFORE UPDATE ON public.cohort_memberships
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();

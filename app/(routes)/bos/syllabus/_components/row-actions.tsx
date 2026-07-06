@@ -8,7 +8,7 @@ import { useDeleteBosSyllabus } from '@/hooks/bos/use-bos-syllabus';
 import { useBosBoardScope, canEditSyllabus } from '@/hooks/bos/use-bos-board-scope';
 import { useAuth } from '@/hooks/use-auth-provider';
 import { ReviseDialog } from '@/components/bos/revise-dialog';
-import { DuplicateDialog } from '@/components/bos/duplicate-dialog';
+import { CloneDialog } from '@/components/bos/clone-dialog';
 import type { BosCourseSyllabus, BosCourseObjectivesContent, BosCourseLearnOutcomesContent } from '@/types/bos';
 import {
   DropdownMenu,
@@ -102,7 +102,13 @@ export function SyllabusPdfDownloadButton({
 
       if (syllabus.regulation_id) {
         try {
-          const taxRes = await fetch(`/api/bos/taxonomy/${syllabus.regulation_id}`);
+          // Pass the syllabus's own institution so the taxonomy resolves the
+          // SAME row the form's CO panel sees. Without it, a super-admin call
+          // falls back to the regulation row's institution_id, which can miss
+          // the configured (Fink's) taxonomy and default to Bloom's K-values.
+          const taxRes = await fetch(
+            `/api/bos/taxonomy/${syllabus.regulation_id}?institutionsId=${encodeURIComponent(syllabus.institutions_id)}${syllabus.board_id ? `&boardId=${encodeURIComponent(syllabus.board_id)}` : ''}`,
+          );
           if (taxRes.ok) {
             const taxonomy = await taxRes.json();
             kValues = taxonomy.k_values;
@@ -156,6 +162,7 @@ export function SyllabusPdfDownloadButton({
         po_mappings: syllabus.po_mappings?.mappings ?? [],
         po_keys: poKeys,
         pso_keys: psoKeys,
+        assessment_structure: syllabus.assessment_structure,
       });
 
       toast.success('PDF downloaded', { id: tid });
@@ -213,7 +220,13 @@ export function SyllabusDocxDownloadButton({
 
       if (syllabus.regulation_id) {
         try {
-          const taxRes = await fetch(`/api/bos/taxonomy/${syllabus.regulation_id}`);
+          // Pass the syllabus's own institution so the taxonomy resolves the
+          // SAME row the form's CO panel sees. Without it, a super-admin call
+          // falls back to the regulation row's institution_id, which can miss
+          // the configured (Fink's) taxonomy and default to Bloom's K-values.
+          const taxRes = await fetch(
+            `/api/bos/taxonomy/${syllabus.regulation_id}?institutionsId=${encodeURIComponent(syllabus.institutions_id)}${syllabus.board_id ? `&boardId=${encodeURIComponent(syllabus.board_id)}` : ''}`,
+          );
           if (taxRes.ok) {
             const taxonomy = await taxRes.json();
             kValues = taxonomy.k_values;
@@ -264,6 +277,7 @@ export function SyllabusDocxDownloadButton({
         po_mappings: syllabus.po_mappings?.mappings ?? [],
         po_keys: poKeys,
         pso_keys: psoKeys,
+        assessment_structure: syllabus.assessment_structure,
       });
 
       toast.success('Word file downloaded', { id: tid });
@@ -294,6 +308,65 @@ export function SyllabusDocxDownloadButton({
         <TooltipContent side='top'>Download Syllabus Word</TooltipContent>
       </Tooltip>
     </TooltipProvider>
+  );
+}
+
+// ── Clone Button ──────────────────────────────────────────────────────────────
+
+/**
+ * Clone the syllabus into a fresh draft. Navigates to the clone page, which
+ * opens the full Course Information form pre-filled from this source and lets
+ * the user pick a new course code (and target regulation/board) before saving
+ * a new v1 row. Gated identically to the Edit/Revise actions — only the board
+ * owner / creator / chairman (or super-admin) on the latest, non-archived row
+ * may create a clone (the server re-enforces this on insert).
+ */
+export function SyllabusCloneButton({ syllabus }: { syllabus: BosCourseSyllabus }) {
+  const router = useRouter();
+  const { profile } = useAuth();
+  const boardScope = useBosBoardScope();
+  const [open, setOpen] = useState(false);
+
+  const canClone =
+    syllabus.is_latest &&
+    !syllabus.is_archived &&
+    canEditSyllabus(
+      boardScope,
+      { board_id: syllabus.board_id ?? null, created_by: syllabus.created_by ?? null },
+      profile?.id ?? null,
+    );
+
+  if (!canClone) return null;
+
+  return (
+    <>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant='ghost'
+              size='icon'
+              className='h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50'
+              onClick={() => setOpen(true)}
+              aria-label={`Clone syllabus ${syllabus.course_code}`}
+            >
+              <Copy className='h-4 w-4' />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side='top'>Clone Syllabus</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+
+      <CloneDialog
+        open={open}
+        syllabus={syllabus}
+        onOpenChange={setOpen}
+        onSuccess={() => {
+          setOpen(false);
+          router.refresh();
+        }}
+      />
+    </>
   );
 }
 
@@ -329,7 +402,6 @@ export function DataTableRowActions<TData extends BosCourseSyllabus>({
   const canDelete = boardOwnership;
 
   const [reviseDialogOpen, setReviseDialogOpen] = useState(false);
-  const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -365,10 +437,6 @@ export function DataTableRowActions<TData extends BosCourseSyllabus>({
                 <Copy className='h-4 w-4 mr-2' />
                 Create Revision
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setDuplicateDialogOpen(true)}>
-                <Copy className='h-4 w-4 mr-2' />
-                Duplicate to Regulation
-              </DropdownMenuItem>
             </>
           )}
           <DropdownMenuItem onClick={() => router.push(`/bos/syllabus/${syllabus.id}/history`)}>
@@ -399,18 +467,6 @@ export function DataTableRowActions<TData extends BosCourseSyllabus>({
         onOpenChange={setReviseDialogOpen}
         onSuccess={() => {
           setReviseDialogOpen(false);
-          router.refresh();
-        }}
-      />
-
-      <DuplicateDialog
-        open={duplicateDialogOpen}
-        syllabus={syllabus}
-        institutionsId={syllabus.institutions_id || ''}
-        sourceRegulationId={syllabus.regulation_id || ''}
-        onOpenChange={setDuplicateDialogOpen}
-        onSuccess={() => {
-          setDuplicateDialogOpen(false);
           router.refresh();
         }}
       />

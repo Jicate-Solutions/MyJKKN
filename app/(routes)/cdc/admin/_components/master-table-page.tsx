@@ -57,6 +57,12 @@ export interface FieldDef {
   type: 'text' | 'number' | 'boolean' | 'textarea';
   required?: boolean;
   placeholder?: string;
+  /**
+   * For text/textarea fields: persist a blank ('' / whitespace) value as NULL
+   * instead of ''. Opt-in so a blank optional tag doesn't become a phantom
+   * value downstream (e.g. cdc_training_types.exam_family — deep-review R3 #2).
+   */
+  nullifyWhenBlank?: boolean;
 }
 
 export interface MasterTablePageProps {
@@ -160,6 +166,15 @@ export function MasterTablePage({
       for (const f of extraFields) {
         if (f.type === 'number' && payload[f.key] !== '') {
           payload[f.key] = Number(payload[f.key]);
+        }
+        // Opt-in: store a blank text/textarea value as NULL, not '' (avoids
+        // phantom empty-string tags — deep-review R3 #2).
+        if (
+          f.nullifyWhenBlank &&
+          (f.type === 'text' || f.type === 'textarea') &&
+          (typeof payload[f.key] !== 'string' || payload[f.key].trim() === '')
+        ) {
+          payload[f.key] = null;
         }
       }
 

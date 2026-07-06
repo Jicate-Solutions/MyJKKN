@@ -24,6 +24,7 @@ import {
   type LearnerAttendanceSummary,
   type LearnerVacateRequestSummary,
   type LearnerLeaveSummary,
+  type UnallocatedCandidate,
 } from '@/types/campus-living';
 
 const VIEW_SELECT = [
@@ -160,6 +161,9 @@ export class LearnerHosteliteService {
       }
 
       if (filters?.hostel_category_id) query = query.eq('hostel_category_id', filters.hostel_category_id);
+      if (filters?.mess_category_id) query = query.eq('mess_category_id', filters.mess_category_id);
+      // Room filter matches the learner's CURRENT allocation room (view column).
+      if (filters?.room_id) query = query.eq('current_room_id', filters.room_id);
 
       // Academic cascade filters (parity with Learners Profiles).
       if (filters?.degree_id) query = query.eq('degree_id', filters.degree_id);
@@ -219,7 +223,7 @@ export class LearnerHosteliteService {
   // (string) for the consumer reconciliation logic.
   static async listBlocksForFilter(
     institutionId?: string,
-  ): Promise<Array<{ id: string; name: string; code: string; institution_ids: string[] }>> {
+  ): Promise<Array<{ id: string; name: string; code: string; hostel_type: string | null; institution_ids: string[] }>> {
     try {
       const supabase = createClientSupabaseClient();
 
@@ -235,7 +239,7 @@ export class LearnerHosteliteService {
 
       let query = supabase
         .from('hostel_blocks')
-        .select('id,name,code')
+        .select('id,name,code,hostel_type')
         .order('name', { ascending: true });
       if (blockIdFilter !== null) {
         if (blockIdFilter.length === 0) return [];
@@ -265,6 +269,9 @@ export class LearnerHosteliteService {
         id: b.id,
         name: b.name,
         code: b.code,
+        // 'boys' | 'girls' — same vocabulary as hostel/mess category `type`,
+        // so a selected block directly scopes the category filter dropdowns.
+        hostel_type: (b as { hostel_type?: string | null }).hostel_type ?? null,
         institution_ids: grantsByBlock.get(b.id) ?? [],
       }));
     } catch (error) {
@@ -594,6 +601,30 @@ export class LearnerHosteliteService {
     } catch (err) {
       logger.error('campus-living/learner-hostelite', 'getBillsForStudent unexpected', err);
       return [];
+    }
+  }
+
+  // ── Unallocated hostelites with block-independent readiness check ────────
+  // Calls fn_hostel_unallocated_candidates (SECURITY DEFINER, STABLE). Returns
+  // every active hostelite who does NOT have an active/pending-approval bed,
+  // annotated with readiness flags and a human-readable missing_items list so
+  // the admin can see at a glance why each student isn't placed yet.
+  // ~231 rows today; loaded in full and filtered client-side.
+  static async listUnallocated(institutionId?: string): Promise<UnallocatedCandidate[]> {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await (supabase as any).rpc(
+        'fn_hostel_unallocated_candidates',
+        { p_institution_id: institutionId ?? null },
+      );
+      if (error) {
+        logger.error('campus-living/learner-hostelite', 'listUnallocated failed', error);
+        throw error;
+      }
+      return (data ?? []) as UnallocatedCandidate[];
+    } catch (error) {
+      logger.error('campus-living/learner-hostelite', 'listUnallocated unexpected', error);
+      throw error;
     }
   }
 

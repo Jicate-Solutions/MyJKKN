@@ -20,6 +20,22 @@
   },
   "crons": [
     {
+      "path": "/api/cron/ai-routine-dispatcher?secret=${CRON_SECRET}",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/ai-tasks-sweep?secret=${CRON_SECRET}",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/scf-generate-suggestions?mode=collect&secret=${CRON_SECRET}",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/induction-generate-playbook?mode=collect&secret=${CRON_SECRET}",
+      "schedule": "*/30 * * * *"
+    },
+    {
       "path": "/api/cron/attendance-breach-check?secret=${CRON_SECRET}",
       "schedule": "37 21 * * *"
     },
@@ -74,14 +90,6 @@
     {
       "path": "/api/cron/friday-reflection?secret=${CRON_SECRET}",
       "schedule": "30 10 * * 5"
-    },
-    {
-      "path": "/api/cron/ai-pulse-tick?secret=${CRON_SECRET}",
-      "schedule": "23 1 * * *"
-    },
-    {
-      "path": "/api/cron/ai-pulse-weekly-digest?secret=${CRON_SECRET}",
-      "schedule": "17 4 * * 2"
     },
     {
       "path": "/api/cron/dashboard-work-items?secret=${CRON_SECRET}",
@@ -212,8 +220,20 @@
       "schedule": "43 2 * * *"
     },
     {
+      "path": "/api/cron/ig-accounts-sync?secret=${CRON_SECRET}",
+      "schedule": "11 5 * * *"
+    },
+    {
+      "path": "/api/cron/ig-silence-detect?secret=${CRON_SECRET}",
+      "schedule": "23 7 * * *"
+    },
+    {
       "path": "/api/cron/instagram-monthly-audit?secret=${CRON_SECRET}",
       "schedule": "0 6 1 * *"
+    },
+    {
+      "path": "/api/cron/social-monthly-cadence?secret=${CRON_SECRET}",
+      "schedule": "0 7 1 * *"
     },
     {
       "path": "/api/cron/meta-facebook-poll?secret=${CRON_SECRET}",
@@ -236,18 +256,6 @@
       "schedule": "30 */2 * * *"
     },
     {
-      "path": "/api/cron/ai-pulse-rotation-tick?secret=${CRON_SECRET}",
-      "schedule": "37 2 * * *"
-    },
-    {
-      "path": "/api/cron/ai-pulse-anomaly-scan?secret=${CRON_SECRET}",
-      "schedule": "43 3 * * *"
-    },
-    {
-      "path": "/api/cron/ai-pulse-pde-bridge?secret=${CRON_SECRET}",
-      "schedule": "53 4 * * *"
-    },
-    {
       "path": "/api/cron/google-calendar-connection-check",
       "schedule": "19 1 * * *"
     },
@@ -260,8 +268,12 @@
       "schedule": "*/2 * * * *"
     },
     {
-      "path": "/api/cron/session-feedback-nudge?secret=${CRON_SECRET}",
-      "schedule": "13 7 * * *"
+      "path": "/api/cron/induction-session-effectiveness?secret=${CRON_SECRET}",
+      "schedule": "43 */4 * * *"
+    },
+    {
+      "path": "/api/schools-network/visit-nudges/cron?secret=${CRON_SECRET}",
+      "schedule": "13 4 * * *"
     }
   ]
 }

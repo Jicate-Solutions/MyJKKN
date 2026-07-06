@@ -203,6 +203,23 @@ CREATE POLICY "academic_years_delete_by_role" ON academic_years
         OR (institution_id = get_current_user_institution_id() AND user_has_permission('academic.years.delete'))
     );
 
+-- Added: 2026-07-03 - /learners/my-bills groups bills by academic year; a
+-- student may read the year rows their own bills reference (name lookup only).
+CREATE POLICY "Students can view academic years on their own bills" ON academic_years
+    FOR SELECT TO authenticated USING (
+        id IN (
+            SELECT b.academic_year_id
+            FROM billing_student_bills b
+            WHERE b.academic_year_id IS NOT NULL
+              AND b.student_id IN (
+                SELECT lp.id
+                FROM learners_profiles lp
+                JOIN profiles p ON (p.email = lp.student_email OR p.email = lp.college_email)
+                WHERE p.id = auth.uid() AND p.role = 'student'
+            )
+        )
+    );
+
 -- DEGREES TABLE (Optimized policies)
 -- Updated: 2025-12-15 - Changed to use security definer functions
 -- Updated: 2026-03-05 - Added admission role policy
@@ -1240,6 +1257,30 @@ CREATE POLICY "student_attendance_update_by_role" ON student_attendance
         )
     );
 
+-- UPDATE policy mirroring the INSERT grant: anyone allowed to MARK attendance can
+-- UPDATE the consolidated row. Required because student_attendance keys one row per
+-- (institution, timetable, section, date) holding all periods in attendance_data JSONB:
+-- the 1st period of a section-day is an INSERT, every later period is an UPDATE. Without
+-- this, a marker on a custom role (e.g. staff_counselor) could mark the 1st period but
+-- got a silent 0-row UPDATE ("Save result null") on the 2nd+ period. Keyed on
+-- user_has_permission (robust resolver), not an inline custom_roles role_name join.
+CREATE POLICY "student_attendance_update_marker" ON student_attendance
+    FOR UPDATE TO authenticated
+    USING (
+        institution_id IN (
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
+        )
+        AND user_has_permission('academic.attendance.mark')
+    )
+    WITH CHECK (
+        institution_id IN (
+            SELECT institution_id FROM profiles
+            WHERE id = auth.uid() AND institution_id IS NOT NULL
+        )
+        AND user_has_permission('academic.attendance.mark')
+    );
+
 CREATE POLICY "student_attendance_delete_admin" ON student_attendance
     FOR DELETE USING (
         institution_id IN (
@@ -1277,6 +1318,27 @@ CREATE POLICY "student_attendance_select_own_student" ON student_attendance
                 WHERE section_id = student_attendance.section_id
                 AND lifecycle_status IN ('active', 'graduated')
             )
+        )
+    );
+
+-- Updated: 2026-07-03 - Added the attendance-dashboard SELECT policy definition here
+--   (it previously lived only in a prod migration, not in this setup file) AND fixed a
+--   cross-tenant leak: the live policy had a standalone is_admin() OR-branch. is_admin()
+--   is a GLOBAL role-name check (role IN 'admin'/'administrator'/'super_admin', no
+--   institution scoping), so a scope='own'/'all' admin with is_super_admin=false could
+--   read EVERY institution's attendance. Removed is_admin(); access is now
+--   super-admin OR (dashboard.view permission AND institution scope).
+--   See migration 20260731000000_fix_student_attendance_rls_is_admin_leak.sql for the
+--   full leak analysis, 4-way impersonation verification, and the ⚠️ prerequisite
+--   (grant 'academic.attendance.dashboard.view' to the 'administrator' role first, or
+--   NULL-institution group admins lose all dashboard access). Same class of leak that
+--   PR #1737 closed for the RPC path.
+CREATE POLICY "student_attendance_select_dashboard_institution_access" ON student_attendance
+    FOR SELECT USING (
+        is_super_admin()
+        OR (
+            user_has_permission('academic.attendance.dashboard.view')
+            AND role_has_institution_access(institution_id)
         )
     );
 
@@ -1328,10 +1390,27 @@ ALTER TABLE billing_student_bills ENABLE ROW LEVEL SECURITY;
 
 -- Updated: 2026-04-18 - Use role_has_institution_access for cross-institution support
 -- (admission_staff with scope='all' was blocked by institution_id = get_current_user_institution_id())
-CREATE POLICY "bills_select_institution" ON billing_student_bills
+-- Updated: 2026-07-03 - Consolidated the two overlapping SELECT policies
+-- (bills_select_institution + billing_bills_select_permission) into one whose
+-- user-constant predicates are hoisted out of the per-row loop (scalar InitPlan
+-- + hashed IN-subquery). Per-row role_has_institution_access()/
+-- user_has_permission() calls over ~10k rows cost ~4s and blew the 8s
+-- statement timeout (57014) for all-institution non-admin users on
+-- /billing/schedule. Visible-row set unchanged.
+CREATE POLICY "bills_select_scoped" ON billing_student_bills
     FOR SELECT USING (
-        is_super_admin() OR is_admin()
-        OR (role_has_institution_access(institution_id) AND user_has_permission('billing.bills.view'))
+        (SELECT is_super_admin() OR is_admin())
+        OR institution_id IN (
+            SELECT unnest(_user_accessible_institutions())
+            WHERE user_has_permission('billing.bills.view')
+               OR user_has_permission('billing.schedule.view')
+        )
+        OR student_id IN (
+            SELECT lp.id
+            FROM learners_profiles lp
+            JOIN profiles p ON (p.email = lp.student_email OR p.email = lp.college_email)
+            WHERE p.id = auth.uid()
+        )
     );
 
 CREATE POLICY "bills_insert_admin" ON billing_student_bills
@@ -1450,6 +1529,21 @@ CREATE POLICY "receipt_items_all_billing" ON billing_receipt_items
         )
     );
 
+-- Added: 2026-07-03 - /learners/my-bills reads receipt->bill links to group
+-- paid receipts by academic year and render the receipt detail/PDF.
+CREATE POLICY "Students can view their own receipt items" ON billing_receipt_items
+    FOR SELECT TO authenticated USING (
+        receipt_id IN (
+            SELECT r.id FROM billing_receipts r
+            WHERE r.student_id IN (
+                SELECT lp.id
+                FROM learners_profiles lp
+                JOIN profiles p ON (p.email = lp.student_email OR p.email = lp.college_email)
+                WHERE p.id = auth.uid() AND p.role = 'student'
+            )
+        )
+    );
+
 -- BILLING_INVOICE_ITEMS TABLE (1 policy)
 ALTER TABLE billing_invoice_items ENABLE ROW LEVEL SECURITY;
 
@@ -1492,6 +1586,20 @@ CREATE POLICY "refunds_all_billing" ON billing_refunds
             WHERE br.id = billing_refunds.receipt_id
             AND br.institution_id = get_current_user_institution_id()
             AND user_has_permission('billing.refunds.view')
+        )
+    );
+
+-- Added: 2026-07-03 - /learners/my-bills flags refunded receipts honestly.
+CREATE POLICY "Students can view their own refunds" ON billing_refunds
+    FOR SELECT TO authenticated USING (
+        receipt_id IN (
+            SELECT r.id FROM billing_receipts r
+            WHERE r.student_id IN (
+                SELECT lp.id
+                FROM learners_profiles lp
+                JOIN profiles p ON (p.email = lp.student_email OR p.email = lp.college_email)
+                WHERE p.id = auth.uid() AND p.role = 'student'
+            )
         )
     );
 
@@ -7017,3 +7125,427 @@ CREATE POLICY social_loop_playbook_update ON public.social_loop_playbook
 
 REVOKE ALL ON public.social_loop_playbook FROM anon, PUBLIC;
 GRANT SELECT, INSERT, UPDATE ON public.social_loop_playbook TO authenticated;
+
+-- ── Induction session polls (2026-06-30) — super_admin-only direct access; rest via DEFINER RPCs ──
+ALTER TABLE public.induction_session_poll ENABLE ROW LEVEL SECURITY;
+CREATE POLICY induction_session_poll_super_admin ON public.induction_session_poll FOR ALL TO authenticated USING (is_super_admin()) WITH CHECK (is_super_admin());
+ALTER TABLE public.induction_session_poll_question ENABLE ROW LEVEL SECURITY;
+CREATE POLICY induction_session_poll_question_super_admin ON public.induction_session_poll_question FOR ALL TO authenticated USING (is_super_admin()) WITH CHECK (is_super_admin());
+ALTER TABLE public.induction_session_poll_option ENABLE ROW LEVEL SECURITY;
+CREATE POLICY induction_session_poll_option_super_admin ON public.induction_session_poll_option FOR ALL TO authenticated USING (is_super_admin()) WITH CHECK (is_super_admin());
+ALTER TABLE public.induction_session_poll_vote ENABLE ROW LEVEL SECURITY;
+CREATE POLICY induction_session_poll_vote_super_admin ON public.induction_session_poll_vote FOR ALL TO authenticated USING (is_super_admin()) WITH CHECK (is_super_admin());
+-- =====================================================================
+-- 2026-06-30 — Schools Network module (DB substrate, Agent A)
+-- Migration: supabase/migrations/20260630120000_schools_network_substrate.sql
+-- Spec: /tmp/schools-network-spec.md
+-- Canonical pattern: is_super_admin() OR is_admin() OR
+--   (user_has_permission('schools_network.X') AND school-scope helper).
+-- 30 policies across 10 tables. Anon locked out + authenticated GRANTed.
+-- =====================================================================
+
+-- Master tables: read-open to authenticated, admin-write
+DROP POLICY IF EXISTS school_session_types_select_authed ON public.school_session_types;
+CREATE POLICY school_session_types_select_authed ON public.school_session_types
+  FOR SELECT TO authenticated USING (TRUE);
+DROP POLICY IF EXISTS school_session_types_admin_write ON public.school_session_types;
+CREATE POLICY school_session_types_admin_write ON public.school_session_types
+  FOR ALL TO authenticated
+  USING      (is_super_admin() OR is_admin() OR user_has_permission('schools_network.master.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('schools_network.master.manage'));
+
+DROP POLICY IF EXISTS program_partner_types_select_authed ON public.program_partner_types;
+CREATE POLICY program_partner_types_select_authed ON public.program_partner_types
+  FOR SELECT TO authenticated USING (TRUE);
+DROP POLICY IF EXISTS program_partner_types_admin_write ON public.program_partner_types;
+CREATE POLICY program_partner_types_admin_write ON public.program_partner_types
+  FOR ALL TO authenticated
+  USING      (is_super_admin() OR is_admin() OR user_has_permission('schools_network.master.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('schools_network.master.manage'));
+
+DROP POLICY IF EXISTS school_contact_roles_select_authed ON public.school_contact_roles;
+CREATE POLICY school_contact_roles_select_authed ON public.school_contact_roles
+  FOR SELECT TO authenticated USING (TRUE);
+DROP POLICY IF EXISTS school_contact_roles_admin_write ON public.school_contact_roles;
+CREATE POLICY school_contact_roles_admin_write ON public.school_contact_roles
+  FOR ALL TO authenticated
+  USING      (is_super_admin() OR is_admin() OR user_has_permission('schools_network.master.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('schools_network.master.manage'));
+
+-- schools
+DROP POLICY IF EXISTS schools_select ON public.schools;
+CREATE POLICY schools_select ON public.schools FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('schools_network.schools.view')
+      AND (user_owns_school(id) OR user_leads_partner_for_school(id)
+           OR (ownership = 'internal' AND role_has_institution_access(institution_id))))
+  OR is_school_portal_user_for(id)
+);
+DROP POLICY IF EXISTS schools_insert ON public.schools;
+CREATE POLICY schools_insert ON public.schools FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin() OR user_has_permission('schools_network.schools.create')
+);
+DROP POLICY IF EXISTS schools_update ON public.schools;
+CREATE POLICY schools_update ON public.schools FOR UPDATE
+  USING (is_super_admin() OR is_admin()
+    OR (user_has_permission('schools_network.schools.edit')
+        AND (user_owns_school(id) OR user_leads_partner_for_school(id))))
+  WITH CHECK (is_super_admin() OR is_admin()
+    OR (user_has_permission('schools_network.schools.edit')
+        AND (user_owns_school(id) OR user_leads_partner_for_school(id))));
+DROP POLICY IF EXISTS schools_delete ON public.schools;
+CREATE POLICY schools_delete ON public.schools FOR DELETE USING (is_super_admin() OR is_admin());
+
+-- school_contacts
+DROP POLICY IF EXISTS school_contacts_select ON public.school_contacts;
+CREATE POLICY school_contacts_select ON public.school_contacts FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('schools_network.contacts.view')
+      AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id)))
+  OR is_school_portal_user_for(school_id)
+);
+DROP POLICY IF EXISTS school_contacts_insert ON public.school_contacts;
+CREATE POLICY school_contacts_insert ON public.school_contacts FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('schools_network.contacts.create')
+      AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id)))
+);
+DROP POLICY IF EXISTS school_contacts_update ON public.school_contacts;
+CREATE POLICY school_contacts_update ON public.school_contacts FOR UPDATE
+  USING (is_super_admin() OR is_admin()
+    OR (user_has_permission('schools_network.contacts.edit')
+        AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id))))
+  WITH CHECK (is_super_admin() OR is_admin()
+    OR (user_has_permission('schools_network.contacts.edit')
+        AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id))));
+DROP POLICY IF EXISTS school_contacts_delete ON public.school_contacts;
+CREATE POLICY school_contacts_delete ON public.school_contacts FOR DELETE USING (is_super_admin() OR is_admin());
+
+-- school_sessions
+DROP POLICY IF EXISTS school_sessions_select ON public.school_sessions;
+CREATE POLICY school_sessions_select ON public.school_sessions FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('schools_network.sessions.view')
+      AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id)))
+  OR is_school_portal_user_for(school_id)
+);
+DROP POLICY IF EXISTS school_sessions_insert ON public.school_sessions;
+CREATE POLICY school_sessions_insert ON public.school_sessions FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('schools_network.sessions.create')
+      AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id)))
+);
+DROP POLICY IF EXISTS school_sessions_update ON public.school_sessions;
+CREATE POLICY school_sessions_update ON public.school_sessions FOR UPDATE
+  USING (is_super_admin() OR is_admin()
+    OR (user_has_permission('schools_network.sessions.edit')
+        AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id))))
+  WITH CHECK (is_super_admin() OR is_admin()
+    OR (user_has_permission('schools_network.sessions.edit')
+        AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id))));
+DROP POLICY IF EXISTS school_sessions_delete ON public.school_sessions;
+CREATE POLICY school_sessions_delete ON public.school_sessions FOR DELETE USING (is_super_admin() OR is_admin());
+
+-- school_contributions
+DROP POLICY IF EXISTS school_contributions_select ON public.school_contributions;
+CREATE POLICY school_contributions_select ON public.school_contributions FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('schools_network.contributions.view')
+      AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id)))
+  OR is_school_portal_user_for(school_id)
+);
+DROP POLICY IF EXISTS school_contributions_insert ON public.school_contributions;
+CREATE POLICY school_contributions_insert ON public.school_contributions FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('schools_network.contributions.create')
+      AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id)))
+);
+DROP POLICY IF EXISTS school_contributions_update ON public.school_contributions;
+CREATE POLICY school_contributions_update ON public.school_contributions FOR UPDATE
+  USING (is_super_admin() OR is_admin()
+    OR (user_has_permission('schools_network.contributions.edit')
+        AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id))))
+  WITH CHECK (is_super_admin() OR is_admin()
+    OR (user_has_permission('schools_network.contributions.edit')
+        AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id))));
+DROP POLICY IF EXISTS school_contributions_delete ON public.school_contributions;
+CREATE POLICY school_contributions_delete ON public.school_contributions FOR DELETE USING (is_super_admin() OR is_admin());
+
+-- school_jkkn_owners
+DROP POLICY IF EXISTS school_jkkn_owners_select ON public.school_jkkn_owners;
+CREATE POLICY school_jkkn_owners_select ON public.school_jkkn_owners FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR jkkn_user_id = auth.uid()
+  OR (user_has_permission('schools_network.owners.view') AND user_owns_school(school_id))
+);
+DROP POLICY IF EXISTS school_jkkn_owners_admin_write ON public.school_jkkn_owners;
+CREATE POLICY school_jkkn_owners_admin_write ON public.school_jkkn_owners FOR ALL
+  USING (is_super_admin() OR is_admin() OR user_has_permission('schools_network.owners.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('schools_network.owners.manage'));
+
+-- program_partners + program_partner_grants
+DROP POLICY IF EXISTS program_partners_select ON public.program_partners;
+CREATE POLICY program_partners_select ON public.program_partners FOR SELECT USING (
+  is_super_admin() OR is_admin() OR user_has_permission('schools_network.partners.view')
+);
+DROP POLICY IF EXISTS program_partners_admin_write ON public.program_partners;
+CREATE POLICY program_partners_admin_write ON public.program_partners FOR ALL
+  USING (is_super_admin() OR is_admin() OR user_has_permission('schools_network.partners.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('schools_network.partners.manage'));
+
+DROP POLICY IF EXISTS program_partner_grants_select ON public.program_partner_grants;
+CREATE POLICY program_partner_grants_select ON public.program_partner_grants FOR SELECT USING (
+  is_super_admin() OR is_admin() OR user_has_permission('schools_network.grants.view')
+);
+DROP POLICY IF EXISTS program_partner_grants_admin_write ON public.program_partner_grants;
+CREATE POLICY program_partner_grants_admin_write ON public.program_partner_grants FOR ALL
+  USING (is_super_admin() OR is_admin() OR user_has_permission('schools_network.grants.manage'))
+  WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('schools_network.grants.manage'));
+
+-- Anon lockdown + authenticated grants (defense-in-depth on top of policies)
+REVOKE ALL ON public.school_session_types     FROM anon;
+REVOKE ALL ON public.program_partner_types    FROM anon;
+REVOKE ALL ON public.school_contact_roles     FROM anon;
+REVOKE ALL ON public.schools                  FROM anon;
+REVOKE ALL ON public.school_contacts          FROM anon;
+REVOKE ALL ON public.school_jkkn_owners       FROM anon;
+REVOKE ALL ON public.school_sessions          FROM anon;
+REVOKE ALL ON public.school_contributions     FROM anon;
+REVOKE ALL ON public.program_partners         FROM anon;
+REVOKE ALL ON public.program_partner_grants   FROM anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.school_session_types     TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.program_partner_types    TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.school_contact_roles     TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.schools                  TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.school_contacts          TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.school_jkkn_owners       TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.school_sessions          TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.school_contributions     TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.program_partners         TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.program_partner_grants   TO authenticated;
+
+-- ── Induction day/program feedback (2026-07-30) ──
+-- Migration: supabase/migrations/20260730110000_induction_day_program_feedback.sql
+DROP POLICY IF EXISTS event_day_feedback_admin ON public.event_day_feedback;
+CREATE POLICY event_day_feedback_admin ON public.event_day_feedback FOR ALL
+  USING (is_super_admin() OR is_admin()) WITH CHECK (is_super_admin() OR is_admin());
+
+DROP POLICY IF EXISTS event_program_feedback_admin ON public.event_program_feedback;
+CREATE POLICY event_program_feedback_admin ON public.event_program_feedback FOR ALL
+  USING (is_super_admin() OR is_admin()) WITH CHECK (is_super_admin() OR is_admin());
+
+-- ── Induction event coordinators (2026-07-30) ──
+-- Migration: supabase/migrations/20260730120000_induction_event_coordinators.sql
+DROP POLICY IF EXISTS induction_event_coordinators_admin ON public.induction_event_coordinators;
+CREATE POLICY induction_event_coordinators_admin ON public.induction_event_coordinators FOR ALL
+  USING (is_super_admin() OR is_admin()) WITH CHECK (is_super_admin() OR is_admin());
+
+-- ── Induction resource-person (session speaker) reads (2026-07-02) ──
+-- Migration: supabase/migrations/20260702150000_induction_resource_person_session_access.sql
+--            supabase/migrations/20260702151000_induction_speakers_read_co_speakers.sql
+-- A credited resource person can read the event shell + speaker links of the
+-- induction they speak at. Additive SELECT-only; writes stay RPC-gated.
+DROP POLICY IF EXISTS events_induction_speaker_read ON public.events;
+CREATE POLICY events_induction_speaker_read ON public.events
+  FOR SELECT TO authenticated
+  USING (public.fn_induction_is_event_speaker(id));
+
+DROP POLICY IF EXISTS induction_programs_speaker_view ON public.induction_programs;
+CREATE POLICY induction_programs_speaker_view ON public.induction_programs
+  FOR SELECT TO authenticated
+  USING (public.fn_induction_is_event_speaker(event_id));
+
+DROP POLICY IF EXISTS induction_batches_speaker_view ON public.induction_batches;
+CREATE POLICY induction_batches_speaker_view ON public.induction_batches
+  FOR SELECT TO authenticated
+  USING (public.fn_induction_is_event_speaker(event_id));
+
+DROP POLICY IF EXISTS ess_event_speaker_read ON public.event_session_speakers;
+CREATE POLICY ess_event_speaker_read ON public.event_session_speakers
+  FOR SELECT TO authenticated
+  USING (public.fn_induction_session_in_my_speaker_event(session_id));
+
+-- =====================================================================
+-- social_monthly_cadence — RLS policies + config seeds + HOD owner grant
+-- Added: 2026-07-04 — mirror of migration 20260704120000_social_monthly_cadence.sql
+-- Canonical dynamic-permission pattern (no hardcoded roles). Writer RPCs
+-- (02_functions.sql) also self-gate because DEFINER bypasses RLS.
+-- =====================================================================
+
+-- SELECT-only RLS (round-3). Writes have NO table grant (see 01_tables.sql) and
+-- flow only through the DEFINER RPCs, so INSERT/UPDATE policies are removed.
+-- MED #3 (round-2): the SELECT USING adds fn_social_caller_owns_dept so a
+-- scope='own' HOD reads ONLY its own dept's cadence rows, not every dept's in
+-- the tenant (admins bypass; NULL dept falls back to institution scope). The
+-- helper is defined in 02_functions.sql.
+DROP POLICY IF EXISTS social_monthly_cadence_select ON public.social_monthly_cadence;
+CREATE POLICY social_monthly_cadence_select ON public.social_monthly_cadence
+  FOR SELECT TO authenticated
+  USING (
+    is_super_admin() OR is_admin()
+    OR (
+      user_has_permission('social.departments.view')
+      AND role_has_institution_access(institution_id)
+      AND fn_social_caller_owns_dept(department_id)
+    )
+  );
+
+-- Write policies REMOVED (round-3 HIGH root fix): authenticated has no
+-- INSERT/UPDATE/DELETE grant. Dropped idempotently if an earlier apply made them.
+DROP POLICY IF EXISTS social_monthly_cadence_insert ON public.social_monthly_cadence;
+DROP POLICY IF EXISTS social_monthly_cadence_update ON public.social_monthly_cadence;
+
+-- Config seeds (ships DARK): social.cadence.* in the canonical platform_policies store.
+INSERT INTO platform_policies (policy_key, scope_type, scope_id, value, description, data_type, enum_options, is_system) VALUES
+('social.cadence.enabled', 'global', NULL, 'false'::jsonb,
+  'Master switch for the Department Instagram monthly cadence engine. Ships DARK (false) — flip true only after Director review + jkknpharmacy pilot.',
+  'boolean', NULL, true),
+('social.cadence.clock_mode', 'global', NULL, '"calendar_month"'::jsonb,
+  'Monthly clock for cadence cycles. v1 locks calendar_month (aligned to ig_monthly_audit.audit_month).',
+  'enum', '["calendar_month","days_from_objective"]'::jsonb, true),
+('social.cadence.period_days', 'global', NULL, '30'::jsonb,
+  'Cycle length in days — used ONLY in days_from_objective clock mode (ignored under calendar_month).',
+  'number', NULL, true),
+('social.cadence.win_delta_pct', 'global', NULL, '10'::jsonb,
+  'Minimum month-over-month reach uplift (%) for a cadence cycle to grade as a win.',
+  'number', NULL, true)
+ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO NOTHING;
+
+-- Owner grant (Director-locked): scope='own' HOD owns its dept's cadence.
+UPDATE public.custom_roles
+SET permissions = permissions || jsonb_build_object(
+      'social.departments.view', true,
+      'social.departments.manage', true
+    ),
+    updated_at = now()
+WHERE role_key = 'hod' AND is_active = true;
+
+-- hr_recruitment_candidate_comments (migration 20260703130200) — visibility
+-- inherits the candidate row's RLS via EXISTS.
+ALTER TABLE hr_recruitment_candidate_comments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY hr_rec_cand_comments_select ON hr_recruitment_candidate_comments
+  FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM hr_recruitment_candidates c WHERE c.id = hr_recruitment_candidate_comments.candidate_id));
+CREATE POLICY hr_rec_cand_comments_insert ON hr_recruitment_candidate_comments
+  FOR INSERT TO authenticated
+  WITH CHECK (commenter_id = auth.uid()
+    AND EXISTS (SELECT 1 FROM hr_recruitment_candidates c WHERE c.id = hr_recruitment_candidate_comments.candidate_id));
+
+-- =====================================================================================
+-- Cohort Core RLS (migration 20260731040000_cohort_core_spine.sql). Added 2026-07-05.
+-- Canonical dynamic-permission pattern: is_super_admin() OR is_admin() first, then
+-- user_has_permission('cohort.<verb>') + tenant scope. cohorts scope directly on
+-- institution_id; memberships/events scope through the parent cohort via EXISTS.
+-- SECDEF calls wrapped as (select fn(...)) → InitPlan-cached once per statement.
+-- DELETE gated on cohort.manage (keeps every referenced key in PERMISSION_CATEGORIES).
+-- Events are append-only: UPDATE/DELETE are admin-only.
+-- =====================================================================================
+ALTER TABLE public.cohorts ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS cohorts_select_permission ON public.cohorts;
+CREATE POLICY cohorts_select_permission ON public.cohorts
+  FOR SELECT USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.view'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohorts_insert_permission ON public.cohorts;
+CREATE POLICY cohorts_insert_permission ON public.cohorts
+  FOR INSERT WITH CHECK (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.create'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohorts_update_permission ON public.cohorts;
+CREATE POLICY cohorts_update_permission ON public.cohorts
+  FOR UPDATE USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.edit'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohorts_delete_permission ON public.cohorts;
+CREATE POLICY cohorts_delete_permission ON public.cohorts
+  FOR DELETE USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.manage'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+ALTER TABLE public.cohort_memberships ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS cohort_memberships_select_permission ON public.cohort_memberships;
+CREATE POLICY cohort_memberships_select_permission ON public.cohort_memberships
+  FOR SELECT USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.view'::text))
+        AND EXISTS (SELECT 1 FROM public.cohorts c
+                    WHERE c.id = cohort_memberships.cohort_id
+                      AND role_has_institution_access(c.institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohort_memberships_insert_permission ON public.cohort_memberships;
+CREATE POLICY cohort_memberships_insert_permission ON public.cohort_memberships
+  FOR INSERT WITH CHECK (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.create'::text))
+        AND EXISTS (SELECT 1 FROM public.cohorts c
+                    WHERE c.id = cohort_memberships.cohort_id
+                      AND role_has_institution_access(c.institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohort_memberships_update_permission ON public.cohort_memberships;
+CREATE POLICY cohort_memberships_update_permission ON public.cohort_memberships
+  FOR UPDATE USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.edit'::text))
+        AND EXISTS (SELECT 1 FROM public.cohorts c
+                    WHERE c.id = cohort_memberships.cohort_id
+                      AND role_has_institution_access(c.institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohort_memberships_delete_permission ON public.cohort_memberships;
+CREATE POLICY cohort_memberships_delete_permission ON public.cohort_memberships
+  FOR DELETE USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.manage'::text))
+        AND EXISTS (SELECT 1 FROM public.cohorts c
+                    WHERE c.id = cohort_memberships.cohort_id
+                      AND role_has_institution_access(c.institution_id)))
+  );
+
+ALTER TABLE public.cohort_status_events ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS cohort_status_events_select_permission ON public.cohort_status_events;
+CREATE POLICY cohort_status_events_select_permission ON public.cohort_status_events
+  FOR SELECT USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.view'::text))
+        AND EXISTS (SELECT 1 FROM public.cohorts c
+                    WHERE (c.id = cohort_status_events.cohort_id
+                           OR c.id = (SELECT m.cohort_id FROM public.cohort_memberships m
+                                      WHERE m.id = cohort_status_events.membership_id))
+                      AND role_has_institution_access(c.institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohort_status_events_insert_permission ON public.cohort_status_events;
+CREATE POLICY cohort_status_events_insert_permission ON public.cohort_status_events
+  FOR INSERT WITH CHECK (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.edit'::text))
+        AND EXISTS (SELECT 1 FROM public.cohorts c
+                    WHERE (c.id = cohort_status_events.cohort_id
+                           OR c.id = (SELECT m.cohort_id FROM public.cohort_memberships m
+                                      WHERE m.id = cohort_status_events.membership_id))
+                      AND role_has_institution_access(c.institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohort_status_events_update_permission ON public.cohort_status_events;
+CREATE POLICY cohort_status_events_update_permission ON public.cohort_status_events
+  FOR UPDATE USING ((select is_super_admin()) OR (select is_admin()));
+
+DROP POLICY IF EXISTS cohort_status_events_delete_permission ON public.cohort_status_events;
+CREATE POLICY cohort_status_events_delete_permission ON public.cohort_status_events
+  FOR DELETE USING ((select is_super_admin()) OR (select is_admin()));

@@ -10,8 +10,19 @@
 // never the verifier and never acts on anyone.
 
 import { useState } from 'react';
-import { Sparkles, AlertTriangle, Lightbulb, Eye, Zap } from 'lucide-react';
+import {
+  Sparkles,
+  AlertTriangle,
+  Lightbulb,
+  Eye,
+  Zap,
+  ThumbsUp,
+  MinusCircle,
+  XCircle,
+  Check,
+} from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -22,8 +33,22 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { SessionFeedbackService } from '@/lib/services/session-feedback-service';
 
 const BRAND_GREEN = '#0b6d41';
+
+type Verdict = 'tried_helped' | 'tried_no_change' | 'not_tried';
+
+// The three human-feedback options shown under a suggestion. Order = best→neutral.
+const VERDICT_OPTIONS: {
+  value: Verdict;
+  label: string;
+  Icon: typeof ThumbsUp;
+}[] = [
+  { value: 'tried_helped', label: 'I tried this — it helped', Icon: ThumbsUp },
+  { value: 'tried_no_change', label: 'Tried — no change', Icon: MinusCircle },
+  { value: 'not_tried', label: "Didn't try", Icon: XCircle },
+];
 
 interface AiSuggestion {
   summary: string;
@@ -34,7 +59,7 @@ interface AiSuggestion {
 }
 
 type AiResponse =
-  | { ok: true; suggestion: AiSuggestion; meta?: unknown }
+  | { ok: true; suggestion: AiSuggestion; suggestion_id?: string | null; meta?: unknown }
   | { ok: true; suggestion: null; reason?: string; meta?: unknown }
   | { ok: false; error: string };
 
@@ -55,12 +80,19 @@ export function AiSuggestionDialog({
   const [suggestion, setSuggestion] = useState<AiSuggestion | null>(null);
   const [notEnough, setNotEnough] = useState(false);
   const [fetched, setFetched] = useState(false);
+  // Loop-memory row id for THIS suggestion — present only when recording succeeded.
+  // Gates the human-verdict buttons (no id → can't attach a verdict).
+  const [suggestionId, setSuggestionId] = useState<string | null>(null);
+  const [verdict, setVerdict] = useState<Verdict | null>(null);
+  const [savingVerdict, setSavingVerdict] = useState<Verdict | null>(null);
 
   async function load() {
     setLoading(true);
     setError(null);
     setNotEnough(false);
     setSuggestion(null);
+    setSuggestionId(null);
+    setVerdict(null);
     try {
       const res = await fetch(
         '/api/academic/session-feedback/ai-suggest-improvement',
@@ -79,12 +111,38 @@ export function AiSuggestionDialog({
         setNotEnough(true);
       } else {
         setSuggestion(data.suggestion);
+        setSuggestionId(data.suggestion_id ?? null);
       }
     } catch {
       setError('Could not reach the suggestion service. Please try again.');
     } finally {
       setLoading(false);
       setFetched(true);
+    }
+  }
+
+  // Records the teacher's read on whether this advice helped — the human signal
+  // the loop feeds back into its next suggestion for this class.
+  async function saveVerdict(next: Verdict) {
+    if (!suggestionId || savingVerdict) return;
+    setSavingVerdict(next);
+    try {
+      const applied = await SessionFeedbackService.setSuggestionVerdict(
+        suggestionId,
+        next,
+      );
+      if (applied) {
+        setVerdict(next);
+        toast.success('Thanks — your feedback helps improve the next suggestion.');
+      } else {
+        toast.error("Couldn't save your feedback. Please try again.");
+      }
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : "Couldn't save your feedback. Please try again.",
+      );
+    } finally {
+      setSavingVerdict(null);
     }
   }
 
@@ -185,6 +243,49 @@ export function AiSuggestionDialog({
               </h4>
               <p className="text-muted-foreground">{suggestion.whatToWatchNext}</p>
             </section>
+
+            {/* Human verdict — the teacher tells the loop whether this worked, so the
+                next suggestion learns from it. Shown only when the suggestion was
+                recorded (suggestionId present). */}
+            {suggestionId ? (
+              <section className="rounded-md border bg-muted/30 p-3">
+                <h4 className="mb-2 text-xs font-semibold text-muted-foreground">
+                  Did this help? Your answer trains the next suggestion.
+                </h4>
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                  {VERDICT_OPTIONS.map(({ value, label, Icon }) => {
+                    const chosen = verdict === value;
+                    const isSaving = savingVerdict === value;
+                    return (
+                      <Button
+                        key={value}
+                        type="button"
+                        variant={chosen ? 'default' : 'outline'}
+                        size="sm"
+                        className="justify-start gap-1.5"
+                        style={chosen ? { backgroundColor: BRAND_GREEN } : undefined}
+                        // After a verdict is saved, lock the row — the chosen one
+                        // stays highlighted, the others disable.
+                        disabled={
+                          savingVerdict !== null || (verdict !== null && !chosen)
+                        }
+                        aria-pressed={chosen}
+                        onClick={() => saveVerdict(value)}
+                      >
+                        {isSaving ? (
+                          <BeatLoader color="#ffffff" size={5} />
+                        ) : chosen ? (
+                          <Check className="h-3.5 w-3.5" />
+                        ) : (
+                          <Icon className="h-3.5 w-3.5" />
+                        )}
+                        {label}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </section>
+            ) : null}
 
             <p className="border-t pt-3 text-[11px] text-muted-foreground">
               AI-generated from anonymized, aggregate feedback — no individual response

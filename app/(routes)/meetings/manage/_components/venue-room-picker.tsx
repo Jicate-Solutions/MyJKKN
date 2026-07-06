@@ -57,9 +57,16 @@ interface VenueRoomPickerProps {
   /** Name to show before the room list has loaded (round-tripped on edit). */
   initialName?: string | null;
   disabled?: boolean;
+  /**
+   * STRICT mode (e.g. induction sessions): there is no free-text fallback, so the
+   * clear option reads "Clear venue (no room)" instead of "Custom place instead".
+   * Selecting it still clears to '' — a record may legitimately have no venue.
+   * Defaults to false to preserve the Meetings (custom-place-fallback) behavior.
+   */
+  strict?: boolean;
 }
 
-export function VenueRoomPicker({ value, onChange, initialName, disabled }: VenueRoomPickerProps) {
+export function VenueRoomPicker({ value, onChange, initialName, disabled, strict = false }: VenueRoomPickerProps) {
   const [open, setOpen] = React.useState(false);
   const [rooms, setRooms] = React.useState<RoomOption[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -176,7 +183,7 @@ export function VenueRoomPicker({ value, onChange, initialName, disabled }: Venu
                     }}
                     className="text-muted-foreground"
                   >
-                    Custom place instead (type the location)
+                    {strict ? 'Clear venue (no room)' : 'Custom place instead (type the location)'}
                   </CommandItem>
                 </CommandGroup>
               )}

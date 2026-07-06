@@ -8,6 +8,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   SessionFeedbackRow,
   PendingSession,
+  CarryforwardItem,
   ConfirmationStatusRow,
   FacultySummaryRow,
   FacultyCompletionRow,
@@ -19,8 +20,13 @@ import type {
   AdminCollegeSummaryRow,
   AdminFacultySummaryRow,
   AdminTrendRow,
+  FacilitatorCoverageRow,
   ChecklistConfigItem,
   SubmitFeedbackInput,
+  LivePulseRow,
+  OpenPulseForLearner,
+  PulseTotals,
+  MyConfirmedAttendance,
 } from '@/types/session-feedback';
 
 // Untyped client — session_feedback tables are not in the generated types yet.
@@ -58,6 +64,28 @@ export class SessionFeedbackService {
     return (data || []) as PendingSession[];
   }
 
+  /** The caller learner's OWN confirmed-attendance snapshot (transparency, #7).
+   *  Forward-only; NOT gated on attendance_coupling_enabled — a learner may always see
+   *  their own number. Returns null when the caller is not a learner or has no in-scope marks. */
+  static async getMyConfirmedAttendance(): Promise<MyConfirmedAttendance | null> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_my_confirmed_attendance', {});
+    if (error) throw new Error(`Failed to load confirmed attendance: ${error.message}`);
+    const row = Array.isArray(data) ? data[0] : data;
+    return (row as MyConfirmedAttendance) ?? null;
+  }
+
+  /** Carry-forward re-asks: prior same-course sessions the learner flagged, for their
+   *  current pending sessions. Powers the "better this time?" banner in the dialog. */
+  static async getCarryforward(lookbackDays = 30): Promise<CarryforwardItem[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_carryforward_for_learner', {
+      p_lookback_days: lookbackDays,
+    });
+    if (error) throw new Error(`Failed to load carry-forward: ${error.message}`);
+    return (data || []) as CarryforwardItem[];
+  }
+
   /** Per-session confirmation state (present-pending vs confirmed) in a date range. */
   static async getConfirmationStatus(from: string, to: string): Promise<ConfirmationStatusRow[]> {
     const supabase = getSupabase();
@@ -69,7 +97,9 @@ export class SessionFeedbackService {
     return (data || []) as ConfirmationStatusRow[];
   }
 
-  /** Submit (or update) feedback for a session. The only write path. */
+  /** Submit (or update) feedback for a session. The only write path.
+   *  source defaults to 'async'; pass 'live_poll' for in-class Live Pulse answers
+   *  (the RPC downgrades to 'async' if no pulse is open for the class). */
   static async submitFeedback(input: SubmitFeedbackInput): Promise<SessionFeedbackRow> {
     const supabase = getSupabase();
     const { data, error } = await supabase.rpc('fn_scf_submit_feedback', {
@@ -79,6 +109,7 @@ export class SessionFeedbackService {
       p_understood: input.understood,
       p_checklist: input.checklist ?? {},
       p_free_text: input.freeText ?? null,
+      p_source: input.source ?? 'async',
     });
     if (error) throw new Error(`Failed to submit feedback: ${error.message}`);
     return data as SessionFeedbackRow;
@@ -121,6 +152,26 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to load pending roster: ${error.message}`);
     return (data || []) as PendingRosterRow[];
+  }
+
+  /** Faculty-triggered per-session nudge (PR-B): sends ONE in-app bell to each
+   *  Present-but-unconfirmed learner of this session, reusing the canonical
+   *  nudge notification path. The RPC authorizes the caller as the assigned
+   *  faculty (or super/admin). Returns how many learners were newly nudged
+   *  (idempotent per learner/session/day, so a repeat click may return 0). */
+  static async notifySessionPending(
+    attendanceDate: string,
+    timetableId: string,
+    periodId: string,
+  ): Promise<number> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_notify_session_pending', {
+      p_attendance_date: attendanceDate,
+      p_timetable_id: timetableId,
+      p_period_id: periodId,
+    });
+    if (error) throw new Error(`Failed to notify pending learners: ${error.message}`);
+    return Number(data ?? 0);
   }
 
   /** Institution sessions breaching the understanding threshold (Principal view). */
@@ -186,6 +237,28 @@ export class SessionFeedbackService {
     return (data || []) as MyImpactRow[];
   }
 
+  /**
+   * Self-improving loop — the HUMAN verdict channel. Records the teacher's own
+   * read on whether an AI suggestion actually helped, against the recorded
+   * suggestion row (id returned by the ai-suggest-improvement route). This is the
+   * signal fn_scf_prior_suggestion feeds back into the next prompt — without it,
+   * human_verdict is always null. fn_scf_set_verdict is SECURITY DEFINER and
+   * authorizes the caller against the suggestion's own scope, so a faculty can
+   * only verdict their own suggestions. Returns true when the verdict was applied.
+   */
+  static async setSuggestionVerdict(
+    suggestionId: string,
+    verdict: 'tried_helped' | 'tried_no_change' | 'not_tried',
+  ): Promise<boolean> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_set_verdict', {
+      p_suggestion_id: suggestionId,
+      p_verdict: verdict,
+    });
+    if (error) throw new Error(`Failed to save your verdict: ${error.message}`);
+    return data === true;
+  }
+
   // ---------------------------------------------------------------------------
   // Super-admin / institution-leadership all-college dashboard (aggregates only).
   // The RPCs raise for non-authorized callers; all three return ONLY aggregates
@@ -229,5 +302,65 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to load understanding trend: ${error.message}`);
     return (data || []) as AdminTrendRow[];
+  }
+
+  /** Per-learning-facilitator FEEDBACK coverage: (distinct taught sessions with >=1
+   *  feedback) / (distinct taught sessions). Drivers first, 0% non-drivers last.
+   *  Denominator comes from student_attendance, so facilitators who taught but got
+   *  no feedback surface at 0% — invisible to the session_feedback-only summaries. */
+  static async getFacilitatorFeedbackCoverage(
+    from: string,
+    to: string,
+  ): Promise<FacilitatorCoverageRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_facilitator_feedback_coverage', {
+      p_from: from,
+      p_to: to,
+    });
+    if (error) throw new Error(`Failed to load facilitator coverage: ${error.message}`);
+    return (data || []) as FacilitatorCoverageRow[];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Live Pulse Check — a live in-class poll over the SAME write path. Each
+  // student answer is a normal submitFeedback({ source: 'live_poll' }); these
+  // RPCs add only the live lifecycle + the teacher's anonymized totals.
+  // ---------------------------------------------------------------------------
+
+  /** Teacher (assigned faculty) or an HOD/admin of the class's institution opens a
+   *  live pulse for a class. Idempotent — returns the already-open pulse if one exists. */
+  static async openPulse(
+    attendanceDate: string,
+    timetableId: string,
+    periodId: string,
+  ): Promise<LivePulseRow> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_open_pulse', {
+      p_attendance_date: attendanceDate,
+      p_timetable_id: timetableId,
+      p_period_id: periodId,
+    });
+    if (error) throw new Error(`Failed to open pulse: ${error.message}`);
+    return data as LivePulseRow;
+  }
+
+  /** Open pulses for sessions the caller learner was marked Present in. */
+  static async getOpenPulsesForLearner(): Promise<OpenPulseForLearner[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_open_pulse_for_learner');
+    if (error) throw new Error(`Failed to load open pulses: ${error.message}`);
+    return (data || []) as OpenPulseForLearner[];
+  }
+
+  /** Anonymized live totals for ONE pulse (the pulse's faculty, or an HOD/admin of
+   *  that institution). Returns a single row, or null if the pulse is unknown. */
+  static async getPulseTotals(pulseId: string): Promise<PulseTotals | null> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_pulse_totals', {
+      p_pulse_id: pulseId,
+    });
+    if (error) throw new Error(`Failed to load pulse totals: ${error.message}`);
+    const rows = (data || []) as PulseTotals[];
+    return rows.length > 0 ? rows[0] : null;
   }
 }

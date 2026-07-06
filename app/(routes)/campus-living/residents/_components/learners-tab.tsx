@@ -136,6 +136,8 @@ export function LearnersTab() {
     if (g('gender')) f.gender = g('gender') as 'Male' | 'Female' | 'Other';
     if (g('block_id')) f.block_id = g('block_id') as BlockFilterValue;
     if (g('hostel_category_id')) f.hostel_category_id = g('hostel_category_id');
+    if (g('mess_category_id')) f.mess_category_id = g('mess_category_id');
+    if (g('room_id')) f.room_id = g('room_id');
     const y = g('year_of_study');
     if (y) f.year_of_study = Number(y);
     return f;

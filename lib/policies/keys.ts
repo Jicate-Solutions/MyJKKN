@@ -321,6 +321,25 @@ export const POLICY_KEYS = {
   SOCIAL_COMPLIANCE_MIN_POSTS: 'social.compliance.min_posts',
   SOCIAL_FOLLOWBACK_RATIO_THRESHOLD: 'social.followback_ratio_threshold',
   SOCIAL_REALTIME_ENABLED: 'social.realtime_enabled',
+
+  // Post-class feedback → attendance confirmation ("show the split").
+  // gate_mode: off | visibility (show completion, non-blocking) | hard.
+  // window_hours: grace window after class within which feedback is due; also
+  // splits present-pending into within-window vs overdue on the dashboard.
+  // Seeded as global system rows in platform_policies; edited via admin policy UI.
+  SESSION_FEEDBACK_GATE_MODE: 'session_feedback.gate_mode',
+  SESSION_FEEDBACK_WINDOW_HOURS: 'session_feedback.window_hours',
+  // Faculty-engagement adoption (2026-07-04). When TRUE, the DERIVED, non-destructive
+  // "effective attendance %" (present-but-no-feedback lowers a learner's attendance %)
+  // is computed for eligibility surfaces. Default FALSE (dark). Compliance sign-off
+  // required before enabling — exam-eligibility regulatory surface (spec R2). Never
+  // mutates attendance_data. Seeded by 20260731020000_scf_hard_gate_enforcement_and_coupling.sql.
+  SESSION_FEEDBACK_ATTENDANCE_COUPLING_ENABLED: 'session_feedback.attendance_coupling_enabled',
+  // Forward-only rollout (2026-07-05). Sessions before this IST date are grandfathered:
+  // never marked incomplete/overdue and excluded from confirmed-attendance eligibility.
+  // Resolved by fn_scf_faculty_completion (and, in Build 2, fn_scf_effective_attendance).
+  // Seeded by 20260705_scf_enforcement_start_date_forward_only.sql. Default '2026-07-05'.
+  SESSION_FEEDBACK_ENFORCEMENT_START_DATE: 'session_feedback.enforcement_start_date',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];

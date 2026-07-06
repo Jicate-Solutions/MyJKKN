@@ -417,6 +417,8 @@ export function usePromoteLearners() {
       semesterId: string;
       sectionId: string;
       academicYearId?: string;
+      departmentId?: string;
+      programId?: string;
       onProgress?: (
         current: number,
         total: number,
@@ -425,12 +427,14 @@ export function usePromoteLearners() {
       ) => void;
     }
   >({
-    mutationFn: ({ learnerIds, semesterId, sectionId, academicYearId, onProgress }) =>
+    mutationFn: ({ learnerIds, semesterId, sectionId, academicYearId, departmentId, programId, onProgress }) =>
       LearnerProfileService.bulkPromoteLearners(
         learnerIds,
         semesterId,
         sectionId,
         academicYearId,
+        departmentId,
+        programId,
         onProgress
       ),
     onSuccess: () => {

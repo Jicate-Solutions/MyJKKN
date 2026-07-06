@@ -14,6 +14,7 @@ export interface CdcTrainingType {
   is_active: boolean;
   sort_order: number;
   default_total_hours: number | null;
+  exam_family: string | null;  // 2026-07-04 govt-job-readiness: config-key tag (tnpsc/rrb/banking/ssc/police); NULL = not a govt-exam type
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -37,7 +38,10 @@ export interface CdcTrainingProgramme {
   end_date: string | null;         // ISO date
   status: TrainingProgrammeStatus;
   external_provider: string | null;
-  trainer_name: string | null;     // BUG-004076 — trainer / facilitator name
+  shared_syllabus_pct: number | null;  // 2026-07-04 govt-job-readiness (Option A): descriptive % label of shared syllabus; no logic derives grouping from it
+  domain_topics: string | null;        // 2026-07-04 govt-job-readiness (Option A): free-text domain-specific topics label
+  trainer_name: string | null;     // BUG-004076 — trainer / facilitator name (display snapshot / external name)
+  trainer_staff_id: string | null; // FK to staff(id) when trainer is internal MyJKKN staff; NULL = external/vendor
   certificate_template_url: string | null;
   target_department_id: string | null;  // BUG-004073 — cohort binding: target department
   academic_year_label: string | null;   // BUG-004073 — cohort binding: batch / academic year
@@ -98,7 +102,8 @@ export interface CdcTrainingSemesterSchedule {
   total_hours: number | null;
   start_date: string | null;       // ISO date
   end_date: string | null;         // ISO date
-  trainer_name: string | null;
+  trainer_name: string | null;     // display snapshot of internal trainer, or external trainer name
+  trainer_staff_id: string | null; // FK to staff(id) when trainer is internal MyJKKN staff; NULL = external/vendor
   notes: string | null;
   sort_order: number;
   created_at: string;
@@ -121,7 +126,8 @@ export interface CreateTrainingProgrammeDto {
   end_date?: string | null;
   status?: TrainingProgrammeStatus;
   external_provider?: string | null;
-  trainer_name?: string | null;    // BUG-004076 — trainer / facilitator name
+  trainer_name?: string | null;    // BUG-004076 — trainer / facilitator name (display snapshot / external name)
+  trainer_staff_id?: string | null; // FK to staff(id) when trainer is internal MyJKKN staff; NULL = external/vendor
   certificate_template_url?: string | null;
   target_department_id?: string | null;  // BUG-004073 — cohort binding: target department
   academic_year_label?: string | null;   // BUG-004073 — cohort binding: batch / academic year
@@ -151,6 +157,7 @@ export interface CreateSemesterScheduleDto {
   start_date?: string | null;
   end_date?: string | null;
   trainer_name?: string | null;
+  trainer_staff_id?: string | null; // FK to staff(id) for internal trainer; NULL = external/vendor
   notes?: string | null;
   sort_order?: number;
 }
@@ -161,6 +168,7 @@ export interface UpdateSemesterScheduleDto {
   start_date?: string | null;
   end_date?: string | null;
   trainer_name?: string | null;
+  trainer_staff_id?: string | null; // FK to staff(id) for internal trainer; NULL = external/vendor
   notes?: string | null;
   sort_order?: number;
 }

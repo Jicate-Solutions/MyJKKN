@@ -114,15 +114,24 @@ export function useStudentsForBilling(filters: StudentSearchFiltersType) {
   };
 }
 
-// Hook to get a single student for billing details page
-export function useStudentForBilling(studentId: string | null) {
+// Hook to get a single student for billing details page.
+// includeNonBillable: the read-only detail page passes true so learners whose
+// lifecycle left the billable set (e.g. rejected) still load; pickers/creation
+// flows keep the default billable-only behavior.
+export function useStudentForBilling(
+  studentId: string | null,
+  options: { includeNonBillable?: boolean } = {}
+) {
+  const includeNonBillable = options.includeNonBillable ?? false;
   return useQuery<StudentForBilling, Error>({
-    queryKey: studentSearchKeys.detail(studentId || ''),
+    queryKey: [...studentSearchKeys.detail(studentId || ''), includeNonBillable],
     queryFn: () => {
       if (!studentId) {
         return Promise.reject(new Error('Student ID is required.'));
       }
-      return StudentSearchService.getStudentForBilling(studentId);
+      return StudentSearchService.getStudentForBilling(studentId, {
+        includeNonBillable
+      });
     },
     enabled: !!studentId,
     staleTime: 5 * 60 * 1000

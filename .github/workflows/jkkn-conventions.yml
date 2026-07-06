@@ -138,3 +138,39 @@ jobs:
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/${IDS[0]}" -F body=@/tmp/sd.md > /dev/null
             for s in "${IDS[@]:1}"; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$s" >/dev/null 2>&1 || true; done
           fi
+
+  carre-coverage:
+    name: CARRE coverage (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: ${{ !github.event.pull_request.draft }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Run CARRE coverage check
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$BASE_SHA" --quiet || true
+          bash scripts/ci/check-carre-coverage.sh /tmp/carre.md "$BASE_SHA" "$HEAD_SHA" || true
+          echo "report bytes: $(wc -c < /tmp/carre.md 2>/dev/null || echo 0)"
+      - name: Post comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MARKER: "<!-- jkkn-carre-coverage -->"
+        run: |
+          set -euo pipefail
+          if [ ! -s /tmp/carre.md ]; then
+            echo "::notice::No CARRE coverage gaps — nothing to post."; exit 0
+          fi
+          mapfile -t IDS < <(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            --paginate --jq ".[] | select(.body | startswith(\"$MARKER\")) | .id" 2>/dev/null || true)
+          if [ "${#IDS[@]}" -eq 0 ]; then
+            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/carre.md
+          else
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/${IDS[0]}" -F body=@/tmp/carre.md > /dev/null
+            for s in "${IDS[@]:1}"; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$s" >/dev/null 2>&1 || true; done
+          fi

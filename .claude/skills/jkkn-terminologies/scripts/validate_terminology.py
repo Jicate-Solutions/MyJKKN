@@ -39,6 +39,11 @@ CRITICAL_TERMS = {
     r'\btutors\b': 'learning facilitators',
     r'\beducator\b': 'learning facilitator',
     r'\beducators\b': 'learning facilitators',
+    # "Senior learner" is JKKN's term for the teaching role (= learning facilitator),
+    # NOT a senior student. Director ruling 2026-06-29. The senior-STUDENT mentor concept
+    # is "peer mentor"; the learners-council staff advisor role key stays a separate concern.
+    r'\bsenior learners\b': 'learning facilitators',
+    r'\bsenior learner\b': 'learning facilitator',
 
     # Non-Academic Staff
     r'\bstaff\b': 'team members',

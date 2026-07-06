@@ -8,6 +8,7 @@ import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import { useImsIndent, useUpdateImsIndent } from '@/hooks/ims/use-ims-indents';
 import { useImsItemsForSelect } from '@/hooks/ims/use-ims-inventory';
 import { useImsDepartmentsForSelect } from '@/hooks/ims/use-ims-departments';
+import { useImsDeptScope } from '@/hooks/ims/use-ims-dept-scope';
 import type { ImsIndentUrgency, ImsIndentWithItems } from '@/types/ims/indents';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -109,6 +110,10 @@ function EditIndentForm({ indent }: { indent: ImsIndentWithItems }) {
   const router = useRouter();
   const { profile } = useAuth();
   const { storeId, institutionId } = useImsStoreContext();
+  // Same RLS-driven scope used on the create form: a department-scoped user can
+  // only keep this indent on their own department, so lock the field to it.
+  const { data: deptScope } = useImsDeptScope();
+  const isDeptLocked = !!deptScope?.isScoped;
 
   const [departmentId, setDepartmentId] = useState(indent.department_id ?? '');
   const [requiredDate, setRequiredDate] = useState(indent.required_date ?? '');
@@ -249,7 +254,7 @@ function EditIndentForm({ indent }: { indent: ImsIndentWithItems }) {
                     setDepartmentId(val);
                     setFieldErrors((e) => ({ ...e, department: '' }));
                   }}
-                  disabled={departmentsLoading || departmentsError}
+                  disabled={departmentsLoading || departmentsError || isDeptLocked}
                 >
                   <SelectTrigger
                     id="department"
@@ -278,6 +283,12 @@ function EditIndentForm({ indent }: { indent: ImsIndentWithItems }) {
                 {departmentsError && (
                   <p className="text-sm text-destructive">
                     Could not load departments. Check your connection or contact an admin.
+                  </p>
+                )}
+                {isDeptLocked && (
+                  <p className="text-sm text-muted-foreground">
+                    You can only raise indents for your own department, so this is
+                    locked to it.
                   </p>
                 )}
                 {!departmentsError && fieldErrors.department && (

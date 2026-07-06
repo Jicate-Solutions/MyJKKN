@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { corsHeaders } from '@/lib/api-keys/cors'
+import { resolveRosterEnrollmentIds } from '@/lib/services/startup-studio/sf100-service'
 
 export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders })
@@ -18,8 +19,20 @@ export async function GET(request: NextRequest) {
 
     const supabase = createServiceRoleClient()
 
-    // Fetch enrollments with registration
-    const { data: rows, error: fetchError } = await supabase
+    // Program roster scoped by sf100_enrollments.program_id as the AUTHORITATIVE
+    // base, folded (union) with the cohort spine — via the single shared resolver —
+    // so a partial/incomplete cohort_memberships set can never silently drop a team
+    // from the public leaderboard. current_phase & cumulative_paid_users are still
+    // read LIVE from the sf100_enrollments extension below (never the stale
+    // membership.config snapshot); the extension status filter stays authoritative.
+    // `null` → the program has no enrollments → the `.eq('program_id')` fallback
+    // returns 0 rows too (identical).
+    const rosterIds = await resolveRosterEnrollmentIds(supabase, programId)
+
+    // Fetch enrollments with registration (SF100 per-team fields from the extension).
+    // Apply the program/roster filter BEFORE .order() so the builder stays a filter
+    // builder, then order at await-time.
+    let query = supabase
       .from('sf100_enrollments')
       .select(`
         id,
@@ -28,8 +41,9 @@ export async function GET(request: NextRequest) {
         enrolled_at,
         registration:event_registrations(id, team_name, institution_id)
       `)
-      .eq('program_id', programId)
       .in('status', ['active', 'warning', 'probation', 'graduated'])
+    query = rosterIds ? query.in('id', rosterIds) : query.eq('program_id', programId)
+    const { data: rows, error: fetchError } = await query
       .order('cumulative_paid_users', { ascending: false })
       .order('enrolled_at', { ascending: true })
 
@@ -59,7 +73,7 @@ export async function GET(request: NextRequest) {
 
     // Fetch phase_history evidence which contains member college data from Form 1
     const enrollmentIds = (rows || []).map((r: any) => r.id)
-    let teamColleges: Record<string, string[]> = {}
+    const teamColleges: Record<string, string[]> = {}
 
     if (enrollmentIds.length > 0) {
       const { data: histories } = await supabase

@@ -23225,6 +23225,134 @@ export type Database = {
           },
         ]
       }
+      event_day_feedback: {
+        Row: {
+          comment: string | null
+          created_at: string
+          day_number: number
+          event_id: string
+          id: string
+          institution_id: string
+          learner_id: string
+          rating: number
+          updated_at: string
+        }
+        Insert: {
+          comment?: string | null
+          created_at?: string
+          day_number: number
+          event_id: string
+          id?: string
+          institution_id: string
+          learner_id: string
+          rating: number
+          updated_at?: string
+        }
+        Update: {
+          comment?: string | null
+          created_at?: string
+          day_number?: number
+          event_id?: string
+          id?: string
+          institution_id?: string
+          learner_id?: string
+          rating?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_day_feedback_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_day_feedback_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "marathon_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_day_feedback_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_day_feedback_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_day_feedback_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_day_feedback_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_day_feedback_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_day_feedback_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_day_feedback_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "event_day_feedback_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_learner_hostelites"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_day_feedback_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_learner_hostelites_scoped"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_day_feedback_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "vw_learner_payment_progress"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "event_day_feedback_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "vw_learners_profile_fee_backfill_status"
+            referencedColumns: ["learner_id"]
+          },
+        ]
+      }
       event_demo_slots: {
         Row: {
           created_at: string
@@ -23593,6 +23721,131 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "marathon_registrations"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_program_feedback: {
+        Row: {
+          comment: string | null
+          created_at: string
+          event_id: string
+          id: string
+          institution_id: string
+          learner_id: string
+          rating: number
+          updated_at: string
+        }
+        Insert: {
+          comment?: string | null
+          created_at?: string
+          event_id: string
+          id?: string
+          institution_id: string
+          learner_id: string
+          rating: number
+          updated_at?: string
+        }
+        Update: {
+          comment?: string | null
+          created_at?: string
+          event_id?: string
+          id?: string
+          institution_id?: string
+          learner_id?: string
+          rating?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_program_feedback_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_program_feedback_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "marathon_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_program_feedback_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_program_feedback_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_program_feedback_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_program_feedback_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_program_feedback_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "event_program_feedback_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_program_feedback_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "event_program_feedback_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_learner_hostelites"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_program_feedback_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_learner_hostelites_scoped"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_program_feedback_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "vw_learner_payment_progress"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "event_program_feedback_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "vw_learners_profile_fee_backfill_status"
+            referencedColumns: ["learner_id"]
           },
         ]
       }
@@ -40528,6 +40781,115 @@ export type Database = {
           },
         ]
       }
+      hr_job_applications: {
+        Row: {
+          id: string
+          job_id: string
+          institution_id: string | null
+          first_name: string
+          last_name: string
+          email: string
+          phone: string
+          current_job_title: string | null
+          current_company: string | null
+          current_job_duration_months: number | null
+          experience_months: number
+          qualification: string
+          worked_cities: string[]
+          resume_url: string
+          resume_filename: string
+          resume_size_bytes: number | null
+          drive_file_id: string | null
+          status: string
+          reviewed_by: string | null
+          reviewed_at: string | null
+          review_notes: string | null
+          applicant_user_id: string | null
+          promoted_candidate_id: string | null
+          submitted_at: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          job_id: string
+          institution_id?: string | null
+          first_name: string
+          last_name: string
+          email: string
+          phone: string
+          current_job_title?: string | null
+          current_company?: string | null
+          current_job_duration_months?: number | null
+          experience_months?: number
+          qualification: string
+          worked_cities?: string[]
+          resume_url: string
+          resume_filename: string
+          resume_size_bytes?: number | null
+          drive_file_id?: string | null
+          status?: string
+          reviewed_by?: string | null
+          reviewed_at?: string | null
+          review_notes?: string | null
+          applicant_user_id?: string | null
+          promoted_candidate_id?: string | null
+          submitted_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          job_id?: string
+          institution_id?: string | null
+          first_name?: string
+          last_name?: string
+          email?: string
+          phone?: string
+          current_job_title?: string | null
+          current_company?: string | null
+          current_job_duration_months?: number | null
+          experience_months?: number
+          qualification?: string
+          worked_cities?: string[]
+          resume_url?: string
+          resume_filename?: string
+          resume_size_bytes?: number | null
+          drive_file_id?: string | null
+          status?: string
+          reviewed_by?: string | null
+          reviewed_at?: string | null
+          review_notes?: string | null
+          applicant_user_id?: string | null
+          promoted_candidate_id?: string | null
+          submitted_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_job_applications_promoted_candidate_id_fkey"
+            columns: ["promoted_candidate_id"]
+            isOneToOne: false
+            referencedRelation: "hr_recruitment_candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_job_applications_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "hr_recruitment_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_job_applications_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hr_faculty_workload: {
         Row: {
           academic_year: string
@@ -43921,6 +44283,61 @@ export type Database = {
             columns: ["superseded_by"]
             isOneToOne: false
             referencedRelation: "hr_public_holidays"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_recruitment_candidate_comments: {
+        Row: {
+          id: string
+          candidate_id: string
+          hr_organization_id: string
+          commenter_id: string
+          comment: string
+          parent_comment_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          candidate_id: string
+          hr_organization_id: string
+          commenter_id: string
+          comment: string
+          parent_comment_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          candidate_id?: string
+          hr_organization_id?: string
+          commenter_id?: string
+          comment?: string
+          parent_comment_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_recruitment_candidate_comments_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "hr_recruitment_candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_recruitment_candidate_comments_commenter_id_fkey"
+            columns: ["commenter_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_recruitment_candidate_comments_parent_comment_id_fkey"
+            columns: ["parent_comment_id"]
+            isOneToOne: false
+            referencedRelation: "hr_recruitment_candidate_comments"
             referencedColumns: ["id"]
           },
         ]
@@ -48897,6 +49314,347 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      induction_event_coordinators: {
+        Row: {
+          assigned_at: string
+          assigned_by: string | null
+          event_id: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          assigned_at?: string
+          assigned_by?: string | null
+          event_id: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          assigned_at?: string
+          assigned_by?: string | null
+          event_id?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "induction_event_coordinators_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "induction_event_coordinators_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "induction_event_coordinators_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "induction_event_coordinators_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "induction_event_coordinators_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "induction_event_coordinators_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "marathon_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "induction_event_coordinators_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "induction_event_coordinators_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "induction_event_coordinators_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "induction_event_coordinators_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      induction_programs: {
+        Row: {
+          academic_year_id: string | null
+          admission_year: number | null
+          completion_attendance_pct: number
+          created_at: string
+          degree_type_filter: string | null
+          enroll_scope: string
+          event_id: string
+          feedback_day_enabled: boolean
+          feedback_program_enabled: boolean
+          id: string
+          institution_id: string | null
+          is_blueprint: boolean
+          profile_deadline_rule: string
+          referral_conversion_window: string
+          referral_institution_scope: string
+          referral_own_weight: number
+          referral_required_min: number
+          target_degree_ids: string[] | null
+          target_department_ids: string[] | null
+          target_institution_ids: string[] | null
+          updated_at: string
+        }
+        Insert: {
+          academic_year_id?: string | null
+          admission_year?: number | null
+          completion_attendance_pct?: number
+          created_at?: string
+          degree_type_filter?: string | null
+          enroll_scope?: string
+          event_id: string
+          feedback_day_enabled?: boolean
+          feedback_program_enabled?: boolean
+          id?: string
+          institution_id?: string | null
+          is_blueprint?: boolean
+          profile_deadline_rule?: string
+          referral_conversion_window?: string
+          referral_institution_scope?: string
+          referral_own_weight?: number
+          referral_required_min?: number
+          target_degree_ids?: string[] | null
+          target_department_ids?: string[] | null
+          target_institution_ids?: string[] | null
+          updated_at?: string
+        }
+        Update: {
+          academic_year_id?: string | null
+          admission_year?: number | null
+          completion_attendance_pct?: number
+          created_at?: string
+          degree_type_filter?: string | null
+          enroll_scope?: string
+          event_id?: string
+          feedback_day_enabled?: boolean
+          feedback_program_enabled?: boolean
+          id?: string
+          institution_id?: string | null
+          is_blueprint?: boolean
+          profile_deadline_rule?: string
+          referral_conversion_window?: string
+          referral_institution_scope?: string
+          referral_own_weight?: number
+          referral_required_min?: number
+          target_degree_ids?: string[] | null
+          target_department_ids?: string[] | null
+          target_institution_ids?: string[] | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "induction_programs_academic_year_id_fkey"
+            columns: ["academic_year_id"]
+            isOneToOne: false
+            referencedRelation: "academic_years"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "induction_programs_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: true
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "induction_programs_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: true
+            referencedRelation: "marathon_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "induction_programs_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "induction_programs_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "induction_programs_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "induction_programs_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "induction_programs_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      induction_session_poll: {
+        Row: {
+          auto_close_at: string | null
+          created_at: string
+          created_by: string | null
+          event_id: string
+          id: string
+          institution_id: string
+          issued_at: string | null
+          session_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          auto_close_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          event_id: string
+          id?: string
+          institution_id: string
+          issued_at?: string | null
+          session_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          auto_close_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          event_id?: string
+          id?: string
+          institution_id?: string
+          issued_at?: string | null
+          session_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      induction_session_poll_option: {
+        Row: {
+          created_at: string
+          id: string
+          label: string
+          position: number
+          question_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label: string
+          position?: number
+          question_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string
+          position?: number
+          question_id?: string
+        }
+        Relationships: []
+      }
+      induction_session_poll_question: {
+        Row: {
+          created_at: string
+          id: string
+          kind: string
+          poll_id: string
+          position: number
+          prompt: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kind?: string
+          poll_id: string
+          position?: number
+          prompt: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kind?: string
+          poll_id?: string
+          position?: number
+          prompt?: string
+        }
+        Relationships: []
+      }
+      induction_session_poll_vote: {
+        Row: {
+          created_at: string
+          id: string
+          learner_id: string
+          option_id: string
+          poll_id: string
+          question_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          learner_id: string
+          option_id: string
+          poll_id: string
+          question_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          learner_id?: string
+          option_id?: string
+          poll_id?: string
+          question_id?: string
+        }
+        Relationships: []
       }
       industry_mentors: {
         Row: {
@@ -102327,6 +103085,130 @@ export type Database = {
       fn_hostel_premium_evaluate: {
         Args: { p_learner_id: string; p_tier_id: string }
         Returns: Json
+      }
+      fn_hr_orgs_for_institutions: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          institution_id: string
+          hr_organization_id: string
+          organization_name: string
+        }[]
+      }
+      fn_induction_assign_event_coordinator: {
+        Args: { p_event_id: string; p_user_id: string }
+        Returns: undefined
+      }
+      fn_induction_assignable_event_staff: {
+        Args: { p_event_id: string; p_query?: string }
+        Returns: {
+          email: string
+          full_name: string
+          id: string
+          role: string
+        }[]
+      }
+      fn_induction_can_manage_event_coordinators: {
+        Args: { p_event_id: string }
+        Returns: boolean
+      }
+      fn_induction_day_feedback_summary: {
+        Args: { p_event_id: string }
+        Returns: {
+          avg_rating: number
+          day_number: number
+          response_count: number
+        }[]
+      }
+      fn_induction_day_roster: {
+        Args: { p_day_number: number; p_event_id: string }
+        Returns: {
+          batch_label: string
+          is_mixed: boolean
+          learner_id: string
+          name: string
+          register_number: string
+          status: string
+        }[]
+      }
+      fn_induction_is_event_coordinator: {
+        Args: { p_event_id: string; p_user_id?: string }
+        Returns: boolean
+      }
+      fn_induction_list_event_coordinators: {
+        Args: { p_event_id: string }
+        Returns: {
+          email: string
+          full_name: string
+          user_id: string
+        }[]
+      }
+      fn_induction_mark_day_attendance: {
+        Args: { p_day_number: number; p_event_id: string; p_marks: Json }
+        Returns: number
+      }
+      fn_induction_my_day_feedback: {
+        Args: { p_event_id: string }
+        Returns: {
+          comment: string
+          day_number: number
+          rating: number
+        }[]
+      }
+      fn_induction_my_enrollments: {
+        Args: never
+        Returns: {
+          advocacy_score: number
+          attendance_pct: number
+          batch_id: string
+          batch_label: string
+          end_date: string
+          event_id: string
+          event_name: string
+          feedback_day_enabled: boolean
+          feedback_program_enabled: boolean
+          institution_id: string
+          institution_name: string
+          is_profile_complete: boolean
+          participation_complete: boolean
+          profile_fields_filled: number
+          profile_fields_total: number
+          sessions_attended: number
+          sessions_total: number
+          start_date: string
+          status: string
+          value_score_avg: number
+        }[]
+      }
+      fn_induction_my_program_feedback: {
+        Args: { p_event_id: string }
+        Returns: {
+          comment: string
+          rating: number
+        }[]
+      }
+      fn_induction_program_feedback_summary: {
+        Args: { p_event_id: string }
+        Returns: {
+          avg_rating: number
+          response_count: number
+        }[]
+      }
+      fn_induction_remove_event_coordinator: {
+        Args: { p_event_id: string; p_user_id: string }
+        Returns: undefined
+      }
+      fn_induction_submit_day_feedback: {
+        Args: {
+          p_comment?: string
+          p_day_number: number
+          p_event_id: string
+          p_rating: number
+        }
+        Returns: string
+      }
+      fn_induction_submit_program_feedback: {
+        Args: { p_comment?: string; p_event_id: string; p_rating: number }
+        Returns: string
       }
       fn_institution_comparison: {
         Args: { p_admission_year?: number; p_institution_ids: string[] }

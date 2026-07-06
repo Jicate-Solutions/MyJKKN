@@ -20,6 +20,7 @@ import {
 import { AlertCircle, UserX } from 'lucide-react';
 import { useApplyLeave, useLeaveBalance } from '@/hooks/hr/use-leave';
 import { useCurrentEmployee } from '@/hooks/hr/use-regularization';
+import { useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
 import { useAcademicYears } from '@/hooks/use-academic-years';
 import { EmptyState } from '@/components/empty-state';
 import type { LeaveDurationType } from '@/types/hr';
@@ -31,13 +32,23 @@ export default function ApplyLeavePage() {
   // Auto-resolve identifiers from the logged-in user (BUG-003319 fix —
   // the previous v1 form exposed 5 raw UUID Inputs that the COO could not fill).
   const { data: employee, isLoading: employeeLoading } = useCurrentEmployee();
-  const { data: academicYearsResp, isLoading: yearsLoading } = useAcademicYears();
+
+  // Scope academic years to the employee's own institution (via the
+  // hr_organization → institution mapping) so a year from another JKKN
+  // institution can never be picked silently.
+  const { institutionIdByOrg, isLoading: mappingsLoading } = useHrOrgMappings();
+  const institutionId = employee?.hr_organization_id
+    ? institutionIdByOrg.get(employee.hr_organization_id)
+    : undefined;
+  const { data: academicYearsResp, isLoading: yearsFetching } = useAcademicYears(institutionId);
+  const yearsLoading = yearsFetching || mappingsLoading;
 
   // Pick the first active academic year by name-desc (matches use-academic-years).
-  // If multiple are returned (e.g. across institutions), the one ordered first wins.
+  // Ignore results until the institution scope is resolved — an unscoped fetch
+  // returns years across ALL institutions.
   const activeAcademicYearId = useMemo(
-    () => academicYearsResp?.data?.[0]?.id ?? '',
-    [academicYearsResp],
+    () => (institutionId ? academicYearsResp?.data?.[0]?.id ?? '' : ''),
+    [academicYearsResp, institutionId],
   );
 
   const hrOrgId = employee?.hr_organization_id ?? '';

@@ -12,10 +12,12 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useMentorPairingById, useUpdateMentorPairing } from '@/hooks/cdc/use-cdc-mentors';
+import { useAuth } from '@/hooks/use-auth';
+import { canEditMentorPairing } from '@/lib/services/cdc/mentor-access';
 import { MentorSessionsCard } from '@/components/cdc/mentor-sessions-card';
 import { BeatLoader } from 'react-spinners';
 import type { MentoringStatus } from '@/types/cdc/mentors';
-import { ArrowLeft, User } from 'lucide-react';
+import { ArrowLeft, User, Building2, Eye } from 'lucide-react';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -38,6 +40,7 @@ export default function MentorPairingDetailPage(props: PageProps) {
 function MentorPairingDetailContent({ params }: PageProps) {
   const { id } = use(params);
   const router = useRouter();
+  const { profile } = useAuth();
 
   const { data: pairing, isLoading, error } = useMentorPairingById(id);
   const updatePairing = useUpdateMentorPairing(id);
@@ -65,9 +68,16 @@ function MentorPairingDetailContent({ params }: PageProps) {
     );
   }
 
-  const mentor = pairing.mentor as { name?: string; roll_number?: string } | null;
-  const mentee = pairing.mentee as { name?: string; roll_number?: string } | null;
+  const mentor = pairing.mentor;
+  const mentee = pairing.mentee;
   const status = pairing.status as MentoringStatus;
+
+  // Owning college = mentee's institution (mentor's as fallback). Editing is
+  // restricted to that college's CDC staff; RLS enforces it, this only gates the
+  // action buttons so a cross-college viewer isn't shown controls that would fail.
+  const college = mentee?.institution?.name ?? mentor?.institution?.name ?? null;
+  const ownerInstitutionId = mentee?.institution_id ?? mentor?.institution_id ?? null;
+  const canEdit = canEditMentorPairing(profile, ownerInstitutionId);
 
   return (
     <ContentLayout title="Mentor Pairing">
@@ -98,13 +108,22 @@ function MentorPairingDetailContent({ params }: PageProps) {
           <p className="text-sm text-gray-500 mt-1">
             Paired on {new Date(pairing.paired_at).toLocaleDateString()}
           </p>
+          <p className="text-sm text-gray-500 mt-1 flex items-center gap-1.5">
+            <Building2 className="w-3.5 h-3.5 text-gray-400" />
+            {college ?? 'College not set'}
+            {!canEdit && (
+              <Badge variant="outline" className="ml-1 text-xs border-gray-200 text-gray-500 gap-1">
+                <Eye className="w-3 h-3" /> View only
+              </Badge>
+            )}
+          </p>
         </div>
 
         {/* Mentor */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <User className="w-4 h-4 text-blue-500" /> Mentor (Senior Learner)
+              <User className="w-4 h-4 text-blue-500" /> Peer Mentor
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm">
@@ -143,8 +162,8 @@ function MentorPairingDetailContent({ params }: PageProps) {
           </p>
         )}
 
-        {/* Status actions */}
-        {status !== 'concluded' && (
+        {/* Status actions — only for the pairing's own college (RLS-enforced). */}
+        {canEdit && status !== 'concluded' && (
           <div className="flex gap-3 flex-wrap">
             {status === 'active' && (
               <Button
@@ -173,6 +192,12 @@ function MentorPairingDetailContent({ params }: PageProps) {
               Mark as Concluded
             </Button>
           </div>
+        )}
+        {!canEdit && (
+          <p className="text-sm text-gray-500 border border-gray-200 rounded-md bg-gray-50 px-3 py-2">
+            This pairing belongs to {college ?? 'another college'}. You can view it, but
+            only that college&apos;s CDC staff can change its status.
+          </p>
         )}
       </div>
     </ContentLayout>

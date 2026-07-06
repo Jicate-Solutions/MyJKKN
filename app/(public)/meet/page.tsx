@@ -3,7 +3,7 @@
 // PUBLIC directory — "Book a meeting at JKKN" (Universal Booking U4, D3/D6/D7).
 //
 // Two kinds of cards:
-//   * People — Senior Learners / staff who opted in (D1) and pass the D20
+//   * People — Learning Facilitators / staff who opted in (D1) and pass the D20
 //     gate (active Google connection). Card shows name + designation +
 //     department + college + headline ONLY (D6 — no contact data).
 //   * College funnels — the routed admission lines (engineering-admission …)
@@ -24,7 +24,7 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
   title: 'Book a meeting · JKKN',
   description:
-    'Book a meeting with Senior Learners and staff across JKKN Institutions.',
+    'Book a meeting with Learning Facilitators and staff across JKKN Institutions.',
 };
 
 export default async function MeetDirectoryPage() {

@@ -67,9 +67,12 @@ export function useCreateIdp() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (dto: CreateIdpResponseDto) => IdpService.create(supabase, dto),
-    onSuccess: () => {
+    onSuccess: (_data, dto) => {
       toast.success('IDP response saved.');
       qc.invalidateQueries({ queryKey: idpKeys.lists() });
+      // Keep the learner self-service view (useIdpByLearner) fresh after a
+      // first-time create (BUG-004298).
+      qc.invalidateQueries({ queryKey: idpKeys.byLearner(dto.learner_id) });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -79,10 +82,36 @@ export function useUpdateIdp(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (dto: UpdateIdpResponseDto) => IdpService.update(supabase, id, dto),
-    onSuccess: () => {
+    onSuccess: (data) => {
       toast.success('IDP response updated.');
       qc.invalidateQueries({ queryKey: idpKeys.detail(id) });
       qc.invalidateQueries({ queryKey: idpKeys.lists() });
+      if (data?.learner_id) {
+        qc.invalidateQueries({ queryKey: idpKeys.byLearner(data.learner_id) });
+      }
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+// Staff-only approval (BUG-004298). Resolves the approver from the current
+// session, then flips submission_status -> 'approved' (RLS enforces staff-only).
+export function useApproveIdp(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      const approverId = auth?.user?.id ?? null;
+      if (!approverId) throw new Error('You must be signed in to approve.');
+      return IdpService.approve(supabase, id, approverId);
+    },
+    onSuccess: (data) => {
+      toast.success('IDP approved.');
+      qc.invalidateQueries({ queryKey: idpKeys.detail(id) });
+      qc.invalidateQueries({ queryKey: idpKeys.lists() });
+      if (data?.learner_id) {
+        qc.invalidateQueries({ queryKey: idpKeys.byLearner(data.learner_id) });
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });

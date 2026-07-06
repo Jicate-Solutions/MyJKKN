@@ -591,6 +591,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/settings/program-eligibility'],
         },
         {
+          label: 'Allocations & Eligibility',
+          icon: 'ListChecks',
+          href: '/campus-living/settings/allocations',
+          matchPaths: ['/campus-living/settings/allocations'],
+        },
+        {
           label: 'Amenities',
           icon: 'Wifi',
           href: '/campus-living/settings/amenities',
@@ -633,10 +639,22 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/settings/choose-your-menu'],
         },
         {
+          label: 'Mess & Daily Services',
+          icon: 'Sliders',
+          href: '/campus-living/settings/mess-services',
+          matchPaths: ['/campus-living/settings/mess-services'],
+        },
+        {
           label: 'Fee Config',
           icon: 'Coins',
           href: '/campus-living/settings/fee-config',
           matchPaths: ['/campus-living/settings/fee-config'],
+        },
+        {
+          label: 'Fees & Economics',
+          icon: 'Sliders',
+          href: '/campus-living/settings/fees-economics',
+          matchPaths: ['/campus-living/settings/fees-economics'],
         },
         {
           label: 'Leave Types',
@@ -645,10 +663,22 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/settings/leave-types'],
         },
         {
+          label: 'Menu Loop',
+          icon: 'RefreshCw',
+          href: '/campus-living/mess/menu-loop',
+          matchPaths: ['/campus-living/mess/menu-loop'],
+        },
+        {
           label: 'Approval Chains',
           icon: 'GitBranch',
           href: '/campus-living/settings/approval-chains',
           matchPaths: ['/campus-living/settings/approval-chains'],
+        },
+        {
+          label: 'Policies & Workflows',
+          icon: 'Sliders',
+          href: '/campus-living/settings/policies-workflows',
+          matchPaths: ['/campus-living/settings/policies-workflows'],
         },
         {
           label: 'Maintenance SLA',

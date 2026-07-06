@@ -22,9 +22,15 @@ import {
 } from '@/hooks/cdc/use-cdc-training';
 import type { CdcTrainingSemesterSchedule } from '@/types/cdc/training';
 import { CalendarRange, Clock, Loader2, Pencil, Plus, Trash2, UserRound } from 'lucide-react';
+import { SearchableSelect } from '@/components/ui/searchable-select';
+import { useSemestersForDepartmentPicker } from '@/hooks/cdc/use-cdc-pickers';
+import { TrainerPicker } from '../../_components/trainer-picker';
 
 interface Props {
   programmeId: string;
+  /** The programme's target department — scopes the Semester picker to that
+   *  department's real semesters. Null/undefined → institution-wide fallback. */
+  targetDepartmentId?: string | null;
 }
 
 type FormState = {
@@ -33,11 +39,12 @@ type FormState = {
   start_date: string;
   end_date: string;
   trainer_name: string;
+  trainer_staff_id: string;
   notes: string;
 };
 
 const EMPTY: FormState = {
-  semester_label: '', total_hours: '', start_date: '', end_date: '', trainer_name: '', notes: '',
+  semester_label: '', total_hours: '', start_date: '', end_date: '', trainer_name: '', trainer_staff_id: '', notes: '',
 };
 
 function fmtDate(d: string | null): string {
@@ -46,8 +53,10 @@ function fmtDate(d: string | null): string {
   return Number.isNaN(dt.getTime()) ? d : dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-export function SemesterScheduleCard({ programmeId }: Props) {
+export function SemesterScheduleCard({ programmeId, targetDepartmentId }: Props) {
   const { data: rows, isLoading } = useCdcSemesterSchedules(programmeId);
+  const { data: semesterOptions = [], isLoading: semestersLoading } =
+    useSemestersForDepartmentPicker(targetDepartmentId);
   const addMutation = useAddSemesterSchedule();
   const updateMutation = useUpdateSemesterSchedule();
   const deleteMutation = useDeleteSemesterSchedule(programmeId);
@@ -74,6 +83,7 @@ export function SemesterScheduleCard({ programmeId }: Props) {
       start_date: row.start_date ?? '',
       end_date: row.end_date ?? '',
       trainer_name: row.trainer_name ?? '',
+      trainer_staff_id: row.trainer_staff_id ?? '',
       notes: row.notes ?? '',
     });
     setDialogOpen(true);
@@ -92,6 +102,7 @@ export function SemesterScheduleCard({ programmeId }: Props) {
       start_date: form.start_date || null,
       end_date: form.end_date || null,
       trainer_name: form.trainer_name.trim() || null,
+      trainer_staff_id: form.trainer_staff_id || null,
       notes: form.notes.trim() || null,
     };
     if (editing) {
@@ -169,13 +180,30 @@ export function SemesterScheduleCard({ programmeId }: Props) {
           <form onSubmit={handleSave} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="semester_label">Semester *</Label>
-              <Input
-                id="semester_label"
-                value={form.semester_label}
-                onChange={(e) => set('semester_label', e.target.value)}
-                placeholder="e.g. Semester 1"
-                required
-              />
+              {semesterOptions.length > 0 || semestersLoading ? (
+                <SearchableSelect
+                  value={form.semester_label}
+                  onValueChange={(v) => set('semester_label', v)}
+                  options={semesterOptions}
+                  placeholder="Select semester…"
+                  searchPlaceholder="Search semesters…"
+                  emptyMessage="No semesters for this department"
+                  loading={semestersLoading}
+                  modal
+                  className="w-full"
+                />
+              ) : (
+                // Fallback: target department has no semesters in MyJKKN (or the
+                // programme targets all departments) — let the user type a label
+                // so the field is never unusable.
+                <Input
+                  id="semester_label"
+                  value={form.semester_label}
+                  onChange={(e) => set('semester_label', e.target.value)}
+                  placeholder="e.g. Semester 1"
+                  required
+                />
+              )}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
@@ -191,11 +219,17 @@ export function SemesterScheduleCard({ programmeId }: Props) {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="sem_trainer">Trainer</Label>
-                <Input
+                <TrainerPicker
                   id="sem_trainer"
-                  value={form.trainer_name}
-                  onChange={(e) => set('trainer_name', e.target.value)}
-                  placeholder="Trainer / facilitator"
+                  modal
+                  value={{ trainerStaffId: form.trainer_staff_id || null, trainerName: form.trainer_name || null }}
+                  onChange={(next) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      trainer_staff_id: next.trainerStaffId ?? '',
+                      trainer_name: next.trainerName ?? '',
+                    }))
+                  }
                 />
               </div>
             </div>

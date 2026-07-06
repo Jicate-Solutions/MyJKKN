@@ -1124,6 +1124,36 @@ export const startupStudioKeys = {
 // ============================================
 // Combined Export
 // ============================================
+// ============================================
+// Cohort Core Module Keys (shared cohort spine)
+// Connected to: hooks/cohort-core/index.ts, lib/services/cohort-core/*
+// ============================================
+export const cohortKeys = {
+  all: ['cohort-core'] as const,
+
+  cohorts: {
+    all: ['cohort-core', 'cohorts'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...cohortKeys.cohorts.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...cohortKeys.cohorts.all, 'detail', id] as const,
+    byKind: (kind: string, institutionId?: string) =>
+      [...cohortKeys.cohorts.all, 'by-kind', kind, institutionId ?? null] as const,
+  },
+
+  memberships: {
+    all: ['cohort-core', 'memberships'] as const,
+    list: (cohortId: string, filters?: Record<string, unknown>) =>
+      [...cohortKeys.memberships.all, 'list', cohortId, filters] as const,
+    detail: (id: string) =>
+      [...cohortKeys.memberships.all, 'detail', id] as const,
+  },
+
+  // status events keyed by whichever anchor is provided
+  events: (params: { cohortId?: string; membershipId?: string }) =>
+    [...cohortKeys.all, 'events', params.cohortId ?? null, params.membershipId ?? null] as const,
+} as const;
+
 export const queryKeys = {
   organization: organizationKeys,
   students: studentKeys,
@@ -1133,6 +1163,7 @@ export const queryKeys = {
   users: userKeys,
   resources: resourceKeys,
   startupStudio: startupStudioKeys,
+  cohortCore: cohortKeys,
 } as const;
 
 // ============================================

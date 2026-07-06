@@ -76,6 +76,23 @@ export class CampusLivingDashboard {
         .eq('status', 'active');
       if (institutionId) alertsQ = alertsQ.eq('institution_id', institutionId);
 
+      // Students who applied for a hostel bed but haven't been allocated one yet.
+      // 'waiting' = in queue; 'offered' = bed offered but not yet confirmed/allocated.
+      let waitlistQ = supabase
+        .from('hostel_waitlist')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['waiting', 'offered']);
+      if (institutionId) waitlistQ = waitlistQ.eq('institution_id', institutionId);
+
+      // Total hostelites = ALL students registered in the hostel system (allocated
+      // OR not). v_learner_hostelites LEFT JOINs hostel_allocations, so students
+      // without a bed (current_allocation_id IS NULL) are still included here.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let hostelitesCountQ = (supabase as any)
+        .from('v_learner_hostelites')
+        .select('*', { count: 'exact', head: true });
+      if (institutionId) hostelitesCountQ = hostelitesCountQ.eq('institution_id', institutionId);
+
       const [
         blocksResult,
         todayAttendanceResult,
@@ -85,6 +102,8 @@ export class CampusLivingDashboard {
         overduePassesResult,
         currentVisitorsResult,
         alertsResult,
+        waitlistResult,
+        hostelitesCountResult,
       ] = await Promise.all([
         blocksQ,
         todayAttQ,
@@ -94,6 +113,8 @@ export class CampusLivingDashboard {
         overdueQ,
         curVisQ,
         alertsQ,
+        waitlistQ,
+        hostelitesCountQ,
       ]);
 
       // Process blocks. The stored hostel_blocks counters (total_capacity /
@@ -187,6 +208,20 @@ export class CampusLivingDashboard {
           total: alerts.length,
           critical: criticalAlerts,
           warning: alerts.filter((a) => a.severity === 'warning').length,
+        },
+        waitlist: {
+          pending: waitlistResult.count ?? 0,
+        },
+        // Exact allocation counts — three canonical numbers the dashboard reports.
+        // total_hostelites: everyone registered in the hostel system (allocated OR not).
+        // allocated: reuses totalOccupancy (sum of v_hostel_room_occupancy.active_residents,
+        //   which counts check_out_date IS NULL per room) — the SAME source as the
+        //   block-wise table so both sections always show identical "Residents" numbers.
+        // not_allocated: in system but no current bed (may or may not be on waitlist).
+        allocation_summary: {
+          total_hostelites: hostelitesCountResult.count ?? 0,
+          allocated: totalOccupancy,
+          not_allocated: Math.max((hostelitesCountResult.count ?? 0) - totalOccupancy, 0),
         },
         timestamp: new Date().toISOString(),
       };

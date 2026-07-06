@@ -202,7 +202,7 @@ export default function CareParticipantScoringPage({
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center justify-between">
-              <span>Scoring sheet — 20 items, 0–4</span>
+              <span>Scoring sheet — {totalItems} items, 0–4</span>
               <Badge variant="outline" className="text-[10px] tabular-nums">
                 {scoredCount}/{totalItems} scored
               </Badge>
@@ -212,6 +212,7 @@ export default function CareParticipantScoringPage({
             <CareScoreSheet
               parameters={ctx.snapshot?.parameters ?? []}
               values={values}
+              settingCode={(ctx.snapshot as { setting_code?: string })?.setting_code}
               onScore={(code, score) =>
                 setValues((prev) => ({
                   ...prev,

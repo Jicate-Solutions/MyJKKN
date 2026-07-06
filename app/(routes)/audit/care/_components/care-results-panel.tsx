@@ -3,6 +3,11 @@
 // corrective-move composer. Rules suggest DRAFT findings — nothing is filed
 // until the owner confirms in the dialog (spec §6 no-silent-auto-filing).
 // Mechanism is mandatory: "a move without a mechanism defaults to habit".
+//
+// FRAMEWORK-AWARE (additive for CARRE v2.0): pass framework="CARRE" to read
+// the v2 gap rules (adds the Respect override) and show the operative verdict
+// (the Respect override supersedes the additive band). Default framework="CARE"
+// uses the v1 rules unchanged.
 
 'use client';
 
@@ -22,25 +27,47 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { AlertTriangle, Check, FileWarning, Scale } from 'lucide-react';
+import { AlertTriangle, Check, FileWarning, Scale, ShieldAlert } from 'lucide-react';
 import { AuditFindingService } from '@/lib/services/audit';
 import {
-  gapRules,
-  variance,
-  varianceFindings,
-  type CareScoreInput,
-  type GapRuleFinding,
-  type VarianceFinding,
+  gapRules as careGapRules,
+  variance as careVariance,
+  varianceFindings as careVarianceFindings,
 } from '@/lib/services/audit/care-scoring-service';
+import {
+  gapRules as carreGapRules,
+  variance as carreVariance,
+  varianceFindings as carreVarianceFindings,
+  carreIndex,
+} from '@/lib/services/audit/carre-scoring-service';
 
-type SuggestedFinding = GapRuleFinding | VarianceFinding;
+type ScoreInput = { parameter_code: string; score: number };
+
+/** Minimal finding shape both the CARE and CARRE rule engines satisfy. */
+interface PanelFinding {
+  rule: string;
+  parameter_code: string;
+  severity: 'red' | 'yellow';
+  title: string;
+  note: string;
+}
+
+interface PanelVarianceItem {
+  parameter_code: string;
+  owner_score: number;
+  participant_score: number;
+  delta: number;
+}
 
 const RULE_LABELS: Record<string, string> = {
   floor: 'Floor rule',
   median: 'Median rule',
   system: 'System rule',
   variance: 'Variance rule',
+  respect: 'Respect override',
 };
+
+const CODE_PREFIX_RE = /^CARR?E-/;
 
 export function CareResultsPanel({
   cycleId,
@@ -48,26 +75,66 @@ export function CareResultsPanel({
   participantScores,
   institutionId,
   requesterId,
+  framework = 'CARE',
 }: {
   cycleId: string;
-  ownerScores: CareScoreInput[];
-  participantScores: CareScoreInput[];
+  ownerScores: ScoreInput[];
+  participantScores: ScoreInput[];
   institutionId: string | null;
   requesterId: string | null;
+  framework?: 'CARE' | 'CARRE';
 }) {
-  const suggestions = useMemo<SuggestedFinding[]>(() => {
-    const rules = gapRules(ownerScores);
-    const varItems = variance(ownerScores, participantScores);
-    return [...rules, ...varianceFindings(varItems)];
-  }, [ownerScores, participantScores]);
+  const isCarre = framework === 'CARRE';
 
-  const varItems = useMemo(
-    () => variance(ownerScores, participantScores),
-    [ownerScores, participantScores],
+  const suggestions = useMemo<PanelFinding[]>(() => {
+    if (isCarre) {
+      const rules = carreGapRules(ownerScores);
+      const varItems = carreVariance(ownerScores, participantScores);
+      return [...rules, ...carreVarianceFindings(varItems)];
+    }
+    const rules = careGapRules(ownerScores);
+    const varItems = careVariance(ownerScores, participantScores);
+    return [...rules, ...careVarianceFindings(varItems)];
+  }, [isCarre, ownerScores, participantScores]);
+
+  const varItems = useMemo<PanelVarianceItem[]>(
+    () =>
+      isCarre
+        ? carreVariance(ownerScores, participantScores)
+        : careVariance(ownerScores, participantScores),
+    [isCarre, ownerScores, participantScores],
+  );
+
+  const operativeVerdict = useMemo(
+    () => (isCarre ? carreIndex(ownerScores).operativeVerdict : null),
+    [isCarre, ownerScores],
+  );
+  const respectFrozen = useMemo(
+    () => (isCarre ? carreIndex(ownerScores).respectFrozen : false),
+    [isCarre, ownerScores],
   );
 
   const [filed, setFiled] = useState<Set<string>>(new Set());
-  const [composing, setComposing] = useState<SuggestedFinding | null>(null);
+  const [composing, setComposing] = useState<PanelFinding | null>(null);
+
+  const operativeStrip =
+    isCarre && operativeVerdict ? (
+      <div
+        className={
+          respectFrozen
+            ? 'rounded-md border border-red-300 bg-red-50 p-3 text-xs dark:border-red-800 dark:bg-red-950'
+            : 'rounded-md border bg-muted/40 p-3 text-xs'
+        }
+      >
+        <p className={respectFrozen ? 'flex items-start gap-2 text-red-800 dark:text-red-200' : 'flex items-start gap-2'}>
+          {respectFrozen && <ShieldAlert className="h-4 w-4 flex-shrink-0" />}
+          <span>
+            <strong>Operative verdict:</strong> {operativeVerdict}
+            {respectFrozen && ' — the Respect override supersedes the additive Index band.'}
+          </span>
+        </p>
+      </div>
+    ) : null;
 
   if (suggestions.length === 0 && varItems.length === 0) {
     return (
@@ -78,10 +145,12 @@ export function CareResultsPanel({
             No gap rules fired
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          {operativeStrip}
           <p className="text-xs text-muted-foreground">
             No pillar below 8, no median-coverage flag, no habit-dependent (score 1)
-            items{participantScores.length > 0 ? ', and no scorer variance ≥ 2' : ''}.
+            items{isCarre ? ', no Respect override' : ''}
+            {participantScores.length > 0 ? ', and no scorer variance ≥ 2' : ''}.
           </p>
         </CardContent>
       </Card>
@@ -97,13 +166,15 @@ export function CareResultsPanel({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {operativeStrip}
+
         {varItems.length > 0 && (
           <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-900 dark:bg-amber-950">
             <p className="flex items-start gap-2">
               <Scale className="h-4 w-4 flex-shrink-0 text-amber-700" />
               <span>
                 <strong>Scorers disagree by ≥ 2 on {varItems.length} item{varItems.length > 1 ? 's' : ''}</strong>{' '}
-                ({varItems.map((v) => `${v.parameter_code.replace('CARE-', '')} (${v.owner_score} vs ${v.participant_score})`).join(', ')}).
+                ({varItems.map((v) => `${v.parameter_code.replace(CODE_PREFIX_RE, '')} (${v.owner_score} vs ${v.participant_score})`).join(', ')}).
                 The framework treats variance as a Clarity finding — the system is
                 not legible — before debating whose score is right.
               </span>
@@ -189,7 +260,7 @@ function CorrectiveMoveDialog({
   onClose,
   onFiled,
 }: {
-  suggestion: SuggestedFinding;
+  suggestion: PanelFinding;
   cycleId: string;
   institutionId: string | null;
   requesterId: string | null;

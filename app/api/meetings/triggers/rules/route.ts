@@ -79,7 +79,8 @@ export async function PATCH(request: NextRequest) {
         threshold: body.threshold,
         active: body.active,
         cooldown_days: body.cooldown_days,
-        weekly_cap: body.weekly_cap
+        weekly_cap: body.weekly_cap,
+        alert_owner_staff_id: body.alert_owner_staff_id
       }
     });
     if (!result.ok)
