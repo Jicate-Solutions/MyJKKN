@@ -60,6 +60,12 @@ export interface VolunteerFeedbackMark {
   comment?: string | null;
 }
 
+/** A present/absent mark a Senior Peer Mentor records for a fresher in their group. */
+export interface AttendanceMark {
+  learner_id: string;
+  status: 'present' | 'absent' | 'excused' | 'od';
+}
+
 /** Result of an auto-balance — surfaces the coverage truth (unassigned > 0 = capacity too low). */
 export interface AutobalanceResult {
   enrolled: number;
@@ -148,6 +154,19 @@ export class InductionVolunteerService {
    *  (skips any fresher who already self-rated on their own login). */
   static async submitFeedback(sessionId: string, marks: VolunteerFeedbackMark[]): Promise<number> {
     const { data, error } = await getSupabase().rpc('fn_induction_volunteer_submit_feedback', {
+      p_session_id: sessionId,
+      p_marks: marks,
+    });
+    if (error) throw error;
+    return (data as number) ?? 0;
+  }
+
+  /** Attendance check-in: mark present/absent for freshers in MY group only, for one
+   *  session. Returns rows written. Scoped + anti-clobber server-side — a mentor can
+   *  never touch a fresher outside their group, nor overwrite a staff mark
+   *  (fn_induction_volunteer_mark_attendance). */
+  static async markAttendance(sessionId: string, marks: AttendanceMark[]): Promise<number> {
+    const { data, error } = await getSupabase().rpc('fn_induction_volunteer_mark_attendance', {
       p_session_id: sessionId,
       p_marks: marks,
     });

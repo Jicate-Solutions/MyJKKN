@@ -71,7 +71,7 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
   const remove = async (learnerId: string, name: string) => {
     try {
       await InductionVolunteerService.removeVolunteer(eventId, learnerId);
-      toast.success(`Removed ${name} as a peer mentor.`);
+      toast.success(`Removed ${name} as a Senior Peer Mentor.`);
       load();
     } catch (e: any) {
       toast.error(`Couldn't remove: ${e.message ?? e}`);
@@ -104,10 +104,10 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
-          <MessagesSquare className="h-4 w-4 text-primary" /> Feedback peer mentors
+          <MessagesSquare className="h-4 w-4 text-primary" /> Senior Peer Mentors
         </CardTitle>
         <CardDescription>
-          Appoint peer mentors and auto-balance the cohort across them.
+          Appoint Senior Peer Mentors and auto-balance the cohort across them.
           Each mentor walks their assigned freshers — including those with no phone — and the
           fresher taps their own 1–5 rating on the mentor&apos;s phone (a fresher&apos;s own-login
           rating always wins and can&apos;t be overwritten).
@@ -164,7 +164,7 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
           <p className="text-sm text-muted-foreground py-2">Loading mentors…</p>
         ) : vols.length === 0 ? (
           <p className="text-sm text-muted-foreground py-2">
-            No peer mentors yet. Appoint a few, then auto-balance the cohort across them.
+            No Senior Peer Mentors yet. Appoint a few, then auto-balance the cohort across them.
           </p>
         ) : (
           <div className="space-y-2">
@@ -231,7 +231,7 @@ function AppointMentorDialog({ eventId, onAppointed }: { eventId: string; onAppo
     setAppointing(m.learner_id);
     try {
       await InductionVolunteerService.appointVolunteer(eventId, m.learner_id);
-      toast.success(`${m.full_name} is now a feedback peer mentor.`);
+      toast.success(`${m.full_name} is now a Senior Peer Mentor.`);
       setOpen(false);
       onAppointed();
     } catch (e: any) {
@@ -244,13 +244,13 @@ function AppointMentorDialog({ eventId, onAppointed }: { eventId: string; onAppo
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline"><UserPlus className="h-3.5 w-3.5 mr-1" /> Appoint peer mentor</Button>
+        <Button size="sm" variant="outline"><UserPlus className="h-3.5 w-3.5 mr-1" /> Appoint Senior Peer Mentor</Button>
       </DialogTrigger>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Appoint a peer mentor</DialogTitle>
+          <DialogTitle>Appoint a Senior Peer Mentor</DialogTitle>
           <DialogDescription>
-            Pick a member of this college with a login to act as a peer mentor. Freshers being inducted here can&apos;t be appointed.
+            Pick a member of this college with a login to act as a Senior Peer Mentor. Freshers being inducted here can&apos;t be appointed.
           </DialogDescription>
         </DialogHeader>
         <div className="relative">
@@ -262,7 +262,7 @@ function AppointMentorDialog({ eventId, onAppointed }: { eventId: string; onAppo
           {searching ? (
             <p className="text-sm text-muted-foreground py-2">Searching…</p>
           ) : results.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-2">No appointable peer mentors found.</p>
+            <p className="text-sm text-muted-foreground py-2">No appointable Senior Peer Mentors found.</p>
           ) : (
             results.map((m) => (
               <button key={m.learner_id} type="button" onClick={() => appoint(m)} disabled={!!appointing}

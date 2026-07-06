@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { SessionsLedCard } from './_components/sessions-led-card';
+import { SeniorPeerMentorCard } from './_components/senior-peer-mentor-card';
 import { InductionPulseBanner } from './_components/induction-pulse-banner';
 import { SessionPollBanner } from './_components/session-poll-banner';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -128,6 +129,9 @@ export default function MyInductionPage() {
 
         {/* Presenter credit — shows only if you led any session */}
         <SessionsLedCard />
+
+        {/* Senior Peer Mentor entry — shows only if you're an appointed mentor */}
+        <SeniorPeerMentorCard />
 
         {!enrollment ? (
           <Card>
