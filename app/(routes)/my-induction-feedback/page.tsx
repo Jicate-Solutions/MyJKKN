@@ -1,6 +1,6 @@
 'use client';
 
-// My Induction Feedback (PR2) — a senior student's peer-mentor lane.
+// Senior Peer Mentor (PR2) — a senior student's peer-mentor lane.
 //
 // UNGATED by design (no RoutePermissionGuard, no MENU_PERMISSIONS entry), mirroring
 // /my-induction-sessions: the RPC fn_induction_my_volunteer_sessions self-scopes to
@@ -22,6 +22,7 @@ import {
   type MyVolunteerSession,
 } from '@/lib/services/induction/induction-volunteer-service';
 import { GroupCaptureDialog } from './_components/group-capture-dialog';
+import { AttendanceCheckinDialog } from './_components/attendance-checkin-dialog';
 
 const BRAND = '#0b6d41';
 
@@ -64,24 +65,24 @@ export default function MyInductionFeedbackPage() {
 
   if (loading) {
     return (
-      <ContentLayout title="My Induction Feedback">
+      <ContentLayout title="Senior Peer Mentor">
         <div className="flex justify-center py-20"><BeatLoader color={BRAND} /></div>
       </ContentLayout>
     );
   }
 
   return (
-    <ContentLayout title="My Induction Feedback">
-      <PageBreadcrumb items={[{ label: 'Home', href: '/' }, { label: 'My Induction Feedback' }]} />
+    <ContentLayout title="Senior Peer Mentor">
+      <PageBreadcrumb items={[{ label: 'Home', href: '/' }, { label: 'Senior Peer Mentor' }]} />
 
       <div className="space-y-6 mt-4 max-w-3xl">
         <div>
           <h1 className="text-2xl font-bold py-1 flex items-center gap-2">
-            <MessagesSquare className="h-6 w-6" style={{ color: BRAND }} /> My Induction Feedback
+            <MessagesSquare className="h-6 w-6" style={{ color: BRAND }} /> Senior Peer Mentor
           </h1>
           <p className="text-sm text-muted-foreground">
-            As a peer mentor, collect each assigned fresher&apos;s session rating on your phone —
-            especially those without a phone of their own.
+            As a Senior Peer Mentor, mark your group&apos;s attendance and collect each assigned
+            fresher&apos;s session feedback — especially those without a phone of their own.
           </p>
         </div>
 
@@ -89,7 +90,7 @@ export default function MyInductionFeedbackPage() {
           <Card>
             <CardContent className="py-12 text-center text-muted-foreground">
               <Users className="h-8 w-8 mx-auto mb-3 opacity-40" />
-              <p className="font-medium">You&apos;re not a feedback peer mentor right now.</p>
+              <p className="font-medium">You&apos;re not a Senior Peer Mentor right now.</p>
               <p className="text-sm mt-1">
                 When a coordinator assigns you a group of freshers, their sessions will appear here.
               </p>
@@ -127,6 +128,7 @@ export default function MyInductionFeedbackPage() {
                         <Badge variant={done ? 'default' : 'secondary'} className="tabular-nums">
                           {s.captured}/{s.group_size} captured
                         </Badge>
+                        <AttendanceCheckinDialog sessionId={s.session_id} sessionTitle={s.session_title} onSaved={load} />
                         <GroupCaptureDialog sessionId={s.session_id} sessionTitle={s.session_title} onSaved={load} />
                       </div>
                     </div>

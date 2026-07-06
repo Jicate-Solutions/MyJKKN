@@ -2002,6 +2002,18 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // Senior Peer Mentor — a final-year student's lane to run their assigned
+          // group of freshers (attendance check-in + kiosk feedback). UNGATED by
+          // design: the page self-scopes via fn_induction_my_volunteer_sessions, so a
+          // non-mentor sees an empty state. Student-visible via the isStudentPortalRoute
+          // special-case, NOT a MENU_PERMISSIONS entry.
+          href: '/my-induction-feedback',
+          label: 'Senior Peer Mentor',
+          active: pathname.startsWith('/my-induction-feedback'),
+          icon: UserCheck,
+          submenus: []
+        },
+        {
           // My Individual Development Plan — learner self-service (BUG-004298).
           // UNGATED by design (student self-scopes via RLS on cdc_idp_responses),
           // so it is student-visible via the isStudentPortalRoute special-case
@@ -2761,7 +2773,11 @@ export function isStudentPortalRoute(href: string): boolean {
     href === '/learners/class-feedback' ||
     // My Development Plan (learner self-service IDP, BUG-004298) — ungated,
     // student-visible; distinct /learner/ path doesn't match /learners/my-.
-    href === '/learner/idp'
+    href === '/learner/idp' ||
+    // Senior Peer Mentor lane — a final-year student's induction mentor duties
+    // (attendance + kiosk feedback for their assigned freshers). Ungated,
+    // student-visible; self-scopes to an empty state for non-mentors.
+    href === '/my-induction-feedback'
   );
 }
 
