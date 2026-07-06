@@ -213,7 +213,11 @@ export class CdcInternshipService {
 
     // Generate certificate number: CDC-YYYY-<random 6-digit>
     const certNum = `CDC-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
-    const verificationUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL?.replace('/rest/v1', '')}/cdc/internships/${assignmentId}/verify/${certNum}`;
+    // Public verification page — allowlisted in proxy.ts as '/verify/*' and the
+    // LinkedIn "See credential" target, so it MUST resolve without login. The old
+    // value pointed at the Supabase project domain + a non-existent gated page.
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.jkkn.ai';
+    const verificationUrl = `${baseUrl}/verify/${certNum}`;
 
     const { data, error } = await (supabase as any)
       .from('internship_certificates')
