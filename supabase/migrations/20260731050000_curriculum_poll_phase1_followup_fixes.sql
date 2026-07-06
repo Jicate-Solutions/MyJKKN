@@ -156,38 +156,42 @@ BEGIN
     -- teaching evidence the class poll (fn_live_poll_can_manage / _fn_curriculum_class_ctx)
     -- authorises on. Privileged roles (HOD/principal/dean/coordinator/admin/system_admin,
     -- super) keep the department-seed override — they legitimately manage the dept spine.
+    -- CREATE authorization, cheapest-branch-first so the teaching-evidence jsonb scan
+    -- runs ONLY for plain faculty — super-admin and privileged (dept-seed) roles
+    -- authorize without paying for it.
     v_priv_create := public.is_super_admin()
                      OR v_role = ANY (ARRAY['hod','principal','dean','coordinator',
                                             'institution_admin','administrator','system_admin']);
-    -- Teaching identity is matched PRIMARILY on the stable staff id (blob
-    -- assigned_faculty.faculty_id = staff.id, 100% populated), NOT the email string —
-    -- an email match is fragile: a NULL profile email, or casing/whitespace drift in the
-    -- blob (real rows carry e.g. 'Senthil.m@jkkn.ac.in'), would make the equality NULL and
-    -- SILENTLY lock out a genuinely-teaching faculty (fail-closed availability regression;
-    -- deep-review 3-lens consensus 2026-07-06). The lowercased+btrim'd email is kept only
-    -- as a NULL-guarded FALLBACK for the rare row missing a staff link.
-    SELECT s.id INTO v_staff_id FROM public.staff s WHERE s.profile_id = auth.uid() LIMIT 1;
-    -- EXISTS short-circuits on the first matching period. The institution-scoped jsonb
-    -- scan is on the low-frequency CREATE path only (a faculty typing a topic); the full
-    -- scan is paid only when a NON-teacher is (correctly) rejected. A normalized taught-
-    -- course index would remove even that, deferred as not worth a new table+backfill for
-    -- a rare write (deep-review 🟠 perf note 2026-07-06).
-    v_teaches := (v_staff_id IS NOT NULL OR v_email IS NOT NULL) AND EXISTS (
-      SELECT 1
-      FROM public.student_attendance sa
-      CROSS JOIN LATERAL jsonb_each(
-        CASE WHEN jsonb_typeof(sa.attendance_data) = 'object' THEN sa.attendance_data ELSE '{}'::jsonb END
-      ) AS pd(period_id, pv)
-      WHERE sa.institution_id = v_inst
-        AND pv ->> 'course_id' = p_course_id::text
-        AND ( (v_staff_id IS NOT NULL AND pv -> 'assigned_faculty' ->> 'faculty_id' = v_staff_id::text)
-              OR (v_email IS NOT NULL AND lower(btrim(pv -> 'assigned_faculty' ->> 'faculty_email')) = v_email) )
-    );
-    IF NOT (public.is_super_admin()
-            OR (v_priv_create AND public.role_has_institution_access(v_inst))
-            OR (v_role = ANY (ARRAY['faculty','school_faculty','staff'])
-                AND public.role_has_institution_access(v_inst)
-                AND v_teaches)) THEN
+    IF public.is_super_admin()
+       OR (v_priv_create AND public.role_has_institution_access(v_inst)) THEN
+      NULL;  -- authorized via the department-seed override; no teaching scan needed
+    ELSIF v_role = ANY (ARRAY['faculty','school_faculty','staff'])
+          AND public.role_has_institution_access(v_inst) THEN
+      -- Plain teaching staff must actually TEACH this course. Match PRIMARILY on the
+      -- stable staff id (blob assigned_faculty.faculty_id = staff.id, 100% populated),
+      -- NOT the email string — a NULL profile email or casing/whitespace drift in the
+      -- blob (real rows carry e.g. 'Senthil.m@jkkn.ac.in') would make an email equality
+      -- NULL and SILENTLY lock out a genuinely-teaching faculty (deep-review 3-lens
+      -- consensus 2026-07-06). The btrim+lower email is a NULL-guarded FALLBACK for the
+      -- rare row missing a staff link. EXISTS short-circuits on the first matching
+      -- period; this institution-scoped scan runs only here, on the low-frequency CREATE
+      -- path, and only when a non-teacher is being (correctly) rejected.
+      SELECT s.id INTO v_staff_id FROM public.staff s WHERE s.profile_id = auth.uid() LIMIT 1;
+      v_teaches := (v_staff_id IS NOT NULL OR v_email IS NOT NULL) AND EXISTS (
+        SELECT 1
+        FROM public.student_attendance sa
+        CROSS JOIN LATERAL jsonb_each(
+          CASE WHEN jsonb_typeof(sa.attendance_data) = 'object' THEN sa.attendance_data ELSE '{}'::jsonb END
+        ) AS pd(period_id, pv)
+        WHERE sa.institution_id = v_inst
+          AND pv ->> 'course_id' = p_course_id::text
+          AND ( (v_staff_id IS NOT NULL AND pv -> 'assigned_faculty' ->> 'faculty_id' = v_staff_id::text)
+                OR (v_email IS NOT NULL AND lower(btrim(pv -> 'assigned_faculty' ->> 'faculty_email')) = v_email) )
+      );
+      IF NOT v_teaches THEN
+        RAISE EXCEPTION 'fn_curriculum_lesson_upsert: only staff who teach this course (or an HOD/admin of its institution) can create its lesson';
+      END IF;
+    ELSE
       RAISE EXCEPTION 'fn_curriculum_lesson_upsert: only staff who teach this course (or an HOD/admin of its institution) can create its lesson';
     END IF;
     -- Idempotent on (course, creator, title): a link-after-create retry that failed, or
@@ -199,6 +203,13 @@ BEGIN
       AND lower(title) = lower(btrim(p_title))
     LIMIT 1;
     IF v_existing IS NOT NULL THEN
+      -- CREATE-ONCE semantics (intentional): re-typing an existing published title REUSES
+      -- that lesson (never duplicates the title in the reuse list) and only refreshes the
+      -- primary Fink dimension. outcomes / co_refs / unit / sequence are deliberately NOT
+      -- overwritten here — those params default to '[]' / '{}' (not NULL), so a COALESCE
+      -- update would WIPE them whenever the caller passed only a title (deep-review 🟡 flagged
+      -- the drop; a naive "COALESCE all" is the more dangerous fix). To revise a lesson's
+      -- content, EDIT it (pass p_lesson_id) — the EDIT branch patches each provided field.
       UPDATE public.curriculum_lesson
       SET primary_fink_dimension = COALESCE(p_primary_fink, primary_fink_dimension), updated_at = now()
       WHERE id = v_existing;
