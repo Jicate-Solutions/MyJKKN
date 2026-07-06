@@ -36,9 +36,10 @@ export async function GET(request: Request): Promise<NextResponse<LeaderboardRes
     }
 
     const url = new URL(request.url);
-    // Guard param presence — Number(null) === 0 is finite and would clamp default to 7, not 30.
-    const rawDays = url.searchParams.get('days');
-    const windowDays = rawDays && Number.isFinite(+rawDays) && +rawDays > 0 ? Math.min(Math.max(Math.trunc(+rawDays), 7), 180) : DEFAULT_DAYS;
+    // Truncate first, then require >= 1 — guards a missing param (Number(null)=0) AND a fractional
+    // one (0.5 → trunc 0), either of which would otherwise clamp the default to 7 instead of 30.
+    const nDays = Math.trunc(Number(url.searchParams.get('days')));
+    const windowDays = Number.isFinite(nDays) && nDays >= 1 ? Math.min(Math.max(nDays, 7), 180) : DEFAULT_DAYS;
 
     const [boardRes, handleRes] = await Promise.all([
       supabase.rpc('fn_social_leaderboard_my_college', { p_days: windowDays }),

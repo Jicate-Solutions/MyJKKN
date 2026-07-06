@@ -38,9 +38,10 @@ export async function GET(request: Request): Promise<NextResponse<HandleFeedResp
     }
 
     const url = new URL(request.url);
-    // Guard param presence — Number(null) === 0 is finite and would defeat the default.
-    const rawLimit = url.searchParams.get('limit');
-    const limit = rawLimit && Number.isFinite(+rawLimit) && +rawLimit > 0 ? Math.min(Math.trunc(+rawLimit), 24) : DEFAULT_LIMIT;
+    // Truncate first, then require >= 1 — guards a missing param (Number(null)=0) AND a fractional
+    // one (0.5 → trunc 0), either of which would otherwise defeat the default.
+    const nLimit = Math.trunc(Number(url.searchParams.get('limit')));
+    const limit = Number.isFinite(nLimit) && nLimit >= 1 ? Math.min(nLimit, 24) : DEFAULT_LIMIT;
 
     // 1) Handle identity (safe columns, graph-tier, caller's own dept).
     const { data: handleRows, error: handleErr } = await supabase.rpc('fn_social_my_dept_handle');

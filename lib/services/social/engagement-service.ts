@@ -77,8 +77,12 @@ export function getLeaderboard(days = 30): Promise<LeaderboardResponse> {
   );
 }
 
-export function getContributions(deptAccountId?: string): Promise<ContributionsResponse> {
-  const qs = deptAccountId ? `?deptAccountId=${encodeURIComponent(deptAccountId)}` : '';
+export function getContributions(deptAccountId?: string, actionable = false): Promise<ContributionsResponse> {
+  const p = new URLSearchParams();
+  if (deptAccountId) p.set('deptAccountId', deptAccountId);
+  // actionable=true → the full submitted+approved working set (no page cap hides a pending item).
+  if (actionable) p.set('actionable', 'true');
+  const qs = p.toString() ? `?${p.toString()}` : '';
   return getJson<ContributionsResponse>(
     `/api/social/engagement/contributions${qs}`,
     'Failed to load contributions'

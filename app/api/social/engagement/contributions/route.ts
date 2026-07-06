@@ -54,12 +54,15 @@ export async function GET(request: Request): Promise<NextResponse<ContributionsR
 
     const params = new URL(request.url).searchParams;
     const deptAccountId = params.get('deptAccountId');
-    // Guard PARAM PRESENCE before Number() — Number(null) === 0 is finite, which would make a
-    // "finite ? use : default" guard silently pick 0 (→ limit 1) instead of the default.
-    const rawLimit = params.get('limit');
-    const rawOffset = params.get('offset');
-    const limit = rawLimit && Number.isFinite(+rawLimit) && +rawLimit > 0 ? Math.min(Math.trunc(+rawLimit), 200) : 50;
-    const offset = rawOffset && Number.isFinite(+rawOffset) && +rawOffset >= 0 ? Math.trunc(+rawOffset) : 0;
+    // `actionable=true` returns only the review-critical working set (submitted + approved) so the
+    // owner queue can render ALL of them and no pending item is ever pushed past a page cap.
+    const actionable = params.get('actionable') === 'true';
+    // Truncate FIRST, then require >= 1 — guards both a missing param (Number(null)=0) and a
+    // fractional one (0.5 → trunc 0), either of which would otherwise yield an empty/1-row page.
+    const nLimit = Math.trunc(Number(params.get('limit')));
+    const nOffset = Math.trunc(Number(params.get('offset')));
+    const limit = Number.isFinite(nLimit) && nLimit >= 1 ? Math.min(nLimit, 200) : actionable ? 200 : 50;
+    const offset = Number.isFinite(nOffset) && nOffset >= 0 ? nOffset : 0;
 
     // count:'exact' returns the full match count so a busy handle's older rows are never
     // silently dropped — the caller sees `total` and can page with offset/limit.
@@ -69,6 +72,7 @@ export async function GET(request: Request): Promise<NextResponse<ContributionsR
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
     if (deptAccountId) query = query.eq('dept_account_id', deptAccountId);
+    if (actionable) query = query.in('status', ['submitted', 'approved']);
 
     const { data, count, error } = await query;
     if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });

@@ -15,6 +15,11 @@ BEGIN
   IF NOT public.fn_social_can_manage_handle(p_dept_account_id) THEN
     RAISE EXCEPTION 'not permitted to manage this handle' USING ERRCODE = '42501';
   END IF;
+  -- Enforce the same 1..30 bound the UI clamps, so a direct API caller can't persist a
+  -- nonsensical cadence (0 / negative / huge). NULL means "leave unchanged".
+  IF p_posting_cadence_days IS NOT NULL AND (p_posting_cadence_days < 1 OR p_posting_cadence_days > 30) THEN
+    RAISE EXCEPTION 'posting_cadence_days must be between 1 and 30' USING ERRCODE = '22023';
+  END IF;
   -- Partial-update contract: a NULL param means "leave unchanged"; a provided value (even
   -- empty) sets/clears the field. This matches the cadence coalesce semantics and prevents a
   -- PATCH that omits a text field from silently wiping the existing purpose line / playbook.

@@ -100,7 +100,7 @@ function EngagementConsole() {
     void (async () => {
       setLoadingLoop(true);
       const [c, cn, r] = await Promise.all([
-        getContributions(selected.dept_account_id),
+        getContributions(selected.dept_account_id, true),
         getConcerns(selected.dept_account_id),
         getRota(selected.dept_account_id),
       ]);
@@ -129,7 +129,7 @@ function EngagementConsole() {
     setBusyId(id);
     const res = await reviewContribution({ id, status, thank });
     if (res.success && selected) {
-      const c = await getContributions(selected.dept_account_id);
+      const c = await getContributions(selected.dept_account_id, true);
       setContributions(c.success ? c.contributions ?? [] : []);
     }
     setBusyId(null);
@@ -285,7 +285,7 @@ function EngagementConsole() {
               {loadingLoop ? <Skeleton className="h-16 w-full" /> : contributions.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No contributions yet — members can submit ideas from their dashboard.</p>
               ) : (
-                contributions.slice(0, 30).map((c) => (
+                contributions.map((c) => (
                   <div key={c.id} className="rounded-md border border-border p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -328,7 +328,7 @@ function EngagementConsole() {
               {concerns.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No concerns raised. Members can report a post here if something needs attention.</p>
               ) : (
-                concerns.slice(0, 20).map((c) => (
+                concerns.map((c) => (
                   <div key={c.id} className="rounded-md border border-border p-3 flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-sm">{c.reason}</div>
