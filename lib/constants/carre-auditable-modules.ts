@@ -68,3 +68,27 @@ export const CARRE_AUDITABLE_MODULES: CarreAuditableModule[] = [
   { key: 'service-requests', label: 'Service Requests' },
   { key: 'resource-management', label: 'Resources' }, // booking / requesting resources
 ];
+
+// Explicitly EXCLUDED slugs — infra / back-office / system tooling that no
+// participant "experiences" as an initiative. Exported so the CI gate
+// (scripts/ci/check-carre-coverage.sh) can assert every top-level module is
+// classified as either auditable or excluded; a brand-new module that is
+// NEITHER gets flagged for a decision. Keep in sync with the header comment.
+export const CARRE_EXCLUDED_MODULES: string[] = [
+  '', // Dashboard root landing
+  'ai-query', // AI assistant tooling
+  'users', // user / role admin
+  'organizations', // org-structure config
+  'ims', // inventory / stockroom ops
+  'admin', // back-office admin
+  'audit', // the audit tooling itself — a module never grades itself
+  'audit-trail', // activity log
+  'accreditation', // compliance paperwork, not a participant experience
+  'system', // system settings
+  'my-bug-reports', // bug tooling
+  'bug-leaderboard', // bug tooling
+  'profile', // personal top-bar surface
+  'notifications', // personal top-bar surface
+  'dashboard', // Classic dashboard
+];
+
