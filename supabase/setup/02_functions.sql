@@ -21426,3 +21426,17 @@ GRANT  EXECUTE ON FUNCTION public.fn_social_cadence_close(UUID, TEXT) TO authent
 -- recruitment flow builder's "0 users hold this role" warning. SECURITY DEFINER
 -- (aggregate-only disclosure, no identities), anon EXECUTE revoked.
 -- Full definition: supabase/migrations/20260706120200_fn_role_user_counts.sql
+
+-- ================================================================================
+-- Cohort Core — Phase 7 (THE MOAT) functions — 2026-07-06
+-- ================================================================================
+-- The M7 moat functions are version-controlled in their migrations (the apply
+-- source of truth); not duplicated here to avoid drift on this 21k-line file:
+--   fn_cohort_estimator_version, fn_cohort_blended_score        → 20260731092000
+--   fn_assign_experiment_arms_for_cohort, fn_compute_cohort_experiment → 20260731093000
+--   fn_cohort_min_actionable_lift, fn_propose_cohort_adjustments,
+--   fn_apply_cohort_adjustment_proposal                          → 20260731094000
+-- The upgraded trigger fn fn_capture_cohort_outcome lives in 04_triggers.sql.
+-- SECURITY: blended_score REVOKEd from anon/PUBLIC/authenticated (trigger-only);
+-- compute/propose/assign are SECURITY INVOKER (caller RLS scopes tenant); apply is
+-- SECURITY DEFINER with an internal authority gate bound to the proposal's institution.
