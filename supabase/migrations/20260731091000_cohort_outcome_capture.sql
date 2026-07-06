@@ -170,23 +170,33 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  INSERT INTO public.cohort_outcomes (
-    cohort_id, membership_id, member_ref, member_type, kind,
-    captured_at, outcome_snapshot, source, institution_id
-  ) VALUES (
-    NEW.cohort_id, NEW.id, NEW.member_ref, NEW.member_type, v_kind,
-    now(),
-    jsonb_build_object(
-      'from_status',       OLD.status,
-      'to_status',         NEW.status,
-      'role',              NEW.role,
-      'joined_at',         NEW.joined_at,
-      'membership_config', NEW.config,
-      'captured_by',       'trigger'
-    ),
-    'trigger', v_institution_id
-  )
-  ON CONFLICT (membership_id) WHERE membership_id IS NOT NULL DO NOTHING;
+  -- Best-effort capture (M2): this snapshot is moat FUEL, never a lifecycle gate.
+  -- The trigger fires INSIDE the membership-close transaction, so an unhandled
+  -- exception here (e.g. a future cohorts.kind not yet mirrored into this table's
+  -- kind CHECK, or any constraint drift) would ROLL BACK the close and brick core
+  -- lifecycle. Wrap the INSERT so a failed capture degrades to a NOTICE (matching
+  -- the NULL-institution skip above) and NEVER fails the primary status UPDATE.
+  BEGIN
+    INSERT INTO public.cohort_outcomes (
+      cohort_id, membership_id, member_ref, member_type, kind,
+      captured_at, outcome_snapshot, source, institution_id
+    ) VALUES (
+      NEW.cohort_id, NEW.id, NEW.member_ref, NEW.member_type, v_kind,
+      now(),
+      jsonb_build_object(
+        'from_status',       OLD.status,
+        'to_status',         NEW.status,
+        'role',              NEW.role,
+        'joined_at',         NEW.joined_at,
+        'membership_config', NEW.config,
+        'captured_by',       'trigger'
+      ),
+      'trigger', v_institution_id
+    )
+    ON CONFLICT (membership_id) WHERE membership_id IS NOT NULL DO NOTHING;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'cohort_outcome capture failed for membership % (kind %): %; close proceeds (best-effort M2)', NEW.id, v_kind, SQLERRM;
+  END;
 
   RETURN NEW;
 END;
