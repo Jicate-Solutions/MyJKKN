@@ -440,6 +440,7 @@ export interface ProgramPartnerSchool {
   brandingDone: boolean;
   nanMudhalvan: boolean;
   ownerName: string | null;
+  ownerUserId: string | null;
   updatedAt: string;
 }
 
