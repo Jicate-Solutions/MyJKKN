@@ -51,7 +51,15 @@ const FEATURE_KEY = 'scf.learner_notes';
 const BATCH_CAP = 50; // max notes to generate per run; excess deferred to next run
 const REGEN_DAYS = 7; // skip a learner+course noted within this many days (weekly regen)
 const RECENT_WITHIN_DAYS = 30; // only note learners whose latest sliding class is this recent
-const BATCH_DEADLINE_MS = 240_000; // stop taking new targets near maxDuration
+// Return CLEANLY before the dispatcher's 120s AbortSignal (ai-routine-dispatcher
+// fires each routine with signal: AbortSignal.timeout(120_000)). Sequential Claude
+// calls (~3-8s each) blew past 120s → the dispatcher aborted the connection and
+// logged the run as "operation aborted due to timeout" even though notes were still
+// being written server-side. We now (a) run notes in bounded-concurrency waves and
+// (b) self-terminate at 90s so the route always returns a clean 200 the dispatcher
+// can record, instead of being killed mid-flight.
+const BATCH_DEADLINE_MS = 90_000; // < the dispatcher's 120s abort, so we finish first
+const NOTE_CONCURRENCY = 10; // parallel Claude calls per wave (well within rate limits)
 
 const UNDERSTOOD_WORD: Record<number, string> = {
   1: 'Lost', 2: 'Shaky', 3: 'OK', 4: 'Good', 5: 'Clear',
@@ -219,52 +227,63 @@ export async function GET(request: NextRequest) {
   let generated = 0;
   let skipped = 0;
 
-  for (const c of batch) {
+  // Process in bounded-concurrency waves so the whole batch finishes well within
+  // the dispatcher's 120s window (sequential was ~150s → aborted). generateNote is
+  // best-effort (returns null on any failure) and every upsert targets an
+  // independent (learner, course, week) row, so concurrency adds no cross-item
+  // hazard. Counter increments are safe: the runtime is single-threaded, so ++
+  // inside these awaited callbacks never races.
+  for (let i = 0; i < batch.length; i += NOTE_CONCURRENCY) {
     if (Date.now() - started > BATCH_DEADLINE_MS) {
       console.warn(
-        `[cron/scf-learner-notes] batch deadline reached (${generated} generated) — remainder deferred`,
+        `[cron/scf-learner-notes] batch deadline reached (${generated} generated) — remainder deferred to next run`,
       );
       break;
     }
 
-    const ratings = Array.isArray(c.ratings) ? c.ratings.map(Number) : [];
-    if (ratings.length < 3) {
-      skipped++;
-      continue;
-    }
-    const courseLabel = c.course_name || c.course_code;
+    const wave = batch.slice(i, i + NOTE_CONCURRENCY);
+    const outcomes = await Promise.all(
+      wave.map(async (c): Promise<'generated' | 'skipped'> => {
+        const ratings = Array.isArray(c.ratings) ? c.ratings.map(Number) : [];
+        if (ratings.length < 3) return 'skipped';
+        const courseLabel = c.course_name || c.course_code;
 
-    const { note, modelUsed } = await generateNote(anthropic, modelId, courseLabel, ratings);
-    if (!note) {
-      // NO template fallback (decision #3) — write nothing; learner sees nothing.
-      skipped++;
-      continue;
-    }
+        const { note, modelUsed } = await generateNote(anthropic, modelId, courseLabel, ratings);
+        if (!note) {
+          // NO template fallback (decision #3) — write nothing; learner sees nothing.
+          return 'skipped';
+        }
 
-    // Insert the note. Unique (learner_id, course_code, week_of) backstops same-week
-    // races; ignoreDuplicates so a re-run within the week is a safe no-op.
-    // status:'draft' — notes await super-admin approval (fn_scf_learner_notes_review)
-    // before learners see them (approval queue, 2026-07-03).
-    const { error: insErr } = await admin.from('scf_learner_notes').upsert(
-      {
-        learner_id: c.learner_id,
-        institution_id: c.institution_id,
-        course_code: c.course_code,
-        course_name: c.course_name,
-        note,
-        model: modelUsed,
-        net_decline: c.net_decline,
-        week_of: weekOf,
-        status: 'draft',
-      },
-      { onConflict: 'learner_id,course_code,week_of', ignoreDuplicates: true },
+        // Insert the note. Unique (learner_id, course_code, week_of) backstops
+        // same-week races; ignoreDuplicates so a re-run within the week is a safe
+        // no-op. status:'draft' — notes await super-admin approval
+        // (fn_scf_learner_notes_review) before learners see them (approval queue).
+        const { error: insErr } = await admin.from('scf_learner_notes').upsert(
+          {
+            learner_id: c.learner_id,
+            institution_id: c.institution_id,
+            course_code: c.course_code,
+            course_name: c.course_name,
+            note,
+            model: modelUsed,
+            net_decline: c.net_decline,
+            week_of: weekOf,
+            status: 'draft',
+          },
+          { onConflict: 'learner_id,course_code,week_of', ignoreDuplicates: true },
+        );
+        if (insErr) {
+          console.error(`[cron/scf-learner-notes] insert failed for ${c.learner_id}/${c.course_code}:`, insErr);
+          return 'skipped';
+        }
+        return 'generated';
+      }),
     );
-    if (insErr) {
-      console.error(`[cron/scf-learner-notes] insert failed for ${c.learner_id}/${c.course_code}:`, insErr);
-      skipped++;
-      continue;
+
+    for (const o of outcomes) {
+      if (o === 'generated') generated++;
+      else skipped++;
     }
-    generated++;
   }
 
   return NextResponse.json({
