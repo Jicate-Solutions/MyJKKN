@@ -5836,3 +5836,16 @@ END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cohorts_foundations_ss_id
   ON public.cohorts ((config->>'ss_foundations_cohort_id'))
   WHERE kind = 'foundations';
+
+-- 2026-07-06 — PDE pilot scoping (interview-driven; applied to prod same day).
+-- Lets a quest be limited to one institution's students, and labels each
+-- enrollment as pilot vs stray. See app/api/pde/quests/route.ts (visibility),
+-- app/api/pde/quests/[id]/enroll/route.ts (label),
+-- app/api/pde/admin/quests/[id]/reset/route.ts (clean reset).
+ALTER TABLE public.pde_quests
+  ADD COLUMN IF NOT EXISTS target_institution_id uuid REFERENCES public.institutions(id);
+-- NULL = visible to all institutions; set = only that institution's students see it in the catalog.
+
+ALTER TABLE public.pde_quest_enrollments
+  ADD COLUMN IF NOT EXISTS is_pilot boolean NOT NULL DEFAULT false;
+-- TRUE when the learner belongs to the quest's target_institution_id at enroll time.
