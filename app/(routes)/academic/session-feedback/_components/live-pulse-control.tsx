@@ -40,8 +40,8 @@ const BRAND_GREEN = '#0b6d41';
 function parseBlobTimeToMinutes(t?: string | null): number | null {
   if (!t) return null;
   const s = t.trim();
-  // 12-hour with meridian, e.g. "3:00 PM" / "9:05 am"
-  const m12 = s.match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])$/);
+  // 12-hour with meridian, e.g. "3:00 PM" / "9:05 am" / "3:00:00 PM" (optional seconds)
+  const m12 = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*([AaPp][Mm])$/);
   if (m12) {
     let h = parseInt(m12[1], 10);
     const min = parseInt(m12[2], 10);
@@ -68,7 +68,9 @@ function nowMinutesIST(): number {
     timeZone: 'Asia/Kolkata',
     hour: '2-digit',
     minute: '2-digit',
-    hour12: false,
+    // hourCycle:'h23' guarantees midnight renders as "00", not "24" — some engines
+    // emit "24" for hour12:false at 00:xx, which would push nowMin out of range.
+    hourCycle: 'h23',
   }).formatToParts(new Date());
   const h = parseInt(parts.find((p) => p.type === 'hour')?.value ?? '0', 10);
   const m = parseInt(parts.find((p) => p.type === 'minute')?.value ?? '0', 10);
