@@ -102,15 +102,25 @@ BEGIN
   -- Assignee must be an active school owner OR hold an active outreach_coordinator
   -- / program_lead / faculty (Facilitator = senior learner) role — MUST stay in
   -- sync with fn_schools_network_list_assignable_owners. NULL clears.
+  -- The `profiles` row is required too: the picker INNER JOINs profiles, so a
+  -- role-holder with no profiles row would pass this guard yet never appear in the
+  -- picker — requiring profiles here keeps guard and picker in exact sync.
+  -- NOTE (org-wide by Director directive 2026-07-06): the faculty pool is global,
+  -- NOT institution-scoped — "all senior learners" are eligible for any (org-wide,
+  -- external) feeder school. user_roles has no grant-level is_active/expires_at
+  -- column, so an active `cr.is_active` role is the grant (revocation = row delete).
   IF p_assigned_to IS NOT NULL
      AND NOT EXISTS (
-       SELECT 1 FROM public.school_jkkn_owners o
-        WHERE o.jkkn_user_id = p_assigned_to AND o.is_active
-       UNION
-       SELECT 1 FROM public.user_roles ur
-         JOIN public.custom_roles cr ON cr.id = ur.role_id
-        WHERE ur.user_id = p_assigned_to AND cr.is_active
-          AND cr.role_key IN ('outreach_coordinator', 'program_lead', 'faculty')
+       SELECT 1 FROM public.profiles pr
+        WHERE pr.id = p_assigned_to
+          AND (
+            EXISTS (SELECT 1 FROM public.school_jkkn_owners o
+                     WHERE o.jkkn_user_id = p_assigned_to AND o.is_active)
+            OR EXISTS (SELECT 1 FROM public.user_roles ur
+                        JOIN public.custom_roles cr ON cr.id = ur.role_id
+                       WHERE ur.user_id = p_assigned_to AND cr.is_active
+                         AND cr.role_key IN ('outreach_coordinator', 'program_lead', 'faculty'))
+          )
      ) THEN
     RAISE EXCEPTION 'assignee must be an active facilitator, outreach coordinator, or school owner';
   END IF;
