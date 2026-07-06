@@ -93,6 +93,10 @@ export const CATEGORY_ONLY_MODULES: ReadonlyArray<readonly [string, string]> = [
   // spine (feedback_events). Has the 'feedback' PERMISSION_CATEGORIES entry +
   // sidebar route but no tables in table-module-map, so it's category-only.
   ['Feedback', 'feedback'],
+  // Foundation & Competitive-Exam Programme (2026-07-06): has the 'foundation'
+  // PERMISSION_CATEGORIES entry + sidebar route; fp_* tables not yet in
+  // table-module-map, so it's category-only like Calendar/Feedback above.
+  ['Foundation Programme', 'foundation'],
 ];
 
 /**
