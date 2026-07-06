@@ -5739,3 +5739,49 @@ CREATE TABLE IF NOT EXISTS public.cohort_status_events (
 );
 CREATE INDEX IF NOT EXISTS idx_cohort_status_events_cohort_id     ON public.cohort_status_events (cohort_id);
 CREATE INDEX IF NOT EXISTS idx_cohort_status_events_membership_id ON public.cohort_status_events (membership_id);
+
+-- SF100 demote link (migration 20260731060000_sf100_demote_to_extension.sql, 2026-07-05).
+-- cohorts/cohort_memberships are canonical; sf100_enrollments is demoted to an SF100
+-- per-team EXTENSION linked to its team membership by this one nullable FK. NULLABLE
+-- (NOT NULL deferred) + ON DELETE SET NULL (a LINK, not identity — never cascade-delete
+-- the live extension row). sf100_enrollments' own CREATE TABLE lives in
+-- supabase/migrations/20260331000002_sf100_solve_for_100.sql (SF100 DDL is migration-only,
+-- like CDC), so this is mirrored here as a guarded ALTER rather than folded into a column list.
+ALTER TABLE public.sf100_enrollments
+  ADD COLUMN IF NOT EXISTS cohort_membership_id uuid;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname  = 'sf100_enrollments_cohort_membership_id_fkey'
+      AND conrelid = 'public.sf100_enrollments'::regclass
+  ) THEN
+    ALTER TABLE public.sf100_enrollments
+      ADD CONSTRAINT sf100_enrollments_cohort_membership_id_fkey
+      FOREIGN KEY (cohort_membership_id)
+      REFERENCES public.cohort_memberships(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_sf100_enrollments_cohort_membership
+  ON public.sf100_enrollments (cohort_membership_id);
+
+-- Cohort Core — D9: SF100 roster members must be profile-linked
+-- (migration 20260731070000_sf100_roster_profile_required.sql).
+-- Every roster member resolves to a real MyJKKN identity — profile_id (profiles)
+-- OR learner_id (learners_profiles); free-text-only members are disallowed.
+-- sf100_roster_changes' own CREATE TABLE lives in
+-- supabase/migrations/20260331000002_sf100_solve_for_100.sql (SF100 DDL is
+-- migration-only, like CDC), so this is mirrored here as a guarded ALTER.
+-- Postgres has no ADD CONSTRAINT IF NOT EXISTS → guard on pg_constraint.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname  = 'sf100_roster_changes_identity_required'
+      AND conrelid = 'public.sf100_roster_changes'::regclass
+  ) THEN
+    ALTER TABLE public.sf100_roster_changes
+      ADD CONSTRAINT sf100_roster_changes_identity_required
+      CHECK (profile_id IS NOT NULL OR learner_id IS NOT NULL);
+  END IF;
+END $$;
