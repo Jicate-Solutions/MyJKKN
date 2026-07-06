@@ -177,6 +177,63 @@ export default function ProgramDetailsPage({
             </div>
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Academic Details</CardTitle>
+          </CardHeader>
+          <CardContent className='grid gap-6'>
+            <div className='grid gap-4 md:grid-cols-2'>
+              <div>
+                <p className='font-medium'>Duration</p>
+                <p className='text-base text-muted-foreground'>
+                  {program.program_duration_yrs != null
+                    ? `${Number(program.program_duration_yrs)} ${
+                        Number(program.program_duration_yrs) === 1
+                          ? 'year'
+                          : 'years'
+                      }`
+                    : 'Not specified'}
+                </p>
+              </div>
+              <div>
+                <p className='font-medium'>{adapt('Program')} Type</p>
+                <p className='text-base text-muted-foreground'>
+                  {program.program_type || 'Not specified'}
+                </p>
+              </div>
+              <div>
+                <p className='font-medium'>Pattern</p>
+                <p className='text-base text-muted-foreground'>
+                  {program.pattern_type || 'Not specified'}
+                </p>
+              </div>
+              <div>
+                <p className='font-medium'>Mode</p>
+                <p className='text-base text-muted-foreground'>
+                  {program.is_part_time ? 'Part-time' : 'Full-time'}
+                </p>
+              </div>
+              <div>
+                <p className='font-medium'>Display Name</p>
+                <p className='text-base text-muted-foreground'>
+                  {program.display_name || 'Not specified'}
+                </p>
+              </div>
+              <div>
+                <p className='font-medium'>Sanctioned Intake</p>
+                <p className='text-base text-muted-foreground'>
+                  {program.sanctioned_intake && program.sanctioned_intake > 0
+                    ? program.sanctioned_intake
+                    : 'Not configured'}
+                </p>
+                <p className='text-xs text-muted-foreground'>
+                  Managed in Admission → Settings → Seat Config
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </ContentLayout>
   );
