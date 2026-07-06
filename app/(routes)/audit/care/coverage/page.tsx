@@ -41,15 +41,19 @@ import {
   RefreshCw,
   ShieldAlert,
   Inbox,
+  Bot,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useCarreCoverage } from '@/hooks/audit';
+import { useCarreCoverage, useCarreAutoSignals } from '@/hooks/audit';
 import { CARRE_AUDITABLE_MODULES } from '@/lib/constants/carre-auditable-modules';
 import {
   carreIndex,
   type OperativeVerdict,
 } from '@/lib/services/audit/carre-scoring-service';
-import type { CarreModuleCoverageRow } from '@/lib/services/audit/carre-coverage-service';
+import type {
+  CarreModuleCoverageRow,
+  CarreModuleAutoSignalRow,
+} from '@/lib/services/audit/carre-coverage-service';
 
 /**
  * navMeta — reached via the "Coverage map" button on the chip-reachable
@@ -116,7 +120,40 @@ interface DisplayRow extends RowStatus {
   key: string;
   label: string;
   coverage: CarreModuleCoverageRow | null;
+  /** Phase-2 evidence-grade auto-signal for this module, or null. Rendered in a
+   *  separate labeled column — NEVER folded into the human status/index above. */
+  autoSignal: CarreModuleAutoSignalRow | null;
   untracked?: boolean;
+}
+
+/** Phase-2 auto-derived signal cell. Deliberately styled unlike the human
+ *  status/score (violet, robot glyph, "auto" tag) so a reader can never confuse
+ *  a machine-derived participation number with a human CARRE audit score. */
+function AutoSignalCell({ signal }: { signal: CarreModuleAutoSignalRow | null }) {
+  if (!signal) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="flex items-center gap-1.5">
+        <Badge
+          variant="outline"
+          className="gap-1 text-[10px] border-violet-300 bg-violet-50 text-violet-800 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-200"
+        >
+          <Bot className="h-3 w-3" />
+          auto
+        </Badge>
+        <span className="text-sm font-semibold tabular-nums text-violet-800 dark:text-violet-200">
+          {signal.value_pct}%
+        </span>
+      </div>
+      <span className="text-[10px] text-muted-foreground">
+        {signal.label} · {signal.numerator.toLocaleString('en-IN')} of{' '}
+        {signal.denominator.toLocaleString('en-IN')} · {signal.cohort_count} sessions ·{' '}
+        {signal.window_days}d
+      </span>
+    </div>
+  );
 }
 
 function StatusBadge({ status }: { status: ModuleStatus }) {
@@ -148,9 +185,16 @@ function StatusBadge({ status }: { status: ModuleStatus }) {
 
 export default function CarreCoveragePage() {
   const { data, isLoading, error, refetch } = useCarreCoverage();
+  // Phase-2 auto-signals load independently; a failure here must NOT break the
+  // human coverage table, so it is read best-effort (no error surfacing).
+  const { data: autoSignals } = useCarreAutoSignals();
 
   const { moduleRows, unassigned, tally, frozenRows } = useMemo(() => {
     const rows = data ?? [];
+    const autoByKey = new Map<string, CarreModuleAutoSignalRow>();
+    for (const s of autoSignals ?? []) {
+      if (s?.module_key && !autoByKey.has(s.module_key)) autoByKey.set(s.module_key, s);
+    }
     const byKey = new Map<string, CarreModuleCoverageRow>();
     const unassignedRows: CarreModuleCoverageRow[] = [];
     for (const r of rows) {
@@ -166,7 +210,13 @@ export default function CarreCoveragePage() {
 
     const curatedRows: DisplayRow[] = CARRE_AUDITABLE_MODULES.map((m) => {
       const cov = byKey.get(m.key) ?? null;
-      return { key: m.key, label: m.label, coverage: cov, ...computeStatus(cov) };
+      return {
+        key: m.key,
+        label: m.label,
+        coverage: cov,
+        autoSignal: autoByKey.get(m.key) ?? null,
+        ...computeStatus(cov),
+      };
     });
 
     // Audits tagged to a module NOT in the curated list — surfaced so a tag is
@@ -177,6 +227,7 @@ export default function CarreCoveragePage() {
         key: k,
         label: k,
         coverage: cov,
+        autoSignal: autoByKey.get(k) ?? null,
         untracked: true,
         ...computeStatus(cov),
       }));
@@ -195,7 +246,7 @@ export default function CarreCoveragePage() {
         frozen: frozen.length,
       },
     };
-  }, [data]);
+  }, [data, autoSignals]);
 
   return (
     <ContentLayout title="CARRE Coverage Map">
@@ -224,6 +275,14 @@ export default function CarreCoveragePage() {
                   audit scored by its owner. An audit older than 90 days is shown
                   as <strong>needs re-check</strong>; a module whose operative
                   verdict is a dignity failure is <strong>frozen</strong>.
+                </p>
+                <p className="text-xs text-muted-foreground mt-2 max-w-2xl">
+                  The <strong>Auto-signal</strong> column is a separate,
+                  machine-derived read of live participant data — tagged{' '}
+                  <span className="text-violet-700 dark:text-violet-300">auto</span>,
+                  shown only where the data honestly supports it, and{' '}
+                  <strong>never mixed into the human audit score</strong>. Respect
+                  is never auto-scored.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -325,6 +384,12 @@ export default function CarreCoveragePage() {
                     <TableHead>Score</TableHead>
                     <TableHead>Operative verdict</TableHead>
                     <TableHead>Last checked</TableHead>
+                    <TableHead>
+                      <span className="flex items-center gap-1">
+                        <Bot className="h-3.5 w-3.5 text-violet-500" />
+                        Auto-signal
+                      </span>
+                    </TableHead>
                     <TableHead className="text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -395,6 +460,9 @@ export default function CarreCoveragePage() {
                               · re-check
                             </span>
                           )}
+                        </TableCell>
+                        <TableCell>
+                          <AutoSignalCell signal={row.autoSignal} />
                         </TableCell>
                         <TableCell className="text-right">
                           <Link
