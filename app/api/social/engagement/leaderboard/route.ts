@@ -49,6 +49,10 @@ export async function GET(request: Request): Promise<NextResponse<LeaderboardRes
     }
 
     const rows = (boardRes.data as LeaderboardRow[] | null) ?? [];
+    // Don't let a mine-handle lookup failure masquerade as "no handle" — log it, then degrade.
+    if (handleRes.error) {
+      console.warn('[social/engagement] leaderboard mine-handle lookup failed:', handleRes.error.message);
+    }
     const myHandle = ((handleRes.data as DeptHandle[] | null) ?? [])[0] ?? null;
     const mine = myHandle
       ? rows.find((r) => r.dept_account_id === myHandle.dept_account_id) ?? null

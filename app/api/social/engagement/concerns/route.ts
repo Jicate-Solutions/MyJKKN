@@ -66,15 +66,30 @@ export async function POST(request: Request): Promise<NextResponse<ConcernsRespo
       return NextResponse.json({ success: false, error: 'dept_account_id and a reason are required.' }, { status: 400 });
     }
 
+    const row = {
+      dept_account_id: body.dept_account_id,
+      reporter_profile_id: body.anonymous ? null : user.id,
+      post_ref: body.post_ref?.trim() || null,
+      reason: body.reason.trim(),
+      status: 'open' as const,
+    };
+
+    // Anonymous reports insert reporter_profile_id = NULL, which the scn_select RLS
+    // (reporter = auth.uid() OR manager) hides from the submitter — so we must NOT
+    // round-trip the row through `.select().single()` (it would read back 0 rows and
+    // report a false failure, driving duplicate submissions). Insert only, echo nothing.
+    if (body.anonymous) {
+      const { error } = await supabase.from('social_concern_reports').insert(row);
+      if (error) {
+        const status = error.code === '42501' ? 403 : 400;
+        return NextResponse.json({ success: false, error: error.message }, { status });
+      }
+      return NextResponse.json({ success: true, concerns: [] });
+    }
+
     const { data, error } = await supabase
       .from('social_concern_reports')
-      .insert({
-        dept_account_id: body.dept_account_id,
-        reporter_profile_id: body.anonymous ? null : user.id,
-        post_ref: body.post_ref?.trim() || null,
-        reason: body.reason.trim(),
-        status: 'open',
-      })
+      .insert(row)
       .select(SELECT_COLS)
       .single();
 

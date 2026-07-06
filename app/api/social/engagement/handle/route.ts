@@ -56,7 +56,15 @@ export async function GET(request: Request): Promise<NextResponse<HandleFeedResp
       return NextResponse.json({ success: true, handle: null, feed: [], myRota: null, myPendingContributions: 0 });
     }
 
-    // 2) Feed + loop hooks in parallel. Each is fail-soft.
+    // Current week's Monday (so "it's your week" surfaces the current/upcoming turn, not a
+    // stale last-week rota). Uses UTC day math — good to ±1 day, adequate for a weekly banner.
+    const now = new Date();
+    const dow = now.getUTCDay(); // 0=Sun..6=Sat
+    const monday = new Date(now);
+    monday.setUTCDate(now.getUTCDate() + (dow === 0 ? -6 : 1 - dow));
+    const weekStart = monday.toISOString().slice(0, 10);
+
+    // 2) Feed + loop hooks in parallel. Each is fail-soft. Both hooks are scoped to THIS handle.
     const [feedRes, rotaRes, pendingRes] = await Promise.all([
       supabase.rpc('fn_social_my_dept_feed', { p_limit: limit }),
       supabase
@@ -64,13 +72,14 @@ export async function GET(request: Request): Promise<NextResponse<HandleFeedResp
         .select('id, dept_account_id, week_start, contributor_profile_id, status, note, created_at')
         .eq('dept_account_id', handle.dept_account_id)
         .eq('contributor_profile_id', user.id)
-        .gte('week_start', new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10))
+        .gte('week_start', weekStart)
         .order('week_start', { ascending: true })
         .limit(1),
       supabase
         .from('social_contributions')
         .select('id', { count: 'exact', head: true })
         .eq('contributor_profile_id', user.id)
+        .eq('dept_account_id', handle.dept_account_id)
         .eq('status', 'submitted'),
     ]);
 
