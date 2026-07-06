@@ -203,23 +203,12 @@ export const POLICY_KEYS = {
   // Consumed by app/(routes)/pde/page.tsx — the new unified PDE module hub.
   NAV_PDE_DEFAULT_LANDING: 'nav.pde.default_landing',
 
-  // HR Recruitment approvals — viewer-scope enforcement.
-  // Consumed by lib/services/hr/recruitment-service.ts (resolveViewerScope).
-  // Master toggle (boolean) + per-role scope_rules (JSONB object).
-  // Editable via /hr/admin/recruitment-approvals-scope (super-admin UI).
-  HR_RECRUITMENT_APPROVALS_ENFORCE_SCOPING: 'hr.recruitment.approvals.enforce_scoping',
-  HR_RECRUITMENT_APPROVALS_SCOPE_RULES: 'hr.recruitment.approvals.scope_rules',
-
-  // HR Recruitment approvals — role-match enforcement on Approve action.
-  // Consumed by lib/services/hr/recruitment-service.ts (approveCandidate).
-  // Seeded by 20260516120000_seed_recruitment_role_enforcement_policies.sql.
-  // Editable via /hr/admin/recruitment-approvals-scope (super-admin UI).
-  // When enforce_role_match=true, the caller's role_keys must include
-  // approval_chain[current_step].approver_role OR overlap with override_roles
-  // OR the caller must be super_admin. When false (default), today's behavior
-  // is preserved — any user with hr.recruitment.approve can approve any step.
-  HR_RECRUITMENT_APPROVALS_ENFORCE_ROLE_MATCH: 'hr.recruitment.approvals.enforce_role_match',
-  HR_RECRUITMENT_APPROVALS_OVERRIDE_ROLES: 'hr.recruitment.approvals.override_roles',
+  // HR Recruitment approvals — the platform_policies-driven viewer-scoping +
+  // role-match toggles (enforce_scoping / scope_rules / enforce_role_match /
+  // override_roles) were REMOVED 2026-07-06. Step-approver enforcement is now
+  // ALWAYS ON and driven by the approval-flow chain itself
+  // (/hr/admin/recruitment-approval-flows). Policy rows deleted by migration
+  // 20260706130000_remove_recruitment_approvals_scope_policies.sql.
 
   // -- Forms (W3-M9 follow-up — workflow engine + notifications) -------------
   // Object: per-event notification templates rendered by the form-submission

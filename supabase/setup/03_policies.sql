@@ -7607,3 +7607,14 @@ CREATE POLICY cohort_outcomes_update_permission ON public.cohort_outcomes
 DROP POLICY IF EXISTS cohort_outcomes_delete_permission ON public.cohort_outcomes;
 CREATE POLICY cohort_outcomes_delete_permission ON public.cohort_outcomes
   FOR DELETE USING ((select is_super_admin()) OR (select is_admin()));
+
+-- hr_recruitment_job_notes (migration 20260706110000) — visibility inherits
+-- the job row's RLS via EXISTS.
+ALTER TABLE hr_recruitment_job_notes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY hr_rec_job_notes_select ON hr_recruitment_job_notes
+  FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM hr_recruitment_jobs j WHERE j.id = hr_recruitment_job_notes.job_id));
+CREATE POLICY hr_rec_job_notes_insert ON hr_recruitment_job_notes
+  FOR INSERT TO authenticated
+  WITH CHECK (author_id = auth.uid()
+    AND EXISTS (SELECT 1 FROM hr_recruitment_jobs j WHERE j.id = hr_recruitment_job_notes.job_id));

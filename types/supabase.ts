@@ -44342,6 +44342,51 @@ export type Database = {
           },
         ]
       }
+      hr_recruitment_job_notes: {
+        Row: {
+          id: string
+          job_id: string
+          hr_organization_id: string
+          author_id: string
+          note: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          job_id: string
+          hr_organization_id: string
+          author_id: string
+          note: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          job_id?: string
+          hr_organization_id?: string
+          author_id?: string
+          note?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_recruitment_job_notes_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "hr_recruitment_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_recruitment_job_notes_author_id_fkey"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hr_recruitment_candidate_packages: {
         Row: {
           approved_at: string | null

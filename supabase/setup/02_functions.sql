@@ -21412,3 +21412,17 @@ END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.fn_social_cadence_close(UUID, TEXT) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_social_cadence_close(UUID, TEXT) TO authenticated;
+-- fn_recruitment_approvals_counts: grouped (job_id, status) counts across
+-- hr_job_applications + promoted hr_recruitment_candidates (soft JSONB job link)
+-- for the job-first approvals overview. SECURITY INVOKER — RLS bounds the rows.
+-- Full definition: supabase/migrations/20260706110100_fn_recruitment_approvals_counts.sql
+
+-- fn_list_my_pending_recruitment (UPDATED 20260706120100): current-step match is
+-- now pinned-user-first — approver_user_id set → only that user; null → role_key
+-- holders (legacy). SECURITY DEFINER, returns SETOF hr_recruitment_candidates.
+-- Full definition: supabase/migrations/20260706120100_fn_list_my_pending_recruitment_pinned_users.sql
+
+-- fn_role_user_counts: aggregate (role_key, role_name, users) counts for the
+-- recruitment flow builder's "0 users hold this role" warning. SECURITY DEFINER
+-- (aggregate-only disclosure, no identities), anon EXECUTE revoked.
+-- Full definition: supabase/migrations/20260706120200_fn_role_user_counts.sql

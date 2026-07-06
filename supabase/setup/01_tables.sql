@@ -5916,3 +5916,17 @@ CREATE INDEX IF NOT EXISTS idx_cohort_outcomes_kind           ON public.cohort_o
 CREATE UNIQUE INDEX IF NOT EXISTS uidx_cohort_outcomes_membership
   ON public.cohort_outcomes (membership_id)
   WHERE membership_id IS NOT NULL;
+-- hr_recruitment_job_notes — job-level discussion thread for the approvals
+-- workspace (migration 20260706110000). RLS inherits job visibility via EXISTS.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS hr_recruitment_job_notes (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id             uuid NOT NULL REFERENCES hr_recruitment_jobs(id) ON DELETE CASCADE,
+  hr_organization_id uuid NOT NULL REFERENCES hr_organizations(id),
+  author_id          uuid NOT NULL REFERENCES profiles(id),
+  note               text NOT NULL,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_hr_rec_job_notes_job
+  ON hr_recruitment_job_notes(job_id, created_at);

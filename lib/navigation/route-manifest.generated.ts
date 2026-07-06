@@ -92,6 +92,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/academic/curriculum-review",
+        "label": "Curriculum Review",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/academic/internal-marks",
         "label": "Internal Marks",
         "iconName": "Star",
@@ -3775,9 +3781,9 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
-            "path": "/hr/admin/recruitment-approvals-scope",
-            "label": "Recruitment Approvals Scope",
-            "iconName": "ShieldCheck",
+            "path": "/hr/admin/recruitment-approval-flows",
+            "label": "Recruitment Approval Flows",
+            "iconName": "GitBranch",
             "children": []
           },
           {
