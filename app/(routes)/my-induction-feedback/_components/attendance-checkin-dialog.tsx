@@ -33,10 +33,22 @@ export function AttendanceCheckinDialog({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const g = await InductionVolunteerService.myFeedbackGroup(sessionId);
+      const [g, prior] = await Promise.all([
+        InductionVolunteerService.myFeedbackGroup(sessionId),
+        InductionVolunteerService.mySessionAttendance(sessionId),
+      ]);
       setGroup(g);
-      // Default everyone to present — the mentor flips the exceptions.
-      setMarks(Object.fromEntries(g.map((m) => [m.learner_id, 'present' as Status])));
+      // Seed each fresher from any attendance ALREADY saved for this session, so
+      // re-opening the dialog to mark one more absentee never resets previously-marked
+      // absentees back to Present (audit 2026-07-06 #2). Unmarked freshers default to
+      // Present. This two-state dialog only distinguishes present/absent; a staff-set
+      // excused/od shows as Present here but is never overwritten (the RPC is
+      // anti-clobber on staff marks).
+      const priorByLearner = new Map(prior.map((a) => [a.learner_id, a.status]));
+      setMarks(Object.fromEntries(g.map((m) => [
+        m.learner_id,
+        priorByLearner.get(m.learner_id) === 'absent' ? ('absent' as Status) : ('present' as Status),
+      ])));
     } catch (e: any) {
       toast.error(`Couldn't load your group: ${e.message ?? e}`);
     } finally {
@@ -84,7 +96,8 @@ export function AttendanceCheckinDialog({
         <DialogHeader>
           <DialogTitle className="text-base">{sessionTitle} — attendance</DialogTitle>
           <DialogDescription>
-            Everyone starts marked Present. Tap Absent for any fresher who didn&apos;t attend, then Save.
+            Anyone you&apos;ve already marked keeps their status; unmarked freshers start Present.
+            Tap Absent for any fresher who didn&apos;t attend, then Save.
             You can only mark your own assigned freshers; a staff mark is never overwritten.
           </DialogDescription>
         </DialogHeader>
