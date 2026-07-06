@@ -86,7 +86,14 @@ export async function deliverInApp(
     const { error: fanoutErr } = await admin
       .from('user_notifications')
       .insert({ notification_id: notif.id, user_id: opts.recipientId });
-    if (fanoutErr) return 'error';
+    if (fanoutErr) {
+      // Compensate: without the fan-out the recipient sees nothing, yet the shared
+      // notifications row now exists — so a retry's dedup pre-check would return
+      // 'duplicate' and the caller would mark it delivered, permanently losing it.
+      // Delete the orphan so the next tick cleanly redoes BOTH writes.
+      await admin.from('notifications').delete().eq('id', notif.id);
+      return 'error';
+    }
 
     return 'delivered';
   } catch {
