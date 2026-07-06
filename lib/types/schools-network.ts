@@ -396,3 +396,58 @@ export interface ProgramPartnerRow {
   updated_at: string;
   program_partner_types?: { code: string; label: string } | null;
 }
+
+// ── program_partner_schools (per-school participation + status) ─────────────
+export type AiSessionStatus =
+  | 'not_started'
+  | 'interested'
+  | 'scheduled'
+  | 'conducted'
+  | 'declined';
+export type WebsiteStatus = 'not_started' | 'in_progress' | 'live';
+
+/** Raw DB row (snake_case) with optional embedded school. */
+export interface ProgramPartnerSchoolRow {
+  id: string;
+  program_partner_id: string;
+  school_id: string;
+  ai_session_status: AiSessionStatus;
+  website_status: WebsiteStatus;
+  domain_url: string | null;
+  branding_done: boolean;
+  nan_mudhalvan: boolean;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+  // PostgREST returns a to-one embed as an object, but some versions wrap it
+  // in a single-element array — accept both.
+  schools?:
+    | { id: string; name: string; district: string | null }
+    | Array<{ id: string; name: string; district: string | null }>
+    | null;
+}
+
+/** Mapped shape returned to the client. */
+export interface ProgramPartnerSchool {
+  id: string;
+  programPartnerId: string;
+  schoolId: string;
+  schoolName: string | null;
+  district: string | null;
+  aiSessionStatus: AiSessionStatus;
+  websiteStatus: WebsiteStatus;
+  domainUrl: string | null;
+  brandingDone: boolean;
+  nanMudhalvan: boolean;
+  ownerName: string | null;
+  updatedAt: string;
+}
+
+export interface UpsertPartnerSchoolStatusInput {
+  schoolId: string;
+  aiSessionStatus?: AiSessionStatus;
+  websiteStatus?: WebsiteStatus;
+  domainUrl?: string | null;
+  brandingDone?: boolean;
+  nanMudhalvan?: boolean;
+}

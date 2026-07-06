@@ -11,11 +11,13 @@
  * message. React Query callers wrap these in useQuery / useMutation.
  */
 import type {
+  AiSessionStatus,
   AssignOwnerInput,
   CreateContactInput,
   CreateContributionInput,
   CreateSchoolInput,
   CreateSessionInput,
+  PartnerSchool,
   ProgramPartner,
   ProgramPartnerListResponse,
   ProgramPartnerRollup,
@@ -25,6 +27,7 @@ import type {
   SchoolListResponse,
   SchoolsListFilters,
   StaffSearchRow,
+  WebsiteStatus,
 } from './types';
 
 const BASE = '/api/schools-network';
@@ -193,6 +196,29 @@ export function getPartnerRollup(partnerId: string): Promise<ProgramPartnerRollu
 
 export function getPartner(partnerId: string): Promise<ProgramPartner> {
   return call(`${BASE}/program-partners/${partnerId}`);
+}
+
+export function listPartnerSchools(
+  partnerId: string
+): Promise<{ rows: PartnerSchool[]; total: number }> {
+  return call(`${BASE}/program-partners/${partnerId}/schools`);
+}
+
+export function updatePartnerSchoolStatus(
+  partnerId: string,
+  input: {
+    schoolId: string;
+    aiSessionStatus?: AiSessionStatus;
+    websiteStatus?: WebsiteStatus;
+    domainUrl?: string | null;
+    brandingDone?: boolean;
+    nanMudhalvan?: boolean;
+  }
+): Promise<{ programPartnerId: string; schoolId: string }> {
+  return call(`${BASE}/program-partners/${partnerId}/schools`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
 }
 
 /* ─── Sessions & contributions tab fetchers ─────────────── */
