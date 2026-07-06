@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { CreateBosMemberTypeDto } from '@/types/bos';
-import { resolveBosAccess, guardInstitutionWrite } from '@/lib/utils/bos/bos-access';
+import { resolveBosAccess, guardInstitutionWrite, casSiblingInstitutionIds } from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/member-types ────────────────────────────────────────────────
 // Institution-wise member type list. Same CAS-aware contract as
@@ -136,6 +136,27 @@ export async function POST(request: NextRequest) {
 
     const deny = guardInstitutionWrite(scope, body.institutions_id);
     if (deny) return NextResponse.json({ error: deny }, { status: 403 });
+
+    // CAS-aware duplicate guard. The DB unique index is per (institutions_id,
+    // lower(name)) so it can't see the sibling UUID: a CAS college has two
+    // institution ids (Aided + Self) sharing one counselling_code, and the
+    // /bos/member-types list fans out across both. Without this check a user on
+    // one sibling could recreate a name that already exists on the other,
+    // reintroducing the very duplicates the list is meant to avoid. Expand the
+    // target institution to its counselling_code siblings and reject up front.
+    const siblingIds = await casSiblingInstitutionIds(supabase, body.institutions_id);
+    const { data: clash } = await supabase
+      .from('bos_member_types')
+      .select('id')
+      .in('institutions_id', siblingIds)
+      .ilike('name', body.name.trim())
+      .limit(1);
+    if (clash && clash.length > 0) {
+      return NextResponse.json(
+        { error: 'A member type with this name already exists for this institution.' },
+        { status: 409 }
+      );
+    }
 
     const { data, error } = await supabase
       .from('bos_member_types')

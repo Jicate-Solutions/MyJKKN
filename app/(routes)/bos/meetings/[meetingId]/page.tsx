@@ -49,8 +49,9 @@ import { MeetingStatusStepper } from '../_components/meeting-status-stepper';
 import {
   BosMeetingStatus,
   BOS_MEETING_STATUS_LABELS,
-  BOS_MEETING_NEXT_STATUS,
   BOS_MEETING_TYPE_LABELS,
+  AC_MEETING_STATUS_ORDER,
+  meetingNextStatusMap,
 } from '@/types/bos';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -64,6 +65,16 @@ const TRANSITION_LABELS: Partial<Record<BosMeetingStatus, string>> = {
   minutes_drafted: 'Draft Minutes',
   minutes_approved: 'Forward to Minutes Approval',
   ratified: 'Minutes Approved',
+};
+
+// Academic Council meetings use a shorter flow (no principal approval / expert
+// invite / ratification), so the button labels differ: draft → noticed is the
+// principal issuing the notice, not a chairman's "approved" hand-off.
+const AC_TRANSITION_LABELS: Partial<Record<BosMeetingStatus, string>> = {
+  noticed: 'Issue Notice',
+  completed: 'Meeting Finalized',
+  minutes_drafted: 'Draft Minutes',
+  minutes_approved: 'Forward to Minutes Approval',
 };
 
 // ── Transitions that need extra metadata from the user ────────────────────────
@@ -327,7 +338,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
   // Open dialog for transitions that need extra metadata; fire directly otherwise
   const handleTransition = async () => {
     if (!meeting) return;
-    const nextStatus = BOS_MEETING_NEXT_STATUS[meeting.status];
+    const nextStatus = meetingNextStatusMap(meeting.meeting_type)[meeting.status];
     if (!nextStatus) return;
 
     // Block draft → principal_approved if no agenda items exist. The server
@@ -388,7 +399,8 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
 
   const handleTransitionConfirm = async (meta: TransitionMetadata) => {
     if (!meeting) return;
-    const nextStatus = BOS_MEETING_NEXT_STATUS[meeting.status];
+    const nextMap = meetingNextStatusMap(meeting.meeting_type);
+    const nextStatus = nextMap[meeting.status];
     if (!nextStatus) return;
 
     setIsTransitioning(true);
@@ -405,7 +417,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
       // the legacy "Draft Minutes" button (the state-machine entry
       // completed → minutes_drafted is still permitted).
       if (nextStatus === 'completed') {
-        const followUp = BOS_MEETING_NEXT_STATUS.completed;
+        const followUp = nextMap.completed;
         if (followUp) {
           try {
             await transitionStatus.mutateAsync({
@@ -451,7 +463,9 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
     );
   }
 
-  const nextStatus = BOS_MEETING_NEXT_STATUS[meeting.status];
+  const isAcMeeting = meeting.meeting_type === 'academic_council';
+  const nextStatus = meetingNextStatusMap(meeting.meeting_type)[meeting.status];
+  const transitionLabels = isAcMeeting ? AC_TRANSITION_LABELS : TRANSITION_LABELS;
   const isDraft = meeting.status === 'draft';
   const isRatified = meeting.status === 'ratified';
   const board = meeting.board as any;
@@ -501,8 +515,12 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
   const showMinutesTab = ['completed', 'minutes_drafted', 'minutes_approved', 'ratified'].includes(
     meeting.status,
   );
-  const canTransitionNext =
-    meeting.status === 'principal_approved'
+  const canTransitionNext = isAcMeeting
+    // Academic Council: the principal convenes and drives every transition
+    // (they are not a bos_members row on the AC body, so the composition-member
+    // rule below would wrongly lock them out). Super-admin always allowed.
+    ? isSuperAdmin || bosScope.isPrincipal
+    : meeting.status === 'principal_approved'
       ? canAdvanceFromPrincipalApproved
       : meeting.status === 'minutes_approved'
         ? isSuperAdmin || bosScope.isPrincipal
@@ -518,14 +536,26 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <PageHeader
         title={meeting.meeting_title ?? `Meeting #${meeting.meeting_number}/${meeting.academic_year}`}
-        description={board ? `${board.board_name} · ${BOS_MEETING_TYPE_LABELS[meeting.meeting_type]}` : ''}
+        description={
+          isAcMeeting
+            ? `Academic Council · ${meeting.academic_year}`
+            : board
+              ? `${board.board_name} · ${BOS_MEETING_TYPE_LABELS[meeting.meeting_type]}`
+              : ''
+        }
       >
         <div className='flex items-center gap-2'>
           {canEdit && (isDraft || meeting.status === 'principal_approved') && (
             <Button
               size='sm'
               variant='outline'
-              onClick={() => router.push(`/bos/meetings/${meetingId}/edit`)}
+              onClick={() =>
+                router.push(
+                  isAcMeeting
+                    ? `/bos/academic-council/${meetingId}/edit`
+                    : `/bos/meetings/${meetingId}/edit`,
+                )
+              }
             >
               <Edit className='mr-2 h-4 w-4' />
               Edit Schedule & Venue
@@ -540,7 +570,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
               <ArrowRight className='mr-2 h-4 w-4' />
               {isTransitioning
                 ? 'Updating...'
-                : TRANSITION_LABELS[nextStatus] ?? `Move to ${BOS_MEETING_STATUS_LABELS[nextStatus]}`}
+                : transitionLabels[nextStatus] ?? `Move to ${BOS_MEETING_STATUS_LABELS[nextStatus]}`}
             </Button>
           )}
         </div>
@@ -549,7 +579,10 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
       {/* ── Status Stepper ───────────────────────────────────────────────── */}
       <Card>
         <CardContent className='p-4'>
-          <MeetingStatusStepper currentStatus={meeting.status} />
+          <MeetingStatusStepper
+            currentStatus={meeting.status}
+            order={isAcMeeting ? AC_MEETING_STATUS_ORDER : undefined}
+          />
         </CardContent>
       </Card>
 
@@ -730,6 +763,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
                 meetingId={meetingId}
                 compositionId={meeting.composition_id}
                 meetingStatus={meeting.status}
+                meetingType={meeting.meeting_type}
               />
             </TabsContent>
 

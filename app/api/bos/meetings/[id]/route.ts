@@ -4,6 +4,7 @@ import { UpdateBosMeetingDto } from '@/types/bos';
 import {
   resolveBosBoardScope,
   guardCompositionWrite,
+  guardAcademicCouncilWrite,
 } from '@/lib/utils/bos/bos-access';
 
 // Service-role helper: expand the caller's primary institution to the full CAS
@@ -190,7 +191,7 @@ export async function PUT(
     // Look up the meeting (service-role) so RLS doesn't 404 a legit CAS row.
     const { data: meeting, error: fetchError } = await db
       .from('bos_meetings')
-      .select('institutions_id, composition_id, status')
+      .select('institutions_id, composition_id, status, meeting_type')
       .eq('id', id)
       .single();
 
@@ -201,16 +202,22 @@ export async function PUT(
       institutions_id: string | null
       composition_id: string | null
       status: string
+      meeting_type: string | null
     };
 
     const scope = await resolveBosBoardScope(user.id);
 
-    // Authz — must be board member of this composition (guardCompositionWrite
-    // already denies principals/non-members). composition_id is the unit of
-    // authz; CAS-sibling institution membership is captured implicitly via
-    // memberOf, so no extra expansion is needed for the composition check.
-    const denyComp = guardCompositionWrite(scope, meetingRow.composition_id);
-    if (denyComp) return NextResponse.json({ error: denyComp }, { status: 403 });
+    // Authz. For a BoS meeting the editor must be a board member of the
+    // composition (guardCompositionWrite denies principals/non-members). For an
+    // Academic Council meeting the principal is the convener and owns the
+    // record, so authorize via guardAcademicCouncilWrite instead.
+    if (meetingRow.meeting_type === 'academic_council') {
+      const denyAc = guardAcademicCouncilWrite(scope, meetingRow.institutions_id);
+      if (denyAc) return NextResponse.json({ error: denyAc }, { status: 403 });
+    } else {
+      const denyComp = guardCompositionWrite(scope, meetingRow.composition_id);
+      if (denyComp) return NextResponse.json({ error: denyComp }, { status: 403 });
+    }
 
     // Institution sanity check — defence-in-depth; should always pass for a
     // legitimate member (composition.institutions_id is in their CAS-expanded

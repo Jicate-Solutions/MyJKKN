@@ -5,6 +5,9 @@ import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
+import TextAlign from '@tiptap/extension-text-align';
+import Subscript from '@tiptap/extension-subscript';
+import Superscript from '@tiptap/extension-superscript';
 import { useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -24,7 +27,16 @@ import {
   Unlink,
   Undo,
   Redo,
-  Minus
+  Minus,
+  Heading1,
+  Heading2,
+  Heading3,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignJustify,
+  Subscript as SubscriptIcon,
+  Superscript as SuperscriptIcon
 } from 'lucide-react';
 
 interface RichTextEditorProps {
@@ -34,6 +46,12 @@ interface RichTextEditorProps {
   maxLength?: number;
   disabled?: boolean;
   className?: string;
+  /**
+   * Show the extended (Word/SOP-style) toolbar — headings, paragraph alignment,
+   * and sub/superscript — on top of the basic formatting. Opt-in so existing
+   * consumers (notifications, parent portal) keep the compact toolbar.
+   */
+  extended?: boolean;
 }
 
 function ToolbarButton({
@@ -75,7 +93,7 @@ function ToolbarButton({
   );
 }
 
-function Toolbar({ editor }: { editor: Editor }) {
+function Toolbar({ editor, extended = false }: { editor: Editor; extended?: boolean }) {
   const setLink = useCallback(() => {
     const previousUrl = editor.getAttributes('link').href;
     const url = window.prompt('Enter URL', previousUrl || 'https://');
@@ -117,6 +135,31 @@ function Toolbar({ editor }: { editor: Editor }) {
         tooltip='Underline (Ctrl+U)'
       />
 
+      {extended && (
+        <>
+          <div className='w-px h-5 bg-border mx-1' />
+          {/* Headings */}
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+            isActive={editor.isActive('heading', { level: 1 })}
+            icon={Heading1}
+            tooltip='Heading 1'
+          />
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+            isActive={editor.isActive('heading', { level: 2 })}
+            icon={Heading2}
+            tooltip='Heading 2'
+          />
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+            isActive={editor.isActive('heading', { level: 3 })}
+            icon={Heading3}
+            tooltip='Heading 3'
+          />
+        </>
+      )}
+
       <div className='w-px h-5 bg-border mx-1' />
 
       {/* Lists */}
@@ -132,6 +175,51 @@ function Toolbar({ editor }: { editor: Editor }) {
         icon={ListOrdered}
         tooltip='Numbered List'
       />
+
+      {extended && (
+        <>
+          <div className='w-px h-5 bg-border mx-1' />
+          {/* Alignment */}
+          <ToolbarButton
+            onClick={() => editor.chain().focus().setTextAlign('left').run()}
+            isActive={editor.isActive({ textAlign: 'left' })}
+            icon={AlignLeft}
+            tooltip='Align Left'
+          />
+          <ToolbarButton
+            onClick={() => editor.chain().focus().setTextAlign('center').run()}
+            isActive={editor.isActive({ textAlign: 'center' })}
+            icon={AlignCenter}
+            tooltip='Align Center'
+          />
+          <ToolbarButton
+            onClick={() => editor.chain().focus().setTextAlign('right').run()}
+            isActive={editor.isActive({ textAlign: 'right' })}
+            icon={AlignRight}
+            tooltip='Align Right'
+          />
+          <ToolbarButton
+            onClick={() => editor.chain().focus().setTextAlign('justify').run()}
+            isActive={editor.isActive({ textAlign: 'justify' })}
+            icon={AlignJustify}
+            tooltip='Justify'
+          />
+          <div className='w-px h-5 bg-border mx-1' />
+          {/* Sub / Superscript */}
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleSubscript().run()}
+            isActive={editor.isActive('subscript')}
+            icon={SubscriptIcon}
+            tooltip='Subscript'
+          />
+          <ToolbarButton
+            onClick={() => editor.chain().focus().toggleSuperscript().run()}
+            isActive={editor.isActive('superscript')}
+            icon={SuperscriptIcon}
+            tooltip='Superscript'
+          />
+        </>
+      )}
 
       <div className='w-px h-5 bg-border mx-1' />
 
@@ -185,7 +273,8 @@ export function RichTextEditor({
   placeholder = 'Write your message...',
   maxLength,
   disabled = false,
-  className
+  className,
+  extended = false
 }: RichTextEditorProps) {
   const editor = useEditor({
     // Tiptap renders on the server otherwise, causing hydration mismatches in
@@ -193,7 +282,9 @@ export function RichTextEditor({
     immediatelyRender: false,
     extensions: [
       StarterKit.configure({
-        heading: false,
+        // Extended mode enables Word/SOP-style headings; compact mode keeps the
+        // original heading-free behaviour.
+        heading: extended ? { levels: [1, 2, 3] } : false,
         codeBlock: false,
         code: false,
         blockquote: false
@@ -207,7 +298,15 @@ export function RichTextEditor({
       }),
       Placeholder.configure({
         placeholder
-      })
+      }),
+      // Extended-only extensions (alignment + sub/superscript).
+      ...(extended
+        ? [
+            TextAlign.configure({ types: ['heading', 'paragraph'] }),
+            Subscript,
+            Superscript
+          ]
+        : [])
     ],
     content: value || '',
     editable: !disabled,
@@ -256,7 +355,7 @@ export function RichTextEditor({
         className
       )}
     >
-      {editor && <Toolbar editor={editor} />}
+      {editor && <Toolbar editor={editor} extended={extended} />}
       <EditorContent editor={editor} />
       {maxLength && (
         <div className='flex justify-end px-3 py-1 border-t bg-muted/20'>

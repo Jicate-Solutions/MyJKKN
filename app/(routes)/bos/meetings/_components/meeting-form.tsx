@@ -480,11 +480,16 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel, isEditi
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {Object.entries(BOS_MEETING_TYPE_LABELS).map(([value, label]) => (
-                              <SelectItem key={value} value={value}>
-                                {label}
-                              </SelectItem>
-                            ))}
+                            {/* 'academic_council' is excluded — Academic Council
+                                meetings are scheduled from /bos/academic-council,
+                                not this Board of Studies meeting form. */}
+                            {Object.entries(BOS_MEETING_TYPE_LABELS)
+                              .filter(([value]) => value !== 'academic_council')
+                              .map(([value, label]) => (
+                                <SelectItem key={value} value={value}>
+                                  {label}
+                                </SelectItem>
+                              ))}
                           </SelectContent>
                         </Select>
                         <FormMessage />

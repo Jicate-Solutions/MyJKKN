@@ -891,6 +891,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/bos/compositions': 'bos.compositions.view',
   '/bos/experts': 'bos.experts.view',
   '/bos/meetings': 'bos.meetings.view',
+  // Academic Council — institution-level body, super-admin + principal only.
+  // The grant (20260706b) gives principals 'academic.bos-academic-council.manage';
+  // super-admins bypass the nav filter. No entry here would make the link
+  // visible to ALL authenticated users, so this line is load-bearing.
+  '/bos/academic-council': 'academic.bos-academic-council.manage',
   '/bos/reports': 'bos.reports.view',
   '/bos/ta-da': 'bos.ta_da.view',
   // Remaining BoS tab pages. These live only in the in-page tab bar (not the

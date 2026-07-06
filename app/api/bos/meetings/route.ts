@@ -6,6 +6,7 @@ import {
   compositionScopeFilter,
   guardInstitutionWrite,
   guardCompositionChairman,
+  guardAcademicCouncilWrite,
 } from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/meetings ─────────────────────────────────────────────────────
@@ -142,7 +143,12 @@ export async function GET(request: NextRequest) {
     if (compositionId) query = query.eq('composition_id', compositionId);
     if (academicYear) query = query.eq('academic_year', academicYear);
     if (status) query = query.eq('status', status);
+    // Academic Council meetings have their own list (/bos/academic-council).
+    // When a caller asks for a specific meetingType we honour it (that's how the
+    // AC list requests meetingType='academic_council'); otherwise we EXCLUDE AC
+    // meetings so the Board of Studies meetings list isn't polluted by them.
     if (meetingType) query = query.eq('meeting_type', meetingType);
+    else query = query.neq('meeting_type', 'academic_council');
     if (search) query = query.ilike('meeting_title', `%${search}%`);
     if (memberCompositionIds) query = query.in('composition_id', memberCompositionIds);
 
@@ -198,20 +204,47 @@ export async function POST(request: NextRequest) {
     const scope = await resolveBosBoardScope(user.id);
     const body: CreateBosMeetingDto = await request.json();
 
-    if (!body.institutions_id || !body.board_id || !body.composition_id) {
+    if (!body.institutions_id || !body.composition_id) {
       return NextResponse.json(
-        { error: 'institutions_id, board_id, and composition_id are required' },
+        { error: 'institutions_id and composition_id are required' },
         { status: 400 }
       );
     }
 
-    // Institution backstop (CAS-aware) + chairman-only gate.
-    // Only the board chairman of the composition can schedule a meeting.
-    // Principals are read-only; regular members cannot create meetings.
+    // Fetch the parent composition ONCE — its is_academic_council flag decides
+    // both the authorization branch and whether a board is required, and its
+    // board_type is denormalized onto the meeting (avoids a second query later).
+    const { data: parentComp } = await supabase
+      .from('bos_compositions')
+      .select('board_type, is_academic_council')
+      .eq('id', body.composition_id)
+      .maybeSingle();
+    const isAcMeeting =
+      (parentComp as { is_academic_council?: boolean } | null)?.is_academic_council === true;
+    const parentBoardType =
+      (parentComp as { board_type?: string | null } | null)?.board_type ?? null;
+
+    // A BoS meeting requires a board; an Academic Council meeting has none.
+    if (!isAcMeeting && !body.board_id) {
+      return NextResponse.json(
+        { error: 'board_id is required for a Board of Studies meeting' },
+        { status: 400 }
+      );
+    }
+
+    // Institution backstop (CAS-aware) + convener gate. For a BoS meeting only
+    // the board chairman may schedule (principals are read-only). For an
+    // Academic Council meeting the PRINCIPAL is the convener — see
+    // guardAcademicCouncilWrite (the deliberate inverse of the chairman gate).
     const denyInst = guardInstitutionWrite(scope, body.institutions_id);
     if (denyInst) return NextResponse.json({ error: denyInst }, { status: 403 });
-    const denyComp = guardCompositionChairman(scope, body.composition_id);
-    if (denyComp) return NextResponse.json({ error: denyComp }, { status: 403 });
+    if (isAcMeeting) {
+      const denyAc = guardAcademicCouncilWrite(scope, body.institutions_id);
+      if (denyAc) return NextResponse.json({ error: denyAc }, { status: 403 });
+    } else {
+      const denyComp = guardCompositionChairman(scope, body.composition_id);
+      if (denyComp) return NextResponse.json({ error: denyComp }, { status: 403 });
+    }
 
     // Resolve meeting_number — per-composition sequence.
     //
@@ -264,22 +297,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Pull board_type from the parent composition (denormalized at composition-
-    // create time, see 20260521 migration). This avoids a COE round-trip per
-    // call-letter render. If the composition predates the column or COE was
-    // unreachable when it was created, board_type will be null and the PDF
-    // falls back to board_name only.
-    const { data: parentComp } = await supabase
-      .from('bos_compositions')
-      .select('board_type')
-      .eq('id', body.composition_id)
-      .maybeSingle();
-    const parentBoardType =
-      (parentComp as { board_type?: string | null } | null)?.board_type ?? null;
+    // board_type was resolved from the parent composition above (denormalized at
+    // composition-create time, see 20260521 migration) — reused here to avoid a
+    // second query. For AC bodies it is 'academic_council'.
 
-    // Normalize empty strings → null for optional date/time fields
+    // Normalize empty strings → null for optional date/time fields.
+    // For an AC meeting force board_id null and meeting_type 'academic_council'
+    // regardless of what the client sent, so the row is unambiguously an AC row.
     const insertData = {
       ...body,
+      board_id: isAcMeeting ? null : body.board_id,
+      meeting_type: isAcMeeting ? ('academic_council' as BosMeetingType) : body.meeting_type,
       meeting_number: meetingNumber,
       status: 'draft' as BosMeetingStatus,
       board_type: parentBoardType,

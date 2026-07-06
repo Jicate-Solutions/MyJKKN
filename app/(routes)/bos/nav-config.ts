@@ -70,6 +70,12 @@ const config: ModuleNavConfig = {
       matchPaths: ['/bos/meetings'],
     },
     {
+      label: 'Academic Council',
+      icon: 'Landmark',
+      href: '/bos/academic-council',
+      matchPaths: ['/bos/academic-council'],
+    },
+    {
       label: 'TA/DA Claims',
       icon: 'Receipt',
       href: '/bos/ta-da',

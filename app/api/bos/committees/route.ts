@@ -77,6 +77,22 @@ export async function GET(request: NextRequest) {
       query = query.in('institutions_id', ids);
     }
 
+    // Committees are owned by a composition (20260706). The composition detail
+    // page and Add Member dialog pass ?compositionId= to get only that
+    // composition's committees; the institution filter above still applies as
+    // an RLS-aligned belt-and-braces. Omitting it returns institution-level
+    // template rows (composition_id IS NULL) plus every composition's rows.
+    const compositionId = searchParams.get('compositionId');
+    if (compositionId) {
+      query = query.eq('composition_id', compositionId);
+    } else if (searchParams.get('scope') === 'template') {
+      // The standalone /bos/committees master page manages institution-level
+      // TEMPLATE committees only (composition_id IS NULL); per-composition rows
+      // are managed inside each composition. Without this it would list every
+      // composition's committees as a flat, duplicate-heavy set.
+      query = query.is('composition_id', null);
+    }
+
     if (searchParams.has('isActive')) {
       query = query.eq('is_active', searchParams.get('isActive') === 'true');
     }
@@ -140,6 +156,7 @@ export async function POST(request: NextRequest) {
       .from('bos_committees')
       .insert({
         institutions_id: body.institutions_id,
+        composition_id: body.composition_id ?? null,
         name: body.name.trim(),
         short_code: body.short_code?.trim() || null,
         sort_order: body.sort_order ?? 0,

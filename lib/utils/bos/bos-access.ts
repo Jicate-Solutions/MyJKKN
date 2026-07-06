@@ -85,6 +85,40 @@ export async function resolveBosAccess(userId: string): Promise<BosAccessScope> 
   };
 }
 
+/**
+ * Expands an arbitrary institution UUID to all of its CAS siblings — every
+ * institution that shares its counselling_code (Aided + Self for a CAS college;
+ * just itself for everyone else). Always includes the input id, even if the
+ * counselling_code lookup returns nothing.
+ *
+ * Unlike resolveBosAccess (which expands the *caller's* institution), this
+ * takes any institution id, so it works for super-admins creating records for
+ * other institutions. Use it wherever a per-institution DB constraint needs to
+ * be enforced across the CAS pair — e.g. the member-type name uniqueness check.
+ */
+export async function casSiblingInstitutionIds(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  institutionsId: string
+): Promise<string[]> {
+  const { data: inst } = await supabase
+    .from('institutions')
+    .select('counselling_code')
+    .eq('id', institutionsId)
+    .maybeSingle();
+
+  const code = (inst?.counselling_code as string | undefined) ?? null;
+  if (!code) return [institutionsId];
+
+  const { data: siblings } = await supabase
+    .from('institutions')
+    .select('id')
+    .eq('counselling_code', code);
+
+  const ids = new Set<string>([institutionsId]);
+  for (const s of (siblings ?? []) as { id: string }[]) ids.add(s.id);
+  return [...ids];
+}
+
 export function guardInstitutionWrite(
   scope: BosAccessScope,
   targetInstitutionsId: string | undefined | null
@@ -506,6 +540,40 @@ export function guardCompositionChairman(
   }
   if (!scope.isChairmanIn.has(compositionId)) {
     return 'Forbidden: only the board chairman can modify this composition';
+  }
+  return null;
+}
+
+/**
+ * Write-gate for Academic Council (AC) bodies and meetings.
+ *
+ * This is the deliberate INVERSE of guardCompositionChairman: for a subject-
+ * level BoS, the chairman schedules and the principal only approves; for the
+ * institution-level Academic Council, the PRINCIPAL is the convener/scheduler
+ * and there is no separate approval step.
+ *
+ *   - super-admin → allowed
+ *   - principal (within scope of the target institution) → allowed
+ *   - anyone else (including BoS chairmen, who are AC *members*) → denied
+ *
+ * CAS-aware: a principal of one sibling UUID (Aided/SF) may manage AC records
+ * for either sibling, mirroring guardInstitutionWrite.
+ */
+export function guardAcademicCouncilWrite(
+  scope: BosBoardScope,
+  targetInstitutionsId: string | null | undefined
+): string | null {
+  if (scope.isSuperAdmin) return null;
+  if (!scope.isPrincipal) {
+    return 'Forbidden: only the principal (or a super admin) can manage Academic Council meetings';
+  }
+  if (targetInstitutionsId) {
+    const inScope =
+      scope.allInstitutionIds.includes(targetInstitutionsId) ||
+      scope.institutionsId === targetInstitutionsId;
+    if (!inScope) {
+      return 'Forbidden: you can only manage the Academic Council of your own institution';
+    }
   }
   return null;
 }

@@ -4,7 +4,7 @@ import { ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { Users, UsersRound, UserCog, ClipboardList, CalendarDays, Receipt, BarChart3, BookOpen, Layers, BookText, ListTree, FileText } from 'lucide-react';
+import { Users, UsersRound, UserCog, ClipboardList, CalendarDays, Receipt, BarChart3, BookOpen, Layers, BookText, ListTree, FileText, Landmark } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -26,6 +26,7 @@ const BOS_NAV_TABS = [
   { href: '/bos/compositions',  label: 'Compositions',     icon: ClipboardList },
   { href: '/bos/syllabus',      label: 'Syllabus',         icon: BookOpen },
   { href: '/bos/meetings',      label: 'Meetings',         icon: CalendarDays },
+  { href: '/bos/academic-council', label: 'Academic Council', icon: Landmark },
   { href: '/bos/ta-da',         label: 'TA/DA Claims',     icon: Receipt },
   { href: '/bos/reports',       label: 'Reports',          icon: BarChart3 },
 ];
@@ -42,6 +43,7 @@ function resolveSubLeaf(tabHref: string, pathname: string): string | null {
     if (tabHref === '/bos/experts') return 'Add Expert';
     if (tabHref === '/bos/compositions') return 'New Composition';
     if (tabHref === '/bos/meetings') return 'Schedule Meeting';
+    if (tabHref === '/bos/academic-council') return 'New Council Meeting';
     if (tabHref === '/bos/courses') return 'New Course';
     if (tabHref === '/bos/sop') return 'New SOP Document';
     if (tabHref === '/bos/taxonomy') return null;

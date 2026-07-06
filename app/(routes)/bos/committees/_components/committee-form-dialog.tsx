@@ -66,6 +66,12 @@ interface CommitteeFormDialogProps {
   isSuperAdmin: boolean;
   /** Auto-filled institution for non-super-admins (own institution). */
   defaultInstitutionsId?: string;
+  /**
+   * When set, the committee is owned by this composition (20260706). The
+   * institution picker is suppressed (institution is inherited from the
+   * composition via defaultInstitutionsId) and composition_id is sent on save.
+   */
+  compositionId?: string;
 }
 
 export function CommitteeFormDialog({
@@ -76,7 +82,11 @@ export function CommitteeFormDialog({
   institutions,
   isSuperAdmin,
   defaultInstitutionsId,
+  compositionId,
 }: CommitteeFormDialogProps) {
+  // Inside a composition the institution is inherited, never chosen — hide the
+  // picker even for super-admins.
+  const showInstitutionPicker = isSuperAdmin && !compositionId;
   const createCommittee = useCreateBosCommittee();
   const updateCommittee = useUpdateBosCommittee();
   const isSubmitting = createCommittee.isPending || updateCommittee.isPending;
@@ -107,6 +117,9 @@ export function CommitteeFormDialog({
   const handleSubmit = async (values: CommitteeFormValues) => {
     const payload = {
       institutions_id: values.institutions_id,
+      // Only sent on create; a composition-owned committee never moves
+      // compositions. Editing keeps its existing composition_id server-side.
+      ...(compositionId && !committee ? { composition_id: compositionId } : {}),
       name: values.name.trim(),
       short_code: values.short_code?.trim() || null,
       sort_order: values.sort_order,
@@ -137,7 +150,7 @@ export function CommitteeFormDialog({
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSubmit)} className='space-y-4'>
-            {isSuperAdmin ? (
+            {showInstitutionPicker ? (
               <FormField
                 control={form.control}
                 name='institutions_id'

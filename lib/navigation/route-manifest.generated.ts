@@ -1809,6 +1809,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/bos/academic-council",
+        "label": "Academic Council",
+        "iconName": "Landmark",
+        "children": [
+          {
+            "path": "/bos/academic-council/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/bos/committees",
         "label": "Committees",
         "iconName": "FileText",
@@ -3094,6 +3107,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/feedback",
+    "label": "Feedback",
+    "iconName": "MessageCircle",
+    "children": []
+  },
+  {
     "path": "/guide",
     "label": "Guide",
     "iconName": "FileText",
@@ -3905,7 +3924,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/hr/recruitment/jobs",
             "label": "Jobs",
             "iconName": "UserSearch",
-            "children": []
+            "children": [
+              {
+                "path": "/hr/recruitment/jobs/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
           },
           {
             "path": "/hr/recruitment/my",

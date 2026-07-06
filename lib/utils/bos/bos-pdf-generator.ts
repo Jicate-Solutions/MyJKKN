@@ -404,7 +404,10 @@ export function buildMeetingNoticeDoc({
       head: [['No.', 'Agenda Item', 'Description']],
       body: [...agendaItems]
         .sort((a, b) => a.sort_order - b.sort_order)
-        .map((item) => [item.item_number, item.item_title, item.item_description ?? '']),
+        // item_description is rich-text HTML — flatten to plain text for the
+        // jsPDF table cell (jsPDF can't render markup). stripHtml already
+        // imported above.
+        .map((item) => [item.item_number, item.item_title, stripHtml(item.item_description ?? '')]),
       startY: y,
       margin: { left: MARGIN, right: MARGIN },
       tableWidth: CONTENT_W,
