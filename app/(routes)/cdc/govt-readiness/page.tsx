@@ -6,13 +6,25 @@
 // The bare-route page for the govt-job-readiness track (so /cdc/govt-readiness
 // never 404s). Proves the reframe's load-bearing claim — "one coaching cohort
 // serves multiple government exams" — as a COMPUTED fact, not a hardcoded
-// number: it reads the cdc_exam_syllabus_topics × cdc_exam_topic_map data and
+// number: it reads the cdc_exam_syllabus_topics × exam_topic_map data and
 // derives, per exam and overall, how much of the syllabus is shared vs
 // domain-specific. NO 60/40 (or any %) is hardcoded; the split moves when the
 // CDC head edits the topic rows' is_shared flags.
 //
+// UNIFIED-JUNCTION SWITCH (2026-07-06): the topic↔exam map is now read from the
+// unified exam_topic_map (keyed on exam_definition_id) instead of the legacy
+// cdc_exam_topic_map (keyed on cdc_training_types.id). Behaviour is preserved
+// EXACTLY: the rendered exam columns are still cdc_training_types (govt-exam
+// types tagged with an exam_family), and each unified mapping is translated back
+// to its cdc_training_types id via exam_definitions.cdc_training_type_id (a
+// proven 1:1 link for the 7 college govt-exam definitions). Parity is exact —
+// the 68 college rows in exam_topic_map translate to the same 68 (tt,topic)
+// pairs the legacy junction held (0 legacy-only, 0 unified-only), so every
+// computed shared-vs-domain % is byte-identical. See BROWSER_VERIFY_CHECKLIST.md.
+//
 // Source spec: specs/cdc-govt-jobs-readiness-2026-07-04.md (PR-4 / Option B).
-// Data model: govt-exam types = cdc_training_types WHERE exam_family IS NOT NULL.
+// Data model: govt-exam types = cdc_training_types WHERE exam_family IS NOT NULL;
+// mappings = exam_topic_map ⋈ exam_definitions (cdc_training_type_id IS NOT NULL).
 // ============================================================
 
 import Link from 'next/link';
@@ -46,21 +58,51 @@ interface OverlapData { exams: ExamType[]; topics: Topic[]; map: MapRow[] }
 // the FULL map (deep-review #2).
 const MAP_PAGE_SIZE = 1000;
 
+// Shape of one unified junction row as read (with the embedded exam_definitions
+// resource carrying the translation key back to a cdc_training_types id).
+interface UnifiedMapRow {
+  topic_id: string;
+  exam_definition_id: string;
+  // PostgREST returns a to-one embed as an object; tolerate the array form too.
+  exam_definitions:
+    | { cdc_training_type_id: string | null }
+    | { cdc_training_type_id: string | null }[]
+    | null;
+}
+
 async function loadFullTopicMap(
   db: ReturnType<typeof createClientSupabaseClient>,
 ): Promise<MapRow[]> {
+  // UNIFIED-JUNCTION READ: select from exam_topic_map and JOIN exam_definitions
+  // (ed.id = exam_topic_map.exam_definition_id). We keep the page keyed on
+  // cdc_training_types (the rendered exam columns), so translate each unified
+  // mapping back to its training-type id via ed.cdc_training_type_id. The
+  // !inner join + not-null filter restrict to the 7 college govt-exam
+  // definitions (school definitions have a null cdc_training_type_id and no
+  // legacy analogue, so they are correctly excluded). RLS on both tables is
+  // auth.uid() IS NOT NULL (config-master public-read), matching the legacy
+  // cdc_exam_topic_map read this replaces.
   const all: MapRow[] = [];
   for (let from = 0; ; from += MAP_PAGE_SIZE) {
     const { data, error } = await db
-      .from('cdc_exam_topic_map')
-      .select('exam_training_type_id, topic_id')
-      // Stable ordering is required for correct pagination.
-      .order('exam_training_type_id', { ascending: true })
+      .from('exam_topic_map')
+      .select('topic_id, exam_definition_id, exam_definitions!inner(cdc_training_type_id)')
+      // College govt-exam mappings only (exam_definitions linked to a training type).
+      .not('exam_definitions.cdc_training_type_id', 'is', null)
+      // Stable ordering on base-table columns (the unique key exam_definition_id,
+      // topic_id) is required for correct pagination.
+      .order('exam_definition_id', { ascending: true })
       .order('topic_id', { ascending: true })
       .range(from, from + MAP_PAGE_SIZE - 1);
     if (error) throw error;
-    const rows = (data ?? []) as MapRow[];
-    all.push(...rows);
+    const rows = (data ?? []) as unknown as UnifiedMapRow[];
+    for (const r of rows) {
+      const ed = Array.isArray(r.exam_definitions) ? r.exam_definitions[0] : r.exam_definitions;
+      const ttId = ed?.cdc_training_type_id;
+      // The !inner + not-null filter guarantees a college link; keep the output
+      // shape EXACT — only emit rows that translate to a training-type id.
+      if (ttId) all.push({ exam_training_type_id: ttId, topic_id: r.topic_id });
+    }
     if (rows.length < MAP_PAGE_SIZE) break; // last (short) page → exhausted
   }
   return all;
@@ -68,7 +110,7 @@ async function loadFullTopicMap(
 
 async function loadOverlap(): Promise<OverlapData> {
   // Direct client reads of cdc_training_types / cdc_exam_syllabus_topics /
-  // cdc_exam_topic_map are the intended config-master public-read pattern: their
+  // exam_topic_map are the intended config-master public-read pattern: their
   // RLS SELECT policy is auth.uid() IS NOT NULL (no institution scope, no PII),
   // matching the sibling CDC masters (cdc_drive_types / cdc_offer_types / …). See
   // 20260704090100_cdc_exam_syllabus_topics.sql §5 for the rationale. Writes are
@@ -105,7 +147,7 @@ async function loadOverlap(): Promise<OverlapData> {
 export default function GovtReadinessPage() {
   const { isLoading: authLoading } = useAuth();
   // Head-only reveal for the CURATE links below — they lead to write surfaces
-  // (cdc_exam_syllabus_topics / cdc_exam_topic_map) whose boundary is
+  // (cdc_exam_syllabus_topics / exam_topic_map) whose boundary is
   // is_cdc_head_or_super(). A cdc_coordinator (who holds cdc.govt_readiness.view
   // and cdc.training.edit) should see the read-only overlap but NOT curation
   // links that would dead-end at an "Access restricted" page (deep-review R4 #1).
@@ -123,12 +165,12 @@ export default function GovtReadinessPage() {
 
     // Restrict the map to the RENDERED government exams FIRST (active +
     // exam_family set — the `exams` set already excludes null/'' families and
-    // inactive types). A cdc_exam_topic_map row survives its training type being
-    // DEACTIVATED or having exam_family cleared (the FK CASCADE only fires on
-    // DELETE), so a topic mapped solely to such a now-hidden exam must NOT count
-    // as active — otherwise it renders an all-empty matrix row and inflates the
-    // shared-vs-domain denominator (deep-review R4 #2). Build cells over the
-    // rendered exams, then derive activeTopics from topics mapped to >= 1 of them.
+    // inactive types). A mapping row survives its training type being
+    // DEACTIVATED or having exam_family cleared, so a topic mapped solely to such
+    // a now-hidden exam must NOT count as active — otherwise it renders an
+    // all-empty matrix row and inflates the shared-vs-domain denominator
+    // (deep-review R4 #2). Build cells over the rendered exams, then derive
+    // activeTopics from topics mapped to >= 1 of them.
     const examIds = new Set(exams.map((e) => e.id));
     const renderedMap = map.filter((m) => examIds.has(m.exam_training_type_id));
 

@@ -171,19 +171,53 @@ export async function updateMasterRow(
 }
 
 // =====================================================================================
-// Exam ↔ topic map (govt-job-readiness junction: cdc_exam_topic_map)
+// Exam ↔ topic map (govt-job-readiness junction)
 // =====================================================================================
-// The topic↔exam junction cannot be expressed as a flat master (it is a pair of
-// FKs, no display_name/config_key), so it does not fit MasterTablePage. These
-// helpers back the dedicated matrix editor at /cdc/admin/exam-topic-map, which
-// closes the "seed-only, no admin UI" gap (deep-review #3): a CDC head can now
-// map a newly-added topic or exam family in-app instead of via raw SQL.
+// UNIFIED-JUNCTION SWITCH (2026-07-06): these helpers now read/write the unified
+// exam_topic_map (keyed on exam_definition_id) instead of the legacy
+// cdc_exam_topic_map (keyed on cdc_training_types.id). The junction still cannot
+// be expressed as a flat master (it is a pair of FKs, no display_name/config_key),
+// so it does not fit MasterTablePage; these back the dedicated matrix editor at
+// /cdc/admin/exam-topic-map (deep-review #3).
+//
+// The public contract is UNCHANGED: callers pass a cdc_training_types id
+// (`examTrainingTypeId`) and receive rows shaped { exam_training_type_id,
+// topic_id }. The translation to/from the unified junction rides on
+// exam_definitions.cdc_training_type_id — a proven 1:1 link for the 7 college
+// govt-exam definitions (parity: exam_topic_map's 68 college rows map to exactly
+// the 68 legacy (tt,topic) pairs). School exam_definitions have a null
+// cdc_training_type_id and no legacy analogue, so they never surface here.
 
-export const EXAM_TOPIC_MAP_TABLE = 'cdc_exam_topic_map' as const;
+// Unified topic↔exam junction + its exam-definition parent (the translation key).
+export const EXAM_TOPIC_MAP_TABLE = 'exam_topic_map' as const;
+export const EXAM_DEFINITIONS_TABLE = 'exam_definitions' as const;
+
+// Kept for reference / any migration tooling — the legacy junction this replaces.
+export const LEGACY_EXAM_TOPIC_MAP_TABLE = 'cdc_exam_topic_map' as const;
 
 export interface ExamTopicMapRow {
+  // The cdc_training_types id (translated from exam_definition_id) — the SAME
+  // shape the legacy junction returned, so downstream consumers are unchanged.
   exam_training_type_id: string;
   topic_id: string;
+}
+
+/**
+ * Resolve the unified exam_definitions id for a given cdc_training_types id.
+ * Returns null when no exam_definition is linked to that training type (e.g. a
+ * newly-added govt-exam type that has not yet been given an exam_definition row).
+ */
+async function resolveExamDefinitionId(
+  supabase: SupabaseClient,
+  examTrainingTypeId: string
+): Promise<{ id: string | null; error: Error | null }> {
+  const { data, error } = await supabase
+    .from(EXAM_DEFINITIONS_TABLE)
+    .select('id')
+    .eq('cdc_training_type_id', examTrainingTypeId)
+    .maybeSingle();
+  if (error) return { id: null, error: new Error(error.message) };
+  return { id: (data as { id: string } | null)?.id ?? null, error: null };
 }
 
 /** All topic↔exam mappings, paginated past PostgREST's 1000-row default cap. */
@@ -193,53 +227,102 @@ export async function listExamTopicMap(
   const PAGE = 1000;
   const all: ExamTopicMapRow[] = [];
   for (let from = 0; ; from += PAGE) {
+    // Read the unified junction and JOIN exam_definitions
+    // (ed.id = exam_topic_map.exam_definition_id), translating each mapping back
+    // to its cdc_training_types id via ed.cdc_training_type_id. The !inner join
+    // + not-null filter restrict to college govt-exam mappings (the only ones
+    // the legacy junction held).
     const { data, error } = await supabase
       .from(EXAM_TOPIC_MAP_TABLE)
-      .select('exam_training_type_id, topic_id')
-      .order('exam_training_type_id', { ascending: true })
+      .select('topic_id, exam_definition_id, exam_definitions!inner(cdc_training_type_id)')
+      .not('exam_definitions.cdc_training_type_id', 'is', null)
+      .order('exam_definition_id', { ascending: true })
       .order('topic_id', { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) return { data: [], error: new Error(error.message) };
-    const rows = (data ?? []) as ExamTopicMapRow[];
-    all.push(...rows);
+    const rows = (data ?? []) as unknown as Array<{
+      topic_id: string;
+      exam_definition_id: string;
+      exam_definitions:
+        | { cdc_training_type_id: string | null }
+        | { cdc_training_type_id: string | null }[]
+        | null;
+    }>;
+    for (const r of rows) {
+      const ed = Array.isArray(r.exam_definitions) ? r.exam_definitions[0] : r.exam_definitions;
+      const ttId = ed?.cdc_training_type_id;
+      // Keep the output shape EXACT — only emit rows that translate to a
+      // training-type id (guaranteed non-null by the !inner + filter above).
+      if (ttId) all.push({ exam_training_type_id: ttId, topic_id: r.topic_id });
+    }
     if (rows.length < PAGE) break;
   }
   return { data: all, error: null };
 }
 
-/** Add one mapping. Idempotent — a duplicate (exam, topic) pair is a no-op. */
+/**
+ * Add one mapping. Idempotent — a duplicate (exam, topic) pair is a no-op.
+ * The caller-supplied cdc_training_types id is translated to its
+ * exam_definition_id before writing to the unified junction. If no
+ * exam_definition is linked to that training type, returns a clear error rather
+ * than silently succeeding (rule: no silent failure).
+ */
 export async function addExamTopicMapping(
   supabase: SupabaseClient,
   examTrainingTypeId: string,
   topicId: string,
   userId?: string
 ): Promise<{ error: Error | null }> {
+  const { id: examDefinitionId, error: resolveErr } = await resolveExamDefinitionId(
+    supabase,
+    examTrainingTypeId
+  );
+  if (resolveErr) return { error: resolveErr };
+  if (!examDefinitionId) {
+    return {
+      error: new Error(
+        'No exam definition is linked to this training type — create its exam definition before mapping topics.'
+      ),
+    };
+  }
+
   const { error } = await supabase
     .from(EXAM_TOPIC_MAP_TABLE)
     .upsert(
       {
-        exam_training_type_id: examTrainingTypeId,
+        exam_definition_id: examDefinitionId,
         topic_id: topicId,
         created_by: userId ?? null,
         updated_by: userId ?? null,
       },
-      { onConflict: 'exam_training_type_id,topic_id', ignoreDuplicates: true }
+      { onConflict: 'exam_definition_id,topic_id', ignoreDuplicates: true }
     );
 
   if (error) return { error: new Error(error.message) };
   return { error: null };
 }
 
-/** Remove one mapping by its (exam, topic) pair. Missing pair → no-op. */
+/**
+ * Remove one mapping by its (exam, topic) pair. Missing pair → no-op.
+ * The caller-supplied cdc_training_types id is translated to its
+ * exam_definition_id first; an unlinked training type resolves to no rows (no-op).
+ */
 export async function removeExamTopicMapping(
   supabase: SupabaseClient,
   examTrainingTypeId: string,
   topicId: string
 ): Promise<{ error: Error | null }> {
+  const { id: examDefinitionId, error: resolveErr } = await resolveExamDefinitionId(
+    supabase,
+    examTrainingTypeId
+  );
+  if (resolveErr) return { error: resolveErr };
+  if (!examDefinitionId) return { error: null }; // nothing to delete — no-op
+
   const { error } = await supabase
     .from(EXAM_TOPIC_MAP_TABLE)
     .delete()
-    .eq('exam_training_type_id', examTrainingTypeId)
+    .eq('exam_definition_id', examDefinitionId)
     .eq('topic_id', topicId);
 
   if (error) return { error: new Error(error.message) };
