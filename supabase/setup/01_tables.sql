@@ -5849,3 +5849,36 @@ ALTER TABLE public.pde_quests
 ALTER TABLE public.pde_quest_enrollments
   ADD COLUMN IF NOT EXISTS is_pilot boolean NOT NULL DEFAULT false;
 -- TRUE when the learner belongs to the quest's target_institution_id at enroll time.
+
+
+-- CDC Training demote link (migration 20260731090000_cdc_training_demote_to_cohort_core.sql,
+-- 2026-07-06). cohorts/cohort_memberships are canonical; cdc_training_enrollments is
+-- demoted to a per-learner EXTENSION (attendance + certificate + semester-schedule stay
+-- authoritative on it) linked to its cohort membership by this one nullable FK. NULLABLE
+-- (populated best-effort forward by TrainingService.addEnrollment) + ON DELETE SET NULL
+-- (a LINK, not identity — never cascade-delete the live extension row). CDC DDL is
+-- migration-only (zero cdc_* tables in setup/*), so this is mirrored here as a guarded
+-- ALTER rather than folded into a column list.
+ALTER TABLE public.cdc_training_enrollments
+  ADD COLUMN IF NOT EXISTS cohort_membership_id uuid;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname  = 'cdc_training_enrollments_cohort_membership_id_fkey'
+      AND conrelid = 'public.cdc_training_enrollments'::regclass
+  ) THEN
+    ALTER TABLE public.cdc_training_enrollments
+      ADD CONSTRAINT cdc_training_enrollments_cohort_membership_id_fkey
+      FOREIGN KEY (cohort_membership_id)
+      REFERENCES public.cohort_memberships(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_cdc_training_enrollments_cohort_membership
+  ON public.cdc_training_enrollments (cohort_membership_id);
+-- L3 race guard: one cohorts mirror per CDC programme (kind='cdc'), keyed on
+-- config->>'cdc_training_programme_id'. Partial so it never collides with the
+-- sf100/foundations/trainer mirrors sharing public.cohorts.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cohorts_cdc_training_programme
+  ON public.cohorts ((config->>'cdc_training_programme_id'))
+  WHERE kind = 'cdc';
