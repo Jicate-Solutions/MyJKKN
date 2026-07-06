@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Instagram } from 'lucide-react';
+import { Instagram, Sparkles } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
