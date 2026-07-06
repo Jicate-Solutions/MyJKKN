@@ -8,6 +8,7 @@
 // Self-gating: if the viewer can't list volunteers (no induction.view for this
 // college), the section renders nothing — same posture as CoordinatorsPanel.
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import {
   InductionVolunteerService,
@@ -114,15 +115,23 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base flex items-center gap-2">
-          <MessagesSquare className="h-4 w-4 text-primary" /> Senior Peer Mentors
-        </CardTitle>
-        <CardDescription>
-          Appoint Senior Peer Mentors and auto-balance the cohort across them.
-          Each mentor walks their assigned freshers — including those with no phone — and the
-          fresher taps their own 1–5 rating on the mentor&apos;s phone (a fresher&apos;s own-login
-          rating always wins and can&apos;t be overwritten).
-        </CardDescription>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <CardTitle className="text-base flex items-center gap-2">
+              <MessagesSquare className="h-4 w-4 text-primary" /> Senior Peer Mentors
+            </CardTitle>
+            <CardDescription>
+              Appoint Senior Peer Mentors and auto-balance the cohort across them.
+              Each mentor walks their assigned freshers — including those with no phone — and the
+              fresher taps their own 1–5 rating on the mentor&apos;s phone (a fresher&apos;s own-login
+              rating always wins and can&apos;t be overwritten).
+            </CardDescription>
+          </div>
+          <Link href={`/events/induction/${eventId}/mentors`}
+            className="shrink-0 inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium hover:border-primary hover:text-primary">
+            Manage all &amp; freshers →
+          </Link>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {loadError && (
