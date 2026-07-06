@@ -14,11 +14,13 @@ import type {
   ContributionsResponse,
   RotaResponse,
   ConcernsResponse,
+  ManagedHandlesResponse,
   SubmitContributionBody,
   ReviewContributionBody,
   AssignRotaBody,
   ReportConcernBody,
   ResolveConcernBody,
+  SetBriefBody,
 } from '@/lib/types/social-engagement';
 
 async function getJson<T extends { success: boolean; error?: string }>(
@@ -75,11 +77,31 @@ export function getLeaderboard(days = 30): Promise<LeaderboardResponse> {
   );
 }
 
-export function getContributions(deptAccountId?: string): Promise<ContributionsResponse> {
-  const qs = deptAccountId ? `?deptAccountId=${encodeURIComponent(deptAccountId)}` : '';
+export function getContributions(deptAccountId?: string, actionable = false): Promise<ContributionsResponse> {
+  const p = new URLSearchParams();
+  if (deptAccountId) p.set('deptAccountId', deptAccountId);
+  // actionable=true → the full submitted+approved working set (no page cap hides a pending item).
+  if (actionable) p.set('actionable', 'true');
+  const qs = p.toString() ? `?${p.toString()}` : '';
   return getJson<ContributionsResponse>(
     `/api/social/engagement/contributions${qs}`,
     'Failed to load contributions'
+  );
+}
+
+export function getManagedHandles(): Promise<ManagedHandlesResponse> {
+  return getJson<ManagedHandlesResponse>(
+    '/api/social/engagement/manage',
+    'Failed to load your handles'
+  );
+}
+
+export function setBrief(body: SetBriefBody): Promise<ManagedHandlesResponse> {
+  return sendJson<ManagedHandlesResponse>(
+    '/api/social/engagement/manage',
+    'PATCH',
+    body,
+    'Failed to save the brief'
   );
 }
 

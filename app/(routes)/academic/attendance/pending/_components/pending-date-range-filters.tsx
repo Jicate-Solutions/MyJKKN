@@ -47,7 +47,10 @@ interface PendingDateRangeFiltersProps {
   onFiltersChange: (partial: Partial<DashboardFilters>) => void;
   onReset: () => void;
   // Role flags
-  isSuperAdmin: boolean;
+  // canViewAllInstitutions: scope='all' custom roles (e.g. eao) + super admin —
+  // mirrors the dashboard precedent (#1618) so the institution selector is shown
+  // to every all-institutions viewer, not just super_admin.
+  canViewAllInstitutions: boolean;
   isHOD: boolean;
   isFaculty: boolean;
   // User's own institution (for locking department for HOD)
@@ -70,7 +73,7 @@ export function PendingDateRangeFilters({
   filters,
   onFiltersChange,
   onReset,
-  isSuperAdmin,
+  canViewAllInstitutions,
   isHOD,
   isFaculty,
   userInstitutionId,
@@ -84,13 +87,13 @@ export function PendingDateRangeFilters({
   const [endCalendarOpen, setEndCalendarOpen] = useState(false);
 
   // Effective institution for hierarchy queries
-  const effectiveInstitutionId = isSuperAdmin
+  const effectiveInstitutionId = canViewAllInstitutions
     ? filters.institutionId
     : userInstitutionId;
 
   // ── Hierarchy hooks ──────────────────────────────────────────────────────
-  // Gate institutions fetch to Super Admin only — non-super-admin roles don't need the list
-  const { institutions } = useInstitutionsWithAccess({ autoFetch: isSuperAdmin });
+  // Gate institutions fetch to all-institutions viewers (scope='all' roles + super admin)
+  const { institutions } = useInstitutionsWithAccess({ autoFetch: canViewAllInstitutions });
 
   const { academicYears } = useAcademicYearsByInstitution(
     effectiveInstitutionId || undefined
@@ -165,7 +168,7 @@ export function PendingDateRangeFilters({
       label: `To: ${format(new Date(filters.endDate + 'T00:00:00'), 'dd MMM yyyy')}`
     });
   }
-  if (filters.institutionId && isSuperAdmin) {
+  if (filters.institutionId && canViewAllInstitutions) {
     const instName =
       institutions.find((i: any) => i.id === filters.institutionId)?.name ??
       'Institution';
@@ -398,8 +401,8 @@ export function PendingDateRangeFilters({
                   </Button>
                 </div>
 
-                {/* Institution — Super Admin only */}
-                {isSuperAdmin && (
+                {/* Institution — all-institutions viewers only (scope='all' + super admin) */}
+                {canViewAllInstitutions && (
                   <div className="space-y-1 min-w-[180px]">
                     <Label className="text-xs">Institution</Label>
                     <Select
