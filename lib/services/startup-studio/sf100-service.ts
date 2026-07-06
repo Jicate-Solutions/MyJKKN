@@ -1737,27 +1737,64 @@ export class SF100Service extends BaseService {
     data: CreateRosterChangeDto,
     requestedBy: string
   ): Promise<SF100RosterChange> {
-    // Check if the member is an original team member
+    // Resolve the enrollment's registration so we can find any existing team member.
+    const { data: enrollmentRow } = await this.supabase
+      .from('sf100_enrollments')
+      .select('registration_id')
+      .eq('id', enrollmentId)
+      .single();
+
+    // Check if the member is an original team member (also the primary identity source).
     const { data: existingMember } = await this.supabase
       .from('event_team_members')
-      .select('id')
-      .eq('registration_id', (
-        await this.supabase
-          .from('sf100_enrollments')
-          .select('registration_id')
-          .eq('id', enrollmentId)
-          .single()
-      ).data?.registration_id)
+      .select('id, profile_id, learner_id')
+      .eq('registration_id', enrollmentRow?.registration_id)
       .eq('email', data.email)
-      .single();
+      .maybeSingle();
+
+    // D9 (Cohort Core) — every roster member must resolve to an EXISTING MyJKKN
+    // profile. No free-text-only members. Resolve identity in priority order:
+    //   1. explicit DTO values (directory-picker path)
+    //   2. the existing team-member row (registration invites are learner-linked)
+    //   3. a directory lookup by email (profiles → learners_profiles)
+    // Reject if nothing resolves. This guarantees the DB CHECK constraint added in
+    // 20260731070000_sf100_roster_profile_required.sql can never break a live insert.
+    let profileId: string | null = data.profile_id || existingMember?.profile_id || null;
+    let learnerId: string | null = data.learner_id || existingMember?.learner_id || null;
+
+    if (!profileId && !learnerId) {
+      const { data: profileMatch } = await this.supabase
+        .from('profiles')
+        .select('id')
+        .eq('email', data.email)
+        .maybeSingle();
+      if (profileMatch?.id) {
+        profileId = profileMatch.id;
+      } else {
+        const { data: learnerMatch } = await this.supabase
+          .from('learners_profiles')
+          .select('id')
+          .or(`student_email.eq.${data.email},college_email.eq.${data.email}`)
+          .maybeSingle();
+        if (learnerMatch?.id) learnerId = learnerMatch.id;
+      }
+    }
+
+    if (!profileId && !learnerId) {
+      const err = new Error(
+        `Roster member must be an existing MyJKKN user. No profile or learner record matched "${data.email}". Select the member from the directory instead of entering a free-text email.`
+      );
+      (err as Error & { status?: number }).status = 400;
+      throw err;
+    }
 
     const { data: change, error } = await this.supabase
       .from('sf100_roster_changes')
       .insert({
         enrollment_id: enrollmentId,
         action: data.action,
-        profile_id: data.profile_id || null,
-        learner_id: data.learner_id || null,
+        profile_id: profileId,
+        learner_id: learnerId,
         email: data.email,
         full_name: data.full_name || null,
         is_original_member: !!existingMember,

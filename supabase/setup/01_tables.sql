@@ -5764,3 +5764,24 @@ BEGIN
 END $$;
 CREATE INDEX IF NOT EXISTS idx_sf100_enrollments_cohort_membership
   ON public.sf100_enrollments (cohort_membership_id);
+
+-- Cohort Core — D9: SF100 roster members must be profile-linked
+-- (migration 20260731070000_sf100_roster_profile_required.sql).
+-- Every roster member resolves to a real MyJKKN identity — profile_id (profiles)
+-- OR learner_id (learners_profiles); free-text-only members are disallowed.
+-- sf100_roster_changes' own CREATE TABLE lives in
+-- supabase/migrations/20260331000002_sf100_solve_for_100.sql (SF100 DDL is
+-- migration-only, like CDC), so this is mirrored here as a guarded ALTER.
+-- Postgres has no ADD CONSTRAINT IF NOT EXISTS → guard on pg_constraint.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname  = 'sf100_roster_changes_identity_required'
+      AND conrelid = 'public.sf100_roster_changes'::regclass
+  ) THEN
+    ALTER TABLE public.sf100_roster_changes
+      ADD CONSTRAINT sf100_roster_changes_identity_required
+      CHECK (profile_id IS NOT NULL OR learner_id IS NOT NULL);
+  END IF;
+END $$;
