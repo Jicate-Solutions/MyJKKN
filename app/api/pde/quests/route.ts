@@ -20,9 +20,12 @@ export async function GET(request: NextRequest) {
       // Admins see all quests; honor optional ?status filter as before.
       if (sp.get('status')) query = query.eq('status', sp.get('status'));
     } else {
-      // Students only see published quests, global or scoped to their own institution.
-      // Forced status wins over any caller-supplied ?status (no draft peeking).
-      query = query.eq('status', 'published');
+      // Students only see LIVE quests (the real visible lifecycle is
+      // draft -> open -> archived; the publish action sets 'open', and RLS
+      // enrolled_see_quests exposes status IN ('open','in_progress')), global
+      // or scoped to their own institution. Forced status wins over any
+      // caller-supplied ?status (no draft peeking).
+      query = query.in('status', ['open', 'in_progress']);
       if (profile?.institution_id) query = query.or('target_institution_id.is.null,target_institution_id.eq.' + profile.institution_id);
       else query = query.is('target_institution_id', null);
     }
