@@ -69,12 +69,15 @@ ALTER TABLE public.program_partner_schools ENABLE ROW LEVEL SECURITY;
 -- 3. RLS — identical shape to school_contributions (ownership / partner-lead
 --    scoped; super/admin bypass). Read = schools.view, write = schools.edit.
 -- ----------------------------------------------------------------------------
+-- SELECT is ORG-WIDE (like the worklist / scoreboard / feeder panel — Director
+-- ruling for schools-network outreach views): any schools.view holder sees the
+-- full member-school list. No PII (school name + project status only). Writes
+-- below stay owner / partner-lead / admin scoped.
 DROP POLICY IF EXISTS program_partner_schools_select ON public.program_partner_schools;
 CREATE POLICY program_partner_schools_select ON public.program_partner_schools
   FOR SELECT USING (
     is_super_admin() OR is_admin()
-    OR (user_has_permission('schools_network.schools.view')
-        AND (user_owns_school(school_id) OR user_leads_partner_for_school(school_id)))
+    OR user_has_permission('schools_network.schools.view')
   );
 
 DROP POLICY IF EXISTS program_partner_schools_insert ON public.program_partner_schools;
