@@ -7629,3 +7629,73 @@ CREATE POLICY hr_rec_job_notes_insert ON hr_recruitment_job_notes
   FOR INSERT TO authenticated
   WITH CHECK (author_id = auth.uid()
     AND EXISTS (SELECT 1 FROM hr_recruitment_jobs j WHERE j.id = hr_recruitment_job_notes.job_id));
+
+-- ── Cohort Core — M7.2/M7.3 RLS (Phase 7 · THE MOAT) ─────────────────────────
+-- Migrations: 20260731093000_cohort_experiments.sql, 20260731094000_cohort_feedforward.sql
+-- Canonical dynamic-permission: is_super_admin/is_admin first, then cohort.view
+-- (read) / cohort.manage (write) + role_has_institution_access; DELETE admin-only.
+
+ALTER TABLE public.cohort_experiments ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS cohort_experiments_select_permission ON public.cohort_experiments;
+CREATE POLICY cohort_experiments_select_permission ON public.cohort_experiments
+  FOR SELECT USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.view'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+-- INSERT/UPDATE is manage-level (the compute fn is DEFINER and bypasses RLS; this
+-- governs a manual/service-role-less recompute performed as the user).
+DROP POLICY IF EXISTS cohort_experiments_insert_permission ON public.cohort_experiments;
+CREATE POLICY cohort_experiments_insert_permission ON public.cohort_experiments
+  FOR INSERT WITH CHECK (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.manage'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohort_experiments_update_permission ON public.cohort_experiments;
+CREATE POLICY cohort_experiments_update_permission ON public.cohort_experiments
+  FOR UPDATE USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.manage'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+-- DELETE admin-only (an experiment result is a moat audit record).
+DROP POLICY IF EXISTS cohort_experiments_delete_permission ON public.cohort_experiments;
+CREATE POLICY cohort_experiments_delete_permission ON public.cohort_experiments
+  FOR DELETE USING ( (select is_super_admin()) OR (select is_admin()) );
+
+ALTER TABLE public.cohort_adjustment_proposals ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS cohort_proposals_select_permission ON public.cohort_adjustment_proposals;
+CREATE POLICY cohort_proposals_select_permission ON public.cohort_adjustment_proposals
+  FOR SELECT USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.view'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+-- INSERT = manage (the proposer fn is DEFINER; this governs a manual insert).
+DROP POLICY IF EXISTS cohort_proposals_insert_permission ON public.cohort_adjustment_proposals;
+CREATE POLICY cohort_proposals_insert_permission ON public.cohort_adjustment_proposals
+  FOR INSERT WITH CHECK (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.manage'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+-- UPDATE = manage: this is the HUMAN APPROVAL surface (pending→approved/rejected).
+DROP POLICY IF EXISTS cohort_proposals_update_permission ON public.cohort_adjustment_proposals;
+CREATE POLICY cohort_proposals_update_permission ON public.cohort_adjustment_proposals
+  FOR UPDATE USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.manage'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohort_proposals_delete_permission ON public.cohort_adjustment_proposals;
+CREATE POLICY cohort_proposals_delete_permission ON public.cohort_adjustment_proposals
+  FOR DELETE USING ( (select is_super_admin()) OR (select is_admin()) );

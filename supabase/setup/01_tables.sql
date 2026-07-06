@@ -5930,3 +5930,67 @@ CREATE TABLE IF NOT EXISTS hr_recruitment_job_notes (
 );
 CREATE INDEX IF NOT EXISTS idx_hr_rec_job_notes_job
   ON hr_recruitment_job_notes(job_id, created_at);
+
+-- ── Cohort Core — M7.2 experiments + M7.3 proposals (Phase 7 · THE MOAT) ─────
+-- Migrations: 20260731093000_cohort_experiments.sql, 20260731094000_cohort_feedforward.sql (2026-07-06)
+-- cohort_experiments: one causal-lift result per cohort (control-group A/B).
+-- cohort_adjustment_proposals: feed-forward program changes, human-approved.
+CREATE TABLE IF NOT EXISTS public.cohort_experiments (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  cohort_id           uuid NOT NULL REFERENCES public.cohorts(id) ON DELETE CASCADE,
+  kind                text NOT NULL CHECK (kind IN ('sf100','foundations','cdc','trainer')),
+  n_treatment         int  NOT NULL DEFAULT 0,
+  n_control           int  NOT NULL DEFAULT 0,
+  treatment_mean_lift numeric,
+  control_mean_lift   numeric,
+  -- CAUSAL lift = treatment_mean − control_mean (NULL if either arm is empty:
+  -- a causal claim needs both arms). This is the number the feed-forward loop
+  -- (7.3) is allowed to act on.
+  causal_lift         numeric,
+  -- NAIVE lift = mean lift across ALL scored members (ignores arms). This is the
+  -- CONFOUNDED number kept only for contrast — the loop must NOT act on it.
+  naive_lift          numeric,
+  n_scored            int  NOT NULL DEFAULT 0,
+  estimator_version   text,
+  computed_at         timestamptz NOT NULL DEFAULT now(),
+  institution_id      uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  metadata            jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  -- one experiment result per cohort; fn_compute upserts on this.
+  CONSTRAINT cohort_experiments_cohort_uidx UNIQUE (cohort_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cohort_experiments_institution
+  ON public.cohort_experiments (institution_id);
+CREATE INDEX IF NOT EXISTS idx_cohort_experiments_kind
+
+CREATE TABLE IF NOT EXISTS public.cohort_adjustment_proposals (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  based_on_cohort_id uuid NOT NULL REFERENCES public.cohorts(id) ON DELETE CASCADE,
+  kind               text NOT NULL CHECK (kind IN ('sf100','foundations','cdc','trainer')),
+  target_scope       text NOT NULL DEFAULT 'program' CHECK (target_scope IN ('program')),
+  target_id          uuid NOT NULL,             -- sf100_programs.id to adjust
+  causal_lift        numeric,
+  decision           text NOT NULL CHECK (decision IN ('adopt','revert','inconclusive')),
+  proposed_changes   jsonb NOT NULL DEFAULT '{}'::jsonb,
+  rationale          text,
+  status             text NOT NULL DEFAULT 'pending'
+                       CHECK (status IN ('pending','approved','rejected','applied')),
+  reviewed_by        uuid,
+  reviewed_at        timestamptz,
+  applied_at         timestamptz,
+  applied_by         uuid,
+  institution_id     uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  metadata           jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_cohort_proposals_institution ON public.cohort_adjustment_proposals (institution_id);
+CREATE INDEX IF NOT EXISTS idx_cohort_proposals_target ON public.cohort_adjustment_proposals (target_scope, target_id);
+CREATE INDEX IF NOT EXISTS idx_cohort_proposals_status ON public.cohort_adjustment_proposals (status);
+-- At most ONE open (pending OR applied) proposal per source cohort → idempotent
+-- proposer AND prevents the additive program delta from being applied twice.
+CREATE UNIQUE INDEX IF NOT EXISTS uidx_cohort_proposals_one_open_per_cohort
+  ON public.cohort_adjustment_proposals (based_on_cohort_id)
+  WHERE status IN ('pending','applied');
