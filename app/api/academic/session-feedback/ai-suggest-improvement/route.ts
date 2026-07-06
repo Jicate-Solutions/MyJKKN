@@ -46,12 +46,26 @@ const SYSTEM_PROMPT = `You are a teaching-improvement assistant for an Indian hi
 Use ONLY the data provided; ground every suggestion in it. Be concrete and India-context aware. NEVER quote a comment verbatim and NEVER refer to an individual student — speak only in aggregate themes so no student can be identified.
 Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exactly:
 { "summary": "...", "likelyCauses": ["..."], "suggestedAdjustments": [{"title":"...","how":"..."}], "quickWin": "...", "whatToWatchNext": "..." }
-Give 2-4 likelyCauses and 3-5 suggestedAdjustments. whatToWatchNext must reference the next session's understanding score (the loop's verifier).`;
+Give 2-4 likelyCauses and 3-5 suggestedAdjustments. whatToWatchNext must describe, in words only, whether understanding holds or improves in the next session — never cite a number, score, average, or target.
+CRITICAL: Never express understanding as a number, score, average, rating out of 5, or percentage, and never state a numeric target or threshold to reach. Describe understanding and its trend in words only (e.g. "understanding was strong", "a small cluster still struggled"). You may state how many students responded.`;
 
 // YYYY-MM-DD validator — reject malformed dates rather than passing junk to the RPC.
 function isoDate(v: unknown): string | null {
   if (typeof v !== 'string') return null;
   return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+}
+
+// Facilitator-facing understanding must never be a raw number: a printed
+// baseline/target invites gaming ("ask students to score 3.6 every time"). The
+// numeric avg is still recorded to the backend (p_input_avg) for the loop's own
+// measurement; only what the AI SEES and SAYS is qualitative. Thresholds mirror
+// the generator's gate (LOW_UNDERSTOOD_THRESHOLD 3 / STANDOUT_THRESHOLD 4.5).
+function understandingBandWord(avg: number | null | undefined): string {
+  if (avg === null || avg === undefined || Number.isNaN(Number(avg))) return 'unknown';
+  const a = Number(avg);
+  if (a < 3) return 'low';
+  if (a < 4.5) return 'mixed';
+  return 'strong';
 }
 
 export async function POST(req: NextRequest) {
@@ -201,11 +215,11 @@ export async function POST(req: NextRequest) {
         if (!prior.has_outcome || lift === null) {
           liftLine = `The outcome of that advice is not measured yet.`;
         } else if (outcomeN !== null && outcomeN >= 5) {
-          // Strong-enough evidence: assert the direction.
-          liftLine = `After that advice, the next class's understanding moved ${lift >= 0 ? '+' : ''}${prior.outcome_lift} (from ${prior.input_avg}/5, ${outcomeN} learners). ${lift >= 0.5 ? 'It helped somewhat — build on it.' : 'It did NOT meaningfully help — change the approach; do not repeat the same advice.'}`;
+          // Strong-enough evidence: assert the direction (qualitative — no score).
+          liftLine = `After that advice, in the next class ${lift >= 0.5 ? 'understanding improved — it helped somewhat, build on it.' : 'understanding did NOT meaningfully improve — change the approach; do not repeat the same advice.'}`;
         } else if (outcomeN !== null && outcomeN >= 3) {
-          // Weak evidence: report the number but caveat it; do not let the model treat it as proof.
-          liftLine = `After that advice, the next class's understanding moved ${lift >= 0 ? '+' : ''}${prior.outcome_lift} (from ${prior.input_avg}/5) — but this is WEAK EVIDENCE: only ${outcomeN} learners answered the next session, so treat it as a hint, not proof. Do not conclude the advice did or didn't work from this alone.`;
+          // Weak evidence: give direction but caveat it; do not let the model treat it as proof.
+          liftLine = `After that advice, understanding in the next class ${lift >= 0.5 ? 'appeared to improve' : 'did not clearly improve'} — but this is WEAK EVIDENCE: only ${outcomeN} learners answered the next session, so treat it as a hint, not proof. Do not conclude the advice did or didn't work from this alone.`;
         } else {
           // Below the floor (or unknown N): explicitly low-confidence.
           liftLine = `An outcome was recorded for that advice${outcomeN !== null ? ` but only ${outcomeN} learner${outcomeN === 1 ? '' : 's'} answered the next session` : ''}, so it is LOW-CONFIDENCE — do not treat it as evidence the advice worked or failed.`;
@@ -223,12 +237,12 @@ export async function POST(req: NextRequest) {
     const commentBlock =
       freeTexts.length > 0
         ? freeTexts.map((t) => `- ${String(t).trim()}`).join('\n')
-        : '- (no written comments — use the numeric signals)';
+        : '- (no written comments — use the aggregate signals)';
     const userPrompt = `Course: ${courseCode}
 Window: ${from} to ${to}
 Responses: ${responses}
-Low-understanding responses (understood <= 2 of 5): ${lowResponses}
-Average understanding (1-5): ${avgUnderstood ?? 'n/a'}
+Students who reported low understanding: ${lowResponses}
+Understanding level (qualitative): ${understandingBandWord(avgUnderstood)}
 
 Anonymized student comments:
 ${commentBlock}${trackRecordBlock}
