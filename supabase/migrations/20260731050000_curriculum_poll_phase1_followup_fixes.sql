@@ -183,10 +183,21 @@ BEGIN
         CROSS JOIN LATERAL jsonb_each(
           CASE WHEN jsonb_typeof(sa.attendance_data) = 'object' THEN sa.attendance_data ELSE '{}'::jsonb END
         ) AS pd(period_id, pv)
+        -- assigned_faculty is a scalar object for a single-teacher period but an ARRAY of
+        -- {faculty_id, faculty_email, ...} for a co-taught / substitute period (~19% of prod
+        -- periods). Normalize both shapes to a set of faculty elements so a co-teacher is
+        -- NOT false-blocked from authoring (deep-review LOW 2026-07-06, confirmed vs prod:
+        -- 3,876 of 19,937 periods store the array form).
+        CROSS JOIN LATERAL jsonb_array_elements(
+          CASE jsonb_typeof(pv -> 'assigned_faculty')
+            WHEN 'array'  THEN pv -> 'assigned_faculty'
+            WHEN 'object' THEN jsonb_build_array(pv -> 'assigned_faculty')
+            ELSE '[]'::jsonb END
+        ) AS fac
         WHERE sa.institution_id = v_inst
           AND pv ->> 'course_id' = p_course_id::text
-          AND ( (v_staff_id IS NOT NULL AND pv -> 'assigned_faculty' ->> 'faculty_id' = v_staff_id::text)
-                OR (v_email IS NOT NULL AND lower(btrim(pv -> 'assigned_faculty' ->> 'faculty_email')) = v_email) )
+          AND ( (v_staff_id IS NOT NULL AND fac ->> 'faculty_id' = v_staff_id::text)
+                OR (v_email IS NOT NULL AND lower(btrim(fac ->> 'faculty_email')) = v_email) )
       );
       IF NOT v_teaches THEN
         RAISE EXCEPTION 'fn_curriculum_lesson_upsert: only staff who teach this course (or an HOD/admin of its institution) can create its lesson';
