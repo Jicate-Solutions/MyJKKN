@@ -969,7 +969,27 @@ export const schoolsNetworkGuide: ModuleGuide = {
   routes: [],
 };
 
-export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide, academicGuide, startupStudioGuide, solutionsGuide, organizationsGuide, imsGuide, bosGuide, meetingsGuide, learnersGuide, learnersCouncilGuide, eventsGuide, resourceManagementGuide, vacGuide, okrGuide, schoolsNetworkGuide];
+export const foundationGuide: ModuleGuide = {
+  module: "foundation",
+  basePath: "/foundation",
+  lanes: {
+    coordinator: {
+      sections: withRequires(FOUNDATION_GUIDES.lanes.coordinator.sections, FOUNDATION_REQUIRES.coordinator),
+      startHere: FOUNDATION_GUIDES.lanes.coordinator.startHere,
+      title: FOUNDATION_GUIDES.lanes.coordinator.title,
+      tagline: FOUNDATION_GUIDES.lanes.coordinator.tagline,
+    },
+    facilitator: {
+      sections: withRequires(FOUNDATION_GUIDES.lanes.facilitator.sections, FOUNDATION_REQUIRES.facilitator),
+      startHere: FOUNDATION_GUIDES.lanes.facilitator.startHere,
+      title: FOUNDATION_GUIDES.lanes.facilitator.title,
+      tagline: FOUNDATION_GUIDES.lanes.facilitator.tagline,
+    },
+  },
+  routes: [],
+};
+
+export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide, academicGuide, startupStudioGuide, solutionsGuide, organizationsGuide, imsGuide, bosGuide, meetingsGuide, learnersGuide, learnersCouncilGuide, eventsGuide, resourceManagementGuide, vacGuide, okrGuide, schoolsNetworkGuide, foundationGuide];
 
 /** Canonical personas at least one module contributes real sections to. A
  *  persona NOT in this set is sparse (composeLane returns the platform-overview
