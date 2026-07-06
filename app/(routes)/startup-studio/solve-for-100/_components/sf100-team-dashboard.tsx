@@ -210,14 +210,22 @@ export function SF100TeamDashboard() {
               target={goalTarget}
               enrollmentId={enrollmentId}
             />
-            {/* MOAT (M6) treatment surface — treatment-arm teams get a visible
-                STRETCH goal above the program target. The main /{goalTarget} ring
-                is unchanged for everyone (the "Solve for 100" brand stays intact);
-                this badge is the genuine, benign A/B differential. */}
+            {/* MOAT (M6) treatment surface — treatment-arm teams are transparently
+                told they're in the "fast-track group" with a higher stretch goal.
+                The main /{goalTarget} ring is unchanged for everyone (the "Solve for
+                100" brand stays intact), and the note reassures them that hitting the
+                normal target still counts as success — so a stretch never reads as a
+                failure. Control-arm teams see none of this. */}
             {stretchTarget ? (
-              <div className="mt-3 flex items-center gap-1.5 rounded-full bg-violet-100 px-3 py-1 text-xs font-medium text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
-                <Rocket className="h-3.5 w-3.5" />
-                Stretch goal: {stretchTarget}
+              <div className="mt-3 flex flex-col items-center gap-1.5">
+                <div className="flex items-center gap-1.5 rounded-full bg-violet-100 px-3 py-1 text-xs font-semibold text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
+                  <Rocket className="h-3.5 w-3.5" />
+                  Fast-track group · stretch to {stretchTarget}
+                </div>
+                <p className="max-w-[190px] text-center text-[11px] leading-snug text-muted-foreground">
+                  You&apos;re in the fast-track group — aim for {stretchTarget} paying users.
+                  Reaching {goalTarget} still counts as success.
+                </p>
               </div>
             ) : null}
           </CardContent>

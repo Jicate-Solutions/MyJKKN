@@ -89,5 +89,19 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "sideEffects": "read-only — makes one LLM call and returns a normalized result; writes no DB rows and sends no messages itself.",
     "safeToManualTrigger": false,
     "notes": "Not an HTTP route — it is a library module called by the Layer-4 resolver, so there is no operator URL to hit directly. Requires ANTHROPIC_API_KEY (throws/fails fast if unset; Layer 4 then falls through to Layer 1). Enforces allowlist enum on the tool spec as first-line defense; the evaluator double-checks the returned action_id. Has test seams (_setLLMStub, _resetAnthropicClient) that production never calls."
+  },
+  {
+    "id": "cohort-moat-autopropose",
+    "name": "Cohort Moat — Auto-Propose on Cohort Close",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 05:43 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/cohort-moat-autopropose",
+    "callsClaude": false,
+    "whatItDoes": "Keeps the Cohort Moat's self-improving loop alive. For every CLOSED Solve-for-100 cohort that has no open suggestion yet, it assigns experiment arms (backstop), computes the causal lift (treatment vs control), and — if the result clears the trust gate — queues a feed-forward adjustment PROPOSAL for a human to approve. Without this, the loop only produces suggestions when an admin manually clicks 'check for adjustments', so it silently sits idle.",
+    "configKnobs": "Only CLOSED cohorts (status completed/archived) are considered; a causal lift is trusted only with >= 3 scored members per arm (fn_cohort_min_arm_n); the tested treatment is read from cohorts.config.experiment.treatment_params. No model, no thresholds beyond the DB gates.",
+    "sideEffects": "DB writes only: may INSERT one status='pending' row into cohort_adjustment_proposals per closed cohort (proposed_by NULL = system-generated). NEVER auto-applies — a human must approve (M7) before any program change lands. Idempotent: skips cohorts that already have an open/applied proposal (a partial unique index also enforces one-open-per-cohort). No notifications, no external messages.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'cohort-moat-autopropose' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer or ?secret=). Safe to manual-trigger: it only queues PENDING suggestions (no auto-apply, no messages), and re-running is a no-op for cohorts that already have one. Does nothing at all until a cohort genuinely closes with both arms scored."
   }
 ];
