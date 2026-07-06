@@ -38,6 +38,24 @@ export const TABLE_OVERRIDES: Record<string, string> = {
   // don't fit the per-module prefix below.
   social_facebook_logs: 'Social Facebook', // sibling to social_instagram_logs
   meta_campaigns: 'Social Ads', // ζ — sits alongside meta_ad_accounts/insights
+  // Foundation & Competitive-Exam Programme (2026-07-06): fp_* substrate plus
+  // the two exam_* catalog tables. Mapped explicitly (rather than via an
+  // `exam_` prefix) so the shared exam_* namespace can't swallow unrelated
+  // COE/exam tables. Module name matches the 'Foundation Programme' label in
+  // lib/permissions-audit/module-mappings.ts (foundation.* perms).
+  fp_students: 'Foundation Programme',
+  fp_cohorts: 'Foundation Programme',
+  fp_enrollments: 'Foundation Programme',
+  fp_items: 'Foundation Programme',
+  fp_assessments: 'Foundation Programme',
+  fp_assessment_items: 'Foundation Programme',
+  fp_attempts: 'Foundation Programme',
+  fp_responses: 'Foundation Programme',
+  fp_student_weakness: 'Foundation Programme',
+  fp_baselines: 'Foundation Programme',
+  fp_revision_plans: 'Foundation Programme',
+  exam_definitions: 'Foundation Programme',
+  exam_topic_map: 'Foundation Programme',
 };
 
 /** Prefix-to-module mapping checked in order; first match wins. */
