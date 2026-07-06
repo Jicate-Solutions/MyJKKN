@@ -23,7 +23,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger,
 } from '@/components/ui/dialog';
-import { MessagesSquare, UserPlus, X, Loader2, Search, Scale, GraduationCap, AlertTriangle } from 'lucide-react';
+import { MessagesSquare, UserPlus, X, Loader2, Search, Scale, GraduationCap, AlertTriangle, ShieldCheck } from 'lucide-react';
 
 export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
   const [hidden, setHidden] = useState(false);
@@ -75,6 +75,16 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
       load();
     } catch (e: any) {
       toast.error(`Couldn't remove: ${e.message ?? e}`);
+    }
+  };
+
+  const setTrained = async (learnerId: string, name: string, trained: boolean) => {
+    try {
+      await InductionVolunteerService.adminSetTrained(eventId, learnerId, trained);
+      toast.success(trained ? `${name} marked as trained — their tools are unlocked.` : `${name} marked untrained.`);
+      load();
+    } catch (e: any) {
+      toast.error(`Couldn't update training: ${e.message ?? e}`);
     }
   };
 
@@ -183,6 +193,23 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
                   <Badge variant={v.group_size > 0 && v.captured >= v.group_size ? 'default' : 'secondary'} className="tabular-nums">
                     {v.captured}/{v.group_size} captured
                   </Badge>
+                  {v.is_trained ? (
+                    <button type="button" onClick={() => setTrained(v.learner_id, v.full_name, false)}
+                      title="Trained — click to mark untrained"
+                      className="inline-flex items-center gap-1 rounded-full bg-green-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-green-700">
+                      <ShieldCheck className="h-3 w-3" /> Trained
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-muted-foreground">
+                        {v.guide_read && v.self_ack ? 'mentor done' : 'awaiting mentor'}
+                      </span>
+                      <Button size="sm" variant="outline" className="h-7 text-xs"
+                        onClick={() => setTrained(v.learner_id, v.full_name, true)}>
+                        Mark trained
+                      </Button>
+                    </div>
+                  )}
                   <button
                     type="button"
                     aria-label={`Remove ${v.full_name}`}
