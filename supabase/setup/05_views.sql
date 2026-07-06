@@ -919,7 +919,6 @@ SELECT
 FROM leave_types
 WHERE (leave_types.scope)::text = 'staff'::text;
 
-<<<<<<< HEAD
 -- ================================================================================
 -- SECTION: CAMPUS LIVING VIEWS (Added: 2026-05-29)
 -- ================================================================================
@@ -1129,3 +1128,26 @@ SELECT
     dc.store_id,
     dc.institution_id
 FROM ims_department_consumption dc;
+
+-- ── Cohort Core — M7.4 alumni→mentor pool (Phase 7 · THE MOAT) ───────────────
+-- Migration: 20260731095000_cohort_alumni_mentor.sql (2026-07-06)
+CREATE OR REPLACE VIEW public.v_cohort_alumni_mentor_pool
+WITH (security_invoker = true) AS
+SELECT
+  m.id                                   AS membership_id,
+  m.cohort_id                            AS source_cohort_id,
+  c.kind                                 AS kind,
+  c.name                                 AS source_cohort_name,
+  c.institution_id                       AS institution_id,
+  c.academic_year                        AS academic_year,
+  m.member_type                          AS member_type,
+  m.member_ref                           AS member_ref,
+  (m.member_type IN ('student','learner','staff')) AS is_person,
+  m.updated_at                           AS graduated_at,
+  -- the captured outcome (if any) so a strong graduate can be prioritised.
+  o.outcome_snapshot->>'blended_outcome' AS blended_outcome,
+  o.outcome_snapshot->>'lift'            AS lift
+FROM public.cohort_memberships m
+JOIN public.cohorts c            ON c.id = m.cohort_id
+LEFT JOIN public.cohort_outcomes o ON o.membership_id = m.id
+WHERE m.status = 'graduated';

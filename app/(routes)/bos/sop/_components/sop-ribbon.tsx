@@ -423,9 +423,14 @@ export function SopRibbon(props: SopRibbonProps) {
               </Popover>
             </Group>
 
-            <Group label='Comments'>
-              <Button type='button' size='sm' variant='ghost' className='h-8 gap-1' onClick={() => props.onToggleComments?.()}><MessageSquare className='h-4 w-4' /> Comments</Button>
-            </Group>
+            {/* Comments is SOP-specific (backed by bos_sop_comments). Only
+                render when the host wires onToggleComments — the minutes editor
+                reuses this ribbon but has no comments backing, so it omits it. */}
+            {props.onToggleComments && (
+              <Group label='Comments'>
+                <Button type='button' size='sm' variant='ghost' className='h-8 gap-1' onClick={() => props.onToggleComments?.()}><MessageSquare className='h-4 w-4' /> Comments</Button>
+              </Group>
+            )}
 
             <Group label='Language' last>
               <Select value={tamilMode} onValueChange={(v) => onTamilModeChange(v as TamilInputMode)}>
@@ -454,25 +459,36 @@ export function SopRibbon(props: SopRibbonProps) {
               <Button type='button' size='sm' variant='ghost' className='h-8 gap-1' onClick={() => window.print()}><Printer className='h-4 w-4' /> Print preview</Button>
             </Group>
 
-            <Group label='History'>
-              <Button type='button' size='sm' variant='ghost' className='h-8' onClick={() => props.onOpenHistory?.()}>Version history</Button>
-              <Button type='button' size='sm' variant='ghost' className='h-8' onClick={() => props.onSnapshot?.()}>Save & Snapshot</Button>
-            </Group>
+            {/* Version history + Snapshot are SOP-specific (bos_sop_versions).
+                Hidden when the host wires neither callback. */}
+            {(props.onOpenHistory || props.onSnapshot) && (
+              <Group label='History'>
+                {props.onOpenHistory && (
+                  <Button type='button' size='sm' variant='ghost' className='h-8' onClick={() => props.onOpenHistory?.()}>Version history</Button>
+                )}
+                {props.onSnapshot && (
+                  <Button type='button' size='sm' variant='ghost' className='h-8' onClick={() => props.onSnapshot?.()}>Save & Snapshot</Button>
+                )}
+              </Group>
+            )}
 
-            <Group label='Export' last>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button type='button' size='sm' variant='ghost' className='h-8 gap-1'>Export <ChevronDown className='h-3 w-3' /></Button>
-                </PopoverTrigger>
-                <PopoverContent className='w-44 p-1'>
-                  {(['pdf', 'docx', 'html', 'markdown', 'txt'] as const).map((f) => (
-                    <Button key={f} type='button' size='sm' variant='ghost' className='w-full justify-start' onClick={() => props.onExport?.(f)}>
-                      {f.toUpperCase()}
-                    </Button>
-                  ))}
-                </PopoverContent>
-              </Popover>
-            </Group>
+            {/* Multi-format export is backed by SOP-only export routes. */}
+            {props.onExport && (
+              <Group label='Export' last>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button type='button' size='sm' variant='ghost' className='h-8 gap-1'>Export <ChevronDown className='h-3 w-3' /></Button>
+                  </PopoverTrigger>
+                  <PopoverContent className='w-44 p-1'>
+                    {(['pdf', 'docx', 'html', 'markdown', 'txt'] as const).map((f) => (
+                      <Button key={f} type='button' size='sm' variant='ghost' className='w-full justify-start' onClick={() => props.onExport?.(f)}>
+                        {f.toUpperCase()}
+                      </Button>
+                    ))}
+                  </PopoverContent>
+                </Popover>
+              </Group>
+            )}
           </div>
         </TabsContent>
       </Tabs>

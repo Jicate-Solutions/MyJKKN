@@ -11,9 +11,16 @@ import {
 interface MeetingStatusStepperProps {
   currentStatus: BosMeetingStatus;
   className?: string;
+  /**
+   * Ordered list of statuses to render. Defaults to the full BoS 8-state order.
+   * Academic Council meetings pass AC_MEETING_STATUS_ORDER (a shorter flow with
+   * no principal-approval or ratification steps).
+   */
+  order?: BosMeetingStatus[];
 }
 
-export function MeetingStatusStepper({ currentStatus, className }: MeetingStatusStepperProps) {
+export function MeetingStatusStepper({ currentStatus, className, order }: MeetingStatusStepperProps) {
+  const statusOrder = order ?? BOS_MEETING_STATUS_ORDER;
   // 'completed' was removed from BOS_MEETING_STATUS_ORDER on 2026-05-20 so the
   // visible workflow skips that step. But legacy meetings (created before the
   // skip-chain shipped) may still be recorded with status='completed' in the
@@ -23,15 +30,15 @@ export function MeetingStatusStepper({ currentStatus, className }: MeetingStatus
   // steps green-tick correctly and the next-visible step is highlighted.
   const displayStatus =
     currentStatus === 'completed' ? 'minutes_drafted' : currentStatus;
-  const currentIndex = BOS_MEETING_STATUS_ORDER.indexOf(displayStatus);
+  const currentIndex = statusOrder.indexOf(displayStatus);
 
   return (
     <div className={cn('w-full overflow-x-auto', className)}>
       <ol className='flex items-center min-w-max'>
-        {BOS_MEETING_STATUS_ORDER.map((status, index) => {
+        {statusOrder.map((status, index) => {
           const isCompleted = index < currentIndex;
           const isCurrent = index === currentIndex;
-          const isLast = index === BOS_MEETING_STATUS_ORDER.length - 1;
+          const isLast = index === statusOrder.length - 1;
 
           return (
             <li key={status} className='flex items-center'>

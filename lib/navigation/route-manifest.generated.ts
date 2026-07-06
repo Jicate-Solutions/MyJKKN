@@ -92,6 +92,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/academic/curriculum-review",
+        "label": "Curriculum Review",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/academic/internal-marks",
         "label": "Internal Marks",
         "iconName": "Star",
@@ -1171,6 +1177,24 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          },
+          {
+            "path": "/admission/schools-network/qualify",
+            "label": "Qualify",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/schools-network/scoreboard",
+            "label": "Scoreboard",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/schools-network/worklist",
+            "label": "Worklist",
+            "iconName": "GraduationCap",
+            "children": []
           }
         ]
       },
@@ -1380,6 +1404,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admission/social/departments",
             "label": "Departments",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/social/engagement",
+            "label": "Engagement",
             "iconName": "GraduationCap",
             "children": []
           },
@@ -1610,6 +1640,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Care",
         "iconName": "ClipboardCheck",
         "children": [
+          {
+            "path": "/audit/care/coverage",
+            "label": "Coverage",
+            "iconName": "ClipboardCheck",
+            "children": []
+          },
           {
             "path": "/audit/care/new",
             "label": "New",
@@ -1870,6 +1906,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "label": "Bos",
     "iconName": "FileText",
     "children": [
+      {
+        "path": "/bos/academic-council",
+        "label": "Academic Council",
+        "iconName": "Landmark",
+        "children": [
+          {
+            "path": "/bos/academic-council/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
       {
         "path": "/bos/committees",
         "label": "Committees",
@@ -3242,6 +3291,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "children": []
   },
   {
+    "path": "/foundation",
+    "label": "Foundation",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/foundation/console",
+        "label": "Console",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/foundation/students",
+        "label": "Students",
+        "iconName": "GraduationCap",
+        "children": []
+      }
+    ]
+  },
+  {
     "path": "/guide",
     "label": "Guide",
     "iconName": "FileText",
@@ -3726,9 +3794,9 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
-            "path": "/hr/admin/recruitment-approvals-scope",
-            "label": "Recruitment Approvals Scope",
-            "iconName": "ShieldCheck",
+            "path": "/hr/admin/recruitment-approval-flows",
+            "label": "Recruitment Approval Flows",
+            "iconName": "GitBranch",
             "children": []
           },
           {

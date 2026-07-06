@@ -49,10 +49,10 @@ export const GUIDES: GuideBook = {
               link: { label: "Give Class Feedback", href: "/learners/class-feedback" },
             },
             {
-              action: "Open **My Attendance Feedback** to see which sessions are confirmed.",
+              action: "Open **Class Feedback** to see which sessions are confirmed.",
               detail:
-                "Anything still marked present-pending means you have not given feedback yet — finish it so it counts.",
-              link: { label: "Open My Feedback", href: "/learners/my-attendance-feedback" },
+                "Anything still marked present-pending means you have not given feedback yet — finish it so it counts. The confirmed list is under “Confirmed this month” on that page.",
+              link: { label: "Open Class Feedback", href: "/learners/class-feedback" },
             },
           ],
         },

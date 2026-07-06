@@ -45,17 +45,22 @@ interface MemberEmailStatus {
   error_message: string | null;
 }
 
-// Status at which the chairman can send invitation emails to members.
-// Mirrors the server-side gate in /api/bos/meetings/[id]/notify-members.
-const NOTIFY_STATUS: BosMeetingStatus = 'expert_invited';
+// Status at which invitation emails can be sent. Mirrors the server-side gate
+// in /api/bos/meetings/[id]/notify-members:
+//   • Board of Studies   → chairman sends at 'expert_invited'
+//   • Academic Council   → principal sends at 'noticed' (no expert_invited step)
+const NOTIFY_STATUS_BOS: BosMeetingStatus = 'expert_invited';
+const NOTIFY_STATUS_AC: BosMeetingStatus = 'noticed';
 
 interface MembersTabProps {
   meetingId: string;
   compositionId: string;
   meetingStatus: BosMeetingStatus;
+  /** Meeting type — 'academic_council' flips the send gate to principal @ noticed. */
+  meetingType?: string;
 }
 
-export function MembersTab({ meetingId, compositionId, meetingStatus }: MembersTabProps) {
+export function MembersTab({ meetingId, compositionId, meetingStatus, meetingType }: MembersTabProps) {
   const queryClient = useQueryClient();
   const { data: members = [], isLoading } = useBosMembersByComposition(compositionId);
   const scope = useBosBoardScope();
@@ -84,12 +89,17 @@ export function MembersTab({ meetingId, compositionId, meetingStatus }: MembersT
   const [isSending, setIsSending] = useState(false);
 
   // ── Permission + lifecycle gate ────────────────────────────────────────────
-  // Email-send is enabled when the meeting is at expert_invited AND the user
-  // is the chairman (or super-admin). Anywhere else, the tab is read-only.
-  const isChairman =
-    scope.isSuperAdmin ||
-    (compositionId ? scope.isChairmanIn.has(compositionId) : false);
-  const canSendNotices = !scope.isLoading && isChairman && meetingStatus === NOTIFY_STATUS;
+  // BoS: chairman (or super-admin) sends at 'expert_invited'.
+  // Academic Council: the principal (or super-admin) is the convener and sends
+  // the call letters at 'noticed' — they are NOT a bos_members chairman of the
+  // AC body, so the chairman check would wrongly lock them out.
+  const isAc = meetingType === 'academic_council';
+  const notifyStatus = isAc ? NOTIFY_STATUS_AC : NOTIFY_STATUS_BOS;
+  const canSend = isAc
+    ? scope.isSuperAdmin || scope.isPrincipal
+    : scope.isSuperAdmin ||
+      (compositionId ? scope.isChairmanIn.has(compositionId) : false);
+  const canSendNotices = !scope.isLoading && canSend && meetingStatus === notifyStatus;
 
   // Members with usable email addresses — only these can be selected/sent.
   const eligibleIds = useMemo(
@@ -198,15 +208,17 @@ export function MembersTab({ meetingId, compositionId, meetingStatus }: MembersT
               </span>
             )}
           </p>
-          {!canSendNotices && meetingStatus !== NOTIFY_STATUS && (
+          {!canSendNotices && meetingStatus !== notifyStatus && (
             <p className='text-xs text-muted-foreground'>
               Invitation emails can be sent once the meeting is at{' '}
-              <span className='font-medium'>{BOS_MEETING_STATUS_LABELS[NOTIFY_STATUS]}</span>.
+              <span className='font-medium'>{BOS_MEETING_STATUS_LABELS[notifyStatus]}</span>.
             </p>
           )}
-          {!canSendNotices && meetingStatus === NOTIFY_STATUS && !isChairman && !scope.isLoading && (
+          {!canSendNotices && meetingStatus === notifyStatus && !canSend && !scope.isLoading && (
             <p className='text-xs text-muted-foreground'>
-              Only the board chairman can send invitation emails.
+              {isAc
+                ? 'Only the Principal can send invitation emails.'
+                : 'Only the board chairman can send invitation emails.'}
             </p>
           )}
         </div>

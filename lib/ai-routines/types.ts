@@ -21,6 +21,7 @@ export type RoutineCategoryId =
   | 'ai-pulse'
   | 'admission-ai'
   | 'induction-ai'
+  | 'curriculum-ai'
   | 'misc-ai';
 
 export interface AIRoutine {
@@ -97,6 +98,12 @@ export const ROUTINE_CATEGORIES: RoutineCategory[] = [
     id: 'induction-ai',
     label: 'Induction AI',
     blurb: 'Generates fresher-induction playbooks and scores session effectiveness.',
+  },
+  {
+    id: 'curriculum-ai',
+    label: 'Curriculum AI (lesson spine)',
+    blurb:
+      'Drafts a per-course teaching lesson spine (+ optional Concept-Application/capstone briefs) from BoS syllabi — always as unpublished drafts a faculty must review and approve.',
   },
   {
     id: 'misc-ai',

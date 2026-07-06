@@ -243,3 +243,93 @@ export interface TransferMembershipDto extends TransitionOptions {
   membershipId: string;
   toCohortId: string;
 }
+
+// ── PHASE 7 · THE MOAT — score / experiment / feed-forward / alumni ───────────
+// Mirrors migrations 20260731092000..095000. See docs/cohort-core/PLAN.md Phase 7.
+
+/** Within-cohort A/B arm (cohort_memberships.config.experiment_arm). */
+export type ExperimentArm = 'control' | 'treatment';
+
+/**
+ * The blended-score envelope fn_cohort_blended_score merges into
+ * cohort_outcomes.outcome_snapshot at close (M7.1). `scored:false` when the kind
+ * has no estimator yet (only sf100 today) — then `lift` is null.
+ */
+export interface BlendedScoreSnapshot {
+  scored: boolean;
+  estimator_version: string;
+  blended_baseline?: number;
+  blended_outcome?: number;
+  lift: number | null;
+  components?: {
+    baseline: { success: number; revenue: number; speed: number };
+    outcome: { success: number; revenue: number; speed: number };
+  };
+  inputs?: Record<string, unknown>;
+  reason?: string;
+}
+
+/** A row of public.cohort_experiments (M7.2 — one causal-lift result per cohort). */
+export interface CohortExperiment {
+  id: string;
+  cohort_id: string;
+  kind: CohortKind;
+  n_treatment: number;
+  n_control: number;
+  treatment_mean_lift: number | null;
+  control_mean_lift: number | null;
+  /** treatment_mean − control_mean; NULL unless both arms present. Act on THIS. */
+  causal_lift: number | null;
+  /** mean over all arms — CONFOUNDED. Kept for contrast only; never act on it. */
+  naive_lift: number | null;
+  n_scored: number;
+  estimator_version: string | null;
+  computed_at: string;
+  institution_id: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+/** cohort_adjustment_proposals.decision (M7.3). */
+export type ProposalDecision = 'adopt' | 'revert' | 'inconclusive';
+
+/** cohort_adjustment_proposals.status lifecycle: pending → approved → applied | rejected. */
+export type ProposalStatus = 'pending' | 'approved' | 'rejected' | 'applied';
+
+/** A row of public.cohort_adjustment_proposals (M7.3 — feed-forward proposal). */
+export interface CohortAdjustmentProposal {
+  id: string;
+  based_on_cohort_id: string;
+  kind: CohortKind;
+  target_scope: 'program';
+  target_id: string;
+  causal_lift: number | null;
+  decision: ProposalDecision;
+  proposed_changes: Record<string, unknown>;
+  rationale: string | null;
+  status: ProposalStatus;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  applied_at: string | null;
+  applied_by: string | null;
+  institution_id: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A row of public.v_cohort_alumni_mentor_pool (M7.4 — flywheel read surface). */
+export interface AlumniMentorPoolEntry {
+  membership_id: string;
+  source_cohort_id: string;
+  kind: CohortKind;
+  source_cohort_name: string;
+  institution_id: string;
+  academic_year: string | null;
+  member_type: MembershipType;
+  member_ref: string;
+  is_person: boolean;
+  graduated_at: string;
+  blended_outcome: string | null;
+  lift: string | null;
+}

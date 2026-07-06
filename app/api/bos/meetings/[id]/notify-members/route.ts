@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server';
 import {
   resolveBosBoardScope,
   guardCompositionChairman,
+  guardAcademicCouncilWrite,
 } from '@/lib/utils/bos/bos-access';
 import { generateMeetingScheduledEmailHtml } from '@/lib/services/email-service';
 import {
@@ -70,7 +71,7 @@ export async function POST(
     const { data: meeting, error: meetingErr } = await supabase
       .from('bos_meetings')
       .select(
-        'id, composition_id, institutions_id, status, meeting_title, meeting_number, academic_year, scheduled_date, scheduled_time, venue, agenda_text, board_id, board_type'
+        'id, composition_id, institutions_id, status, meeting_type, meeting_title, meeting_number, academic_year, scheduled_date, scheduled_time, venue, agenda_text, board_id, board_type'
       )
       .eq('id', meetingId)
       .single();
@@ -79,21 +80,26 @@ export async function POST(
       return NextResponse.json({ error: 'Meeting not found' }, { status: 404 });
     }
 
-    // Status gate — only allowed once the chairman has moved the meeting to
-    // expert_invited. Block early statuses (preparation phase) and late
-    // statuses (post-meeting) so notice emails can't fire by accident.
-    if (meeting.status !== 'expert_invited') {
+    // Status gate + convener authorization differ by meeting type:
+    //   • BoS meeting → chairman sends at 'expert_invited'
+    //   • Academic Council → principal sends the call letters at 'noticed'
+    //     (AC has no 'expert_invited' step in its shorter state machine)
+    const isAcMeeting = meeting.meeting_type === 'academic_council';
+    const requiredStatus = isAcMeeting ? 'noticed' : 'expert_invited';
+    if (meeting.status !== requiredStatus) {
+      const stepLabel = isAcMeeting ? '"Notice Issued"' : '"Experts Invited"';
       return NextResponse.json(
         {
-          error: `Cannot send notices while meeting is in "${meeting.status}" status. Move the meeting to "Experts Invited" first.`,
+          error: `Cannot send notices while meeting is in "${meeting.status}" status. Move the meeting to ${stepLabel} first.`,
         },
         { status: 422 }
       );
     }
 
-    // Chairman-only (super-admin bypasses). Mirrors POST /api/bos/meetings.
     const scope = await resolveBosBoardScope(user.id);
-    const deny = guardCompositionChairman(scope, meeting.composition_id);
+    const deny = isAcMeeting
+      ? guardAcademicCouncilWrite(scope, meeting.institutions_id)
+      : guardCompositionChairman(scope, meeting.composition_id);
     if (deny) return NextResponse.json({ error: deny }, { status: 403 });
 
     // Fetch the selected members. Restrict the in-clause to this meeting's
@@ -101,7 +107,7 @@ export async function POST(
     // different composition.
     const { data: members, error: membersErr } = await supabase
       .from('bos_members')
-      .select('id, display_name, email, member_type, display_designation, display_department, display_institution, address, contact_no')
+      .select('id, display_name, email, member_type, expert_id, staff_id, display_designation, display_department, display_institution, address, contact_no')
       .eq('composition_id', meeting.composition_id)
       .in('id', parsed.data.memberIds)
       .eq('is_active', true);
@@ -302,6 +308,16 @@ export async function POST(
         );
         subject = rendered.subject;
         html = rendered.body_html;
+        // The stored template body says "Board of Studies meeting notice". For
+        // an Academic Council meeting that phrasing is wrong — swap it. Done as
+        // a post-render replace (not a template placeholder) so it also fixes
+        // any per-institution template overrides that hardcode the phrase.
+        if (isAcMeeting) {
+          const swap = (s: string) =>
+            s.replace(/Board of Studies meeting notice/gi, 'Academic Council meeting notice');
+          html = swap(html);
+          subject = swap(subject);
+        }
       } else {
         // Defensive fallback when the DB template isn't present yet.
         subject = `Invitation: ${meetingTitle} — ${meetingDate}`;
@@ -330,6 +346,9 @@ export async function POST(
               display_institution: m.display_institution ?? null,
               address: m.address ?? null,
               contact_no: m.contact_no ?? null,
+              // External = sourced from the BoS expert directory (expert_id).
+              // Drives the AC rule: only external members get the TA/DA closing.
+              is_external: !!(m as { expert_id?: string | null }).expert_id,
             },
             boardName,
             boardType,

@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
       date_to: sp.get('date_to') ?? undefined,
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     let query = (supabase as any)
       .from('cdc_training_programmes')
       .select(`*, training_type:cdc_training_types(id, config_key, display_name), institution:institutions(id, name)`)
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'name is required' }, { status: 400 });
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const { data, error } = await (supabase as any)
       .from('cdc_training_programmes')
       .insert({ ...body, created_by: user.id })
@@ -71,6 +71,10 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error('[cdc/training] POST create error:', error);
+      // L5: surface an RLS denial (42501) as a clean 403, not a masked 500.
+      if (error.code === '42501') {
+        return NextResponse.json({ error: 'You do not have permission to create a training programme' }, { status: 403 });
+      }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
     return NextResponse.json({ data }, { status: 201 });

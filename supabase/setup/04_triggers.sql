@@ -1378,3 +1378,114 @@ DROP TRIGGER IF EXISTS trg_cohort_memberships_updated_at ON public.cohort_member
 CREATE TRIGGER trg_cohort_memberships_updated_at
   BEFORE UPDATE ON public.cohort_memberships
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- ── Cohort Core — M2: outcome-capture-at-close (Phase 7 · THE MOAT) ───────────
+-- Migration: supabase/migrations/20260731091000_cohort_outcome_capture.sql (2026-07-05).
+-- Snapshots ONE public.cohort_outcomes row when a cohort_memberships row
+-- transitions INTO a terminal status (graduated | removed) from a non-terminal
+-- one. The trigger is the single chokepoint every close passes through, so the
+-- moat's fuel cannot be stranded by a service that forgets to record it.
+-- SECURITY DEFINER (must INSERT regardless of who closed); anon/PUBLIC revoked
+-- (invoked only by the trigger, never called directly). institution_id is copied
+-- from the parent cohort — never a NULL-institution row.
+-- UPGRADED 2026-07-06 (M7.1, migration 20260731092000): now CALLS the versioned
+-- estimator fn_cohort_blended_score at close and MERGES the {blended_baseline,
+-- blended_outcome, lift, …} envelope into outcome_snapshot. Scoring is best-effort
+-- (an estimator error → unscored snapshot); the whole capture stays inside the
+-- best-effort wrap so it can NEVER roll back the membership close.
+CREATE OR REPLACE FUNCTION public.fn_capture_cohort_outcome()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_kind           text;
+  v_institution_id uuid;
+  v_score          jsonb;
+BEGIN
+  IF NEW.status NOT IN ('graduated','removed') THEN RETURN NEW; END IF;
+  IF OLD.status IS NOT DISTINCT FROM NEW.status THEN RETURN NEW; END IF;
+  IF OLD.status IN ('graduated','removed') THEN RETURN NEW; END IF;
+
+  SELECT c.kind, c.institution_id INTO v_kind, v_institution_id
+    FROM public.cohorts c WHERE c.id = NEW.cohort_id;
+
+  IF v_institution_id IS NULL THEN
+    RAISE NOTICE 'cohort_outcome capture skipped for membership % — parent cohort % has no institution', NEW.id, NEW.cohort_id;
+    RETURN NEW;
+  END IF;
+
+  BEGIN
+    BEGIN
+      v_score := public.fn_cohort_blended_score(v_kind, NEW.member_type, NEW.member_ref, v_institution_id);
+    EXCEPTION WHEN OTHERS THEN
+      v_score := jsonb_build_object('scored', false, 'estimator_version', 'none',
+                                    'reason', 'estimator raised: ' || SQLERRM, 'lift', NULL);
+    END;
+
+    INSERT INTO public.cohort_outcomes (
+      cohort_id, membership_id, member_ref, member_type, kind,
+      captured_at, outcome_snapshot, source, institution_id
+    ) VALUES (
+      NEW.cohort_id, NEW.id, NEW.member_ref, NEW.member_type, v_kind,
+      now(),
+      jsonb_build_object(
+        'from_status',       OLD.status,
+        'to_status',         NEW.status,
+        'role',              NEW.role,
+        'joined_at',         NEW.joined_at,
+        'membership_config', NEW.config,
+        'captured_by',       'trigger'
+      ) || COALESCE(v_score, '{}'::jsonb),
+      'trigger', v_institution_id
+    )
+    ON CONFLICT (membership_id) WHERE membership_id IS NOT NULL DO NOTHING;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'cohort_outcome capture failed for membership % (kind %): %; close proceeds (best-effort M2)', NEW.id, v_kind, SQLERRM;
+  END;
+
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_capture_cohort_outcome() FROM anon, PUBLIC;
+
+DROP TRIGGER IF EXISTS trg_cohort_capture_outcome ON public.cohort_memberships;
+CREATE TRIGGER trg_cohort_capture_outcome
+  AFTER UPDATE OF status ON public.cohort_memberships
+  FOR EACH ROW
+  WHEN (
+    NEW.status IN ('graduated','removed')
+    AND OLD.status IS DISTINCT FROM NEW.status
+  )
+  EXECUTE FUNCTION public.fn_capture_cohort_outcome();
+
+-- ── Cohort Core — M7.3 proposals updated_at trigger (Phase 7) ────────────────
+DROP TRIGGER IF EXISTS trg_cohort_proposals_updated_at ON public.cohort_adjustment_proposals;
+CREATE TRIGGER trg_cohort_proposals_updated_at
+  BEFORE UPDATE ON public.cohort_adjustment_proposals
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- ── Cohort Core — M7.3 proposal terminal-state + anti-spoof guard (Phase 7) ──
+-- 'applied'/'rejected' are immutable (no re-apply of the additive delta); a human
+-- decision binds reviewed_by to auth.uid(). Migration 20260731094000.
+CREATE OR REPLACE FUNCTION public.fn_cohort_proposal_guard()
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+BEGIN
+  IF OLD.status IN ('applied','rejected') AND NEW.status IS DISTINCT FROM OLD.status THEN
+    RAISE EXCEPTION 'proposal % is % (terminal) — its status cannot change', OLD.id, OLD.status
+      USING ERRCODE='check_violation';
+  END IF;
+  IF NEW.status IN ('approved','rejected') AND NEW.status IS DISTINCT FROM OLD.status THEN
+    IF auth.uid() IS NOT NULL THEN NEW.reviewed_by := auth.uid(); END IF;
+    NEW.reviewed_at := COALESCE(NEW.reviewed_at, now());
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_cohort_proposal_guard() FROM anon, PUBLIC;
+DROP TRIGGER IF EXISTS trg_cohort_proposals_guard ON public.cohort_adjustment_proposals;
+CREATE TRIGGER trg_cohort_proposals_guard
+  BEFORE UPDATE ON public.cohort_adjustment_proposals
+  FOR EACH ROW EXECUTE FUNCTION public.fn_cohort_proposal_guard();

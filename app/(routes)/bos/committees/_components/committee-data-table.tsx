@@ -3,7 +3,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Plus, TrashIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { useQuery } from '@tanstack/react-query';
 
 import { DataTable } from '@/components/data-table/data-table';
 import { Button } from '@/components/ui/button';
@@ -24,7 +23,10 @@ import type { CommitteeSearchParams } from './data-table-schema';
 import { CommitteeFormDialog } from './committee-form-dialog';
 import { BosCommittee } from '@/types/bos';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useInstitutionContext } from '@/hooks/use-institution-context';
+import {
+  useInstitutionContext,
+  useAllInstitutionContexts,
+} from '@/hooks/use-institution-context';
 import {
   bosCommitteeKeys,
   useDeleteBosCommittee,
@@ -58,16 +60,22 @@ export function CommitteeDataTable({ search }: CommitteeDataTableProps) {
   const refetchKey = `${invalidateKey}-${localBump}`;
   const bumpRefetch = useCallback(() => setLocalBump((n) => n + 1), []);
 
-  const { data: allInstitutions = [] } = useQuery<BosInstitutionOption[]>({
-    queryKey: ['bos', 'institutions'],
-    queryFn: async () => {
-      const r = await fetch('/api/bos/institutions');
-      if (!r.ok) return [];
-      return r.json();
-    },
-    enabled: !!isSuperAdmin,
-    staleTime: 5 * 60 * 1000,
-  });
+  // Institution options for the super-admin picker + CAS filter expansion.
+  // Sourced from /api/institutions/resolve (via useAllInstitutionContexts,
+  // which self-gates on super-admin) instead of the legacy /api/bos/institutions
+  // COE proxy — that proxy 404s intermittently when COE's upstream
+  // /api/v1/institutions is unstable, silently emptying this dropdown.
+  const { data: institutionContexts = [] } = useAllInstitutionContexts();
+  const allInstitutions = useMemo<BosInstitutionOption[]>(
+    () =>
+      institutionContexts.map((ctx) => ({
+        id: ctx.myjkkn_id,
+        name: ctx.display_name || ctx.name,
+        institution_code: ctx.institution_code,
+        myjkkn_institution_ids: ctx.myjkkn_institution_ids,
+      })),
+    [institutionContexts]
+  );
 
   // Form dialog state (create + edit share one instance).
   const [formOpen, setFormOpen] = useState(false);
@@ -109,6 +117,10 @@ export function CommitteeDataTable({ search }: CommitteeDataTableProps) {
         const qs = new URLSearchParams({
           page: String(params.page),
           limit: String(params.limit),
+          // This master page manages institution-level TEMPLATE committees only.
+          // Per-composition committees are managed inside each composition
+          // (20260706_bos_committees_per_composition.sql).
+          scope: 'template',
         });
         if (params.search) qs.set('search', params.search);
         if (params.sort_by) qs.set('sortBy', params.sort_by);

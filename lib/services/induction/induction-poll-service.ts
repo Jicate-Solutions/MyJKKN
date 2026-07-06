@@ -43,7 +43,7 @@ export interface PollResponder {
 export interface PollExportRow {
   learner_id: string; register_number: string | null; roll_number: string | null;
   learner_name: string | null; gender: string | null;
-  student_email: string | null; student_mobile: string | null;
+  student_email: string | null; college_email: string | null; student_mobile: string | null;
   institution_name: string | null; degree_name: string | null;
   program_name: string | null; batch_name: string | null;
   question_id: string; question_position: number; question_prompt: string;

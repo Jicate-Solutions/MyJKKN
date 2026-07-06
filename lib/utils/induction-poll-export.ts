@@ -30,7 +30,8 @@ export async function exportPollResponsesToExcel(rows: PollExportRow[], sessionT
       'Roll No': first.roll_number ?? '',
       'Learner Name': first.learner_name ?? '',
       'Gender': first.gender ?? '',
-      'Email': first.student_email ?? '',
+      'Personal Email': first.student_email ?? '',
+      'College Email': first.college_email ?? '',
       'Mobile': first.student_mobile ?? '',
       'Institution': first.institution_name ?? '',
       'Degree': first.degree_name ?? '',
@@ -49,7 +50,7 @@ export async function exportPollResponsesToExcel(rows: PollExportRow[], sessionT
   });
   const wsMatrix = XLSX.utils.json_to_sheet(matrix);
   wsMatrix['!cols'] = [
-    { wch: 14 }, { wch: 12 }, { wch: 28 }, { wch: 8 }, { wch: 30 }, { wch: 14 },
+    { wch: 14 }, { wch: 12 }, { wch: 28 }, { wch: 8 }, { wch: 30 }, { wch: 30 }, { wch: 14 },
     { wch: 32 }, { wch: 20 }, { wch: 30 }, { wch: 16 },
     ...questions.map(() => ({ wch: 40 })),
     { wch: 10 }, { wch: 20 },

@@ -107,6 +107,39 @@ export const getColumns = (adaptLabel?: (label: string) => string): ColumnDef<Pr
     maxSize: 300
   },
   {
+    accessorKey: 'program_duration_yrs',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Duration' />
+    ),
+    cell: ({ row }) => {
+      const duration = row.original.program_duration_yrs;
+      if (duration == null) {
+        return <span className='text-muted-foreground'>—</span>;
+      }
+      const years = Number(duration);
+      return `${years} ${years === 1 ? 'yr' : 'yrs'}`;
+    },
+    size: 100,
+    minSize: 80,
+    maxSize: 120
+  },
+  {
+    accessorKey: 'program_type',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Type' />
+    ),
+    cell: ({ row }) => {
+      const type = row.original.program_type;
+      if (!type) {
+        return <span className='text-muted-foreground'>—</span>;
+      }
+      return <Badge variant='outline'>{type}</Badge>;
+    },
+    size: 90,
+    minSize: 70,
+    maxSize: 110
+  },
+  {
     accessorKey: 'is_active',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Status' />

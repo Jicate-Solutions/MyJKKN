@@ -146,6 +146,10 @@ interface MenuPermissions {
 }
 
 export const MENU_PERMISSIONS: MenuPermissions = {
+  // Foundation & Competitive-Exam Programme
+  '/foundation': 'foundation.dashboard.view',
+  '/foundation/console': 'foundation.cohorts.view',
+
   // Overview
   '/': 'view_dashboard', // Dashboard should have a permission too
 
@@ -286,7 +290,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/admin/performance-reviews': 'hr.dashboard.view',
   '/hr/admin/policies': 'hr.dashboard.view',
   '/hr/admin/promotions': 'hr.dashboard.view',
-  '/hr/admin/recruitment-approvals-scope': 'hr.dashboard.view',
+  '/hr/admin/recruitment-approval-flows': 'hr.dashboard.view',
   '/hr/admin/recruitment-maintenance': 'hr.dashboard.view',
   '/hr/admin/recruitment-need': 'hr.dashboard.view',
   '/hr/admin/required-documents': 'hr.dashboard.view',
@@ -364,6 +368,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // (admin lane is super-admin-only via requiresSuperAdmin on the menu item.)
   '/academic/session-feedback/faculty': 'academic.attendance.view',
   '/academic/session-feedback/principal': 'academic.attendance.dashboard.view',
+
+  // Curriculum AI — faculty review of the AI-drafted lesson spine (Phase 2).
+  // Same teaching-staff audience as the faculty session-feedback lane, so it
+  // reuses academic.attendance.view (held by faculty/hod/principal/admin). The
+  // page's RPCs re-authorize teaching-staff/HOD/admin server-side regardless.
+  '/academic/curriculum-review': 'academic.attendance.view',
 
   // Internal Marks (CIA) - Mark Entry & Reports
   '/academic/internal-marks': 'academic.internal-marks.view',
@@ -941,6 +951,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/bos/compositions': 'bos.compositions.view',
   '/bos/experts': 'bos.experts.view',
   '/bos/meetings': 'bos.meetings.view',
+  // Academic Council — institution-level body, super-admin + principal only.
+  // The grant (20260706b) gives principals 'academic.bos-academic-council.manage';
+  // super-admins bypass the nav filter. No entry here would make the link
+  // visible to ALL authenticated users, so this line is load-bearing.
+  '/bos/academic-council': 'academic.bos-academic-council.manage',
   '/bos/reports': 'bos.reports.view',
   '/bos/ta-da': 'bos.ta_da.view',
   // Remaining BoS tab pages. These live only in the in-page tab bar (not the
@@ -1361,6 +1376,16 @@ export function GetPages(pathname: string): MenuGroup[] {
         // across JKKN's 8+ high-traffic modules. URLs UNCHANGED — preserves
         // faculty daily workflow bookmarks.
         {
+          // Foundation & Competitive-Exam Programme — school-grade foundation +
+          // govt/competitive-exam coaching. Gated by
+          // '/foundation' -> 'foundation.dashboard.view' (MENU_PERMISSIONS).
+          href: '/foundation',
+          label: 'Foundation Programme',
+          active: pathname === '/foundation' || pathname.startsWith('/foundation/'),
+          icon: Target,
+          submenus: []
+        },
+        {
           // D3: click → module root. `/academic` resolves to the in-page
           // AcademicNav (nav-config.ts) which handles all drill-down.
           href: '/academic',
@@ -1426,6 +1451,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Session Feedback (Faculty)',
           active: pathname.startsWith('/academic/session-feedback/faculty'),
           icon: MessageSquare,
+          submenus: []
+        },
+        {
+          // Curriculum AI — review + approve the AI-drafted lesson spine (Phase 2).
+          // Drafts are never student-visible until a faculty approves them here.
+          href: '/academic/curriculum-review',
+          label: 'Lesson Spine Review',
+          active: pathname.startsWith('/academic/curriculum-review'),
+          icon: BookOpen,
           submenus: []
         },
         {
@@ -1893,7 +1927,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/admin/performance-reviews', label: 'Performance Reviews', active: pathname.startsWith('/hr/admin/performance-reviews') },
             { href: '/hr/admin/policies', label: 'Policies', active: pathname.startsWith('/hr/admin/policies') },
             { href: '/hr/admin/promotions', label: 'Promotions', active: pathname.startsWith('/hr/admin/promotions') },
-            { href: '/hr/admin/recruitment-approvals-scope', label: 'Recruitment Approvals Scope', active: pathname.startsWith('/hr/admin/recruitment-approvals-scope') },
+            { href: '/hr/admin/recruitment-approval-flows', label: 'Recruitment Approval Flows', active: pathname.startsWith('/hr/admin/recruitment-approval-flows') },
             { href: '/hr/admin/recruitment-maintenance', label: 'Recruitment Maintenance', active: pathname.startsWith('/hr/admin/recruitment-maintenance') },
             { href: '/hr/admin/recruitment-need', label: 'Recruitment Need', active: pathname.startsWith('/hr/admin/recruitment-need') },
             { href: '/hr/admin/required-documents', label: 'Required Documents', active: pathname.startsWith('/hr/admin/required-documents') },
@@ -1943,20 +1977,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           // (relocated out of /academic so it no longer inherits the Academic
           // module tab bar). Visibility gated to students by the session-feedback
           // special-case in GetRoleBasedPages.
+          // 2026-07-06: absorbed the old "My Attendance Feedback" tab — this one
+          // page now shows BOTH pending sessions (with inline confirm) AND the
+          // confirmed-session history, so there is a single feedback tab, not two.
+          // The old /learners/my-attendance-feedback route redirects here.
           href: '/learners/class-feedback',
           label: 'Class Feedback',
-          active: pathname.startsWith('/learners/class-feedback'),
-          icon: MessageSquare,
-          submenus: []
-        },
-        {
-          // Student's per-session attendance-confirmation view (present-pending
-          // until feedback given).
-          href: '/learners/my-attendance-feedback',
-          label: 'My Attendance Feedback',
           active:
-            pathname === '/learners/my-attendance-feedback' ||
-            pathname.startsWith('/learners/my-attendance-feedback/'),
+            pathname.startsWith('/learners/class-feedback') ||
+            pathname.startsWith('/learners/my-attendance-feedback'),
           icon: MessageSquare,
           submenus: []
         },
@@ -1975,6 +2004,18 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Induction',
           active: pathname.startsWith('/learners/my-induction'),
           icon: Rocket,
+          submenus: []
+        },
+        {
+          // Senior Peer Mentor — a final-year student's lane to run their assigned
+          // group of freshers (attendance check-in + kiosk feedback). UNGATED by
+          // design: the page self-scopes via fn_induction_my_volunteer_sessions, so a
+          // non-mentor sees an empty state. Student-visible via the isStudentPortalRoute
+          // special-case, NOT a MENU_PERMISSIONS entry.
+          href: '/my-induction-feedback',
+          label: 'Senior Peer Mentor',
+          active: pathname.startsWith('/my-induction-feedback'),
+          icon: UserCheck,
           submenus: []
         },
         {
@@ -2737,7 +2778,11 @@ export function isStudentPortalRoute(href: string): boolean {
     href === '/learners/class-feedback' ||
     // My Development Plan (learner self-service IDP, BUG-004298) — ungated,
     // student-visible; distinct /learner/ path doesn't match /learners/my-.
-    href === '/learner/idp'
+    href === '/learner/idp' ||
+    // Senior Peer Mentor lane — a final-year student's induction mentor duties
+    // (attendance + kiosk feedback for their assigned freshers). Ungated,
+    // student-visible; self-scopes to an empty state for non-mentors.
+    href === '/my-induction-feedback'
   );
 }
 

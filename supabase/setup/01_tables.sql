@@ -5785,3 +5785,212 @@ BEGIN
       CHECK (profile_id IS NOT NULL OR learner_id IS NOT NULL);
   END IF;
 END $$;
+
+-- Cohort Core — Foundations demote to cohort core
+-- (migration 20260731080000_foundations_demote_to_cohort_core.sql, 2026-07-06).
+-- cohorts (kind='foundations') + cohort_memberships (member_type='student') are the
+-- canonical spine roster/lifecycle; ss_foundations_enrollments is demoted to a
+-- per-student EXTENSION linked to its membership by this one nullable FK. NULLABLE
+-- (NOT NULL deferred) + ON DELETE SET NULL (a LINK, not identity — never
+-- cascade-delete the live extension row that owns responses via student_id).
+-- ss_foundations_enrollments' own CREATE TABLE lives in
+-- supabase/migrations/20260602000001_ss_foundations_substrate.sql, so this is
+-- mirrored here as a guarded ALTER rather than folded into a column list.
+ALTER TABLE public.ss_foundations_enrollments
+  ADD COLUMN IF NOT EXISTS cohort_membership_id uuid;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname  = 'ss_foundations_enrollments_cohort_membership_id_fkey'
+      AND conrelid = 'public.ss_foundations_enrollments'::regclass
+  ) THEN
+    ALTER TABLE public.ss_foundations_enrollments
+      ADD CONSTRAINT ss_foundations_enrollments_cohort_membership_id_fkey
+      FOREIGN KEY (cohort_membership_id)
+      REFERENCES public.cohort_memberships(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_ssf_enroll_cohort_membership
+  ON public.ss_foundations_enrollments (cohort_membership_id);
+-- D9: the per-student member must link a real student profile. member_ref ==
+-- student_id (a real profiles(id)) is service-enforced (member_ref is polymorphic);
+-- this explicit CHECK is the audit-trail signal that the identity column is non-null.
+-- Safe: student_id is already NOT NULL and the table has 0 rows.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname  = 'ss_foundations_enrollments_student_required'
+      AND conrelid = 'public.ss_foundations_enrollments'::regclass
+  ) THEN
+    ALTER TABLE public.ss_foundations_enrollments
+      ADD CONSTRAINT ss_foundations_enrollments_student_required
+      CHECK (student_id IS NOT NULL);
+  END IF;
+END $$;
+-- Cohort Core — dedupe guard for the Foundations spine mirror (migration 20260731080000).
+-- Makes the ss_foundations_cohort → cohorts(kind='foundations') mirror 1:1 at the DB level,
+-- so a concurrent-enrol race can never leak duplicate mirror cohorts. Partial so it never
+-- constrains other cohort kinds.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cohorts_foundations_ss_id
+  ON public.cohorts ((config->>'ss_foundations_cohort_id'))
+  WHERE kind = 'foundations';
+
+-- 2026-07-06 — PDE pilot scoping (interview-driven; applied to prod same day).
+-- Lets a quest be limited to one institution's students, and labels each
+-- enrollment as pilot vs stray. See app/api/pde/quests/route.ts (visibility),
+-- app/api/pde/quests/[id]/enroll/route.ts (label),
+-- app/api/pde/admin/quests/[id]/reset/route.ts (clean reset).
+ALTER TABLE public.pde_quests
+  ADD COLUMN IF NOT EXISTS target_institution_id uuid REFERENCES public.institutions(id);
+-- NULL = visible to all institutions; set = only that institution's students see it in the catalog.
+
+ALTER TABLE public.pde_quest_enrollments
+  ADD COLUMN IF NOT EXISTS is_pilot boolean NOT NULL DEFAULT false;
+-- TRUE when the learner belongs to the quest's target_institution_id at enroll time.
+
+
+-- CDC Training demote link (migration 20260731090000_cdc_training_demote_to_cohort_core.sql,
+-- 2026-07-06). cohorts/cohort_memberships are canonical; cdc_training_enrollments is
+-- demoted to a per-learner EXTENSION (attendance + certificate + semester-schedule stay
+-- authoritative on it) linked to its cohort membership by this one nullable FK. NULLABLE
+-- (populated best-effort forward by TrainingService.addEnrollment) + ON DELETE SET NULL
+-- (a LINK, not identity — never cascade-delete the live extension row). CDC DDL is
+-- migration-only (zero cdc_* tables in setup/*), so this is mirrored here as a guarded
+-- ALTER rather than folded into a column list.
+ALTER TABLE public.cdc_training_enrollments
+  ADD COLUMN IF NOT EXISTS cohort_membership_id uuid;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname  = 'cdc_training_enrollments_cohort_membership_id_fkey'
+      AND conrelid = 'public.cdc_training_enrollments'::regclass
+  ) THEN
+    ALTER TABLE public.cdc_training_enrollments
+      ADD CONSTRAINT cdc_training_enrollments_cohort_membership_id_fkey
+      FOREIGN KEY (cohort_membership_id)
+      REFERENCES public.cohort_memberships(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_cdc_training_enrollments_cohort_membership
+  ON public.cdc_training_enrollments (cohort_membership_id);
+-- L3 race guard: one cohorts mirror per CDC programme (kind='cdc'), keyed on
+-- config->>'cdc_training_programme_id'. Partial so it never collides with the
+-- sf100/foundations/trainer mirrors sharing public.cohorts.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cohorts_cdc_training_programme
+  ON public.cohorts ((config->>'cdc_training_programme_id'))
+  WHERE kind = 'cdc';
+
+
+-- ── Cohort Core — M2: outcome-capture-at-close (Phase 7 · THE MOAT) ───────────
+-- Migration: supabase/migrations/20260731091000_cohort_outcome_capture.sql (2026-07-05).
+-- The captured OUTCOME BASELINE of a cohort member at the moment its membership
+-- closes (transitions into graduated | removed). Written by a DATABASE TRIGGER
+-- (see 04_triggers.sql: fn_capture_cohort_outcome / trg_cohort_capture_outcome)
+-- so the moat's fuel cannot be bypassed by any service that forgets. RLS +
+-- policies in 03_policies.sql. institution_id is NOT NULL (copied from the parent
+-- cohort by the trigger) to close the role_has_institution_access(NULL)=TRUE hole.
+CREATE TABLE IF NOT EXISTS public.cohort_outcomes (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  cohort_id        uuid NOT NULL REFERENCES public.cohorts(id) ON DELETE CASCADE,
+  membership_id    uuid REFERENCES public.cohort_memberships(id) ON DELETE SET NULL,
+  member_ref       uuid NOT NULL,
+  member_type      text NOT NULL
+                     CHECK (member_type IN ('team','student','learner','staff')),
+  kind             text NOT NULL
+                     CHECK (kind IN ('sf100','foundations','cdc','trainer')),
+  captured_at      timestamptz NOT NULL DEFAULT now(),
+  outcome_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+  source           text NOT NULL DEFAULT 'trigger'
+                     CHECK (source IN ('trigger','service','backfill','manual')),
+  institution_id   uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_cohort_outcomes_cohort_id      ON public.cohort_outcomes (cohort_id);
+CREATE INDEX IF NOT EXISTS idx_cohort_outcomes_institution_id ON public.cohort_outcomes (institution_id);
+CREATE INDEX IF NOT EXISTS idx_cohort_outcomes_member         ON public.cohort_outcomes (member_type, member_ref);
+CREATE INDEX IF NOT EXISTS idx_cohort_outcomes_kind           ON public.cohort_outcomes (kind);
+-- One captured baseline per membership (a membership closes exactly once).
+CREATE UNIQUE INDEX IF NOT EXISTS uidx_cohort_outcomes_membership
+  ON public.cohort_outcomes (membership_id)
+  WHERE membership_id IS NOT NULL;
+-- hr_recruitment_job_notes — job-level discussion thread for the approvals
+-- workspace (migration 20260706110000). RLS inherits job visibility via EXISTS.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS hr_recruitment_job_notes (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id             uuid NOT NULL REFERENCES hr_recruitment_jobs(id) ON DELETE CASCADE,
+  hr_organization_id uuid NOT NULL REFERENCES hr_organizations(id),
+  author_id          uuid NOT NULL REFERENCES profiles(id),
+  note               text NOT NULL,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_hr_rec_job_notes_job
+  ON hr_recruitment_job_notes(job_id, created_at);
+
+-- ── Cohort Core — M7.2 experiments + M7.3 proposals (Phase 7 · THE MOAT) ─────
+-- Migrations: 20260731093000_cohort_experiments.sql, 20260731094000_cohort_feedforward.sql (2026-07-06)
+-- cohort_experiments: one causal-lift result per cohort (control-group A/B).
+-- cohort_adjustment_proposals: feed-forward program changes, human-approved.
+CREATE TABLE IF NOT EXISTS public.cohort_experiments (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  cohort_id           uuid NOT NULL REFERENCES public.cohorts(id) ON DELETE CASCADE,
+  kind                text NOT NULL CHECK (kind IN ('sf100','foundations','cdc','trainer')),
+  n_treatment         int  NOT NULL DEFAULT 0,
+  n_control           int  NOT NULL DEFAULT 0,
+  treatment_mean_lift numeric,
+  control_mean_lift   numeric,
+  -- CAUSAL lift = treatment_mean − control_mean (NULL if either arm is empty:
+  -- a causal claim needs both arms). This is the number the feed-forward loop
+  -- (7.3) is allowed to act on.
+  causal_lift         numeric,
+  -- NAIVE lift = mean lift across ALL scored members (ignores arms). This is the
+  -- CONFOUNDED number kept only for contrast — the loop must NOT act on it.
+  naive_lift          numeric,
+  n_scored            int  NOT NULL DEFAULT 0,
+  estimator_version   text,
+  computed_at         timestamptz NOT NULL DEFAULT now(),
+  institution_id      uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  metadata            jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  -- one experiment result per cohort; fn_compute upserts on this.
+  CONSTRAINT cohort_experiments_cohort_uidx UNIQUE (cohort_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cohort_experiments_institution
+  ON public.cohort_experiments (institution_id);
+CREATE INDEX IF NOT EXISTS idx_cohort_experiments_kind
+
+CREATE TABLE IF NOT EXISTS public.cohort_adjustment_proposals (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  based_on_cohort_id uuid NOT NULL REFERENCES public.cohorts(id) ON DELETE CASCADE,
+  kind               text NOT NULL CHECK (kind IN ('sf100','foundations','cdc','trainer')),
+  target_scope       text NOT NULL DEFAULT 'program' CHECK (target_scope IN ('program')),
+  target_id          uuid NOT NULL,             -- sf100_programs.id to adjust
+  causal_lift        numeric,
+  decision           text NOT NULL CHECK (decision IN ('adopt','revert','inconclusive')),
+  proposed_changes   jsonb NOT NULL DEFAULT '{}'::jsonb,
+  rationale          text,
+  status             text NOT NULL DEFAULT 'pending'
+                       CHECK (status IN ('pending','approved','rejected','applied')),
+  reviewed_by        uuid,
+  reviewed_at        timestamptz,
+  applied_at         timestamptz,
+  applied_by         uuid,
+  institution_id     uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  metadata           jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_cohort_proposals_institution ON public.cohort_adjustment_proposals (institution_id);
+CREATE INDEX IF NOT EXISTS idx_cohort_proposals_target ON public.cohort_adjustment_proposals (target_scope, target_id);
+CREATE INDEX IF NOT EXISTS idx_cohort_proposals_status ON public.cohort_adjustment_proposals (status);
+-- At most ONE open (pending OR applied) proposal per source cohort → idempotent
+-- proposer AND prevents the additive program delta from being applied twice.
+CREATE UNIQUE INDEX IF NOT EXISTS uidx_cohort_proposals_one_open_per_cohort
+  ON public.cohort_adjustment_proposals (based_on_cohort_id)
+  WHERE status IN ('pending','applied');

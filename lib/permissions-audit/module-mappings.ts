@@ -93,6 +93,10 @@ export const CATEGORY_ONLY_MODULES: ReadonlyArray<readonly [string, string]> = [
   // spine (feedback_events). Has the 'feedback' PERMISSION_CATEGORIES entry +
   // sidebar route but no tables in table-module-map, so it's category-only.
   ['Feedback', 'feedback'],
+  // Foundation & Competitive-Exam Programme (2026-07-06): has the 'foundation'
+  // PERMISSION_CATEGORIES entry + sidebar route; fp_* tables not yet in
+  // table-module-map, so it's category-only like Calendar/Feedback above.
+  ['Foundation Programme', 'foundation'],
 ];
 
 /**
@@ -193,6 +197,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/learners', 'Learners'],
   ['/moments', 'Learners'], // Family Moments — parent engagement (Father's Day 2026)
   ['/academic', 'Academic'],
+  ['/foundation', 'Foundation Programme'], // Foundation & Competitive-Exam Programme (foundation.* perms)
   ['/rcltp', 'Academic'], // EKSAQ RCLTP reading-assessment module (rcltp.* perms)
   ['/faculty', 'Academic'],
   ['/billing', 'Billing'],

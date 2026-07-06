@@ -19407,10 +19407,11 @@ GRANT  EXECUTE ON FUNCTION public.fn_induction_session_poll_responders(uuid) TO 
 -- ── Induction poll Excel export (2026-07-04) — see migration 20260704130000 ──
 -- Host-only ballots export: one row per (learner x question) with learner details
 -- and the selected option labels. Same gate as the other host poll RPCs.
+-- 20260706090000 added college_email (return shape changed — recreate needs DROP first).
 CREATE OR REPLACE FUNCTION public.fn_induction_session_poll_export(p_poll_id uuid)
 RETURNS TABLE (
   learner_id uuid, register_number text, roll_number text, learner_name text,
-  gender text, student_email text, student_mobile text,
+  gender text, student_email text, college_email text, student_mobile text,
   institution_name text, degree_name text, program_name text, batch_name text,
   question_id uuid, question_position integer, question_prompt text, question_kind text,
   option_labels text[], answered_at timestamptz
@@ -19431,6 +19432,7 @@ BEGIN
          trim(coalesce(lp.first_name,'') || ' ' || coalesce(lp.last_name,''))::text,
          lp.gender::text,
          lp.student_email::text,
+         lp.college_email::text,
          lp.student_mobile::text,
          i.name::text,
          d.degree_name::text,
@@ -19452,7 +19454,7 @@ BEGIN
   LEFT JOIN public.batches b       ON b.id  = lp.batch_id
   WHERE v.poll_id = p_poll_id
   GROUP BY v.learner_id, lp.register_number, lp.roll_number, lp.first_name, lp.last_name,
-           lp.gender, lp.student_email, lp.student_mobile, i.name, d.degree_name,
+           lp.gender, lp.student_email, lp.college_email, lp.student_mobile, i.name, d.degree_name,
            pr.program_name, b.batch_name, q.id, q.position, q.prompt, q.kind
   ORDER BY lp.register_number NULLS LAST, q.position;
 END $$;
@@ -21410,3 +21412,53 @@ END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.fn_social_cadence_close(UUID, TEXT) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_social_cadence_close(UUID, TEXT) TO authenticated;
+-- fn_recruitment_approvals_counts: grouped (job_id, status) counts across
+-- hr_job_applications + promoted hr_recruitment_candidates (soft JSONB job link)
+-- for the job-first approvals overview. SECURITY INVOKER — RLS bounds the rows.
+-- Full definition: supabase/migrations/20260706110100_fn_recruitment_approvals_counts.sql
+
+-- fn_list_my_pending_recruitment (UPDATED 20260706120100): current-step match is
+-- now pinned-user-first — approver_user_id set → only that user; null → role_key
+-- holders (legacy). SECURITY DEFINER, returns SETOF hr_recruitment_candidates.
+-- Full definition: supabase/migrations/20260706120100_fn_list_my_pending_recruitment_pinned_users.sql
+
+-- fn_role_user_counts: aggregate (role_key, role_name, users) counts for the
+-- recruitment flow builder's "0 users hold this role" warning. SECURITY DEFINER
+-- (aggregate-only disclosure, no identities), anon EXECUTE revoked.
+-- Full definition: supabase/migrations/20260706120200_fn_role_user_counts.sql
+
+-- ================================================================================
+-- Cohort Core — Phase 7 (THE MOAT) functions — 2026-07-06
+-- ================================================================================
+-- The M7 moat functions are version-controlled in their migrations (the apply
+-- source of truth); not duplicated here to avoid drift on this 21k-line file:
+--   fn_cohort_estimator_version, fn_cohort_blended_score        → 20260731092000
+--   fn_assign_experiment_arms_for_cohort, fn_compute_cohort_experiment → 20260731093000
+--   fn_cohort_min_actionable_lift, fn_propose_cohort_adjustments,
+--   fn_apply_cohort_adjustment_proposal                          → 20260731094000
+-- The upgraded trigger fn fn_capture_cohort_outcome lives in 04_triggers.sql.
+-- SECURITY: blended_score REVOKEd from anon/PUBLIC/authenticated (trigger-only);
+-- compute/propose/assign are SECURITY INVOKER (caller RLS scopes tenant); apply is
+-- SECURITY DEFINER with an internal authority gate bound to the proposal's institution.
+-- ============================================================================
+-- Cross-institution teaching helpers (migration 20260706_cross_institution_teaching)
+-- Visiting staff keep ONE home-institution staff row; their staff.id is assigned
+-- into other institutions' staff_plan_courses / timetable_data.staff_ids.
+-- ============================================================================
+-- staff_teaches_in_institution(p_institution_id uuid) RETURNS boolean
+--   SECURITY DEFINER. True when the CURRENT USER's active staff row (matched by
+--   staff.profile_id = auth.uid() OR staff.institution_email = auth.email()) has
+--   ≥1 staff_plan_courses row under a staff_plan of that institution. Used by the
+--   visiting-teacher RLS policies and the fn_attendance_roster gate.
+-- fn_staff_teaching_institutions(p_staff_id uuid) RETURNS uuid[]
+--   SECURITY DEFINER, self-authorized (own staff row / admin / attendance perms).
+--   Staff's own institution_id ∪ distinct staff_plans.institution_id across their
+--   assignments. Consumed by FacultyAttendanceService.getFacultyTodayPeriods.
+-- staff_is_visiting_in_accessible_institution(p_staff_id uuid) RETURNS boolean
+--   SECURITY DEFINER. True when the given staff teaches in an institution the
+--   current user can access (role_has_institution_access). Powers the
+--   staff_select_visiting_teacher policy.
+-- fn_attendance_roster (UPDATED 20260706): institution gate is now
+--   (role_has_institution_access OR staff_teaches_in_institution) AND attendance
+--   permission — visiting staff can load the roster where they teach.
+-- Full definitions: supabase/migrations/20260706_cross_institution_teaching.sql

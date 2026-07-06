@@ -38,7 +38,15 @@ import type {
   HRJobApplicationInsert,
   JobApplicationStatus,
   HRRecruitmentCandidateComment,
+  HRRecruitmentJobNote,
+  ApprovalsJobOverviewRow,
+  ApprovalFlowStepTemplate,
+  HRApprovalFlow,
+  JobAnalytics,
   MonthlySalaryBand,
+  OnboardToStaffPayload,
+  RoleCategory,
+  InterviewMode,
 } from '@/types/hr-recruitment';
 
 const BASE = '/api/hr/recruitment';
@@ -131,6 +139,9 @@ export function useApproveCandidate() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['hr-recruitment-candidates'] });
       qc.invalidateQueries({ queryKey: ['hr-recruitment-candidate', data.id] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-approvals-overview'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-job-candidates'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-job-analytics'] });
     },
   });
 }
@@ -153,6 +164,9 @@ export function useRejectCandidate() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['hr-recruitment-candidates'] });
       qc.invalidateQueries({ queryKey: ['hr-recruitment-candidate', data.id] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-approvals-overview'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-job-candidates'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-job-analytics'] });
     },
   });
 }
@@ -691,6 +705,8 @@ export function useReviewApplication() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['hr-job-applications'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-approvals-overview'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-job-analytics'] });
     },
   });
 }
@@ -723,6 +739,9 @@ export function usePromoteApplication() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['hr-job-applications'] });
       qc.invalidateQueries({ queryKey: ['hr-recruitment-candidates'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-approvals-overview'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-job-candidates'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-job-analytics'] });
     },
   });
 }
@@ -795,5 +814,334 @@ export function useSubmitScorecard() {
       qc.invalidateQueries({ queryKey: ['hr-recruitment-scorecards', data.interview_id] });
       qc.invalidateQueries({ queryKey: ['hr-recruitment-interview', data.interview_id] });
     },
+  });
+}
+
+// =====================================================================================
+// Job-first approvals workspace (2026-07-06)
+// =====================================================================================
+
+/** Jobs + pipeline counts + awaiting-me counts for /hr/recruitment/approvals. */
+export function useApprovalsJobOverview(search?: string) {
+  return useQuery({
+    queryKey: ['hr-recruitment-approvals-overview', search ?? ''],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (search) params.set('search', search);
+      const res = await fetch(`${BASE}/approvals/overview?${params}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Overview fetch failed: ${res.status}`);
+      }
+      return ((await res.json()).data) as ApprovalsJobOverviewRow[];
+    },
+    staleTime: 30 * 1000,
+  });
+}
+
+/** Promoted candidates linked to a job (soft role_specific_details->>'job_id' link). */
+export function useCandidatesForJob(jobId: string | undefined) {
+  return useQuery({
+    queryKey: ['hr-recruitment-job-candidates', jobId],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/jobs/${jobId}/candidates`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Candidates fetch failed: ${res.status}`);
+      }
+      return ((await res.json()).data) as HRRecruitmentCandidate[];
+    },
+    enabled: !!jobId,
+  });
+}
+
+/** Job-level discussion thread (Notes tab). */
+export function useJobNotes(jobId: string | undefined) {
+  return useQuery({
+    queryKey: ['hr-recruitment-job-notes', jobId],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/jobs/${jobId}/notes`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Notes fetch failed: ${res.status}`);
+      }
+      return ((await res.json()).data) as HRRecruitmentJobNote[];
+    },
+    enabled: !!jobId,
+  });
+}
+
+export function useAddJobNote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { job_id: string; note: string }) => {
+      const res = await fetch(`${BASE}/jobs/${payload.job_id}/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: payload.note }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Note failed');
+      }
+      return ((await res.json()).data) as HRRecruitmentJobNote;
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-job-notes', data.job_id] });
+    },
+  });
+}
+
+/** Per-job funnel + timing analytics (Analytics tab). */
+export function useJobAnalytics(jobId: string | undefined) {
+  return useQuery({
+    queryKey: ['hr-recruitment-job-analytics', jobId],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/jobs/${jobId}/analytics`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Analytics fetch failed: ${res.status}`);
+      }
+      return ((await res.json()).data) as JobAnalytics;
+    },
+    enabled: !!jobId,
+  });
+}
+
+// =====================================================================================
+// Dynamic approval flows + step interviews + onboarding (2026-07-06)
+// =====================================================================================
+
+export function useApprovalFlows(hrOrganizationId?: string) {
+  return useQuery({
+    queryKey: ['hr-recruitment-approval-flows', hrOrganizationId ?? 'all'],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (hrOrganizationId) params.set('hr_organization_id', hrOrganizationId);
+      const res = await fetch(`${BASE}/approval-flows?${params}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Flows fetch failed: ${res.status}`);
+      }
+      return ((await res.json()).data) as HRApprovalFlow[];
+    },
+  });
+}
+
+export function useUpsertApprovalFlow() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      flow_name: string;
+      role_categories: RoleCategory[];
+      steps: ApprovalFlowStepTemplate[];
+      hr_organization_ids: string[];
+      is_active?: boolean;
+    }) => {
+      const res = await fetch(`${BASE}/approval-flows`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Flow save failed');
+      }
+      return ((await res.json()).data) as { updated: number; created: number };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-approval-flows'] });
+    },
+  });
+}
+
+/** Schedule (or reschedule) the interview attached to the candidate's current step. */
+export function useScheduleStepInterview() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      candidate_id: string;
+      scheduled_at: string;
+      duration_minutes?: number;
+      mode: InterviewMode;
+      location_or_link?: string | null;
+      panel_member_ids?: string[];
+    }) => {
+      const { candidate_id, ...body } = payload;
+      const res = await fetch(`${BASE}/candidates/${candidate_id}/schedule-step-interview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Interview scheduling failed');
+      }
+      return ((await res.json()).data) as {
+        candidate: HRRecruitmentCandidate;
+        interview_id: string;
+      };
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-candidates'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-candidate', data.candidate.id] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-job-candidates'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-interviews'] });
+    },
+  });
+}
+
+/** Final step: create the staff record from a finally-approved candidate. */
+export function useOnboardToStaff() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { candidate_id: string } & OnboardToStaffPayload) => {
+      const { candidate_id, ...body } = payload;
+      const res = await fetch(`${BASE}/candidates/${candidate_id}/onboard-to-staff`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Onboarding failed');
+      }
+      return ((await res.json()).data) as {
+        staff: { id: string; first_name: string; last_name: string };
+        candidate: HRRecruitmentCandidate;
+      };
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-candidates'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-candidate', data.candidate.id] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-job-candidates'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-approvals-overview'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-job-analytics'] });
+    },
+  });
+}
+
+/** Start the pre-join onboarding checklist for a finally-approved candidate. */
+export function useStartOnboarding() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (candidateId: string) => {
+      const res = await fetch(`${BASE}/candidates/${candidateId}/onboarding/start`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Starting onboarding failed');
+      }
+      return ((await res.json()).data) as HRRecruitmentCandidate;
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-candidates'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-candidate', data.id] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-job-candidates'] });
+    },
+  });
+}
+
+/** Toggle one onboarding checklist step (authorized per-step server-side). */
+export function useCompleteOnboardingStep() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      candidate_id: string;
+      step_index: number;
+      completed: boolean;
+    }) => {
+      const res = await fetch(
+        `${BASE}/candidates/${payload.candidate_id}/onboarding/complete-step`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            step_index: payload.step_index,
+            completed: payload.completed,
+          }),
+        },
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Step update failed');
+      }
+      return ((await res.json()).data) as HRRecruitmentCandidate;
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-candidates'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-candidate', data.id] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-job-candidates'] });
+    },
+  });
+}
+
+/** Role → active-holder counts (flow builder warning when a role has 0 users). */
+export function useRoleUserCounts() {
+  return useQuery({
+    queryKey: ['hr-role-user-counts'],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/approval-flows/role-user-counts`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Role counts fetch failed: ${res.status}`);
+      }
+      return ((await res.json()).data) as Array<{
+        role_key: string;
+        role_name: string;
+        users: number;
+      }>;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * People directory for the flow builder's pinned-approver picker.
+ * roleKey: 'all' (free search, needs ≥2 chars) | 'super_admin' | a role_key.
+ */
+export function useRoleUsers(roleKey: string, search: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['hr-role-users', roleKey, search],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set('role_key', roleKey);
+      if (search.trim()) params.set('search', search.trim());
+      const res = await fetch(`${BASE}/approval-flows/role-users?${params}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `People fetch failed: ${res.status}`);
+      }
+      return ((await res.json()).data) as Array<{
+        id: string;
+        full_name: string | null;
+        email: string | null;
+        is_super_admin: boolean;
+        roles: string[];
+      }>;
+    },
+    enabled,
+    staleTime: 60 * 1000,
+  });
+}
+
+/** Active HR organizations (flow builder org selector). */
+export function useHrOrganizations() {
+  return useQuery({
+    queryKey: ['hr-organizations-list'],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/approval-flows/organizations`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Organizations fetch failed: ${res.status}`);
+      }
+      return ((await res.json()).data) as Array<{
+        id: string;
+        name: string | null;
+        institution_id: string | null;
+      }>;
+    },
+    staleTime: 5 * 60 * 1000,
   });
 }

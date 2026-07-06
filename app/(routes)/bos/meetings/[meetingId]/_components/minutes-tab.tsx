@@ -1,14 +1,15 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Save, Plus, Trash2, X } from 'lucide-react';
+import { Save, Plus, Trash2, X, SquarePen } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { RichTextEditor } from '@/components/ui/rich-text-editor';
+import { RichTextDisplay } from '@/components/ui/rich-text-editor';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 
 import { useUpdateBosMeeting } from '@/hooks/bos/use-bos-meetings';
@@ -63,10 +64,16 @@ function cleanLabel(text: string): string {
  * editing pattern they prefer).
  */
 export function MinutesTab({ meeting, canEdit }: MinutesTabProps) {
+  const router = useRouter();
   // ── Local edit state (form-style) ──────────────────────────────────────────
   // We mirror the server-side minutes_content into local state so users can
   // make a series of edits without firing an API call per keystroke. isDirty
   // gates the Save button — prevents accidental no-op saves.
+  //
+  // The narrative is no longer edited here — it has its own full-page Word-style
+  // editor at /minutes/edit. We still mirror it so the changes_log save below
+  // re-sends the current narrative (the PUT route writes minutes_content
+  // wholesale, so omitting narrative_html would wipe it).
   const [narrative, setNarrative] = useState<string>(
     meeting.minutes_content?.narrative_html ?? '',
   );
@@ -213,21 +220,33 @@ export function MinutesTab({ meeting, canEdit }: MinutesTabProps) {
         )}
       </div>
 
-      {/* ── Rich-text narrative ─────────────────────────────────────────── */}
+      {/* ── Rich-text narrative ───────────────────────────────────────────
+          The narrative has a dedicated full-page Word-style editor (ribbon,
+          autosave, Tamil typing) at /minutes/edit — the same surface as the
+          SOP editor. Here we only preview it and link out to that editor. */}
       <Card>
-        <CardHeader>
+        <CardHeader className='flex flex-row items-center justify-between space-y-0'>
           <CardTitle className='text-base'>Minutes Narrative</CardTitle>
+          <Button
+            variant={canEdit ? 'default' : 'outline'}
+            size='sm'
+            onClick={() =>
+              router.push(`/bos/meetings/${meeting.id}/minutes/edit`)
+            }
+          >
+            <SquarePen className='mr-2 h-4 w-4' />
+            {canEdit ? 'Open Editor' : 'View Full'}
+          </Button>
         </CardHeader>
         <CardContent>
-          <RichTextEditor
-            value={narrative}
-            onChange={(v) => {
-              setNarrative(v);
-              setIsDirty(true);
-            }}
-            placeholder='Write the detailed minutes of this meeting — proceedings, discussions, decisions…'
-            disabled={!canEdit}
-          />
+          {narrative ? (
+            <RichTextDisplay content={narrative} />
+          ) : (
+            <div className='rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground'>
+              No minutes narrative yet.
+              {canEdit ? ' Click "Open Editor" to write it.' : ''}
+            </div>
+          )}
         </CardContent>
       </Card>
 

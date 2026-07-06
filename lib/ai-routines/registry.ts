@@ -12,6 +12,7 @@ import { FEEDBACK_ADAPTER_ROUTINES } from './feedback-adapters';
 import { AI_PULSE_ROUTINES } from './ai-pulse';
 import { ADMISSION_AI_ROUTINES } from './admission-ai';
 import { INDUCTION_AI_ROUTINES } from './induction-ai';
+import { CURRICULUM_AI_ROUTINES } from './curriculum-ai';
 import { MISC_AI_ROUTINES } from './misc-ai';
 
 export const AI_ROUTINES: AIRoutine[] = [
@@ -20,6 +21,7 @@ export const AI_ROUTINES: AIRoutine[] = [
   ...AI_PULSE_ROUTINES,
   ...ADMISSION_AI_ROUTINES,
   ...INDUCTION_AI_ROUTINES,
+  ...CURRICULUM_AI_ROUTINES,
   ...MISC_AI_ROUTINES,
 ];
 

@@ -144,6 +144,12 @@ export interface BosCallLetterRecipient {
   address?: string | null;
   /** Rendered as "Mobile: <value>" in the addressee block when present. */
   contact_no?: string | null;
+  /**
+   * True when this member is an external expert (from the BoS expert directory)
+   * rather than internal staff. For Academic Council notices, only external
+   * members get the "TA & DA will be paid…" closing lines.
+   */
+  is_external?: boolean;
 }
 
 export interface BosCallLetterData {
@@ -196,7 +202,12 @@ export function buildCallLetterHtml(
   //   • board_name → Title Case, but acronyms (all-uppercase 2+ letter tokens
   //     like "BBA", "TFD", "MCA") are preserved as-is. Without that guard,
   //     "BBA" would become "Bba" which reads as a typo.
-  const formattedType = boardType?.trim().toUpperCase() ?? '';
+  // Academic Council notices differ from Board of Studies notices:
+  //   • title/body say "ACADEMIC COUNCIL" (no "Board of Studies" suffix)
+  //   • the "TA & DA will be paid…" closing is external-members-only
+  const isAc = meeting.meeting_type === 'academic_council' || boardType === 'academic_council';
+  // Uppercase + turn 'academic_council' → 'ACADEMIC COUNCIL'.
+  const formattedType = (boardType?.trim().toUpperCase() ?? '').replace(/_/g, ' ');
   const formattedName = (boardName ?? '')
     .trim()
     .split(/(\s+)/) // capture whitespace so multi-space sequences round-trip
@@ -207,9 +218,12 @@ export function buildCallLetterHtml(
     })
     .join('');
 
-  const boardLabel = [formattedType, formattedName]
-    .filter((s) => s.length > 0)
-    .join(' - ');
+  const boardLabel = isAc
+    ? 'ACADEMIC COUNCIL'
+    : [formattedType, formattedName].filter((s) => s.length > 0).join(' - ');
+  // The " Board of Studies" phrase is appended after the label for BoS notices,
+  // but an Academic Council is not a Board of Studies — omit it.
+  const bodySuffix = isAc ? '' : ' Board of Studies';
 
   const institutionName = (header.institution_name ?? '').toUpperCase();
   const accreditation = header.institution_accreditation ?? '';
@@ -232,7 +246,7 @@ export function buildCallLetterHtml(
     : '';
 
   // ── Subject line ─────────────────────────────────────────────────────────
-  const subjectText = `Meeting of the ${boardLabel} Board of Studies${
+  const subjectText = `Meeting of the ${boardLabel}${bodySuffix}${
     meeting.agenda_text
       ? ' - ' + meeting.agenda_text.split('\n')[0].slice(0, 80).trim()
       : ''
@@ -263,7 +277,13 @@ export function buildCallLetterHtml(
               `<div class="agenda-item">
                 <div class="agenda-title">${escapeHtml(item.item_title)}</div>${
                   item.item_description
-                    ? `<div class="agenda-desc">${escapeHtml(item.item_description)}</div>`
+                    ? // New descriptions are rich-text HTML (inject as-is so
+                      // headings/lists/alignment render). Legacy descriptions are
+                      // plain text with \n line breaks — escape them and wrap in
+                      // a pre-line span so the breaks survive. Detect by tag.
+                      /<[a-z][\s\S]*>/i.test(item.item_description)
+                      ? `<div class="agenda-desc">${item.item_description}</div>`
+                      : `<div class="agenda-desc agenda-desc-plain">${escapeHtml(item.item_description)}</div>`
                     : ''
                 }
               </div>`,
@@ -419,12 +439,27 @@ export function buildCallLetterHtml(
     /* Title shown bare (no outer numbering) on its own line. */
   }
   .agenda-item .agenda-desc {
-    /* white-space: pre-line preserves \n in description as line breaks
-       without collapsing other whitespace runs to single spaces. */
-    white-space: pre-line;
     margin-top: 2pt;
     text-align: justify;
   }
+  /* Legacy plain-text descriptions: preserve \n line breaks. */
+  .agenda-item .agenda-desc-plain {
+    white-space: pre-line;
+  }
+  /* Rich-text (HTML) descriptions: normalise the injected editor markup so it
+     aligns with the notice body. Inline text-align from the editor overrides
+     the container's justify default. */
+  .agenda-item .agenda-desc p { margin: 0 0 4pt 0; }
+  .agenda-item .agenda-desc ul { margin: 0 0 4pt 0; padding-left: 18pt; list-style: disc; }
+  .agenda-item .agenda-desc ol { margin: 0 0 4pt 0; padding-left: 18pt; list-style: decimal; }
+  .agenda-item .agenda-desc li { margin: 0 0 2pt 0; }
+  .agenda-item .agenda-desc h1,
+  .agenda-item .agenda-desc h2,
+  .agenda-item .agenda-desc h3 { margin: 4pt 0 2pt 0; font-weight: bold; text-align: left; }
+  .agenda-item .agenda-desc h1 { font-size: 13pt; }
+  .agenda-item .agenda-desc h2 { font-size: 12pt; }
+  .agenda-item .agenda-desc h3 { font-size: 11pt; }
+  .agenda-item .agenda-desc:last-child > *:last-child { margin-bottom: 0; }
 
   /* ── Closing lines ──────────────────────────────────────── */
   .closing-line { margin-top: 8pt; text-align: justify; }
@@ -548,7 +583,7 @@ export function buildCallLetterHtml(
 
   <!-- ── Body paragraph ────────────────────────────────────── -->
   <p class="body-para">
-    We are happy to have the privilege of inviting you for the <strong>${meetingOrd}</strong> Meeting of ${escapeHtml(boardLabel)} Board of Studies to be conducted on <strong>${meetingDateStr}</strong>${meetingTimeStr ? ` at <strong>${escapeHtml(meetingTimeStr)}</strong>` : ''} ${venueClause}.
+    We are happy to have the privilege of inviting you for the <strong>${meetingOrd}</strong> Meeting of ${escapeHtml(boardLabel)}${bodySuffix} to be conducted on <strong>${meetingDateStr}</strong>${meetingTimeStr ? ` at <strong>${escapeHtml(meetingTimeStr)}</strong>` : ''} ${venueClause}.
   </p>
 
   <!-- ── Agenda ────────────────────────────────────────────── -->
@@ -558,8 +593,15 @@ export function buildCallLetterHtml(
   </div>
 
   <!-- ── Closing ───────────────────────────────────────────── -->
-  <p class="closing-line">Kindly accept our invitation and offer your valuable suggestions.</p>
-  <p class="closing-line">TA &amp; DA will be paid as per norms.</p>
+  ${
+    // Board of Studies → all members get the invitation + TA/DA lines.
+    // Academic Council → only EXTERNAL members do; internal staff (HoDs,
+    // Principal, Member Secretary) are not paid TA/DA, so both lines are omitted.
+    !isAc || recipient.is_external
+      ? `<p class="closing-line">Kindly accept our invitation and offer your valuable suggestions.</p>
+  <p class="closing-line">TA &amp; DA will be paid as per norms.</p>`
+      : ''
+  }
   <p class="closing-line center">Thanking you.</p>
 
   <!-- ── Signature row (seal left, signature right) ────────── -->

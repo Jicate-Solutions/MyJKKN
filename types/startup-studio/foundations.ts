@@ -79,6 +79,12 @@ export interface FoundationsEnrollment {
   status: FoundationsEnrollmentStatus;
   enrolled_at: string;
   enrolled_by: string | null;
+  /**
+   * Cohort-core link (migration 20260731080000): the cohort_memberships row that
+   * mirrors this per-student enrollment onto the shared spine. Nullable — set at
+   * enroll-time (best-effort) or left null for rows that pre-date the spine mirror.
+   */
+  cohort_membership_id?: string | null;
 }
 
 export interface FoundationsWorksheet {

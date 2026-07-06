@@ -43,9 +43,15 @@ import {
 // ── Public props ───────────────────────────────────────────────────────────
 
 export interface SopEditorProps {
-  initialContent: SopDocContent;
+  /** Initial document. Accepts Tiptap JSON (the SOP shape) OR an HTML string —
+   * Tiptap's `content` option parses either. The HTML form lets non-SOP callers
+   * (e.g. the BoS meeting-minutes editor, which persists `narrative_html`)
+   * reuse this surface without first converting their HTML to JSON. */
+  initialContent: SopDocContent | string;
   readOnly?: boolean;
   tamilMode?: TamilInputMode;
+  /** Empty-doc placeholder. Defaults to the SOP prompt. */
+  placeholder?: string;
   onChange?: (doc: SopDocContent) => void;
   /** Fires once the Tiptap editor is mounted, and again with null on unmount.
    * Lets the parent route share the editor instance with side panels (Tamil
@@ -62,6 +68,7 @@ export function SopEditor(props: SopEditorProps) {
     initialContent,
     readOnly = false,
     tamilMode = 'english',
+    placeholder = 'Start typing your SOP…',
     onChange,
     toolbarSlot,
     footerSlot,
@@ -72,7 +79,7 @@ export function SopEditor(props: SopEditorProps) {
       StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] } }),
       Underline,
       Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
-      Placeholder.configure({ placeholder: 'Start typing your SOP…' }),
+      Placeholder.configure({ placeholder }),
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       TextStyle,
       Color,
@@ -90,7 +97,7 @@ export function SopEditor(props: SopEditorProps) {
       CharacterCount,
       Typography,
     ],
-    []
+    [placeholder]
   );
 
   const editor = useEditor({

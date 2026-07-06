@@ -19,7 +19,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: 'learner_id is required' }, { status: 400 });
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const sb = supabase as any;
 
     // Prevent duplicate enrollment
@@ -42,8 +42,30 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     if (error) {
       console.error('[cdc/training] POST enrollment error:', error);
+      // L5: surface an RLS denial (42501) as a clean 403, not a masked 500.
+      if (error.code === '42501') {
+        return NextResponse.json({ error: 'You do not have permission to enroll learners in this programme' }, { status: 403 });
+      }
+      // D9 / clean-400: a learner_id (or programme_id) that does not resolve to a
+      // real row fails the FK (23503) — surface as a 400, not a 500.
+      if (error.code === '23503') {
+        return NextResponse.json({ error: 'learner_id does not reference an existing learner' }, { status: 400 });
+      }
+      // Duplicate enrollment via the unique (programme_id, learner_id) index.
+      if (error.code === '23505') {
+        return NextResponse.json({ error: 'Learner is already enrolled in this programme' }, { status: 409 });
+      }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+    // NOTE (cohort spine): this thin REST path inserts the authoritative extension
+    // row but does NOT mint the cohort_memberships mirror inline (to keep the route
+    // lean and avoid duplicating the service twin under a different client). The
+    // mirror is minted by TrainingService.addEnrollment (the UI Add/Bulk hook path)
+    // and self-heals via the best-effort upsert in TrainingService.updateEnrollment
+    // on the first status change. Roster reads stay authoritative on the extension
+    // (nullable link, FK ON DELETE SET NULL), so a lagging mirror never drops a
+    // learner. If a bulk API-import path that never updates is added later, route it
+    // through TrainingService.addEnrollment or run a one-off spine backfill.
     return NextResponse.json({ data }, { status: 201 });
   } catch (err) {
     console.error('[cdc/training] POST enrollment unexpected:', err);

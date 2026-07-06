@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Rocket, CalendarDays, Building2, Library } from 'lucide-react';
 import { toast } from 'sonner';
+import { CoordinatorsPanel } from './_components/coordinators-panel';
 
 interface InductionRow {
   id: string;
@@ -70,6 +71,11 @@ export default function InductionLandingPage() {
             </Button>
           </div>
         </div>
+
+        {/* Institution-wide coordinator management — appoint one coordinator per
+            induction-running college. Hidden unless the viewer is the Induction Lead
+            or a super-admin (the panel self-gates via fn_induction_can_manage_coordinators). */}
+        <CoordinatorsPanel />
 
         {loading ? (
           <p className="text-sm text-muted-foreground">Loading inductions…</p>

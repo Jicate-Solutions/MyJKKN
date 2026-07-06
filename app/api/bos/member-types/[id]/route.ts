@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { UpdateBosMemberTypeDto } from '@/types/bos';
-import { resolveBosAccess, guardInstitutionWrite } from '@/lib/utils/bos/bos-access';
+import { resolveBosAccess, guardInstitutionWrite, casSiblingInstitutionIds } from '@/lib/utils/bos/bos-access';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -62,6 +62,27 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       guardInstitutionWrite(scope, existing.institutions_id) ??
       guardInstitutionWrite(scope, body.institutions_id);
     if (deny) return NextResponse.json({ error: deny }, { status: 403 });
+
+    // CAS-aware rename guard — mirror of the create route. The DB unique index
+    // is per-UUID, so a rename that collides with a name on the sibling CAS
+    // institution would slip through and reintroduce a duplicate in the list.
+    if (body.name !== undefined && body.name.trim()) {
+      const targetInstitution = body.institutions_id ?? existing.institutions_id;
+      const siblingIds = await casSiblingInstitutionIds(supabase, targetInstitution);
+      const { data: clash } = await supabase
+        .from('bos_member_types')
+        .select('id')
+        .in('institutions_id', siblingIds)
+        .ilike('name', body.name.trim())
+        .neq('id', id)
+        .limit(1);
+      if (clash && clash.length > 0) {
+        return NextResponse.json(
+          { error: 'A member type with this name already exists for this institution.' },
+          { status: 409 }
+        );
+      }
+    }
 
     const update: Record<string, unknown> = {};
     if (body.name !== undefined) update.name = body.name.trim();

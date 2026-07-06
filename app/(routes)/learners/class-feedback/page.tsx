@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Card, CardContent } from '@/components/ui/card';
@@ -16,7 +16,7 @@ import {
   Sparkles,
   ChevronRight,
 } from 'lucide-react';
-import { usePendingSessions } from '@/hooks/use-session-feedback';
+import { usePendingSessions, useConfirmationStatus } from '@/hooks/use-session-feedback';
 import type { PendingSession } from '@/types/session-feedback';
 import { FeedbackDialog } from './_components/feedback-dialog';
 import { MyVoiceReceipt } from './_components/my-voice-receipt';
@@ -65,6 +65,21 @@ export default function LearnerSessionFeedbackPage() {
 
   const sessions = pending ?? [];
   const pendingCount = sessions.length;
+
+  // Confirmed-session history — absorbed from the former "My Attendance Feedback"
+  // tab so this is the single feedback surface. Last 30 days, confirmed rows only
+  // (pending ones already appear in the action list above). Read-only; this does
+  // not touch the feedback-confirms-attendance write path.
+  const { from, to } = useMemo(() => {
+    const ymd = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const today = new Date();
+    const start = new Date();
+    start.setDate(today.getDate() - 30);
+    return { from: ymd(start), to: ymd(today) };
+  }, []);
+  const { data: confirmRows } = useConfirmationStatus(from, to);
+  const confirmed = (confirmRows ?? []).filter((r) => r.confirmed === true);
 
   return (
     <ContentLayout title="Class Feedback">
@@ -212,6 +227,47 @@ export default function LearnerSessionFeedbackPage() {
           <p className="text-xs text-muted-foreground text-center">
             Tap a class to confirm — it only takes about 10 seconds.
           </p>
+        )}
+
+        {/* Confirmed-session history — folded in from the former "My Attendance
+            Feedback" tab so this single page covers both what needs confirming
+            (above) and what's already confirmed (here). Collapsed by default to
+            keep the focus on the pending action. */}
+        {confirmed.length > 0 && (
+          <details className="rounded-lg border bg-card">
+            <summary className="flex cursor-pointer select-none items-center gap-2 px-4 py-3 text-sm font-medium">
+              <CheckCircle2 className="h-4 w-4" style={{ color: BRAND }} />
+              Confirmed this month
+              <span className="font-normal text-muted-foreground">
+                ({confirmed.length})
+              </span>
+            </summary>
+            <ul className="divide-y border-t">
+              {confirmed.map((r) => {
+                const label =
+                  r.course_code && r.course_name
+                    ? `${r.course_code} — ${r.course_name}`
+                    : r.course_name || r.course_code || 'Class session';
+                return (
+                  <li
+                    key={`${r.attendance_date}-${r.timetable_id}-${r.period_id}`}
+                    className="flex items-center justify-between gap-3 px-4 py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{label}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatDate(r.attendance_date)}
+                      </p>
+                    </div>
+                    <Badge variant="success" className="shrink-0 gap-1">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Confirmed
+                    </Badge>
+                  </li>
+                );
+              })}
+            </ul>
+          </details>
         )}
       </div>
 

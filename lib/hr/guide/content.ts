@@ -421,10 +421,10 @@ export const GUIDES: GuideBook = {
               link: { label: 'Take me there', href: '/hr/admin/recruitment-maintenance' },
             },
             {
-              action: 'Set **who approves each step** in Recruitment Approval Scope.',
+              action: 'Set **who approves each step** in Recruitment Approval Flows.',
               detail:
-                'Configure which role signs off at each stage of the recruitment chain, so candidacies route to the right approvers automatically.',
-              link: { label: 'Take me there', href: '/hr/admin/recruitment-approvals-scope' },
+                'Configure which role or person signs off at each stage of the recruitment chain — reviewers, the final approver, and per-step interview requirements — so candidacies route to the right approvers automatically.',
+              link: { label: 'Take me there', href: '/hr/admin/recruitment-approval-flows' },
             },
             {
               action: 'Tune the **Recruitment Need** signals that decide when to hire.',

@@ -312,8 +312,12 @@ export function SF100EnrollmentsTable({ programId }: SF100EnrollmentsTableProps)
                   key={row.id}
                   className="cursor-pointer hover:bg-muted/50"
                   onClick={() =>
+                    // The enrollment detail lives at /team/[enrollmentId] (with
+                    // check-ins/paid-users/pivots/interviews sub-pages); the
+                    // /programs/[programId]/enrollments/[enrollmentId] route was
+                    // never built, so the old link 404'd on every row click.
                     router.push(
-                      `/startup-studio/solve-for-100/programs/${programId}/enrollments/${row.original.id}`
+                      `/startup-studio/solve-for-100/team/${row.original.id}`
                     )
                   }
                 >

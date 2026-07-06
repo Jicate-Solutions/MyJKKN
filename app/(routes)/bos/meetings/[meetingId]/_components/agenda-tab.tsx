@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { RichTextEditor, RichTextDisplay, stripHtml } from '@/components/ui/rich-text-editor';
 
 import { BosAgendaItem, BosResolutionStatus, BosMeetingStatus } from '@/types/bos';
 import {
@@ -105,7 +106,9 @@ function AgendaItemFormDialog({ open, onClose, meetingId, meetingStatus, item }:
       // pass through what was already on the item (or leave undefined on create).
       const payload = {
         item_title: title.trim(),
-        item_description: description.trim() || undefined,
+        // Rich-text (HTML). An "empty" editor still emits '<p></p>', so test the
+        // stripped text before deciding whether to store anything.
+        item_description: stripHtml(description).trim() ? description : undefined,
         resolution_text: showResolutionFields
           ? (resolutionText.trim() || undefined)
           : (item?.resolution_text ?? undefined),
@@ -129,7 +132,7 @@ function AgendaItemFormDialog({ open, onClose, meetingId, meetingStatus, item }:
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className='max-w-lg'>
+      <DialogContent className='!max-w-[1080px] w-[calc(100vw-2rem)] max-h-[85vh] overflow-y-auto'>
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit Agenda Item' : 'Add Agenda Item'}</DialogTitle>
         </DialogHeader>
@@ -144,12 +147,11 @@ function AgendaItemFormDialog({ open, onClose, meetingId, meetingStatus, item }:
           </div>
           <div className='space-y-2'>
             <Label>Description</Label>
-            <textarea
-              className='w-full rounded-md border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none'
-              rows={3}
-              placeholder='Background, supporting documents, context...'
+            <RichTextEditor
+              extended
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={setDescription}
+              placeholder='Background, supporting documents, context…'
             />
           </div>
           {showResolutionFields ? (
@@ -263,9 +265,10 @@ function AgendaItemRow({
           {expanded && (
             <div className='mt-2 space-y-2'>
               {item.item_description && (
-                <p className='text-xs text-muted-foreground whitespace-pre-line'>
-                  {item.item_description}
-                </p>
+                <RichTextDisplay
+                  content={item.item_description}
+                  className='text-xs text-muted-foreground'
+                />
               )}
               {!preMeeting && item.resolution_text && (
                 <div className='rounded bg-muted/50 p-2'>

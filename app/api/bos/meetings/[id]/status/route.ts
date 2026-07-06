@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { BosMeetingStatus, BOS_MEETING_NEXT_STATUS } from '@/types/bos';
+import { BosMeetingStatus, meetingNextStatusMap } from '@/types/bos';
 import {
   resolveBosBoardScope,
   guardCompositionWrite,
@@ -39,7 +39,7 @@ export async function PATCH(
     // Fetch current meeting — include institution + composition for the gate.
     const { data: meeting, error: fetchError } = await db
       .from('bos_meetings')
-      .select('status, institutions_id, composition_id')
+      .select('status, institutions_id, composition_id, meeting_type')
       .eq('id', id)
       .single();
 
@@ -84,8 +84,11 @@ export async function PATCH(
       if (denyMember) return NextResponse.json({ error: denyMember }, { status: 403 });
     }
 
+    // Academic Council meetings run a shorter state machine (no principal
+    // approval, no ratification) — pick the right transition map by meeting_type.
     const currentStatus = meeting.status as BosMeetingStatus;
-    const allowedNext = BOS_MEETING_NEXT_STATUS[currentStatus];
+    const allowedNext =
+      meetingNextStatusMap((meeting as { meeting_type?: string | null }).meeting_type)[currentStatus];
 
     if (allowedNext !== newStatus) {
       return NextResponse.json(

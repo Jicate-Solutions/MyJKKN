@@ -30,6 +30,7 @@ import {
 } from '@/hooks/startup-studio';
 import { SF100EnrollmentsTable } from '../../programs/[programId]/enrollments/_components/sf100-enrollments-table';
 import { SF100VerificationQueue as SF100VerificationQueueRich } from '../../programs/[programId]/verification-queue/_components/sf100-verification-queue';
+import { SF100AdjustmentsPanel } from './sf100-adjustments-panel';
 
 // ── Phase colors ────────────────────────────────────────────────────
 const PHASE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
@@ -390,6 +391,7 @@ export function SF100AdminDashboard() {
               </span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="adjustments">Adjustments</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -431,6 +433,10 @@ export function SF100AdminDashboard() {
 
         <TabsContent value="verification">
           <SF100VerificationQueueRich programId={programId} />
+        </TabsContent>
+
+        <TabsContent value="adjustments">
+          <SF100AdjustmentsPanel programId={programId} />
         </TabsContent>
       </Tabs>
     </div>

@@ -10,7 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Pencil, Trash2, Eye, MoreHorizontal, ArrowRightLeft, BedDouble } from 'lucide-react';
+import { Pencil, Eye, MoreHorizontal } from 'lucide-react';
 import type { LearnerHostelite } from '@/types/campus-living';
 import { formatCurrency } from '@/lib/utils';
 
@@ -19,16 +19,15 @@ function fullName(l: LearnerHostelite): string {
   return parts.join(' ') || '(unnamed)';
 }
 
+// 2026-07-06: row actions are View + Edit only. Allocation actions (allocate /
+// change bed / remove-reset) live in the Allocations module — duplicating them
+// here caused two competing entry points for the same operations.
 export interface LearnerColumnHandlers {
   canEdit: boolean;
-  canAllocate: boolean;
   isSuperAdmin: boolean;
   instName: (id: string) => string;
   onView: (learner: LearnerHostelite) => void;
   onEdit: (learner: LearnerHostelite) => void;
-  onRemove: (learner: LearnerHostelite) => void;
-  onAllocate: (learner: LearnerHostelite) => void;
-  onChangeRoom: (learner: LearnerHostelite) => void;
 }
 
 // Column order: Roll, Name, Institution (super-admin only), Program,
@@ -230,28 +229,11 @@ export function getLearnerColumns(
             <DropdownMenuItem onClick={() => h.onView(row.original)}>
               <Eye className='mr-2 h-4 w-4' /> View details
             </DropdownMenuItem>
-            {h.canAllocate && (
-              row.original.current_allocation_id ? (
-                <DropdownMenuItem onClick={() => h.onChangeRoom(row.original)}>
-                  <ArrowRightLeft className='mr-2 h-4 w-4' /> Change room / bed
-                </DropdownMenuItem>
-              ) : (
-                <DropdownMenuItem onClick={() => h.onAllocate(row.original)}>
-                  <BedDouble className='mr-2 h-4 w-4' /> Allocate room
-                </DropdownMenuItem>
-              )
-            )}
             {h.canEdit && (
               <DropdownMenuItem onClick={() => h.onEdit(row.original)}>
                 <Pencil className='mr-2 h-4 w-4' /> Edit hostel details
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem
-              onClick={() => h.onRemove(row.original)}
-              className='text-destructive focus:text-destructive'
-            >
-              <Trash2 className='mr-2 h-4 w-4' /> Remove from hostel
-            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

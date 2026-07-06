@@ -990,6 +990,7 @@ export class StaffService {
       if (filters.isActive !== undefined) params.append('isActive', String(filters.isActive));
       if (filters.limit) params.append('limit', String(filters.limit));
       if (filters.page) params.append('page', String(filters.page));
+      if (filters.for_teaching_assignment) params.append('for_teaching_assignment', 'true');
 
       const response = await fetch(`/api/staff?${params.toString()}`);
 

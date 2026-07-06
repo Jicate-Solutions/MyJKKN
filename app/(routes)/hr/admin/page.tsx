@@ -128,11 +128,11 @@ const SECTIONS: Section[] = [
           'Backfill approval chains for candidates submitted before flows were configured.',
       },
       {
-        href: '/hr/admin/recruitment-approvals-scope',
+        href: '/hr/admin/recruitment-approval-flows',
         icon: ShieldCheck,
-        title: 'Approval Scope',
+        title: 'Approval Flows',
         description:
-          'Configure who can approve at each step of the recruitment chain.',
+          'Configure who reviews and who finally approves at each step of the recruitment chain, per role category.',
       },
     ],
   },

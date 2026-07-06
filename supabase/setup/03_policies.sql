@@ -2911,6 +2911,13 @@ CREATE POLICY "startup_events_update_admin" ON startup_events
 -- (event_registrations_select ↔ event_team_members_select caused infinite 42P17 cycle)
 -- Updated: 2026-03-07 — faculty/hod/principal see all institutions (cross-institution visibility)
 -- Invited members access registration data via SECURITY DEFINER function get_my_pending_invitations()
+-- Updated: 2026-07-06 (migration 20260706150000) — ALSO honor the SF100/event admin
+--   PERMISSION, not just the legacy profiles.role list. SF100 coordinators have
+--   profiles.role='student' with admin rights from a custom role, so the legacy-only
+--   check blanked every team name on the SF100 admin page. Gated on the admin-level
+--   sf100.team.view / registrations.manage (NOT .view — the 'student' role carries
+--   .view). CASE guard so user_has_permission is never evaluated for anon (a scalar
+--   sub-select would InitPlan-evaluate it and throw permission-denied for anon).
 CREATE POLICY "event_registrations_select" ON event_registrations
     FOR SELECT TO authenticated USING (
         owner_id = auth.uid()
@@ -2922,6 +2929,10 @@ CREATE POLICY "event_registrations_select" ON event_registrations
                 OR p.role IN ('admin', 'administrator', 'staff', 'faculty', 'hod', 'principal')
               )
         )
+        OR (CASE WHEN auth.uid() IS NULL THEN false
+                 ELSE (public.user_has_permission('startup_studio.sf100.team.view')
+                       OR public.user_has_permission('startup_studio.registrations.manage'))
+            END)
     );
 
 -- Updated: 2026-03-09 — allow any authenticated user to read all registrations for events
@@ -7549,3 +7560,214 @@ CREATE POLICY cohort_status_events_update_permission ON public.cohort_status_eve
 DROP POLICY IF EXISTS cohort_status_events_delete_permission ON public.cohort_status_events;
 CREATE POLICY cohort_status_events_delete_permission ON public.cohort_status_events
   FOR DELETE USING ((select is_super_admin()) OR (select is_admin()));
+
+-- Cohort Core — Foundations self-enrol carve-out on cohort_memberships
+-- (migration 20260731080000_foundations_demote_to_cohort_core.sql, 2026-07-06).
+-- The Foundations self-enrol POST runs RLS-scoped AS THE STUDENT (never
+-- service-role); the standard cohort_memberships_insert_permission needs
+-- cohort.create, which a student does not hold, so mirroring their membership would
+-- 403. This permissive INSERT policy OR-adds a narrow self-insert path (mirrors the
+-- ssf_responses_insert `submitted_by = auth.uid()` self-policy): the caller may
+-- insert ONLY a non-terminal member_type='student' row referencing THEIR OWN uid
+-- into a kind='foundations' cohort. Graduation stays mentor-gated (D5) — a student
+-- cannot self-insert a 'graduated' membership. The facilitator-add path is
+-- unaffected (member_ref = the enrolled student, not the caller).
+DROP POLICY IF EXISTS cohort_memberships_foundations_self_insert ON public.cohort_memberships;
+CREATE POLICY cohort_memberships_foundations_self_insert ON public.cohort_memberships
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    member_type = 'student'
+    AND member_ref = (select auth.uid())
+    AND status IN ('invited', 'enrolled', 'active')
+    AND EXISTS (
+      SELECT 1 FROM public.cohorts c
+      WHERE c.id = cohort_memberships.cohort_id
+        AND c.kind = 'foundations'
+    )
+  );
+
+
+-- ── Cohort Core — M2: cohort_outcomes RLS (Phase 7 · THE MOAT) ────────────────
+-- Migration: supabase/migrations/20260731091000_cohort_outcome_capture.sql (2026-07-05).
+-- Institution-scoped (cohort_outcomes.institution_id is NOT NULL, copied from the
+-- parent cohort). SELECT→cohort.view; INSERT→cohort.manage (manual/service
+-- capture; the trigger is SECURITY DEFINER and bypasses RLS); UPDATE/DELETE
+-- admin-only (a captured baseline is a tamper-resistant moat record).
+ALTER TABLE public.cohort_outcomes ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS cohort_outcomes_select_permission ON public.cohort_outcomes;
+CREATE POLICY cohort_outcomes_select_permission ON public.cohort_outcomes
+  FOR SELECT USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.view'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohort_outcomes_insert_permission ON public.cohort_outcomes;
+CREATE POLICY cohort_outcomes_insert_permission ON public.cohort_outcomes
+  FOR INSERT WITH CHECK (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.manage'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohort_outcomes_update_permission ON public.cohort_outcomes;
+CREATE POLICY cohort_outcomes_update_permission ON public.cohort_outcomes
+  FOR UPDATE USING ((select is_super_admin()) OR (select is_admin()));
+
+DROP POLICY IF EXISTS cohort_outcomes_delete_permission ON public.cohort_outcomes;
+CREATE POLICY cohort_outcomes_delete_permission ON public.cohort_outcomes
+  FOR DELETE USING ((select is_super_admin()) OR (select is_admin()));
+
+-- hr_recruitment_job_notes (migration 20260706110000) — visibility inherits
+-- the job row's RLS via EXISTS.
+ALTER TABLE hr_recruitment_job_notes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY hr_rec_job_notes_select ON hr_recruitment_job_notes
+  FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM hr_recruitment_jobs j WHERE j.id = hr_recruitment_job_notes.job_id));
+CREATE POLICY hr_rec_job_notes_insert ON hr_recruitment_job_notes
+  FOR INSERT TO authenticated
+  WITH CHECK (author_id = auth.uid()
+    AND EXISTS (SELECT 1 FROM hr_recruitment_jobs j WHERE j.id = hr_recruitment_job_notes.job_id));
+
+-- ── Cohort Core — M7.2/M7.3 RLS (Phase 7 · THE MOAT) ─────────────────────────
+-- Migrations: 20260731093000_cohort_experiments.sql, 20260731094000_cohort_feedforward.sql
+-- Canonical dynamic-permission: is_super_admin/is_admin first, then cohort.view
+-- (read) / cohort.manage (write) + role_has_institution_access; DELETE admin-only.
+
+ALTER TABLE public.cohort_experiments ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS cohort_experiments_select_permission ON public.cohort_experiments;
+CREATE POLICY cohort_experiments_select_permission ON public.cohort_experiments
+  FOR SELECT USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.view'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+-- INSERT/UPDATE is manage-level (the compute fn is DEFINER and bypasses RLS; this
+-- governs a manual/service-role-less recompute performed as the user).
+DROP POLICY IF EXISTS cohort_experiments_insert_permission ON public.cohort_experiments;
+CREATE POLICY cohort_experiments_insert_permission ON public.cohort_experiments
+  FOR INSERT WITH CHECK (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.manage'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohort_experiments_update_permission ON public.cohort_experiments;
+CREATE POLICY cohort_experiments_update_permission ON public.cohort_experiments
+  FOR UPDATE USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.manage'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+-- DELETE admin-only (an experiment result is a moat audit record).
+DROP POLICY IF EXISTS cohort_experiments_delete_permission ON public.cohort_experiments;
+CREATE POLICY cohort_experiments_delete_permission ON public.cohort_experiments
+  FOR DELETE USING ( (select is_super_admin()) OR (select is_admin()) );
+
+ALTER TABLE public.cohort_adjustment_proposals ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS cohort_proposals_select_permission ON public.cohort_adjustment_proposals;
+CREATE POLICY cohort_proposals_select_permission ON public.cohort_adjustment_proposals
+  FOR SELECT USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.view'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+-- INSERT = manage (the proposer fn is DEFINER; this governs a manual insert).
+DROP POLICY IF EXISTS cohort_proposals_insert_permission ON public.cohort_adjustment_proposals;
+CREATE POLICY cohort_proposals_insert_permission ON public.cohort_adjustment_proposals
+  FOR INSERT WITH CHECK (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.manage'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+-- UPDATE = manage: this is the HUMAN APPROVAL surface (pending→approved/rejected).
+DROP POLICY IF EXISTS cohort_proposals_update_permission ON public.cohort_adjustment_proposals;
+CREATE POLICY cohort_proposals_update_permission ON public.cohort_adjustment_proposals
+  FOR UPDATE USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.manage'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohort_proposals_delete_permission ON public.cohort_adjustment_proposals;
+CREATE POLICY cohort_proposals_delete_permission ON public.cohort_adjustment_proposals
+  FOR DELETE USING ( (select is_super_admin()) OR (select is_admin()) );
+-- ============================================================================
+-- Cross-institution teaching (migration 20260706_cross_institution_teaching)
+-- Visiting staff (assigned via staff planning into another institution's plan)
+-- need: their staff row visible where they teach, read access to that
+-- institution's academic structure, and a permission-gated attendance
+-- read/write path. All policies are ADDITIVE (permissive OR) — existing
+-- policies untouched. Helpers are SECURITY DEFINER (see 02_functions.sql).
+-- ============================================================================
+
+DROP POLICY IF EXISTS "staff_select_visiting_teacher" ON public.staff;
+CREATE POLICY "staff_select_visiting_teacher" ON public.staff
+FOR SELECT USING (
+  (
+    user_has_permission('academic.staff.planning.view')
+    OR user_has_permission('academic.timetables.view')
+    OR user_has_permission('academic.attendance.mark')
+    OR user_has_permission('academic.attendance.view')
+  )
+  AND staff_is_visiting_in_accessible_institution(staff.id)
+);
+
+-- Visiting teachers can read the academic structure of institutions they teach in
+DROP POLICY IF EXISTS "courses_select_visiting_teacher" ON public.courses;
+CREATE POLICY "courses_select_visiting_teacher" ON public.courses
+FOR SELECT USING (staff_teaches_in_institution(institution_id));
+
+DROP POLICY IF EXISTS "sections_select_visiting_teacher" ON public.sections;
+CREATE POLICY "sections_select_visiting_teacher" ON public.sections
+FOR SELECT USING (staff_teaches_in_institution(institution_id));
+
+DROP POLICY IF EXISTS "semesters_select_visiting_teacher" ON public.semesters;
+CREATE POLICY "semesters_select_visiting_teacher" ON public.semesters
+FOR SELECT USING (staff_teaches_in_institution(institution_id));
+
+DROP POLICY IF EXISTS "degrees_select_visiting_teacher" ON public.degrees;
+CREATE POLICY "degrees_select_visiting_teacher" ON public.degrees
+FOR SELECT USING (staff_teaches_in_institution(institution_id));
+
+DROP POLICY IF EXISTS "departments_select_visiting_teacher" ON public.departments;
+CREATE POLICY "departments_select_visiting_teacher" ON public.departments
+FOR SELECT USING (staff_teaches_in_institution(institution_id));
+
+DROP POLICY IF EXISTS "programs_select_visiting_teacher" ON public.programs;
+CREATE POLICY "programs_select_visiting_teacher" ON public.programs
+FOR SELECT USING (staff_teaches_in_institution(institution_id));
+
+-- student_attendance: permission-gated visiting read/write (covers visiting
+-- staff whose profile role is hod / custom — the legacy faculty-role path
+-- doesn't admit them)
+DROP POLICY IF EXISTS "student_attendance_select_visiting_teacher" ON public.student_attendance;
+CREATE POLICY "student_attendance_select_visiting_teacher" ON public.student_attendance
+FOR SELECT USING (
+  user_has_permission('academic.attendance.mark')
+  AND staff_teaches_in_institution(institution_id)
+);
+
+DROP POLICY IF EXISTS "student_attendance_insert_visiting_teacher" ON public.student_attendance;
+CREATE POLICY "student_attendance_insert_visiting_teacher" ON public.student_attendance
+FOR INSERT WITH CHECK (
+  user_has_permission('academic.attendance.mark')
+  AND staff_teaches_in_institution(institution_id)
+);
+
+DROP POLICY IF EXISTS "student_attendance_update_visiting_teacher" ON public.student_attendance;
+CREATE POLICY "student_attendance_update_visiting_teacher" ON public.student_attendance
+FOR UPDATE USING (
+  user_has_permission('academic.attendance.mark')
+  AND staff_teaches_in_institution(institution_id)
+) WITH CHECK (
+  user_has_permission('academic.attendance.mark')
+  AND staff_teaches_in_institution(institution_id)
+);

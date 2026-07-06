@@ -220,6 +220,14 @@ export interface LeaveApprovalStep {
   decided_by?: string | null;
   comment?: string | null;
   escalate_after_hours: number;
+  // ----- Recruitment-only extensions (2026-07-06 dynamic flows) -------------
+  // Optional so legacy chains and leave chains are untouched.
+  /** 'review' = notes + mark reviewed; 'final' = grants final approval. Legacy chains: absent → last step acts as final. */
+  step_type?: 'review' | 'final';
+  /** When true, this step's approver must complete an interview before marking reviewed. */
+  interview_required?: boolean;
+  /** hr_recruitment_interviews.id linked to this step (re-pointed on reschedule). */
+  interview_id?: string | null;
 }
 
 export interface LeaveDocument {

@@ -21,7 +21,8 @@ export type BosMemberType =
   | 'startup'
   | 'hod'
   | 'facilitator'
-  | 'principal';
+  | 'principal'
+  | 'member_secretary';
 
 export type BosMeetingStatus =
   | 'draft'
@@ -33,7 +34,7 @@ export type BosMeetingStatus =
   | 'minutes_approved'
   | 'ratified';
 
-export type BosMeetingType = 'regular' | 'special' | 'emergency' | 'online' | 'hybrid';
+export type BosMeetingType = 'regular' | 'special' | 'emergency' | 'online' | 'hybrid' | 'academic_council';
 
 export type BosAttendanceStatus = 'present' | 'absent' | 'leave_of_absence';
 
@@ -85,6 +86,7 @@ export const BOS_MEMBER_TYPE_LABELS: Record<BosMemberType, string> = {
   hod: 'Head of Department',
   facilitator: 'Facilitator',
   principal: 'Principal',
+  member_secretary: 'Member Secretary',
 };
 
 export const BOS_MEETING_STATUS_LABELS: Record<BosMeetingStatus, string> = {
@@ -104,6 +106,7 @@ export const BOS_MEETING_TYPE_LABELS: Record<BosMeetingType, string> = {
   emergency: 'Emergency',
   online: 'Online',
   hybrid: 'Hybrid',
+  academic_council: 'Academic Council',
 };
 
 export const BOS_COURSE_REVIEW_ACTION_LABELS: Record<BosCourseReviewAction, string> = {
@@ -154,6 +157,44 @@ export const BOS_MEETING_NEXT_STATUS: Record<BosMeetingStatus, BosMeetingStatus 
   minutes_approved: 'ratified',
   ratified: null,
 };
+
+// ── Academic Council meeting state machine ───────────────────────────────────
+// AC meetings (meeting_type = 'academic_council') are convened by the principal,
+// so there is NO 'principal_approved' hop (the principal is the scheduler) and
+// NO 'ratified' terminal state (the AC is itself the ratifying body). Call
+// letters are sent at 'noticed'; there is no separate 'expert_invited' step.
+//
+//   draft → noticed → completed → minutes_drafted → minutes_approved
+//
+// The status route and stepper pick this map when meeting_type is
+// 'academic_council'; BoS meetings continue to use BOS_MEETING_NEXT_STATUS.
+export const AC_MEETING_STATUS_ORDER: BosMeetingStatus[] = [
+  'draft',
+  'noticed',
+  'minutes_drafted',
+  'minutes_approved',
+];
+
+export const AC_MEETING_NEXT_STATUS: Partial<Record<BosMeetingStatus, BosMeetingStatus | null>> = {
+  draft: 'noticed',
+  noticed: 'completed',
+  completed: 'minutes_drafted',
+  minutes_drafted: 'minutes_approved',
+  minutes_approved: null,
+};
+
+/**
+ * Returns the correct transition map for a meeting given its type.
+ * Use this instead of referencing BOS_MEETING_NEXT_STATUS directly wherever a
+ * meeting could be an Academic Council meeting.
+ */
+export function meetingNextStatusMap(
+  meetingType: string | null | undefined
+): Partial<Record<BosMeetingStatus, BosMeetingStatus | null>> {
+  return meetingType === 'academic_council'
+    ? AC_MEETING_NEXT_STATUS
+    : BOS_MEETING_NEXT_STATUS;
+}
 
 // ── Board Programme Mapping ──────────────────────────────────────────────────
 
@@ -655,6 +696,13 @@ export interface BosComposition {
    */
   board_type?: string | null;
   composition_title: string;
+  /**
+   * True when this composition represents the institution-level Academic
+   * Council rather than a subject-level Board of Studies. AC bodies have no
+   * board_id and their members are the BoS chairmen (auto-snapshotted at create
+   * time) plus principal-added members. See 20260706b_bos_academic_council.sql.
+   */
+  is_academic_council?: boolean;
   term_start_date: string;
   term_end_date: string;
   academic_year: string;
@@ -693,15 +741,20 @@ export interface BosCompositionFilters {
 }
 
 // ── Committee ─────────────────────────────────────────────────────────────────
-// Institution-wise committees (Academic, Exam, …). A composition's members are
-// grouped by committee via bos_members.committee_id. Managed on /bos/committees.
+// Per-composition committees (Curriculum Development Cell, Exam Committee, …). A
+// composition's members are grouped by committee via bos_members.committee_id.
+// Managed inline on the composition detail page (20260706 re-parented these from
+// institution-owned to composition-owned).
 
 export interface BosCommittee {
   id: string;
+  /** Owning composition. Each composition has its own committee set. */
+  composition_id?: string | null;
+  /** Denormalised RLS anchor (role_has_institution_access gates on it). */
   institutions_id: string;
   name: string;
   short_code?: string | null;
-  /** Display order within the institution (committees list + member grouping). */
+  /** Display order within the composition (committees list + member grouping). */
   sort_order: number;
   is_active: boolean;
   created_by?: string | null;

@@ -10,11 +10,13 @@ import {
   AlertCircle,
   ShieldCheck,
   Activity,
+  Rocket,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth-provider';
 import {
   useMySF100Enrollment,
+  useMySF100Goal,
   useSF100Enrollment,
   useSF100PaidUsers,
   useSF100PublicLeaderboard,
@@ -99,6 +101,12 @@ export function SF100TeamDashboard() {
   // Flatten all teams from all phases to find our enrollment
   const programId: string | undefined = (enrollment as any)?.program_id ?? (myEnrollment as any)?.program_id ?? activeProgramId;
   const { data: leaderboardRaw } = useSF100PublicLeaderboard(programId ?? '');
+
+  // MOAT (M6) — this team's experiment arm + (possibly stretched) paying-user goal.
+  const { data: goal } = useMySF100Goal(enrollmentId);
+  const goalTarget: number = goal?.program_target ?? 100;
+  const isStretchArm: boolean = goal?.arm === 'treatment' && (goal?.stretch_delta ?? 0) > 0;
+  const stretchTarget: number | undefined = isStretchArm ? goal?.effective_target : undefined;
   const leaderboardData = (leaderboardRaw as any)?.data ?? leaderboardRaw ?? {};
   const leaderboardPhases = Array.isArray(leaderboardData.phases) ? leaderboardData.phases : [];
   const allLeaderboardTeams = leaderboardPhases.flatMap((p: any) => Array.isArray(p.teams) ? p.teams : []);
@@ -199,9 +207,19 @@ export function SF100TeamDashboard() {
             <SF100PaidUserCounter
               cumulative={cumulativePaidUsers}
               active={activePaidUsers}
-              target={100}
+              target={goalTarget}
               enrollmentId={enrollmentId}
             />
+            {/* MOAT (M6) treatment surface — treatment-arm teams get a visible
+                STRETCH goal above the program target. The main /{goalTarget} ring
+                is unchanged for everyone (the "Solve for 100" brand stays intact);
+                this badge is the genuine, benign A/B differential. */}
+            {stretchTarget ? (
+              <div className="mt-3 flex items-center gap-1.5 rounded-full bg-violet-100 px-3 py-1 text-xs font-medium text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
+                <Rocket className="h-3.5 w-3.5" />
+                Stretch goal: {stretchTarget}
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 

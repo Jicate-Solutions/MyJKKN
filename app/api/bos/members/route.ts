@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { CreateBosMemberDto } from '@/types/bos';
 import {
   resolveBosBoardScope,
   guardCompositionChairman,
+  guardAcademicCouncilWrite,
 } from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/members?compositionId= ──────────────────────────────────────
@@ -31,15 +32,24 @@ export async function GET(request: NextRequest) {
     // carve-out, a freshly-created comp's roster appears empty to its own
     // creator after they add the first member.
     const scope = await resolveBosBoardScope(user.id);
+    // AC bodies: the roster read must go through the service-role client because
+    // principals lack the bos.members.view RLS grant, so a user-context SELECT
+    // returns empty for them. Route-level visibility below is the source of truth.
+    let isAcComp = false;
     if (!scope.isSuperAdmin) {
       let visible = scope.memberOf.has(compositionId);
+      const { data: comp } = await supabase
+        .from('bos_compositions')
+        .select('institutions_id, created_by, is_academic_council')
+        .eq('id', compositionId)
+        .maybeSingle();
+      const compRow = comp as {
+        institutions_id?: string | null;
+        created_by?: string | null;
+        is_academic_council?: boolean;
+      } | null;
+      isAcComp = compRow?.is_academic_council === true;
       if (!visible) {
-        const { data: comp } = await supabase
-          .from('bos_compositions')
-          .select('institutions_id, created_by')
-          .eq('id', compositionId)
-          .maybeSingle();
-        const compRow = comp as { institutions_id?: string | null; created_by?: string | null } | null;
         const compInstitution = compRow?.institutions_id ?? null;
         const isCreator = compRow?.created_by != null && compRow.created_by === user.id;
         if (isCreator) {
@@ -55,7 +65,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const { data, error } = await supabase
+    const readDb = isAcComp ? createServiceRoleClient() : supabase;
+    const { data, error } = await readDb
       .from('bos_members')
       .select(`
         *,
@@ -109,10 +120,15 @@ export async function POST(request: NextRequest) {
     // mask the real check, we degrade to chairman-only and surface a clear
     // schema-out-of-date message.
     const scope = await resolveBosBoardScope(user.id);
+    // Academic Council bodies flip the roster-authz: the principal manages the
+    // roster (not a board chairman). When the parent is an AC body we authorize
+    // via guardAcademicCouncilWrite and write with the service-role client,
+    // since the board-keyed bos_members RLS wouldn't pass a principal.
+    let isAcComp = false;
     if (!scope.isSuperAdmin) {
       const { data: parentComp, error: parentErr } = await supabase
         .from('bos_compositions')
-        .select('created_by')
+        .select('created_by, is_academic_council, institutions_id')
         .eq('id', body.composition_id)
         .maybeSingle();
       if (parentErr) {
@@ -128,13 +144,27 @@ export async function POST(request: NextRequest) {
         }
         throw parentErr;
       }
-      const isCreator =
-        (parentComp as { created_by?: string | null } | null)?.created_by === user.id;
-      if (!isCreator) {
-        const deny = guardCompositionChairman(scope, body.composition_id);
+      const comp = parentComp as {
+        created_by?: string | null;
+        is_academic_council?: boolean;
+        institutions_id?: string | null;
+      } | null;
+      isAcComp = comp?.is_academic_council === true;
+      if (isAcComp) {
+        const deny = guardAcademicCouncilWrite(scope, comp?.institutions_id);
         if (deny) return NextResponse.json({ error: deny }, { status: 403 });
+      } else {
+        const isCreator = comp?.created_by === user.id;
+        if (!isCreator) {
+          const deny = guardCompositionChairman(scope, body.composition_id);
+          if (deny) return NextResponse.json({ error: deny }, { status: 403 });
+        }
       }
     }
+
+    // AC roster writes bypass the board-keyed RLS (route-level authz above is
+    // the source of truth). BoS writes stay on the user-context client.
+    const writeDb = isAcComp ? createServiceRoleClient() : supabase;
 
     // Enforce the source check: exactly one of staff_id or expert_id must be set
     if (body.staff_id && body.expert_id) {
@@ -150,7 +180,7 @@ export async function POST(request: NextRequest) {
     // (re-scoped per committee in 20260610_bos_committees.sql), but checking
     // here lets us return a friendly 409 Conflict instead of a raw 23505.
     if (body.staff_id || body.expert_id) {
-      let dupQuery = supabase
+      let dupQuery = writeDb
         .from('bos_members')
         .select('id, display_name')
         .eq('composition_id', body.composition_id)
@@ -174,7 +204,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Auto-assign sort_order: count existing members + 1
-    const { count } = await supabase
+    const { count } = await writeDb
       .from('bos_members')
       .select('id', { count: 'exact', head: true })
       .eq('composition_id', body.composition_id);
@@ -185,7 +215,7 @@ export async function POST(request: NextRequest) {
       is_active: body.is_active ?? true,
     };
 
-    const { data, error } = await supabase
+    const { data, error } = await writeDb
       .from('bos_members')
       .insert(insertData)
       .select(`

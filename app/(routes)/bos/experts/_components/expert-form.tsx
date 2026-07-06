@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -30,10 +30,20 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 import {
   BosExternalExpert,
+  BosExpertCategory,
   BOS_EXPERT_CATEGORY_LABELS,
 } from '@/types/bos';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionContext, useAllInstitutionContexts } from '@/hooks/use-institution-context';
+import { useBosInstitutionScope } from '@/hooks/bos/use-bos-institution-scope';
+import { useBosMemberTypes } from '@/hooks/bos/use-bos-member-types';
+
+// The `category` column only accepts these 5 values. Member types are a broader
+// admin-managed superset (Chairman/HOD/Principal/…), so the dropdown is sourced
+// from member-type rows whose base_type is one of these expert categories.
+const EXPERT_CATEGORY_VALUES = new Set(
+  Object.keys(BOS_EXPERT_CATEGORY_LABELS) as BosExpertCategory[],
+);
 
 // ── Validation Schema ─────────────────────────────────────────────────────────
 
@@ -131,6 +141,46 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
           notes: '',
         },
   });
+
+  // ── Category options, sourced from member types ──────────────────────────
+  // Scope member types to the selected institution (CAS-expanded). The query
+  // stays disabled until an institution is resolved (scope.csv === null).
+  const selectedInstitutionId = form.watch('institutions_id');
+  const currentCategory = form.watch('category');
+  const scope = useBosInstitutionScope(selectedInstitutionId || undefined);
+  const { data: memberTypes = [] } = useBosMemberTypes(scope.csv, { isActive: true });
+
+  const categoryOptions = useMemo<{ value: BosExpertCategory; label: string }[]>(() => {
+    // Member-type rows that map to a valid expert category, deduped by base_type
+    // (rows arrive pre-ordered by sort_order, so the first name wins).
+    const fromTypes: { value: BosExpertCategory; label: string }[] = [];
+    const seen = new Set<string>();
+    for (const t of memberTypes) {
+      if (!EXPERT_CATEGORY_VALUES.has(t.base_type as BosExpertCategory)) continue;
+      if (seen.has(t.base_type)) continue;
+      seen.add(t.base_type);
+      fromTypes.push({ value: t.base_type as BosExpertCategory, label: t.name });
+    }
+
+    // Fallback to the hardcoded enum when the institution has no expert-type rows
+    // (or while member types are still loading).
+    const options =
+      fromTypes.length > 0
+        ? fromTypes
+        : (Object.entries(BOS_EXPERT_CATEGORY_LABELS) as [BosExpertCategory, string][]).map(
+            ([value, label]) => ({ value, label }),
+          );
+
+    // Edit-mode safety: keep the currently-saved category selectable even if the
+    // institution's member types don't include it.
+    if (currentCategory && !options.some((o) => o.value === currentCategory)) {
+      options.push({
+        value: currentCategory,
+        label: BOS_EXPERT_CATEGORY_LABELS[currentCategory] ?? currentCategory,
+      });
+    }
+    return options;
+  }, [memberTypes, currentCategory]);
 
   // Auto-set institution for non-admins once context resolves.
   useEffect(() => {
@@ -251,8 +301,8 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {Object.entries(BOS_EXPERT_CATEGORY_LABELS).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        {categoryOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>

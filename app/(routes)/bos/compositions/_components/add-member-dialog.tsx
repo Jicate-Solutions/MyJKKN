@@ -77,7 +77,7 @@ function isExternalExpertType(t: BosMemberType): boolean {
 // ── Lookup row shapes ─────────────────────────────────────────────────────────
 // Matches the JSON returned by /api/bos/lookup/facilitators and /api/bos/experts.
 
-interface FacilitatorRow {
+export interface FacilitatorRow {
   id: string;
   first_name: string;
   last_name: string;
@@ -129,6 +129,13 @@ interface AddMemberDialogProps {
     expert_id?: string | null;
     committee_id?: string | null;
   }[];
+  /**
+   * Member types to hide from the picker. Used by the Academic Council, which
+   * auto-snapshots BoS chairmen and so removes 'chairman' from the manual-add
+   * options (the council's presiding officer is added as a 'principal' instead).
+   * Applies to both the table-driven and legacy-enum dropdowns.
+   */
+  excludeMemberTypes?: readonly BosMemberType[];
 }
 
 /** Sentinel for "no committee" in the Radix Select (empty value is reserved). */
@@ -144,15 +151,28 @@ export function AddMemberDialog({
   committees = [],
   memberTypes = [],
   existingMembers = [],
+  excludeMemberTypes = [],
 }: AddMemberDialogProps) {
   const addMember = useAddBosMember();
 
   // Member type — table-driven when the institution has bos_member_types rows,
   // legacy hardcoded enum otherwise. Defaults are derived (not effect-synced):
   // null state = "user hasn't picked yet" → first row by sort_order.
+  // excludeMemberTypes hides types the caller doesn't allow (e.g. AC hides
+  // 'chairman'); applied to the table-driven list by base_type.
   const activeMemberTypes = useMemo(
-    () => memberTypes.filter((t) => t.is_active),
-    [memberTypes],
+    () =>
+      memberTypes.filter(
+        (t) => t.is_active && !excludeMemberTypes.includes(t.base_type),
+      ),
+    [memberTypes, excludeMemberTypes],
+  );
+  const legacyMemberTypeEntries = useMemo(
+    () =>
+      (Object.entries(BOS_MEMBER_TYPE_LABELS) as [BosMemberType, string][]).filter(
+        ([value]) => !excludeMemberTypes.includes(value),
+      ),
+    [excludeMemberTypes],
   );
   const [memberTypeId, setMemberTypeId] = useState<string | null>(null);
   const [legacyMemberType, setLegacyMemberType] = useState<BosMemberType>('internal_member');
@@ -355,7 +375,7 @@ export function AddMemberDialog({
         }
       }}
     >
-      <DialogContent className='max-w-md'>
+      <DialogContent className='max-w-md max-h-[85vh] overflow-y-auto'>
         <DialogHeader>
           <DialogTitle>Add Member</DialogTitle>
         </DialogHeader>
@@ -416,7 +436,7 @@ export function AddMemberDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(BOS_MEMBER_TYPE_LABELS).map(([value, label]) => (
+                  {legacyMemberTypeEntries.map(([value, label]) => (
                     <SelectItem key={value} value={value}>
                       {label}
                     </SelectItem>
@@ -510,7 +530,7 @@ export function AddMemberDialog({
 // ── Facilitator picker ────────────────────────────────────────────────────────
 // Renders inline (no Popover portal) to avoid Radix Dialog focus-trap conflicts.
 
-function FacilitatorPicker({
+export function FacilitatorPicker({
   institutionsId,
   selected,
   onSelect,
@@ -645,7 +665,7 @@ function FacilitatorPicker({
 
 // ── Expert picker ─────────────────────────────────────────────────────────────
 
-function ExpertPicker({
+export function ExpertPicker({
   memberType,
   selected,
   onSelect,

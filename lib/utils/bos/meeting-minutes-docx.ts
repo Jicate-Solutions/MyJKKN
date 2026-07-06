@@ -32,6 +32,7 @@ import {
   Table,
   TableRow,
   TableCell,
+  TableLayoutType,
   WidthType,
   AlignmentType,
   BorderStyle,
@@ -144,9 +145,13 @@ const ALL_BORDERS = {
 
 function cellText(
   text: string,
-  opts?: { bold?: boolean; size?: number; align?: AlignmentType; shading?: string },
+  opts?: { bold?: boolean; size?: number; align?: AlignmentType; shading?: string; width?: number },
 ): TableCell {
   return new TableCell({
+    // Explicit cell width is required for Word to honor column proportions under
+    // a FIXED table layout; without it Word autofits to content and the columns
+    // drift out of alignment.
+    width: opts?.width ? { size: opts.width, type: WidthType.DXA } : undefined,
     children: [
       new Paragraph({
         alignment: opts?.align ?? AlignmentType.LEFT,
@@ -209,8 +214,8 @@ function sectionHeading(text: string): Paragraph {
 
 // ── Section builders ─────────────────────────────────────────────────────────
 
-function buildLetterhead(header: BosPdfHeader): Paragraph[] {
-  const paras: Paragraph[] = [];
+function buildLetterhead(header: BosPdfHeader): (Paragraph | Table)[] {
+  const paras: (Paragraph | Table)[] = [];
 
   paras.push(
     new Paragraph({
@@ -276,8 +281,11 @@ function buildLetterhead(header: BosPdfHeader): Paragraph[] {
       right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
     };
 
+    const halfWidth = Math.round(CONTENT_WIDTH_DXA / 2);
     const officialsTable = new Table({
       width: { size: CONTENT_WIDTH_DXA, type: WidthType.DXA },
+      columnWidths: [halfWidth, halfWidth],
+      layout: TableLayoutType.FIXED,
       borders: {
         top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
         bottom: { style: BorderStyle.SINGLE, size: 8, color: '000000' },
@@ -290,6 +298,7 @@ function buildLetterhead(header: BosPdfHeader): Paragraph[] {
         new TableRow({
           children: [
             new TableCell({
+              width: { size: halfWidth, type: WidthType.DXA },
               borders: noBorders,
               children: [
                 new Paragraph({
@@ -307,6 +316,7 @@ function buildLetterhead(header: BosPdfHeader): Paragraph[] {
               ],
             }),
             new TableCell({
+              width: { size: halfWidth, type: WidthType.DXA },
               borders: noBorders,
               children: [
                 new Paragraph({
@@ -332,18 +342,12 @@ function buildLetterhead(header: BosPdfHeader): Paragraph[] {
       ],
     });
 
-    // Wrap the table in a paragraph reference container — docx wants these
-    // top-level in the section children list, so caller appends officialsTable
-    // separately via the extras returned below. For now we leave a marker
-    // paragraph; the document assembly stitches the parts together.
-    paras.push(
-      new Paragraph({
-        children: [new TextRun({ text: '__OFFICIALS_TABLE__', font: FONT, size: 1 })],
-      }),
-    );
-    // Stash the actual table reference on a global symbol — gross but tidy
-    // alternatives require a bigger refactor. The caller swaps the marker.
-    (paras as unknown as { _officialsTable?: Table })._officialsTable = officialsTable;
+    // Push the officials table directly into the letterhead block. (docx allows
+    // Paragraph and Table siblings in a section's children list, so no marker /
+    // stash indirection is needed — the previous marker-swap relied on reading
+    // the docx library's private Paragraph internals and silently dropped this
+    // whole Secretary/Principal block when that access didn't resolve.)
+    paras.push(officialsTable);
   }
 
   return paras;
@@ -389,11 +393,11 @@ function buildAttendanceTable(attendees: BosMeetingAttendee[]): Table {
   const header = new TableRow({
     tableHeader: true,
     children: [
-      cellText('S.No', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6' }),
-      cellText('Name', { bold: true, shading: 'E6E6E6' }),
-      cellText('Designation', { bold: true, shading: 'E6E6E6' }),
-      cellText('Status', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6' }),
-      cellText('Signature', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6' }),
+      cellText('S.No', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6', width: colWidths[0] }),
+      cellText('Name', { bold: true, shading: 'E6E6E6', width: colWidths[1] }),
+      cellText('Designation', { bold: true, shading: 'E6E6E6', width: colWidths[2] }),
+      cellText('Status', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6', width: colWidths[3] }),
+      cellText('Signature', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6', width: colWidths[4] }),
     ],
   });
 
@@ -404,11 +408,11 @@ function buildAttendanceTable(attendees: BosMeetingAttendee[]): Table {
     const isPresent = a.attendance_status === 'present';
     return new TableRow({
       children: [
-        cellText(String(i + 1), { align: AlignmentType.CENTER }),
-        cellText(m?.display_name ?? '—'),
-        cellText(m?.display_designation ?? ''),
-        cellText(isPresent ? 'Present' : 'Absent', { align: AlignmentType.CENTER }),
-        cellText('', { align: AlignmentType.CENTER }), // blank — signed in person
+        cellText(String(i + 1), { align: AlignmentType.CENTER, width: colWidths[0] }),
+        cellText(m?.display_name ?? '—', { width: colWidths[1] }),
+        cellText(m?.display_designation ?? '', { width: colWidths[2] }),
+        cellText(isPresent ? 'Present' : 'Absent', { align: AlignmentType.CENTER, width: colWidths[3] }),
+        cellText('', { align: AlignmentType.CENTER, width: colWidths[4] }), // blank — signed in person
       ],
     });
   });
@@ -416,6 +420,7 @@ function buildAttendanceTable(attendees: BosMeetingAttendee[]): Table {
   return new Table({
     width: { size: CONTENT_WIDTH_DXA, type: WidthType.DXA },
     columnWidths: colWidths,
+    layout: TableLayoutType.FIXED,
     rows: [header, ...body],
   });
 }
@@ -484,6 +489,7 @@ function buildSignaturesTable(attendees: BosMeetingAttendee[]): Table | null {
       m.address ?? '',
     ].filter((s) => s && s.trim().length > 0);
     return new TableCell({
+      width: { size: colWidths[1], type: WidthType.DXA },
       borders: ALL_BORDERS,
       children: lines.map(
         (text) =>
@@ -497,9 +503,9 @@ function buildSignaturesTable(attendees: BosMeetingAttendee[]): Table | null {
   const header = new TableRow({
     tableHeader: true,
     children: [
-      cellText('S.No', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6' }),
-      cellText('Members', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6' }),
-      cellText('Signature', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6' }),
+      cellText('S.No', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6', width: colWidths[0] }),
+      cellText('Members', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6', width: colWidths[1] }),
+      cellText('Signature', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6', width: colWidths[2] }),
     ],
   });
 
@@ -507,11 +513,12 @@ function buildSignaturesTable(attendees: BosMeetingAttendee[]): Table | null {
     (m, idx) =>
       new TableRow({
         children: [
-          cellText(String(idx + 1), { align: AlignmentType.CENTER }),
+          cellText(String(idx + 1), { align: AlignmentType.CENTER, width: colWidths[0] }),
           memberCell(m),
           // Blank signature cell — needs visible borders so the user can see
           // where to sign on a printed copy.
           new TableCell({
+            width: { size: colWidths[2], type: WidthType.DXA },
             borders: ALL_BORDERS,
             children: [new Paragraph({ children: [new TextRun({ text: '' })] })],
           }),
@@ -522,6 +529,7 @@ function buildSignaturesTable(attendees: BosMeetingAttendee[]): Table | null {
   return new Table({
     width: { size: CONTENT_WIDTH_DXA, type: WidthType.DXA },
     columnWidths: colWidths,
+    layout: TableLayoutType.FIXED,
     rows: [header, ...body],
   });
 }
@@ -670,6 +678,7 @@ function buildChangesLogTable(
   return new Table({
     width: { size: CONTENT_WIDTH_DXA, type: WidthType.DXA },
     columnWidths: colWidths,
+    layout: TableLayoutType.FIXED,
     rows: [header, ...body],
   });
 }
@@ -763,25 +772,11 @@ export interface MinutesDocxParams {
 export function buildMinutesDocxDoc(params: MinutesDocxParams): Document {
   const { header, meeting, attendees, agendaItems, chairmanName, boardName } = params;
 
-  // Helper to materialize the letterhead block, swapping the officials-table
-  // marker for the actual Table reference. Called twice — once for page 1
-  // (attendance sheet) and once for page 2 (minutes), so each printed page
-  // shows the institution banner.
-  const renderLetterhead = (): (Paragraph | Table)[] => {
-    const paras = buildLetterhead(header);
-    const officialsTable = (paras as unknown as { _officialsTable?: Table })._officialsTable;
-    const out: (Paragraph | Table)[] = [];
-    for (const p of paras) {
-      const text =
-        (p.options as unknown as { children?: Array<{ text?: string }> })?.children?.[0]?.text;
-      if (text === '__OFFICIALS_TABLE__') {
-        if (officialsTable) out.push(officialsTable);
-        continue;
-      }
-      out.push(p);
-    }
-    return out;
-  };
+  // Materialize the letterhead block (institution banner + officials table).
+  // Called once per printed page (attendance sheet, minutes, signatures) so each
+  // page carries the institution header. buildLetterhead now returns the mixed
+  // Paragraph/Table list ready to splice into the section children.
+  const renderLetterhead = (): (Paragraph | Table)[] => buildLetterhead(header);
 
   const children: (Paragraph | Table)[] = [];
   const presentTotal = attendees.filter((a) => a.attendance_status === 'present').length;

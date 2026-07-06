@@ -23,12 +23,10 @@ import type {
 } from '@/types/campus-living';
 import { getLearnerColumns } from './learners-columns';
 import { LearnersFilters } from './learners-filters';
-import { RemoveHosteliteDialog } from './remove-hostelite-dialog';
 import { AddLearnerToHostelDialog } from './add-learner-to-hostel-dialog';
 import { EditHosteliteDrawer } from './edit-hostelite-drawer';
 import { LearnerDetailDrawer } from './learner-detail-drawer';
 import { AllocateRoomDialog } from './allocate-room-dialog';
-import { TransferDialog } from '../../allocations/_components/transfer-dialog';
 
 // Export schema for the Hostel Residents (Learners) table — the single source of
 // truth for the CSV/XLSX columns, their labels, and their widths (in column
@@ -114,10 +112,11 @@ export function LearnersTab() {
   // the inline allocate dialog.
   const [detailLearner, setDetailLearner] = useState<LearnerHostelite | null>(null);
   const [editTarget, setEditTarget] = useState<LearnerHostelite | null>(null);
-  const [removeTarget, setRemoveTarget] = useState<LearnerHostelite | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  // allocateTarget is set only from the detail drawer's "Allocate" CTA —
+  // 2026-07-06: the row-action allocation entries (allocate / change bed /
+  // remove) moved exclusively to the Allocations module.
   const [allocateTarget, setAllocateTarget] = useState<LearnerHostelite | null>(null);
-  const [transferTarget, setTransferTarget] = useState<LearnerHostelite | null>(null);
   const [refetchKey, setRefetchKey] = useState(0);
 
   // Build cascade filters from URL params. The closure captures these values,
@@ -186,16 +185,12 @@ export function LearnersTab() {
     () =>
       getLearnerColumns({
         canEdit,
-        canAllocate,
         isSuperAdmin,
         instName,
         onView: (l) => setDetailLearner(l),
         onEdit: (l) => setEditTarget(l),
-        onRemove: (l) => setRemoveTarget(l),
-        onAllocate: (l) => setAllocateTarget(l),
-        onChangeRoom: (l) => setTransferTarget(l),
       }),
-    [canEdit, canAllocate, isSuperAdmin, instName],
+    [canEdit, isSuperAdmin, instName],
   );
 
   // Complete-detail export config. The transform flattens each view row (plus the
@@ -281,7 +276,6 @@ export function LearnersTab() {
       </div>
 
       {/* Drawers + dialogs */}
-      <RemoveHosteliteDialog learner={removeTarget} onClose={() => setRemoveTarget(null)} />
       <EditHosteliteDrawer learner={editTarget} onClose={() => setEditTarget(null)} />
       <AddLearnerToHostelDialog open={addOpen} onOpenChange={setAddOpen} institutionId={effectiveInstitutionId} />
       <LearnerDetailDrawer
@@ -300,24 +294,6 @@ export function LearnersTab() {
         onClose={() => setAllocateTarget(null)}
         onSuccess={() => { setAllocateTarget(null); setRefetchKey((k) => k + 1); }}
       />
-      {transferTarget && (
-        <TransferDialog
-          allocationId={transferTarget.current_allocation_id!}
-          currentBlockId={transferTarget.current_block_id}
-          currentRoomId={transferTarget.current_room_id}
-          currentBedId={transferTarget.current_bed_id}
-          current={{
-            learnerName: [transferTarget.first_name, transferTarget.last_name].filter(Boolean).join(' ') || null,
-            blockName: transferTarget.current_block_name ?? null,
-            roomNumber: transferTarget.current_room_number ?? null,
-            bedNumber: transferTarget.current_bed_number ?? null,
-            roomCategory: transferTarget.hostel_category_name ?? null,
-          }}
-          open={!!transferTarget}
-          onOpenChange={(o) => { if (!o) setTransferTarget(null); }}
-          onSuccess={() => { setTransferTarget(null); setRefetchKey((k) => k + 1); }}
-        />
-      )}
     </div>
   );
 }

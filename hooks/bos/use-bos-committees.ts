@@ -10,6 +10,8 @@ export const bosCommitteeKeys = {
   all: ['bos-committees'] as const,
   byInstitutions: (csv: string) =>
     [...bosCommitteeKeys.all, 'institutions', csv] as const,
+  byComposition: (compositionId: string) =>
+    [...bosCommitteeKeys.all, 'composition', compositionId] as const,
 };
 
 async function parseError(res: Response, fallback: string): Promise<never> {
@@ -30,13 +32,22 @@ const committeeSort = (a: BosCommittee, b: BosCommittee) =>
 
 /** Does the row belong in the list cached under this query key? */
 function rowMatchesListKey(key: readonly unknown[], row: BosCommittee): boolean {
-  // Key shape: ['bos-committees', 'institutions', <csv>, <isActive|'all'>]
-  const csv = key[2];
+  const scope = key[1]; // 'institutions' | 'composition'
+  const scopeValue = key[2];
   const isActive = key[3];
-  if (typeof csv === 'string' && csv !== '' && !csv.split(',').includes(row.institutions_id)) {
+  if (typeof isActive === 'boolean' && isActive !== row.is_active) {
     return false;
   }
-  if (typeof isActive === 'boolean' && isActive !== row.is_active) {
+  if (scope === 'composition') {
+    // Key shape: ['bos-committees', 'composition', <compositionId>, <isActive|'all'>]
+    return typeof scopeValue !== 'string' || row.composition_id === scopeValue;
+  }
+  // Key shape: ['bos-committees', 'institutions', <csv>, <isActive|'all'>]
+  if (
+    typeof scopeValue === 'string' &&
+    scopeValue !== '' &&
+    !scopeValue.split(',').includes(row.institutions_id)
+  ) {
     return false;
   }
   return true;
@@ -88,6 +99,34 @@ export function useBosCommittees(
       return json.data ?? [];
     },
     enabled: options?.enabled ?? institutionsIdsCsv != null,
+    ...QUERY_CONFIG.SEMI_STABLE_DATA,
+  });
+}
+
+/**
+ * Committees owned by one composition (20260706). This is what the composition
+ * detail page and Add Member dialog use — each composition has its own set.
+ * Pass null/undefined while the id resolves to keep the query disabled.
+ */
+export function useBosCommitteesByComposition(
+  compositionId: string | null | undefined,
+  options?: { isActive?: boolean; enabled?: boolean }
+) {
+  return useQuery<BosCommittee[], Error>({
+    queryKey: [
+      ...bosCommitteeKeys.byComposition(compositionId ?? ''),
+      options?.isActive ?? 'all',
+    ],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (compositionId) params.set('compositionId', compositionId);
+      if (options?.isActive !== undefined) params.set('isActive', String(options.isActive));
+      const res = await fetch(`/api/bos/committees?${params.toString()}`);
+      if (!res.ok) await parseError(res, 'Failed to fetch committees');
+      const json = await res.json();
+      return json.data ?? [];
+    },
+    enabled: options?.enabled ?? (compositionId != null && compositionId !== ''),
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
 }
