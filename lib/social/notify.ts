@@ -53,7 +53,15 @@ export async function deliverInApp(
       .select('id')
       .eq('idempotency_key', opts.idempotencyKey)
       .maybeSingle();
-    if (existing) return 'duplicate';
+    if (existing) {
+      // Self-heal: the shared row exists, but a PRIOR tick may have crashed / timed
+      // out AFTER inserting `notifications` and BEFORE the fan-out (a window no
+      // in-process compensation can cover). Ensure the recipient's user_notifications
+      // row exists before returning 'duplicate', so an orphan is delivered on this
+      // tick rather than being marked done-yet-lost.
+      await ensureFanout(admin, existing.id, opts.recipientId);
+      return 'duplicate';
+    }
 
     const { data: notif, error: insErr } = await admin
       .from('notifications')
@@ -78,8 +86,18 @@ export async function deliverInApp(
       .single();
 
     if (insErr || !notif) {
-      // 23505 = another tick raced us to the same idempotency_key → already delivered.
-      if ((insErr as { code?: string } | null)?.code === '23505') return 'duplicate';
+      // 23505 = another tick raced us to the same idempotency_key. The winner's row
+      // exists; ensure its fan-out landed (the winner may still be mid-flight or have
+      // crashed between its two writes) before reporting duplicate.
+      if ((insErr as { code?: string } | null)?.code === '23505') {
+        const { data: raced } = await admin
+          .from('notifications')
+          .select('id')
+          .eq('idempotency_key', opts.idempotencyKey)
+          .maybeSingle();
+        if (raced) await ensureFanout(admin, raced.id, opts.recipientId);
+        return 'duplicate';
+      }
       return 'error';
     }
 
@@ -87,10 +105,9 @@ export async function deliverInApp(
       .from('user_notifications')
       .insert({ notification_id: notif.id, user_id: opts.recipientId });
     if (fanoutErr) {
-      // Compensate: without the fan-out the recipient sees nothing, yet the shared
-      // notifications row now exists — so a retry's dedup pre-check would return
-      // 'duplicate' and the caller would mark it delivered, permanently losing it.
-      // Delete the orphan so the next tick cleanly redoes BOTH writes.
+      // In-process fan-out failure: delete the orphan so the next tick cleanly redoes
+      // both writes. (If this delete itself fails, the self-heal branch above recovers
+      // the orphan on the next tick — belt and suspenders.)
       await admin.from('notifications').delete().eq('id', notif.id);
       return 'error';
     }
@@ -98,5 +115,23 @@ export async function deliverInApp(
     return 'delivered';
   } catch {
     return 'error';
+  }
+}
+
+/** Ensure exactly one user_notifications row exists for (notification, user).
+ *  Idempotent recovery for an orphaned notifications row whose fan-out never landed. */
+async function ensureFanout(
+  admin: SupabaseClient,
+  notificationId: string,
+  userId: string,
+): Promise<void> {
+  const { data } = await admin
+    .from('user_notifications')
+    .select('id')
+    .eq('notification_id', notificationId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (!data) {
+    await admin.from('user_notifications').insert({ notification_id: notificationId, user_id: userId });
   }
 }

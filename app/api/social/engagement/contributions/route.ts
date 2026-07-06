@@ -184,10 +184,18 @@ export async function PATCH(request: Request): Promise<NextResponse<Contribution
       if (!contrib) {
         return NextResponse.json({ success: false, error: 'Not found or not permitted.' }, { status: 403 });
       }
-      const { data: recent } = await supabase.rpc('fn_social_recent_posts_for_handle', {
+      const { data: recent, error: recentErr } = await supabase.rpc('fn_social_recent_posts_for_handle', {
         p_dept_account_id: (contrib as { dept_account_id: string }).dept_account_id,
         p_limit: 50,
       });
+      if (recentErr) {
+        // A transient RPC failure must not masquerade as "post not found" (a misleading
+        // 400 for a legitimate post). Surface it honestly so the owner can retry.
+        return NextResponse.json(
+          { success: false, error: `Could not verify the post right now: ${recentErr.message}` },
+          { status: 500 },
+        );
+      }
       const belongs = ((recent as Array<{ post_id: string }> | null) ?? []).some(
         (p) => p.post_id === body.ig_post_id,
       );
