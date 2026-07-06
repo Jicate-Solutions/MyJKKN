@@ -129,8 +129,17 @@ function ProgressSummary({
   examId: string;
 }) {
   const { data, isLoading } = useStudentProgress(studentId, examId);
+  // The weakness map is the ground-truth attempts signal; the progress-summary
+  // RPC (fn_fp_student_progress) can lag behind it. Read it here so this strip
+  // never claims "no attempts" while the map below shows topics the student has
+  // already attempted.
+  const { data: weaknessRows, isLoading: weaknessLoading } = useWeaknessMap(
+    studentId,
+    examId,
+  );
 
-  if (isLoading) return <Skeleton className="h-24 w-full rounded-xl" />;
+  if (isLoading || weaknessLoading)
+    return <Skeleton className="h-24 w-full rounded-xl" />;
   const p = (data ?? {}) as StudentProgress;
 
   const cells: { label: string; value: string }[] = [];
@@ -152,6 +161,17 @@ function ProgressSummary({
   push('Topics tracked', p.topics_tracked);
   push('Weak topics', p.topics_weak);
 
+  // Fallback: if the progress RPC returned nothing usable but the weakness map
+  // has rows, derive the strip from the map so it stays consistent with what the
+  // student clearly has (attempts + tracked topics) instead of contradicting it.
+  const rows = weaknessRows ?? [];
+  if (cells.length === 0 && rows.length > 0) {
+    const mapAttempts = rows.reduce((sum, r) => sum + (r.attempts_count ?? 0), 0);
+    if (mapAttempts > 0) push('Attempts', mapAttempts);
+    push('Topics tracked', rows.length);
+  }
+
+  // Only the genuinely-empty state (no summary AND no attempted topics) shows this.
   if (cells.length === 0) {
     return (
       <div className="rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">
