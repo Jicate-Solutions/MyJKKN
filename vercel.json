@@ -278,6 +278,10 @@
     {
       "path": "/api/schools-network/visit-nudges/cron?secret=${CRON_SECRET}",
       "schedule": "13 4 * * *"
+    },
+    {
+      "path": "/api/cron/induction-mentorship-rollover?secret=${CRON_SECRET}",
+      "schedule": "17 3 * * *"
     }
   ]
 }
