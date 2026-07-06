@@ -91,10 +91,10 @@ export const GUIDES: GuideBook = {
               link: { label: "Open Class Feedback", href: "/learners/class-feedback" },
             },
             {
-              action: "Not sure which classes still need confirming? Open **My Attendance Feedback** for the full pending list.",
+              action: "Not sure which classes still need confirming? Open **Class Feedback** for the full pending list.",
               detail:
-                "This is the one place that lists every class waiting on your confirmation.",
-              link: { label: "Open Attendance Feedback", href: "/learners/my-attendance-feedback" },
+                "This is the one place that lists every class waiting on your confirmation — and, lower down, the ones you've already confirmed.",
+              link: { label: "Open Class Feedback", href: "/learners/class-feedback" },
             },
           ],
         },

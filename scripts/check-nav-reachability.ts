@@ -93,6 +93,10 @@ const NAV_EXCLUDE = new Set<string>([
   '/staff',
   '/startup-studio',
   '/okr/admin',
+  // 2026-07-06: "My Attendance Feedback" tab consolidated into Class Feedback
+  // (one feedback tab, not two). This route now 307-redirects to
+  // /learners/class-feedback; kept for old bookmarks/deep-links, no chip.
+  '/learners/my-attendance-feedback',
 
   // ────────────────────────────────────────────────────────────
   // 2026-06-10 admin-cluster relocation — admission (counselors +
