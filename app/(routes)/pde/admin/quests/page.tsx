@@ -37,7 +37,6 @@ import {
   MoreHorizontal,
   Pencil,
   Archive,
-  RotateCcw,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -46,7 +45,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { toast } from 'sonner';
 import type { PDEQuest, QuestType, QuestDifficulty, QuestStatus } from '@/types/pde';
 
 // ============================================
@@ -90,42 +88,6 @@ export default function AdminQuestsPage() {
     quest_type: filterType !== 'all' ? (filterType as QuestType) : undefined,
   });
   const updateStatus = useUpdateQuestStatus();
-  const [resettingId, setResettingId] = useState<string | null>(null);
-
-  // Clean reset of a quest's pilot data — wipes its sign-ups and scores so the
-  // pilot can be run again from zero. Guarded by a confirm() because it is a
-  // permanent, unrecoverable delete. Server enforces super-admin (see the POST
-  // route); this UI is already inside a super-admin PermissionGuard.
-  const handleResetPilot = async (questId: string, title: string) => {
-    if (
-      !window.confirm(
-        `Reset ALL pilot data for "${title}"?\n\n` +
-          'This permanently deletes every sign-up and score for this quest so ' +
-          'the pilot can start over. This cannot be undone.'
-      )
-    ) {
-      return;
-    }
-    setResettingId(questId);
-    try {
-      const res = await fetch(`/api/pde/admin/quests/${questId}/reset`, {
-        method: 'POST',
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        throw new Error(json?.error || 'Reset failed');
-      }
-      const enr = json?.data?.deleted_enrollments ?? 0;
-      const subs = json?.data?.deleted_submissions ?? 0;
-      toast.success(
-        `Pilot reset for "${title}": removed ${enr} sign-up(s) and ${subs} score(s).`
-      );
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to reset pilot data');
-    } finally {
-      setResettingId(null);
-    }
-  };
 
   const filtered = (quests || []).filter((q: PDEQuest) => {
     if (!search.trim()) return true;
@@ -328,14 +290,6 @@ export default function AdminQuestsPage() {
                                   Archive
                                 </DropdownMenuItem>
                               )}
-                              <DropdownMenuItem
-                                onClick={() => handleResetPilot(quest.id, quest.title)}
-                                disabled={resettingId === quest.id}
-                                className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
-                              >
-                                <RotateCcw className="mr-2 h-4 w-4" />
-                                {resettingId === quest.id ? 'Resetting…' : 'Reset pilot data'}
-                              </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
