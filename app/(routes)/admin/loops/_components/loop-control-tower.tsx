@@ -253,6 +253,38 @@ export function LoopControlTower({
                 </div>
               )}
 
+              {loop.examples && loop.examples.length > 0 && (
+                <div className="mx-5 border-t border-border py-3 pl-1">
+                  <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.09em] text-muted-foreground/70">
+                    Latest work · what it actually produced
+                  </p>
+                  <ul className="space-y-2">
+                    {loop.examples.map((ex, i) => (
+                      <li key={i} className="text-[12.5px] leading-snug">
+                        <span className="font-mono text-[11px] font-semibold text-foreground/90">
+                          {ex.ref}
+                        </span>
+                        <span className="text-muted-foreground"> · {ex.who}</span>
+                        {ex.tag && (
+                          <span className="ml-1.5 rounded bg-muted px-1.5 py-0.5 font-mono text-[9.5px] uppercase tracking-wide text-muted-foreground">
+                            {ex.tag}
+                          </span>
+                        )}
+                        <span className="mt-0.5 block text-muted-foreground">{ex.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {loop.verifyHref && (
+                    <a
+                      href={loop.verifyHref}
+                      className="mt-2.5 inline-block text-[12px] font-medium text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-400"
+                    >
+                      {loop.verifyLabel ?? 'Verify →'}
+                    </a>
+                  )}
+                </div>
+              )}
+
               <div className="mx-5 border-t border-border py-2.5 pl-1 text-[12.5px] text-muted-foreground">
                 {loop.noteTag && (
                   <span className="mr-1.5 font-mono text-[10px] uppercase tracking-[0.09em] text-muted-foreground/70">
