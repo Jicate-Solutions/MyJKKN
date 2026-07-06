@@ -31,28 +31,28 @@ export const GUIDES: GuideBook = {
         "Apply for leave, confirm your attendance with feedback, and check your privileges.",
       whyItMatters:
         "Two small habits keep your record clean: apply for leave before you miss class, and give one-tap feedback after each session so your attendance is confirmed instead of left pending.",
-      startHere: { label: "Give Class Feedback", href: "/learners/class-feedback" },
-      journey: ["Give class feedback", "Check it confirmed", "Apply for leave", "See your privileges"],
+      startHere: { label: "Give Learning Studio Feedback", href: "/learners/class-feedback" },
+      journey: ["Give learning studio feedback", "Check it confirmed", "Apply for leave", "See your privileges"],
       sections: [
         {
           id: "feedback",
           title: "Confirm attendance with feedback",
           steps: [
             {
-              action: "After a class, open **Give Class Feedback** and finish the short checklist.",
+              action: "After a class, open **Give Learning Studio Feedback** and finish the short checklist.",
               detail:
                 "It is a 10-second checklist plus a 'did I understand?' question. Submitting it confirms your attendance for that session.",
               platforms: {
-                web: "left sidebar → Academic → Session Feedback → Give Class Feedback",
+                web: "left sidebar → Academic → Session Feedback → Give Learning Studio Feedback",
                 mobile: "tap the menu (☰) → Academic → Session Feedback",
               },
-              link: { label: "Give Class Feedback", href: "/learners/class-feedback" },
+              link: { label: "Give Learning Studio Feedback", href: "/learners/class-feedback" },
             },
             {
-              action: "Open **Class Feedback** to see which sessions are confirmed.",
+              action: "Open **Learning Studio Feedback** to see which sessions are confirmed.",
               detail:
                 "Anything still marked present-pending means you have not given feedback yet — finish it so it counts. The confirmed list is under “Confirmed this month” on that page.",
-              link: { label: "Open Class Feedback", href: "/learners/class-feedback" },
+              link: { label: "Open Learning Studio Feedback", href: "/learners/class-feedback" },
             },
           ],
         },

@@ -135,7 +135,7 @@ export function LearnerNotesApprovalQueue() {
           <p className="text-sm text-muted-foreground">
             AI-drafted support notes for struggling students. A student never sees a note
             until you approve it here. Read the full wording — approving publishes it to
-            that student&apos;s Class Feedback page.
+            that student&apos;s Learning Studio Feedback page.
           </p>
           <p className="text-xs text-muted-foreground">
             Waiting for review:{' '}
@@ -261,7 +261,7 @@ export function LearnerNotesApprovalQueue() {
             <AlertDialogTitle>Approve all pending notes?</AlertDialogTitle>
             <AlertDialogDescription>
               You are approving {pendingCount} note{pendingCount === 1 ? '' : 's'} students
-              will see. Each student gets their note on their Class Feedback page
+              will see. Each student gets their note on their Learning Studio Feedback page
               immediately. This cannot be undone from this screen.
             </AlertDialogDescription>
           </AlertDialogHeader>

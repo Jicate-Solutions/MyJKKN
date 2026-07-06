@@ -83,18 +83,18 @@ export const GUIDES: GuideBook = {
               link: { label: "Open My Attendance", href: "/learners/my-attendance" },
             },
             {
-              action: "Confirm your recent classes in **Class Feedback** — it takes about 10 seconds each.",
+              action: "Confirm your recent classes in **Learning Studio Feedback** — it takes about 10 seconds each.",
               detail:
                 "After a class you give a quick feedback, and that confirms you were present. Classes stay 'present-pending' until you confirm them.",
               prerequisite:
                 "Do this within the window after each class. If you skip it, that class may not be counted as attended.",
-              link: { label: "Open Class Feedback", href: "/learners/class-feedback" },
+              link: { label: "Open Learning Studio Feedback", href: "/learners/class-feedback" },
             },
             {
-              action: "Not sure which classes still need confirming? Open **Class Feedback** for the full pending list.",
+              action: "Not sure which classes still need confirming? Open **Learning Studio Feedback** for the full pending list.",
               detail:
                 "This is the one place that lists every class waiting on your confirmation — and, lower down, the ones you've already confirmed.",
-              link: { label: "Open Class Feedback", href: "/learners/class-feedback" },
+              link: { label: "Open Learning Studio Feedback", href: "/learners/class-feedback" },
             },
           ],
         },

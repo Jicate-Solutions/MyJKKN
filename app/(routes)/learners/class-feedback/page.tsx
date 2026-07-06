@@ -27,6 +27,11 @@ import { MyConfirmedAttendanceCard } from '@/components/session-feedback/my-conf
 
 const BRAND = '#0b6d41';
 
+// Nav label override read by scripts/generate-route-manifest.ts — renames the
+// auto-generated tab-strip / manifest label to the JKKN house term
+// "Learning Studio Feedback" (the URL stays /learners/class-feedback).
+export const navMeta = { label: 'Learning Studio Feedback' };
+
 // Decision #11 (2026-07-05): feedback confirms attendance ONLY within this window of the
 // class. Mirrors the server-side session_feedback.window_hours default (48h). This is a
 // UX hint — the confirmed-attendance fns are the source of truth for the actual count.
@@ -82,11 +87,11 @@ export default function LearnerSessionFeedbackPage() {
   const confirmed = (confirmRows ?? []).filter((r) => r.confirmed === true);
 
   return (
-    <ContentLayout title="Class Feedback">
+    <ContentLayout title="Learning Studio Feedback">
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Class Feedback' },
+          { label: 'Learning Studio Feedback' },
         ]}
       />
 
@@ -95,7 +100,7 @@ export default function LearnerSessionFeedbackPage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
           <div>
             <h1 className="text-2xl font-bold py-1" style={{ color: BRAND }}>
-              Class Feedback
+              Learning Studio Feedback
             </h1>
             <p className="text-sm text-muted-foreground">
               A quick 10-second check after each class. Give it within {CONFIRM_WINDOW_HOURS} hours to confirm your attendance.
