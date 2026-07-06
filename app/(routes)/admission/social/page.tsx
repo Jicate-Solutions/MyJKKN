@@ -73,6 +73,33 @@ export default function SocialAdminIndexPage() {
               </Link>
             </CardContent>
           </Card>
+
+          <Card className="hover:shadow-md transition-shadow">
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-3">
+                <div className="rounded-lg bg-gradient-to-br from-fuchsia-500 to-amber-500 p-2">
+                  <Sparkles className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <CardTitle className="text-base">Engagement</CardTitle>
+                  <CardDescription className="text-xs">
+                    Turn a broadcast handle into a loop
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-4">
+                Set a handle&apos;s brief, review member contributions, run the weekly
+                contributor rota, and resolve concerns.
+              </p>
+              <Link href="/admission/social/engagement">
+                <Button size="sm" className="w-full">
+                  Open Console
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </ContentLayout>
