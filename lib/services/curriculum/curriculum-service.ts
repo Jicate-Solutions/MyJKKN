@@ -43,6 +43,48 @@ export interface MyTopic {
 
 export interface BosClo { clo_number: number; description: string; k_values: string[] }
 
+/** One outcome statement on a lesson (Fink/Bloom/co_ref tagged). */
+export interface LessonOutcome {
+  text: string;
+  fink_dimension?: FinkDimension | string;
+  bloom_level?: string;   // K1..K6
+  co_ref?: string;        // CLO number this outcome maps to
+  ltl_phase?: string;
+}
+
+/** A Phase-2 AI draft artefact (lesson / brief) awaiting faculty review. */
+export interface DraftArtifact {
+  id: string;
+  artifact_kind: 'lesson' | 'concept_brief' | 'capstone_brief';
+  title: string;
+  unit_label: string | null;
+  sequence_no: number | null;
+  learning_outcomes: LessonOutcome[];
+  primary_fink_dimension: FinkDimension | null;
+  co_refs: string[];
+  source: 'bos_ai' | 'title_ai';
+  bos_syllabus_id: string | null;
+  created_at: string;
+}
+
+/** A course that has AI draft lessons pending faculty approval (review inbox). */
+export interface CourseWithPendingDrafts {
+  course_id: string;
+  course_code: string;
+  course_name: string;
+  institution_id: string;
+  draft_count: number;
+}
+
+export const BLOOM_OPTIONS: { value: string; label: string }[] = [
+  { value: 'K1', label: 'K1 · Remember' },
+  { value: 'K2', label: 'K2 · Understand' },
+  { value: 'K3', label: 'K3 · Apply' },
+  { value: 'K4', label: 'K4 · Analyze' },
+  { value: 'K5', label: 'K5 · Evaluate' },
+  { value: 'K6', label: 'K6 · Create' },
+];
+
 export const FINK_OPTIONS: { value: FinkDimension; label: string }[] = [
   { value: 'foundational', label: 'Understand (foundational)' },
   { value: 'application', label: 'Apply' },
@@ -118,5 +160,66 @@ export class CurriculumService {
     const { data, error } = await getSupabase().rpc('fn_curriculum_topic_for_learner');
     if (error) throw error;
     return (data as any[]) ?? [];
+  }
+
+  // ── Phase 2: AI lesson-spine review + approve (drafts-gated) ────────────────
+
+  /** Courses that have AI draft lessons pending this reviewer's approval (#Phase2). */
+  static async coursesWithPendingDrafts(): Promise<CourseWithPendingDrafts[]> {
+    const { data, error } = await getSupabase().rpc('fn_curriculum_courses_with_pending_ai_drafts');
+    if (error) throw error;
+    return ((data as any[]) ?? []).map((r) => ({
+      course_id: r.course_id,
+      course_code: r.course_code,
+      course_name: r.course_name,
+      institution_id: r.institution_id,
+      draft_count: Number(r.draft_count ?? 0),
+    }));
+  }
+
+  /** The AI draft spine (lessons + briefs) for one course, awaiting review. */
+  static async draftsForCourse(courseId: string): Promise<DraftArtifact[]> {
+    const { data, error } = await getSupabase().rpc('fn_curriculum_lesson_drafts_for_course', {
+      p_course_id: courseId,
+    });
+    if (error) throw error;
+    return (data as DraftArtifact[]) ?? [];
+  }
+
+  /**
+   * Approve an AI draft lesson (draft → published). Optional edits let the faculty
+   * re-word the title / re-tag outcomes (Fink/Bloom/co_ref) before publishing.
+   * This is the faculty-AUTHORITY action — AI drafts, faculty ratifies.
+   */
+  static async approveDraft(
+    lessonId: string,
+    edits?: {
+      title?: string;
+      unitLabel?: string;
+      sequenceNo?: number;
+      learningOutcomes?: LessonOutcome[];
+      primaryFink?: FinkDimension;
+      coRefs?: string[];
+    },
+  ): Promise<string> {
+    const { data, error } = await getSupabase().rpc('fn_curriculum_lesson_ai_approve', {
+      p_lesson_id: lessonId,
+      p_title: edits?.title ?? null,
+      p_unit_label: edits?.unitLabel ?? null,
+      p_sequence_no: edits?.sequenceNo ?? null,
+      p_learning_outcomes: edits?.learningOutcomes ?? null,
+      p_primary_fink: edits?.primaryFink ?? null,
+      p_co_refs: edits?.coRefs ?? null,
+    });
+    if (error) throw error;
+    return data as string;
+  }
+
+  /** Reject an AI draft lesson (draft → archived). Never reaches students. */
+  static async rejectDraft(lessonId: string): Promise<void> {
+    const { error } = await getSupabase().rpc('fn_curriculum_lesson_ai_reject', {
+      p_lesson_id: lessonId,
+    });
+    if (error) throw error;
   }
 }

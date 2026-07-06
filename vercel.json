@@ -36,6 +36,10 @@
       "schedule": "*/30 * * * *"
     },
     {
+      "path": "/api/cron/curriculum-lesson-spine-generate?mode=collect&secret=${CRON_SECRET}",
+      "schedule": "*/30 * * * *"
+    },
+    {
       "path": "/api/cron/attendance-breach-check?secret=${CRON_SECRET}",
       "schedule": "37 21 * * *"
     },
