@@ -3,6 +3,12 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 
+// Terminal enrollment states — mirrors lib/services/pde-bridge-service.ts (the
+// authoritative consumer), which counts ['passed','completed','verified'] as
+// completed. Kept as a local literal because the bridge service does not
+// export it. Compared case-insensitively, matching the bridge's toLowerCase().
+const COMPLETED_STATUSES = ['completed', 'passed', 'verified'];
+
 // GET /api/pde/analytics — faculty analytics dashboard data
 // Aggregates from the REAL quest-centric PDE schema.
 //
@@ -87,8 +93,21 @@ export async function GET(_request: NextRequest) {
         .select('id, final_score, completed_at'),
     ]);
 
+    // Fail LOUD on any read error. This route exists to end the silent
+    // schema-drift failures where a bad query was coerced to [] and the
+    // dashboard showed zeros with no signal — so surface any read error as a
+    // structured 500 rather than swallowing it into an all-zeros payload.
+    const readError =
+      enrollmentsResult.error || engagementResult.error || submissionsResult.error;
+    if (readError) {
+      return NextResponse.json(
+        { error: 'Failed to load analytics', detail: readError.message },
+        { status: 500 }
+      );
+    }
+
     // Process enrollments. There is no per-enrollment progress %; "completion"
-    // is the share of enrollments that reached status='completed'.
+    // is the share of enrollments in a terminal state (COMPLETED_STATUSES).
     const enrollments = enrollmentsResult.data || [];
     const totalEnrollments = enrollments.length;
     const activeUsers = new Set(
@@ -97,7 +116,7 @@ export async function GET(_request: NextRequest) {
         .map((e: any) => e.learner_id)
     ).size;
     const completedEnrollments = enrollments.filter(
-      (e: any) => e.status === 'completed'
+      (e: any) => COMPLETED_STATUSES.includes((e.status ?? '').toLowerCase())
     ).length;
     const avgCompletion = totalEnrollments > 0
       ? Math.round((completedEnrollments / totalEnrollments) * 100)
@@ -115,7 +134,8 @@ export async function GET(_request: NextRequest) {
 
     // Quest progress distribution, derived from enrollment status.
     // Enrollment implies the quest was started, so there is no "not_started"
-    // state; 'active' == in progress, 'completed' == done.
+    // state; 'active' == in progress, terminal states (completed/passed/
+    // verified, per COMPLETED_STATUSES) == done.
     const questSummary = {
       total: totalEnrollments,
       in_progress: enrollments.filter((e: any) => e.status === 'active').length,
