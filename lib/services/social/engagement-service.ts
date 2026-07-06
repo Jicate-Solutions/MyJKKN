@@ -85,6 +85,22 @@ export function getContributions(deptAccountId?: string): Promise<ContributionsR
   );
 }
 
+export function getManagedHandles(): Promise<ManagedHandlesResponse> {
+  return getJson<ManagedHandlesResponse>(
+    '/api/social/engagement/manage',
+    'Failed to load your handles'
+  );
+}
+
+export function setBrief(body: SetBriefBody): Promise<ManagedHandlesResponse> {
+  return sendJson<ManagedHandlesResponse>(
+    '/api/social/engagement/manage',
+    'PATCH',
+    body,
+    'Failed to save the brief'
+  );
+}
+
 export function getRota(deptAccountId: string): Promise<RotaResponse> {
   return getJson<RotaResponse>(
     `/api/social/engagement/rota?deptAccountId=${encodeURIComponent(deptAccountId)}`,
