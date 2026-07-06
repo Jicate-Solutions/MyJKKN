@@ -2911,6 +2911,13 @@ CREATE POLICY "startup_events_update_admin" ON startup_events
 -- (event_registrations_select ↔ event_team_members_select caused infinite 42P17 cycle)
 -- Updated: 2026-03-07 — faculty/hod/principal see all institutions (cross-institution visibility)
 -- Invited members access registration data via SECURITY DEFINER function get_my_pending_invitations()
+-- Updated: 2026-07-06 (migration 20260706150000) — ALSO honor the SF100/event admin
+--   PERMISSION, not just the legacy profiles.role list. SF100 coordinators have
+--   profiles.role='student' with admin rights from a custom role, so the legacy-only
+--   check blanked every team name on the SF100 admin page. Gated on the admin-level
+--   sf100.team.view / registrations.manage (NOT .view — the 'student' role carries
+--   .view). CASE guard so user_has_permission is never evaluated for anon (a scalar
+--   sub-select would InitPlan-evaluate it and throw permission-denied for anon).
 CREATE POLICY "event_registrations_select" ON event_registrations
     FOR SELECT TO authenticated USING (
         owner_id = auth.uid()
@@ -2922,6 +2929,10 @@ CREATE POLICY "event_registrations_select" ON event_registrations
                 OR p.role IN ('admin', 'administrator', 'staff', 'faculty', 'hod', 'principal')
               )
         )
+        OR (CASE WHEN auth.uid() IS NULL THEN false
+                 ELSE (public.user_has_permission('startup_studio.sf100.team.view')
+                       OR public.user_has_permission('startup_studio.registrations.manage'))
+            END)
     );
 
 -- Updated: 2026-03-09 — allow any authenticated user to read all registrations for events
