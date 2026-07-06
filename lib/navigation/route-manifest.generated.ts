@@ -509,12 +509,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/admin/loops",
-        "label": "Loop Control Tower",
-        "iconName": "Repeat",
-        "children": []
-      },
-      {
         "path": "/admin/bug-reports",
         "label": "Bug Reports",
         "iconName": "FileText",
@@ -543,6 +537,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/admin/landing-pages",
         "label": "Landing Pages",
         "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/admin/learner-notes",
+        "label": "Learner Notes",
+        "iconName": "ClipboardCheck",
+        "children": []
+      },
+      {
+        "path": "/admin/loops",
+        "label": "Loop Control Tower",
+        "iconName": "Repeat",
         "children": []
       },
       {
@@ -1130,6 +1136,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "GraduationCap",
         "children": [
           {
+            "path": "/admission/schools-network/duplicates",
+            "label": "Duplicates",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
             "path": "/admission/schools-network/new",
             "label": "New",
             "iconName": "Plus",
@@ -1138,6 +1150,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admission/schools-network/partners",
             "label": "Partners",
+            "iconName": "GraduationCap",
+            "children": [
+              {
+                "path": "/admission/schools-network/partners/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/admission/schools-network/qualify",
+            "label": "Qualify",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/schools-network/scoreboard",
+            "label": "Scoreboard",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/schools-network/worklist",
+            "label": "Worklist",
             "iconName": "GraduationCap",
             "children": []
           }
@@ -1579,6 +1616,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Care",
         "iconName": "ClipboardCheck",
         "children": [
+          {
+            "path": "/audit/care/coverage",
+            "label": "Coverage",
+            "iconName": "ClipboardCheck",
+            "children": []
+          },
           {
             "path": "/audit/care/new",
             "label": "New",
@@ -2804,6 +2847,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/cdc/admin/exam-syllabus-topics",
+            "label": "Exam Syllabus Topics",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/cdc/admin/exam-topic-map",
+            "label": "Exam Topic Map",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/cdc/admin/expertise-areas",
             "label": "Expertise Areas",
             "iconName": "FileText",
@@ -2917,6 +2972,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/cdc/govt-readiness",
+        "label": "Govt Readiness",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/cdc/idp",
         "label": "Idp",
         "iconName": "FileText",
@@ -2981,6 +3042,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": [
           {
             "path": "/cdc/placements/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/cdc/requirements",
+        "label": "Requirements",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/cdc/requirements/new",
             "label": "New",
             "iconName": "Plus",
             "children": []
@@ -3178,6 +3252,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "label": "Feedback",
     "iconName": "MessageCircle",
     "children": []
+  },
+  {
+    "path": "/foundation",
+    "label": "Foundation",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/foundation/console",
+        "label": "Console",
+        "iconName": "FileText",
+        "children": []
+      }
+    ]
   },
   {
     "path": "/guide",
@@ -4395,6 +4482,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/learn/quests",
         "label": "Quests",
         "iconName": "Trophy",
+        "children": []
+      }
+    ]
+  },
+  {
+    "path": "/learner",
+    "label": "Learner",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/learner/idp",
+        "label": "Idp",
+        "iconName": "FileText",
         "children": []
       }
     ]
