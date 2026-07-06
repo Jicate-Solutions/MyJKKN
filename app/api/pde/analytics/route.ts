@@ -4,8 +4,22 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
 // GET /api/pde/analytics — faculty analytics dashboard data
-// Aggregates from multiple PDE tables
-export async function GET(request: NextRequest) {
+// Aggregates from the REAL quest-centric PDE schema.
+//
+// Schema-drift note (2026-07-06): this route was originally written against an
+// imagined LMS/course model — tables `pde_enrollments` and `pde_quest_progress`
+// and columns `progress_pct` / `score_pct` that were never created. That made
+// every call a 500. It now reads the tables that actually exist:
+//   - pde_quest_enrollments (quest_id, learner_id, status, started_at, completed_at)
+//   - pde_engagement_daily   (learner_id, time_spent_minutes, lessons_completed, date)
+//   - pde_submissions        (final_score, completed_at)
+//
+// The `courseId` filter was removed: "course" is not a concept in the quest
+// model (pde_quests / pde_quest_enrollments have no course_id), so a
+// course-scoped filter would silently match nothing. Course-scoped analytics
+// would require the LMS/course-content model that does not exist in this schema
+// — flagged as a follow-up, not built here.
+export async function GET(_request: NextRequest) {
   await connection();
   try {
     const supabase = await createClient();
@@ -14,64 +28,36 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const searchParams = request.nextUrl.searchParams;
-    const courseId = searchParams.get('courseId');
+    // Last-30-days cutoff for engagement.
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const cutoffDate = thirtyDaysAgo.toISOString().split('T')[0];
 
-    // Run all queries in parallel for performance
+    // Run all queries in parallel for performance.
     const [
       enrollmentsResult,
       engagementResult,
-      questsResult,
       submissionsResult,
     ] = await Promise.all([
-      // Total enrollments + active users
-      (async () => {
-        let query = (supabase as any)
-          .from('pde_enrollments')
-          .select('id, learner_id, status, progress_pct, enrolled_at', { count: 'exact' });
-        if (courseId) query = query.eq('course_id', courseId);
-        return query;
-      })(),
+      // Quest enrollments — status-based, not percentage-based.
+      (supabase as any)
+        .from('pde_quest_enrollments')
+        .select('id, learner_id, status, started_at, completed_at'),
 
-      // Engagement data
-      (async () => {
-        let query = (supabase as any)
-          .from('pde_engagement_daily')
-          .select('learner_id, time_spent_minutes, lessons_completed, date');
-        if (courseId) query = query.eq('course_id', courseId);
-        // Last 30 days
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        query = query.gte('date', thirtyDaysAgo.toISOString().split('T')[0]);
-        return query;
-      })(),
+      // Daily engagement (last 30 days).
+      (supabase as any)
+        .from('pde_engagement_daily')
+        .select('learner_id, time_spent_minutes, lessons_completed, date')
+        .gte('date', cutoffDate),
 
-      // Quest progress
-      (async () => {
-        let query = (supabase as any)
-          .from('pde_quest_progress')
-          .select('id, status, progress_pct');
-        if (courseId) query = query.eq('course_id', courseId);
-        return query;
-      })(),
-
-      // Assessment submissions
-      (async () => {
-        let query = (supabase as any)
-          .from('pde_submissions')
-          .select('id, score_pct, completed_at');
-        if (courseId) {
-          // Join through assessment to filter by course
-          query = (supabase as any)
-            .from('pde_submissions')
-            .select('id, score_pct, completed_at, assessment:pde_assessments!inner(course_id)')
-            .eq('assessment.course_id', courseId);
-        }
-        return query;
-      })(),
+      // Assessment submissions — real score column is `final_score`.
+      (supabase as any)
+        .from('pde_submissions')
+        .select('id, final_score, completed_at'),
     ]);
 
-    // Process enrollments
+    // Process enrollments. There is no per-enrollment progress %; "completion"
+    // is the share of enrollments that reached status='completed'.
     const enrollments = enrollmentsResult.data || [];
     const totalEnrollments = enrollments.length;
     const activeUsers = new Set(
@@ -79,13 +65,14 @@ export async function GET(request: NextRequest) {
         .filter((e: any) => e.status === 'active')
         .map((e: any) => e.learner_id)
     ).size;
+    const completedEnrollments = enrollments.filter(
+      (e: any) => e.status === 'completed'
+    ).length;
     const avgCompletion = totalEnrollments > 0
-      ? Math.round(
-          enrollments.reduce((s: number, e: any) => s + (e.progress_pct || 0), 0) / totalEnrollments
-        )
+      ? Math.round((completedEnrollments / totalEnrollments) * 100)
       : 0;
 
-    // Process engagement
+    // Process engagement.
     const engagementRows = engagementResult.data || [];
     const uniqueEngagedLearners = new Set(engagementRows.map((r: any) => r.learner_id)).size;
     const totalTimeMinutes = engagementRows.reduce(
@@ -95,27 +82,29 @@ export async function GET(request: NextRequest) {
       ? Math.round(totalTimeMinutes / uniqueEngagedLearners)
       : 0;
 
-    // Process quests
-    const quests = questsResult.data || [];
+    // Quest progress distribution, derived from enrollment status.
+    // Enrollment implies the quest was started, so there is no "not_started"
+    // state; 'active' == in progress, 'completed' == done.
     const questSummary = {
-      total: quests.length,
-      not_started: quests.filter((q: any) => q.status === 'not_started').length,
-      in_progress: quests.filter((q: any) => q.status === 'in_progress').length,
-      completed: quests.filter((q: any) => q.status === 'completed').length,
+      total: totalEnrollments,
+      in_progress: enrollments.filter((e: any) => e.status === 'active').length,
+      completed: completedEnrollments,
     };
 
-    // Process submissions
+    // Process submissions.
     const submissions = submissionsResult.data || [];
-    const completedSubmissions = submissions.filter((s: any) => s.completed_at && s.score_pct != null);
+    const completedSubmissions = submissions.filter(
+      (s: any) => s.completed_at && s.final_score != null
+    );
     const passRate = completedSubmissions.length > 0
       ? Math.round(
-          (completedSubmissions.filter((s: any) => (s.score_pct || 0) >= 60).length /
+          (completedSubmissions.filter((s: any) => (s.final_score || 0) >= 60).length /
             completedSubmissions.length) *
             100
         )
       : 0;
 
-    // At-risk learners: enrolled but low engagement (< 2 days in last 30)
+    // At-risk learners: active enrollees with low engagement in the last 30 days.
     const learnerEngagementDays = new Map<string, number>();
     engagementRows.forEach((r: any) => {
       const current = learnerEngagementDays.get(r.learner_id) || 0;
