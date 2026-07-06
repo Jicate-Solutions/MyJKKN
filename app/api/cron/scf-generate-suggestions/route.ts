@@ -92,14 +92,16 @@ const SYSTEM_PROMPT = `You are a teaching-improvement assistant for an Indian hi
 Use ONLY the data provided; ground every suggestion in it. Be concrete and India-context aware. NEVER quote a comment verbatim and NEVER refer to an individual student — speak only in aggregate themes so no student can be identified.
 Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exactly:
 { "summary": "...", "likelyCauses": ["..."], "suggestedAdjustments": [{"title":"...","how":"..."}], "quickWin": "...", "whatToWatchNext": "..." }
-Give 2-4 likelyCauses and 3-5 suggestedAdjustments. whatToWatchNext must reference the next session's understanding score (the loop's verifier).`;
+Give 2-4 likelyCauses and 3-5 suggestedAdjustments. whatToWatchNext must describe, in words only, whether understanding holds or improves in the next session — never cite a number, score, average, or target.
+CRITICAL: Never express understanding as a number, score, average, rating out of 5, or percentage, and never state a numeric target or threshold to reach. Describe understanding and its trend in words only (e.g. "understanding was strong", "a small cluster still struggled"). You may state how many students responded.`;
 
 // The POSITIVE flip-side: when a class lands exceptionally well, capture WHAT WORKED.
 const SUCCESS_SYSTEM_PROMPT = `You are a teaching-excellence assistant for an Indian higher-education institution. A class's students gave anonymous post-class feedback, and this session landed exceptionally well (high understanding, positive comments). You receive ONLY aggregate signals and anonymized comment text — never any student identity.
 Your job: capture WHAT WORKED so the facilitator can deliberately repeat it and peers teaching the same course can learn from it. Use ONLY the data provided; ground every point in it. Be concrete and India-context aware. NEVER quote a comment verbatim and NEVER refer to an individual student — speak only in aggregate themes so no student can be identified.
 Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exactly:
 { "whatWorked": "...", "whyItLanded": ["..."], "replicateIn": [{"context":"...","how":"..."}], "shareWithPeers": "...", "watchNext": "..." }
-Give 2-4 whyItLanded and 2-3 replicateIn. watchNext must reference sustaining this in the next session's understanding score (the loop's verifier).`;
+Give 2-4 whyItLanded and 2-3 replicateIn. watchNext must describe, in words only, whether this strong understanding is sustained in the next session — never cite a number, score, average, or target.
+CRITICAL: Never express understanding as a number, score, average, rating out of 5, or percentage, and never state a numeric target or threshold to reach. Describe understanding and its trend in words only (e.g. "understanding was strong", "a small cluster still struggled"). You may state how many students responded.`;
 
 // Judge prompt for the WIDENED gate: count ONLY (privacy — see the 1-ask branch).
 const HELP_ASK_JUDGE_PROMPT = `You classify anonymous post-class student comments for an Indian higher-education institution. Comments may be in English, Tamil, or a Tamil-English mix (Tanglish).
@@ -166,6 +168,19 @@ function signalFromCtx(ctx: JudgeContext): SignalRow {
   };
 }
 
+// Facilitator-facing understanding must never be a raw number: a printed
+// baseline/target invites gaming ("ask students to score 3.6 every time"). The
+// loop still records the numeric avg to the backend (p_input_avg) for its own
+// measurement; only what the AI SEES and SAYS is qualitative. Bands mirror the
+// generator's own gate thresholds (LOW_UNDERSTOOD_THRESHOLD / STANDOUT_THRESHOLD).
+function understandingBandWord(avg: number | null | undefined): string {
+  if (avg === null || avg === undefined || Number.isNaN(Number(avg))) return 'unknown';
+  const a = Number(avg);
+  if (a < LOW_UNDERSTOOD_THRESHOLD) return 'low';
+  if (a < STANDOUT_THRESHOLD) return 'mixed';
+  return 'strong';
+}
+
 // Replicates the self-improving track-record block from ai-suggest-improvement
 // so the autonomous suggestions also improve over time (same loop feed).
 async function buildTrackRecordBlock(
@@ -192,7 +207,7 @@ async function buildTrackRecordBlock(
         ? Number(prior.outcome_lift)
         : null;
     const liftLine = prior.has_outcome
-      ? `After that advice, the next class's understanding moved ${lift !== null && lift >= 0 ? '+' : ''}${prior.outcome_lift} (from ${prior.input_avg}/5). ${lift !== null && lift >= 0.5 ? 'It helped somewhat — build on it.' : 'It did NOT meaningfully help — change the approach; do not repeat the same advice.'}`
+      ? `After that advice, in the next class ${lift !== null && lift >= 0.5 ? 'understanding improved — it helped somewhat, build on it.' : 'understanding did NOT meaningfully improve — change the approach; do not repeat the same advice.'}`
       : `The outcome of that advice is not measured yet.`;
     const verdictLine = prior.human_verdict
       ? ` The teacher marked it: ${String(prior.human_verdict)}.`
@@ -296,7 +311,7 @@ function buildGenerationParams(
   const commentBlock =
     freeTexts.length > 0
       ? freeTexts.map((t) => `- ${String(t).trim()}`).join('\n')
-      : '- (no written comments — use the numeric signals)';
+      : '- (no written comments — use the aggregate signals)';
 
   const systemPrompt = kind === 'success' ? SUCCESS_SYSTEM_PROMPT : SYSTEM_PROMPT;
   const closingLine =
@@ -307,8 +322,8 @@ function buildGenerationParams(
   const userPrompt = `Course: ${courseCode}
 Window: ${windowFrom} to ${windowTo}
 Responses: ${signal.responses}
-Low-understanding responses (understood <= 2 of 5): ${signal.low_responses}
-Average understanding (1-5): ${signal.avg_understood ?? 'n/a'}
+Students who reported low understanding: ${signal.low_responses}
+Understanding level (qualitative): ${understandingBandWord(signal.avg_understood)}
 
 Anonymized student comments:
 ${commentBlock}${trackRecord}
