@@ -1704,3 +1704,11 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Seeds 4 school exams (neet_ug, jee_main, jee_advanced, cuet_ug) + backfills 7 college exams from `cdc_training_types WHERE exam_family IS NOT NULL`. ADDITIVE — modifies NO cdc_* table (reads only). Idempotent (IF NOT EXISTS / ON CONFLICT DO NOTHING). Reversible: `DROP TABLE public.exam_definitions`.
 - Location: `supabase/migrations/20260705223000_exam_definitions_shared_spine.sql`. APPLIED to prod via Management API 2026-07-05 (verified: 7 college + 4 school rows; CDC intact 7/14/68). Stage 1 of 4 in the shared-spine merge (Foundation PR-A).
 - Spec: `specs/nv-foundation-programme-TECH-SPEC-2026-07-05.md` §11 (safe merge plan).
+
+### Foundation programme — student identity core (PR-B1) — 2026-07-06
+- New tables `fp_students` (minors; school_id mutable=history-follows-student, profile_id/parent_profile_id links, learner_profile_id funnel handoff, parental_consent_at OPTIONAL), `fp_cohorts` (school + exam_definition_id + term + resource_person), `fp_enrollments` (student↔cohort, unique).
+- 4 recursion-safe SECURITY DEFINER helpers (REVOKE anon,PUBLIC / GRANT authenticated): `fn_fp_manages_school`, `fn_fp_manages_cohort_school`, `fn_fp_teaches_student`, `fn_fp_is_own_or_guardian`.
+- RLS on fp_students = minors' PII: **super-admin only (NO is_admin cross-tenant bypass)** + child/parent self (profile_id/parent_profile_id) + school mgmt (school_jkkn_owners) + teacher (cohort resource_person). Verified: impersonated non-super user sees 0 rows, no recursion.
+- Consent is an OPTIONAL admin toggle: `platform_policies` row `foundation.require_parental_consent` = false (default OFF); app reads via `fn_get_policy_bool`. NOT a hard gate.
+- Location: `supabase/migrations/20260706063000_fp_students_cohorts_enrollments.sql`. APPLIED to prod via Management API 2026-07-06 (verified). PR-B1 of the Foundation build.
+- Permission keys to add in code: `foundation.students.manage`, `foundation.cohorts.view`, `foundation.cohorts.manage` (lib/constants/permissions.ts). Spec: `specs/nv-foundation-programme-TECH-SPEC-2026-07-05.md`.
