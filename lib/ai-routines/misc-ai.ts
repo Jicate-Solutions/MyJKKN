@@ -2,6 +2,20 @@ import { type AIRoutine } from './types';
 // Populated 2026-07-01 from the parallel discovery swarm (deep-read of jicate/main).
 export const MISC_AI_ROUTINES: AIRoutine[] = [
   {
+    "id": "social-engagement-nudges",
+    "name": "Department IG Engagement Nudges",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 09:30 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/social-nudges",
+    "callsClaude": false,
+    "whatItDoes": "Two adoption nudges that keep the department-Instagram engagement loop alive: (1) a weekly 'it's your week to post for @handle' reminder to the assigned contributor, and (2) a recognition nudge when a posted contribution earns real signal (saves+shares+comments — never likes): 'your post earned N real-signal'. Without these the loop is silent and sits at 0% adoption.",
+    "configKnobs": "Monday snap = Asia/Kolkata; recognition floor = real_signal >= 1; realSignal = saves+shares+comments (likes excluded). No model, no thresholds.",
+    "sideEffects": "WRITES in-app notifications (notifications + user_notifications fan-out) to contributors. Idempotent: reminded_at (rota) + signal_notified_at (contribution) guard exactly one delivery each. No external messages (no email/WhatsApp/push).",
+    "safeToManualTrigger": false,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'social-engagement-nudges' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer or ?secret=). Marked unsafe-to-manual because a run delivers real notifications to real contributors; re-running is safe (idempotent — repeats surface as 'duplicate' counts, deliver nothing new)."
+  },
+  {
     "id": "cdc-career-guidance",
     "name": "CDC AI Career Guidance",
     "category": "misc-ai",

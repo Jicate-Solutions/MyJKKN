@@ -21,6 +21,7 @@ import type {
   ReportConcernBody,
   ResolveConcernBody,
   SetBriefBody,
+  RecentPostsResponse,
 } from '@/lib/types/social-engagement';
 
 async function getJson<T extends { success: boolean; error?: string }>(
@@ -117,6 +118,15 @@ export function getConcerns(deptAccountId?: string): Promise<ConcernsResponse> {
   return getJson<ConcernsResponse>(
     `/api/social/engagement/concerns${qs}`,
     'Failed to load concerns'
+  );
+}
+
+/** Recent IG posts for a handle the caller manages — the owner picks one to
+ *  attribute a posted contribution to (so recognition real-signal is truthful). */
+export function getRecentPostsForHandle(deptAccountId: string): Promise<RecentPostsResponse> {
+  return getJson<RecentPostsResponse>(
+    `/api/social/engagement/recent-posts?deptAccountId=${encodeURIComponent(deptAccountId)}`,
+    'Failed to load recent posts'
   );
 }
 
