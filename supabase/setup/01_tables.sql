@@ -5785,3 +5785,54 @@ BEGIN
       CHECK (profile_id IS NOT NULL OR learner_id IS NOT NULL);
   END IF;
 END $$;
+
+-- Cohort Core — Foundations demote to cohort core
+-- (migration 20260731080000_foundations_demote_to_cohort_core.sql, 2026-07-06).
+-- cohorts (kind='foundations') + cohort_memberships (member_type='student') are the
+-- canonical spine roster/lifecycle; ss_foundations_enrollments is demoted to a
+-- per-student EXTENSION linked to its membership by this one nullable FK. NULLABLE
+-- (NOT NULL deferred) + ON DELETE SET NULL (a LINK, not identity — never
+-- cascade-delete the live extension row that owns responses via student_id).
+-- ss_foundations_enrollments' own CREATE TABLE lives in
+-- supabase/migrations/20260602000001_ss_foundations_substrate.sql, so this is
+-- mirrored here as a guarded ALTER rather than folded into a column list.
+ALTER TABLE public.ss_foundations_enrollments
+  ADD COLUMN IF NOT EXISTS cohort_membership_id uuid;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname  = 'ss_foundations_enrollments_cohort_membership_id_fkey'
+      AND conrelid = 'public.ss_foundations_enrollments'::regclass
+  ) THEN
+    ALTER TABLE public.ss_foundations_enrollments
+      ADD CONSTRAINT ss_foundations_enrollments_cohort_membership_id_fkey
+      FOREIGN KEY (cohort_membership_id)
+      REFERENCES public.cohort_memberships(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_ssf_enroll_cohort_membership
+  ON public.ss_foundations_enrollments (cohort_membership_id);
+-- D9: the per-student member must link a real student profile. member_ref ==
+-- student_id (a real profiles(id)) is service-enforced (member_ref is polymorphic);
+-- this explicit CHECK is the audit-trail signal that the identity column is non-null.
+-- Safe: student_id is already NOT NULL and the table has 0 rows.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname  = 'ss_foundations_enrollments_student_required'
+      AND conrelid = 'public.ss_foundations_enrollments'::regclass
+  ) THEN
+    ALTER TABLE public.ss_foundations_enrollments
+      ADD CONSTRAINT ss_foundations_enrollments_student_required
+      CHECK (student_id IS NOT NULL);
+  END IF;
+END $$;
+-- Cohort Core — dedupe guard for the Foundations spine mirror (migration 20260731080000).
+-- Makes the ss_foundations_cohort → cohorts(kind='foundations') mirror 1:1 at the DB level,
+-- so a concurrent-enrol race can never leak duplicate mirror cohorts. Partial so it never
+-- constrains other cohort kinds.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cohorts_foundations_ss_id
+  ON public.cohorts ((config->>'ss_foundations_cohort_id'))
+  WHERE kind = 'foundations';
