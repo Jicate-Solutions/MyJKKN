@@ -1972,20 +1972,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           // (relocated out of /academic so it no longer inherits the Academic
           // module tab bar). Visibility gated to students by the session-feedback
           // special-case in GetRoleBasedPages.
+          // 2026-07-06: absorbed the old "My Attendance Feedback" tab — this one
+          // page now shows BOTH pending sessions (with inline confirm) AND the
+          // confirmed-session history, so there is a single feedback tab, not two.
+          // The old /learners/my-attendance-feedback route redirects here.
           href: '/learners/class-feedback',
           label: 'Class Feedback',
-          active: pathname.startsWith('/learners/class-feedback'),
-          icon: MessageSquare,
-          submenus: []
-        },
-        {
-          // Student's per-session attendance-confirmation view (present-pending
-          // until feedback given).
-          href: '/learners/my-attendance-feedback',
-          label: 'My Attendance Feedback',
           active:
-            pathname === '/learners/my-attendance-feedback' ||
-            pathname.startsWith('/learners/my-attendance-feedback/'),
+            pathname.startsWith('/learners/class-feedback') ||
+            pathname.startsWith('/learners/my-attendance-feedback'),
           icon: MessageSquare,
           submenus: []
         },
