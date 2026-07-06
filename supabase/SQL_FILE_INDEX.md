@@ -1719,3 +1719,10 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - RLS: content tables, permission-gated (`foundation.items.*`, `foundation.assessments.*`); `exam_topic_map` read any-authed. NO student PII here.
 - Verified: 4 tables, 18 total topics (14 govt + 4 school), legacy `cdc_exam_topic_map` UNCHANGED (68 rows). Applied to prod via Management API 2026-07-06.
 - Location: `supabase/migrations/20260706064000_fp_item_bank_assessments.sql`. Permission keys to add in code: `foundation.items.view/manage`, `foundation.assessments.view/manage`.
+
+### Foundation programme — performance + diagnostic engine (PR-B2b) — 2026-07-06
+- New PII tables: `fp_attempts` (student attempt at an assessment), `fp_responses` (per-item response + time_ms behavioural signal), `fp_student_weakness` (rolling per-topic mastery = the diagnostic MOAT; unique student+exam+topic), `fp_baselines` (movement-vs-baseline snapshot), `fp_revision_plans` (generated plan jsonb).
+- 4 unified recursion-safe SECURITY DEFINER helpers (REVOKE anon,PUBLIC / GRANT authenticated): `fn_fp_can_view_student`, `fn_fp_can_manage_student`, `fn_fp_can_view_attempt`, `fn_fp_can_manage_attempt`.
+- RLS (all 5 tables): read = `fn_fp_can_view_student/attempt` (super-admin only + student/guardian + teacher + school mgmt; NO is_admin cross-tenant bypass); write = manage helpers. Verified: impersonated non-super user sees 0 weakness + 0 attempts, no recursion.
+- Direct student writes route through a future record-attempt RPC (SECURITY DEFINER); table writes gated to managers.
+- Location: `supabase/migrations/20260706065000_fp_performance_diagnostic.sql`. Applied to prod via Management API 2026-07-06 (verified). Completes the Foundation DB layer (PR-A + PR-B1 + PR-B2a + PR-B2b).
