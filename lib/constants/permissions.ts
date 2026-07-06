@@ -129,6 +129,21 @@ export const PERMISSION_GROUPS = [
 // Permission categories for UI
 export const PERMISSION_CATEGORIES = [
   {
+    name: 'Foundation Programme',
+    key: 'foundation',
+    permissions: [
+      { key: 'foundation.dashboard.view', label: 'View Foundation Programme' },
+      { key: 'foundation.cohorts.view', label: 'View Foundation Cohorts' },
+      { key: 'foundation.cohorts.manage', label: 'Manage Foundation Cohorts' },
+      { key: 'foundation.students.view', label: 'View Foundation Students' },
+      { key: 'foundation.students.manage', label: 'Manage Foundation Students' },
+      { key: 'foundation.items.view', label: 'View Foundation Question Bank' },
+      { key: 'foundation.items.manage', label: 'Author Foundation Questions' },
+      { key: 'foundation.assessments.view', label: 'View Foundation Assessments' },
+      { key: 'foundation.assessments.manage', label: 'Build Foundation Assessments' },
+    ]
+  },
+  {
     name: 'User Management',
     key: 'users',
     permissions: [

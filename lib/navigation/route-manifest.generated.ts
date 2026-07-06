@@ -1171,6 +1171,24 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          },
+          {
+            "path": "/admission/schools-network/qualify",
+            "label": "Qualify",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/schools-network/scoreboard",
+            "label": "Scoreboard",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/schools-network/worklist",
+            "label": "Worklist",
+            "iconName": "GraduationCap",
+            "children": []
           }
         ]
       },
@@ -1380,6 +1398,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/admission/social/departments",
             "label": "Departments",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/admission/social/engagement",
+            "label": "Engagement",
             "iconName": "GraduationCap",
             "children": []
           },
@@ -1610,6 +1634,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Care",
         "iconName": "ClipboardCheck",
         "children": [
+          {
+            "path": "/audit/care/coverage",
+            "label": "Coverage",
+            "iconName": "ClipboardCheck",
+            "children": []
+          },
           {
             "path": "/audit/care/new",
             "label": "New",
@@ -3240,6 +3270,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "label": "Feedback",
     "iconName": "MessageCircle",
     "children": []
+  },
+  {
+    "path": "/foundation",
+    "label": "Foundation",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/foundation/console",
+        "label": "Console",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/foundation/students",
+        "label": "Students",
+        "iconName": "GraduationCap",
+        "children": []
+      }
+    ]
   },
   {
     "path": "/guide",

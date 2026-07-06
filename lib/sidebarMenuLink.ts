@@ -146,6 +146,10 @@ interface MenuPermissions {
 }
 
 export const MENU_PERMISSIONS: MenuPermissions = {
+  // Foundation & Competitive-Exam Programme
+  '/foundation': 'foundation.dashboard.view',
+  '/foundation/console': 'foundation.cohorts.view',
+
   // Overview
   '/': 'view_dashboard', // Dashboard should have a permission too
 
@@ -1360,6 +1364,16 @@ export function GetPages(pathname: string): MenuGroup[] {
         // Why: flat sidebar (1 entry per module) + in-page tabs scales
         // across JKKN's 8+ high-traffic modules. URLs UNCHANGED — preserves
         // faculty daily workflow bookmarks.
+        {
+          // Foundation & Competitive-Exam Programme — school-grade foundation +
+          // govt/competitive-exam coaching. Gated by
+          // '/foundation' -> 'foundation.dashboard.view' (MENU_PERMISSIONS).
+          href: '/foundation',
+          label: 'Foundation Programme',
+          active: pathname === '/foundation' || pathname.startsWith('/foundation/'),
+          icon: Target,
+          submenus: []
+        },
         {
           // D3: click → module root. `/academic` resolves to the in-page
           // AcademicNav (nav-config.ts) which handles all drill-down.
