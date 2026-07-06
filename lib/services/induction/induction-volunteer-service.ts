@@ -17,7 +17,7 @@ export interface AssignablePeerMentor {
   register_number: string | null;
 }
 
-/** A peer mentor on an event + their live coverage. */
+/** A peer mentor on an event + their live coverage + training state. */
 export interface FeedbackVolunteer {
   learner_id: string;
   full_name: string;
@@ -26,6 +26,27 @@ export interface FeedbackVolunteer {
   is_active: boolean;
   group_size: number;
   captured: number;
+  guide_read: boolean;
+  self_ack: boolean;
+  admin_trained: boolean;
+  is_trained: boolean;
+}
+
+/** A mentor's own per-event training progress (drives the mentor-page lock). */
+export interface MyTrainingStatus {
+  event_id: string;
+  guide_read: boolean;
+  self_ack: boolean;
+  admin_trained: boolean;
+  is_trained: boolean;
+}
+
+/** A scheduled Senior Peer Mentor training session. */
+export interface TrainingSession {
+  id: string;
+  title: string;
+  scheduled_at: string | null;
+  venue: string | null;
 }
 
 /** One session a mentor covers, with their progress on it. */
@@ -169,6 +190,66 @@ export class InductionVolunteerService {
     const { data, error } = await getSupabase().rpc('fn_induction_volunteer_mark_attendance', {
       p_session_id: sessionId,
       p_marks: marks,
+    });
+    if (error) throw error;
+    return (data as number) ?? 0;
+  }
+
+  // ── Training (mentor self-steps + read) ─────────────────────────────────────
+
+  /** My per-event training progress. Empty for non-mentors. */
+  static async myTrainingStatus(): Promise<MyTrainingStatus[]> {
+    const { data, error } = await getSupabase().rpc('fn_induction_my_training_status');
+    if (error) throw error;
+    return (data as MyTrainingStatus[]) ?? [];
+  }
+
+  /** Mentor: mark the guide read + 'I understand' in one step. */
+  static async completeSelfTraining(eventId: string): Promise<void> {
+    const { error } = await getSupabase().rpc('fn_induction_mentor_complete_self_training', {
+      p_event_id: eventId,
+    });
+    if (error) throw error;
+  }
+
+  // ── Training (admin: mark trained + sessions) ───────────────────────────────
+
+  /** Admin: mark a mentor trained (or clear it). */
+  static async adminSetTrained(eventId: string, learnerId: string, trained: boolean): Promise<void> {
+    const { error } = await getSupabase().rpc('fn_induction_admin_set_mentor_trained', {
+      p_event_id: eventId,
+      p_learner_id: learnerId,
+      p_trained: trained,
+    });
+    if (error) throw error;
+  }
+
+  static async listTrainingSessions(eventId: string): Promise<TrainingSession[]> {
+    const { data, error } = await getSupabase().rpc('fn_induction_list_training_sessions', {
+      p_event_id: eventId,
+    });
+    if (error) throw error;
+    return (data as TrainingSession[]) ?? [];
+  }
+
+  static async createTrainingSession(
+    eventId: string, title: string, scheduledAt: string | null, venue: string | null,
+  ): Promise<string> {
+    const { data, error } = await getSupabase().rpc('fn_induction_create_training_session', {
+      p_event_id: eventId,
+      p_title: title,
+      p_scheduled_at: scheduledAt,
+      p_venue: venue,
+    });
+    if (error) throw error;
+    return data as string;
+  }
+
+  /** Admin: mark a set of mentors as having attended a session (sets them trained). */
+  static async markTrainingAttended(sessionId: string, learnerIds: string[]): Promise<number> {
+    const { data, error } = await getSupabase().rpc('fn_induction_training_mark_attended', {
+      p_session_id: sessionId,
+      p_learner_ids: learnerIds,
     });
     if (error) throw error;
     return (data as number) ?? 0;

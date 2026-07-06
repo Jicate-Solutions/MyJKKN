@@ -14,15 +14,18 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
-import { Users, Building2, CalendarClock, MessagesSquare } from 'lucide-react';
+import { Users, Building2, CalendarClock, MessagesSquare, Lock } from 'lucide-react';
 import {
   InductionVolunteerService,
   type MyVolunteerSession,
+  type MyTrainingStatus,
 } from '@/lib/services/induction/induction-volunteer-service';
 import { GroupCaptureDialog } from './_components/group-capture-dialog';
 import { AttendanceCheckinDialog } from './_components/attendance-checkin-dialog';
+import { TrainingGatePanel } from './_components/training-gate-panel';
 
 const BRAND = '#0b6d41';
 
@@ -36,12 +39,17 @@ function fmtTime(iso: string | null): string {
 export default function MyInductionFeedbackPage() {
   const [loading, setLoading] = useState(true);
   const [sessions, setSessions] = useState<MyVolunteerSession[]>([]);
+  const [training, setTraining] = useState<Record<string, MyTrainingStatus>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const rows = await InductionVolunteerService.myVolunteerSessions();
+      const [rows, tr] = await Promise.all([
+        InductionVolunteerService.myVolunteerSessions(),
+        InductionVolunteerService.myTrainingStatus(),
+      ]);
       setSessions(rows);
+      setTraining(Object.fromEntries(tr.map((t) => [t.event_id, t])));
     } catch (e: any) {
       toast.error(`Couldn't load your sessions: ${e?.message ?? 'unknown error'}`);
     } finally {
@@ -97,7 +105,10 @@ export default function MyInductionFeedbackPage() {
             </CardContent>
           </Card>
         ) : (
-          events.map(([eventId, ev]) => (
+          events.map(([eventId, ev]) => {
+            const trStatus = training[eventId];
+            const trained = trStatus?.is_trained ?? false;
+            return (
             <Card key={eventId}>
               <CardHeader>
                 <CardTitle className="text-lg">{ev.name}</CardTitle>
@@ -108,6 +119,9 @@ export default function MyInductionFeedbackPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
+                {trStatus && !trStatus.is_trained && (
+                  <TrainingGatePanel status={trStatus} onChanged={load} />
+                )}
                 {ev.sessions.map((s) => {
                   const done = s.group_size > 0 && s.captured >= s.group_size;
                   return (
@@ -128,15 +142,24 @@ export default function MyInductionFeedbackPage() {
                         <Badge variant={done ? 'default' : 'secondary'} className="tabular-nums">
                           {s.captured}/{s.group_size} captured
                         </Badge>
-                        <AttendanceCheckinDialog sessionId={s.session_id} sessionTitle={s.session_title} onSaved={load} />
-                        <GroupCaptureDialog sessionId={s.session_id} sessionTitle={s.session_title} onSaved={load} />
+                        {trained ? (
+                          <>
+                            <AttendanceCheckinDialog sessionId={s.session_id} sessionTitle={s.session_title} onSaved={load} />
+                            <GroupCaptureDialog sessionId={s.session_id} sessionTitle={s.session_title} onSaved={load} />
+                          </>
+                        ) : (
+                          <Button size="sm" variant="outline" disabled title="Finish your training to unlock this">
+                            <Lock className="h-3.5 w-3.5 mr-1" /> Locked
+                          </Button>
+                        )}
                       </div>
                     </div>
                   );
                 })}
               </CardContent>
             </Card>
-          ))
+            );
+          })
         )}
       </div>
     </ContentLayout>
