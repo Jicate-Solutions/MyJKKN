@@ -30,6 +30,33 @@ export interface CarreModuleCoverageRow {
   owner_scores: CarreScoreInput[];
 }
 
+/** One row of fn_carre_module_auto_signals — a Phase-2 evidence-grade signal
+ *  derived from live participant data. This lane is ALWAYS rendered separately
+ *  and labeled "auto-derived"; it is NEVER merged into the human /100 index.
+ *  A module with no evidence-grade data returns NO row (the page shows "—",
+ *  never a fabricated score). signal_code is a neutral, non-CARRE code — the
+ *  RPC is physically incapable of emitting a Respect (CARRE-RS*) value. */
+export interface CarreModuleAutoSignalRow {
+  /** Module slug (lib/navigation/modules.ts) this signal belongs to. */
+  module_key: string;
+  /** Neutral signal code, e.g. 'FEEDBACK_PARTICIPATION'. Never a CARRE-RS* value. */
+  signal_code: string;
+  /** Human-readable label, e.g. 'Feedback participation'. */
+  label: string;
+  /** The signal value as a percentage (0–100). */
+  value_pct: number;
+  /** Numerator (e.g. submissions) — shown for transparency, not a score. */
+  numerator: number;
+  /** Denominator (participants) — the k>=3 anonymity-floor base. */
+  denominator: number;
+  /** Context count (e.g. active sessions) so the reader can size the signal. */
+  cohort_count: number;
+  /** Rolling window the signal was computed over, in days. */
+  window_days: number;
+  /** Server compute time (ISO). */
+  computed_at: string;
+}
+
 // ============================================================================
 // Service
 // ============================================================================
@@ -42,6 +69,15 @@ export class CarreCoverageService {
     const { data, error } = await (this.supabase as any).rpc('fn_carre_module_coverage');
     if (error) throw error;
     return (data ?? []) as CarreModuleCoverageRow[];
+  }
+
+  /** Phase-2 evidence-grade auto-signals per module (leadership-gated
+   *  server-side). Returns only modules whose live data honestly supports a
+   *  signal above the k>=3 floor — everything else is simply absent. */
+  static async getAutoSignals(): Promise<CarreModuleAutoSignalRow[]> {
+    const { data, error } = await (this.supabase as any).rpc('fn_carre_module_auto_signals');
+    if (error) throw error;
+    return (data ?? []) as CarreModuleAutoSignalRow[];
   }
 
   /** Owner tags a CARRE cycle with the module it audited. */
