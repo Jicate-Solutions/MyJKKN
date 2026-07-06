@@ -365,6 +365,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/session-feedback/faculty': 'academic.attendance.view',
   '/academic/session-feedback/principal': 'academic.attendance.dashboard.view',
 
+  // Curriculum AI — faculty review of the AI-drafted lesson spine (Phase 2).
+  // Same teaching-staff audience as the faculty session-feedback lane, so it
+  // reuses academic.attendance.view (held by faculty/hod/principal/admin). The
+  // page's RPCs re-authorize teaching-staff/HOD/admin server-side regardless.
+  '/academic/curriculum-review': 'academic.attendance.view',
+
   // Internal Marks (CIA) - Mark Entry & Reports
   '/academic/internal-marks': 'academic.internal-marks.view',
   '/academic/internal-marks/monitor': 'academic.internal-marks.view',
@@ -1426,6 +1432,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Session Feedback (Faculty)',
           active: pathname.startsWith('/academic/session-feedback/faculty'),
           icon: MessageSquare,
+          submenus: []
+        },
+        {
+          // Curriculum AI — review + approve the AI-drafted lesson spine (Phase 2).
+          // Drafts are never student-visible until a faculty approves them here.
+          href: '/academic/curriculum-review',
+          label: 'Lesson Spine Review',
+          active: pathname.startsWith('/academic/curriculum-review'),
+          icon: BookOpen,
           submenus: []
         },
         {

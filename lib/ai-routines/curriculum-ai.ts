@@ -1,0 +1,29 @@
+import { type AIRoutine } from './types';
+// Curriculum-aware class poll — Phase 2 (2026-07-06): the AI lesson-spine BULK
+// MINT cron. See app/api/cron/curriculum-lesson-spine-generate/route.ts for the
+// full submit/collect design. The per-course "regenerate" click is a SEPARATE
+// feature (lib/ai-tasks/registry.ts, feature_key 'curriculum.lesson_spine_regen')
+// and does not appear here — this registry is for the scheduled/Max-lane cron
+// side, not the click-driven AI Max-button lane.
+export const CURRICULUM_AI_ROUTINES: AIRoutine[] = [
+  {
+    id: 'curriculum-lesson-spine-generate',
+    maxLane: true,
+    name: 'Curriculum Lesson-Spine Generator (bulk mint)',
+    category: 'curriculum-ai',
+    type: 'cron',
+    schedule: 'Wednesdays 10:15 IST (weekly)',
+    triggerPath: '/api/cron/curriculum-lesson-spine-generate',
+    callsClaude: true,
+    featureKey: 'curriculum.lesson_spine_generate',
+    whatItDoes:
+      "For each course whose Board-of-Studies (BoS) syllabus is on file but has no lesson spine yet, it asks Claude for an ordered set of teachable lessons (grounded in the syllabus's units + Course Learning Outcomes, tagged with Fink dimension + Bloom level K1-K6 + the CLO each maps to), plus — when the syllabus's assessment structure has capstone/Concept-Application data — a short in-class Concept-Application brief per unit and one team-capstone brief for the course. Everything is recorded as an UNPUBLISHED DRAFT; nothing reaches students until a faculty member reviews and approves it at /academic/curriculum/review.",
+    configKnobs:
+      "MODEL=claude-sonnet-4-6 (config row 'curriculum.lesson_spine_generate' — /admin/ai-models), curriculum_ai.batch_cap=25 (max courses/run, platform_policies, editable), curriculum_ai.emit_assessment_briefs=true (platform_policies, editable), courses read cap=5000, bos_course_syllabi read cap=5000, AI max_tokens=4096, AI timeout via batch lane, maxDuration=300s",
+    sideEffects:
+      "DB writes only: inserts DRAFT (status='draft', never 'published') rows into curriculum_lesson via fn_curriculum_lesson_ai_draft_upsert — one per generated lesson, plus optional concept_brief/capstone_brief rows. No WhatsApp/email/IG/notifications sent. Faculty approval (a separate authenticated action) is required before anything is visible to students or counts toward the class-poll seam.",
+    safeToManualTrigger: true,
+    notes:
+      "Auth required: CRON_SECRET as `Authorization: Bearer <secret>` OR `?secret=<secret>` query param. Needs CLAUDE_API_KEY or ANTHROPIC_API_KEY to generate; with no key, submission is skipped (collect still drains any already-outstanding batch). Idempotent per (course, artifact_kind, slot) via uq_curriculum_lesson_ai_draft_slot — a re-gen replaces the prior UNAPPROVED draft in that slot, never a faculty-approved (published) lesson, and never duplicates. Only the ~13-23% of courses with a BoS syllabus on file are touched; the remaining no-syllabus courses are skipped entirely and stay faculty-typed (Phase 1). Async Message-Batches lane (ai-clients/batch.ts, 50% rate): SUBMIT is weekly via the ai-routine-dispatcher (ai_routine_schedules), COLLECT is a */30 vercel.json cron hitting ?mode=collect. Uses its OWN feature_key ('curriculum.lesson_spine_generate') distinct from the per-course 'regenerate' click's feature_key ('curriculum.lesson_spine_regen') so the two independent collectors never drain each other's jobs.",
+  },
+];
