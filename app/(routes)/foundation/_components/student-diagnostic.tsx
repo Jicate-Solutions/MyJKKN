@@ -357,7 +357,13 @@ function RevisionPlans({
 }
 
 function RevisionPlanCard({ plan }: { plan: RevisionPlan }) {
-  const steps = extractSteps(plan.plan);
+  // The generated plan stores topic_id (a UUID) with no display name; resolve it
+  // so the plan renders as readable steps instead of a raw JSON dump.
+  const { data: topics } = useTopics();
+  const nameById = new Map<string, string>(
+    (topics ?? []).map((t) => [t.id, t.display_name] as const),
+  );
+  const steps = extractSteps(plan.plan, nameById);
   const generatedAt = plan.generated_at
     ? new Date(plan.generated_at).toLocaleDateString(undefined, {
         day: 'numeric',
