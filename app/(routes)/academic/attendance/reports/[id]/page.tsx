@@ -1044,27 +1044,15 @@ export default function AttendanceReportDetailPage() {
           </CardContent>
         </Card>
 
-        {/* Attendance Alert - Clean and Simple */}
-        {report.average_attendance < 75 && (
-          <Card className='border-l-4 border-l-red-500 bg-red-50 dark:bg-red-900/20'>
-            <CardContent className='p-4'>
-              <div className='flex items-start gap-3'>
-                <AlertTriangle className='h-5 w-5 text-red-600 dark:text-red-400 mt-0.5' />
-                <div>
-                  <h3 className='font-semibold text-red-900 dark:text-red-200'>
-                    Low Attendance Alert
-                  </h3>
-                  <p className='text-sm text-red-700 dark:text-red-300 mt-1'>
-                    The overall attendance (
-                    {report.average_attendance.toFixed(1)}%) is below the
-                    recommended 75% threshold. Consider taking appropriate
-                    action.
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        {/* 2026-07-06: Removed the "Low Attendance Alert" here. This page is a
+            SINGLE marking session's report (the id is one attendance record) that
+            faculty auto-land on right after saving. A single session's turnout
+            dipping below 75% is normal and does NOT indicate a chronic-attendance
+            problem — yet the banner mislabelled it "overall attendance … take
+            action", firing on every low-turnout (or mis-counted) session. Chronic
+            low-attendance warnings belong on cumulative student/section reports and
+            dashboards, never on a single-session view. (Faculty incident 2026-07-06:
+            "saved successfully but shows low alert irrespective".) */}
 
         {report.average_attendance >= 90 && (
           <Card className='border-l-4 border-l-green-500 bg-green-50 dark:bg-green-900/20'>
