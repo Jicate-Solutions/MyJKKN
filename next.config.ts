@@ -127,6 +127,17 @@ const nextConfig: NextConfig = {
 
   async redirects() {
     return [
+      // Learners nav consolidation (2026-07-06): "My Attendance Feedback" was
+      // merged into the single "Learning Studio Feedback" tab. This config-level
+      // redirect keeps old bookmarks / in-app deep-links working AND removes the
+      // route from the auto-generated nav (tab strip, submenu, mobile bottom bar,
+      // command palette) — a page-level redirect kept it listed as a tab.
+      // permanent:false keeps the consolidation reversible.
+      {
+        source: '/learners/my-attendance-feedback',
+        destination: '/learners/class-feedback',
+        permanent: false
+      },
       // PR-A1 (Compliance Unification Program 2026-04-17):
       // /solutions/compliance/* → /solutions/ai-solution-compliance/*
       // Disambiguates AI-solution compliance from accreditation compliance

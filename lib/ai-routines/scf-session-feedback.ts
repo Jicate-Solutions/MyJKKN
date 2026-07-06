@@ -29,7 +29,7 @@ export const SCF_ROUTINES: AIRoutine[] = [
     "triggerPath": "/api/cron/scf-learner-notes",
     "callsClaude": true,
     "featureKey": "scf.learner_notes",
-    "whatItDoes": "Finds students whose own understanding ratings for a course dropped across three classes in a row, and asks Claude to draft one short, warm, private note nudging them to seek help early. The student sees the note on their Class Feedback page.",
+    "whatItDoes": "Finds students whose own understanding ratings for a course dropped across three classes in a row, and asks Claude to draft one short, warm, private note nudging them to seek help early. The student sees the note on their Learning Studio Feedback page.",
     "configKnobs": "MODEL=claude-sonnet-4-6 (config row 'scf.learner_notes' — /admin/ai-models), BATCH_CAP=50, REGEN_DAYS=7, RECENT_WITHIN_DAYS=30, BATCH_DEADLINE_MS=240000, maxDuration=300, per-call-timeout=25000ms, max_tokens=300, maxRetries=1",
     "sideEffects": "Writes private per-student notes into scf_learner_notes (upsert, onConflict learner_id,course_code,week_of, ignoreDuplicates). Each note becomes student-visible in-app content. No push/bell/email/WhatsApp is sent — the student only sees it passively when they open their feedback page.",
     "safeToManualTrigger": false,
