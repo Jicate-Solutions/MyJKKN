@@ -30,6 +30,7 @@ import {
   useRevisionPlans,
   useStudentExams,
   useStudentProgress,
+  useTopics,
   useWeaknessMap,
 } from '@/hooks/foundation/use-foundation';
 import type {
