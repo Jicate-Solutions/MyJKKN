@@ -7699,3 +7699,75 @@ CREATE POLICY cohort_proposals_update_permission ON public.cohort_adjustment_pro
 DROP POLICY IF EXISTS cohort_proposals_delete_permission ON public.cohort_adjustment_proposals;
 CREATE POLICY cohort_proposals_delete_permission ON public.cohort_adjustment_proposals
   FOR DELETE USING ( (select is_super_admin()) OR (select is_admin()) );
+-- ============================================================================
+-- Cross-institution teaching (migration 20260706_cross_institution_teaching)
+-- Visiting staff (assigned via staff planning into another institution's plan)
+-- need: their staff row visible where they teach, read access to that
+-- institution's academic structure, and a permission-gated attendance
+-- read/write path. All policies are ADDITIVE (permissive OR) — existing
+-- policies untouched. Helpers are SECURITY DEFINER (see 02_functions.sql).
+-- ============================================================================
+
+DROP POLICY IF EXISTS "staff_select_visiting_teacher" ON public.staff;
+CREATE POLICY "staff_select_visiting_teacher" ON public.staff
+FOR SELECT USING (
+  (
+    user_has_permission('academic.staff.planning.view')
+    OR user_has_permission('academic.timetables.view')
+    OR user_has_permission('academic.attendance.mark')
+    OR user_has_permission('academic.attendance.view')
+  )
+  AND staff_is_visiting_in_accessible_institution(staff.id)
+);
+
+-- Visiting teachers can read the academic structure of institutions they teach in
+DROP POLICY IF EXISTS "courses_select_visiting_teacher" ON public.courses;
+CREATE POLICY "courses_select_visiting_teacher" ON public.courses
+FOR SELECT USING (staff_teaches_in_institution(institution_id));
+
+DROP POLICY IF EXISTS "sections_select_visiting_teacher" ON public.sections;
+CREATE POLICY "sections_select_visiting_teacher" ON public.sections
+FOR SELECT USING (staff_teaches_in_institution(institution_id));
+
+DROP POLICY IF EXISTS "semesters_select_visiting_teacher" ON public.semesters;
+CREATE POLICY "semesters_select_visiting_teacher" ON public.semesters
+FOR SELECT USING (staff_teaches_in_institution(institution_id));
+
+DROP POLICY IF EXISTS "degrees_select_visiting_teacher" ON public.degrees;
+CREATE POLICY "degrees_select_visiting_teacher" ON public.degrees
+FOR SELECT USING (staff_teaches_in_institution(institution_id));
+
+DROP POLICY IF EXISTS "departments_select_visiting_teacher" ON public.departments;
+CREATE POLICY "departments_select_visiting_teacher" ON public.departments
+FOR SELECT USING (staff_teaches_in_institution(institution_id));
+
+DROP POLICY IF EXISTS "programs_select_visiting_teacher" ON public.programs;
+CREATE POLICY "programs_select_visiting_teacher" ON public.programs
+FOR SELECT USING (staff_teaches_in_institution(institution_id));
+
+-- student_attendance: permission-gated visiting read/write (covers visiting
+-- staff whose profile role is hod / custom — the legacy faculty-role path
+-- doesn't admit them)
+DROP POLICY IF EXISTS "student_attendance_select_visiting_teacher" ON public.student_attendance;
+CREATE POLICY "student_attendance_select_visiting_teacher" ON public.student_attendance
+FOR SELECT USING (
+  user_has_permission('academic.attendance.mark')
+  AND staff_teaches_in_institution(institution_id)
+);
+
+DROP POLICY IF EXISTS "student_attendance_insert_visiting_teacher" ON public.student_attendance;
+CREATE POLICY "student_attendance_insert_visiting_teacher" ON public.student_attendance
+FOR INSERT WITH CHECK (
+  user_has_permission('academic.attendance.mark')
+  AND staff_teaches_in_institution(institution_id)
+);
+
+DROP POLICY IF EXISTS "student_attendance_update_visiting_teacher" ON public.student_attendance;
+CREATE POLICY "student_attendance_update_visiting_teacher" ON public.student_attendance
+FOR UPDATE USING (
+  user_has_permission('academic.attendance.mark')
+  AND staff_teaches_in_institution(institution_id)
+) WITH CHECK (
+  user_has_permission('academic.attendance.mark')
+  AND staff_teaches_in_institution(institution_id)
+);

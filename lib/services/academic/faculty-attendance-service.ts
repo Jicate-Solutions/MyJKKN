@@ -118,10 +118,35 @@ export class FacultyAttendanceService {
       // only by institution + is_active and let isDateInTimetableRange() below do the
       // per-format date gating it already implements. The matched timetable's own
       // academic_year_id is captured for searchContext instead of a date-derived guess.
+
+      // Cross-institution teaching (2026-07-06): a staff member may be assigned
+      // via staff planning to teach in sister institutions (e.g. Dental faculty
+      // taking AHS/Pharmacy classes). Widen the timetable scope from the staff's
+      // own institution to every institution they teach in (own ∪ staff-plan
+      // institutions). This must be a SECURITY DEFINER RPC — staff_plan_courses
+      // SELECT RLS hides other institutions' plans from the browser client.
+      let teachingInstitutionIds: string[] = [staffData.institution_id];
+      const { data: teachingInstitutions, error: teachingInstError } = await (
+        this.supabase as any
+      ).rpc('fn_staff_teaching_institutions', { p_staff_id: staffId });
+      if (teachingInstError) {
+        logger.warn(
+          'academic/faculty-attendance',
+          'fn_staff_teaching_institutions failed; falling back to own institution',
+          teachingInstError
+        );
+      } else if (
+        Array.isArray(teachingInstitutions) &&
+        teachingInstitutions.length > 0
+      ) {
+        teachingInstitutionIds = teachingInstitutions;
+      }
+
       const { data: timetables, error: timetableError } = (await this.supabase
         .from('timetables')
         .select(`
           id,
+          institution_id,
           academic_year_id,
           timetable_format,
           start_date,
@@ -138,7 +163,7 @@ export class FacultyAttendanceService {
           programs(id, program_name),
           degrees(id, degree_name)
         `)
-        .eq('institution_id', staffData.institution_id)
+        .in('institution_id', teachingInstitutionIds)
         .eq('is_active', true)) as { data: TimetableWithRelations[] | null; error: any };
 
       if (timetableError || !timetables || timetables.length === 0) {
@@ -400,7 +425,9 @@ export class FacultyAttendanceService {
                 id: timetableSlotId,
                 timetable_slot_id: timetableSlotId,
                 timetable_id: timetable.id,
-                institution_id: staffData.institution_id,
+                // Timetable's institution, not the staff's — they differ for
+                // cross-institution (visiting) teaching assignments.
+                institution_id: timetable.institution_id ?? staffData.institution_id,
                 period_name: `${periodDef.period_name} - ${groupName}`,
                 start_time: this.formatTo12Hour(periodDef.start_time || ''),
                 end_time: this.formatTo12Hour(periodDef.end_time || ''),
@@ -435,7 +462,7 @@ export class FacultyAttendanceService {
               id: timetableSlotId,
               timetable_slot_id: timetableSlotId,
               timetable_id: timetable.id,
-              institution_id: staffData.institution_id,
+              institution_id: timetable.institution_id ?? staffData.institution_id,
               period_name: periodDef.period_name,
               start_time: this.formatTo12Hour(periodDef.start_time || ''),
               end_time: this.formatTo12Hour(periodDef.end_time || ''),
@@ -475,7 +502,7 @@ export class FacultyAttendanceService {
               id: timetableSlotId,
               timetable_slot_id: timetableSlotId,
               timetable_id: timetable.id,
-              institution_id: staffData.institution_id,
+              institution_id: timetable.institution_id ?? staffData.institution_id,
               period_name: periodDef.period_name,
               start_time: this.formatTo12Hour(periodDef.start_time || ''),
               end_time: this.formatTo12Hour(periodDef.end_time || ''),

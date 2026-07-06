@@ -21440,3 +21440,25 @@ GRANT  EXECUTE ON FUNCTION public.fn_social_cadence_close(UUID, TEXT) TO authent
 -- SECURITY: blended_score REVOKEd from anon/PUBLIC/authenticated (trigger-only);
 -- compute/propose/assign are SECURITY INVOKER (caller RLS scopes tenant); apply is
 -- SECURITY DEFINER with an internal authority gate bound to the proposal's institution.
+-- ============================================================================
+-- Cross-institution teaching helpers (migration 20260706_cross_institution_teaching)
+-- Visiting staff keep ONE home-institution staff row; their staff.id is assigned
+-- into other institutions' staff_plan_courses / timetable_data.staff_ids.
+-- ============================================================================
+-- staff_teaches_in_institution(p_institution_id uuid) RETURNS boolean
+--   SECURITY DEFINER. True when the CURRENT USER's active staff row (matched by
+--   staff.profile_id = auth.uid() OR staff.institution_email = auth.email()) has
+--   ≥1 staff_plan_courses row under a staff_plan of that institution. Used by the
+--   visiting-teacher RLS policies and the fn_attendance_roster gate.
+-- fn_staff_teaching_institutions(p_staff_id uuid) RETURNS uuid[]
+--   SECURITY DEFINER, self-authorized (own staff row / admin / attendance perms).
+--   Staff's own institution_id ∪ distinct staff_plans.institution_id across their
+--   assignments. Consumed by FacultyAttendanceService.getFacultyTodayPeriods.
+-- staff_is_visiting_in_accessible_institution(p_staff_id uuid) RETURNS boolean
+--   SECURITY DEFINER. True when the given staff teaches in an institution the
+--   current user can access (role_has_institution_access). Powers the
+--   staff_select_visiting_teacher policy.
+-- fn_attendance_roster (UPDATED 20260706): institution gate is now
+--   (role_has_institution_access OR staff_teaches_in_institution) AND attendance
+--   permission — visiting staff can load the roster where they teach.
+-- Full definitions: supabase/migrations/20260706_cross_institution_teaching.sql
