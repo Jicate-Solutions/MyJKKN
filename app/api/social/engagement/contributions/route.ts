@@ -54,10 +54,12 @@ export async function GET(request: Request): Promise<NextResponse<ContributionsR
 
     const params = new URL(request.url).searchParams;
     const deptAccountId = params.get('deptAccountId');
-    const rawLimit = Number(params.get('limit'));
-    const rawOffset = Number(params.get('offset'));
-    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(Math.trunc(rawLimit), 1), 200) : 50;
-    const offset = Number.isFinite(rawOffset) ? Math.max(Math.trunc(rawOffset), 0) : 0;
+    // Guard PARAM PRESENCE before Number() — Number(null) === 0 is finite, which would make a
+    // "finite ? use : default" guard silently pick 0 (→ limit 1) instead of the default.
+    const rawLimit = params.get('limit');
+    const rawOffset = params.get('offset');
+    const limit = rawLimit && Number.isFinite(+rawLimit) && +rawLimit > 0 ? Math.min(Math.trunc(+rawLimit), 200) : 50;
+    const offset = rawOffset && Number.isFinite(+rawOffset) && +rawOffset >= 0 ? Math.trunc(+rawOffset) : 0;
 
     // count:'exact' returns the full match count so a busy handle's older rows are never
     // silently dropped — the caller sees `total` and can page with offset/limit.

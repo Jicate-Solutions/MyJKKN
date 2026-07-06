@@ -36,8 +36,9 @@ export async function GET(request: Request): Promise<NextResponse<LeaderboardRes
     }
 
     const url = new URL(request.url);
-    const rawDays = Number(url.searchParams.get('days'));
-    const windowDays = Number.isFinite(rawDays) ? Math.min(Math.max(Math.trunc(rawDays), 7), 180) : DEFAULT_DAYS;
+    // Guard param presence — Number(null) === 0 is finite and would clamp default to 7, not 30.
+    const rawDays = url.searchParams.get('days');
+    const windowDays = rawDays && Number.isFinite(+rawDays) && +rawDays > 0 ? Math.min(Math.max(Math.trunc(+rawDays), 7), 180) : DEFAULT_DAYS;
 
     const [boardRes, handleRes] = await Promise.all([
       supabase.rpc('fn_social_leaderboard_my_college', { p_days: windowDays }),

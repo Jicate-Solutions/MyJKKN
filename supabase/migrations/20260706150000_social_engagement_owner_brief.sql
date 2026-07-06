@@ -15,9 +15,14 @@ BEGIN
   IF NOT public.fn_social_can_manage_handle(p_dept_account_id) THEN
     RAISE EXCEPTION 'not permitted to manage this handle' USING ERRCODE = '42501';
   END IF;
+  -- Partial-update contract: a NULL param means "leave unchanged"; a provided value (even
+  -- empty) sets/clears the field. This matches the cadence coalesce semantics and prevents a
+  -- PATCH that omits a text field from silently wiping the existing purpose line / playbook.
   UPDATE public.social_dept_accounts
-     SET purpose_line         = nullif(btrim(p_purpose_line), ''),
-         content_playbook     = nullif(btrim(p_content_playbook), ''),
+     SET purpose_line         = CASE WHEN p_purpose_line IS NULL THEN purpose_line
+                                     ELSE nullif(btrim(p_purpose_line), '') END,
+         content_playbook     = CASE WHEN p_content_playbook IS NULL THEN content_playbook
+                                     ELSE nullif(btrim(p_content_playbook), '') END,
          posting_cadence_days = coalesce(p_posting_cadence_days, posting_cadence_days),
          updated_at           = now()
    WHERE id = p_dept_account_id;

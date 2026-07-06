@@ -73,6 +73,7 @@ function EngagementConsole() {
   const [assignWeek, setAssignWeek] = useState('');
   const [assignContributor, setAssignContributor] = useState('');
   const [assignMsg, setAssignMsg] = useState<string | null>(null);
+  const [assigning, setAssigning] = useState(false);
 
   const loadHandles = useCallback(async () => {
     const res = await getManagedHandles();
@@ -88,14 +89,14 @@ function EngagementConsole() {
 
   useEffect(() => { void loadHandles(); }, [loadHandles]);
 
-  // Sync the brief form + loop data when the selected handle changes.
+  // Sync the brief form + loop data when the selected handle changes. Keyed on selectedId so a
+  // brief SAVE (which refreshes the handles array) does NOT re-run this and wipe the save message.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!selected) return;
     setPurpose(selected.purpose_line ?? '');
     setPlaybook(selected.content_playbook ?? '');
     setCadence(selected.posting_cadence_days != null ? String(selected.posting_cadence_days) : '');
-    setBriefMsg(null);
-    setAssignMsg(null);
     void (async () => {
       setLoadingLoop(true);
       const [c, cn, r] = await Promise.all([
@@ -108,7 +109,7 @@ function EngagementConsole() {
       setRota(r.success ? r.rota ?? [] : []);
       setLoadingLoop(false);
     })();
-  }, [selected]);
+  }, [selectedId]);
 
   const saveBrief = async () => {
     if (!selected) return;
@@ -145,13 +146,20 @@ function EngagementConsole() {
   };
 
   const doAssign = async () => {
-    if (!selected || !assignWeek || !assignContributor) return;
-    setAssignMsg(null);
+    if (!selected || !assignWeek || !assignContributor || assigning) return;
+    setAssigning(true); setAssignMsg(null);
+    // Snap the picked date to that week's Monday, so it matches the learner-side "your week"
+    // check (which compares week_start === the current Monday).
+    const d = new Date(assignWeek + 'T00:00:00Z');
+    const dow = d.getUTCDay();
+    d.setUTCDate(d.getUTCDate() + (dow === 0 ? -6 : 1 - dow));
+    const monday = d.toISOString().slice(0, 10);
     const res = await assignRota({
       dept_account_id: selected.dept_account_id,
-      week_start: assignWeek,
+      week_start: monday,
       contributor_profile_id: assignContributor,
     });
+    setAssigning(false);
     if (res.success) {
       const r = await getRota(selected.dept_account_id);
       setRota(r.success ? r.rota ?? [] : []);
@@ -191,7 +199,7 @@ function EngagementConsole() {
         <label className="text-sm text-muted-foreground">Managing</label>
         <select
           value={selectedId}
-          onChange={(e) => setSelectedId(e.target.value)}
+          onChange={(e) => { setSelectedId(e.target.value); setBriefMsg(null); setAssignMsg(null); }}
           className="rounded-md border border-input bg-background px-3 py-2 text-sm min-w-64"
         >
           {handles.map((h) => (
@@ -257,7 +265,7 @@ function EngagementConsole() {
                     <option value="">Pick a contributor…</option>
                     {contributorPool.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
                   </select>
-                  <Button size="sm" variant="outline" onClick={doAssign} disabled={!assignWeek || !assignContributor}>Assign</Button>
+                  <Button size="sm" variant="outline" onClick={doAssign} disabled={!assignWeek || !assignContributor || assigning}>{assigning ? 'Assigning…' : 'Assign'}</Button>
                 </div>
                 {contributorPool.length === 0 && <p className="text-[11px] text-muted-foreground">Contributors appear here once members submit ideas.</p>}
                 {assignMsg && <p className="text-xs text-muted-foreground">{assignMsg}</p>}

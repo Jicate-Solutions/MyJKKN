@@ -38,8 +38,9 @@ export async function GET(request: Request): Promise<NextResponse<HandleFeedResp
     }
 
     const url = new URL(request.url);
-    const rawLimit = Number(url.searchParams.get('limit'));
-    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(Math.trunc(rawLimit), 1), 24) : DEFAULT_LIMIT;
+    // Guard param presence — Number(null) === 0 is finite and would defeat the default.
+    const rawLimit = url.searchParams.get('limit');
+    const limit = rawLimit && Number.isFinite(+rawLimit) && +rawLimit > 0 ? Math.min(Math.trunc(+rawLimit), 24) : DEFAULT_LIMIT;
 
     // 1) Handle identity (safe columns, graph-tier, caller's own dept).
     const { data: handleRows, error: handleErr } = await supabase.rpc('fn_social_my_dept_handle');
