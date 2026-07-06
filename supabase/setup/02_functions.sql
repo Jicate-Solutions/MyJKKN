@@ -19407,10 +19407,11 @@ GRANT  EXECUTE ON FUNCTION public.fn_induction_session_poll_responders(uuid) TO 
 -- ── Induction poll Excel export (2026-07-04) — see migration 20260704130000 ──
 -- Host-only ballots export: one row per (learner x question) with learner details
 -- and the selected option labels. Same gate as the other host poll RPCs.
+-- 20260706090000 added college_email (return shape changed — recreate needs DROP first).
 CREATE OR REPLACE FUNCTION public.fn_induction_session_poll_export(p_poll_id uuid)
 RETURNS TABLE (
   learner_id uuid, register_number text, roll_number text, learner_name text,
-  gender text, student_email text, student_mobile text,
+  gender text, student_email text, college_email text, student_mobile text,
   institution_name text, degree_name text, program_name text, batch_name text,
   question_id uuid, question_position integer, question_prompt text, question_kind text,
   option_labels text[], answered_at timestamptz
@@ -19431,6 +19432,7 @@ BEGIN
          trim(coalesce(lp.first_name,'') || ' ' || coalesce(lp.last_name,''))::text,
          lp.gender::text,
          lp.student_email::text,
+         lp.college_email::text,
          lp.student_mobile::text,
          i.name::text,
          d.degree_name::text,
@@ -19452,7 +19454,7 @@ BEGIN
   LEFT JOIN public.batches b       ON b.id  = lp.batch_id
   WHERE v.poll_id = p_poll_id
   GROUP BY v.learner_id, lp.register_number, lp.roll_number, lp.first_name, lp.last_name,
-           lp.gender, lp.student_email, lp.student_mobile, i.name, d.degree_name,
+           lp.gender, lp.student_email, lp.college_email, lp.student_mobile, i.name, d.degree_name,
            pr.program_name, b.batch_name, q.id, q.position, q.prompt, q.kind
   ORDER BY lp.register_number NULLS LAST, q.position;
 END $$;
