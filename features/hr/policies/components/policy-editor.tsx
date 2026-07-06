@@ -28,6 +28,7 @@ import {
   usePolicyList, usePolicyHistory, useCreatePolicy, useUpdatePolicy,
   useDeactivatePolicy, useRestorePolicy, usePolicyDiff,
 } from '@/hooks/hr/use-policies';
+import { HrInstitutionSelect } from '@/components/hr/hr-institution-select';
 import type { PolicyTableDef, PolicyFieldDef } from '@/features/hr/policies/registry';
 
 interface Props {
@@ -42,7 +43,14 @@ export function PolicyEditor({ def, hrOrganizationId }: Props) {
   const [showSuperseded, setShowSuperseded] = useState(false);
   const [editingRow, setEditingRow] = useState<Record<string, unknown> | null>(null);
 
-  const list = usePolicyList(def.table, hrOrganizationId, showSuperseded);
+  // When no ?org= param is passed, scope via an institution dropdown instead of
+  // the old raw "HR Organization ID" UUID input (resolved through
+  // useHrOrgMappings inside HrInstitutionSelect).
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState('');
+  const [selectedOrgId, setSelectedOrgId] = useState('');
+  const effectiveOrgId = hrOrganizationId || selectedOrgId || undefined;
+
+  const list = usePolicyList(def.table, effectiveOrgId, showSuperseded);
 
   return (
     <ContentLayout title={`HR Policies — ${def.label}`}>
@@ -72,6 +80,19 @@ export function PolicyEditor({ def, hrOrganizationId }: Props) {
             </Button>
           </div>
         </div>
+
+        {!hrOrganizationId && (
+          <div className="max-w-md">
+            <HrInstitutionSelect
+              id="policy-institution"
+              value={selectedInstitutionId}
+              onChange={(instId, orgId) => {
+                setSelectedInstitutionId(instId);
+                setSelectedOrgId(orgId);
+              }}
+            />
+          </div>
+        )}
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -147,7 +168,7 @@ export function PolicyEditor({ def, hrOrganizationId }: Props) {
         {(mode === 'create' || mode === 'edit') && (
           <PolicyForm
             def={def}
-            hrOrganizationId={hrOrganizationId}
+            hrOrganizationId={effectiveOrgId}
             mode={mode}
             existing={editingRow}
             onCancel={() => { setMode('list'); setEditingRow(null); }}
@@ -156,7 +177,7 @@ export function PolicyEditor({ def, hrOrganizationId }: Props) {
         )}
 
         {mode === 'history' && (
-          <PolicyHistoryPanel def={def} hrOrganizationId={hrOrganizationId} onClose={() => setMode('list')} />
+          <PolicyHistoryPanel def={def} hrOrganizationId={effectiveOrgId} onClose={() => setMode('list')} />
         )}
       </div>
     </ContentLayout>
@@ -230,15 +251,10 @@ function PolicyForm({
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-3">
-          {!hrOrganizationId && (
-            <div>
-              <Label htmlFor="hr_organization_id">HR Organization ID</Label>
-              <Input
-                id="hr_organization_id"
-                value={(values.hr_organization_id as string) ?? ''}
-                onChange={(e) => setValues({ ...values, hr_organization_id: e.target.value })}
-                required
-              />
+          {mode === 'create' && !hrOrganizationId && (
+            <div className="flex items-center gap-2 text-amber-700 text-sm">
+              <AlertCircle className="h-4 w-4" />
+              <span>Select an institution above before creating a row.</span>
             </div>
           )}
           {def.fields.map((f) => (
@@ -250,7 +266,10 @@ function PolicyForm({
             </div>
           )}
           <div className="flex gap-2 pt-2">
-            <Button type="submit" disabled={create.isPending || update.isPending}>
+            <Button
+              type="submit"
+              disabled={create.isPending || update.isPending || (mode === 'create' && !hrOrganizationId)}
+            >
               {(create.isPending || update.isPending) ? 'Saving...' : (mode === 'create' ? 'Create' : 'Save as new version')}
             </Button>
             <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>

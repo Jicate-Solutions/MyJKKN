@@ -62,8 +62,19 @@ function formatDate(iso: string | null | undefined) {
   }
 }
 
+// This spotlight is a COMPLIANCE widget — it renders attestation progress, a
+// coverage heatmap, and an "Open cycle" link to the compliance detail. Engagement
+// audits (CARE/CARRE) have neither attestations nor that detail page (they live in
+// CareDashboardSection below and use 0–4 scoring), so they must never be picked
+// here — otherwise the spotlight shows meaningless stats and mis-routes.
+const ENGAGEMENT_FRAMEWORKS = new Set(['CARE', 'CARRE']);
+
 function pickActiveCycle(cycles: AuditCycle[] | undefined): AuditCycle | null {
   if (!cycles || cycles.length === 0) return null;
+  const compliance = cycles.filter(
+    (c) => !c.frameworks.some((f) => ENGAGEMENT_FRAMEWORKS.has(f)),
+  );
+  if (compliance.length === 0) return null;
   // Preference: in-progress > rectification > peer-visit > draft; most-recently created wins.
   const priority: Record<string, number> = {
     'in-progress': 0,
@@ -72,7 +83,7 @@ function pickActiveCycle(cycles: AuditCycle[] | undefined): AuditCycle | null {
     draft: 3,
     closed: 9,
   };
-  return [...cycles].sort((a, b) => {
+  return [...compliance].sort((a, b) => {
     const pa = priority[a.phase] ?? 99;
     const pb = priority[b.phase] ?? 99;
     if (pa !== pb) return pa - pb;

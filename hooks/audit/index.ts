@@ -7,3 +7,5 @@ export * from './use-audit-parameters';
 export * from './use-audit-coverage';
 export * from './use-audit-discovery';
 export * from './use-care-audits';
+export * from './use-carre-audits';
+export * from './use-carre-coverage';

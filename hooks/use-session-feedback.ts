@@ -36,8 +36,11 @@ export const scfQueryKeys = {
     [...scfQueryKeys.all, 'admin-faculty-summary', from, to] as const,
   adminTrend: (from: string, to: string) =>
     [...scfQueryKeys.all, 'admin-trend', from, to] as const,
+  facilitatorCoverage: (from: string, to: string) =>
+    [...scfQueryKeys.all, 'facilitator-coverage', from, to] as const,
   openPulsesForLearner: () => [...scfQueryKeys.all, 'open-pulses-learner'] as const,
   pulseTotals: (pulseId: string) => [...scfQueryKeys.all, 'pulse-totals', pulseId] as const,
+  myConfirmedAttendance: () => [...scfQueryKeys.all, 'my-confirmed-attendance'] as const,
 };
 
 export function useChecklistConfig(institutionId?: string | null) {
@@ -178,11 +181,38 @@ export function useAdminTrend(from: string, to: string) {
   });
 }
 
+/** All-college per-learning-facilitator FEEDBACK coverage (drivers first, 0% last). */
+export function useFacilitatorFeedbackCoverage(from: string, to: string) {
+  return useQuery({
+    queryKey: scfQueryKeys.facilitatorCoverage(from, to),
+    queryFn: () => SessionFeedbackService.getFacilitatorFeedbackCoverage(from, to),
+    enabled: !!from && !!to,
+    staleTime: 60 * 1000,
+  });
+}
+
 /** Submit feedback; refreshes the pending + confirmation views on success. */
 export function useSubmitFeedback() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: SubmitFeedbackInput) => SessionFeedbackService.submitFeedback(input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: scfQueryKeys.all });
+    },
+  });
+}
+
+/** Faculty-triggered per-session "notify pending" nudge (PR-B). Refreshes the
+ *  completion + pending-roster views so the drawer reflects any change. */
+export function useNotifySessionPending() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { attendanceDate: string; timetableId: string; periodId: string }) =>
+      SessionFeedbackService.notifySessionPending(
+        input.attendanceDate,
+        input.timetableId,
+        input.periodId,
+      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: scfQueryKeys.all });
     },
@@ -221,5 +251,14 @@ export function usePulseTotals(pulseId: string | null, enabled: boolean) {
     queryFn: () => SessionFeedbackService.getPulseTotals(pulseId as string),
     enabled: enabled && !!pulseId,
     refetchInterval: 10 * 1000,
+  });
+}
+
+/** The caller learner's OWN confirmed-attendance snapshot (transparency + early warning, #7). */
+export function useMyConfirmedAttendance() {
+  return useQuery({
+    queryKey: scfQueryKeys.myConfirmedAttendance(),
+    queryFn: () => SessionFeedbackService.getMyConfirmedAttendance(),
+    staleTime: 60 * 1000,
   });
 }

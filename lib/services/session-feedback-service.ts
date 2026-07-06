@@ -20,11 +20,13 @@ import type {
   AdminCollegeSummaryRow,
   AdminFacultySummaryRow,
   AdminTrendRow,
+  FacilitatorCoverageRow,
   ChecklistConfigItem,
   SubmitFeedbackInput,
   LivePulseRow,
   OpenPulseForLearner,
   PulseTotals,
+  MyConfirmedAttendance,
 } from '@/types/session-feedback';
 
 // Untyped client — session_feedback tables are not in the generated types yet.
@@ -60,6 +62,17 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to load pending sessions: ${error.message}`);
     return (data || []) as PendingSession[];
+  }
+
+  /** The caller learner's OWN confirmed-attendance snapshot (transparency, #7).
+   *  Forward-only; NOT gated on attendance_coupling_enabled — a learner may always see
+   *  their own number. Returns null when the caller is not a learner or has no in-scope marks. */
+  static async getMyConfirmedAttendance(): Promise<MyConfirmedAttendance | null> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_my_confirmed_attendance', {});
+    if (error) throw new Error(`Failed to load confirmed attendance: ${error.message}`);
+    const row = Array.isArray(data) ? data[0] : data;
+    return (row as MyConfirmedAttendance) ?? null;
   }
 
   /** Carry-forward re-asks: prior same-course sessions the learner flagged, for their
@@ -141,6 +154,26 @@ export class SessionFeedbackService {
     return (data || []) as PendingRosterRow[];
   }
 
+  /** Faculty-triggered per-session nudge (PR-B): sends ONE in-app bell to each
+   *  Present-but-unconfirmed learner of this session, reusing the canonical
+   *  nudge notification path. The RPC authorizes the caller as the assigned
+   *  faculty (or super/admin). Returns how many learners were newly nudged
+   *  (idempotent per learner/session/day, so a repeat click may return 0). */
+  static async notifySessionPending(
+    attendanceDate: string,
+    timetableId: string,
+    periodId: string,
+  ): Promise<number> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_notify_session_pending', {
+      p_attendance_date: attendanceDate,
+      p_timetable_id: timetableId,
+      p_period_id: periodId,
+    });
+    if (error) throw new Error(`Failed to notify pending learners: ${error.message}`);
+    return Number(data ?? 0);
+  }
+
   /** Institution sessions breaching the understanding threshold (Principal view). */
   static async getEscalations(from: string, to: string): Promise<EscalationRow[]> {
     const supabase = getSupabase();
@@ -204,6 +237,28 @@ export class SessionFeedbackService {
     return (data || []) as MyImpactRow[];
   }
 
+  /**
+   * Self-improving loop — the HUMAN verdict channel. Records the teacher's own
+   * read on whether an AI suggestion actually helped, against the recorded
+   * suggestion row (id returned by the ai-suggest-improvement route). This is the
+   * signal fn_scf_prior_suggestion feeds back into the next prompt — without it,
+   * human_verdict is always null. fn_scf_set_verdict is SECURITY DEFINER and
+   * authorizes the caller against the suggestion's own scope, so a faculty can
+   * only verdict their own suggestions. Returns true when the verdict was applied.
+   */
+  static async setSuggestionVerdict(
+    suggestionId: string,
+    verdict: 'tried_helped' | 'tried_no_change' | 'not_tried',
+  ): Promise<boolean> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_set_verdict', {
+      p_suggestion_id: suggestionId,
+      p_verdict: verdict,
+    });
+    if (error) throw new Error(`Failed to save your verdict: ${error.message}`);
+    return data === true;
+  }
+
   // ---------------------------------------------------------------------------
   // Super-admin / institution-leadership all-college dashboard (aggregates only).
   // The RPCs raise for non-authorized callers; all three return ONLY aggregates
@@ -247,6 +302,23 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to load understanding trend: ${error.message}`);
     return (data || []) as AdminTrendRow[];
+  }
+
+  /** Per-learning-facilitator FEEDBACK coverage: (distinct taught sessions with >=1
+   *  feedback) / (distinct taught sessions). Drivers first, 0% non-drivers last.
+   *  Denominator comes from student_attendance, so facilitators who taught but got
+   *  no feedback surface at 0% — invisible to the session_feedback-only summaries. */
+  static async getFacilitatorFeedbackCoverage(
+    from: string,
+    to: string,
+  ): Promise<FacilitatorCoverageRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_facilitator_feedback_coverage', {
+      p_from: from,
+      p_to: to,
+    });
+    if (error) throw new Error(`Failed to load facilitator coverage: ${error.message}`);
+    return (data || []) as FacilitatorCoverageRow[];
   }
 
   // ---------------------------------------------------------------------------

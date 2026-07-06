@@ -151,6 +151,27 @@ export const getColumns = (context: ColumnsContext): ColumnDef<AttendanceConsoli
       maxSize: 100,
     },
     {
+      accessorKey: 'reportParams.template',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Template" />
+      ),
+      cell: ({ row }) => {
+        // Old rows predate the template field -> summary
+        const template = row.original.reportParams.template || 'summary';
+        return (
+          <Badge
+            variant={template === 'subjectwise' ? 'default' : 'secondary'}
+            className="capitalize"
+          >
+            {template === 'subjectwise' ? 'Subjectwise %' : 'Summary'}
+          </Badge>
+        );
+      },
+      size: 110,
+      minSize: 90,
+      maxSize: 130,
+    },
+    {
       accessorKey: 'reportParams.groupBy',
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Group By" />

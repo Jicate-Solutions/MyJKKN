@@ -23,6 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useCreateCdcDrive, useCdcLookups } from '@/hooks/cdc/use-cdc-drives';
 import { useJkknInstitutions } from '@/hooks/use-jkkn-institutions';
 import type { CdcDriveMode } from '@/types/cdc';
+import { RecruiterQuickAdd } from './_components/recruiter-quick-add';
 
 export default function NewCdcDrivePage() {
   const router = useRouter();
@@ -162,7 +163,10 @@ export default function NewCdcDrivePage() {
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <Label htmlFor="recruiter">Recruiter *</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="recruiter">Recruiter *</Label>
+                  <RecruiterQuickAdd onCreated={(newId) => { if (newId) setRecruiterId(newId); }} />
+                </div>
                 <Select value={recruiterId} onValueChange={setRecruiterId}>
                   <SelectTrigger id="recruiter">
                     <SelectValue placeholder={lookupsLoading ? 'Loading…' : 'Select recruiter'} />

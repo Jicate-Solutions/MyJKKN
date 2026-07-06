@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
-import { UploadCloud, Paperclip, X, Loader2 } from 'lucide-react';
+import { UploadCloud, Paperclip, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -14,8 +14,8 @@ const ALLOWED_TYPES = [
 const MAX_BYTES = 2 * 1024 * 1024; // 2 MB
 
 interface StepUploadResumeProps {
-  jobId: string;
-  onNext: (resumeUrl: string, resumeFilename: string, resumeSizeBytes: number, driveFileId: string) => void;
+  initialFile: File | null;
+  onNext: (file: File) => void;
   onCancel: () => void;
 }
 
@@ -25,10 +25,9 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function StepUploadResume({ jobId, onNext, onCancel }: StepUploadResumeProps) {
-  const [file, setFile] = useState<File | null>(null);
+export function StepUploadResume({ initialFile, onNext, onCancel }: StepUploadResumeProps) {
+  const [file, setFile] = useState<File | null>(initialFile);
   const [dragOver, setDragOver] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const validate = (f: File): string | null => {
@@ -60,30 +59,9 @@ export function StepUploadResume({ jobId, onNext, onCancel }: StepUploadResumePr
     e.target.value = '';
   };
 
-  const handleNext = async () => {
+  const handleNext = () => {
     if (!file) { toast.error('Please select a resume file.'); return; }
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const res = await fetch(`/api/hr/recruitment/jobs/${jobId}/resume-upload`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error((err as { error?: string }).error || 'Upload failed. Please try again.');
-      }
-
-      const data = await res.json() as { url: string; filename: string; sizeBytes: number; driveFileId: string };
-      onNext(data.url, data.filename, data.sizeBytes, data.driveFileId);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Upload failed. Please try again.');
-    } finally {
-      setUploading(false);
-    }
+    onNext(file);
   };
 
   return (
@@ -130,20 +108,25 @@ export function StepUploadResume({ jobId, onNext, onCancel }: StepUploadResumePr
 
       {/* Selected file */}
       {file && (
-        <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2">
-          <span className="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center text-muted-foreground">
-            <Paperclip className="h-4 w-4" />
-          </span>
-          <span className="min-w-0 flex-1 truncate text-sm font-medium">{file.name}</span>
-          <span className="flex-shrink-0 text-xs text-muted-foreground">{formatBytes(file.size)}</span>
-          <button
-            onClick={(e) => { e.stopPropagation(); setFile(null); }}
-            className="ml-1 flex-shrink-0 text-muted-foreground hover:text-destructive transition-colors"
-            aria-label="Remove file"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+        <>
+          <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2">
+            <span className="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center text-muted-foreground">
+              <Paperclip className="h-4 w-4" />
+            </span>
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">{file.name}</span>
+            <span className="flex-shrink-0 text-xs text-muted-foreground">{formatBytes(file.size)}</span>
+            <button
+              onClick={(e) => { e.stopPropagation(); setFile(null); }}
+              className="ml-1 flex-shrink-0 text-muted-foreground hover:text-destructive transition-colors"
+              aria-label="Remove file"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Your resume will be uploaded when you submit the application.
+          </p>
+        </>
       )}
 
       {!file && (
@@ -159,15 +142,11 @@ export function StepUploadResume({ jobId, onNext, onCancel }: StepUploadResumePr
 
       {/* Actions */}
       <div className="flex gap-3 pt-2">
-        <Button type="button" variant="outline" className="flex-1" onClick={onCancel} disabled={uploading}>
+        <Button type="button" variant="outline" className="flex-1" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="button" className="flex-1" onClick={handleNext} disabled={!file || uploading}>
-          {uploading ? (
-            <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Uploading to Drive…</>
-          ) : (
-            'Next'
-          )}
+        <Button type="button" className="flex-1" onClick={handleNext} disabled={!file}>
+          Next
         </Button>
       </div>
     </div>

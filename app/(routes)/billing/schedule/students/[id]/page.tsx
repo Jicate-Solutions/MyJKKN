@@ -81,7 +81,10 @@ export default function StudentBillingDetailPage() {
     data: student,
     isLoading: isLoadingStudent,
     error: studentError
-  } = useStudentForBilling(studentId);
+    // Read-only page: load the learner even when their lifecycle left the
+    // billable set (rejected/withdrawn) — their existing bills must stay
+    // viewable for cancellation/refund work.
+  } = useStudentForBilling(studentId, { includeNonBillable: true });
 
   const {
     data: billingSummary,

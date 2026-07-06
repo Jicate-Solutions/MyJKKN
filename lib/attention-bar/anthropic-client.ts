@@ -19,7 +19,11 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 
-import { LAYER_4_MODEL } from './cost-rates';
+import {
+  resolveChatModel,
+  recordChatCall,
+} from '@/lib/services/platform/ai-clients/chat';
+
 import {
   buildSystemPrompt,
   buildToolDefinition,
@@ -27,6 +31,18 @@ import {
   type AllowlistEntry,
   type UserPromptInput,
 } from './llm-prompt';
+
+/**
+ * ai_model_config feature key governing the Layer 4 model. Resolved per call
+ * (60s cache in the config service); falls back to LAYER_4_MODEL's value on
+ * any config failure — resolveChatModel never throws.
+ *
+ * NOTE: the USD budget math in cost-rates.ts (computeCostUsd,
+ * PROJECTED_COST_USD) is still keyed to Haiku 4.5 rates. If the Director flips
+ * this feature's model in /admin/ai-models, update cost-rates.ts per its
+ * "HOW TO UPDATE" block so the budget gate and audit costs stay truthful.
+ */
+const FEATURE_KEY = 'attention_bar.assistant';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Singleton client
@@ -85,7 +101,9 @@ export interface PickActionInput extends UserPromptInput {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Call Claude Haiku 4.5 to pick one action from the allowlist.
+ * Call Claude (model governed by ai_model_config feature
+ * `attention_bar.assistant`; default Claude Haiku 4.5) to pick one action
+ * from the allowlist.
  *
  * Throws on:
  *  - Missing ANTHROPIC_API_KEY (caller should have gated on isLayer4Enabled).
@@ -104,6 +122,11 @@ export async function pickActionViaLLM(
   }
 
   const client = getClient();
+
+  // Model from ai_model_config (feature attention_bar.assistant) — resolved
+  // per call, 60s-cached, never throws (degrades to the hardcoded fallback).
+  const { model_id: modelId } = await resolveChatModel(FEATURE_KEY);
+
   const system = buildSystemPrompt();
   const userText = buildUserPrompt(input);
   const tool = buildToolDefinition(input.allowlist);
@@ -123,26 +146,42 @@ export async function pickActionViaLLM(
   // the user-message + output tokens.
   // ─────────────────────────────────────────────────────────────────────
 
-  const message = await client.messages.create({
-    model: LAYER_4_MODEL,
-    max_tokens: 256,
-    // System message: array form (so we can attach cache_control).
-    system: [
-      {
-        type: 'text',
-        text: system,
-        cache_control: { type: 'ephemeral' },
-      },
-    ],
-    tools: [tool],
-    tool_choice: { type: 'tool', name: 'pick_action' },
-    messages: [
-      {
-        role: 'user',
-        content: userText,
-      },
-    ],
-  });
+  const startedAt = Date.now();
+  let message: Anthropic.Message;
+  try {
+    message = await client.messages.create({
+      model: modelId,
+      max_tokens: 256,
+      // System message: array form (so we can attach cache_control).
+      system: [
+        {
+          type: 'text',
+          text: system,
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
+      tools: [tool],
+      tool_choice: { type: 'tool', name: 'pick_action' },
+      messages: [
+        {
+          role: 'user',
+          content: userText,
+        },
+      ],
+    });
+  } catch (err) {
+    // Record the failed invocation in ai_model_usage (internally non-throwing),
+    // then rethrow — Layer 4's evaluator converts errors to matched:false and
+    // its own USD tracker (recordLayer4Call) still audits the attempt.
+    await recordChatCall(FEATURE_KEY, 'anthropic', modelId, startedAt, null, err);
+    throw err;
+  }
+
+  // Platform-wide usage ledger (INR). Separate from the attention-bar's own
+  // USD cost-tracker (quick_action_* tables) — different ledgers, not
+  // double-counting. Recorded before tool_use validation: the API call
+  // succeeded and was paid for even if the model misbehaved below.
+  await recordChatCall(FEATURE_KEY, 'anthropic', modelId, startedAt, message);
 
   // ─────────────────────────────────────────────────────────────────────
   // Extract the tool_use block.

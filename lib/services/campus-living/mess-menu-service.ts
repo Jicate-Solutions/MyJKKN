@@ -380,6 +380,119 @@ export class MessMenuService {
     }
   }
 
+  // ── Copy a week forward (menu-continuity friction-killer) ─────────
+  /**
+   * Copy the most-recent PRIOR week's menu cells for a (institution, caterer,
+   * tier) slot into `targetWeekStart`, so a chairperson starts the week from
+   * last week's menu and edits only the deltas — instead of rebuilding all
+   * 28 cells from scratch. That rebuild friction is what let weekly publishing
+   * lapse, which in turn starves the Choose Your Menu loop of a rating baseline.
+   *
+   *   • Source = the latest week_start_date < targetWeekStart that has cells
+   *     for this exact (institution, caterer, tier).
+   *   • Idempotent — cells already present in the target (same day + meal) are
+   *     left untouched, so re-clicking never duplicates rows or overwrites an
+   *     edit already made this week.
+   *   • Copied cells land as status 'planned' (never auto-'published') — the
+   *     chairperson reviews/edits first. Human approval stays in the loop.
+   *   • Special-day flags are NOT carried forward (a festival is a one-off).
+   *
+   * Returns { copied, skipped, sourceWeek } for a precise, honest toast.
+   */
+  static async copyWeekForward(params: {
+    institutionId: string;
+    catererId: string;
+    tierKey: TierKey;
+    targetWeekStart: string;
+  }): Promise<{ copied: number; skipped: number; sourceWeek: string | null }> {
+    const { institutionId, catererId, tierKey, targetWeekStart } = params;
+    try {
+      const supabase = createClientSupabaseClient();
+
+      // 1) Latest prior week that actually has cells for this slot.
+      const { data: priorRows, error: priorErr } = await supabase
+        .from('mess_menus')
+        .select('week_start_date')
+        .eq('institution_id', institutionId)
+        .eq('caterer_id', catererId)
+        .eq('tier_key', tierKey)
+        .lt('week_start_date', targetWeekStart)
+        .order('week_start_date', { ascending: false })
+        .limit(1);
+      if (priorErr) {
+        logger.error('campus-living/menu', 'copyWeekForward prior-week lookup failed', priorErr);
+        throw priorErr;
+      }
+      const sourceWeek = (priorRows?.[0]?.week_start_date as string | undefined) ?? null;
+      if (!sourceWeek) return { copied: 0, skipped: 0, sourceWeek: null };
+
+      // 2) Source cells + already-present target cells (for idempotency).
+      const [srcRes, tgtRes] = await Promise.all([
+        supabase
+          .from('mess_menus')
+          .select('*')
+          .eq('institution_id', institutionId)
+          .eq('caterer_id', catererId)
+          .eq('tier_key', tierKey)
+          .eq('week_start_date', sourceWeek),
+        supabase
+          .from('mess_menus')
+          .select('day_of_week, meal_type')
+          .eq('institution_id', institutionId)
+          .eq('caterer_id', catererId)
+          .eq('tier_key', tierKey)
+          .eq('week_start_date', targetWeekStart),
+      ]);
+      if (srcRes.error) {
+        logger.error('campus-living/menu', 'copyWeekForward source-load failed', srcRes.error);
+        throw srcRes.error;
+      }
+      if (tgtRes.error) {
+        logger.error('campus-living/menu', 'copyWeekForward target-load failed', tgtRes.error);
+        throw tgtRes.error;
+      }
+
+      const srcCells = (srcRes.data ?? []) as MessMenu[];
+      const present = new Set(
+        (tgtRes.data ?? []).map((r) => `${r.day_of_week}-${r.meal_type}`),
+      );
+      const toInsert = srcCells
+        .filter((r) => !present.has(`${r.day_of_week}-${r.meal_type}`))
+        .map((r) => ({
+          institution_id: institutionId,
+          caterer_id: catererId,
+          tier_key: tierKey,
+          week_start_date: targetWeekStart,
+          day_of_week: r.day_of_week,
+          meal_type: r.meal_type,
+          // items is NOT NULL — mirror items_tamil when the source lacked it.
+          items: r.items ?? r.items_tamil ?? [],
+          items_tamil: r.items_tamil ?? null,
+          items_english: r.items_english ?? null,
+          status: 'planned' as MenuStatus,
+          is_special_day: false,
+          special_day_name: null,
+          dietary_tags: r.dietary_tags ?? null,
+        }));
+
+      const skipped = srcCells.length - toInsert.length;
+      if (toInsert.length === 0) return { copied: 0, skipped, sourceWeek };
+
+      const { error: insErr } = await supabase
+        .from('mess_menus')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .insert(toInsert as any);
+      if (insErr) {
+        logger.error('campus-living/menu', 'copyWeekForward insert failed', insErr);
+        throw insErr;
+      }
+      return { copied: toInsert.length, skipped, sourceWeek };
+    } catch (error) {
+      logger.error('campus-living/menu', 'Unexpected error in copyWeekForward', error);
+      throw error;
+    }
+  }
+
   // ── NEW (PR 3) — cutoff-aware single-cell upsert ──────────────────
   /**
    * Update a single (institution, week, day, meal, tier) cell, respecting the

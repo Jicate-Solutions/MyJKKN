@@ -158,17 +158,24 @@ export class AttendanceCoreService {
         }
       }
 
-      // STEP 5: Get the staff record for this user
+      // STEP 5: Get the staff record(s) for this user
       // Updated: 2025-10-13 - Use institution_email instead of email
       // profile.email matches staff.institution_email (not staff.email which is personal)
-      const { data: staffRecord } = await this.supabase
+      // Updated: 2026-07-06 (cross-institution teaching) - Do NOT filter the staff
+      // lookup by institution_id. A visiting staff's row belongs to their HOME
+      // institution while the timetable belongs to the institution they teach in,
+      // so the institution-scoped lookup returned no row and STEP 8 always rejected
+      // the save. Collect ALL staff rows for this email (duplicate rows across
+      // institutions exist in the wild) and authorize if ANY of them is assigned.
+      // Self-view RLS (staff.institution_email = auth.email()) permits this read.
+      const { data: staffRecords } = await this.supabase
         .from('staff')
         .select('id')
-        .eq('institution_email', (profileData as any).email)
-        .eq('institution_id', institutionId)
-        .maybeSingle();
+        .eq('institution_email', (profileData as any).email);
 
-      const userStaffId = (staffRecord as any)?.id;
+      const userStaffIds: string[] = (staffRecords ?? []).map(
+        (record: any) => record.id
+      );
 
       // STEP 6: Get timetable data to extract staff assignments
       const { data: timetableData, error: timetableError } = await this.supabase
@@ -247,15 +254,40 @@ export class AttendanceCoreService {
                 }
               });
             }
+
+            // Added: 2026-07-01 - Practical periods (period_mode='practical') assign staff
+            // per BATCH in practical_config.batches[].staff_mapping (course_id -> staff_id[]),
+            // NOT in staff_ids/sub_slots — those stay empty for practical slots. Without this,
+            // a faculty member assigned only via a practical batch (e.g. "Morning Practical")
+            // fails this save-time check even though they can see and open the period from
+            // My Classes (getFacultyTodayPeriods) and pass the roster-level canMarkAttendanceForSlot
+            // check (isStaffAssignedToSlot) — both of which already recognize this shape.
+            if (
+              periodSlot &&
+              periodSlot.period_mode === 'practical' &&
+              periodSlot.practical_config &&
+              Array.isArray(periodSlot.practical_config.batches)
+            ) {
+              periodSlot.practical_config.batches.forEach((batch: any) => {
+                const mapping = batch?.staff_mapping;
+                if (mapping && typeof mapping === 'object') {
+                  Object.values(mapping).forEach((staffList: any) => {
+                    if (Array.isArray(staffList)) {
+                      staffList.forEach((id: string) => allAssignedIds.add(id));
+                    }
+                  });
+                }
+              });
+            }
           });
         }
       });
 
       // STEP 8: Check authorization - Allow if either profile ID or staff ID matches
       const isAuthorizedByProfile = allAssignedIds.has(markedBy); // Check profile ID directly
-      const isAuthorizedByStaff = userStaffId
-        ? allAssignedIds.has(userStaffId)
-        : false;
+      const isAuthorizedByStaff = userStaffIds.some((id) =>
+        allAssignedIds.has(id)
+      );
 
       if (isAuthorizedByProfile || isAuthorizedByStaff) {
         const authType = isAuthorizedByProfile ? 'profile' : 'staff';
@@ -1071,6 +1103,29 @@ export class AttendanceCoreService {
             if (isAssignedToSubSlot) return true;
           }
         }
+      }
+
+      // Added: 2026-06-29 - Practical periods (period_mode='practical') assign staff
+      // per BATCH in practical_config.batches[].staff_mapping (course_id -> staff_id[]),
+      // NOT in staff_members/sub_slots. Recognize them here so a practical-assigned
+      // faculty counts as "specifically assigned" (tier 1 of canMarkAttendanceForSlot)
+      // and can mark even without the broad faculty permission — same as a regular
+      // assigned slot. Mirrors the getFacultyTodayPeriods practical fix.
+      if (
+        targetSlot.period_mode === 'practical' &&
+        targetSlot.practical_config &&
+        Array.isArray(targetSlot.practical_config.batches)
+      ) {
+        const inPracticalBatch = targetSlot.practical_config.batches.some(
+          (batch: any) => {
+            const mapping = batch?.staff_mapping;
+            if (!mapping || typeof mapping !== 'object') return false;
+            return Object.values(mapping).some(
+              (list: any) => Array.isArray(list) && list.includes(staffId)
+            );
+          }
+        );
+        if (inPracticalBatch) return true;
       }
 
       return false;

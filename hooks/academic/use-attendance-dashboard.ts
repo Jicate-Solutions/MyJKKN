@@ -74,6 +74,90 @@ export function useAttendanceStats(
 }
 
 /**
+ * Trailing window (days, inclusive of the selected date) the confirmation split
+ * covers. Must exceed window_hours/24 for the "overdue" bucket to be meaningful
+ * (with the default window_hours=48 → 2d, 14d leaves ~12d of overdue headroom).
+ * COUPLING: if an institution ever raises session_feedback.window_hours above
+ * ~336h (14d), overdue would be structurally near-empty within this fixed span —
+ * revisit this constant (or derive it from window_hours) if that policy changes.
+ */
+const SPLIT_WINDOW_DAYS = 14;
+
+/**
+ * Hook for the post-class-feedback attendance-confirmation split.
+ * Same institution scoping as useAttendanceStats. Returns gateMode so the UI can
+ * hide the cards entirely when the policy is 'off'. Visibility-only — never
+ * affects the official attendance %. Covers a rolling SPLIT_WINDOW_DAYS window
+ * ending at the selected date (so "overdue" is not structurally always 0).
+ */
+export function useConfirmationSplit(
+  institutionId?: string,
+  canViewAllInstitutions: boolean = false,
+  selectedDate: Date = new Date(),
+  refreshTrigger: number = 0
+) {
+  const { profile } = useAuth();
+
+  const queryInstitutionId = canViewAllInstitutions
+    ? institutionId
+    : profile?.institution_id || undefined;
+
+  const queryAllInstitutions =
+    canViewAllInstitutions && institutionId === undefined;
+
+  // The split covers a ROLLING window ending at the selected date, not a single
+  // day: with window_hours=48 a single-day (today) view can never produce an
+  // "overdue" mark, making that bucket structurally dead. A trailing window
+  // surfaces the accumulated confirmation gap leadership cares about.
+  // Dates are IST wall-clock via Intl (timeZone Asia/Kolkata) — NOT toISOString()
+  // (UTC) or local getDate (browser-tz-dependent) — because the RPC anchors its
+  // buckets to Asia/Kolkata; correct regardless of the admin's client TZ.
+  const istDate = (d: Date) =>
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(d);
+  const toDate = istDate(selectedDate);
+  const fromDate = istDate(
+    new Date(selectedDate.getTime() - (SPLIT_WINDOW_DAYS - 1) * 86_400_000)
+  );
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: [
+      'attendance-confirmation-split',
+      queryInstitutionId,
+      queryAllInstitutions,
+      fromDate,
+      toDate,
+      refreshTrigger
+    ],
+    queryFn: () =>
+      AttendanceDashboardService.getConfirmationSplit(
+        fromDate,
+        toDate,
+        queryAllInstitutions ? undefined : queryInstitutionId
+      ),
+    enabled: queryAllInstitutions || !!queryInstitutionId,
+    ...QUERY_CONFIG.DASHBOARD_DATA
+  });
+
+  return {
+    gateMode: data?.gateMode ?? 'off',
+    windowHours: data?.windowHours ?? 48,
+    windowDays: SPLIT_WINDOW_DAYS,
+    split: data?.split ?? null,
+    isLoading,
+    // Surface both a thrown query error and an RPC-level error the service
+    // caught (which returns split=null) — so the UI can distinguish a load
+    // failure from a genuine empty result instead of showing fake zeros.
+    isError: !!error || !!data?.error,
+    refetch
+  };
+}
+
+/**
  * Hook for fetching pending attendance periods
  */
 export function usePendingAttendance(

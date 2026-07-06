@@ -1343,6 +1343,16 @@ CREATE INDEX IF NOT EXISTS idx_bug_reports_module_name ON public.bug_reports(mod
 -- Composite index for module + sub-module queries (added 2026-03-23)
 CREATE INDEX IF NOT EXISTS idx_bug_reports_sub_module_name ON public.bug_reports(module_name, sub_module_name);
 
+-- Updated: 2026-06-30 - Added metadata JSONB for module-specific routing payloads
+-- (e.g. social/instagram bug reports populate metadata.ig_user_id at submission
+-- time; the daily ig-accounts-sync cron rewrites metadata.routed_owner_user_id
+-- on ownership flip — see lib/instagram/auto-route-on-ownership-flip.ts).
+ALTER TABLE public.bug_reports
+  ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
+CREATE INDEX IF NOT EXISTS idx_bug_reports_metadata_ig_user_id
+  ON public.bug_reports ((metadata->>'ig_user_id'))
+  WHERE metadata ? 'ig_user_id';
+
 -- Bug Report Messages
 CREATE TABLE IF NOT EXISTS public.bug_report_messages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -5214,3 +5224,773 @@ CREATE TABLE IF NOT EXISTS public.social_loop_playbook (
   CONSTRAINT social_loop_playbook_account_cycle_key UNIQUE (account_id, cycle_no)
 );
 CREATE INDEX IF NOT EXISTS idx_social_loop_playbook_account ON public.social_loop_playbook (account_id, cycle_no DESC);
+
+-- ── Induction session polls (2026-06-30) — see migration 20260630210000 ──
+CREATE TABLE IF NOT EXISTS public.induction_session_poll (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id uuid NOT NULL UNIQUE REFERENCES public.event_sessions(id) ON DELETE CASCADE,
+  event_id uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  institution_id uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','open','closed')),
+  issued_at timestamptz, auto_close_at timestamptz, created_by uuid,
+  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS public.induction_session_poll_question (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  poll_id uuid NOT NULL REFERENCES public.induction_session_poll(id) ON DELETE CASCADE,
+  prompt text NOT NULL, kind text NOT NULL DEFAULT 'single' CHECK (kind IN ('single','multi')),
+  position int NOT NULL DEFAULT 0, created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS public.induction_session_poll_option (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  question_id uuid NOT NULL REFERENCES public.induction_session_poll_question(id) ON DELETE CASCADE,
+  label text NOT NULL, position int NOT NULL DEFAULT 0, created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS public.induction_session_poll_vote (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  poll_id uuid NOT NULL REFERENCES public.induction_session_poll(id) ON DELETE CASCADE,
+  question_id uuid NOT NULL REFERENCES public.induction_session_poll_question(id) ON DELETE CASCADE,
+  option_id uuid NOT NULL REFERENCES public.induction_session_poll_option(id) ON DELETE CASCADE,
+  learner_id uuid NOT NULL REFERENCES public.learners_profiles(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (question_id, option_id, learner_id)
+);
+
+-- ── Induction programs: multi-target columns (2026-06-30) ──
+-- Migration: supabase/migrations/20260630220000_induction_program_target_columns.sql
+ALTER TABLE public.induction_programs
+  ADD COLUMN IF NOT EXISTS target_institution_ids uuid[],
+  ADD COLUMN IF NOT EXISTS target_degree_ids      uuid[],
+  ADD COLUMN IF NOT EXISTS target_department_ids  uuid[];
+
+COMMENT ON COLUMN public.induction_programs.target_institution_ids IS
+  'Institutions whose freshers auto-enroll (>=1 for new rows). NULL = legacy induction (use institution_id + enroll_scope).';
+COMMENT ON COLUMN public.induction_programs.target_degree_ids IS
+  'Optional degree filter; NULL/empty = all degrees.';
+COMMENT ON COLUMN public.induction_programs.target_department_ids IS
+  'Optional department filter; NULL/empty = all departments.';
+-- =====================================================================
+-- 2026-06-30 — Schools Network module (DB substrate, Agent A)
+-- Migration: supabase/migrations/20260630120000_schools_network_substrate.sql
+-- Spec: /tmp/schools-network-spec.md
+-- 5 enum types + 3 master tables (seeded) + 7 core entity tables.
+-- =====================================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'school_ownership') THEN
+    CREATE TYPE public.school_ownership AS ENUM ('external', 'internal');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'school_status') THEN
+    CREATE TYPE public.school_status AS ENUM ('active', 'sustaining', 'dormant', 'inactive');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'school_owner_role') THEN
+    CREATE TYPE public.school_owner_role AS ENUM ('outreach_coordinator', 'program_lead');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'school_contribution_kind') THEN
+    CREATE TYPE public.school_contribution_kind AS ENUM (
+      'device', 'branding', 'website', 'fund', 'training_kit', 'other'
+    );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'program_partner_status') THEN
+    CREATE TYPE public.program_partner_status AS ENUM ('active', 'sustaining', 'dormant');
+  END IF;
+END $$;
+
+-- Master value-list tables
+CREATE TABLE IF NOT EXISTS public.school_session_types (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code          TEXT NOT NULL UNIQUE,
+  label         TEXT NOT NULL,
+  description   TEXT,
+  is_system     BOOLEAN NOT NULL DEFAULT FALSE,
+  display_order INTEGER NOT NULL DEFAULT 100,
+  is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE public.school_session_types ENABLE ROW LEVEL SECURITY;
+INSERT INTO public.school_session_types (code, label, description, is_system, display_order) VALUES
+  ('visit',       'School Visit',        'In-person visit by JKKN team',                TRUE, 10),
+  ('orientation', 'Orientation Session', 'Career / program orientation for students',   TRUE, 20),
+  ('training',    'Teacher Training',    'Capacity-building session for school staff',  TRUE, 30),
+  ('event',       'Event / Workshop',    'On-campus or partner-led event',              TRUE, 40),
+  ('drop_by',     'Drop-by / Informal',  'Quick informal contact',                      TRUE, 50)
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS public.program_partner_types (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code          TEXT NOT NULL UNIQUE,
+  label         TEXT NOT NULL,
+  description   TEXT,
+  is_system     BOOLEAN NOT NULL DEFAULT FALSE,
+  display_order INTEGER NOT NULL DEFAULT 100,
+  is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE public.program_partner_types ENABLE ROW LEVEL SECURITY;
+INSERT INTO public.program_partner_types (code, label, description, is_system, display_order) VALUES
+  ('csr',             'CSR Partner',        'Corporate CSR arm (HP, NIIT, etc.)', TRUE, 10),
+  ('grant',           'Grant / Foundation', 'Philanthropic foundation grant',     TRUE, 20),
+  ('corporate',       'Corporate Sponsor',  'Direct corporate sponsorship',       TRUE, 30),
+  ('govt_foundation', 'Govt. Foundation',   'Government / quasi-govt foundation', TRUE, 40)
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS public.school_contact_roles (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code                TEXT NOT NULL UNIQUE,
+  label               TEXT NOT NULL,
+  description         TEXT,
+  is_system           BOOLEAN NOT NULL DEFAULT FALSE,
+  display_order       INTEGER NOT NULL DEFAULT 100,
+  is_active           BOOLEAN NOT NULL DEFAULT TRUE,
+  can_login_to_portal BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE public.school_contact_roles ENABLE ROW LEVEL SECURITY;
+INSERT INTO public.school_contact_roles
+  (code, label, description, is_system, display_order, can_login_to_portal) VALUES
+  ('hm',        'Headmaster',      'Headmaster / school head',        TRUE, 10, TRUE),
+  ('principal', 'Principal',       'Principal (if distinct from HM)', TRUE, 20, TRUE),
+  ('teacher',   'Teacher / Staff', 'Subject teacher or coordinator',  TRUE, 30, FALSE),
+  ('alt',       'Alternate',       'Alternate point-of-contact',      TRUE, 40, FALSE)
+ON CONFLICT (code) DO NOTHING;
+
+-- program_partners FIRST (school_jkkn_owners FKs to it)
+CREATE TABLE IF NOT EXISTS public.program_partners (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name           TEXT NOT NULL,
+  type_id        UUID NOT NULL REFERENCES public.program_partner_types(id) ON DELETE RESTRICT,
+  contact_email  TEXT,
+  contact_phone  TEXT,
+  contact_person TEXT,
+  website_url    TEXT,
+  status         program_partner_status NOT NULL DEFAULT 'active',
+  notes          TEXT,
+  metadata       JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS program_partners_type_idx   ON public.program_partners (type_id);
+CREATE INDEX IF NOT EXISTS program_partners_status_idx ON public.program_partners (status);
+ALTER TABLE public.program_partners ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.schools (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name              TEXT NOT NULL,
+  ownership         school_ownership NOT NULL,
+  institution_id    UUID REFERENCES public.institutions(id) ON DELETE SET NULL,
+  district          TEXT,
+  state             TEXT,
+  pincode           TEXT,
+  address           TEXT,
+  latitude          NUMERIC(10, 7),
+  longitude         NUMERIC(10, 7),
+  intake_year       INTEGER,
+  status            school_status NOT NULL DEFAULT 'active',
+  status_changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  metadata          JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_by        UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT schools_internal_requires_institution CHECK (
+    (ownership = 'external' AND institution_id IS NULL) OR
+    (ownership = 'internal' AND institution_id IS NOT NULL)
+  )
+);
+CREATE INDEX IF NOT EXISTS schools_ownership_idx      ON public.schools (ownership);
+CREATE INDEX IF NOT EXISTS schools_status_idx         ON public.schools (status);
+CREATE INDEX IF NOT EXISTS schools_district_state_idx ON public.schools (state, district);
+CREATE INDEX IF NOT EXISTS schools_institution_id_idx ON public.schools (institution_id) WHERE institution_id IS NOT NULL;
+ALTER TABLE public.schools ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.school_contacts (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id  UUID NOT NULL REFERENCES public.schools(id) ON DELETE CASCADE,
+  role_id    UUID NOT NULL REFERENCES public.school_contact_roles(id) ON DELETE RESTRICT,
+  name       TEXT NOT NULL,
+  phone      TEXT,
+  email      TEXT,
+  is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+  notes      TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT school_contacts_email_or_phone CHECK (email IS NOT NULL OR phone IS NOT NULL)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS school_contacts_one_primary_per_school
+  ON public.school_contacts (school_id) WHERE is_primary = TRUE;
+CREATE INDEX IF NOT EXISTS school_contacts_school_id_idx ON public.school_contacts (school_id);
+CREATE INDEX IF NOT EXISTS school_contacts_email_idx     ON public.school_contacts (lower(email)) WHERE email IS NOT NULL;
+ALTER TABLE public.school_contacts ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.school_jkkn_owners (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id          UUID NOT NULL REFERENCES public.schools(id) ON DELETE CASCADE,
+  jkkn_user_id       UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  role               school_owner_role NOT NULL,
+  program_partner_id UUID REFERENCES public.program_partners(id) ON DELETE SET NULL,
+  assigned_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  assigned_by        UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  is_active          BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT school_jkkn_owners_program_lead_has_partner CHECK (
+    role <> 'program_lead' OR program_partner_id IS NOT NULL
+  )
+);
+CREATE UNIQUE INDEX IF NOT EXISTS school_jkkn_owners_unique_active
+  ON public.school_jkkn_owners (school_id, jkkn_user_id, role, COALESCE(program_partner_id::text, ''))
+  WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS school_jkkn_owners_user_idx    ON public.school_jkkn_owners (jkkn_user_id) WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS school_jkkn_owners_school_idx  ON public.school_jkkn_owners (school_id) WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS school_jkkn_owners_partner_idx ON public.school_jkkn_owners (program_partner_id) WHERE program_partner_id IS NOT NULL;
+ALTER TABLE public.school_jkkn_owners ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.school_sessions (
+  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id            UUID NOT NULL REFERENCES public.schools(id) ON DELETE CASCADE,
+  session_type_id      UUID NOT NULL REFERENCES public.school_session_types(id) ON DELETE RESTRICT,
+  conducted_at         TIMESTAMPTZ NOT NULL,
+  conducted_by_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  program_partner_id   UUID REFERENCES public.program_partners(id) ON DELETE SET NULL,
+  attendee_count       INTEGER NOT NULL DEFAULT 0 CHECK (attendee_count >= 0),
+  topic                TEXT,
+  notes                TEXT,
+  attachments          JSONB NOT NULL DEFAULT '[]'::jsonb,
+  metadata             JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS school_sessions_school_id_idx    ON public.school_sessions (school_id, conducted_at DESC);
+CREATE INDEX IF NOT EXISTS school_sessions_type_idx         ON public.school_sessions (session_type_id);
+CREATE INDEX IF NOT EXISTS school_sessions_partner_idx      ON public.school_sessions (program_partner_id) WHERE program_partner_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS school_sessions_conducted_by_idx ON public.school_sessions (conducted_by_user_id);
+ALTER TABLE public.school_sessions ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.school_contributions (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id          UUID NOT NULL REFERENCES public.schools(id) ON DELETE CASCADE,
+  kind               school_contribution_kind NOT NULL,
+  description        TEXT NOT NULL,
+  value_inr          NUMERIC(14, 2) CHECK (value_inr IS NULL OR value_inr >= 0),
+  delivered_at       DATE,
+  program_partner_id UUID REFERENCES public.program_partners(id) ON DELETE SET NULL,
+  evidence_url       TEXT,
+  metadata           JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_by         UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS school_contributions_school_idx  ON public.school_contributions (school_id, delivered_at DESC);
+CREATE INDEX IF NOT EXISTS school_contributions_kind_idx    ON public.school_contributions (kind);
+CREATE INDEX IF NOT EXISTS school_contributions_partner_idx ON public.school_contributions (program_partner_id) WHERE program_partner_id IS NOT NULL;
+ALTER TABLE public.school_contributions ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.program_partner_grants (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  program_partner_id UUID NOT NULL REFERENCES public.program_partners(id) ON DELETE CASCADE,
+  amount_inr         NUMERIC(14, 2) NOT NULL CHECK (amount_inr > 0),
+  received_at        DATE NOT NULL,
+  designated_for     TEXT NOT NULL,
+  invoice_url        TEXT,
+  receipt_no         TEXT,
+  notes              TEXT,
+  created_by         UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS program_partner_grants_partner_idx
+  ON public.program_partner_grants (program_partner_id, received_at DESC);
+ALTER TABLE public.program_partner_grants ENABLE ROW LEVEL SECURITY;
+
+-- ── Induction programs: day/program feedback toggle columns (2026-07-30) ──
+-- Migration: supabase/migrations/20260730110000_induction_day_program_feedback.sql
+ALTER TABLE public.induction_programs
+  ADD COLUMN IF NOT EXISTS feedback_day_enabled     BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS feedback_program_enabled BOOLEAN NOT NULL DEFAULT false;
+
+-- ── event_day_feedback (2026-07-30) — per-day fresher feedback, mirrors event_session_feedback ──
+CREATE TABLE IF NOT EXISTS public.event_day_feedback (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id        UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  day_number      INTEGER NOT NULL,
+  learner_id      UUID NOT NULL REFERENCES public.learners_profiles(id) ON DELETE CASCADE,
+  institution_id  UUID NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  rating          INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  comment         TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT event_day_feedback_event_day_learner_uniq UNIQUE (event_id, day_number, learner_id)
+);
+CREATE INDEX IF NOT EXISTS idx_edf_event   ON public.event_day_feedback(event_id);
+CREATE INDEX IF NOT EXISTS idx_edf_learner ON public.event_day_feedback(learner_id);
+ALTER TABLE public.event_day_feedback ENABLE ROW LEVEL SECURITY;
+
+-- ── event_program_feedback (2026-07-30) — whole-induction fresher feedback ──
+CREATE TABLE IF NOT EXISTS public.event_program_feedback (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id        UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  learner_id      UUID NOT NULL REFERENCES public.learners_profiles(id) ON DELETE CASCADE,
+  institution_id  UUID NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  rating          INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  comment         TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT event_program_feedback_event_learner_uniq UNIQUE (event_id, learner_id)
+);
+CREATE INDEX IF NOT EXISTS idx_epf_event   ON public.event_program_feedback(event_id);
+CREATE INDEX IF NOT EXISTS idx_epf_learner ON public.event_program_feedback(learner_id);
+ALTER TABLE public.event_program_feedback ENABLE ROW LEVEL SECURITY;
+
+-- ── induction_event_coordinators (2026-07-30) — per-event coordinators, additive to institution-wide roles ──
+-- Migration: supabase/migrations/20260730120000_induction_event_coordinators.sql
+CREATE TABLE IF NOT EXISTS public.induction_event_coordinators (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id      UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  user_id       UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  assigned_by   UUID REFERENCES public.profiles(id),
+  assigned_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT induction_event_coordinators_event_user_uniq UNIQUE (event_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_iec_event ON public.induction_event_coordinators(event_id);
+CREATE INDEX IF NOT EXISTS idx_iec_user  ON public.induction_event_coordinators(user_id);
+
+ALTER TABLE public.induction_event_coordinators ENABLE ROW LEVEL SECURITY;
+
+-- =====================================================================
+-- social_monthly_cadence — Department Instagram Monthly Cadence ledger
+-- Added: 2026-07-04 — mirror of migration 20260704120000_social_monthly_cadence.sql
+-- Per-department, calendar-month reach loop (objective -> baseline -> feedback
+-- -> action -> re-measure -> close). Reach snapshots come ONLY from
+-- ig_monthly_audit; feedback ONLY from feedback_events. project_id is REQUIRED
+-- and points at a real projects row (is_okr=true, project_type='okr_objective',
+-- owner=HOD) — OKR was absorbed into the Projects module (locked 2026-05-31).
+-- RLS policies live in 03_policies.sql; reader/writer RPCs in 02_functions.sql.
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS public.social_monthly_cadence (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id UUID NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  account_id UUID NOT NULL REFERENCES public.ig_accounts(id) ON DELETE CASCADE,
+  department_id UUID NULL REFERENCES public.departments(id) ON DELETE SET NULL,
+  cadence_month DATE NOT NULL,
+  objective TEXT NOT NULL,
+  baseline_reach BIGINT NULL,
+  baseline_month DATE NULL,
+  baseline_metrics_source TEXT NULL,
+  feedback_read_summary JSONB NULL,
+  action_taken TEXT NULL,
+  remeasure_reach BIGINT NULL,
+  remeasure_month DATE NULL,
+  remeasure_metrics_source TEXT NULL,
+  reach_delta BIGINT NULL,
+  status TEXT NOT NULL DEFAULT 'open'
+    CHECK (status IN ('open','awaiting_close','closed','unmeasurable')),
+  -- ON DELETE RESTRICT (not CASCADE): preserve the reach-loop audit history.
+  project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE RESTRICT,
+  learning TEXT NULL,
+  created_by UUID NULL REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT social_monthly_cadence_account_month_uniq UNIQUE (account_id, cadence_month)
+);
+
+CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_account
+  ON public.social_monthly_cadence (account_id, cadence_month DESC);
+CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_institution
+  ON public.social_monthly_cadence (institution_id);
+CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_department
+  ON public.social_monthly_cadence (department_id) WHERE department_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_open
+  ON public.social_monthly_cadence (status) WHERE status IN ('open','awaiting_close');
+CREATE INDEX IF NOT EXISTS idx_social_monthly_cadence_project
+  ON public.social_monthly_cadence (project_id);
+
+-- Idempotent FK converge: fix a stale ON DELETE CASCADE from an earlier apply.
+ALTER TABLE public.social_monthly_cadence
+  DROP CONSTRAINT IF EXISTS social_monthly_cadence_project_id_fkey;
+ALTER TABLE public.social_monthly_cadence
+  ADD CONSTRAINT social_monthly_cadence_project_id_fkey
+  FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE RESTRICT;
+
+DROP TRIGGER IF EXISTS trg_social_monthly_cadence_updated_at ON public.social_monthly_cadence;
+CREATE TRIGGER trg_social_monthly_cadence_updated_at
+  BEFORE UPDATE ON public.social_monthly_cadence
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- project_id is IMMUTABLE post-insert (blocks raw-PostgREST tampering that would
+-- repoint the teeth at another project). RPC state machine never changes it.
+CREATE OR REPLACE FUNCTION public.fn_social_cadence_guard_project_id()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.project_id IS DISTINCT FROM OLD.project_id THEN
+    RAISE EXCEPTION 'social_monthly_cadence.project_id is immutable once set'
+      USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_social_monthly_cadence_project_immutable ON public.social_monthly_cadence;
+CREATE TRIGGER trg_social_monthly_cadence_project_immutable
+  BEFORE UPDATE ON public.social_monthly_cadence
+  FOR EACH ROW EXECUTE FUNCTION public.fn_social_cadence_guard_project_id();
+
+ALTER TABLE public.social_monthly_cadence ENABLE ROW LEVEL SECURITY;
+-- RPC-WRITE-ONLY (round-3 HIGH root fix): authenticated may READ but NEVER
+-- directly DML — all writes flow through the DEFINER writer RPCs (which carry
+-- the ownership / is_okr / DARK-gate / immutability guards). A raw PostgREST
+-- INSERT/UPDATE would bypass every guard (e.g. point project_id at a victim
+-- project to weaponise close/cron's RAG write). Neither REVOKE touches
+-- service_role, so the cron dispatcher's service-role writes keep working.
+REVOKE ALL ON public.social_monthly_cadence FROM anon, PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON public.social_monthly_cadence FROM authenticated;
+GRANT SELECT ON public.social_monthly_cadence TO authenticated;
+
+-- =====================================================================================
+-- hr_recruitment_candidate_comments — discussion thread on recruitment candidates
+-- (migration 20260703130200). Decision comments stay in approval_chain JSONB;
+-- this is the free-form thread. RLS inherits candidate visibility via EXISTS.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS hr_recruitment_candidate_comments (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  candidate_id       uuid NOT NULL REFERENCES hr_recruitment_candidates(id) ON DELETE CASCADE,
+  hr_organization_id uuid NOT NULL REFERENCES hr_organizations(id),
+  commenter_id       uuid NOT NULL REFERENCES profiles(id),
+  comment            text NOT NULL,
+  parent_comment_id  uuid REFERENCES hr_recruitment_candidate_comments(id),
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_hr_rec_cand_comments_candidate
+  ON hr_recruitment_candidate_comments(candidate_id, created_at);
+
+-- hr_job_applications promotion bridge (migration 20260703130000):
+--   promoted_candidate_id uuid REFERENCES hr_recruitment_candidates(id)
+--   status CHECK extended with 'promoted'
+-- (Base table created in migration 20260627_hr_job_applications.sql — not yet
+--  mirrored here; see that migration for the full definition.)
+
+-- =====================================================================================
+-- Cohort Core — shared cohort spine (migration 20260731040000_cohort_core_spine.sql).
+-- Domain-agnostic engine registered into by SF100 / Foundations / CDC / Trainer.
+-- Statuses enforced via CHECK (repo convention, not pg ENUM). institution_id is
+-- NOT NULL on cohorts to close the role_has_institution_access(NULL)=TRUE tenant hole.
+-- RLS → 03_policies.sql; updated_at triggers → 04_triggers.sql. Added 2026-07-05.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS public.cohorts (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind            text NOT NULL
+                    CHECK (kind IN ('sf100','foundations','cdc','trainer')),
+  name            text NOT NULL,
+  institution_id  uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  owner_id        uuid,
+  academic_year   text,
+  opens_at        timestamptz,
+  closes_at       timestamptz,
+  hard_deadline   timestamptz,
+  status          text NOT NULL DEFAULT 'draft'
+                    CHECK (status IN ('draft','enrolling','active','completed','archived')),
+  config          jsonb NOT NULL DEFAULT '{}'::jsonb,
+  archived_at     timestamptz,
+  archived_by     uuid,
+  created_by      uuid,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_cohorts_institution_id ON public.cohorts (institution_id);
+CREATE INDEX IF NOT EXISTS idx_cohorts_kind_status     ON public.cohorts (kind, status);
+
+CREATE TABLE IF NOT EXISTS public.cohort_memberships (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  cohort_id    uuid NOT NULL REFERENCES public.cohorts(id) ON DELETE CASCADE,
+  member_type  text NOT NULL
+                 CHECK (member_type IN ('team','student','learner','staff')),
+  member_ref   uuid NOT NULL,
+  status       text NOT NULL DEFAULT 'invited'
+                 CHECK (status IN ('invited','enrolled','active','graduated','removed','paused')),
+  role         text,
+  joined_at    timestamptz,
+  joined_by    uuid,
+  config       jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT cohort_memberships_cohort_member_uidx UNIQUE (cohort_id, member_type, member_ref)
+);
+CREATE INDEX IF NOT EXISTS idx_cohort_memberships_cohort_id ON public.cohort_memberships (cohort_id);
+CREATE INDEX IF NOT EXISTS idx_cohort_memberships_member    ON public.cohort_memberships (member_type, member_ref);
+
+CREATE TABLE IF NOT EXISTS public.cohort_status_events (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  cohort_id      uuid REFERENCES public.cohorts(id) ON DELETE CASCADE,
+  membership_id  uuid REFERENCES public.cohort_memberships(id) ON DELETE CASCADE,
+  event_type     text NOT NULL,
+  from_status    text,
+  to_status      text,
+  actor_id       uuid,
+  reason         text,
+  metadata       jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT cohort_status_events_target_chk
+    CHECK (cohort_id IS NOT NULL OR membership_id IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_cohort_status_events_cohort_id     ON public.cohort_status_events (cohort_id);
+CREATE INDEX IF NOT EXISTS idx_cohort_status_events_membership_id ON public.cohort_status_events (membership_id);
+
+-- SF100 demote link (migration 20260731060000_sf100_demote_to_extension.sql, 2026-07-05).
+-- cohorts/cohort_memberships are canonical; sf100_enrollments is demoted to an SF100
+-- per-team EXTENSION linked to its team membership by this one nullable FK. NULLABLE
+-- (NOT NULL deferred) + ON DELETE SET NULL (a LINK, not identity — never cascade-delete
+-- the live extension row). sf100_enrollments' own CREATE TABLE lives in
+-- supabase/migrations/20260331000002_sf100_solve_for_100.sql (SF100 DDL is migration-only,
+-- like CDC), so this is mirrored here as a guarded ALTER rather than folded into a column list.
+ALTER TABLE public.sf100_enrollments
+  ADD COLUMN IF NOT EXISTS cohort_membership_id uuid;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname  = 'sf100_enrollments_cohort_membership_id_fkey'
+      AND conrelid = 'public.sf100_enrollments'::regclass
+  ) THEN
+    ALTER TABLE public.sf100_enrollments
+      ADD CONSTRAINT sf100_enrollments_cohort_membership_id_fkey
+      FOREIGN KEY (cohort_membership_id)
+      REFERENCES public.cohort_memberships(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_sf100_enrollments_cohort_membership
+  ON public.sf100_enrollments (cohort_membership_id);
+
+-- Cohort Core — D9: SF100 roster members must be profile-linked
+-- (migration 20260731070000_sf100_roster_profile_required.sql).
+-- Every roster member resolves to a real MyJKKN identity — profile_id (profiles)
+-- OR learner_id (learners_profiles); free-text-only members are disallowed.
+-- sf100_roster_changes' own CREATE TABLE lives in
+-- supabase/migrations/20260331000002_sf100_solve_for_100.sql (SF100 DDL is
+-- migration-only, like CDC), so this is mirrored here as a guarded ALTER.
+-- Postgres has no ADD CONSTRAINT IF NOT EXISTS → guard on pg_constraint.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname  = 'sf100_roster_changes_identity_required'
+      AND conrelid = 'public.sf100_roster_changes'::regclass
+  ) THEN
+    ALTER TABLE public.sf100_roster_changes
+      ADD CONSTRAINT sf100_roster_changes_identity_required
+      CHECK (profile_id IS NOT NULL OR learner_id IS NOT NULL);
+  END IF;
+END $$;
+
+-- Cohort Core — Foundations demote to cohort core
+-- (migration 20260731080000_foundations_demote_to_cohort_core.sql, 2026-07-06).
+-- cohorts (kind='foundations') + cohort_memberships (member_type='student') are the
+-- canonical spine roster/lifecycle; ss_foundations_enrollments is demoted to a
+-- per-student EXTENSION linked to its membership by this one nullable FK. NULLABLE
+-- (NOT NULL deferred) + ON DELETE SET NULL (a LINK, not identity — never
+-- cascade-delete the live extension row that owns responses via student_id).
+-- ss_foundations_enrollments' own CREATE TABLE lives in
+-- supabase/migrations/20260602000001_ss_foundations_substrate.sql, so this is
+-- mirrored here as a guarded ALTER rather than folded into a column list.
+ALTER TABLE public.ss_foundations_enrollments
+  ADD COLUMN IF NOT EXISTS cohort_membership_id uuid;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname  = 'ss_foundations_enrollments_cohort_membership_id_fkey'
+      AND conrelid = 'public.ss_foundations_enrollments'::regclass
+  ) THEN
+    ALTER TABLE public.ss_foundations_enrollments
+      ADD CONSTRAINT ss_foundations_enrollments_cohort_membership_id_fkey
+      FOREIGN KEY (cohort_membership_id)
+      REFERENCES public.cohort_memberships(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_ssf_enroll_cohort_membership
+  ON public.ss_foundations_enrollments (cohort_membership_id);
+-- D9: the per-student member must link a real student profile. member_ref ==
+-- student_id (a real profiles(id)) is service-enforced (member_ref is polymorphic);
+-- this explicit CHECK is the audit-trail signal that the identity column is non-null.
+-- Safe: student_id is already NOT NULL and the table has 0 rows.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname  = 'ss_foundations_enrollments_student_required'
+      AND conrelid = 'public.ss_foundations_enrollments'::regclass
+  ) THEN
+    ALTER TABLE public.ss_foundations_enrollments
+      ADD CONSTRAINT ss_foundations_enrollments_student_required
+      CHECK (student_id IS NOT NULL);
+  END IF;
+END $$;
+-- Cohort Core — dedupe guard for the Foundations spine mirror (migration 20260731080000).
+-- Makes the ss_foundations_cohort → cohorts(kind='foundations') mirror 1:1 at the DB level,
+-- so a concurrent-enrol race can never leak duplicate mirror cohorts. Partial so it never
+-- constrains other cohort kinds.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cohorts_foundations_ss_id
+  ON public.cohorts ((config->>'ss_foundations_cohort_id'))
+  WHERE kind = 'foundations';
+
+-- 2026-07-06 — PDE pilot scoping (interview-driven; applied to prod same day).
+-- Lets a quest be limited to one institution's students, and labels each
+-- enrollment as pilot vs stray. See app/api/pde/quests/route.ts (visibility),
+-- app/api/pde/quests/[id]/enroll/route.ts (label),
+-- app/api/pde/admin/quests/[id]/reset/route.ts (clean reset).
+ALTER TABLE public.pde_quests
+  ADD COLUMN IF NOT EXISTS target_institution_id uuid REFERENCES public.institutions(id);
+-- NULL = visible to all institutions; set = only that institution's students see it in the catalog.
+
+ALTER TABLE public.pde_quest_enrollments
+  ADD COLUMN IF NOT EXISTS is_pilot boolean NOT NULL DEFAULT false;
+-- TRUE when the learner belongs to the quest's target_institution_id at enroll time.
+
+
+-- CDC Training demote link (migration 20260731090000_cdc_training_demote_to_cohort_core.sql,
+-- 2026-07-06). cohorts/cohort_memberships are canonical; cdc_training_enrollments is
+-- demoted to a per-learner EXTENSION (attendance + certificate + semester-schedule stay
+-- authoritative on it) linked to its cohort membership by this one nullable FK. NULLABLE
+-- (populated best-effort forward by TrainingService.addEnrollment) + ON DELETE SET NULL
+-- (a LINK, not identity — never cascade-delete the live extension row). CDC DDL is
+-- migration-only (zero cdc_* tables in setup/*), so this is mirrored here as a guarded
+-- ALTER rather than folded into a column list.
+ALTER TABLE public.cdc_training_enrollments
+  ADD COLUMN IF NOT EXISTS cohort_membership_id uuid;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname  = 'cdc_training_enrollments_cohort_membership_id_fkey'
+      AND conrelid = 'public.cdc_training_enrollments'::regclass
+  ) THEN
+    ALTER TABLE public.cdc_training_enrollments
+      ADD CONSTRAINT cdc_training_enrollments_cohort_membership_id_fkey
+      FOREIGN KEY (cohort_membership_id)
+      REFERENCES public.cohort_memberships(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_cdc_training_enrollments_cohort_membership
+  ON public.cdc_training_enrollments (cohort_membership_id);
+-- L3 race guard: one cohorts mirror per CDC programme (kind='cdc'), keyed on
+-- config->>'cdc_training_programme_id'. Partial so it never collides with the
+-- sf100/foundations/trainer mirrors sharing public.cohorts.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cohorts_cdc_training_programme
+  ON public.cohorts ((config->>'cdc_training_programme_id'))
+  WHERE kind = 'cdc';
+
+
+-- ── Cohort Core — M2: outcome-capture-at-close (Phase 7 · THE MOAT) ───────────
+-- Migration: supabase/migrations/20260731091000_cohort_outcome_capture.sql (2026-07-05).
+-- The captured OUTCOME BASELINE of a cohort member at the moment its membership
+-- closes (transitions into graduated | removed). Written by a DATABASE TRIGGER
+-- (see 04_triggers.sql: fn_capture_cohort_outcome / trg_cohort_capture_outcome)
+-- so the moat's fuel cannot be bypassed by any service that forgets. RLS +
+-- policies in 03_policies.sql. institution_id is NOT NULL (copied from the parent
+-- cohort by the trigger) to close the role_has_institution_access(NULL)=TRUE hole.
+CREATE TABLE IF NOT EXISTS public.cohort_outcomes (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  cohort_id        uuid NOT NULL REFERENCES public.cohorts(id) ON DELETE CASCADE,
+  membership_id    uuid REFERENCES public.cohort_memberships(id) ON DELETE SET NULL,
+  member_ref       uuid NOT NULL,
+  member_type      text NOT NULL
+                     CHECK (member_type IN ('team','student','learner','staff')),
+  kind             text NOT NULL
+                     CHECK (kind IN ('sf100','foundations','cdc','trainer')),
+  captured_at      timestamptz NOT NULL DEFAULT now(),
+  outcome_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+  source           text NOT NULL DEFAULT 'trigger'
+                     CHECK (source IN ('trigger','service','backfill','manual')),
+  institution_id   uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_cohort_outcomes_cohort_id      ON public.cohort_outcomes (cohort_id);
+CREATE INDEX IF NOT EXISTS idx_cohort_outcomes_institution_id ON public.cohort_outcomes (institution_id);
+CREATE INDEX IF NOT EXISTS idx_cohort_outcomes_member         ON public.cohort_outcomes (member_type, member_ref);
+CREATE INDEX IF NOT EXISTS idx_cohort_outcomes_kind           ON public.cohort_outcomes (kind);
+-- One captured baseline per membership (a membership closes exactly once).
+CREATE UNIQUE INDEX IF NOT EXISTS uidx_cohort_outcomes_membership
+  ON public.cohort_outcomes (membership_id)
+  WHERE membership_id IS NOT NULL;
+-- hr_recruitment_job_notes — job-level discussion thread for the approvals
+-- workspace (migration 20260706110000). RLS inherits job visibility via EXISTS.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS hr_recruitment_job_notes (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id             uuid NOT NULL REFERENCES hr_recruitment_jobs(id) ON DELETE CASCADE,
+  hr_organization_id uuid NOT NULL REFERENCES hr_organizations(id),
+  author_id          uuid NOT NULL REFERENCES profiles(id),
+  note               text NOT NULL,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_hr_rec_job_notes_job
+  ON hr_recruitment_job_notes(job_id, created_at);
+
+-- ── Cohort Core — M7.2 experiments + M7.3 proposals (Phase 7 · THE MOAT) ─────
+-- Migrations: 20260731093000_cohort_experiments.sql, 20260731094000_cohort_feedforward.sql (2026-07-06)
+-- cohort_experiments: one causal-lift result per cohort (control-group A/B).
+-- cohort_adjustment_proposals: feed-forward program changes, human-approved.
+CREATE TABLE IF NOT EXISTS public.cohort_experiments (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  cohort_id           uuid NOT NULL REFERENCES public.cohorts(id) ON DELETE CASCADE,
+  kind                text NOT NULL CHECK (kind IN ('sf100','foundations','cdc','trainer')),
+  n_treatment         int  NOT NULL DEFAULT 0,
+  n_control           int  NOT NULL DEFAULT 0,
+  treatment_mean_lift numeric,
+  control_mean_lift   numeric,
+  -- CAUSAL lift = treatment_mean − control_mean (NULL if either arm is empty:
+  -- a causal claim needs both arms). This is the number the feed-forward loop
+  -- (7.3) is allowed to act on.
+  causal_lift         numeric,
+  -- NAIVE lift = mean lift across ALL scored members (ignores arms). This is the
+  -- CONFOUNDED number kept only for contrast — the loop must NOT act on it.
+  naive_lift          numeric,
+  n_scored            int  NOT NULL DEFAULT 0,
+  estimator_version   text,
+  computed_at         timestamptz NOT NULL DEFAULT now(),
+  institution_id      uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  metadata            jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  -- one experiment result per cohort; fn_compute upserts on this.
+  CONSTRAINT cohort_experiments_cohort_uidx UNIQUE (cohort_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cohort_experiments_institution
+  ON public.cohort_experiments (institution_id);
+CREATE INDEX IF NOT EXISTS idx_cohort_experiments_kind
+
+CREATE TABLE IF NOT EXISTS public.cohort_adjustment_proposals (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  based_on_cohort_id uuid NOT NULL REFERENCES public.cohorts(id) ON DELETE CASCADE,
+  kind               text NOT NULL CHECK (kind IN ('sf100','foundations','cdc','trainer')),
+  target_scope       text NOT NULL DEFAULT 'program' CHECK (target_scope IN ('program')),
+  target_id          uuid NOT NULL,             -- sf100_programs.id to adjust
+  causal_lift        numeric,
+  decision           text NOT NULL CHECK (decision IN ('adopt','revert','inconclusive')),
+  proposed_changes   jsonb NOT NULL DEFAULT '{}'::jsonb,
+  rationale          text,
+  status             text NOT NULL DEFAULT 'pending'
+                       CHECK (status IN ('pending','approved','rejected','applied')),
+  reviewed_by        uuid,
+  reviewed_at        timestamptz,
+  applied_at         timestamptz,
+  applied_by         uuid,
+  institution_id     uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  metadata           jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_cohort_proposals_institution ON public.cohort_adjustment_proposals (institution_id);
+CREATE INDEX IF NOT EXISTS idx_cohort_proposals_target ON public.cohort_adjustment_proposals (target_scope, target_id);
+CREATE INDEX IF NOT EXISTS idx_cohort_proposals_status ON public.cohort_adjustment_proposals (status);
+-- At most ONE open (pending OR applied) proposal per source cohort → idempotent
+-- proposer AND prevents the additive program delta from being applied twice.
+CREATE UNIQUE INDEX IF NOT EXISTS uidx_cohort_proposals_one_open_per_cohort
+  ON public.cohort_adjustment_proposals (based_on_cohort_id)
+  WHERE status IN ('pending','applied');

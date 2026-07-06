@@ -8,16 +8,17 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle } from 'lucide-react';
+import { HrInstitutionSelect } from '@/components/hr/hr-institution-select';
 import { useApplicationsByStatus, useDecideApplication } from '@/hooks/hr/use-leave';
 import { LEAVE_DURATION_LABELS } from '@/types/hr';
 
 export default function ApprovalInboxPage() {
+  const [institutionId, setInstitutionId] = useState('');
   const [hrOrgId, setHrOrgId] = useState('');
   const { data, isLoading } = useApplicationsByStatus(hrOrgId || undefined, ['pending', 'escalated']);
   const decide = useDecideApplication();
@@ -56,8 +57,14 @@ export default function ApprovalInboxPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="max-w-md">
-              <Label htmlFor="hrOrgId">HR Organization ID</Label>
-              <Input id="hrOrgId" value={hrOrgId} onChange={(e) => setHrOrgId(e.target.value)} placeholder="uuid" />
+              <HrInstitutionSelect
+                id="institution"
+                value={institutionId}
+                onChange={(instId, orgId) => {
+                  setInstitutionId(instId);
+                  setHrOrgId(orgId);
+                }}
+              />
             </div>
 
             {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}

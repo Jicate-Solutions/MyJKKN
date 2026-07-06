@@ -28,9 +28,11 @@ export default async function MyProfilePage() {
     redirect('/');
   }
 
-  // Step 3: Lifecycle status validation
+  // Step 3: Lifecycle status validation. Pre-onboarding (induction-only) learners
+  // are allowed here so they can complete their profile before onboarding; every
+  // other restricted status is still bounced. Spec: specs/pre-onboarding-induction-access-2026-06-29.md
   const validation = await StudentValidationService.validateStudentAccess(user.id);
-  if (!validation.allowed) {
+  if (!validation.allowed && validation.accessTier !== 'induction_only') {
     redirect(`/auth/login?reason=${validation.reason}`);
   }
 

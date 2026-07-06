@@ -260,7 +260,7 @@ export const CANDIDATE_STATUS_LABELS: Record<CandidateStatus, string> = {
 };
 
 export const ROLE_CATEGORY_LABELS: Record<RoleCategory, string> = {
-  teaching_faculty: 'Senior Learner (Teaching Faculty)',
+  teaching_faculty: 'Learning Facilitator (Teaching Faculty)',
   medical: 'Medical / Clinical',
   non_teaching: 'Non-Teaching Staff',
   senior_leadership: 'Senior Leadership',
@@ -651,7 +651,15 @@ export const INTERVIEW_MODE_LABELS: Record<InterviewMode, string> = {
 // Added: 2026-06-27 (replaces CVViz-URL-based submit flow)
 // =====================================================================================
 
-export type JobApplicationStatus = 'pending' | 'reviewed' | 'shortlisted' | 'rejected';
+export type JobApplicationStatus = 'pending' | 'reviewed' | 'shortlisted' | 'rejected' | 'promoted';
+
+export const JOB_APPLICATION_STATUS_LABELS: Record<JobApplicationStatus, string> = {
+  pending: 'Pending Review',
+  reviewed: 'Reviewed',
+  shortlisted: 'Shortlisted',
+  rejected: 'Rejected',
+  promoted: 'In Approval Pipeline',
+};
 
 export interface HRJobApplication {
   id: string;
@@ -681,9 +689,25 @@ export interface HRJobApplication {
   review_notes: string | null;
 
   applicant_user_id: string | null;
+  /** Set when a shortlisted application is promoted into the approval pipeline. */
+  promoted_candidate_id: string | null;
   submitted_at: string;
   created_at: string;
   updated_at: string;
+}
+
+/** Free-form discussion thread on a recruitment candidate (hr_recruitment_candidate_comments). */
+export interface HRRecruitmentCandidateComment {
+  id: string;
+  candidate_id: string;
+  hr_organization_id: string;
+  commenter_id: string;
+  comment: string;
+  parent_comment_id: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Joined commenter display info (profiles embed). */
+  commenter?: { full_name: string | null; email: string | null } | null;
 }
 
 export interface HRJobApplicationInsert {
@@ -708,12 +732,106 @@ export interface HRJobApplicationInsert {
   drive_file_id?: string | null;
 }
 
-export const JOB_APPLICATION_STATUS_LABELS: Record<JobApplicationStatus, string> = {
-  pending: 'Pending Review',
-  reviewed: 'Reviewed',
-  shortlisted: 'Shortlisted',
-  rejected: 'Rejected',
-};
+// =====================================================================================
+// Approvals workspace (job-centric approvals module, 2026-07-06)
+// =====================================================================================
+
+/** Free-form job-level discussion thread (hr_recruitment_job_notes). */
+export interface HRRecruitmentJobNote {
+  id: string;
+  job_id: string;
+  hr_organization_id: string;
+  author_id: string;
+  note: string;
+  created_at: string;
+  updated_at: string;
+  /** Joined author display info (profiles embed). */
+  author?: { full_name: string | null; email: string | null } | null;
+}
+
+/**
+ * One row of the job-first approvals overview: a job plus its pipeline counts.
+ * Application counts come from hr_job_applications (FK link); candidate counts
+ * come from hr_recruitment_candidates via the soft role_specific_details->>job_id
+ * link stamped at promote-time.
+ */
+export interface ApprovalsJobOverviewRow {
+  job: HRRecruitmentJob;
+  applications_total: number;
+  applications_pending: number;
+  applications_reviewed: number;
+  applications_shortlisted: number;
+  applications_rejected: number;
+  applications_promoted: number;
+  /** Linked candidates currently in the approval chain (submitted | pending_approval). */
+  in_approval: number;
+  /** Linked candidates past approval (approved | package_fixed | offer_issued). */
+  approved: number;
+  joined: number;
+  /** Candidates whose CURRENT approval step is routed to the viewing user. */
+  awaiting_me: number;
+}
+
+// =====================================================================================
+// Dynamic approval flows (2026-07-06)
+// =====================================================================================
+
+export type ApprovalStepType = 'review' | 'final';
+
+/** One step template inside hr_approval_flows.steps (recruitment_approval flows). */
+export interface ApprovalFlowStepTemplate {
+  chain_order: number;
+  /** custom_roles.role_key the step routes to (matched case-insensitively). */
+  approver_role: string;
+  /** Pinned specific approver — takes precedence over role matching when set. */
+  approver_user_id?: string | null;
+  /** Display name snapshot for the pinned user (avoids per-render lookups). */
+  approver_name?: string | null;
+  step_type?: ApprovalStepType;
+  interview_required?: boolean;
+  escalate_after_hours?: number;
+}
+
+/** hr_approval_flows row as used by the recruitment flow builder. */
+export interface HRApprovalFlow {
+  id: string;
+  flow_name: string;
+  flow_for: string;
+  conditions: Record<string, string> | null;
+  steps: ApprovalFlowStepTemplate[];
+  is_active: boolean;
+  hr_organization_id: string;
+}
+
+/** Payload for the final-approval → staff onboarding form. */
+export interface OnboardToStaffPayload {
+  first_name: string;
+  last_name: string;
+  gender: string;
+  date_of_birth: string;      // yyyy-mm-dd
+  marital_status: string;
+  email: string;
+  phone: string;
+  date_of_joining: string;    // yyyy-mm-dd
+  designation: string;
+  category_id: string;        // staff category FK
+  institution_id: string;
+  department_id?: string | null;
+  institution_email?: string | null;
+}
+
+/** Aggregates for the per-job Analytics tab. */
+export interface JobAnalytics {
+  applications_total: number;
+  by_application_status: Record<JobApplicationStatus, number>;
+  by_candidate_status: Partial<Record<CandidateStatus, number>>;
+  /** Applications submitted by a logged-in account vs anonymous careers-page. */
+  source_split: { with_account: number; anonymous: number };
+  /** Mean days from application submit to first screening decision. */
+  avg_days_to_screen: number | null;
+  /** Mean days a promoted candidate spent (or has spent) in the approval chain. */
+  avg_days_in_approval: number | null;
+}
 
 export const SCORECARD_RECOMMENDATION_LABELS: Record<ScorecardRecommendation, string> = {
   strong_hire: 'Strong Hire',

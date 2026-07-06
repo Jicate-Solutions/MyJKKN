@@ -1310,6 +1310,19 @@ export function SlotDialog({
                               >
                                 {staffMember.staff_id}
                               </Badge>
+                              {/* Cross-institution teaching (2026-07-06): staff assigned
+                                  from a sister institution via staff planning */}
+                              {staffMember.institution_id &&
+                                timetable?.institution_id &&
+                                staffMember.institution_id !==
+                                  timetable.institution_id && (
+                                  <Badge
+                                    variant='outline'
+                                    className='text-xs border-amber-300 text-amber-700'
+                                  >
+                                    Visiting
+                                  </Badge>
+                                )}
                             </span>
                             {/* Email identifier to help distinguish duplicate names - Added: 2025-12-01 */}
                             {staffMember.institution_email && (

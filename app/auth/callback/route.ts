@@ -7,7 +7,7 @@ import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 import { Profile } from '@/types/auth';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
-import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
+import { StudentValidationService, INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES } from '@/lib/services/auth/student-validation-service';
 import { SessionTrackingService } from '@/lib/services/analytics/session-tracking-service';
 
 /**
@@ -381,12 +381,17 @@ export async function GET(request: NextRequest) {
       if (!actualProfile) {
         console.log('[Auth Callback] No profile found for user — checking approved learner path');
 
-        // Check for an approved/active/graduated learner matching this email
+        // Check for a learner matching this email who is eligible for a login.
+        // 'approved'/'active'/'graduated' get FULL access; the pre-onboarding
+        // induction statuses (enquiry, enquiry_submitted, reserved, admitted) get
+        // RESTRICTED induction-only access (scoped down by proxy.ts). The
+        // auto_link_profile_to_approved_learner trigger gates on this SAME list.
+        // Spec: specs/pre-onboarding-induction-access-2026-06-29.md
         const { data: approvedLearner } = await adminClient
           .from('learners_profiles')
           .select('id, institution_id, department_id, lifecycle_status')
           .ilike('college_email', user.email ?? '')
-          .in('lifecycle_status', ['approved', 'active', 'graduated'])
+          .in('lifecycle_status', ['approved', 'active', 'graduated', ...INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES])
           .maybeSingle();
 
         if (!approvedLearner) {
@@ -465,7 +470,14 @@ export async function GET(request: NextRequest) {
           console.error('[Auth Callback] Session tracking failed for new learner (non-blocking):', sessionError);
         }
 
-        return NextResponse.redirect(new URL('/auth/complete-profile', origin));
+        // Pre-onboarding (induction-only) learners land directly on My Induction
+        // (the profile-completion nudge lives there). Everyone else completes
+        // their profile first.
+        const isInductionOnlyLearner = (INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES as readonly string[])
+          .includes(approvedLearner.lifecycle_status);
+        return NextResponse.redirect(
+          new URL(isInductionOnlyLearner ? '/learners/my-induction' : '/auth/complete-profile', origin)
+        );
       }
 
       // Check if user account is active
@@ -557,7 +569,12 @@ export async function GET(request: NextRequest) {
             isGraduated: validation.isGraduated
           });
 
-          if (!validation.allowed) {
+          if (validation.accessTier === 'induction_only') {
+            // Pre-onboarding learner — restricted to induction. Do NOT sign out;
+            // land them on My Induction (proxy.ts enforces the scope thereafter).
+            destination = '/learners/my-induction';
+            console.log('[Auth Callback] 🎓 Induction-only learner, redirecting to:', destination);
+          } else if (!validation.allowed) {
             // Student blocked due to lifecycle status - sign out and show error
             console.log('[Auth Callback] Student blocked, reason:', validation.reason);
             await supabase.auth.signOut();

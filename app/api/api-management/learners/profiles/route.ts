@@ -116,9 +116,34 @@ export async function GET(request: NextRequest) {
     );
 
     // Apply filters
-    // Default: only active learners unless lifecycle_status is specified
-    if (lifecycleStatus) {
-      const statuses = lifecycleStatus.split(',');
+    // lifecycle_status semantics:
+    //   - omitted            → only 'active' learners (back-compat default)
+    //   - 'all'              → every lifecycle status, no filter
+    //   - 'a,b,c'            → only the listed statuses (validated below)
+    const VALID_LIFECYCLE_STATUSES = [
+      'enquiry', 'enquiry_submitted', 'pending', 'approved', 'account',
+      'reserved', 'admitted', 'rejected', 'waitlisted', 'active',
+      'inactive', 'exited', 'graduated', 'alumni'
+    ];
+    if (lifecycleStatus && lifecycleStatus.trim().toLowerCase() === 'all') {
+      // No status filter — return learners across all lifecycle statuses.
+    } else if (lifecycleStatus) {
+      const statuses = lifecycleStatus
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const invalid = statuses.filter(
+        (s) => !VALID_LIFECYCLE_STATUSES.includes(s)
+      );
+      if (statuses.length === 0 || invalid.length > 0) {
+        return NextResponse.json(
+          {
+            error: `Invalid lifecycle_status value(s): ${invalid.join(', ') || '(empty)'}`,
+            valid_values: [...VALID_LIFECYCLE_STATUSES, 'all']
+          },
+          { status: 400, headers: corsHeaders }
+        );
+      }
       query = query.in('lifecycle_status', statuses);
     } else {
       query = query.eq('lifecycle_status', 'active');

@@ -129,6 +129,21 @@ export const PERMISSION_GROUPS = [
 // Permission categories for UI
 export const PERMISSION_CATEGORIES = [
   {
+    name: 'Foundation Programme',
+    key: 'foundation',
+    permissions: [
+      { key: 'foundation.dashboard.view', label: 'View Foundation Programme' },
+      { key: 'foundation.cohorts.view', label: 'View Foundation Cohorts' },
+      { key: 'foundation.cohorts.manage', label: 'Manage Foundation Cohorts' },
+      { key: 'foundation.students.view', label: 'View Foundation Students' },
+      { key: 'foundation.students.manage', label: 'Manage Foundation Students' },
+      { key: 'foundation.items.view', label: 'View Foundation Question Bank' },
+      { key: 'foundation.items.manage', label: 'Author Foundation Questions' },
+      { key: 'foundation.assessments.view', label: 'View Foundation Assessments' },
+      { key: 'foundation.assessments.manage', label: 'Build Foundation Assessments' },
+    ]
+  },
+  {
     name: 'User Management',
     key: 'users',
     permissions: [
@@ -157,6 +172,18 @@ export const PERMISSION_CATEGORIES = [
       { key: 'users.relationship.manage', label: 'Manage User→Learner Relationships (Parents)' },
       { key: 'users.contract_access.view', label: 'View User→Contract Access Grants (Vendors)' },
       { key: 'users.contract_access.manage', label: 'Manage User→Contract Access Grants (Vendors)' }
+    ]
+  },
+  {
+    // Added 2026-06-27 — Fresher Induction module (Phase 1). Keys referenced by
+    // RLS on induction_* tables + the SECURITY DEFINER engine RPCs
+    // (fn_induction_create_program / auto_enroll / auto_split_batches). Grant
+    // 'induction.manage' to induction coordinators; super_admin/admin bypass.
+    name: 'Induction',
+    key: 'induction',
+    permissions: [
+      { key: 'induction.view', label: 'View Induction Programs' },
+      { key: 'induction.manage', label: 'Manage Induction (create, enroll, batches, attendance)' }
     ]
   },
   {
@@ -995,6 +1022,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.voice_memo', label: 'Record Voice Memo on Call Log' }
     ]
   },
+  // Schools Network lives further down in this array (single canonical entry,
+  // added 2026-06-30). It was briefly registered twice — category keys MUST be
+  // unique: role-management "select all" and the audit UI look categories up
+  // by key and silently drop duplicates.
   // Admission Fees (2026-05-07) — matrix-driven fee-structure module
   // Keys are flat under `admission_fees.*` (not `admission.fees.*`) because
   // RLS policies + service code reference them that way.
@@ -1893,9 +1924,19 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
-    name: 'Student Feedback (Course × Faculty)',
+    // Single category for the whole `feedback.*` namespace — category keys
+    // MUST be unique across PERMISSION_CATEGORIES (consumers look up by key).
+    // Covers two features:
+    //   1. Student Feedback (Course × Faculty) — feedback.student_course_faculty.*
+    //   2. Universal Feedback Spine dashboard (/feedback, added 2026-06-26) —
+    //      feedback.view grants non-admin roles (e.g. a dedicated feedback
+    //      reviewer) access to AI-classified feedback_events across all
+    //      sources (session_feedback, mess, parent, ig_comment, etc.).
+    //      Super-admin and admin always have access via RLS.
+    name: 'Feedback',
     key: 'feedback',
     permissions: [
+      { key: 'feedback.view', label: 'View Feedback Dashboard (AI-classified events)' },
       { key: 'feedback.student_course_faculty.respond', label: 'Submit feedback response (student)' },
       { key: 'feedback.student_course_faculty.template.write', label: 'Configure feedback question template' },
       { key: 'feedback.student_course_faculty.faculty_view', label: 'View own ratings (faculty)' },
@@ -2047,6 +2088,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'cdc.bulletin.edit', label: 'Edit Opportunities Bulletin Entries' },
       { key: 'cdc.bulletin.delete', label: 'Delete Opportunities Bulletin Entries' },
 
+      // Employer Requirement Intake (company job-vacancy submissions)
+      { key: 'cdc.requirements.view', label: 'View Employer Requirements' },
+      { key: 'cdc.requirements.create', label: 'Create Employer Requirements' },
+      { key: 'cdc.requirements.edit', label: 'Edit Employer Requirements' },
+      { key: 'cdc.requirements.delete', label: 'Delete Employer Requirements' },
+      { key: 'cdc.requirements.review', label: 'Review / Approve Employer Requirement Submissions' },
+
       // Industry Mentors directory
       { key: 'cdc.industry_mentors.view', label: 'View Industry Mentors' },
       { key: 'cdc.industry_mentors.create', label: 'Create Industry Mentors' },
@@ -2055,7 +2103,12 @@ export const PERMISSION_CATEGORIES = [
 
       // Reports & Exports (NAAC / AICTE / flex)
       { key: 'cdc.exports.view', label: 'View CDC Reports & Exports Page' },
-      { key: 'cdc.exports.download', label: 'Download CDC Reports (NAAC / AICTE / CSV)' }
+      { key: 'cdc.exports.download', label: 'Download CDC Reports (NAAC / AICTE / CSV)' },
+
+      // Government Job Readiness (TNPSC / RRB / banking / SSC / TN Police) — 2026-07-04.
+      // Gates the /cdc/govt-readiness cohort-overlap view. Backfilled onto
+      // cdc_head / cdc_coordinator via 20260704090200 migration.
+      { key: 'cdc.govt_readiness.view', label: 'View Government Job Readiness (exam overlap)' }
     ]
   },
   // ======================================================================
@@ -2192,16 +2245,62 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
-    // Added 2026-06-26 — Universal Feedback Spine dashboard (/feedback).
-    // Grants access to AI-classified feedback_events across all sources
-    // (session_feedback, mess, parent, ig_comment, etc.). Super-admin and
-    // admin always have access via RLS; this key enables non-admin roles
-    // (e.g. a dedicated feedback reviewer) to be granted view access
-    // without elevating them to full admin.
-    name: 'Feedback',
-    key: 'feedback',
+    // Added 2026-06-30 — Schools Network module. Tracks JKKN's K-12 outreach
+    // (external schools + JKKN's own Matric/CBSE schools): sessions conducted,
+    // contributions made, JKKN-side owners (outreach_coordinator /
+    // program_lead faceted by program_partner_id), and program-partner
+    // funding chains (CSR / grants / corporate sponsors).
+    //
+    // Two new application roles in custom_roles seed the access pattern:
+    //   - outreach_coordinator — own assigned schools (via school_jkkn_owners)
+    //   - program_lead         — schools their program partner touches
+    // Super-admin / admin bypass via the canonical RLS triad.
+    //
+    // RLS policies on schools / school_contacts / school_sessions /
+    // school_contributions / school_jkkn_owners / program_partners /
+    // program_partner_grants reference these keys directly. Keep this catalog
+    // and the spec section 5 role seeds in lock-step.
+    name: 'Schools Network',
+    key: 'schools_network',
     permissions: [
-      { key: 'feedback.view', label: 'View Feedback Dashboard (AI-classified events)' }
+      { key: 'schools_network.schools.view', label: 'View Schools' },
+      { key: 'schools_network.schools.create', label: 'Create Schools' },
+      { key: 'schools_network.schools.edit', label: 'Edit Schools' },
+      { key: 'schools_network.schools.delete', label: 'Delete Schools' },
+      { key: 'schools_network.contacts.view', label: 'View School Contacts (HM / principal / teachers)' },
+      { key: 'schools_network.contacts.create', label: 'Add School Contacts' },
+      { key: 'schools_network.contacts.edit', label: 'Edit School Contacts' },
+      { key: 'schools_network.sessions.view', label: 'View School Sessions' },
+      { key: 'schools_network.sessions.create', label: 'Log School Sessions' },
+      { key: 'schools_network.sessions.edit', label: 'Edit School Sessions' },
+      { key: 'schools_network.contributions.view', label: 'View School Contributions' },
+      { key: 'schools_network.contributions.create', label: 'Log School Contributions' },
+      { key: 'schools_network.contributions.edit', label: 'Edit School Contributions' },
+      { key: 'schools_network.owners.view', label: 'View JKKN-side Owner Assignments' },
+      { key: 'schools_network.owners.manage', label: 'Assign / Revoke JKKN-side Owners' },
+      { key: 'schools_network.partners.view', label: 'View Program Partners' },
+      { key: 'schools_network.partners.edit', label: 'Edit Program Partners' },
+      { key: 'schools_network.partners.manage', label: 'Manage Program Partners (create / archive)' },
+      { key: 'schools_network.grants.view', label: 'View Program Partner Grants' },
+      { key: 'schools_network.grants.manage', label: 'Manage Program Partner Grants' },
+      { key: 'schools_network.master.view', label: 'View Schools Network Master Lists' },
+      { key: 'schools_network.master.manage', label: 'Manage Schools Network Master Lists (session types, partner types, contact roles)' },
+      { key: 'schools_network.portal.write', label: 'HM Portal Write Access (future v2)' }
+    ]
+  },
+  {
+    // Added 2026-07-05 — Cohort Core (shared cohort spine). Keys referenced by
+    // RLS on cohort_* tables (cohorts / cohort_memberships / cohort_status_events;
+    // migration 20260731040000_cohort_core_spine.sql). SELECT→cohort.view,
+    // INSERT→cohort.create, UPDATE→cohort.edit, DELETE→cohort.manage. Grant
+    // 'cohort.manage' to cohort coordinators; super_admin/admin bypass every policy.
+    name: 'Cohort Core',
+    key: 'cohort',
+    permissions: [
+      { key: 'cohort.view', label: 'View Cohorts' },
+      { key: 'cohort.create', label: 'Create Cohorts' },
+      { key: 'cohort.edit', label: 'Edit Cohorts' },
+      { key: 'cohort.manage', label: 'Manage Cohorts (delete, remove members, admin)' }
     ]
   }
 ];

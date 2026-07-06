@@ -12718,6 +12718,27 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.get_my_learner_id() TO authenticated;
 
+-- fn_my_lifecycle_status(): the caller's own learners_profiles.lifecycle_status.
+-- Used by the client nav to scope pre-onboarding (induction-only) learners to the
+-- My Induction + My Profile entries. SECURITY DEFINER (reads past RLS) but only
+-- ever returns the CALLER's own row. proxy.ts is the real access gate.
+-- (20260629100000_induction_only_access_widen_provisioning.sql)
+CREATE OR REPLACE FUNCTION public.fn_my_lifecycle_status()
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+  SELECT lp.lifecycle_status::text
+  FROM profiles p
+  JOIN learners_profiles lp ON lp.id = p.learner_id
+  WHERE p.id = auth.uid();
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_my_lifecycle_status() FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_my_lifecycle_status() TO authenticated;
+
 -- user_is_hosteler(): true when the current user's learner record has
 -- accommodation type = hostel. Built on get_my_learner_id() (existing).
 -- Clean signal: accommodation_types.code='hostel'; fallback: dirty text.
@@ -18193,6 +18214,137 @@ REVOKE EXECUTE ON FUNCTION public.fn_cl_admin_transfer_allocation(uuid, uuid, uu
 GRANT  EXECUTE ON FUNCTION public.fn_cl_admin_transfer_allocation(uuid, uuid, uuid, uuid) TO authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────
+-- fn_cl_admin_reset_allocation — admin "Reset" for an allocation: undo the
+-- room allocation (HARD DELETE + free the bed) and/or clear the learner's
+-- room/mess category (learners_profiles), selected independently and applied
+-- atomically. Gated on campus_living.upgrades.manage (same audience as the
+-- transfer RPC). A deposit or vacate request on the allocation blocks the
+-- room reset with a clear error; premium invites + cleaning bookings cascade.
+-- Mirrored from migration 20260704120000_fn_cl_admin_reset_allocation.sql.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_cl_admin_reset_allocation(
+  p_allocation_id uuid,
+  p_reset_room boolean DEFAULT false,
+  p_reset_room_category boolean DEFAULT false,
+  p_reset_mess_category boolean DEFAULT false
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $function$
+DECLARE
+  v_alloc            hostel_allocations%ROWTYPE;
+  v_lp_id            uuid;
+  v_mapped           boolean;
+  v_accessible       boolean;
+  v_deleted          boolean := false;
+  v_freed_bed        uuid;
+  v_room_cat_cleared boolean := false;
+  v_mess_cat_cleared boolean := false;
+BEGIN
+  -- Authorization: super-admin OR a hostel-admin role holding upgrades.manage.
+  IF NOT user_has_permission('campus_living.upgrades.manage') THEN
+    RAISE EXCEPTION 'Not authorized to reset hostel allocations'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF NOT (COALESCE(p_reset_room, false)
+          OR COALESCE(p_reset_room_category, false)
+          OR COALESCE(p_reset_mess_category, false)) THEN
+    RAISE EXCEPTION 'Select at least one item to reset' USING ERRCODE = 'P0001';
+  END IF;
+
+  SELECT * INTO v_alloc FROM hostel_allocations WHERE id = p_allocation_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Allocation % not found', p_allocation_id USING ERRCODE = 'P0002';
+  END IF;
+
+  -- Institution scope: enforce only when the block is mapped to institution(s)
+  -- via hostel_block_institutions; data gaps fail open (same as transfer RPC).
+  SELECT EXISTS (SELECT 1 FROM hostel_block_institutions WHERE block_id = v_alloc.block_id)
+    INTO v_mapped;
+  IF v_mapped THEN
+    SELECT EXISTS (
+      SELECT 1 FROM hostel_block_institutions hbi
+      WHERE hbi.block_id = v_alloc.block_id
+        AND hbi.institution_id IN (
+          SELECT institution_id FROM get_user_accessible_institutions(auth.uid())
+        )
+    ) INTO v_accessible;
+    IF NOT v_accessible THEN
+      RAISE EXCEPTION 'No access to this allocation''s institution'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  -- Bridge to the learner-level record: allocation.learner_id is profiles.id;
+  -- the category columns live on learners_profiles (profiles.learner_id, 1:1).
+  SELECT p.learner_id INTO v_lp_id FROM profiles p WHERE p.id = v_alloc.learner_id;
+
+  IF COALESCE(p_reset_room, false) THEN
+    IF v_alloc.status NOT IN ('active', 'pending_approval')
+       OR v_alloc.check_out_date IS NOT NULL THEN
+      RAISE EXCEPTION 'Only an active or pending allocation can be reset (current status: %)',
+        v_alloc.status USING ERRCODE = 'P0001';
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM hostel_deposits WHERE allocation_id = p_allocation_id) THEN
+      RAISE EXCEPTION 'This allocation has a deposit record — settle or remove it before resetting the room'
+        USING ERRCODE = 'P0001';
+    END IF;
+    IF EXISTS (SELECT 1 FROM hostel_vacate_requests WHERE allocation_id = p_allocation_id) THEN
+      RAISE EXCEPTION 'This allocation has a vacate request — resolve it before resetting the room'
+        USING ERRCODE = 'P0001';
+    END IF;
+
+    DELETE FROM hostel_allocations WHERE id = p_allocation_id;
+    v_deleted := true;
+
+    -- Free the bed only when no other open allocation still claims it
+    -- (a pending_approval row's bed may legitimately never have been occupied
+    -- — the conditional update is a safe no-op in that case).
+    IF v_alloc.bed_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM hostel_allocations a
+      WHERE a.bed_id = v_alloc.bed_id
+        AND a.status IN ('active', 'pending_approval')
+        AND a.check_out_date IS NULL
+    ) THEN
+      UPDATE hostel_beds
+         SET status = 'available', current_occupant_id = NULL, updated_at = now()
+       WHERE id = v_alloc.bed_id;
+      v_freed_bed := v_alloc.bed_id;
+    END IF;
+  END IF;
+
+  IF COALESCE(p_reset_room_category, false) AND v_lp_id IS NOT NULL THEN
+    UPDATE learners_profiles
+       SET hostel_category_id = NULL
+     WHERE id = v_lp_id AND hostel_category_id IS NOT NULL;
+    v_room_cat_cleared := FOUND;
+  END IF;
+
+  IF COALESCE(p_reset_mess_category, false) AND v_lp_id IS NOT NULL THEN
+    UPDATE learners_profiles
+       SET mess_category_id = NULL
+     WHERE id = v_lp_id AND mess_category_id IS NOT NULL;
+    v_mess_cat_cleared := FOUND;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'success',               true,
+    'allocation_deleted',    v_deleted,
+    'freed_bed_id',          v_freed_bed,
+    'room_category_cleared', v_room_cat_cleared,
+    'mess_category_cleared', v_mess_cat_cleared
+  );
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_cl_admin_reset_allocation(uuid, boolean, boolean, boolean) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_cl_admin_reset_allocation(uuid, boolean, boolean, boolean) TO authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────
 -- fn_cl_transfer_room_options — category-wise room/bed availability for the
 -- admin transfer modal. Mirrored from migration
 -- 20260617210000_transfer_room_options_rpc.sql.
@@ -18375,10 +18527,11 @@ REVOKE EXECUTE ON FUNCTION public.fn_cl_admin_allocate_bed(uuid,uuid,uuid,uuid) 
 GRANT  EXECUTE ON FUNCTION public.fn_cl_admin_allocate_bed(uuid,uuid,uuid,uuid) TO authenticated;
 
 -- ───────────────────────────────────────────────────────────────────────────
--- fn_cl_admin_allocatable_rooms — learner+block scoped allocatable rooms for the
--- manual AllocateRoomDialog. Physical (student room, gender, institution-serving,
--- cohort eligibility, free beds) + category (eligible categories, fail-open).
--- mig 20260618130000.
+-- fn_cl_admin_allocatable_rooms — ALL student rooms in a block with per-condition
+-- verdict flags (gender, institution-serving, cohort eligibility, category,
+-- free beds) for the manual AllocateRoomDialog. is_allocatable = all pass;
+-- failing flags drive the dialog's "why not allocatable" diagnostics.
+-- mig 20260618130000, rev 20260702090000 (condition flags).
 -- ───────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.fn_cl_admin_allocatable_rooms(
   p_learner_profile_id uuid,
@@ -18387,7 +18540,10 @@ CREATE OR REPLACE FUNCTION public.fn_cl_admin_allocatable_rooms(
 RETURNS TABLE(
   room_id uuid, room_number text, floor integer,
   category_id uuid, category_name text,
-  capacity integer, available_beds integer
+  capacity integer, available_beds integer,
+  is_allocatable boolean,
+  gender_ok boolean, institution_ok boolean, eligibility_ok boolean,
+  category_ok boolean, has_free_beds boolean
 )
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public', 'pg_temp'
 AS $function$
@@ -18417,7 +18573,10 @@ BEGIN
   RETURN QUERY
   SELECT r.id, r.room_number, r.floor, r.category_id, hc.name,
          COALESCE(r.actual_capacity, r.capacity)::int,
-         av.free
+         av.free,
+         (chk.c_gender AND chk.c_institution AND chk.c_eligibility AND chk.c_category AND av.free > 0),
+         chk.c_gender, chk.c_institution, chk.c_eligibility, chk.c_category,
+         av.free > 0
   FROM hostel_rooms r
   JOIN hostel_blocks bl ON bl.id = r.block_id
   LEFT JOIN hostel_categories hc ON hc.id = r.category_id
@@ -18427,22 +18586,106 @@ BEGIN
       AND NOT EXISTS (SELECT 1 FROM hostel_allocations a
                        WHERE a.bed_id = b.id AND a.status IN ('active','pending_approval'))
   ) av
+  CROSS JOIN LATERAL (
+    SELECT
+      (bl.hostel_type::text = 'mixed'
+        OR (v_gender IN ('male','m')   AND bl.hostel_type::text = 'boys')
+        OR (v_gender IN ('female','f') AND bl.hostel_type::text = 'girls')) AS c_gender,
+      fn_room_serves_institution(r.id, v_inst)                              AS c_institution,
+      fn_learner_eligible_for_room(p_learner_profile_id, r.id)             AS c_eligibility,
+      (NOT v_has_elig
+        OR r.category_id IN (SELECT elig.category_id
+                             FROM fn_hostel_learner_room_categories(p_learner_profile_id) elig)) AS c_category
+  ) chk
   WHERE r.block_id = p_block_id
     AND r.room_purpose = 'student'
-    AND (NOT v_has_elig
-         OR r.category_id IN (SELECT category_id FROM fn_hostel_learner_room_categories(p_learner_profile_id)))
-    AND (bl.hostel_type::text = 'mixed'
-         OR (v_gender IN ('male','m')   AND bl.hostel_type::text = 'boys')
-         OR (v_gender IN ('female','f') AND bl.hostel_type::text = 'girls'))
-    AND fn_room_serves_institution(r.id, v_inst)
-    AND fn_learner_eligible_for_room(p_learner_profile_id, r.id)
-    AND av.free > 0
-  ORDER BY r.floor, r.room_number;
+  ORDER BY 8 DESC, r.floor, r.room_number;
 END;
 $function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_cl_admin_allocatable_rooms(uuid, uuid) FROM anon, public;
 GRANT  EXECUTE ON FUNCTION public.fn_cl_admin_allocatable_rooms(uuid, uuid) TO authenticated;
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- fn_cl_admin_allocatable_blocks — block-level companion to
+-- fn_cl_admin_allocatable_rooms (per-learner allocatable room/bed counts per
+-- block; ranks + auto-selects the AllocateRoomDialog block picker).
+-- mig 20260702100000.
+-- ───────────────────────────────────────────────────────────────────────────
+-- Block-level companion to fn_cl_admin_allocatable_rooms: every hostel block
+-- annotated with how many rooms/beds THIS learner can actually be allocated
+-- (same predicates: gender, free beds, institution-serving, cohort
+-- eligibility, category fail-open). Lets the AllocateRoomDialog rank blocks
+-- and auto-select one that works instead of making the admin guess.
+-- Gender is checked at block level first so non-matching blocks skip the
+-- per-room eligibility functions entirely (they report 0 without the cost).
+CREATE OR REPLACE FUNCTION public.fn_cl_admin_allocatable_blocks(
+  p_learner_profile_id uuid
+)
+RETURNS TABLE(
+  block_id uuid, block_name text, block_code text, hostel_type text,
+  gender_ok boolean, allocatable_rooms integer, free_beds integer
+)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_inst   uuid;
+  v_gender text;
+  v_has_elig boolean;
+BEGIN
+  IF NOT (is_super_admin() OR user_has_permission('campus_living.upgrades.manage')) THEN
+    RAISE EXCEPTION 'Not authorized to view allocatable blocks' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT institution_id INTO v_inst FROM learners_profiles WHERE id = p_learner_profile_id;
+  IF v_inst IS NULL THEN RETURN; END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM get_user_accessible_institutions(auth.uid()) g WHERE g.institution_id = v_inst) THEN
+    RAISE EXCEPTION 'You do not have access to this learner''s institution' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT lower(trim(COALESCE(pr.gender, lp.gender))) INTO v_gender
+    FROM learners_profiles lp LEFT JOIN profiles pr ON pr.learner_id = lp.id
+   WHERE lp.id = p_learner_profile_id;
+
+  SELECT EXISTS (SELECT 1 FROM fn_hostel_learner_room_categories(p_learner_profile_id))
+    INTO v_has_elig;
+
+  RETURN QUERY
+  SELECT bl.id, bl.name, bl.code, bl.hostel_type::text,
+         g.c_gender,
+         COALESCE(cnt.rooms, 0), COALESCE(cnt.beds, 0)
+  FROM hostel_blocks bl
+  CROSS JOIN LATERAL (
+    SELECT (bl.hostel_type::text = 'mixed'
+      OR (v_gender IN ('male','m')   AND bl.hostel_type::text = 'boys')
+      OR (v_gender IN ('female','f') AND bl.hostel_type::text = 'girls')) AS c_gender
+  ) g
+  LEFT JOIN LATERAL (
+    SELECT count(*)::int AS rooms, COALESCE(sum(av.free), 0)::int AS beds
+    FROM hostel_rooms r
+    CROSS JOIN LATERAL (
+      SELECT count(*)::int AS free FROM hostel_beds b
+      WHERE b.room_id = r.id AND b.status = 'available'
+        AND NOT EXISTS (SELECT 1 FROM hostel_allocations a
+                         WHERE a.bed_id = b.id AND a.status IN ('active','pending_approval'))
+    ) av
+    WHERE r.block_id = bl.id
+      AND r.room_purpose = 'student'
+      AND g.c_gender
+      AND av.free > 0
+      AND fn_room_serves_institution(r.id, v_inst)
+      AND fn_learner_eligible_for_room(p_learner_profile_id, r.id)
+      AND (NOT v_has_elig
+           OR r.category_id IN (SELECT elig.category_id
+                                FROM fn_hostel_learner_room_categories(p_learner_profile_id) elig))
+  ) cnt ON true
+  ORDER BY COALESCE(cnt.rooms, 0) DESC, bl.name;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_cl_admin_allocatable_blocks(uuid) FROM anon, public;
+GRANT  EXECUTE ON FUNCTION public.fn_cl_admin_allocatable_blocks(uuid) TO authenticated;
 
 -- =====================================================================================
 -- Fee-structure sync engine + auto-reconciler (2026-06-21)
@@ -18829,3 +19072,2393 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+-- ── Induction session poll RPCs (2026-06-30) — see migrations 20260630210100 / 210200 ──
+-- 20260630210100_induction_session_polls_host_rpcs.sql
+-- Host-side RPCs for induction session polls. SECURITY DEFINER + search_path=public,
+-- anon-locked. Authorization reuses public._fn_induction_can_manage_session_pulse
+-- (credited resource person OR coordinator with induction.manage + institution access OR admin).
+
+-- Build/edit the poll structure (diff-upsert). Deletes blocked once votes exist.
+CREATE OR REPLACE FUNCTION public.fn_induction_upsert_session_poll(p_session_id uuid, p_questions jsonb)
+RETURNS uuid LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_event uuid; v_inst uuid; v_poll_id uuid;
+  q jsonb; o jsonb; v_qid uuid; v_oid uuid;
+  v_keep_q uuid[] := '{}'; v_keep_o uuid[];
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_upsert_session_poll: not authenticated'; END IF;
+  SELECT es.event_id, ip.institution_id INTO v_event, v_inst
+  FROM public.event_sessions es JOIN public.induction_programs ip ON ip.event_id = es.event_id
+  WHERE es.id = p_session_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_upsert_session_poll: not an induction session'; END IF;
+  IF NOT public._fn_induction_can_manage_session_pulse(p_session_id) THEN
+    RAISE EXCEPTION 'fn_induction_upsert_session_poll: not authorized'; END IF;
+
+  INSERT INTO public.induction_session_poll (session_id, event_id, institution_id, created_by)
+  VALUES (p_session_id, v_event, v_inst, auth.uid())
+  ON CONFLICT (session_id) DO UPDATE SET updated_at = now()
+  RETURNING id INTO v_poll_id;
+
+  FOR q IN SELECT value FROM jsonb_array_elements(coalesce(p_questions, '[]'::jsonb)) LOOP
+    IF nullif(q->>'id','') IS NOT NULL THEN
+      v_qid := (q->>'id')::uuid;
+      UPDATE public.induction_session_poll_question
+      SET prompt = q->>'prompt', kind = coalesce(q->>'kind','single'),
+          position = coalesce((q->>'position')::int, 0)
+      WHERE id = v_qid AND poll_id = v_poll_id;
+    ELSE
+      INSERT INTO public.induction_session_poll_question (poll_id, prompt, kind, position)
+      VALUES (v_poll_id, q->>'prompt', coalesce(q->>'kind','single'), coalesce((q->>'position')::int,0))
+      RETURNING id INTO v_qid;
+    END IF;
+    v_keep_q := array_append(v_keep_q, v_qid);
+
+    v_keep_o := '{}';
+    FOR o IN SELECT value FROM jsonb_array_elements(coalesce(q->'options','[]'::jsonb)) LOOP
+      IF nullif(o->>'id','') IS NOT NULL THEN
+        v_oid := (o->>'id')::uuid;
+        UPDATE public.induction_session_poll_option
+        SET label = o->>'label', position = coalesce((o->>'position')::int,0)
+        WHERE id = v_oid AND question_id = v_qid;
+      ELSE
+        INSERT INTO public.induction_session_poll_option (question_id, label, position)
+        VALUES (v_qid, o->>'label', coalesce((o->>'position')::int,0))
+        RETURNING id INTO v_oid;
+      END IF;
+      v_keep_o := array_append(v_keep_o, v_oid);
+    END LOOP;
+
+    IF EXISTS (
+      SELECT 1 FROM public.induction_session_poll_option opt
+      JOIN public.induction_session_poll_vote v ON v.option_id = opt.id
+      WHERE opt.question_id = v_qid AND NOT (opt.id = ANY(v_keep_o))
+    ) THEN RAISE EXCEPTION 'fn_induction_upsert_session_poll: cannot delete an option that already has votes'; END IF;
+    DELETE FROM public.induction_session_poll_option
+    WHERE question_id = v_qid AND NOT (id = ANY(v_keep_o));
+  END LOOP;
+
+  IF EXISTS (
+    SELECT 1 FROM public.induction_session_poll_question qq
+    JOIN public.induction_session_poll_vote v ON v.question_id = qq.id
+    WHERE qq.poll_id = v_poll_id AND NOT (qq.id = ANY(v_keep_q))
+  ) THEN RAISE EXCEPTION 'fn_induction_upsert_session_poll: cannot delete a question that already has votes'; END IF;
+  DELETE FROM public.induction_session_poll_question
+  WHERE poll_id = v_poll_id AND NOT (id = ANY(v_keep_q));
+
+  RETURN v_poll_id;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_upsert_session_poll(uuid, jsonb) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_upsert_session_poll(uuid, jsonb) TO authenticated;
+
+-- Open (idempotent, advisory-locked, requires >=1 question).
+CREATE OR REPLACE FUNCTION public.fn_induction_open_session_poll(p_session_id uuid)
+RETURNS public.induction_session_poll LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_row public.induction_session_poll;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_open_session_poll: not authenticated'; END IF;
+  IF NOT public._fn_induction_can_manage_session_pulse(p_session_id) THEN
+    RAISE EXCEPTION 'fn_induction_open_session_poll: not authorized'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('induction_poll|' || p_session_id::text));
+  SELECT * INTO v_row FROM public.induction_session_poll WHERE session_id = p_session_id;
+  IF v_row.id IS NULL THEN RAISE EXCEPTION 'fn_induction_open_session_poll: no poll for this session'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.induction_session_poll_question WHERE poll_id = v_row.id) THEN
+    RAISE EXCEPTION 'fn_induction_open_session_poll: add at least one question first'; END IF;
+  UPDATE public.induction_session_poll
+  SET status='open', issued_at=coalesce(issued_at, now()), auto_close_at = now() + interval '240 minutes', updated_at=now()
+  WHERE id = v_row.id RETURNING * INTO v_row;
+  RETURN v_row;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_open_session_poll(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_open_session_poll(uuid) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_induction_close_session_poll(p_poll_id uuid)
+RETURNS public.induction_session_poll LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_session uuid; v_row public.induction_session_poll;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_close_session_poll: not authenticated'; END IF;
+  SELECT session_id INTO v_session FROM public.induction_session_poll WHERE id = p_poll_id;
+  IF v_session IS NULL THEN RAISE EXCEPTION 'fn_induction_close_session_poll: no such poll'; END IF;
+  IF NOT public._fn_induction_can_manage_session_pulse(v_session) THEN
+    RAISE EXCEPTION 'fn_induction_close_session_poll: not authorized'; END IF;
+  UPDATE public.induction_session_poll SET status='closed', updated_at=now()
+  WHERE id = p_poll_id RETURNING * INTO v_row;
+  RETURN v_row;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_close_session_poll(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_close_session_poll(uuid) TO authenticated;
+
+-- Host fetch: full structure + status + has_votes.
+CREATE OR REPLACE FUNCTION public.fn_induction_get_session_poll(p_session_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_p public.induction_session_poll; v_questions jsonb; v_has_votes boolean;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_get_session_poll: not authenticated'; END IF;
+  IF NOT public._fn_induction_can_manage_session_pulse(p_session_id) THEN
+    RAISE EXCEPTION 'fn_induction_get_session_poll: not authorized'; END IF;
+  SELECT * INTO v_p FROM public.induction_session_poll WHERE session_id = p_session_id;
+  IF v_p.id IS NULL THEN RETURN NULL; END IF;
+
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'id', q.id, 'prompt', q.prompt, 'kind', q.kind, 'position', q.position,
+           'options', (SELECT coalesce(jsonb_agg(jsonb_build_object('id',o.id,'label',o.label,'position',o.position) ORDER BY o.position),'[]'::jsonb)
+                       FROM public.induction_session_poll_option o WHERE o.question_id = q.id)
+         ) ORDER BY q.position),'[]'::jsonb)
+  INTO v_questions FROM public.induction_session_poll_question q WHERE q.poll_id = v_p.id;
+
+  SELECT EXISTS(SELECT 1 FROM public.induction_session_poll_vote WHERE poll_id = v_p.id) INTO v_has_votes;
+
+  RETURN jsonb_build_object('id', v_p.id, 'session_id', v_p.session_id, 'status', v_p.status,
+    'auto_close_at', v_p.auto_close_at, 'has_votes', v_has_votes, 'questions', v_questions);
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_get_session_poll(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_get_session_poll(uuid) TO authenticated;
+
+-- Live anonymized totals (k>=3 floor). Lazy auto-close.
+CREATE OR REPLACE FUNCTION public.fn_induction_session_poll_totals(p_poll_id uuid)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_p public.induction_session_poll; v_batch uuid; v_enrolled int; v_responses int;
+  v_suppress boolean; v_k constant int := 3; v_questions jsonb;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_session_poll_totals: not authenticated'; END IF;
+  SELECT * INTO v_p FROM public.induction_session_poll WHERE id = p_poll_id;
+  IF v_p.id IS NULL THEN RAISE EXCEPTION 'fn_induction_session_poll_totals: no such poll'; END IF;
+  IF NOT public._fn_induction_can_manage_session_pulse(v_p.session_id) THEN
+    RAISE EXCEPTION 'fn_induction_session_poll_totals: not authorized'; END IF;
+
+  IF v_p.status = 'open' AND v_p.auto_close_at IS NOT NULL AND v_p.auto_close_at < now() THEN
+    UPDATE public.induction_session_poll SET status='closed', updated_at=now() WHERE id = v_p.id;
+    v_p.status := 'closed';
+  END IF;
+
+  SELECT es.batch_id INTO v_batch FROM public.event_sessions es WHERE es.id = v_p.session_id;
+  SELECT count(*)::int INTO v_enrolled FROM public.induction_enrollment ie
+  WHERE ie.event_id = v_p.event_id AND (v_batch IS NULL OR ie.batch_id = v_batch);
+
+  SELECT count(DISTINCT learner_id)::int INTO v_responses
+  FROM public.induction_session_poll_vote WHERE poll_id = v_p.id;
+  v_suppress := (v_responses < v_k);
+
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'id', q.id, 'prompt', q.prompt, 'kind', q.kind,
+           'response_count', (SELECT count(DISTINCT learner_id) FROM public.induction_session_poll_vote v WHERE v.question_id = q.id),
+           'options', (
+             SELECT coalesce(jsonb_agg(jsonb_build_object(
+               'id', o.id, 'label', o.label,
+               'count', CASE WHEN v_suppress THEN NULL ELSE (SELECT count(*) FROM public.induction_session_poll_vote v WHERE v.option_id = o.id) END
+             ) ORDER BY o.position),'[]'::jsonb)
+             FROM public.induction_session_poll_option o WHERE o.question_id = q.id)
+         ) ORDER BY q.position),'[]'::jsonb)
+  INTO v_questions FROM public.induction_session_poll_question q WHERE q.poll_id = v_p.id;
+
+  RETURN jsonb_build_object('status', v_p.status, 'auto_close_at', v_p.auto_close_at,
+    'enrolled_count', v_enrolled, 'response_count', v_responses, 'suppressed', v_suppress,
+    'questions', v_questions);
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_session_poll_totals(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_session_poll_totals(uuid) TO authenticated;
+
+NOTIFY pgrst, 'reload schema';
+-- 20260630210200_induction_session_polls_learner_rpcs.sql
+-- Learner-side RPCs for induction session polls. Gate: caller is a learner
+-- (get_my_learner_id()), enrolled in the poll's event, session applies to their batch
+-- (batch_id IS NULL OR = mine), and the poll is open. SECURITY DEFINER, anon-locked.
+
+-- A learner's currently-open polls (enrolled + their batch), with already_answered.
+CREATE OR REPLACE FUNCTION public.fn_induction_session_poll_for_learner()
+RETURNS TABLE (poll_id uuid, session_id uuid, event_id uuid, event_name text, title text,
+               day_number integer, auto_close_at timestamptz, already_answered boolean)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_learner uuid;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_session_poll_for_learner: not authenticated'; END IF;
+  v_learner := get_my_learner_id();
+  IF v_learner IS NULL THEN RETURN; END IF;
+  RETURN QUERY
+  SELECT p.id, p.session_id, p.event_id, ev.name, es.title, es.day_number, p.auto_close_at,
+         EXISTS (SELECT 1 FROM public.induction_session_poll_vote v WHERE v.poll_id = p.id AND v.learner_id = v_learner)
+  FROM public.induction_session_poll p
+  JOIN public.event_sessions es ON es.id = p.session_id
+  JOIN public.events ev         ON ev.id = p.event_id
+  JOIN public.induction_enrollment ie ON ie.event_id = p.event_id AND ie.learner_id = v_learner
+  WHERE p.status = 'open' AND (p.auto_close_at IS NULL OR p.auto_close_at > now())
+    AND (es.batch_id IS NULL OR es.batch_id = ie.batch_id)
+  ORDER BY p.issued_at DESC;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_session_poll_for_learner() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_session_poll_for_learner() TO authenticated;
+
+-- helper: may THIS learner answer THIS poll? (enrolled + batch + open)
+CREATE OR REPLACE FUNCTION public._fn_induction_learner_can_answer_poll(p_poll_id uuid, p_learner uuid)
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_ok boolean;
+BEGIN
+  SELECT EXISTS (
+    SELECT 1 FROM public.induction_session_poll p
+    JOIN public.event_sessions es ON es.id = p.session_id
+    JOIN public.induction_enrollment ie ON ie.event_id = p.event_id AND ie.learner_id = p_learner
+    WHERE p.id = p_poll_id AND p.status='open' AND (p.auto_close_at IS NULL OR p.auto_close_at > now())
+      AND (es.batch_id IS NULL OR es.batch_id = ie.batch_id)
+  ) INTO v_ok;
+  RETURN coalesce(v_ok,false);
+END $$;
+REVOKE EXECUTE ON FUNCTION public._fn_induction_learner_can_answer_poll(uuid, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public._fn_induction_learner_can_answer_poll(uuid, uuid) TO authenticated;
+
+-- Questions/options to render + my prior answers (so I can change while open).
+CREATE OR REPLACE FUNCTION public.fn_induction_get_poll_for_answering(p_poll_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_learner uuid; v_questions jsonb; v_mine jsonb;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_get_poll_for_answering: not authenticated'; END IF;
+  v_learner := get_my_learner_id();
+  IF v_learner IS NULL OR NOT public._fn_induction_learner_can_answer_poll(p_poll_id, v_learner) THEN
+    RAISE EXCEPTION 'fn_induction_get_poll_for_answering: not allowed'; END IF;
+
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'id', q.id, 'prompt', q.prompt, 'kind', q.kind,
+           'options', (SELECT coalesce(jsonb_agg(jsonb_build_object('id',o.id,'label',o.label) ORDER BY o.position),'[]'::jsonb)
+                       FROM public.induction_session_poll_option o WHERE o.question_id = q.id)
+         ) ORDER BY q.position),'[]'::jsonb)
+  INTO v_questions FROM public.induction_session_poll_question q WHERE q.poll_id = p_poll_id;
+
+  SELECT coalesce(jsonb_object_agg(question_id, opts),'{}'::jsonb) INTO v_mine FROM (
+    SELECT question_id, jsonb_agg(option_id) AS opts
+    FROM public.induction_session_poll_vote WHERE poll_id = p_poll_id AND learner_id = v_learner
+    GROUP BY question_id
+  ) m;
+
+  RETURN jsonb_build_object('poll_id', p_poll_id, 'questions', v_questions, 'my_answers', v_mine);
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_get_poll_for_answering(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_get_poll_for_answering(uuid) TO authenticated;
+
+-- Submit/replace a learner's ballot. p_answers = [{question_id, option_ids:[...]}].
+CREATE OR REPLACE FUNCTION public.fn_induction_submit_poll_response(p_poll_id uuid, p_answers jsonb)
+RETURNS void LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_learner uuid; a jsonb; v_qid uuid; v_kind text; v_opts uuid[]; v_oid uuid;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_submit_poll_response: not authenticated'; END IF;
+  v_learner := get_my_learner_id();
+  IF v_learner IS NULL OR NOT public._fn_induction_learner_can_answer_poll(p_poll_id, v_learner) THEN
+    RAISE EXCEPTION 'fn_induction_submit_poll_response: not allowed'; END IF;
+
+  FOR a IN SELECT value FROM jsonb_array_elements(coalesce(p_answers,'[]'::jsonb)) LOOP
+    v_qid := (a->>'question_id')::uuid;
+    SELECT kind INTO v_kind FROM public.induction_session_poll_question WHERE id = v_qid AND poll_id = p_poll_id;
+    IF v_kind IS NULL THEN RAISE EXCEPTION 'fn_induction_submit_poll_response: question not in poll'; END IF;
+
+    SELECT coalesce(array_agg((e)::uuid),'{}') INTO v_opts
+    FROM jsonb_array_elements_text(coalesce(a->'option_ids','[]'::jsonb)) e;
+
+    IF v_kind = 'single' AND array_length(v_opts,1) IS DISTINCT FROM 1 THEN
+      RAISE EXCEPTION 'fn_induction_submit_poll_response: single-choice needs exactly one option'; END IF;
+
+    IF EXISTS (SELECT 1 FROM unnest(v_opts) x(oid)
+               WHERE NOT EXISTS (SELECT 1 FROM public.induction_session_poll_option o WHERE o.id = x.oid AND o.question_id = v_qid)) THEN
+      RAISE EXCEPTION 'fn_induction_submit_poll_response: option does not belong to question'; END IF;
+
+    DELETE FROM public.induction_session_poll_vote WHERE question_id = v_qid AND learner_id = v_learner;
+    FOREACH v_oid IN ARRAY v_opts LOOP
+      INSERT INTO public.induction_session_poll_vote (poll_id, question_id, option_id, learner_id)
+      VALUES (p_poll_id, v_qid, v_oid, v_learner);
+    END LOOP;
+  END LOOP;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_submit_poll_response(uuid, jsonb) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_submit_poll_response(uuid, jsonb) TO authenticated;
+
+NOTIFY pgrst, 'reload schema';
+
+-- ── Induction poll responders (2026-07-02) — see migration 20260702050000 ──
+-- Host-side "who answered" list for a session poll's live count analytics.
+-- Deliberate design change from the original anonymized-only totals: the HOST
+-- (same gate as the pulse) sees WHICH learners responded (register no + name),
+-- but still NOT their ballots. fn_induction_session_poll_totals stays anonymized.
+CREATE OR REPLACE FUNCTION public.fn_induction_session_poll_responders(p_poll_id uuid)
+RETURNS TABLE (learner_id uuid, register_number text, roll_number text,
+               learner_name text, questions_answered bigint, answered_at timestamptz)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_session uuid;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'fn_induction_session_poll_responders: not authenticated'; END IF;
+  SELECT p.session_id INTO v_session FROM public.induction_session_poll p WHERE p.id = p_poll_id;
+  IF v_session IS NULL OR NOT public._fn_induction_can_manage_session_pulse(v_session) THEN
+    RAISE EXCEPTION 'fn_induction_session_poll_responders: not allowed'; END IF;
+
+  RETURN QUERY
+  SELECT v.learner_id,
+         lp.register_number::text,
+         lp.roll_number::text,
+         trim(coalesce(lp.first_name,'') || ' ' || coalesce(lp.last_name,''))::text,
+         count(DISTINCT v.question_id),
+         max(v.created_at)
+  FROM public.induction_session_poll_vote v
+  JOIN public.learners_profiles lp ON lp.id = v.learner_id
+  WHERE v.poll_id = p_poll_id
+  GROUP BY v.learner_id, lp.register_number, lp.roll_number, lp.first_name, lp.last_name
+  ORDER BY max(v.created_at) DESC;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_session_poll_responders(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_session_poll_responders(uuid) TO authenticated;
+
+-- ── Induction poll Excel export (2026-07-04) — see migration 20260704130000 ──
+-- Host-only ballots export: one row per (learner x question) with learner details
+-- and the selected option labels. Same gate as the other host poll RPCs.
+-- 20260706090000 added college_email (return shape changed — recreate needs DROP first).
+CREATE OR REPLACE FUNCTION public.fn_induction_session_poll_export(p_poll_id uuid)
+RETURNS TABLE (
+  learner_id uuid, register_number text, roll_number text, learner_name text,
+  gender text, student_email text, college_email text, student_mobile text,
+  institution_name text, degree_name text, program_name text, batch_name text,
+  question_id uuid, question_position integer, question_prompt text, question_kind text,
+  option_labels text[], answered_at timestamptz
+)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_session uuid;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'fn_induction_session_poll_export: not authenticated'; END IF;
+  SELECT p.session_id INTO v_session FROM public.induction_session_poll p WHERE p.id = p_poll_id;
+  IF v_session IS NULL OR NOT public._fn_induction_can_manage_session_pulse(v_session) THEN
+    RAISE EXCEPTION 'fn_induction_session_poll_export: not allowed'; END IF;
+
+  RETURN QUERY
+  SELECT v.learner_id,
+         lp.register_number::text,
+         lp.roll_number::text,
+         trim(coalesce(lp.first_name,'') || ' ' || coalesce(lp.last_name,''))::text,
+         lp.gender::text,
+         lp.student_email::text,
+         lp.college_email::text,
+         lp.student_mobile::text,
+         i.name::text,
+         d.degree_name::text,
+         pr.program_name::text,
+         b.batch_name::text,
+         q.id,
+         q.position,
+         q.prompt::text,
+         q.kind::text,
+         array_agg(o.label ORDER BY o.position)::text[],
+         max(v.created_at)
+  FROM public.induction_session_poll_vote v
+  JOIN public.induction_session_poll_question q ON q.id = v.question_id
+  JOIN public.induction_session_poll_option  o ON o.id = v.option_id
+  JOIN public.learners_profiles lp ON lp.id = v.learner_id
+  LEFT JOIN public.institutions i  ON i.id  = lp.institution_id
+  LEFT JOIN public.degrees d       ON d.id  = lp.degree_id
+  LEFT JOIN public.programs pr     ON pr.id = lp.program_id
+  LEFT JOIN public.batches b       ON b.id  = lp.batch_id
+  WHERE v.poll_id = p_poll_id
+  GROUP BY v.learner_id, lp.register_number, lp.roll_number, lp.first_name, lp.last_name,
+           lp.gender, lp.student_email, lp.college_email, lp.student_mobile, i.name, d.degree_name,
+           pr.program_name, b.batch_name, q.id, q.position, q.prompt, q.kind
+  ORDER BY lp.register_number NULLS LAST, q.position;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_session_poll_export(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_session_poll_export(uuid) TO authenticated;
+
+-- ── Induction poll coordinator flow (2026-07-02) — see migration 20260702060000 ──
+-- Coordinator-controlled question flow (Mentimeter-style): the host decides which
+-- ONE question is live via induction_session_poll.current_question_id; learners only
+-- ever receive the current question and can watch its live counts (k>=3 floor).
+-- Rebuilds fn_induction_open_session_poll / fn_induction_get_session_poll /
+-- fn_induction_get_poll_for_answering; adds fn_induction_set_current_poll_question
+-- and fn_induction_poll_question_totals_for_learner. These are the CURRENT versions.
+
+CREATE OR REPLACE FUNCTION public.fn_induction_open_session_poll(p_session_id uuid)
+RETURNS induction_session_poll LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_row public.induction_session_poll;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_open_session_poll: not authenticated'; END IF;
+  IF NOT public._fn_induction_can_manage_session_pulse(p_session_id) THEN
+    RAISE EXCEPTION 'fn_induction_open_session_poll: not authorized'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('induction_poll|' || p_session_id::text));
+  SELECT * INTO v_row FROM public.induction_session_poll WHERE session_id = p_session_id;
+  IF v_row.id IS NULL THEN RAISE EXCEPTION 'fn_induction_open_session_poll: no poll for this session'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.induction_session_poll_question WHERE poll_id = v_row.id) THEN
+    RAISE EXCEPTION 'fn_induction_open_session_poll: add at least one question first'; END IF;
+  UPDATE public.induction_session_poll
+  SET status='open', issued_at=coalesce(issued_at, now()), auto_close_at = now() + interval '240 minutes',
+      current_question_id = coalesce(current_question_id,
+        (SELECT q.id FROM public.induction_session_poll_question q
+          WHERE q.poll_id = induction_session_poll.id ORDER BY q.position LIMIT 1)),
+      updated_at=now()
+  WHERE id = v_row.id RETURNING * INTO v_row;
+  RETURN v_row;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_open_session_poll(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_open_session_poll(uuid) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_induction_set_current_poll_question(p_poll_id uuid, p_question_id uuid)
+RETURNS void LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_session uuid; v_status text;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_set_current_poll_question: not authenticated'; END IF;
+  SELECT p.session_id, p.status INTO v_session, v_status
+  FROM public.induction_session_poll p WHERE p.id = p_poll_id;
+  IF v_session IS NULL OR NOT public._fn_induction_can_manage_session_pulse(v_session) THEN
+    RAISE EXCEPTION 'fn_induction_set_current_poll_question: not allowed'; END IF;
+  IF v_status <> 'open' THEN
+    RAISE EXCEPTION 'fn_induction_set_current_poll_question: poll is not open'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.induction_session_poll_question q
+                 WHERE q.id = p_question_id AND q.poll_id = p_poll_id) THEN
+    RAISE EXCEPTION 'fn_induction_set_current_poll_question: question not in poll'; END IF;
+  -- Advancing is host activity: also push the lazy auto-close window forward.
+  UPDATE public.induction_session_poll
+  SET current_question_id = p_question_id, auto_close_at = now() + interval '240 minutes', updated_at = now()
+  WHERE id = p_poll_id;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_set_current_poll_question(uuid, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_set_current_poll_question(uuid, uuid) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_induction_get_session_poll(p_session_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_p public.induction_session_poll; v_questions jsonb; v_has_votes boolean;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_get_session_poll: not authenticated'; END IF;
+  IF NOT public._fn_induction_can_manage_session_pulse(p_session_id) THEN
+    RAISE EXCEPTION 'fn_induction_get_session_poll: not authorized'; END IF;
+  SELECT * INTO v_p FROM public.induction_session_poll WHERE session_id = p_session_id;
+  IF v_p.id IS NULL THEN RETURN NULL; END IF;
+
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'id', q.id, 'prompt', q.prompt, 'kind', q.kind, 'position', q.position,
+           'options', (SELECT coalesce(jsonb_agg(jsonb_build_object('id',o.id,'label',o.label,'position',o.position) ORDER BY o.position),'[]'::jsonb)
+                       FROM public.induction_session_poll_option o WHERE o.question_id = q.id)
+         ) ORDER BY q.position),'[]'::jsonb)
+  INTO v_questions FROM public.induction_session_poll_question q WHERE q.poll_id = v_p.id;
+
+  SELECT EXISTS(SELECT 1 FROM public.induction_session_poll_vote WHERE poll_id = v_p.id) INTO v_has_votes;
+
+  RETURN jsonb_build_object('id', v_p.id, 'session_id', v_p.session_id, 'status', v_p.status,
+    'auto_close_at', v_p.auto_close_at, 'has_votes', v_has_votes,
+    'current_question_id', v_p.current_question_id, 'questions', v_questions);
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_get_session_poll(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_get_session_poll(uuid) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_induction_get_poll_for_answering(p_poll_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_learner uuid; v_current uuid; v_question jsonb; v_mine jsonb; v_index int; v_total int;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_get_poll_for_answering: not authenticated'; END IF;
+  v_learner := get_my_learner_id();
+  IF v_learner IS NULL OR NOT public._fn_induction_learner_can_answer_poll(p_poll_id, v_learner) THEN
+    RAISE EXCEPTION 'fn_induction_get_poll_for_answering: not allowed'; END IF;
+
+  SELECT p.current_question_id INTO v_current FROM public.induction_session_poll p WHERE p.id = p_poll_id;
+
+  SELECT count(*)::int INTO v_total FROM public.induction_session_poll_question q WHERE q.poll_id = p_poll_id;
+
+  IF v_current IS NOT NULL THEN
+    SELECT jsonb_build_object(
+             'id', q.id, 'prompt', q.prompt, 'kind', q.kind,
+             'options', (SELECT coalesce(jsonb_agg(jsonb_build_object('id',o.id,'label',o.label) ORDER BY o.position),'[]'::jsonb)
+                         FROM public.induction_session_poll_option o WHERE o.question_id = q.id)),
+           (SELECT count(*)::int FROM public.induction_session_poll_question q2
+             WHERE q2.poll_id = p_poll_id AND q2.position <= q.position)
+    INTO v_question, v_index
+    FROM public.induction_session_poll_question q WHERE q.id = v_current AND q.poll_id = p_poll_id;
+  END IF;
+
+  SELECT coalesce(jsonb_object_agg(question_id, opts),'{}'::jsonb) INTO v_mine FROM (
+    SELECT question_id, jsonb_agg(option_id) AS opts
+    FROM public.induction_session_poll_vote
+    WHERE poll_id = p_poll_id AND learner_id = v_learner AND question_id = v_current
+    GROUP BY question_id
+  ) m;
+
+  RETURN jsonb_build_object('poll_id', p_poll_id,
+    'questions', CASE WHEN v_question IS NULL THEN '[]'::jsonb ELSE jsonb_build_array(v_question) END,
+    'my_answers', v_mine,
+    'current_question_id', v_current, 'question_index', v_index, 'question_total', v_total);
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_get_poll_for_answering(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_get_poll_for_answering(uuid) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_induction_poll_question_totals_for_learner(p_poll_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_learner uuid; v_current uuid; v_responders int; v_options jsonb; v_prompt text;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_poll_question_totals_for_learner: not authenticated'; END IF;
+  v_learner := get_my_learner_id();
+  IF v_learner IS NULL OR NOT public._fn_induction_learner_can_answer_poll(p_poll_id, v_learner) THEN
+    RAISE EXCEPTION 'fn_induction_poll_question_totals_for_learner: not allowed'; END IF;
+
+  SELECT p.current_question_id INTO v_current FROM public.induction_session_poll p WHERE p.id = p_poll_id;
+  IF v_current IS NULL THEN RETURN NULL; END IF;
+
+  SELECT q.prompt INTO v_prompt FROM public.induction_session_poll_question q WHERE q.id = v_current;
+  SELECT count(DISTINCT v.learner_id)::int INTO v_responders
+  FROM public.induction_session_poll_vote v WHERE v.question_id = v_current;
+
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'id', o.id, 'label', o.label,
+           'count', CASE WHEN v_responders >= 3
+                         THEN (SELECT count(*) FROM public.induction_session_poll_vote v
+                                WHERE v.question_id = v_current AND v.option_id = o.id)
+                         ELSE NULL END
+         ) ORDER BY o.position),'[]'::jsonb)
+  INTO v_options FROM public.induction_session_poll_option o WHERE o.question_id = v_current;
+
+  RETURN jsonb_build_object('question_id', v_current, 'prompt', v_prompt,
+    'response_count', v_responders, 'suppressed', v_responders < 3, 'options', v_options);
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_poll_question_totals_for_learner(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_poll_question_totals_for_learner(uuid) TO authenticated;
+
+-- ── Induction poll review fixes (2026-06-30) — see migration 20260630210300 ──
+-- 20260630210300_induction_session_polls_review_fixes.sql
+-- Final-review fixes for induction session polls:
+--   #1 (blocking): scope the upsert's id-path writes to the current poll. An
+--      id-bearing question/option whose UPDATE matched NO row in this poll was
+--      still reused to inject/relabel options on a FOREIGN poll's question
+--      (FK satisfied → INSERT succeeded). Add NOT FOUND guards = tenant-scope check.
+--   #2 (privacy): k>=3 suppression was poll-level only, so a question answered by
+--      <3 learners had its option counts revealed once the POLL hit 3 responders
+--      (de-anonymizing a lone responder). Now also suppress per-question when that
+--      question has <3 distinct responders.
+--   #8 (hygiene): _fn_induction_learner_can_answer_poll is only called internally by
+--      DEFINER functions; revoke it from authenticated so it isn't a direct boolean oracle.
+
+CREATE OR REPLACE FUNCTION public.fn_induction_upsert_session_poll(p_session_id uuid, p_questions jsonb)
+RETURNS uuid LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_event uuid; v_inst uuid; v_poll_id uuid;
+  q jsonb; o jsonb; v_qid uuid; v_oid uuid;
+  v_keep_q uuid[] := '{}'; v_keep_o uuid[];
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_upsert_session_poll: not authenticated'; END IF;
+  SELECT es.event_id, ip.institution_id INTO v_event, v_inst
+  FROM public.event_sessions es JOIN public.induction_programs ip ON ip.event_id = es.event_id
+  WHERE es.id = p_session_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_upsert_session_poll: not an induction session'; END IF;
+  IF NOT public._fn_induction_can_manage_session_pulse(p_session_id) THEN
+    RAISE EXCEPTION 'fn_induction_upsert_session_poll: not authorized'; END IF;
+
+  INSERT INTO public.induction_session_poll (session_id, event_id, institution_id, created_by)
+  VALUES (p_session_id, v_event, v_inst, auth.uid())
+  ON CONFLICT (session_id) DO UPDATE SET updated_at = now()
+  RETURNING id INTO v_poll_id;
+
+  FOR q IN SELECT value FROM jsonb_array_elements(coalesce(p_questions, '[]'::jsonb)) LOOP
+    IF nullif(q->>'id','') IS NOT NULL THEN
+      v_qid := (q->>'id')::uuid;
+      UPDATE public.induction_session_poll_question
+      SET prompt = q->>'prompt', kind = coalesce(q->>'kind','single'),
+          position = coalesce((q->>'position')::int, 0)
+      WHERE id = v_qid AND poll_id = v_poll_id;
+      -- #1: reject an id that does not belong to THIS poll (no cross-poll writes).
+      IF NOT FOUND THEN RAISE EXCEPTION 'fn_induction_upsert_session_poll: question id % is not in this poll', v_qid; END IF;
+    ELSE
+      INSERT INTO public.induction_session_poll_question (poll_id, prompt, kind, position)
+      VALUES (v_poll_id, q->>'prompt', coalesce(q->>'kind','single'), coalesce((q->>'position')::int,0))
+      RETURNING id INTO v_qid;
+    END IF;
+    v_keep_q := array_append(v_keep_q, v_qid);
+
+    v_keep_o := '{}';
+    FOR o IN SELECT value FROM jsonb_array_elements(coalesce(q->'options','[]'::jsonb)) LOOP
+      IF nullif(o->>'id','') IS NOT NULL THEN
+        v_oid := (o->>'id')::uuid;
+        UPDATE public.induction_session_poll_option
+        SET label = o->>'label', position = coalesce((o->>'position')::int,0)
+        WHERE id = v_oid AND question_id = v_qid;
+        -- #1: reject an option id that does not belong to THIS question.
+        IF NOT FOUND THEN RAISE EXCEPTION 'fn_induction_upsert_session_poll: option id % is not in this question', v_oid; END IF;
+      ELSE
+        INSERT INTO public.induction_session_poll_option (question_id, label, position)
+        VALUES (v_qid, o->>'label', coalesce((o->>'position')::int,0))
+        RETURNING id INTO v_oid;
+      END IF;
+      v_keep_o := array_append(v_keep_o, v_oid);
+    END LOOP;
+
+    IF EXISTS (
+      SELECT 1 FROM public.induction_session_poll_option opt
+      JOIN public.induction_session_poll_vote v ON v.option_id = opt.id
+      WHERE opt.question_id = v_qid AND NOT (opt.id = ANY(v_keep_o))
+    ) THEN RAISE EXCEPTION 'fn_induction_upsert_session_poll: cannot delete an option that already has votes'; END IF;
+    DELETE FROM public.induction_session_poll_option
+    WHERE question_id = v_qid AND NOT (id = ANY(v_keep_o));
+  END LOOP;
+
+  IF EXISTS (
+    SELECT 1 FROM public.induction_session_poll_question qq
+    JOIN public.induction_session_poll_vote v ON v.question_id = qq.id
+    WHERE qq.poll_id = v_poll_id AND NOT (qq.id = ANY(v_keep_q))
+  ) THEN RAISE EXCEPTION 'fn_induction_upsert_session_poll: cannot delete a question that already has votes'; END IF;
+  DELETE FROM public.induction_session_poll_question
+  WHERE poll_id = v_poll_id AND NOT (id = ANY(v_keep_q));
+
+  RETURN v_poll_id;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_upsert_session_poll(uuid, jsonb) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_upsert_session_poll(uuid, jsonb) TO authenticated;
+
+-- 2026-07-02 (20260702170000): live option counts — this RPC is manager-only
+-- (coordinators / induction.manage / session speakers), so the k>=3 anonymity
+-- floor only hid live results from the presenter running the poll. Counts are
+-- now always returned; `suppressed` kept (always false) for client compat.
+CREATE OR REPLACE FUNCTION public.fn_induction_session_poll_totals(p_poll_id uuid)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_p public.induction_session_poll; v_batch uuid; v_enrolled int; v_responses int;
+  v_questions jsonb;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_session_poll_totals: not authenticated'; END IF;
+  SELECT * INTO v_p FROM public.induction_session_poll WHERE id = p_poll_id;
+  IF v_p.id IS NULL THEN RAISE EXCEPTION 'fn_induction_session_poll_totals: no such poll'; END IF;
+  IF NOT public._fn_induction_can_manage_session_pulse(v_p.session_id) THEN
+    RAISE EXCEPTION 'fn_induction_session_poll_totals: not authorized'; END IF;
+
+  IF v_p.status = 'open' AND v_p.auto_close_at IS NOT NULL AND v_p.auto_close_at < now() THEN
+    UPDATE public.induction_session_poll SET status='closed', updated_at=now() WHERE id = v_p.id;
+    v_p.status := 'closed';
+  END IF;
+
+  SELECT es.batch_id INTO v_batch FROM public.event_sessions es WHERE es.id = v_p.session_id;
+  SELECT count(*)::int INTO v_enrolled FROM public.induction_enrollment ie
+  WHERE ie.event_id = v_p.event_id AND (v_batch IS NULL OR ie.batch_id = v_batch);
+
+  SELECT count(DISTINCT learner_id)::int INTO v_responses
+  FROM public.induction_session_poll_vote WHERE poll_id = v_p.id;
+
+  SELECT coalesce(jsonb_agg(qx.obj ORDER BY qx.position),'[]'::jsonb) INTO v_questions FROM (
+    SELECT q.position,
+      jsonb_build_object(
+        'id', q.id, 'prompt', q.prompt, 'kind', q.kind,
+        'response_count', q_resp.cnt,
+        'options', (
+          SELECT coalesce(jsonb_agg(jsonb_build_object(
+            'id', o.id, 'label', o.label,
+            'count', (SELECT count(*) FROM public.induction_session_poll_vote v WHERE v.option_id = o.id)
+          ) ORDER BY o.position),'[]'::jsonb)
+          FROM public.induction_session_poll_option o WHERE o.question_id = q.id)
+      ) AS obj
+    FROM public.induction_session_poll_question q
+    CROSS JOIN LATERAL (
+      SELECT count(DISTINCT v.learner_id)::int AS cnt
+      FROM public.induction_session_poll_vote v WHERE v.question_id = q.id
+    ) q_resp
+    WHERE q.poll_id = v_p.id
+  ) qx;
+
+  RETURN jsonb_build_object('status', v_p.status, 'auto_close_at', v_p.auto_close_at,
+    'enrolled_count', v_enrolled, 'response_count', v_responses, 'suppressed', false,
+    'questions', v_questions);
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_session_poll_totals(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_session_poll_totals(uuid) TO authenticated;
+
+-- #8: the gate helper is internal-only (called by the DEFINER answer/submit fns).
+REVOKE EXECUTE ON FUNCTION public._fn_induction_learner_can_answer_poll(uuid, uuid) FROM authenticated;
+
+-- ── Induction multi-target enrollment engine (2026-06-30) — first appearance of fn_induction_* in this file ──
+-- Migration: 20260630220100_induction_multi_target_rpcs.sql
+
+-- helper: does the caller have induction.manage access to EVERY institution in arr?
+CREATE OR REPLACE FUNCTION public._fn_induction_can_target_institutions(p_ids uuid[])
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF coalesce(array_length(p_ids,1),0) = 0 THEN RETURN false; END IF;
+  IF is_super_admin() OR is_admin() THEN RETURN true; END IF;
+  IF NOT user_has_permission('induction.manage') THEN RETURN false; END IF;
+  RETURN NOT EXISTS (
+    SELECT 1 FROM unnest(coalesce(p_ids,'{}'::uuid[])) x(iid)
+    WHERE NOT role_has_institution_access(x.iid));
+END $$;
+REVOKE EXECUTE ON FUNCTION public._fn_induction_can_target_institutions(uuid[]) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public._fn_induction_can_target_institutions(uuid[]) TO authenticated;
+
+-- CREATE PROGRAM (adds the 3 array params; owning institution_id = target_institution_ids[1])
+CREATE OR REPLACE FUNCTION public.fn_induction_create_program(
+  p_institution_id uuid, p_academic_year_id uuid, p_name text,
+  p_start_date timestamptz, p_end_date timestamptz, p_venue_text text DEFAULT 'Campus',
+  p_description text DEFAULT NULL, p_admission_year integer DEFAULT NULL,
+  p_enroll_scope text DEFAULT 'institution', p_venue_resource_id uuid DEFAULT NULL,
+  p_degree_type_filter text DEFAULT NULL,
+  p_institution_ids uuid[] DEFAULT NULL, p_degree_ids uuid[] DEFAULT NULL, p_department_ids uuid[] DEFAULT NULL)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_event_id uuid; v_slug text;
+  v_scope text := COALESCE(NULLIF(p_enroll_scope,''),'institution');
+  v_degree text := NULLIF(p_degree_type_filter,'');
+  v_multi boolean := (p_institution_ids IS NOT NULL AND cardinality(p_institution_ids) > 0);
+  v_owning uuid := CASE WHEN v_multi THEN p_institution_ids[1] ELSE p_institution_id END;
+BEGIN
+  IF v_multi THEN
+    IF NOT public._fn_induction_can_target_institutions(p_institution_ids) THEN
+      RAISE EXCEPTION 'fn_induction_create_program: not authorized for one or more selected institutions'; END IF;
+  ELSE
+    IF NOT (is_super_admin() OR is_admin()
+            OR (user_has_permission('induction.manage') AND role_has_institution_access(p_institution_id))) THEN
+      RAISE EXCEPTION 'fn_induction_create_program: not authorized'; END IF;
+  END IF;
+  IF v_owning IS NULL OR p_name IS NULL THEN
+    RAISE EXCEPTION 'fn_induction_create_program: institution and name are required'; END IF;
+  IF v_scope NOT IN ('institution','group') THEN
+    RAISE EXCEPTION 'fn_induction_create_program: enroll_scope must be institution or group'; END IF;
+  IF v_degree IS NOT NULL AND v_degree NOT IN ('ug','pg') THEN
+    RAISE EXCEPTION 'fn_induction_create_program: degree_type_filter must be ug, pg, or null'; END IF;
+
+  v_slug := lower(regexp_replace(coalesce(p_name,'induction'), '[^a-zA-Z0-9]+', '-', 'g'))
+            || '-' || left(replace(gen_random_uuid()::text, '-', ''), 8);
+
+  INSERT INTO public.events (institution_id, event_type, name, slug, venue_text, venue_resource_id,
+                             start_date, end_date, description, status, created_by)
+  VALUES (v_owning, 'induction', p_name, v_slug,
+          CASE WHEN p_venue_resource_id IS NOT NULL THEN NULLIF(p_venue_text,'Campus') ELSE coalesce(p_venue_text,'Campus') END,
+          p_venue_resource_id, p_start_date, p_end_date, p_description, 'draft', auth.uid())
+  RETURNING id INTO v_event_id;
+
+  INSERT INTO public.induction_programs (event_id, institution_id, academic_year_id, admission_year,
+    enroll_scope, degree_type_filter, target_institution_ids, target_degree_ids, target_department_ids)
+  VALUES (v_event_id, v_owning, p_academic_year_id, p_admission_year, v_scope, v_degree,
+          CASE WHEN v_multi THEN p_institution_ids ELSE NULL END,
+          NULLIF(p_degree_ids, '{}'::uuid[]),
+          NULLIF(p_department_ids, '{}'::uuid[]));
+
+  RETURN v_event_id;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_create_program(uuid,uuid,text,timestamptz,timestamptz,text,text,integer,text,uuid,text,uuid[],uuid[],uuid[]) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_create_program(uuid,uuid,text,timestamptz,timestamptz,text,text,integer,text,uuid,text,uuid[],uuid[],uuid[]) TO authenticated;
+
+-- PREVIEW (adds 3 array params + by_department; array branch vs legacy branch)
+CREATE OR REPLACE FUNCTION public.fn_induction_preview_enroll(
+  p_institution_id uuid, p_admission_year integer, p_enroll_scope text DEFAULT 'institution',
+  p_degree_type_filter text DEFAULT NULL, p_program_ids uuid[] DEFAULT NULL,
+  p_institution_ids uuid[] DEFAULT NULL, p_degree_ids uuid[] DEFAULT NULL, p_department_ids uuid[] DEFAULT NULL)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_scope text := COALESCE(NULLIF(p_enroll_scope,''),'institution');
+  v_multi boolean := (p_institution_ids IS NOT NULL AND cardinality(p_institution_ids) > 0);
+  v_result jsonb;
+BEGIN
+  IF v_multi THEN
+    IF NOT public._fn_induction_can_target_institutions(p_institution_ids) THEN
+      RAISE EXCEPTION 'fn_induction_preview_enroll: not authorized for one or more selected institutions'; END IF;
+  ELSE
+    IF NOT (is_super_admin() OR is_admin()
+            OR (user_has_permission('induction.manage') AND role_has_institution_access(p_institution_id))) THEN
+      RAISE EXCEPTION 'fn_induction_preview_enroll: not authorized'; END IF;
+  END IF;
+  IF p_admission_year IS NULL THEN RAISE EXCEPTION 'fn_induction_preview_enroll: admission_year required'; END IF;
+
+  WITH matched AS (
+    SELECT lp.id, lp.institution_id, lp.program_id, lp.department_id, d.degree_type, lp.lifecycle_status,
+           TRIM(CONCAT(lp.first_name,' ',COALESCE(lp.last_name,''))) AS full_name
+    FROM public.learners_profiles lp
+    JOIN public.admission_years ay ON ay.id = lp.admission_year_id
+    LEFT JOIN public.degrees d ON d.id = lp.degree_id
+    WHERE ay.year = p_admission_year
+      AND lp.lifecycle_status IN ('reserved','admitted','account')
+      AND (
+        (v_multi AND lp.institution_id = ANY(p_institution_ids)
+           AND (p_degree_ids IS NULL OR cardinality(p_degree_ids)=0 OR lp.degree_id = ANY(p_degree_ids))
+           AND (p_department_ids IS NULL OR cardinality(p_department_ids)=0 OR lp.department_id = ANY(p_department_ids)))
+        OR
+        (NOT v_multi AND (v_scope='group' OR lp.institution_id = p_institution_id)
+           AND (p_degree_type_filter IS NULL OR d.degree_type = p_degree_type_filter)
+           AND (p_program_ids IS NULL OR lp.program_id = ANY(p_program_ids)))
+      ))
+  SELECT jsonb_build_object(
+    'total',(SELECT count(*) FROM matched),'scope',CASE WHEN v_multi THEN 'targeted' ELSE v_scope END,
+    'degree_type_filter',p_degree_type_filter,
+    'by_institution',(SELECT coalesce(jsonb_agg(jsonb_build_object('institution',institution,'count',cnt) ORDER BY cnt DESC),'[]'::jsonb)
+       FROM (SELECT i.name AS institution,count(*) cnt FROM matched m LEFT JOIN public.institutions i ON i.id=m.institution_id GROUP BY i.name) a),
+    'by_program',(SELECT coalesce(jsonb_agg(jsonb_build_object('program',program,'degree_type',degree_type,'count',cnt) ORDER BY cnt DESC),'[]'::jsonb)
+       FROM (SELECT coalesce(p.program_name,'(no program)') program,m.degree_type,count(*) cnt FROM matched m LEFT JOIN public.programs p ON p.id=m.program_id GROUP BY p.program_name,m.degree_type) b),
+    'by_department',(SELECT coalesce(jsonb_agg(jsonb_build_object('department',department,'count',cnt) ORDER BY cnt DESC),'[]'::jsonb)
+       FROM (SELECT coalesce(dep.department_name,'(no department)') department,count(*) cnt FROM matched m LEFT JOIN public.departments dep ON dep.id=m.department_id GROUP BY dep.department_name) e),
+    'sample',(SELECT coalesce(jsonb_agg(jsonb_build_object('name',full_name,'status',lifecycle_status)),'[]'::jsonb)
+       FROM (SELECT full_name,lifecycle_status FROM matched ORDER BY full_name LIMIT 15) c)
+  ) INTO v_result; RETURN v_result;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_preview_enroll(uuid,integer,text,text,uuid[],uuid[],uuid[],uuid[]) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_preview_enroll(uuid,integer,text,text,uuid[],uuid[],uuid[],uuid[]) TO authenticated;
+
+-- AUTO-ENROLL (reads target arrays; array branch vs legacy branch)
+CREATE OR REPLACE FUNCTION public.fn_induction_auto_enroll(p_event_id uuid)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_inst uuid; v_year integer; v_scope text; v_degree_filter text;
+  v_inst_ids uuid[]; v_degree_ids uuid[]; v_dept_ids uuid[];
+  v_multi boolean; v_count integer;
+BEGIN
+  SELECT institution_id, admission_year, enroll_scope, degree_type_filter,
+         target_institution_ids, target_degree_ids, target_department_ids
+    INTO v_inst, v_year, v_scope, v_degree_filter, v_inst_ids, v_degree_ids, v_dept_ids
+  FROM public.induction_programs WHERE event_id = p_event_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_auto_enroll: induction program not found for event %', p_event_id; END IF;
+  v_multi := (v_inst_ids IS NOT NULL AND cardinality(v_inst_ids) > 0);
+
+  IF v_multi THEN
+    IF NOT public._fn_induction_can_target_institutions(v_inst_ids) THEN
+      RAISE EXCEPTION 'fn_induction_auto_enroll: not authorized'; END IF;
+  ELSE
+    IF NOT (is_super_admin() OR is_admin()
+            OR (user_has_permission('induction.manage') AND role_has_institution_access(v_inst))) THEN
+      RAISE EXCEPTION 'fn_induction_auto_enroll: not authorized'; END IF;
+  END IF;
+  IF v_year IS NULL THEN RAISE EXCEPTION 'fn_induction_auto_enroll: induction has no admission_year set'; END IF;
+
+  INSERT INTO public.induction_enrollment (event_id, learner_id, institution_id, source)
+  SELECT p_event_id, lp.id, lp.institution_id, 'auto_admission_year'
+  FROM public.learners_profiles lp
+  JOIN public.admission_years ay ON ay.id = lp.admission_year_id
+  LEFT JOIN public.degrees d ON d.id = lp.degree_id
+  WHERE ay.year = v_year
+    AND lp.lifecycle_status IN ('reserved','admitted','account')
+    AND (
+      (v_multi AND lp.institution_id = ANY(v_inst_ids)
+         AND (v_degree_ids IS NULL OR cardinality(v_degree_ids)=0 OR lp.degree_id = ANY(v_degree_ids))
+         AND (v_dept_ids IS NULL OR cardinality(v_dept_ids)=0 OR lp.department_id = ANY(v_dept_ids)))
+      OR
+      (NOT v_multi AND (v_scope='group' OR lp.institution_id = v_inst)
+         AND (v_degree_filter IS NULL OR d.degree_type = v_degree_filter))
+    )
+  ON CONFLICT (event_id, learner_id) DO NOTHING;
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_auto_enroll(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_auto_enroll(uuid) TO authenticated;
+
+NOTIFY pgrst, 'reload schema';
+-- =====================================================================
+-- 2026-06-30 — Schools Network module (DB substrate, Agent A)
+-- Migration: supabase/migrations/20260630120000_schools_network_substrate.sql
+-- Spec: /tmp/schools-network-spec.md
+-- 3 helper fns + 11 service RPCs. All SECURITY DEFINER + REVOKE anon/PUBLIC +
+-- GRANT authenticated (per 2026-06-06 mandatory rule).
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION public.user_owns_school(p_school_id UUID)
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.school_jkkn_owners
+     WHERE school_id = p_school_id AND jkkn_user_id = auth.uid() AND is_active = TRUE
+  );
+$$;
+REVOKE EXECUTE ON FUNCTION public.user_owns_school(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.user_owns_school(UUID) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.user_leads_partner_for_school(p_school_id UUID)
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1
+      FROM public.school_jkkn_owners owner_link
+      JOIN public.school_jkkn_owners partner_lead
+        ON partner_lead.program_partner_id = owner_link.program_partner_id
+       AND partner_lead.role = 'program_lead'
+       AND partner_lead.jkkn_user_id = auth.uid()
+       AND partner_lead.is_active = TRUE
+     WHERE owner_link.school_id = p_school_id
+       AND owner_link.is_active = TRUE
+       AND owner_link.program_partner_id IS NOT NULL
+    UNION ALL
+    SELECT 1
+      FROM public.school_sessions s
+      JOIN public.school_jkkn_owners pl
+        ON pl.program_partner_id = s.program_partner_id
+       AND pl.role = 'program_lead'
+       AND pl.jkkn_user_id = auth.uid()
+       AND pl.is_active = TRUE
+     WHERE s.school_id = p_school_id
+       AND s.program_partner_id IS NOT NULL
+  );
+$$;
+REVOKE EXECUTE ON FUNCTION public.user_leads_partner_for_school(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.user_leads_partner_for_school(UUID) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.is_school_portal_user_for(p_school_id UUID)
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1
+      FROM public.school_contacts sc
+      JOIN auth.users u ON lower(u.email) = lower(sc.email)
+      JOIN public.school_contact_roles r ON r.id = sc.role_id
+     WHERE sc.school_id = p_school_id AND u.id = auth.uid() AND r.can_login_to_portal = TRUE
+  );
+$$;
+REVOKE EXECUTE ON FUNCTION public.is_school_portal_user_for(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.is_school_portal_user_for(UUID) TO authenticated;
+
+-- 11 service RPCs (per CLAUDE.md "Functions: ONLY in 02_functions.sql"):
+
+CREATE OR REPLACE FUNCTION public.fn_schools_list(
+  p_search             TEXT    DEFAULT NULL,
+  p_ownership          TEXT    DEFAULT NULL,
+  p_status             TEXT    DEFAULT NULL,
+  p_state              TEXT    DEFAULT NULL,
+  p_district           TEXT    DEFAULT NULL,
+  p_program_partner_id UUID    DEFAULT NULL,
+  p_jkkn_user_id       UUID    DEFAULT NULL,
+  p_limit              INTEGER DEFAULT 50,
+  p_offset             INTEGER DEFAULT 0
+)
+RETURNS TABLE (
+  id UUID, name TEXT, ownership school_ownership, district TEXT, state TEXT,
+  status school_status, intake_year INTEGER,
+  primary_owner_user_id UUID, primary_owner_name TEXT,
+  program_partner_id UUID, program_partner_name TEXT,
+  last_session_at TIMESTAMPTZ, session_count INTEGER,
+  total_contribution_inr NUMERIC, total_count BIGINT
+)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_total BIGINT;
+BEGIN
+  SELECT count(*)::bigint INTO v_total
+    FROM public.schools s
+    LEFT JOIN public.school_jkkn_owners o ON o.school_id = s.id AND o.is_active = TRUE
+   WHERE (p_search IS NULL OR s.name ILIKE '%' || p_search || '%' OR coalesce(s.district,'') ILIKE '%' || p_search || '%')
+     AND (p_ownership IS NULL OR s.ownership::text = p_ownership)
+     AND (p_status IS NULL OR s.status::text = p_status)
+     AND (p_state IS NULL OR s.state = p_state)
+     AND (p_district IS NULL OR s.district = p_district)
+     AND (p_program_partner_id IS NULL OR o.program_partner_id = p_program_partner_id)
+     AND (p_jkkn_user_id IS NULL OR o.jkkn_user_id = p_jkkn_user_id);
+
+  RETURN QUERY
+  WITH filtered AS (
+    SELECT DISTINCT s.id, s.name, s.ownership, s.district, s.state, s.status, s.intake_year
+      FROM public.schools s
+      LEFT JOIN public.school_jkkn_owners o ON o.school_id = s.id AND o.is_active = TRUE
+     WHERE (p_search IS NULL OR s.name ILIKE '%' || p_search || '%' OR coalesce(s.district,'') ILIKE '%' || p_search || '%')
+       AND (p_ownership IS NULL OR s.ownership::text = p_ownership)
+       AND (p_status IS NULL OR s.status::text = p_status)
+       AND (p_state IS NULL OR s.state = p_state)
+       AND (p_district IS NULL OR s.district = p_district)
+       AND (p_program_partner_id IS NULL OR o.program_partner_id = p_program_partner_id)
+       AND (p_jkkn_user_id IS NULL OR o.jkkn_user_id = p_jkkn_user_id)
+  ),
+  primary_owner AS (
+    SELECT DISTINCT ON (o.school_id) o.school_id, o.jkkn_user_id, o.program_partner_id, p.full_name AS owner_name
+      FROM public.school_jkkn_owners o
+      LEFT JOIN public.profiles p ON p.id = o.jkkn_user_id
+     WHERE o.is_active = TRUE
+     ORDER BY o.school_id, CASE WHEN o.role = 'outreach_coordinator' THEN 0 ELSE 1 END, o.assigned_at DESC
+  ),
+  session_stats AS (
+    SELECT school_id, max(conducted_at) AS last_session_at, count(*)::int AS session_count
+      FROM public.school_sessions GROUP BY school_id
+  ),
+  contrib_stats AS (
+    SELECT school_id, coalesce(sum(value_inr), 0)::numeric AS total_contribution_inr
+      FROM public.school_contributions GROUP BY school_id
+  )
+  SELECT f.id, f.name, f.ownership, f.district, f.state, f.status, f.intake_year,
+         po.jkkn_user_id, po.owner_name, po.program_partner_id, pp.name,
+         ss.last_session_at, coalesce(ss.session_count, 0),
+         coalesce(cs.total_contribution_inr, 0)::numeric, v_total
+    FROM filtered f
+    LEFT JOIN primary_owner po ON po.school_id = f.id
+    LEFT JOIN public.program_partners pp ON pp.id = po.program_partner_id
+    LEFT JOIN session_stats ss ON ss.school_id = f.id
+    LEFT JOIN contrib_stats cs ON cs.school_id = f.id
+   ORDER BY f.name LIMIT p_limit OFFSET p_offset;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_schools_list(TEXT,TEXT,TEXT,TEXT,TEXT,UUID,UUID,INTEGER,INTEGER) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_schools_list(TEXT,TEXT,TEXT,TEXT,TEXT,UUID,UUID,INTEGER,INTEGER) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_school_detail(p_school_id UUID)
+RETURNS TABLE (school JSONB, owners JSONB, contacts JSONB, recent_sessions JSONB, contribution_count INTEGER, contribution_total NUMERIC)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    to_jsonb(s.*),
+    coalesce((SELECT jsonb_agg(o ORDER BY o.assigned_at DESC) FROM (
+      SELECT o.id, o.school_id, o.jkkn_user_id, p.full_name AS jkkn_user_name,
+             o.role, o.program_partner_id, pp.name AS program_partner_name,
+             o.assigned_at, o.assigned_by, o.is_active
+        FROM public.school_jkkn_owners o
+        LEFT JOIN public.profiles p ON p.id = o.jkkn_user_id
+        LEFT JOIN public.program_partners pp ON pp.id = o.program_partner_id
+       WHERE o.school_id = p_school_id AND o.is_active = TRUE) o), '[]'::jsonb),
+    coalesce((SELECT jsonb_agg(c ORDER BY c.is_primary DESC, c.name) FROM (
+      SELECT sc.id, sc.school_id, sc.role_id, r.code AS role_code, r.label AS role_label,
+             sc.name, sc.phone, sc.email, sc.is_primary, sc.notes, sc.created_at, sc.updated_at
+        FROM public.school_contacts sc
+        LEFT JOIN public.school_contact_roles r ON r.id = sc.role_id
+       WHERE sc.school_id = p_school_id) c), '[]'::jsonb),
+    coalesce((SELECT jsonb_agg(ss ORDER BY ss.conducted_at DESC) FROM (
+      SELECT ses.id, ses.school_id, ses.session_type_id, st.code AS session_type_code, st.label AS session_type_label,
+             ses.conducted_at, ses.conducted_by_user_id, p.full_name AS conducted_by_name,
+             ses.program_partner_id, pp.name AS program_partner_name,
+             ses.attendee_count, ses.topic, ses.notes, ses.attachments, ses.metadata,
+             ses.created_at, ses.updated_at
+        FROM public.school_sessions ses
+        LEFT JOIN public.school_session_types st ON st.id = ses.session_type_id
+        LEFT JOIN public.profiles p ON p.id = ses.conducted_by_user_id
+        LEFT JOIN public.program_partners pp ON pp.id = ses.program_partner_id
+       WHERE ses.school_id = p_school_id
+       ORDER BY ses.conducted_at DESC LIMIT 10) ss), '[]'::jsonb),
+    (SELECT count(*)::int FROM public.school_contributions WHERE school_id = p_school_id),
+    coalesce((SELECT sum(value_inr) FROM public.school_contributions WHERE school_id = p_school_id), 0)::numeric
+  FROM public.schools s WHERE s.id = p_school_id;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_school_detail(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_school_detail(UUID) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_school_session_record(
+  p_school_id UUID, p_session_type_code TEXT, p_conducted_at TIMESTAMPTZ,
+  p_attendee_count INTEGER DEFAULT 0, p_program_partner_id UUID DEFAULT NULL,
+  p_topic TEXT DEFAULT NULL, p_notes TEXT DEFAULT NULL, p_attachments JSONB DEFAULT '[]'::jsonb
+)
+RETURNS UUID LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_type_id UUID; v_session_id UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'authentication required' USING ERRCODE = '42501'; END IF;
+  SELECT id INTO v_type_id FROM public.school_session_types WHERE code = p_session_type_code AND is_active = TRUE;
+  IF v_type_id IS NULL THEN RAISE EXCEPTION 'unknown session_type_code: %', p_session_type_code USING ERRCODE = '22023'; END IF;
+  IF NOT (is_super_admin() OR is_admin() OR
+          (user_has_permission('schools_network.sessions.create') AND
+           (user_owns_school(p_school_id) OR user_leads_partner_for_school(p_school_id)))) THEN
+    RAISE EXCEPTION 'not authorized to record session for school %', p_school_id USING ERRCODE = '42501';
+  END IF;
+  INSERT INTO public.school_sessions
+    (school_id, session_type_id, conducted_at, conducted_by_user_id, program_partner_id, attendee_count, topic, notes, attachments)
+  VALUES (p_school_id, v_type_id, p_conducted_at, auth.uid(), p_program_partner_id,
+          coalesce(p_attendee_count, 0), p_topic, p_notes, coalesce(p_attachments, '[]'::jsonb))
+  RETURNING id INTO v_session_id;
+  RETURN v_session_id;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_school_session_record(UUID,TEXT,TIMESTAMPTZ,INTEGER,UUID,TEXT,TEXT,JSONB) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_school_session_record(UUID,TEXT,TIMESTAMPTZ,INTEGER,UUID,TEXT,TEXT,JSONB) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_school_contribution_record(
+  p_school_id UUID, p_kind school_contribution_kind, p_description TEXT,
+  p_value_inr NUMERIC DEFAULT NULL, p_delivered_at DATE DEFAULT NULL,
+  p_program_partner_id UUID DEFAULT NULL, p_evidence_url TEXT DEFAULT NULL
+)
+RETURNS UUID LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_id UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'authentication required' USING ERRCODE = '42501'; END IF;
+  IF NOT (is_super_admin() OR is_admin() OR
+          (user_has_permission('schools_network.contributions.create') AND
+           (user_owns_school(p_school_id) OR user_leads_partner_for_school(p_school_id)))) THEN
+    RAISE EXCEPTION 'not authorized to record contribution for school %', p_school_id USING ERRCODE = '42501';
+  END IF;
+  INSERT INTO public.school_contributions
+    (school_id, kind, description, value_inr, delivered_at, program_partner_id, evidence_url, created_by)
+  VALUES (p_school_id, p_kind, p_description, p_value_inr, p_delivered_at, p_program_partner_id, p_evidence_url, auth.uid())
+  RETURNING id INTO v_id;
+  RETURN v_id;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_school_contribution_record(UUID,school_contribution_kind,TEXT,NUMERIC,DATE,UUID,TEXT) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_school_contribution_record(UUID,school_contribution_kind,TEXT,NUMERIC,DATE,UUID,TEXT) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_school_assign_owner(
+  p_school_id UUID, p_jkkn_user_id UUID, p_role school_owner_role, p_program_partner_id UUID DEFAULT NULL
+)
+RETURNS UUID LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_id UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'authentication required' USING ERRCODE = '42501'; END IF;
+  IF NOT (is_super_admin() OR is_admin() OR user_has_permission('schools_network.owners.manage')) THEN
+    RAISE EXCEPTION 'not authorized to assign owners' USING ERRCODE = '42501';
+  END IF;
+  IF p_role = 'program_lead' AND p_program_partner_id IS NULL THEN
+    RAISE EXCEPTION 'program_lead role requires p_program_partner_id' USING ERRCODE = '22023';
+  END IF;
+  INSERT INTO public.school_jkkn_owners
+    (school_id, jkkn_user_id, role, program_partner_id, assigned_by, is_active)
+  VALUES (p_school_id, p_jkkn_user_id, p_role, p_program_partner_id, auth.uid(), TRUE)
+  ON CONFLICT (school_id, jkkn_user_id, role, COALESCE(program_partner_id::text, '')) WHERE is_active = TRUE
+    DO UPDATE SET assigned_at = now(), assigned_by = auth.uid(), updated_at = now()
+  RETURNING id INTO v_id;
+  RETURN v_id;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_school_assign_owner(UUID,UUID,school_owner_role,UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_school_assign_owner(UUID,UUID,school_owner_role,UUID) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_school_revoke_owner(p_owner_id UUID)
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_count INTEGER;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'authentication required' USING ERRCODE = '42501'; END IF;
+  IF NOT (is_super_admin() OR is_admin() OR user_has_permission('schools_network.owners.manage')) THEN
+    RAISE EXCEPTION 'not authorized to revoke owners' USING ERRCODE = '42501';
+  END IF;
+  UPDATE public.school_jkkn_owners SET is_active = FALSE, updated_at = now()
+   WHERE id = p_owner_id AND is_active = TRUE;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count > 0;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_school_revoke_owner(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_school_revoke_owner(UUID) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_program_partner_rollup(p_program_partner_id UUID)
+RETURNS TABLE (
+  partner_id UUID, partner_name TEXT, schools_touched INTEGER, sessions_count INTEGER,
+  attendees_total INTEGER, contributions_count INTEGER, contributions_inr NUMERIC,
+  grants_received_inr NUMERIC, grants_outstanding_inr NUMERIC
+)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  RETURN QUERY
+  SELECT pp.id, pp.name,
+    (SELECT count(DISTINCT school_id)::int FROM (
+       SELECT school_id FROM public.school_jkkn_owners WHERE program_partner_id = pp.id AND is_active = TRUE
+       UNION SELECT school_id FROM public.school_sessions WHERE program_partner_id = pp.id
+       UNION SELECT school_id FROM public.school_contributions WHERE program_partner_id = pp.id) u),
+    (SELECT count(*)::int FROM public.school_sessions WHERE program_partner_id = pp.id),
+    coalesce((SELECT sum(attendee_count)::int FROM public.school_sessions WHERE program_partner_id = pp.id), 0),
+    (SELECT count(*)::int FROM public.school_contributions WHERE program_partner_id = pp.id),
+    coalesce((SELECT sum(value_inr) FROM public.school_contributions WHERE program_partner_id = pp.id), 0)::numeric,
+    coalesce((SELECT sum(amount_inr) FROM public.program_partner_grants WHERE program_partner_id = pp.id), 0)::numeric,
+    GREATEST(coalesce((SELECT sum(amount_inr) FROM public.program_partner_grants WHERE program_partner_id = pp.id), 0)
+             - coalesce((SELECT sum(value_inr) FROM public.school_contributions WHERE program_partner_id = pp.id), 0), 0)::numeric
+  FROM public.program_partners pp WHERE pp.id = p_program_partner_id;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_program_partner_rollup(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_program_partner_rollup(UUID) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_schools_silence_candidates(p_silence_days INTEGER DEFAULT 14)
+RETURNS TABLE (school_id UUID, school_name TEXT, last_session_at TIMESTAMPTZ, days_silent INTEGER, primary_owner_user_id UUID)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  RETURN QUERY
+  WITH last_seen AS (
+    SELECT s.id, s.name, s.status,
+           (SELECT max(conducted_at) FROM public.school_sessions ss WHERE ss.school_id = s.id) AS last_at
+      FROM public.schools s WHERE s.status IN ('active','sustaining')
+  ),
+  primary_owner AS (
+    SELECT DISTINCT ON (o.school_id) o.school_id, o.jkkn_user_id
+      FROM public.school_jkkn_owners o WHERE o.is_active = TRUE
+     ORDER BY o.school_id, CASE WHEN o.role = 'outreach_coordinator' THEN 0 ELSE 1 END, o.assigned_at DESC
+  )
+  SELECT ls.id, ls.name, ls.last_at,
+         CASE WHEN ls.last_at IS NULL THEN p_silence_days ELSE EXTRACT(DAY FROM now() - ls.last_at)::int END,
+         po.jkkn_user_id
+    FROM last_seen ls LEFT JOIN primary_owner po ON po.school_id = ls.id
+   WHERE ls.last_at IS NULL OR ls.last_at < now() - (p_silence_days || ' days')::interval;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_schools_silence_candidates(INTEGER) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_schools_silence_candidates(INTEGER) TO authenticated;
+
+-- STUB — thresholds pending Director input (see spec §12).
+CREATE OR REPLACE FUNCTION public.fn_schools_recompute_status(p_school_id UUID DEFAULT NULL)
+RETURNS INTEGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF p_school_id IS NULL THEN RETURN 0; ELSE RETURN 0; END IF;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_schools_recompute_status(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_schools_recompute_status(UUID) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_school_portal_self()
+RETURNS TABLE (school JSONB, recent_sessions JSONB, contribution_count INTEGER, contribution_total NUMERIC)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_school_id UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'authentication required' USING ERRCODE = '42501'; END IF;
+  SELECT sc.school_id INTO v_school_id
+    FROM public.school_contacts sc
+    JOIN auth.users u ON lower(u.email) = lower(sc.email)
+    JOIN public.school_contact_roles r ON r.id = sc.role_id
+   WHERE u.id = auth.uid() AND r.can_login_to_portal = TRUE
+   ORDER BY sc.is_primary DESC, sc.created_at DESC LIMIT 1;
+  IF v_school_id IS NULL THEN RAISE EXCEPTION 'no school associated with this portal session' USING ERRCODE = '42501'; END IF;
+  RETURN QUERY
+  SELECT to_jsonb(s.*),
+    coalesce((SELECT jsonb_agg(ss ORDER BY ss.conducted_at DESC) FROM (
+      SELECT ses.id, ses.session_type_id, st.code AS session_type_code, st.label AS session_type_label,
+             ses.conducted_at, ses.attendee_count, ses.topic, ses.notes
+        FROM public.school_sessions ses
+        LEFT JOIN public.school_session_types st ON st.id = ses.session_type_id
+       WHERE ses.school_id = v_school_id
+       ORDER BY ses.conducted_at DESC LIMIT 5) ss), '[]'::jsonb),
+    (SELECT count(*)::int FROM public.school_contributions WHERE school_id = v_school_id),
+    coalesce((SELECT sum(value_inr) FROM public.school_contributions WHERE school_id = v_school_id), 0)::numeric
+  FROM public.schools s WHERE s.id = v_school_id;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_school_portal_self() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_school_portal_self() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_school_portal_submit_update(p_message TEXT, p_attachments JSONB DEFAULT '[]'::jsonb)
+RETURNS UUID LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_school_id UUID; v_type_id UUID; v_session_id UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'authentication required' USING ERRCODE = '42501'; END IF;
+  SELECT sc.school_id INTO v_school_id
+    FROM public.school_contacts sc
+    JOIN auth.users u ON lower(u.email) = lower(sc.email)
+    JOIN public.school_contact_roles r ON r.id = sc.role_id
+   WHERE u.id = auth.uid() AND r.can_login_to_portal = TRUE
+   ORDER BY sc.is_primary DESC, sc.created_at DESC LIMIT 1;
+  IF v_school_id IS NULL THEN RAISE EXCEPTION 'no school associated with this portal session' USING ERRCODE = '42501'; END IF;
+  SELECT id INTO v_type_id FROM public.school_session_types WHERE code = 'drop_by' AND is_active = TRUE;
+  IF v_type_id IS NULL THEN RAISE EXCEPTION 'master row school_session_types.code=drop_by missing' USING ERRCODE = '22023'; END IF;
+  INSERT INTO public.school_sessions
+    (school_id, session_type_id, conducted_at, conducted_by_user_id, attendee_count, notes, attachments, metadata)
+  VALUES (v_school_id, v_type_id, now(), auth.uid(), 0, p_message, coalesce(p_attachments, '[]'::jsonb), jsonb_build_object('source','hm_portal'))
+  RETURNING id INTO v_session_id;
+  RETURN v_session_id;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_school_portal_submit_update(TEXT, JSONB) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_school_portal_submit_update(TEXT, JSONB) TO authenticated;
+
+-- ============================================================================
+-- Fresher Induction — Day-level attendance (bulk mark, fans out to sessions)
+-- Migration: supabase/migrations/20260730100000_induction_day_attendance.sql
+-- Adds 2 DEFINER + anon-revoked RPCs alongside the existing per-session ones
+-- (fn_induction_session_roster / fn_induction_mark_attendance, phase 2a):
+--   fn_induction_day_roster          — learners eligible for ANY session on a
+--                                      day, + whether their existing per-session
+--                                      marks for that day are uniform
+--                                      (prefillable) or mixed (left blank).
+--   fn_induction_mark_day_attendance — bulk-writes the SAME status into EVERY
+--                                      session that day applicable to the
+--                                      learner's batch, then recomputes
+--                                      completion. Attendance storage stays
+--                                      session-scoped; this is a marking-UX
+--                                      convenience, not a new data model.
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_induction_day_roster(p_event_id UUID, p_day_number INTEGER)
+RETURNS TABLE (
+  learner_id      UUID,
+  name            TEXT,
+  register_number TEXT,
+  batch_label     TEXT,
+  status          TEXT,     -- the uniform status across the day's sessions, or NULL
+  is_mixed        BOOLEAN   -- true when the learner's sessions that day carry DIFFERENT statuses
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_inst UUID;
+BEGIN
+  SELECT institution_id INTO v_inst FROM public.induction_programs WHERE event_id = p_event_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_day_roster: not an induction event'; END IF;
+  IF NOT (is_super_admin() OR is_admin()
+          OR (user_has_permission('induction.view') AND role_has_institution_access(v_inst))) THEN
+    RAISE EXCEPTION 'fn_induction_day_roster: not authorized';
+  END IF;
+
+  RETURN QUERY
+  WITH day_sessions AS (
+    SELECT s.id, s.batch_id FROM public.event_sessions s
+    -- day_number is nullable (NULL = the "Unscheduled" bucket the UI shows as
+    -- day 0) — IS NOT DISTINCT FROM matches NULL rows a plain `=` would silently drop.
+    WHERE s.event_id = p_event_id AND s.day_number IS NOT DISTINCT FROM p_day_number
+  ),
+  eligible AS (
+    -- a learner is on the day roster if at least one of the day's sessions
+    -- applies to their batch (combined batch_id IS NULL, or an exact match)
+    SELECT DISTINCT e.learner_id
+    FROM public.induction_enrollment e
+    JOIN day_sessions ds ON ds.batch_id IS NULL OR ds.batch_id = e.batch_id
+    WHERE e.event_id = p_event_id
+  ),
+  marks AS (
+    SELECT a.learner_id,
+           count(DISTINCT a.status) AS distinct_statuses,
+           min(a.status) AS one_status
+    FROM public.event_session_attendance a
+    JOIN day_sessions ds ON ds.id = a.session_id
+    GROUP BY a.learner_id
+  )
+  SELECT el.learner_id::uuid,
+         btrim(coalesce(lp.first_name,'') || ' ' || coalesce(lp.last_name,''))::text,
+         lp.register_number::text,
+         b.label::text,
+         CASE WHEN m.distinct_statuses = 1 THEN m.one_status ELSE NULL END::text,
+         COALESCE(m.distinct_statuses, 0) > 1
+  FROM eligible el
+  JOIN public.learners_profiles lp ON lp.id = el.learner_id
+  JOIN public.induction_enrollment ie ON ie.event_id = p_event_id AND ie.learner_id = el.learner_id
+  LEFT JOIN public.induction_batches b ON b.id = ie.batch_id
+  LEFT JOIN marks m ON m.learner_id = el.learner_id
+  ORDER BY 2;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_day_roster(UUID, INTEGER) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_day_roster(UUID, INTEGER) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_induction_mark_day_attendance(p_event_id UUID, p_day_number INTEGER, p_marks JSONB)
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_inst UUID;
+BEGIN
+  SELECT institution_id INTO v_inst FROM public.induction_programs WHERE event_id = p_event_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_mark_day_attendance: not an induction event'; END IF;
+  IF NOT (is_super_admin() OR is_admin()
+          OR (user_has_permission('induction.manage') AND role_has_institution_access(v_inst))) THEN
+    RAISE EXCEPTION 'fn_induction_mark_day_attendance: not authorized';
+  END IF;
+
+  WITH incoming AS (
+    SELECT (m->>'learner_id')::uuid AS learner_id, (m->>'status') AS status
+    FROM jsonb_array_elements(p_marks) m
+  ),
+  fanned AS (
+    SELECT s.id AS session_id, i.learner_id, i.status
+    FROM incoming i
+    JOIN public.induction_enrollment ie ON ie.event_id = p_event_id AND ie.learner_id = i.learner_id
+    JOIN public.event_sessions s
+      ON s.event_id = p_event_id AND s.day_number IS NOT DISTINCT FROM p_day_number
+     AND (s.batch_id IS NULL OR s.batch_id = ie.batch_id)
+  )
+  INSERT INTO public.event_session_attendance (session_id, learner_id, institution_id, status, marked_by, marked_at)
+  SELECT session_id, learner_id, v_inst, status, auth.uid(), now() FROM fanned
+  ON CONFLICT (session_id, learner_id) DO UPDATE SET
+    status = EXCLUDED.status, marked_by = EXCLUDED.marked_by, marked_at = now(), updated_at = now();
+
+  PERFORM public.fn_induction_recompute_completion(p_event_id);
+  RETURN jsonb_array_length(p_marks);
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_mark_day_attendance(UUID, INTEGER, JSONB) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_mark_day_attendance(UUID, INTEGER, JSONB) TO authenticated;
+
+-- ============================================================================
+-- Fresher Induction — Day-level & whole-program feedback (dynamic scopes)
+-- Migration: supabase/migrations/20260730110000_induction_day_program_feedback.sql
+-- 6 DEFINER RPCs for the 2 new feedback scopes (mirroring event_session_feedback,
+-- phase 2b). Both scopes default OFF via induction_programs.feedback_day_enabled /
+-- feedback_program_enabled — existing inductions are unaffected until a
+-- coordinator opts in. Neither new scope feeds induction_completion.value_score_avg
+-- (that stays session-feedback-only — the scorecard/loop already consume it as such).
+-- ============================================================================
+
+-- 1. submit day feedback — self, must be enrolled in the event.
+CREATE OR REPLACE FUNCTION public.fn_induction_submit_day_feedback(
+  p_event_id UUID, p_day_number INTEGER, p_rating INTEGER, p_comment TEXT DEFAULT NULL
+) RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_learner UUID; v_inst UUID; v_fid UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_submit_day_feedback: not authenticated'; END IF;
+  v_learner := get_my_learner_id();
+  IF v_learner IS NULL THEN RAISE EXCEPTION 'fn_induction_submit_day_feedback: not a learner'; END IF;
+  IF p_rating IS NULL OR p_rating < 1 OR p_rating > 5 THEN RAISE EXCEPTION 'fn_induction_submit_day_feedback: rating must be 1-5'; END IF;
+
+  SELECT institution_id INTO v_inst FROM public.induction_programs WHERE event_id = p_event_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_submit_day_feedback: not an induction event'; END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.induction_enrollment ie
+    WHERE ie.event_id = p_event_id AND ie.learner_id = v_learner
+  ) THEN
+    RAISE EXCEPTION 'fn_induction_submit_day_feedback: not enrolled in this induction';
+  END IF;
+
+  INSERT INTO public.event_day_feedback (event_id, day_number, learner_id, institution_id, rating, comment)
+  VALUES (p_event_id, p_day_number, v_learner, v_inst, p_rating, p_comment)
+  ON CONFLICT (event_id, day_number, learner_id) DO UPDATE SET
+    rating = EXCLUDED.rating, comment = EXCLUDED.comment, updated_at = now()
+  RETURNING id INTO v_fid;
+
+  RETURN v_fid;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_submit_day_feedback(UUID, INTEGER, INTEGER, TEXT) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_submit_day_feedback(UUID, INTEGER, INTEGER, TEXT) TO authenticated;
+
+-- 2. coordinator per-day feedback summary.
+CREATE OR REPLACE FUNCTION public.fn_induction_day_feedback_summary(p_event_id UUID)
+RETURNS TABLE (day_number INTEGER, avg_rating NUMERIC, response_count INTEGER)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_inst UUID;
+BEGIN
+  SELECT institution_id INTO v_inst FROM public.induction_programs WHERE event_id = p_event_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_day_feedback_summary: not an induction event'; END IF;
+  IF NOT (is_super_admin() OR is_admin()
+          OR (user_has_permission('induction.view') AND role_has_institution_access(v_inst))) THEN
+    RAISE EXCEPTION 'fn_induction_day_feedback_summary: not authorized';
+  END IF;
+
+  RETURN QUERY
+  SELECT f.day_number, round(avg(f.rating), 2)::numeric, count(*)::integer
+  FROM public.event_day_feedback f
+  WHERE f.event_id = p_event_id
+  GROUP BY f.day_number;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_day_feedback_summary(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_day_feedback_summary(UUID) TO authenticated;
+
+-- 3. the fresher's OWN prior day ratings (pre-fill).
+CREATE OR REPLACE FUNCTION public.fn_induction_my_day_feedback(p_event_id UUID)
+RETURNS TABLE (day_number INTEGER, rating INTEGER, comment TEXT)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_learner UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_my_day_feedback: not authenticated'; END IF;
+  v_learner := get_my_learner_id();
+  IF v_learner IS NULL THEN RETURN; END IF;
+
+  RETURN QUERY
+  SELECT f.day_number, f.rating, f.comment
+  FROM public.event_day_feedback f
+  WHERE f.event_id = p_event_id AND f.learner_id = v_learner;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_my_day_feedback(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_my_day_feedback(UUID) TO authenticated;
+
+-- 4. submit program (whole-induction) feedback — self, must be enrolled.
+CREATE OR REPLACE FUNCTION public.fn_induction_submit_program_feedback(
+  p_event_id UUID, p_rating INTEGER, p_comment TEXT DEFAULT NULL
+) RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_learner UUID; v_inst UUID; v_fid UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_submit_program_feedback: not authenticated'; END IF;
+  v_learner := get_my_learner_id();
+  IF v_learner IS NULL THEN RAISE EXCEPTION 'fn_induction_submit_program_feedback: not a learner'; END IF;
+  IF p_rating IS NULL OR p_rating < 1 OR p_rating > 5 THEN RAISE EXCEPTION 'fn_induction_submit_program_feedback: rating must be 1-5'; END IF;
+
+  SELECT institution_id INTO v_inst FROM public.induction_programs WHERE event_id = p_event_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_submit_program_feedback: not an induction event'; END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.induction_enrollment ie
+    WHERE ie.event_id = p_event_id AND ie.learner_id = v_learner
+  ) THEN
+    RAISE EXCEPTION 'fn_induction_submit_program_feedback: not enrolled in this induction';
+  END IF;
+
+  INSERT INTO public.event_program_feedback (event_id, learner_id, institution_id, rating, comment)
+  VALUES (p_event_id, v_learner, v_inst, p_rating, p_comment)
+  ON CONFLICT (event_id, learner_id) DO UPDATE SET
+    rating = EXCLUDED.rating, comment = EXCLUDED.comment, updated_at = now()
+  RETURNING id INTO v_fid;
+
+  RETURN v_fid;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_submit_program_feedback(UUID, INTEGER, TEXT) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_submit_program_feedback(UUID, INTEGER, TEXT) TO authenticated;
+
+-- 5. coordinator program-wide feedback summary (single row).
+CREATE OR REPLACE FUNCTION public.fn_induction_program_feedback_summary(p_event_id UUID)
+RETURNS TABLE (avg_rating NUMERIC, response_count INTEGER)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_inst UUID;
+BEGIN
+  SELECT institution_id INTO v_inst FROM public.induction_programs WHERE event_id = p_event_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_program_feedback_summary: not an induction event'; END IF;
+  IF NOT (is_super_admin() OR is_admin()
+          OR (user_has_permission('induction.view') AND role_has_institution_access(v_inst))) THEN
+    RAISE EXCEPTION 'fn_induction_program_feedback_summary: not authorized';
+  END IF;
+
+  RETURN QUERY
+  SELECT round(avg(f.rating), 2)::numeric, count(*)::integer
+  FROM public.event_program_feedback f
+  WHERE f.event_id = p_event_id;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_program_feedback_summary(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_program_feedback_summary(UUID) TO authenticated;
+
+-- 6. the fresher's OWN prior program rating (pre-fill).
+CREATE OR REPLACE FUNCTION public.fn_induction_my_program_feedback(p_event_id UUID)
+RETURNS TABLE (rating INTEGER, comment TEXT)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_learner UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_my_program_feedback: not authenticated'; END IF;
+  v_learner := get_my_learner_id();
+  IF v_learner IS NULL THEN RETURN; END IF;
+
+  RETURN QUERY
+  SELECT f.rating, f.comment
+  FROM public.event_program_feedback f
+  WHERE f.event_id = p_event_id AND f.learner_id = v_learner;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_my_program_feedback(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_my_program_feedback(UUID) TO authenticated;
+
+-- 7. expose the two feedback-scope toggles on the fresher's enrollment read.
+--    Changing a RETURNS TABLE column list requires DROP + recreate — CREATE OR
+--    REPLACE cannot add/change output columns on an existing function.
+--
+--    IMPORTANT: this rebuild must start from the CURRENT live shape, not the
+--    phase-3 original. Phase 4 (20260627220000_induction_phase4_referral_advocacy.sql)
+--    already DROP+recreated this same function once to add `advocacy_score`
+--    between value_score_avg and is_profile_complete. That column is read live
+--    by my-induction/page.tsx (AdvocacyCard). Omitting it here would silently
+--    regress the advocacy card on every fresher's page. The body below is the
+--    phase-4 version verbatim, plus ONLY the two new trailing columns.
+DROP FUNCTION IF EXISTS public.fn_induction_my_enrollments();
+
+CREATE FUNCTION public.fn_induction_my_enrollments()
+RETURNS TABLE (
+  event_id               UUID,
+  event_name             TEXT,
+  institution_id         UUID,
+  institution_name       TEXT,
+  start_date             DATE,
+  end_date               DATE,
+  status                 TEXT,
+  batch_id               UUID,
+  batch_label            TEXT,
+  sessions_total         INTEGER,
+  sessions_attended      INTEGER,
+  attendance_pct         NUMERIC,
+  participation_complete BOOLEAN,
+  value_score_avg        NUMERIC,
+  advocacy_score         NUMERIC,
+  is_profile_complete    BOOLEAN,
+  profile_fields_total   INTEGER,
+  profile_fields_filled  INTEGER,
+  feedback_day_enabled     BOOLEAN,
+  feedback_program_enabled BOOLEAN
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_learner UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'fn_induction_my_enrollments: not authenticated';
+  END IF;
+  v_learner := get_my_learner_id();
+  IF v_learner IS NULL THEN
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    e.id::uuid,
+    e.name::text,
+    e.institution_id::uuid,
+    i.name::text,
+    e.start_date::date,
+    e.end_date::date,
+    e.status::text,
+    ie.batch_id::uuid,
+    b.label::text,
+    COALESCE(c.sessions_total, 0)::integer,
+    COALESCE(c.sessions_attended, 0)::integer,
+    COALESCE(c.attendance_pct, 0)::numeric,
+    COALESCE(c.participation_complete, false)::boolean,
+    c.value_score_avg::numeric,
+    c.advocacy_score::numeric,
+    COALESCE(lp.is_profile_complete, false)::boolean,
+    4::integer,
+    (
+      (lp.college_email   IS NOT NULL AND btrim(lp.college_email) <> '')::int +
+      (lp.academic_year_id IS NOT NULL)::int +
+      (lp.semester_id      IS NOT NULL)::int +
+      (lp.section_id       IS NOT NULL)::int
+    )::integer,
+    COALESCE(ip.feedback_day_enabled, false)::boolean,
+    COALESCE(ip.feedback_program_enabled, false)::boolean
+  FROM public.induction_enrollment ie
+  JOIN public.events             e  ON e.id = ie.event_id
+  JOIN public.institutions       i  ON i.id = e.institution_id
+  LEFT JOIN public.induction_batches    b  ON b.id = ie.batch_id
+  LEFT JOIN public.induction_completion c  ON c.event_id = ie.event_id AND c.learner_id = ie.learner_id
+  LEFT JOIN public.learners_profiles    lp ON lp.id = ie.learner_id
+  LEFT JOIN public.induction_programs   ip ON ip.event_id = ie.event_id
+  WHERE ie.learner_id = v_learner
+  ORDER BY e.start_date DESC NULLS LAST;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_induction_my_enrollments() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_my_enrollments() TO authenticated;
+
+-- ============================================================================
+-- Fresher Induction — per-event coordinators (additive to institution-wide roles)
+-- Migration: supabase/migrations/20260730120000_induction_event_coordinators.sql
+-- A coordinator can now be assigned to ONE SPECIFIC induction event, independent
+-- of the institution-wide induction_lead/induction_coordinator roles. This is
+-- ADDITIVE: fn_induction_is_event_coordinator() is OR'd into every existing
+-- privileged RPC's auth check in Tasks 2-4 below — nothing currently working
+-- (institution-wide coordinators) loses access. Who can ASSIGN an event
+-- coordinator stays identical to the existing college-wide gate (super-admin or
+-- induction_lead only) — mirrors fn_induction_can_manage_coordinators exactly.
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- 1. the additive grant check — OR'd into every existing privileged RPC below.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_induction_is_event_coordinator(p_event_id UUID, p_user_id UUID DEFAULT auth.uid())
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.induction_event_coordinators
+    WHERE event_id = p_event_id AND user_id = p_user_id
+  );
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_is_event_coordinator(UUID, UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_is_event_coordinator(UUID, UUID) TO authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 2. can the caller manage event-level coordinators? Identical gate to the
+--    existing college-wide fn_induction_can_manage_coordinators (super-admin or
+--    induction_lead only — a plain coordinator can't appoint others).
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_induction_can_manage_event_coordinators(p_event_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT public.fn_induction_can_manage_coordinators();
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_can_manage_event_coordinators(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_can_manage_event_coordinators(UUID) TO authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 3. list coordinators assigned to ONE event.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_induction_list_event_coordinators(p_event_id UUID)
+RETURNS TABLE (user_id UUID, full_name TEXT, email TEXT)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT public.fn_induction_can_manage_event_coordinators(p_event_id) THEN
+    RAISE EXCEPTION 'fn_induction_list_event_coordinators: not authorized';
+  END IF;
+  RETURN QUERY
+    SELECT p.id, p.full_name::text, p.email::text
+    FROM public.induction_event_coordinators iec
+    JOIN public.profiles p ON p.id = iec.user_id
+    WHERE iec.event_id = p_event_id
+    ORDER BY p.full_name;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_list_event_coordinators(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_list_event_coordinators(UUID) TO authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 4. search assignable staff of THIS event's institution.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_induction_assignable_event_staff(p_event_id UUID, p_query TEXT DEFAULT NULL)
+RETURNS TABLE (id UUID, full_name TEXT, email TEXT, role TEXT)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_inst UUID;
+BEGIN
+  IF NOT public.fn_induction_can_manage_event_coordinators(p_event_id) THEN
+    RAISE EXCEPTION 'fn_induction_assignable_event_staff: not authorized';
+  END IF;
+  SELECT ip.institution_id INTO v_inst FROM public.induction_programs ip WHERE ip.event_id = p_event_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_assignable_event_staff: not an induction event'; END IF;
+  RETURN QUERY
+    SELECT p.id, p.full_name, p.email, p.role
+    FROM public.profiles p
+    WHERE p.institution_id = v_inst
+      AND COALESCE(p.role, '') <> 'student'
+      AND p.learner_id IS NULL
+      AND (
+        p_query IS NULL OR p_query = ''
+        OR p.full_name ILIKE '%' || p_query || '%'
+        OR p.email ILIKE '%' || p_query || '%'
+      )
+    ORDER BY p.full_name
+    LIMIT 25;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_assignable_event_staff(UUID, TEXT) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_assignable_event_staff(UUID, TEXT) TO authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 5. assign / remove (idempotent upsert + plain delete).
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_induction_assign_event_coordinator(p_event_id UUID, p_user_id UUID)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_inst UUID;
+BEGIN
+  IF NOT public.fn_induction_can_manage_event_coordinators(p_event_id) THEN
+    RAISE EXCEPTION 'fn_induction_assign_event_coordinator: not authorized';
+  END IF;
+  IF p_user_id IS NULL THEN RAISE EXCEPTION 'fn_induction_assign_event_coordinator: user_id required'; END IF;
+  SELECT ip.institution_id INTO v_inst FROM public.induction_programs ip WHERE ip.event_id = p_event_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_assign_event_coordinator: not an induction event'; END IF;
+  -- defense-in-depth: the picker UI (fn_induction_assignable_event_staff) only ever
+  -- offers staff of this event's own institution — reject a direct-API call that
+  -- tries to appoint someone from a different college as this event's coordinator.
+  IF NOT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = p_user_id AND p.institution_id = v_inst) THEN
+    RAISE EXCEPTION 'fn_induction_assign_event_coordinator: that user is not a member of this induction''s college';
+  END IF;
+  INSERT INTO public.induction_event_coordinators (event_id, user_id, assigned_by)
+  VALUES (p_event_id, p_user_id, auth.uid())
+  ON CONFLICT (event_id, user_id) DO NOTHING;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_assign_event_coordinator(UUID, UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_assign_event_coordinator(UUID, UUID) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_induction_remove_event_coordinator(p_event_id UUID, p_user_id UUID)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT public.fn_induction_can_manage_event_coordinators(p_event_id) THEN
+    RAISE EXCEPTION 'fn_induction_remove_event_coordinator: not authorized';
+  END IF;
+  DELETE FROM public.induction_event_coordinators WHERE event_id = p_event_id AND user_id = p_user_id;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_remove_event_coordinator(UUID, UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_remove_event_coordinator(UUID, UUID) TO authenticated;
+
+-- ============================================================================
+-- Fresher Induction — resource-person (session speaker) access model
+-- Migration: supabase/migrations/20260702150000_induction_resource_person_session_access.sql
+--            supabase/migrations/20260702151000_induction_speakers_read_co_speakers.sql
+-- ADDITIVE: a credited resource person (event_session_speakers) can now VIEW
+-- the whole event they speak at, and OPERATE only on their assigned sessions.
+--   • fn_induction_is_event_speaker(p_event_id) is OR'd into:
+--     fn_induction_list_sessions (speaker sees ALL sessions, incl. all batches),
+--     fn_induction_session_feedback_summary, fn_induction_day_feedback_summary,
+--     fn_induction_program_feedback_summary.
+--   • an assigned-session EXISTS over event_session_speakers is OR'd into:
+--     fn_induction_session_roster, fn_induction_mark_attendance,
+--     fn_induction_session_feedback_roster, fn_induction_submit_feedback_proxy.
+--   • _fn_induction_can_manage_session_pulse additionally gained the
+--     fn_induction_is_event_coordinator(v_event) clause the 2026-07-30
+--     coordinator retrofit missed (poll/pulse hosting for event coordinators).
+-- See the migration files for the full rebuilt bodies.
+-- ============================================================================
+
+-- Is the caller a credited resource person anywhere in this event?
+CREATE OR REPLACE FUNCTION public.fn_induction_is_event_speaker(p_event_id uuid, p_user_id uuid DEFAULT auth.uid())
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.event_session_speakers sp
+    JOIN public.event_sessions es ON es.id = sp.session_id
+    WHERE es.event_id = p_event_id AND sp.profile_id = p_user_id
+  );
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_is_event_speaker(uuid, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_is_event_speaker(uuid, uuid) TO authenticated;
+
+-- Is this session part of an event where the caller is a credited speaker?
+-- (Used by the ess_event_speaker_read policy so a speaker can see co-speakers.)
+CREATE OR REPLACE FUNCTION public.fn_induction_session_in_my_speaker_event(p_session_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.event_sessions es
+    JOIN public.event_sessions mine ON mine.event_id = es.event_id
+    JOIN public.event_session_speakers sp ON sp.session_id = mine.id AND sp.profile_id = auth.uid()
+    WHERE es.id = p_session_id
+  );
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_session_in_my_speaker_event(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_session_in_my_speaker_event(uuid) TO authenticated;
+
+
+-- =====================================================================================
+-- fn_hr_orgs_for_institutions — accessible institution ↔ HR organization mapping
+-- (migration 20260703120000). SECURITY DEFINER because hr_organizations RLS only
+-- exposes the caller's own org row; self-authorizes via role_has_institution_access().
+-- Drives the institution dropdowns in /hr/leave/* and the HR PolicyEditor.
+-- =====================================================================================
+CREATE OR REPLACE FUNCTION public.fn_hr_orgs_for_institutions()
+RETURNS TABLE (institution_id uuid, hr_organization_id uuid, organization_name text)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT o.institution_id, o.id, o.name
+  FROM public.hr_organizations o
+  WHERE o.institution_id IS NOT NULL
+    AND public.role_has_institution_access(o.institution_id)
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_orgs_for_institutions() FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_orgs_for_institutions() TO authenticated;
+
+-- Updated: 2026-07-03 (deep-review r5) — SCF "show the split" confirmation rollup.
+-- Mirror of supabase/migrations/20260703003800_scf_confirmation_rollup.sql.
+-- Safe text→time parse: returns p_default on ANY parse failure. A regex guard
+-- can't guarantee ::time succeeds (e.g. '25:00', '13:00 PM' pass a loose regex
+-- but throw on cast, failing the whole rollup), so we use an exception block.
+-- IMMUTABLE: time parsing does not depend on session settings.
+CREATE OR REPLACE FUNCTION public.fn_scf_safe_time(p_text text, p_default time)
+RETURNS time
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = public
+AS $$
+BEGIN
+  -- NULL/empty must return the default, NOT NULL: NULL::time raises no exception
+  -- but yields NULL, which would make session_end_local NULL and drop the row
+  -- from BOTH the within and overdue buckets (breaking confirmed+within+overdue
+  -- = total_present).
+  IF p_text IS NULL OR btrim(p_text) = '' THEN
+    RETURN p_default;
+  END IF;
+  RETURN p_text::time;
+EXCEPTION WHEN others THEN
+  RETURN p_default;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_scf_safe_time(text, time) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_scf_safe_time(text, time) TO authenticated;
+
+-- DROP first: the return type changed (dropped the unused `sessions` column),
+-- which CREATE OR REPLACE cannot do. Safe — the function is not yet deployed.
+DROP FUNCTION IF EXISTS
+  public.fn_scf_confirmation_rollup(date,date,uuid,uuid,uuid,uuid,integer);
+
+CREATE OR REPLACE FUNCTION public.fn_scf_confirmation_rollup(
+  p_from           date,
+  p_to             date,
+  p_institution_id uuid    DEFAULT NULL,
+  p_program_id     uuid    DEFAULT NULL,
+  p_department_id  uuid    DEFAULT NULL,
+  p_section_id     uuid    DEFAULT NULL,
+  p_window_hours   integer DEFAULT 48
+)
+RETURNS TABLE (
+  total_present   bigint,
+  confirmed       bigint,
+  pending_within  bigint,
+  pending_overdue bigint
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+SET statement_timeout = '20s'
+AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'fn_scf_confirmation_rollup: not authenticated';
+  END IF;
+  IF NOT (is_super_admin() OR is_admin()
+          OR user_has_permission('academic.attendance.dashboard.view')) THEN
+    RAISE EXCEPTION 'fn_scf_confirmation_rollup: not authorized';
+  END IF;
+
+  RETURN QUERY
+  WITH present_marks AS (
+    -- One row per (learner, date, period). A learner marked Present in two
+    -- student_attendance rows for the same period/day (32 such tuples exist in
+    -- prod — substitute / re-provisioned classes) is ONE attendance, not two,
+    -- so DISTINCT ON the learner-session identity keeps a single row (earliest
+    -- class-end — the most conservative anchor for the overdue bucket) and
+    -- avoids inflating total_present / the confirmedPct denominator.
+    SELECT DISTINCT ON (sa.attendance_date, period.key, (st ->> 'student_id'))
+      sa.attendance_date,
+      period.key                  AS period_id,
+      (st ->> 'student_id')::uuid AS student_id,
+      -- class-end wall-clock (IST): date + period end_time. The blob mixes 24h
+      -- ("10:00:00") and 12h/meridian ("3:00 PM") formats (both parse via
+      -- ::time); fn_scf_safe_time returns end-of-day on any unparseable value so
+      -- one bad row can never fail the whole rollup.
+      (sa.attendance_date
+        + fn_scf_safe_time(period.value ->> 'end_time', TIME '23:59:59')
+      )                           AS session_end_local
+    FROM public.student_attendance sa
+    -- jsonb_typeof guard on the OUTER expansion too: a row whose attendance_data
+    -- is a JSON array/scalar/null would make jsonb_each abort the whole rollup.
+    CROSS JOIN LATERAL jsonb_each(
+                         CASE WHEN jsonb_typeof(sa.attendance_data) = 'object'
+                              THEN sa.attendance_data
+                              ELSE '{}'::jsonb END)                          AS period
+    -- jsonb_typeof guard, not COALESCE: a JSON-null / scalar / object 'students'
+    -- (JSON null ≠ SQL NULL) would make jsonb_array_elements abort the rollup.
+    CROSS JOIN LATERAL jsonb_array_elements(
+                         CASE WHEN jsonb_typeof(period.value -> 'students') = 'array'
+                              THEN period.value -> 'students'
+                              ELSE '[]'::jsonb END) AS st
+    WHERE sa.attendance_date BETWEEN p_from AND p_to
+      AND (st ->> 'status') = 'Present'
+      -- Guard the ::uuid cast: skip malformed/empty student_id so a single bad
+      -- blob row cannot raise and fail the ENTIRE institution/date rollup.
+      AND (st ->> 'student_id') ~
+          '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+      AND (p_institution_id IS NULL OR sa.institution_id = p_institution_id)
+      AND (p_program_id     IS NULL OR sa.program_id     = p_program_id)
+      AND (p_department_id  IS NULL OR sa.department_id  = p_department_id)
+      AND (p_section_id     IS NULL OR sa.section_id     = p_section_id)
+      -- Data scope: super_admin sees all; everyone else is bounded by
+      -- role_has_institution_access, which ALREADY grants scope='all' roles
+      -- every institution and scope='own' roles only their own + granted.
+      -- is_admin() is deliberately NOT here: it is a hardcoded role-NAME bypass
+      -- that ignores institution_scope, so a scope='own' admin could read other
+      -- institutions' aggregates through this DEFINER RPC (verified leak: a
+      -- role='admin' with role_has_institution_access(foreign)=false read 1,979
+      -- foreign present marks). The student_attendance dashboard RLS carries the
+      -- same is_admin() branch — a pre-existing over-grant we intentionally do
+      -- NOT propagate here.
+      AND (is_super_admin()
+           OR role_has_institution_access(sa.institution_id))
+    ORDER BY sa.attendance_date, period.key, (st ->> 'student_id'),
+             session_end_local ASC
+  ),
+  scored AS (
+    SELECT
+      pm.*,
+      -- Confirmed = a session_feedback row for (student_id, attendance_date,
+      -- period_id) — period-only, matching canonical fn_scf_confirmation_status
+      -- exactly. NOT scoped on timetable_id: a feedback row's timetable_id can
+      -- legitimately differ (rescheduled/substitute class), which would
+      -- UNDERCOUNT confirmations. Verified equal to a timetable-scoped join on
+      -- current prod data (1120 = 1120), and DISTINCT ON above already prevents
+      -- one feedback row confirming two present marks.
+      EXISTS (
+        SELECT 1 FROM public.session_feedback f
+        WHERE f.student_id      = pm.student_id
+          AND f.attendance_date = pm.attendance_date
+          AND f.period_id       = pm.period_id
+      ) AS is_confirmed
+    FROM present_marks pm
+  )
+  SELECT
+    count(*)::bigint,
+    count(*) FILTER (WHERE is_confirmed)::bigint,
+    count(*) FILTER (
+      WHERE NOT is_confirmed
+        AND (now() AT TIME ZONE 'Asia/Kolkata')
+            <= session_end_local + make_interval(hours => GREATEST(p_window_hours, 1))
+    )::bigint,
+    count(*) FILTER (
+      WHERE NOT is_confirmed
+        AND (now() AT TIME ZONE 'Asia/Kolkata')
+            >  session_end_local + make_interval(hours => GREATEST(p_window_hours, 1))
+    )::bigint
+  FROM scored;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION
+  public.fn_scf_confirmation_rollup(date,date,uuid,uuid,uuid,uuid,integer)
+  FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION
+  public.fn_scf_confirmation_rollup(date,date,uuid,uuid,uuid,uuid,integer)
+  TO authenticated;
+
+-- Updated: 2026-07-03 - Schools Network feeder discovery (read-through)
+-- fn_schools_network_feeders: UNIONs learners_profiles.last_school +
+-- marketing_leads_database.school_name into a deduped feeder list with
+-- adopted-flag JOIN to schools. SECURITY DEFINER, permission-gated inside
+-- (schools_network.schools.view), anon EXECUTE revoked.
+-- Full definition: supabase/migrations/20260703093000_schools_network_feeders_rpc.sql
+
+-- =====================================================================
+-- Department Instagram Monthly Cadence — reader/writer RPCs
+-- Added: 2026-07-04 — mirror of migration 20260704120000_social_monthly_cadence.sql
+-- All SECURITY DEFINER; each self-gates (DEFINER bypasses RLS) and ends
+-- REVOKE anon,PUBLIC; GRANT authenticated. Reach is read ONLY from ig_monthly_audit.
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_ig_monthly_reach(
+  p_account_id UUID,
+  p_month DATE
+)
+RETURNS TABLE (
+  audit_month DATE,
+  total_reach BIGINT,
+  total_impressions BIGINT,
+  total_comments INTEGER,
+  total_saves INTEGER,
+  total_shares INTEGER,
+  health_score NUMERIC,
+  metrics_source TEXT
+)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_institution_id UUID;
+  v_metrics_source TEXT;
+BEGIN
+  SELECT a.institution_id, a.metrics_source INTO v_institution_id, v_metrics_source
+  FROM public.ig_accounts a WHERE a.id = p_account_id;
+  IF v_institution_id IS NULL THEN RETURN; END IF;
+  IF NOT (is_super_admin() OR is_admin()
+      OR (user_has_permission('social.departments.view') AND role_has_institution_access(v_institution_id))) THEN
+    RAISE EXCEPTION 'permission denied: social.departments.view required' USING ERRCODE = '42501';
+  END IF;
+  RETURN QUERY
+  SELECT m.audit_month, m.total_reach, m.total_impressions, m.total_comments,
+         m.total_saves, m.total_shares, m.health_score, v_metrics_source
+  FROM public.ig_monthly_audit m
+  WHERE m.ig_account_id = p_account_id
+    AND m.audit_month = date_trunc('month', p_month)::date
+  LIMIT 1;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_ig_monthly_reach(UUID, DATE) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_ig_monthly_reach(UUID, DATE) TO authenticated;
+
+-- Ownership helper: a scope='own' manager (dept HOD) must not read/act on OTHER
+-- departments' IG cadences in the same tenant. Admins bypass; NULL dept falls
+-- back to the institution gate. LOW #6 (round-2): ownership is the Director-locked
+-- "HOD owns cadence" — restricted to departments.head_of_department_id ONLY (the
+-- earlier "any active staff in the dept" branch was too broad and is removed).
+-- Used by both the SELECT policy and the writer RPCs.
+CREATE OR REPLACE FUNCTION public.fn_social_caller_owns_dept(p_department_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE v_uid UUID := auth.uid();
+BEGIN
+  IF is_super_admin() OR is_admin() THEN RETURN true; END IF;
+  IF p_department_id IS NULL THEN RETURN true; END IF;
+  RETURN EXISTS (
+    SELECT 1 FROM public.departments d
+    WHERE d.id = p_department_id AND d.head_of_department_id = v_uid
+  );
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_social_caller_owns_dept(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_social_caller_owns_dept(UUID) TO authenticated;
+
+-- Round-3 HIGH root fix: NO caller-supplied project_id (open ALWAYS auto-creates
+-- the cadence's own is_okr objective). Drop the old 4-arg overload first.
+DROP FUNCTION IF EXISTS public.fn_social_cadence_open(UUID, TEXT, DATE, UUID);
+CREATE OR REPLACE FUNCTION public.fn_social_cadence_open(
+  p_account_id UUID, p_objective TEXT, p_cadence_month DATE DEFAULT NULL
+)
+RETURNS public.social_monthly_cadence
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_institution_id UUID; v_department_id UUID; v_metrics_source TEXT;
+  v_month DATE; v_baseline_reach BIGINT; v_project_id UUID; v_task_id UUID;
+  v_hod_staff_id UUID; v_type_id UUID; v_uid UUID := auth.uid();
+  v_existing public.social_monthly_cadence; v_row public.social_monthly_cadence;
+BEGIN
+  IF p_objective IS NULL OR btrim(p_objective) = '' THEN
+    RAISE EXCEPTION 'An objective is required to open a cadence' USING ERRCODE = '22023';
+  END IF;
+  SELECT a.institution_id, a.department_id, a.metrics_source
+    INTO v_institution_id, v_department_id, v_metrics_source
+  FROM public.ig_accounts a WHERE a.id = p_account_id;
+  IF v_institution_id IS NULL THEN
+    RAISE EXCEPTION 'Instagram account not found' USING ERRCODE = 'P0002';
+  END IF;
+  IF NOT (is_super_admin() OR is_admin()
+      OR (user_has_permission('social.departments.manage') AND role_has_institution_access(v_institution_id))) THEN
+    RAISE EXCEPTION 'permission denied: social.departments.manage required' USING ERRCODE = '42501';
+  END IF;
+  -- DARK self-gate: opening a NEW cycle requires social.cadence.enabled=true
+  -- (enforced here so direct PostgREST/RPC calls cannot bypass the master switch).
+  IF NOT COALESCE(fn_get_policy_bool('social.cadence.enabled', false, NULL), false) THEN
+    RAISE EXCEPTION 'The monthly cadence engine is disabled (social.cadence.enabled=false)' USING ERRCODE = '42501';
+  END IF;
+  -- Department ownership (scope='own' manager acts only on its own dept).
+  IF NOT fn_social_caller_owns_dept(v_department_id) THEN
+    RAISE EXCEPTION 'permission denied: you can only manage your own department''s Instagram cadence' USING ERRCODE = '42501';
+  END IF;
+  -- MED #5 (round-2): derive month from UTC (matches cron + UI), not session-TZ.
+  v_month := date_trunc('month', COALESCE(p_cadence_month, (now() AT TIME ZONE 'UTC')::date))::date;
+  -- MED #4 (round-2): serialize concurrent opens per (account, month) so project
+  -- auto-create + ledger insert are atomic (no orphan project, no unique_violation).
+  PERFORM pg_advisory_xact_lock(hashtext('social_cadence_open|' || p_account_id::text || '|' || v_month::text));
+  SELECT * INTO v_existing FROM public.social_monthly_cadence
+  WHERE account_id = p_account_id AND cadence_month = v_month;
+  IF FOUND THEN RETURN v_existing; END IF;
+  SELECT m.total_reach INTO v_baseline_reach FROM public.ig_monthly_audit m
+  WHERE m.ig_account_id = p_account_id AND m.audit_month = v_month LIMIT 1;
+  -- Resolve dept HOD -> staff.id (head_of_department_id is a profile id;
+  -- staff.profile_id links it). LOW #7 (round-2): filter staff to the account's
+  -- institution so a profile active in MULTIPLE tenants can't yield a cross-tenant
+  -- owner. Best-effort: NULL owner when no HOD/same-tenant staff.
+  IF v_department_id IS NOT NULL THEN
+    SELECT s.id INTO v_hod_staff_id
+    FROM public.departments d
+    JOIN public.staff s ON s.profile_id = d.head_of_department_id
+      AND s.is_active = true AND s.institution_id = v_institution_id
+    WHERE d.id = v_department_id LIMIT 1;
+  END IF;
+  -- REQUIRED project link: ALWAYS create the unified-OKR objective as a real
+  -- projects row (is_okr=true) + key-result task with the HOD as single RACI Accountable.
+  SELECT id INTO v_type_id FROM public.project_types WHERE key = 'okr_objective' LIMIT 1;
+  INSERT INTO public.projects (
+    title, description, project_type_id, institution_id, owner_staff_id,
+    is_okr, rag_status, start_date, due_date, created_by
+  ) VALUES (
+    left('IG Cadence ' || to_char(v_month, 'Mon YYYY') || ' — ' || btrim(p_objective), 200),
+    'Monthly Instagram reach objective for this department, driven by the Social Loop cadence engine. Objective: ' || btrim(p_objective),
+    v_type_id, v_institution_id, v_hod_staff_id,
+    true, 'green', v_month, (v_month + INTERVAL '1 month' - INTERVAL '1 day')::date, v_uid
+  ) RETURNING id INTO v_project_id;
+  INSERT INTO public.project_tasks (
+    project_id, title, description, task_type, status_key, owner_staff_id, start_date, due_date, created_by
+  ) VALUES (
+    v_project_id, left('Grow monthly IG reach — ' || btrim(p_objective), 200),
+    'Re-measured one calendar month on vs the baseline reach snapshot.',
+    'key_result', 'todo', v_hod_staff_id, v_month,
+    (v_month + INTERVAL '1 month' - INTERVAL '1 day')::date, v_uid
+  ) RETURNING id INTO v_task_id;
+  IF v_hod_staff_id IS NOT NULL THEN
+    INSERT INTO public.project_task_assignees (task_id, staff_id, role, assigned_by)
+    VALUES (v_task_id, v_hod_staff_id, 'accountable', v_uid);
+  END IF;
+  -- MED #4: atomic insert; a losing concurrent open returns the existing row.
+  INSERT INTO public.social_monthly_cadence (
+    institution_id, account_id, department_id, cadence_month, objective,
+    baseline_reach, baseline_month, baseline_metrics_source, status, project_id, created_by
+  ) VALUES (
+    v_institution_id, p_account_id, v_department_id, v_month, btrim(p_objective),
+    v_baseline_reach, v_month, v_metrics_source, 'open', v_project_id, v_uid
+  )
+  ON CONFLICT (account_id, cadence_month) DO NOTHING
+  RETURNING * INTO v_row;
+  IF NOT FOUND THEN
+    SELECT * INTO v_row FROM public.social_monthly_cadence
+    WHERE account_id = p_account_id AND cadence_month = v_month;
+  END IF;
+  RETURN v_row;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_social_cadence_open(UUID, TEXT, DATE) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_social_cadence_open(UUID, TEXT, DATE) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_social_cadence_record_action(
+  p_cadence_id UUID, p_action TEXT, p_feedback_summary JSONB DEFAULT NULL
+)
+RETURNS public.social_monthly_cadence
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE v_institution_id UUID; v_department_id UUID; v_status TEXT; v_row public.social_monthly_cadence;
+BEGIN
+  IF p_action IS NULL OR btrim(p_action) = '' THEN
+    RAISE EXCEPTION 'An action description is required' USING ERRCODE = '22023';
+  END IF;
+  SELECT institution_id, department_id, status INTO v_institution_id, v_department_id, v_status
+  FROM public.social_monthly_cadence WHERE id = p_cadence_id;
+  IF v_institution_id IS NULL THEN
+    RAISE EXCEPTION 'Cadence cycle not found' USING ERRCODE = 'P0002';
+  END IF;
+  IF NOT (is_super_admin() OR is_admin()
+      OR (user_has_permission('social.departments.manage') AND role_has_institution_access(v_institution_id))) THEN
+    RAISE EXCEPTION 'permission denied: social.departments.manage required' USING ERRCODE = '42501';
+  END IF;
+  IF NOT fn_social_caller_owns_dept(v_department_id) THEN
+    RAISE EXCEPTION 'permission denied: you can only manage your own department''s Instagram cadence' USING ERRCODE = '42501';
+  END IF;
+  IF v_status NOT IN ('open', 'awaiting_close') THEN
+    RAISE EXCEPTION 'Cannot record an action on a % cycle', v_status USING ERRCODE = '22023';
+  END IF;
+  UPDATE public.social_monthly_cadence
+  SET action_taken = btrim(p_action),
+      feedback_read_summary = COALESCE(p_feedback_summary, feedback_read_summary),
+      updated_at = now()
+  WHERE id = p_cadence_id RETURNING * INTO v_row;
+  RETURN v_row;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_social_cadence_record_action(UUID, TEXT, JSONB) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_social_cadence_record_action(UUID, TEXT, JSONB) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_social_cadence_close(
+  p_cadence_id UUID, p_learning TEXT
+)
+RETURNS public.social_monthly_cadence
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_row public.social_monthly_cadence; v_remeasure_month DATE; v_remeasure_reach BIGINT;
+  v_current_source TEXT; v_delta BIGINT; v_final_status TEXT; v_win_delta_pct INT; v_progress NUMERIC(5,2);
+  v_pct NUMERIC; v_new_rag TEXT;
+BEGIN
+  IF p_learning IS NULL OR btrim(p_learning) = '' THEN
+    RAISE EXCEPTION 'A one-line learning is required to close the cycle' USING ERRCODE = '22023';
+  END IF;
+  SELECT * INTO v_row FROM public.social_monthly_cadence WHERE id = p_cadence_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Cadence cycle not found' USING ERRCODE = 'P0002'; END IF;
+  IF NOT (is_super_admin() OR is_admin()
+      OR (user_has_permission('social.departments.manage') AND role_has_institution_access(v_row.institution_id))) THEN
+    RAISE EXCEPTION 'permission denied: social.departments.manage required' USING ERRCODE = '42501';
+  END IF;
+  IF NOT fn_social_caller_owns_dept(v_row.department_id) THEN
+    RAISE EXCEPTION 'permission denied: you can only manage your own department''s Instagram cadence' USING ERRCODE = '42501';
+  END IF;
+  -- DARK self-gate (round-3 HIGH root fix): gate close too, so a direct RPC call
+  -- cannot drive the state machine while the engine is DARK.
+  IF NOT COALESCE(fn_get_policy_bool('social.cadence.enabled', false, NULL), false) THEN
+    RAISE EXCEPTION 'The monthly cadence engine is disabled (social.cadence.enabled=false)' USING ERRCODE = '42501';
+  END IF;
+  IF v_row.status IN ('closed', 'unmeasurable') THEN
+    RAISE EXCEPTION 'Cycle already finalised (%)', v_row.status USING ERRCODE = '22023';
+  END IF;
+  v_remeasure_month := (v_row.cadence_month + INTERVAL '1 month')::date;
+  SELECT a.metrics_source INTO v_current_source FROM public.ig_accounts a WHERE a.id = v_row.account_id;
+  IF v_row.remeasure_reach IS NOT NULL THEN
+    v_remeasure_reach := v_row.remeasure_reach;
+  ELSE
+    SELECT m.total_reach INTO v_remeasure_reach FROM public.ig_monthly_audit m
+    WHERE m.ig_account_id = v_row.account_id AND m.audit_month = v_remeasure_month LIMIT 1;
+  END IF;
+  -- Any mismatch in graph-ness between baseline and re-measure -> unmeasurable
+  -- (covers graph->business_discovery downgrade AND business_discovery/NULL->graph
+  -- upgrade, which would otherwise fabricate a green win). Plus the collapse guard.
+  IF v_remeasure_reach IS NULL
+     OR ((COALESCE(v_row.baseline_metrics_source, '') = 'graph') <> (COALESCE(v_current_source, '') = 'graph'))
+     OR (COALESCE(v_row.baseline_reach, 0) > 0 AND COALESCE(v_remeasure_reach, 0) = 0 AND v_current_source <> 'graph')
+  THEN
+    v_final_status := 'unmeasurable'; v_delta := NULL;
+  ELSE
+    v_final_status := 'closed'; v_delta := v_remeasure_reach - COALESCE(v_row.baseline_reach, 0);
+  END IF;
+  -- TOCTOU guard: re-assert non-final in the predicate (a concurrent close/cron
+  -- could have finalised it since the SELECT). 0 rows -> raise, never clobber.
+  UPDATE public.social_monthly_cadence
+  SET remeasure_reach = v_remeasure_reach, remeasure_month = v_remeasure_month,
+      remeasure_metrics_source = v_current_source, reach_delta = v_delta,
+      learning = btrim(p_learning), status = v_final_status, updated_at = now()
+  WHERE id = p_cadence_id AND status NOT IN ('closed', 'unmeasurable')
+  RETURNING * INTO v_row;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Cycle already finalised' USING ERRCODE = '22023';
+  END IF;
+  -- Teeth: measured reach-vs-target -> the linked project's rag_status (canonical
+  -- RAG that evaluateProjectTriggers reads; project_at_risk fires gte 2 = red).
+  -- Hard miss -> red (dormant rule would summon the HOD), soft miss -> amber,
+  -- win -> green. LOW #8 (round-2): 'unmeasurable' RESETS the RAG to neutral
+  -- (green + 0%) so a cron-staged fabricated green/red never persists. LOW #9:
+  -- percent_complete is written on BOTH paths (and the cron) so writers agree.
+  v_win_delta_pct := fn_get_policy_int('social.cadence.win_delta_pct', 10, NULL);
+  -- Tenant guard (HIGH): DEFINER write bypasses projects RLS — never touch a
+  -- project outside this cadence's institution (guards measured write + reset).
+  IF NOT EXISTS (
+    SELECT 1 FROM public.projects
+    WHERE id = v_row.project_id AND institution_id = v_row.institution_id
+  ) THEN
+    RAISE EXCEPTION 'cadence project % is not in institution %', v_row.project_id, v_row.institution_id USING ERRCODE = '42501';
+  END IF;
+  IF v_final_status = 'closed' THEN
+    IF COALESCE(v_row.baseline_reach, 0) > 0 THEN
+      v_pct := (v_delta::numeric / v_row.baseline_reach) * 100;
+      v_new_rag := CASE
+        WHEN v_pct >= GREATEST(v_win_delta_pct, 1) THEN 'green'
+        WHEN v_pct > 0 THEN 'amber'
+        ELSE 'red' END;
+      v_progress := LEAST(100, GREATEST(0,
+        round(v_pct / (GREATEST(v_win_delta_pct, 1)::numeric) * 100, 2)));
+    ELSE
+      v_new_rag := CASE WHEN COALESCE(v_delta, 0) > 0 THEN 'green' ELSE 'amber' END;
+      v_progress := CASE WHEN COALESCE(v_delta, 0) > 0 THEN 100 ELSE 0 END;
+    END IF;
+  ELSE
+    v_new_rag := 'green';  -- unmeasurable: neutral, no fabricated miss/win
+    v_progress := 0;
+  END IF;
+  UPDATE public.projects
+  SET rag_status = v_new_rag, percent_complete = v_progress, updated_at = now()
+  WHERE id = v_row.project_id AND institution_id = v_row.institution_id;
+  RETURN v_row;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_social_cadence_close(UUID, TEXT) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_social_cadence_close(UUID, TEXT) TO authenticated;
+-- fn_recruitment_approvals_counts: grouped (job_id, status) counts across
+-- hr_job_applications + promoted hr_recruitment_candidates (soft JSONB job link)
+-- for the job-first approvals overview. SECURITY INVOKER — RLS bounds the rows.
+-- Full definition: supabase/migrations/20260706110100_fn_recruitment_approvals_counts.sql
+
+-- fn_list_my_pending_recruitment (UPDATED 20260706120100): current-step match is
+-- now pinned-user-first — approver_user_id set → only that user; null → role_key
+-- holders (legacy). SECURITY DEFINER, returns SETOF hr_recruitment_candidates.
+-- Full definition: supabase/migrations/20260706120100_fn_list_my_pending_recruitment_pinned_users.sql
+
+-- fn_role_user_counts: aggregate (role_key, role_name, users) counts for the
+-- recruitment flow builder's "0 users hold this role" warning. SECURITY DEFINER
+-- (aggregate-only disclosure, no identities), anon EXECUTE revoked.
+-- Full definition: supabase/migrations/20260706120200_fn_role_user_counts.sql
+
+-- ================================================================================
+-- Cohort Core — Phase 7 (THE MOAT) functions — 2026-07-06
+-- ================================================================================
+-- The M7 moat functions are version-controlled in their migrations (the apply
+-- source of truth); not duplicated here to avoid drift on this 21k-line file:
+--   fn_cohort_estimator_version, fn_cohort_blended_score        → 20260731092000
+--   fn_assign_experiment_arms_for_cohort, fn_compute_cohort_experiment → 20260731093000
+--   fn_cohort_min_actionable_lift, fn_propose_cohort_adjustments,
+--   fn_apply_cohort_adjustment_proposal                          → 20260731094000
+-- The upgraded trigger fn fn_capture_cohort_outcome lives in 04_triggers.sql.
+-- SECURITY: blended_score REVOKEd from anon/PUBLIC/authenticated (trigger-only);
+-- compute/propose/assign are SECURITY INVOKER (caller RLS scopes tenant); apply is
+-- SECURITY DEFINER with an internal authority gate bound to the proposal's institution.
+-- ============================================================================
+-- Cross-institution teaching helpers (migration 20260706_cross_institution_teaching)
+-- Visiting staff keep ONE home-institution staff row; their staff.id is assigned
+-- into other institutions' staff_plan_courses / timetable_data.staff_ids.
+-- ============================================================================
+-- staff_teaches_in_institution(p_institution_id uuid) RETURNS boolean
+--   SECURITY DEFINER. True when the CURRENT USER's active staff row (matched by
+--   staff.profile_id = auth.uid() OR staff.institution_email = auth.email()) has
+--   ≥1 staff_plan_courses row under a staff_plan of that institution. Used by the
+--   visiting-teacher RLS policies and the fn_attendance_roster gate.
+-- fn_staff_teaching_institutions(p_staff_id uuid) RETURNS uuid[]
+--   SECURITY DEFINER, self-authorized (own staff row / admin / attendance perms).
+--   Staff's own institution_id ∪ distinct staff_plans.institution_id across their
+--   assignments. Consumed by FacultyAttendanceService.getFacultyTodayPeriods.
+-- staff_is_visiting_in_accessible_institution(p_staff_id uuid) RETURNS boolean
+--   SECURITY DEFINER. True when the given staff teaches in an institution the
+--   current user can access (role_has_institution_access). Powers the
+--   staff_select_visiting_teacher policy.
+-- fn_attendance_roster (UPDATED 20260706): institution gate is now
+--   (role_has_institution_access OR staff_teaches_in_institution) AND attendance
+--   permission — visiting staff can load the roster where they teach.
+-- Full definitions: supabase/migrations/20260706_cross_institution_teaching.sql

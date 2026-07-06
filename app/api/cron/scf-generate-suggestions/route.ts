@@ -1,0 +1,964 @@
+// =====================================================================
+// Session Feedback (SCF) — Self-improving loop: scheduled suggestion generator
+// =====================================================================
+// Fixes loop gap #3: the "improve" step previously only fired when a human
+// clicked "suggest improvement" in the UI — the loop was NOT autonomous.
+// This daily cron scans for courses that had a feedback window in the last 7
+// days (>=3 responses) and, per course, generates ONE of:
+//   * a teaching-IMPROVEMENT suggestion  (avg understood < 3)            kind='improvement'
+//   * a teaching-SUCCESS / what-worked   (avg >= 4.5 with >=1 comment)   kind='success'
+//   * a teaching-IMPROVEMENT suggestion  (3 <= avg < 4.5 with >=2 comments
+//       AND Claude judges >=2 of them are genuine help-asks)             kind='improvement'
+// A good-average window with EXACTLY ONE genuine help-ask instead records a
+// LEADERSHIP-ONLY concern (no teacher tip — n=1 would over-react; the struggling-
+// note routine already supports that learner). Other middling windows get nothing.
+// It then triggers outcome measurement so matured prior suggestions get their lift.
+//
+// 2026-07-04: ASYNC BATCH v2 — the Anthropic Message Batches are now submitted in
+// one run and COLLECTED in a later run (the API is async: "up to 24h, most under
+// an hour"). The old version blocked-polled a batch for 240s then cancelled,
+// which regressed throughput and — worse — discarded already-completed+billed
+// requests (lost work + re-bill). Now:
+//   • SUBMIT (default GET, daily): scan candidates, apply the regen + in-flight
+//     guards, and submit a judge batch and/or a generation batch. No polling.
+//   • COLLECT (?mode=collect, every 30 min, AND collect-first on the daily run):
+//     drain ENDED batches, record each request in ai_model_usage at the 50% rate
+//     (idempotently), domain-record the results (suggestions / leadership concerns),
+//     and — for judge results that elevate to a teacher tip — submit a follow-on
+//     generation batch (async chaining). Cross-run state + exactly-once cost live
+//     in ai_batch_jobs / ai_batch_job_items (migration 20260704093000).
+// Prompts, guards, thresholds, and record semantics are UNCHANGED from the
+// synchronous pilot — only the transport is async.
+//
+// Pattern mirrors /api/cron/session-feedback-escalation and
+// /api/cron/scf-measure-outcomes (auth, client, response shape, logging).
+// AI generation logic replicates (not imports) ai-suggest-improvement/route.ts
+// to keep ownership boundaries clean — two files, two agents, no shared edits.
+//
+// Auth: CRON_SECRET via `Authorization: Bearer <secret>` OR `?secret=` query.
+// Env dependency: CLAUDE_API_KEY or ANTHROPIC_API_KEY. No key → no batches
+//   submitted/collected, but outcome measurement still runs.
+// Dispatch: SUBMIT is daily via ai-routine-dispatcher (ai_routine_schedules).
+//   COLLECT is a */30 vercel.json cron hitting ?mode=collect.
+// Created: 2026-06-28.
+
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+// Async: submit is O(1) and collect only streams ENDED batches, so runs are
+// short. Keep headroom for a large candidate scan + the measure RPC.
+export const maxDuration = 300;
+
+import { NextRequest, NextResponse } from 'next/server';
+import { createServiceRoleClient } from '@/lib/supabase/server';
+import Anthropic from '@anthropic-ai/sdk';
+import { resolveChatModel } from '@/lib/services/platform/ai-clients/chat';
+import {
+  submitBatch,
+  collectEndedBatches,
+  markJobCollected,
+  partitionInFlight,
+  MAX_COLLECT_ATTEMPTS,
+  type SubmitBatchRequest,
+  type SubmitBatchResult,
+} from '@/lib/services/platform/ai-clients/batch';
+
+// ── constants ────────────────────────────────────────────────────────────────
+
+// Model comes from ai_model_config (admin-governed) — resolved once per run via
+// resolveChatModel(FEATURE_KEY), which never throws (hardcoded fallback on any
+// config failure). One feature key covers BOTH calls in this file (help-ask
+// judge + suggestion generator).
+const FEATURE_KEY = 'scf.generate_suggestions';
+const BATCH_CAP = 25; // max courses to scan+submit per run; excess is logged
+const WINDOW_DAYS = 7; // look back 7 days for fresh windows (low OR standout)
+const MIN_RESPONSES = 3; // floor below which we skip AI (same as interactive route)
+const LOW_UNDERSTOOD_THRESHOLD = 3; // avg_understood < this → 'improvement' suggestion
+// avg_understood >= this AND >=1 written comment → 'success' suggestion. Gated to
+// STANDOUT only (not every 4/5) so we don't generate ~125 rows of noise + Claude cost.
+const STANDOUT_THRESHOLD = 4.5;
+// WIDENED gate (2026-07-01): a good/middling class (LOW <= avg < STANDOUT) can still
+// hide a real pocket of confusion. When it carries at least WIDENED_MIN_COMMENTS
+// free-text comments, Claude judges how many are GENUINE help-asks (semantic, so
+// Tamil/Tanglish count). >= WIDENED_MIN_ASKS → a teacher tip; EXACTLY ONE → a
+// leadership-only concern; zero → skip.
+const WIDENED_MIN_COMMENTS = 2;
+const WIDENED_MIN_ASKS = 2;
+// MAX_COLLECT_ATTEMPTS (the stuck-job cap) is imported from ai-clients/batch so
+// the collect-error path and this domain-record path share one threshold.
+
+// Replicated verbatim from ai-suggest-improvement/route.ts so the model's
+// output shape is identical — the record RPC stores the same JSON structure.
+const SYSTEM_PROMPT = `You are a teaching-improvement assistant for an Indian higher-education institution. A class's students gave anonymous post-class feedback on how well they understood a session. You receive ONLY aggregate signals and anonymized comment text — never any student identity.
+Use ONLY the data provided; ground every suggestion in it. Be concrete and India-context aware. NEVER quote a comment verbatim and NEVER refer to an individual student — speak only in aggregate themes so no student can be identified.
+Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exactly:
+{ "summary": "...", "likelyCauses": ["..."], "suggestedAdjustments": [{"title":"...","how":"..."}], "quickWin": "...", "whatToWatchNext": "..." }
+Give 2-4 likelyCauses and 3-5 suggestedAdjustments. whatToWatchNext must reference the next session's understanding score (the loop's verifier).`;
+
+// The POSITIVE flip-side: when a class lands exceptionally well, capture WHAT WORKED.
+const SUCCESS_SYSTEM_PROMPT = `You are a teaching-excellence assistant for an Indian higher-education institution. A class's students gave anonymous post-class feedback, and this session landed exceptionally well (high understanding, positive comments). You receive ONLY aggregate signals and anonymized comment text — never any student identity.
+Your job: capture WHAT WORKED so the facilitator can deliberately repeat it and peers teaching the same course can learn from it. Use ONLY the data provided; ground every point in it. Be concrete and India-context aware. NEVER quote a comment verbatim and NEVER refer to an individual student — speak only in aggregate themes so no student can be identified.
+Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exactly:
+{ "whatWorked": "...", "whyItLanded": ["..."], "replicateIn": [{"context":"...","how":"..."}], "shareWithPeers": "...", "watchNext": "..." }
+Give 2-4 whyItLanded and 2-3 replicateIn. watchNext must reference sustaining this in the next session's understanding score (the loop's verifier).`;
+
+// Judge prompt for the WIDENED gate: count ONLY (privacy — see the 1-ask branch).
+const HELP_ASK_JUDGE_PROMPT = `You classify anonymous post-class student comments for an Indian higher-education institution. Comments may be in English, Tamil, or a Tamil-English mix (Tanglish).
+Count how many DISTINCT comments are a GENUINE request for help or a clear signal the student did not understand the session — e.g. "please explain slower", "I couldn't follow the derivation", "need clearer examples", "puriyala", "slow-a sollunga". Do NOT count praise, thanks, logistics (timing/room/audio), or neutral remarks.
+Return ONLY valid JSON (no markdown, no code fences, no commentary), exactly:
+{ "help_ask_count": <integer> }`;
+
+// ── types ────────────────────────────────────────────────────────────────────
+
+// Shape returned by fn_scf_ai_signal
+type SignalRow = {
+  responses: number;
+  low_responses: number;
+  avg_understood: number | null;
+  free_texts: string[] | null;
+};
+
+// A course+faculty+institution tuple to process in a run
+type CourseTarget = {
+  institution_id: string | null;
+  course_code: string;
+  faculty_email: string | null;
+  window_from: string;
+  window_to: string;
+};
+
+// Persisted per-item context (jsonb) — everything the collect run needs to
+// record a result and (for judge items that elevate) build a generation batch.
+type JudgeContext = {
+  target: CourseTarget;
+  responses: number;
+  avg: number;
+  low_responses: number;
+  free_texts: string[];
+  normFaculty: string | null;
+  recentSince: string;
+};
+type GenContext = {
+  target: CourseTarget;
+  kind: 'improvement' | 'success';
+  responses: number;
+  low_responses: number;
+  avg: number;
+};
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function judgeDedupeKey(t: CourseTarget): string {
+  return `${FEATURE_KEY}|judge|${t.institution_id ?? ''}|${t.course_code}|${t.faculty_email ?? ''}`;
+}
+function genDedupeKey(t: CourseTarget, kind: 'improvement' | 'success'): string {
+  return `${FEATURE_KEY}|generate|${kind}|${t.institution_id ?? ''}|${t.course_code}|${t.faculty_email ?? ''}`;
+}
+function signalFromCtx(ctx: JudgeContext): SignalRow {
+  return {
+    responses: ctx.responses,
+    low_responses: ctx.low_responses,
+    avg_understood: ctx.avg,
+    free_texts: ctx.free_texts,
+  };
+}
+
+// Replicates the self-improving track-record block from ai-suggest-improvement
+// so the autonomous suggestions also improve over time (same loop feed).
+async function buildTrackRecordBlock(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  courseCode: string,
+  facultyEmail: string | null,
+  institutionId: string | null
+): Promise<string> {
+  try {
+    const { data: priorData } = await admin.rpc('fn_scf_prior_suggestion', {
+      p_course_code: courseCode,
+      p_faculty_email: facultyEmail,
+      p_institution_id: institutionId,
+    });
+    const prior = Array.isArray(priorData) ? priorData[0] : priorData;
+    if (!prior?.suggestion) return '';
+
+    const priorSummary =
+      prior.suggestion && typeof prior.suggestion === 'object'
+        ? String(prior.suggestion.summary ?? JSON.stringify(prior.suggestion)).slice(0, 600)
+        : String(prior.suggestion).slice(0, 600);
+    const lift =
+      prior.outcome_lift !== null && prior.outcome_lift !== undefined
+        ? Number(prior.outcome_lift)
+        : null;
+    const liftLine = prior.has_outcome
+      ? `After that advice, the next class's understanding moved ${lift !== null && lift >= 0 ? '+' : ''}${prior.outcome_lift} (from ${prior.input_avg}/5). ${lift !== null && lift >= 0.5 ? 'It helped somewhat — build on it.' : 'It did NOT meaningfully help — change the approach; do not repeat the same advice.'}`
+      : `The outcome of that advice is not measured yet.`;
+    const verdictLine = prior.human_verdict
+      ? ` The teacher marked it: ${String(prior.human_verdict)}.`
+      : '';
+    return `\n\nYOUR PREVIOUS ADVICE FOR THIS CLASS (${String(prior.generated_at).slice(0, 10)}): ${priorSummary}\n${liftLine}${verdictLine}\nUse this track record: keep what worked, and propose a DIFFERENT, more specific adjustment for anything that did not move.`;
+  } catch (err) {
+    console.error('[cron/scf-generate-suggestions] prior fetch failed:', err);
+    return '';
+  }
+}
+
+// WIDENED gate — build the judge request for ONE course. Count-only output.
+function buildJudgeParams(
+  modelId: string,
+  freeTexts: string[],
+  courseCode: string
+): Anthropic.Messages.MessageCreateParamsNonStreaming {
+  const numbered = freeTexts.map((t, i) => `${i + 1}. ${String(t).trim()}`).join('\n');
+  return {
+    model: modelId,
+    max_tokens: 400,
+    system: HELP_ASK_JUDGE_PROMPT,
+    messages: [
+      {
+        role: 'user',
+        content: `Course: ${courseCode}\nAnonymous comments:\n${numbered}\n\nReturn the JSON now.`,
+      },
+    ],
+  };
+}
+
+// Parse one judge result. Fails SAFE to { helpAskCount: 0, modelUsed: 'error' } so
+// an errored / missing / unparseable batch item never fabricates a teacher tip or
+// a leadership concern (and, via the 'error' sentinel, never RESOLVES a concern).
+function parseJudgeMessage(
+  message: Anthropic.Message | null
+): { helpAskCount: number; modelUsed: string } {
+  if (!message) return { helpAskCount: 0, modelUsed: 'error' };
+  try {
+    const text = message.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('')
+      .trim();
+    const jsonStr = text
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim();
+    const parsed = JSON.parse(jsonStr) as { help_ask_count?: unknown };
+    const n = Number(parsed.help_ask_count);
+    const helpAskCount = Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+    return { helpAskCount, modelUsed: message.model };
+  } catch (err) {
+    console.error('[cron/scf-generate-suggestions] help-ask judge parse failed:', err);
+    return { helpAskCount: 0, modelUsed: 'error' };
+  }
+}
+
+// WIDENED gate spend guard — has this window ALREADY produced an improvement TIP
+// in the lookback? A prior lone-voice CONCERN does NOT suppress re-judging (a class
+// can worsen from 1 ask to >=2 and must stay re-judgeable). Returns true=already
+// tipped (skip judge), false=re-judge, null=query error (fail closed).
+async function widenedWindowAlreadyHandled(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  target: CourseTarget,
+  normFaculty: string | null,
+  since: string
+): Promise<boolean | null> {
+  let sugQ = admin
+    .from('scf_ai_suggestions')
+    .select('id')
+    .eq('course_code', target.course_code)
+    .eq('kind', 'improvement')
+    .eq('domain', 'session_feedback')
+    .gte('generated_at', since)
+    .limit(1);
+  sugQ = target.institution_id
+    ? sugQ.eq('institution_id', target.institution_id)
+    : sugQ.is('institution_id', null);
+  sugQ = normFaculty ? sugQ.eq('faculty_email', normFaculty) : sugQ.is('faculty_email', null);
+  const { data: sug, error: sugErr } = await sugQ;
+  if (sugErr) {
+    console.error('[cron/scf-generate-suggestions] widened guard failed:', sugErr);
+    return null;
+  }
+  return !!(sug && sug.length > 0);
+}
+
+// Build the generation request for ONE course. Prompt construction verbatim from
+// the former inline generateSuggestion.
+function buildGenerationParams(
+  modelId: string,
+  kind: 'improvement' | 'success',
+  courseCode: string,
+  signal: SignalRow,
+  windowFrom: string,
+  windowTo: string,
+  trackRecord: string
+): Anthropic.Messages.MessageCreateParamsNonStreaming {
+  const freeTexts: string[] = Array.isArray(signal.free_texts) ? signal.free_texts : [];
+  const commentBlock =
+    freeTexts.length > 0
+      ? freeTexts.map((t) => `- ${String(t).trim()}`).join('\n')
+      : '- (no written comments — use the numeric signals)';
+
+  const systemPrompt = kind === 'success' ? SUCCESS_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  const closingLine =
+    kind === 'success'
+      ? 'Capture what worked as reusable success-pattern JSON now.'
+      : 'Generate the teaching-improvement JSON now.';
+
+  const userPrompt = `Course: ${courseCode}
+Window: ${windowFrom} to ${windowTo}
+Responses: ${signal.responses}
+Low-understanding responses (understood <= 2 of 5): ${signal.low_responses}
+Average understanding (1-5): ${signal.avg_understood ?? 'n/a'}
+
+Anonymized student comments:
+${commentBlock}${trackRecord}
+
+${closingLine}`;
+
+  return {
+    model: modelId,
+    max_tokens: 1024,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userPrompt }],
+  };
+}
+
+// Parse one generation result. Returns suggestion=null on any failure.
+function parseSuggestionMessage(
+  message: Anthropic.Message | null
+): { suggestion: Record<string, unknown> | null; modelUsed: string } {
+  if (!message) return { suggestion: null, modelUsed: 'error' };
+  try {
+    const text = message.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('')
+      .trim();
+    const jsonStr = text
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim();
+    const suggestion = JSON.parse(jsonStr) as Record<string, unknown>;
+    return { suggestion, modelUsed: message.model };
+  } catch (err) {
+    console.error('[cron/scf-generate-suggestions] AI generation failed:', err);
+    return { suggestion: null, modelUsed: 'error' };
+  }
+}
+
+// Regen guard — has a same-kind suggestion for this course already been generated
+// within the lookback? Fail CLOSED on query error (skip to avoid re-spend).
+async function regenGuardHit(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  target: CourseTarget,
+  kind: 'improvement' | 'success',
+  normFaculty: string | null,
+  recentSince: string
+): Promise<boolean | null> {
+  let recentQuery = admin
+    .from('scf_ai_suggestions')
+    .select('id')
+    .eq('course_code', target.course_code)
+    .eq('kind', kind)
+    .eq('domain', 'session_feedback')
+    .gte('generated_at', recentSince)
+    .limit(1);
+  recentQuery = target.institution_id
+    ? recentQuery.eq('institution_id', target.institution_id)
+    : recentQuery.is('institution_id', null);
+  recentQuery = normFaculty
+    ? recentQuery.eq('faculty_email', normFaculty)
+    : recentQuery.is('faculty_email', null);
+  const { data: recentRows, error: recentErr } = await recentQuery;
+  if (recentErr) {
+    console.error(
+      `[cron/scf-generate-suggestions] regen-guard check failed for ${target.course_code} — skipping to avoid re-spend:`,
+      recentErr
+    );
+    return null;
+  }
+  return !!(recentRows && recentRows.length > 0);
+}
+
+// Record a leadership concern (best-effort; never throws to the caller).
+async function recordLeadershipConcern(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  ctx: JudgeContext,
+  modelUsed: string
+): Promise<boolean> {
+  const summary =
+    'One learner in this class asked for clearer explanation or more support this period. ' +
+    'Follow up with the facilitator for specifics.';
+  try {
+    const { error } = await admin.rpc('fn_scf_record_leadership_concern', {
+      p_institution_id: ctx.target.institution_id,
+      p_course_code: ctx.target.course_code,
+      p_faculty_email: ctx.target.faculty_email,
+      p_window_from: ctx.target.window_from,
+      p_window_to: ctx.target.window_to,
+      p_responses: ctx.responses,
+      p_avg: ctx.avg,
+      p_summary: summary,
+      p_model: modelUsed,
+    });
+    if (error) {
+      console.error(
+        `[cron/scf-generate-suggestions] leadership-concern record failed for ${ctx.target.course_code}:`,
+        error
+      );
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error(
+      `[cron/scf-generate-suggestions] leadership-concern record threw for ${ctx.target.course_code}:`,
+      err
+    );
+    return false;
+  }
+}
+
+async function clearLeadershipConcern(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  target: CourseTarget,
+  reason: string
+): Promise<void> {
+  try {
+    const { error } = await admin.rpc('fn_scf_clear_leadership_concern', {
+      p_institution_id: target.institution_id,
+      p_course_code: target.course_code,
+      p_faculty_email: target.faculty_email,
+    });
+    if (error) {
+      console.error(
+        `[cron/scf-generate-suggestions] clear-concern (${reason}) failed for ${target.course_code}:`,
+        error
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[cron/scf-generate-suggestions] clear-concern (${reason}) threw for ${target.course_code}:`,
+      err
+    );
+  }
+}
+
+// ── GET handler ──────────────────────────────────────────────────────────────
+
+export async function GET(request: NextRequest) {
+  // 1) Authorize — same pattern as all CRON_SECRET sibling routes.
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    return NextResponse.json({ ok: false, error: 'CRON_SECRET not configured' }, { status: 500 });
+  }
+  const authHeader = request.headers.get('authorization');
+  const querySecret = request.nextUrl.searchParams.get('secret');
+  if (authHeader !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
+    return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
+  }
+
+  const started = Date.now();
+  const admin = createServiceRoleClient();
+  const mode = request.nextUrl.searchParams.get('mode');
+  const isCollectOnly = mode === 'collect';
+
+  const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+  const aiAvailable = Boolean(apiKey);
+  // Resolve the model ONCE per run (never throws). Used for submit params and for
+  // building any chained generation batch during collect.
+  const { model_id: modelId } = await resolveChatModel(FEATURE_KEY);
+
+  // Result counters (the numeric keys the dispatcher's summarize() reads).
+  let generated = 0;
+  let generatedImprovement = 0;
+  let generatedSuccess = 0;
+  let skipped = 0;
+  let guardErrors = 0;
+  let leadershipFlagged = 0;
+  // Async telemetry.
+  let collectedJobs = 0;
+  let suggestionsWritten = 0;
+  let concerns = 0;
+  let resolved = 0;
+  let genChained = 0;
+
+  // =====================================================================
+  // COLLECT PHASE — always runs first (daily run collects yesterday's batches
+  // before submitting today's; the */30 collect-only run just does this).
+  // Drains ENDED batches, records their results, and chains judge→gen.
+  // =====================================================================
+  if (aiAvailable) {
+    let jobs;
+    try {
+      jobs = await collectEndedBatches(FEATURE_KEY);
+    } catch (collectErr) {
+      console.error('[cron/scf-generate-suggestions] collect failed:', collectErr);
+      jobs = [];
+    }
+
+    for (const job of jobs) {
+      try {
+        const chainedGen: SubmitBatchRequest[] = [];
+        // If any item was settled+billed but its outcome could NOT be fully
+        // recorded (domain-record failure, or a transient guard-query error on an
+        // elevation), do NOT finalize the job: leave it 'collecting' so the lease
+        // re-drains it. settle_item is idempotent (no re-bill) and every domain
+        // write is an upsert, so re-collection safely completes the record. Without
+        // this, a completed+billed item's suggestion is lost and re-billed next run.
+        let deferFinalize = false;
+
+        for (const item of job.items) {
+          if (job.phase === 'judge') {
+            const ctx = item.context as unknown as JudgeContext;
+            const judged = parseJudgeMessage(item.message);
+
+            if (judged.helpAskCount >= WIDENED_MIN_ASKS) {
+              // Elevate to a teacher tip: regen guard, then in-flight guard on
+              // the gen key (so a crashed-then-retried collect can't double-submit
+              // the generation batch), then queue a generation request.
+              const guardHit = await regenGuardHit(
+                admin,
+                ctx.target,
+                'improvement',
+                ctx.normFaculty,
+                ctx.recentSince
+              );
+              if (guardHit === null) {
+                // Transient guard error on a settled+billed elevation — don't lose
+                // it: defer finalize so the lease re-drains and re-attempts.
+                guardErrors++;
+                deferFinalize = true;
+                continue;
+              }
+              if (guardHit) {
+                skipped++;
+                continue;
+              }
+              const genKey = genDedupeKey(ctx.target, 'improvement');
+              const inflight = await partitionInFlight(FEATURE_KEY, [genKey]);
+              if (inflight.has(genKey)) {
+                skipped++;
+                continue;
+              }
+              const trackRecord = await buildTrackRecordBlock(
+                admin,
+                ctx.target.course_code,
+                ctx.target.faculty_email,
+                ctx.target.institution_id
+              );
+              const genCtx: GenContext = {
+                target: ctx.target,
+                kind: 'improvement',
+                responses: ctx.responses,
+                low_responses: ctx.low_responses,
+                avg: ctx.avg,
+              };
+              chainedGen.push({
+                customId: `gen-${chainedGen.length}`,
+                params: buildGenerationParams(
+                  modelId,
+                  'improvement',
+                  ctx.target.course_code,
+                  signalFromCtx(ctx),
+                  ctx.target.window_from,
+                  ctx.target.window_to,
+                  trackRecord
+                ),
+                context: genCtx as unknown as Record<string, unknown>,
+                dedupeKey: genKey,
+              });
+            } else if (judged.helpAskCount === 1) {
+              // Lone voice → leadership-only concern (fixed generic copy; never AI-
+              // derived from the single comment — re-identification risk).
+              const ok = await recordLeadershipConcern(admin, ctx, judged.modelUsed);
+              if (ok) {
+                leadershipFlagged++;
+                concerns++;
+              } else {
+                // Settled+billed but concern not recorded — defer finalize to re-drain.
+                deferFinalize = true;
+              }
+            } else {
+              // 0 genuine asks. A GENUINE 0 resolves a prior lone-voice concern; a
+              // judge ERROR must NOT resolve (a transient blip shouldn't clear a real
+              // concern) — retry next run.
+              if (judged.modelUsed !== 'error') {
+                await clearLeadershipConcern(admin, ctx.target, 'resolve');
+                resolved++;
+              }
+              skipped++;
+            }
+          } else if (job.phase === 'generate') {
+            const ctx = item.context as unknown as GenContext;
+            const { suggestion, modelUsed } = parseSuggestionMessage(item.message);
+            if (suggestion !== null) {
+              try {
+                await admin.rpc('fn_scf_record_suggestion', {
+                  p_institution_id: ctx.target.institution_id,
+                  p_course_code: ctx.target.course_code,
+                  p_faculty_email: ctx.target.faculty_email,
+                  p_window_from: ctx.target.window_from,
+                  p_window_to: ctx.target.window_to,
+                  p_input_responses: ctx.responses,
+                  p_input_low: Number(ctx.low_responses ?? 0),
+                  p_input_avg: ctx.avg,
+                  p_suggestion: suggestion,
+                  p_model: modelUsed,
+                  p_kind: ctx.kind,
+                });
+                generated++;
+                suggestionsWritten++;
+                if (ctx.kind === 'success') generatedSuccess++;
+                else generatedImprovement++;
+                // Supersede any lone-voice concern for this class.
+                if (ctx.kind === 'improvement') {
+                  await clearLeadershipConcern(admin, ctx.target, 'supersede');
+                }
+              } catch (recErr) {
+                // Settled+billed but suggestion not recorded — defer finalize so the
+                // lease re-drains; fn_scf_record_suggestion is an upsert (no dup).
+                console.error(
+                  `[cron/scf-generate-suggestions] record failed for ${ctx.target.course_code} — deferring finalize:`,
+                  recErr
+                );
+                deferFinalize = true;
+              }
+            } else {
+              skipped++;
+            }
+          }
+        }
+
+        // Chain: submit the generation batch for elevated judge items. If this
+        // throws, DO NOT mark the job collected — the lease re-admits it; the
+        // concerns recorded above re-upsert idempotently and the in-flight guard
+        // stops a duplicate gen batch on retry.
+        if (chainedGen.length > 0) {
+          const sub = await submitBatch({
+            featureKey: FEATURE_KEY,
+            phase: 'generate',
+            modelId,
+            requests: chainedGen,
+          });
+          if (sub) genChained += sub.requestCount;
+        }
+
+        if (deferFinalize) {
+          if (job.collectAttempts >= MAX_COLLECT_ATTEMPTS) {
+            // Record has failed on every re-drain up to the cap — a persistent
+            // failure would re-drain forever, freezing the course. Give up: mark
+            // 'failed' (terminal) so the in-flight guard releases it. Items were
+            // already settled (idempotent ledger), so nothing is re-billed.
+            console.error(
+              `[cron/scf-generate-suggestions] job ${job.jobId}: record failed on ${job.collectAttempts} attempts — marking failed (terminal)`
+            );
+            await admin.rpc('fn_ai_batch_mark_expired', {
+              p_job_id: job.jobId,
+              p_status: 'failed',
+            });
+          } else {
+            // A billed item couldn't be fully recorded — leave the job 'collecting'
+            // so the lease re-admits and re-drains it (idempotent). Do NOT finalize.
+            console.warn(
+              `[cron/scf-generate-suggestions] job ${job.jobId}: a record step failed (attempt ${job.collectAttempts}) — deferring finalize for lease re-drain`
+            );
+          }
+        } else {
+          await markJobCollected(job.jobId);
+          collectedJobs++;
+        }
+      } catch (jobErr) {
+        // Leave the job in 'collecting' — the lease re-admits it. All prior writes
+        // were idempotent, so re-collection is safe.
+        console.error(
+          `[cron/scf-generate-suggestions] job ${job.jobId} collect handling failed (will retry):`,
+          jobErr
+        );
+      }
+    }
+  }
+
+  // =====================================================================
+  // SUBMIT PHASE — only on the default (daily) run, not ?mode=collect.
+  // Scan candidates, classify, apply the regen + in-flight guards, and submit a
+  // judge batch and/or a generation batch. No polling.
+  // =====================================================================
+  let candidatesCount = 0;
+  let cappedCount = 0;
+  let submittedJudge: SubmitBatchResult | null = null;
+  let submittedGen: SubmitBatchResult | null = null;
+
+  if (!isCollectOnly) {
+    const windowParam = request.nextUrl.searchParams.get('window_days');
+    const windowDays =
+      windowParam && /^\d+$/.test(windowParam) ? parseInt(windowParam, 10) : WINDOW_DAYS;
+    const today = new Date();
+    const windowTo = isoDate(today);
+    const windowFrom = isoDate(new Date(today.getTime() - windowDays * 24 * 60 * 60 * 1000));
+
+    const { data: candidates, error: listErr } = await admin.rpc('fn_scf_candidate_windows', {
+      p_from: windowFrom,
+      p_to: windowTo,
+    });
+    if (listErr) {
+      console.error('[cron/scf-generate-suggestions] listing failed:', listErr);
+      return NextResponse.json(
+        { ok: false, error: listErr.message, elapsed_ms: Date.now() - started },
+        { status: 500 }
+      );
+    }
+
+    const seen = new Set<string>();
+    const uniqueTargets: CourseTarget[] = [];
+    for (const row of candidates ?? []) {
+      const key = `${row.institution_id}|${row.course_code}|${row.faculty_email}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueTargets.push({
+          institution_id: row.institution_id as string | null,
+          course_code: String(row.course_code),
+          faculty_email: row.faculty_email as string | null,
+          window_from: windowFrom,
+          window_to: windowTo,
+        });
+      }
+    }
+    candidatesCount = uniqueTargets.length;
+
+    let targets = uniqueTargets;
+    if (uniqueTargets.length > BATCH_CAP) {
+      cappedCount = uniqueTargets.length - BATCH_CAP;
+      targets = uniqueTargets.slice(0, BATCH_CAP);
+      console.warn(
+        `[cron/scf-generate-suggestions] batch cap hit: ${uniqueTargets.length} candidates, processing ${BATCH_CAP}, skipping ${cappedCount}`
+      );
+    }
+
+    // Build judge + generation request queues (with per-item context + dedupe key).
+    const judgeReqs: SubmitBatchRequest[] = [];
+    const genReqs: SubmitBatchRequest[] = [];
+    const recentSince = isoDate(
+      new Date(today.getTime() - windowDays * 24 * 60 * 60 * 1000)
+    );
+
+    for (const target of targets) {
+      const { data: signalData, error: signalErr } = await admin.rpc('fn_scf_ai_signal', {
+        p_course_code: target.course_code,
+        p_from: target.window_from,
+        p_to: target.window_to,
+        p_institution_id: target.institution_id,
+        p_faculty_email: target.faculty_email,
+      });
+      if (signalErr) {
+        console.error(
+          `[cron/scf-generate-suggestions] signal failed for ${target.course_code}:`,
+          signalErr
+        );
+        skipped++;
+        continue;
+      }
+
+      const signal = (Array.isArray(signalData) ? signalData[0] : signalData) as SignalRow | null;
+      const responses = Number(signal?.responses ?? 0);
+      const avgUnderstood =
+        signal?.avg_understood !== null && signal?.avg_understood !== undefined
+          ? Number(signal.avg_understood)
+          : null;
+      const freeTexts: string[] = (signal?.free_texts ?? [])
+        .map((t) => String(t ?? '').trim())
+        .filter((t) => t.length > 0);
+      const freeTextCount = freeTexts.length;
+      const lowResponses = Number(signal?.low_responses ?? 0);
+
+      if (responses < MIN_RESPONSES || avgUnderstood === null) {
+        skipped++;
+        continue;
+      }
+
+      const normFaculty = target.faculty_email
+        ? target.faculty_email.trim().toLowerCase() || null
+        : null;
+
+      let kind: 'improvement' | 'success' | null = null;
+      if (avgUnderstood < LOW_UNDERSTOOD_THRESHOLD) {
+        kind = 'improvement';
+      } else if (avgUnderstood >= STANDOUT_THRESHOLD && freeTextCount >= 1) {
+        kind = 'success';
+      } else if (freeTextCount >= WIDENED_MIN_COMMENTS && aiAvailable) {
+        // WIDENED path — spend guard first (already-tipped windows skip re-judge).
+        const handled = await widenedWindowAlreadyHandled(admin, target, normFaculty, recentSince);
+        if (handled === null) {
+          guardErrors++;
+          skipped++;
+          continue;
+        }
+        if (handled) {
+          skipped++;
+          continue;
+        }
+        const jctx: JudgeContext = {
+          target,
+          responses,
+          avg: avgUnderstood,
+          low_responses: lowResponses,
+          free_texts: freeTexts,
+          normFaculty,
+          recentSince,
+        };
+        judgeReqs.push({
+          customId: `judge-${judgeReqs.length}`,
+          params: buildJudgeParams(modelId, freeTexts, target.course_code),
+          context: jctx as unknown as Record<string, unknown>,
+          dedupeKey: judgeDedupeKey(target),
+        });
+        continue;
+      }
+      if (kind === null) {
+        skipped++;
+        continue;
+      }
+
+      // Direct low/standout path → regen guard, then queue a generation request.
+      const guardHit = await regenGuardHit(admin, target, kind, normFaculty, recentSince);
+      if (guardHit === null) {
+        guardErrors++;
+        skipped++;
+        continue;
+      }
+      if (guardHit) {
+        skipped++;
+        continue;
+      }
+      const trackRecord =
+        kind === 'improvement'
+          ? await buildTrackRecordBlock(
+              admin,
+              target.course_code,
+              target.faculty_email,
+              target.institution_id
+            )
+          : '';
+      const gctx: GenContext = {
+        target,
+        kind,
+        responses,
+        low_responses: lowResponses,
+        avg: avgUnderstood,
+      };
+      genReqs.push({
+        customId: `gen-${genReqs.length}`,
+        params: buildGenerationParams(
+          modelId,
+          kind,
+          target.course_code,
+          signal as SignalRow,
+          target.window_from,
+          target.window_to,
+          trackRecord
+        ),
+        context: gctx as unknown as Record<string, unknown>,
+        dedupeKey: genDedupeKey(target, kind),
+      });
+    }
+
+    // In-flight guard: drop any candidate whose batch is already outstanding
+    // (submitted-not-yet-collected) — prevents re-submit + re-bill.
+    if (aiAvailable && (judgeReqs.length > 0 || genReqs.length > 0)) {
+      // For each JUDGE request also check its course's gen-IMPROVEMENT key: once a
+      // judge batch elevates and chains a gen batch, the judge job is 'collected'
+      // (judge key no longer in-flight) but the tip isn't recorded until the gen
+      // is collected. Without this, the next daily run re-judges the same course
+      // (extra judge spend). An outstanding gen-improvement batch = already handled.
+      const judgeGenKeys = judgeReqs.map((r) =>
+        genDedupeKey((r.context as unknown as JudgeContext).target, 'improvement')
+      );
+      const allKeys = [
+        ...judgeReqs.map((r) => r.dedupeKey),
+        ...genReqs.map((r) => r.dedupeKey),
+        ...judgeGenKeys,
+      ].filter((k): k is string => !!k);
+      const inflight = await partitionInFlight(FEATURE_KEY, allKeys);
+      const freshJudge = judgeReqs.filter(
+        (r, i) => !(r.dedupeKey && inflight.has(r.dedupeKey)) && !inflight.has(judgeGenKeys[i])
+      );
+      const freshGen = genReqs.filter((r) => !(r.dedupeKey && inflight.has(r.dedupeKey)));
+      skipped += judgeReqs.length - freshJudge.length + (genReqs.length - freshGen.length);
+
+      try {
+        if (freshJudge.length > 0) {
+          submittedJudge = await submitBatch({
+            featureKey: FEATURE_KEY,
+            phase: 'judge',
+            modelId,
+            requests: freshJudge,
+          });
+        }
+      } catch (e) {
+        console.error('[cron/scf-generate-suggestions] judge submit failed:', e);
+        skipped += freshJudge.length;
+      }
+      try {
+        if (freshGen.length > 0) {
+          submittedGen = await submitBatch({
+            featureKey: FEATURE_KEY,
+            phase: 'generate',
+            modelId,
+            requests: freshGen,
+          });
+        }
+      } catch (e) {
+        console.error('[cron/scf-generate-suggestions] generation submit failed:', e);
+        skipped += freshGen.length;
+      }
+    } else if (!aiAvailable) {
+      skipped += judgeReqs.length + genReqs.length;
+    }
+  }
+
+  // =====================================================================
+  // MEASURE — loop verifier. Once per daily run (not on the */30 collect ticks)
+  // so the measurement cadence matches the original once-a-day attribution.
+  // =====================================================================
+  let measured: number | null = null;
+  if (!isCollectOnly) {
+    const { data: measureData, error: measureErr } = await admin.rpc(
+      'fn_scf_measure_suggestion_outcomes',
+      { p_min_age_days: 1 }
+    );
+    if (measureErr) {
+      console.error('[cron/scf-generate-suggestions] measure outcomes failed:', measureErr);
+    } else {
+      measured = Array.isArray(measureData)
+        ? (measureData[0] ?? 0)
+        : (measureData as number | null);
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    mode: isCollectOnly ? 'collect' : 'submit',
+    candidates: candidatesCount,
+    capped: cappedCount,
+    // Numeric keys read by ai-routine-dispatcher.summarize() — reflect what was
+    // RECORDED this run (during collect). On the daily run these count what the
+    // collect-first phase drained from previously-submitted batches.
+    generated,
+    generated_improvement: generatedImprovement,
+    generated_success: generatedSuccess,
+    skipped,
+    guard_errors: guardErrors,
+    leadership_flagged: leadershipFlagged,
+    measured,
+    ai_available: aiAvailable,
+    // Async telemetry.
+    submitted: { judge: submittedJudge, generate: submittedGen },
+    collected: {
+      jobs: collectedJobs,
+      suggestions_written: suggestionsWritten,
+      concerns,
+      resolved,
+      gen_chained: genChained,
+    },
+    elapsed_ms: Date.now() - started,
+  });
+}

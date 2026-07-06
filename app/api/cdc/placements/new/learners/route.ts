@@ -37,6 +37,9 @@ interface LearnerPickerRow {
   first_name: string | null;
   last_name: string | null;
   register_number: string | null;
+  // Embedded via the single FK learners_profiles.institution_id -> institutions.id.
+  // PostgREST returns a to-one relationship as an object (or null when unset).
+  institution: { name: string | null } | null;
 }
 
 export async function GET(request: NextRequest) {
@@ -57,7 +60,9 @@ export async function GET(request: NextRequest) {
 
     let query = (supabase as any)
       .from('learners_profiles')
-      .select('id, first_name, last_name, register_number')
+      .select(
+        'id, first_name, last_name, register_number, institution:institutions!fk_learners_profiles_institution(name)'
+      )
       .in('lifecycle_status', [...PLACEABLE_LIFECYCLE_STATUSES])
       .order('first_name', { ascending: true })
       .limit(5000);
@@ -75,12 +80,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const options = ((data ?? []) as LearnerPickerRow[]).map((l) => ({
-      value: l.id,
-      label:
-        `${l.first_name ?? ''} ${l.last_name ?? ''}`.trim() +
-        (l.register_number ? ` (${l.register_number})` : ''),
-    }));
+    const options = ((data ?? []) as LearnerPickerRow[]).map((l) => {
+      const name = `${l.first_name ?? ''} ${l.last_name ?? ''}`.trim();
+      const reg = l.register_number ? ` (${l.register_number})` : '';
+      // BUG-004296: append the learner's college/institution so coordinators can
+      // disambiguate same-named learners across institutions in the picker.
+      const inst = l.institution?.name ? ` — ${l.institution.name}` : '';
+      return { value: l.id, label: `${name}${reg}${inst}` };
+    });
 
     return NextResponse.json(
       { data: options },

@@ -254,10 +254,11 @@ export class StudentSearchService {
   }
 
   static async getStudentForBilling(
-    studentId: string
+    studentId: string,
+    options: { includeNonBillable?: boolean } = {}
   ): Promise<StudentForBilling> {
     try {
-      const { data, error } = await this.supabase
+      let query = this.supabase
         .from('learners_profiles')
         .select(
           `
@@ -286,9 +287,18 @@ export class StudentSearchService {
           accommodation_type:accommodation_types!accommodation_type_id(id, code, name)
         `
         )
-        .eq('id', studentId)
-        .in('lifecycle_status', [...BILLABLE_LIFECYCLE_STATUSES])
-        .single();
+        .eq('id', studentId);
+
+      // Billing pickers/creation flows only work with billable learners, but
+      // the read-only detail page must load ANY learner — bills raised before
+      // a learner became rejected/withdrawn still need to be viewable
+      // (cancel/refund), and filtering here made those pages throw PGRST116
+      // ("students not found") for everyone.
+      if (!options.includeNonBillable) {
+        query = query.in('lifecycle_status', [...BILLABLE_LIFECYCLE_STATUSES]);
+      }
+
+      const { data, error } = await query.single();
 
       if (error) throw error;
 
@@ -306,8 +316,11 @@ export class StudentSearchService {
     studentId: string
   ): Promise<StudentBillingSummary> {
     try {
-      // Get student details
-      const student = await this.getStudentForBilling(studentId);
+      // Get student details (read-only summary — include non-billable
+      // learners so bills raised before rejection/withdrawal stay viewable)
+      const student = await this.getStudentForBilling(studentId, {
+        includeNonBillable: true
+      });
 
       // Get all bills for the student
       const billsQuery: any = this.supabase

@@ -95,6 +95,72 @@ const MILESTONE_NOTIFICATION_MAP: Record<number, string> = {
 };
 
 // ---------------------------------------------------------------------------
+// Shared roster resolver (Phase 2.3 FULL MIGRATION)
+// ---------------------------------------------------------------------------
+//
+// Post-migration, public.cohorts / public.cohort_memberships are the CANONICAL
+// "which program + who is in it" store; sf100_enrollments is the SF100 per-team
+// EXTENSION (member_ref = enrollment id) that RETAINS its own program_id column.
+//
+// Roster resolution is scoped by sf100_enrollments.program_id as the AUTHORITATIVE
+// base, then the cohort spine (cohort_memberships) is folded in as an ADDITIVE
+// union. Because the base is the extension's own program_id, a partial/incomplete
+// or lagging cohort_memberships set can NEVER silently DROP a team that is really
+// enrolled in the program (a membership-only resolver could) — every enrollment
+// carrying the program_id is always included.
+//
+// Exported (not just a class method) so the two public leaderboard routes and the
+// authed seed-from-declarations route call the SAME resolver with THEIR OWN
+// supabase client (service-role for the public routes, RLS-scoped for the authed
+// route) instead of re-inlining a membership-only copy that could drift.
+//
+// Returns `null` ONLY when the program has zero enrollments and the spine adds
+// nothing — every caller then falls back to `.eq('program_id', …)`, which also
+// returns 0 rows, so behaviour is identical. `supabase` is typed `any` to match
+// the codebase's client typing (BaseService.supabase / auth.supabase are both any).
+//
+// NOTE: status is NOT folded here — every caller keeps its own
+// sf100_enrollments.status filter, which remains the authoritative 6-value
+// sub-state (gotchas #3/#5).
+export async function resolveRosterEnrollmentIds(
+  supabase: any,
+  programId: string
+): Promise<string[] | null> {
+  // 1. AUTHORITATIVE base: every enrollment carrying this program_id.
+  const { data: base, error: baseErr } = await supabase
+    .from('sf100_enrollments')
+    .select('id')
+    .eq('program_id', programId);
+  // On a base read error, degrade to the caller's own `.eq('program_id', …)` path.
+  if (baseErr) return null;
+
+  const ids = new Set<string>(
+    (base || []).map((e: any) => e.id).filter(Boolean) as string[]
+  );
+
+  // 2. ADDITIVE union with the cohort spine (best-effort). A missing cohort or a
+  //    membership read failure must never SHRINK the authoritative base above.
+  const { data: cohort } = await supabase
+    .from('cohorts')
+    .select('id')
+    .eq('kind', 'sf100')
+    .eq('config->>sf100_program_id', programId)
+    .maybeSingle();
+  if (cohort?.id) {
+    const { data: members } = await supabase
+      .from('cohort_memberships')
+      .select('member_ref')
+      .eq('cohort_id', cohort.id)
+      .eq('member_type', 'team');
+    for (const m of members || []) {
+      if (m?.member_ref) ids.add(m.member_ref as string);
+    }
+  }
+
+  return ids.size > 0 ? Array.from(ids) : null;
+}
+
+// ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
 
@@ -290,6 +356,61 @@ export class SF100Service extends BaseService {
       console.error('[sf100_phase_history] Error creating initial history:', historyError);
     }
 
+    // WRITE-SIDE TWIN (cohort spine) — when this program is registered in the
+    // cohort spine, mirror the new enrollment as a team membership so cohort-
+    // scoped roster reads see it, and back-link the enrollment to its membership.
+    // Best-effort + idempotent (upsert): if the program has no cohort yet (created
+    // after backfill) the legacy program_id roster path covers it, so we skip
+    // silently. NOTE: the membership INSERT is subject to cohort RLS — the caller
+    // must hold `cohort.create`; a failure is logged (the enrollment is already
+    // committed) and the team reappears on the cohort path after a backfill re-run.
+    try {
+      const { data: cohort } = await this.supabase
+        .from('cohorts')
+        .select('id')
+        .eq('kind', 'sf100')
+        .eq('config->>sf100_program_id', programId)
+        .maybeSingle();
+
+      if (cohort?.id) {
+        const { data: membership, error: memErr } = await this.supabase
+          .from('cohort_memberships')
+          .upsert(
+            {
+              cohort_id: cohort.id,
+              member_type: 'team',
+              member_ref: enrollment.id,
+              status: 'active', // new enrollments start extension-active → membership 'active'
+              role: 'team',
+              joined_at: now,
+              joined_by: enrolledBy,
+              config: {
+                sf100_enrollment_id: enrollment.id,
+                registration_id: registrationId,
+                current_phase: startingPhase,
+              },
+            },
+            { onConflict: 'cohort_id,member_type,member_ref' }
+          )
+          .select('id')
+          .single();
+
+        if (memErr) {
+          console.error('[sf100/enrollTeam] cohort membership mirror failed:', memErr);
+        } else if (membership?.id) {
+          const { error: linkErr } = await this.supabase
+            .from('sf100_enrollments')
+            .update({ cohort_membership_id: membership.id })
+            .eq('id', enrollment.id);
+          if (linkErr) {
+            console.error('[sf100/enrollTeam] cohort_membership_id back-link failed:', linkErr);
+          }
+        }
+      }
+    } catch (twinErr) {
+      console.error('[sf100/enrollTeam] cohort twin error:', twinErr);
+    }
+
     // INTEGRATION SITE 1 — team_selected
     // Notify every team member (via profile_id) that they have been selected.
     // Fire-and-forget: enrollment is already committed; notification failure must not roll it back.
@@ -380,11 +501,15 @@ export class SF100Service extends BaseService {
   ): Promise<BaseListResponse<SF100Enrollment>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
+    // Program + roster from the cohort spine (canonical); SF100 fields still come
+    // from the sf100_enrollments extension. Legacy program_id fallback keeps this
+    // correct before the migration is applied / for un-backfilled programs.
+    const rosterIds = await this.resolveRosterEnrollmentIds(programId);
     let query = this.supabase
       .from('sf100_enrollments')
       .select(ENROLLMENT_SELECT, { count: 'exact' })
-      .eq('program_id', programId)
       .order('enrolled_at', { ascending: false });
+    query = rosterIds ? query.in('id', rosterIds) : query.eq('program_id', programId);
 
     if (filters?.phase) {
       query = query.eq('current_phase', filters.phase);
@@ -803,11 +928,18 @@ export class SF100Service extends BaseService {
     // We need to join through enrollments to filter by program_id
     // Supabase doesn't support direct JOINs in the query builder for filtering,
     // so we first get enrollment_ids for the program, then query paid_users.
-    const { data: enrollments, error: enrollmentError } = await this.supabase
+    // Program + roster scope from the cohort spine (canonical); legacy program_id
+    // fallback. The removed/withdrawn exclusion stays on the extension status
+    // (authoritative sub-state) either way.
+    const rosterIds = await this.resolveRosterEnrollmentIds(programId);
+    let enrollmentQuery = this.supabase
       .from('sf100_enrollments')
       .select('id')
-      .eq('program_id', programId)
       .not('status', 'in', '("removed","withdrawn")');
+    enrollmentQuery = rosterIds
+      ? enrollmentQuery.in('id', rosterIds)
+      : enrollmentQuery.eq('program_id', programId);
+    const { data: enrollments, error: enrollmentError } = await enrollmentQuery;
 
     if (enrollmentError) throw new Error('Failed to fetch enrollments for verification queue: ' + enrollmentError.message);
 
@@ -858,10 +990,10 @@ export class SF100Service extends BaseService {
   static async checkAutoAdvance(
     enrollmentId: string
   ): Promise<PhaseAdvanceResult | null> {
-    // Fetch enrollment with program config
+    // Fetch the enrollment (extension — SF100 per-team fields stay here).
     const { data: enrollment, error: enrollError } = await this.supabase
       .from('sf100_enrollments')
-      .select('*, program:sf100_programs(max_internal_user_pct)')
+      .select('*')
       .eq('id', enrollmentId)
       .single();
 
@@ -869,7 +1001,21 @@ export class SF100Service extends BaseService {
     if (!enrollment) return null;
 
     const currentPhase = enrollment.current_phase as SF100Phase;
-    const maxInternalPct = enrollment.program?.max_internal_user_pct ?? 20;
+
+    // max_internal_user_pct is now a cohorts.config key (canonical); fall back to
+    // the still-live sf100_programs column, then the historical default of 20.
+    const cohortRow = await this.resolveCohortRow(enrollment.program_id);
+    let maxInternalPct: number;
+    if (cohortRow?.config?.max_internal_user_pct != null) {
+      maxInternalPct = Number(cohortRow.config.max_internal_user_pct);
+    } else {
+      const { data: prog } = await this.supabase
+        .from('sf100_programs')
+        .select('max_internal_user_pct')
+        .eq('id', enrollment.program_id)
+        .maybeSingle();
+      maxInternalPct = prog?.max_internal_user_pct ?? 20;
+    }
 
     // Terminal or non-advanceable phases
     if (currentPhase === 'graduated' || currentPhase === 'hundred_users') {
@@ -963,11 +1109,15 @@ export class SF100Service extends BaseService {
    * Run auto-advance check on all active enrollments in a program.
    */
   static async bulkAutoAdvance(programId: string): Promise<BulkAdvanceResult> {
-    const { data: enrollments, error } = await this.supabase
+    // Roster scope from the cohort spine (canonical); the active sub-state stays
+    // on the extension status (authoritative). Legacy program_id fallback.
+    const rosterIds = await this.resolveRosterEnrollmentIds(programId);
+    let query = this.supabase
       .from('sf100_enrollments')
       .select('id, registration:event_registrations(team_name), current_phase')
-      .eq('program_id', programId)
       .eq('status', 'active');
+    query = rosterIds ? query.in('id', rosterIds) : query.eq('program_id', programId);
+    const { data: enrollments, error } = await query;
 
     if (error) throw new Error('Failed to fetch enrollments for bulk auto-advance: ' + error.message);
 
@@ -1105,25 +1255,38 @@ export class SF100Service extends BaseService {
    * - probation -> removed (at stall_removal_days)
    */
   static async runStallCheck(programId: string): Promise<StallCheckResult> {
-    // Get program config
-    const { data: program, error: progError } = await this.supabase
-      .from('sf100_programs')
-      .select('stall_warning_days, stall_probation_days, stall_removal_days')
-      .eq('id', programId)
-      .single();
+    // Stall thresholds are now cohorts.config keys (canonical); fall back to the
+    // still-live sf100_programs columns.
+    const cohortRow = await this.resolveCohortRow(programId);
+    let warningDays: number;
+    let probationDays: number;
+    let removalDays: number;
+    if (cohortRow?.config?.stall_warning_days != null) {
+      warningDays = Number(cohortRow.config.stall_warning_days);
+      probationDays = Number(cohortRow.config.stall_probation_days);
+      removalDays = Number(cohortRow.config.stall_removal_days);
+    } else {
+      const { data: program, error: progError } = await this.supabase
+        .from('sf100_programs')
+        .select('stall_warning_days, stall_probation_days, stall_removal_days')
+        .eq('id', programId)
+        .single();
+      if (progError) throw new Error('Failed to fetch program for stall check: ' + progError.message);
+      warningDays = program.stall_warning_days;
+      probationDays = program.stall_probation_days;
+      removalDays = program.stall_removal_days;
+    }
 
-    if (progError) throw new Error('Failed to fetch program for stall check: ' + progError.message);
-
-    const warningDays = program.stall_warning_days;
-    const probationDays = program.stall_probation_days;
-    const removalDays = program.stall_removal_days;
-
-    // Fetch all non-terminal enrollments
-    const { data: enrollments, error } = await this.supabase
+    // Fetch all non-terminal enrollments. Roster scope from the cohort spine
+    // (canonical); the warning/probation sub-states stay on the extension status
+    // (authoritative — gotcha #3). Legacy program_id fallback.
+    const rosterIds = await this.resolveRosterEnrollmentIds(programId);
+    let stallQuery = this.supabase
       .from('sf100_enrollments')
       .select('id, status, last_check_in_at, enrolled_at, registration:event_registrations(team_name, owner_id)')
-      .eq('program_id', programId)
       .in('status', ['active', 'warning', 'probation']);
+    stallQuery = rosterIds ? stallQuery.in('id', rosterIds) : stallQuery.eq('program_id', programId);
+    const { data: enrollments, error } = await stallQuery;
 
     if (error) throw new Error('Failed to fetch enrollments for stall check: ' + error.message);
 
@@ -1228,8 +1391,12 @@ export class SF100Service extends BaseService {
    * Only returns public-safe fields.
    */
   static async getPublicLeaderboard(programId: string): Promise<LeaderboardData> {
-    // Use the SQL from spec Section 9C, implemented via Supabase query
-    const { data: rows, error } = await this.supabase
+    // Use the SQL from spec Section 9C, implemented via Supabase query.
+    // Program + roster from the cohort spine (canonical); current_phase &
+    // cumulative_paid_users are read LIVE from the extension (not the stale
+    // membership.config snapshot — gotcha #5). Legacy program_id fallback.
+    const rosterIds = await this.resolveRosterEnrollmentIds(programId);
+    let lbQuery = this.supabase
       .from('sf100_enrollments')
       .select(`
         id,
@@ -1238,10 +1405,11 @@ export class SF100Service extends BaseService {
         enrolled_at,
         registration:event_registrations(team_name, institution:institutions(name))
       `)
-      .eq('program_id', programId)
       .not('status', 'in', '("removed","withdrawn")')
       .order('cumulative_paid_users', { ascending: false })
       .order('enrolled_at', { ascending: true });
+    lbQuery = rosterIds ? lbQuery.in('id', rosterIds) : lbQuery.eq('program_id', programId);
+    const { data: rows, error } = await lbQuery;
 
     if (error) throw new Error('Failed to fetch leaderboard: ' + error.message);
 
@@ -1298,11 +1466,15 @@ export class SF100Service extends BaseService {
    * Get aggregate public stats for a program.
    */
   static async getPublicStats(programId: string): Promise<PublicStats> {
-    const { data: enrollments, error } = await this.supabase
+    // Program + roster from the cohort spine (canonical); metrics read live from
+    // the extension. Legacy program_id fallback.
+    const rosterIds = await this.resolveRosterEnrollmentIds(programId);
+    let statsQuery = this.supabase
       .from('sf100_enrollments')
       .select('current_phase, cumulative_paid_users, enrolled_at')
-      .eq('program_id', programId)
       .not('status', 'in', '("removed","withdrawn")');
+    statsQuery = rosterIds ? statsQuery.in('id', rosterIds) : statsQuery.eq('program_id', programId);
+    const { data: enrollments, error } = await statsQuery;
 
     if (error) throw new Error('Failed to fetch public stats: ' + error.message);
 
@@ -1565,27 +1737,64 @@ export class SF100Service extends BaseService {
     data: CreateRosterChangeDto,
     requestedBy: string
   ): Promise<SF100RosterChange> {
-    // Check if the member is an original team member
+    // Resolve the enrollment's registration so we can find any existing team member.
+    const { data: enrollmentRow } = await this.supabase
+      .from('sf100_enrollments')
+      .select('registration_id')
+      .eq('id', enrollmentId)
+      .single();
+
+    // Check if the member is an original team member (also the primary identity source).
     const { data: existingMember } = await this.supabase
       .from('event_team_members')
-      .select('id')
-      .eq('registration_id', (
-        await this.supabase
-          .from('sf100_enrollments')
-          .select('registration_id')
-          .eq('id', enrollmentId)
-          .single()
-      ).data?.registration_id)
+      .select('id, profile_id, learner_id')
+      .eq('registration_id', enrollmentRow?.registration_id)
       .eq('email', data.email)
-      .single();
+      .maybeSingle();
+
+    // D9 (Cohort Core) — every roster member must resolve to an EXISTING MyJKKN
+    // profile. No free-text-only members. Resolve identity in priority order:
+    //   1. explicit DTO values (directory-picker path)
+    //   2. the existing team-member row (registration invites are learner-linked)
+    //   3. a directory lookup by email (profiles → learners_profiles)
+    // Reject if nothing resolves. This guarantees the DB CHECK constraint added in
+    // 20260731070000_sf100_roster_profile_required.sql can never break a live insert.
+    let profileId: string | null = data.profile_id || existingMember?.profile_id || null;
+    let learnerId: string | null = data.learner_id || existingMember?.learner_id || null;
+
+    if (!profileId && !learnerId) {
+      const { data: profileMatch } = await this.supabase
+        .from('profiles')
+        .select('id')
+        .eq('email', data.email)
+        .maybeSingle();
+      if (profileMatch?.id) {
+        profileId = profileMatch.id;
+      } else {
+        const { data: learnerMatch } = await this.supabase
+          .from('learners_profiles')
+          .select('id')
+          .or(`student_email.eq.${data.email},college_email.eq.${data.email}`)
+          .maybeSingle();
+        if (learnerMatch?.id) learnerId = learnerMatch.id;
+      }
+    }
+
+    if (!profileId && !learnerId) {
+      const err = new Error(
+        `Roster member must be an existing MyJKKN user. No profile or learner record matched "${data.email}". Select the member from the directory instead of entering a free-text email.`
+      );
+      (err as Error & { status?: number }).status = 400;
+      throw err;
+    }
 
     const { data: change, error } = await this.supabase
       .from('sf100_roster_changes')
       .insert({
         enrollment_id: enrollmentId,
         action: data.action,
-        profile_id: data.profile_id || null,
-        learner_id: data.learner_id || null,
+        profile_id: profileId,
+        learner_id: learnerId,
         email: data.email,
         full_name: data.full_name || null,
         is_original_member: !!existingMember,
@@ -1701,11 +1910,15 @@ export class SF100Service extends BaseService {
   static async getPhaseFunnel(
     programId: string
   ): Promise<Array<{ phase: string; count: number }>> {
-    const { data: enrollments, error } = await this.supabase
+    // Program + roster from the cohort spine (canonical); current_phase read live
+    // from the extension. Legacy program_id fallback.
+    const rosterIds = await this.resolveRosterEnrollmentIds(programId);
+    let funnelQuery = this.supabase
       .from('sf100_enrollments')
       .select('current_phase')
-      .eq('program_id', programId)
       .not('status', 'in', '("removed","withdrawn")');
+    funnelQuery = rosterIds ? funnelQuery.in('id', rosterIds) : funnelQuery.eq('program_id', programId);
+    const { data: enrollments, error } = await funnelQuery;
 
     if (error) throw new Error('Failed to fetch phase funnel: ' + error.message);
 
@@ -1726,12 +1939,17 @@ export class SF100Service extends BaseService {
    * Get all stalled teams (status is warning or probation) for a program.
    */
   static async getStalledTeams(programId: string): Promise<SF100Enrollment[]> {
-    const { data, error } = await this.supabase
+    // Roster scope from the cohort spine (canonical); the warning/probation
+    // sub-states stay on the extension status (authoritative — gotcha #3).
+    // Legacy program_id fallback.
+    const rosterIds = await this.resolveRosterEnrollmentIds(programId);
+    let stalledQuery = this.supabase
       .from('sf100_enrollments')
       .select(ENROLLMENT_SELECT)
-      .eq('program_id', programId)
       .in('status', ['warning', 'probation'])
       .order('status_changed_at', { ascending: true });
+    stalledQuery = rosterIds ? stalledQuery.in('id', rosterIds) : stalledQuery.eq('program_id', programId);
+    const { data, error } = await stalledQuery;
 
     if (error) throw new Error('Failed to fetch stalled teams: ' + error.message);
     return (data || []) as SF100Enrollment[];
@@ -1741,7 +1959,11 @@ export class SF100Service extends BaseService {
    * Export all enrollments for a program as CSV.
    */
   static async exportProgramCSV(programId: string): Promise<string> {
-    const { data: enrollments, error } = await this.supabase
+    // Roster scope from the cohort spine (canonical); exports the full roster
+    // (no status filter), SF100 fields from the extension. Legacy program_id
+    // fallback.
+    const rosterIds = await this.resolveRosterEnrollmentIds(programId);
+    let csvQuery = this.supabase
       .from('sf100_enrollments')
       .select(`
         *,
@@ -1752,8 +1974,9 @@ export class SF100Service extends BaseService {
           institution:institutions(name)
         )
       `)
-      .eq('program_id', programId)
       .order('enrolled_at', { ascending: true });
+    csvQuery = rosterIds ? csvQuery.in('id', rosterIds) : csvQuery.eq('program_id', programId);
+    const { data: enrollments, error } = await csvQuery;
 
     if (error) throw new Error('Failed to fetch enrollments for CSV export: ' + error.message);
 
@@ -1823,6 +2046,50 @@ export class SF100Service extends BaseService {
   // =========================================================================
   // Private Helpers
   // =========================================================================
+
+  // ---------------------------------------------------------------------------
+  // Cohort-core bridge (Phase 2.3 FULL MIGRATION)
+  //
+  // Post-migration, public.cohorts / public.cohort_memberships are the CANONICAL
+  // "which program + who is in it" store; sf100_enrollments is the SF100 per-team
+  // EXTENSION (joined by member_ref = enrollment id). These resolvers translate a
+  // legacy SF100 program id into the cohort spine, and ALWAYS degrade to the
+  // legacy path when the spine is unavailable — so this code is safe to deploy
+  // BEFORE the migration is applied and never regresses under RLS.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Resolve the enrollment ids that belong to a program. Thin instance-side wrapper
+   * over the shared module-level {@link resolveRosterEnrollmentIds}, passing the
+   * service's request-scoped client. Kept so the many in-class callers keep their
+   * existing `this.resolveRosterEnrollmentIds(programId)` call-site unchanged. See
+   * the module function for the program_id-authoritative + spine-union semantics.
+   */
+  private static async resolveRosterEnrollmentIds(
+    programId: string
+  ): Promise<string[] | null> {
+    return resolveRosterEnrollmentIds(this.supabase, programId);
+  }
+
+  /**
+   * Resolve a program's canonical cohort row (name + config). Post-migration,
+   * SF100 program settings that were first-class columns on sf100_programs now
+   * live in cohorts.config (max_internal_user_pct, stall_*_days, source_event_id,
+   * …). Returns null when the program has no cohort yet — callers fall back to the
+   * still-live sf100_programs columns.
+   */
+  private static async resolveCohortRow(
+    programId: string
+  ): Promise<{ name: string; config: Record<string, any> } | null> {
+    const { data, error } = await this.supabase
+      .from('cohorts')
+      .select('name, config')
+      .eq('kind', 'sf100')
+      .eq('config->>sf100_program_id', programId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return { name: data.name as string, config: (data.config || {}) as Record<string, any> };
+  }
 
   /**
    * Recalculate paid-user metrics on an enrollment from sf100_paid_users.
@@ -1952,20 +2219,29 @@ export class SF100Service extends BaseService {
     programId: string,
     roundLabel?: string
   ): Promise<void> {
-    // Resolve the source event for this program
-    const { data: program, error: progErr } = await this.supabase
-      .from('sf100_programs')
-      .select('source_event_id, name')
-      .eq('id', programId)
-      .single();
+    // Program name is a cohorts column; source_event_id is a cohorts.config key
+    // (canonical post-migration). Fall back to the still-live sf100_programs
+    // columns so this works before the migration is applied / for un-backfilled
+    // programs.
+    const cohortRow = await this.resolveCohortRow(programId);
+    let eventId: string | null = (cohortRow?.config?.source_event_id as string | undefined) ?? null;
+    let programName: string | null = cohortRow?.name ?? null;
+    if (!eventId || !programName) {
+      const { data: program } = await this.supabase
+        .from('sf100_programs')
+        .select('source_event_id, name')
+        .eq('id', programId)
+        .maybeSingle();
+      eventId = eventId ?? program?.source_event_id ?? null;
+      programName = programName ?? program?.name ?? null;
+    }
 
-    if (progErr || !program?.source_event_id) {
+    if (!eventId) {
       console.error('[sf100/evaluation_round_open] program or source_event_id not found');
       return;
     }
 
-    const eventId = program.source_event_id;
-    const label = roundLabel ?? `Evaluation Round — ${program.name}`;
+    const label = roundLabel ?? `Evaluation Round — ${programName}`;
 
     // Fetch all judge/evaluator staff for this event
     const { data: assignments } = await this.supabase
@@ -1982,7 +2258,7 @@ export class SF100Service extends BaseService {
 
     await this.dispatchInAppNotificationToUsers({
       title: `${label} is now open`,
-      message: `The evaluation round for "${program.name}" is now open. Please log in to Startup Studio to evaluate teams.`,
+      message: `The evaluation round for "${programName}" is now open. Please log in to Startup Studio to evaluate teams.`,
       userIds: judgeIds,
       eventType: 'evaluation_round_open',
       metadata: { event_id: eventId, round_label: label },

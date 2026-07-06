@@ -72,7 +72,7 @@ const SOURCE_TYPES: { value: QuestSourceType; label: string }[] = [
   { value: 'nif', label: 'NIF' },
   { value: 'industry', label: 'Industry Partner' },
   { value: 'community', label: 'Community Need' },
-  { value: 'faculty', label: 'Senior Learner' },
+  { value: 'faculty', label: 'Learning Facilitator' },
   { value: 'learner', label: 'Learner-Proposed' },
 ];
 

@@ -75,6 +75,37 @@ export interface FacultyCompletionRow {
   pending_count: number;
   completion_pct: number;        // 0..100
   within_window: boolean;        // feedback still inside the due window
+  // Added 2026-07-04 (faculty-engagement adoption). Optional so older callers/rows
+  // (and any pre-migration deploy) keep type-checking.
+  start_time?: string | null;    // blob wall-clock, powers the current-period spotlight (PR-A)
+  end_time?: string | null;
+  /** Resolved post-class-feedback gate for this session's institution.
+   *  'visibility' by default (dark) — 'hard' only after the config flip. */
+  gate_mode?: 'off' | 'visibility' | 'hard' | null;
+  /** DERIVED enforcement status (PR-C). 'incomplete' appears ONLY under gate_mode='hard'
+   *  with pending>0 inside the window; inert (never 'incomplete') otherwise. */
+  session_status?: 'complete' | 'incomplete' | 'open' | 'overdue' | null;
+}
+
+/** DERIVED, non-destructive per-learner "effective attendance %" coupling row.
+ *  fn_scf_effective_attendance (PR-D). Counts only — never feedback content. The
+ *  effective_pct only counts CONFIRMED present marks, so present-but-no-feedback
+ *  lowers it vs official_pct. Read-only: attendance_data is never mutated. */
+export interface EffectiveAttendanceRow {
+  student_id: string;
+  present_marks: number;
+  absent_marks: number;
+  confirmed_present: number;
+  official_pct: number;          // present / (present + absent)
+  effective_pct: number;         // confirmed_present / (present + absent)
+}
+
+/** Result of the compliance-gated effective-% read. `enabled` is false (and rows
+ *  empty) whenever session_feedback.attendance_coupling_enabled is OFF (the default),
+ *  in which case NOTHING was computed and the official % is untouched. */
+export interface EffectiveAttendanceCoupling {
+  enabled: boolean;
+  rows: EffectiveAttendanceRow[];
 }
 
 /** A Present student who has NOT submitted feedback. fn_scf_faculty_pending_roster.
@@ -124,17 +155,24 @@ export type FacultyFollowupRow = EscalationFollowupRow;
 
 /** A learner's private "your voice this term" receipt row. fn_scf_my_impact (C3).
  *  One row per session the learner gave feedback on. Carries the learner's OWN rating
- *  plus a derived `improved` boolean (did the class do better next time) — never a raw
- *  class average. `improved` is null when there is no next session yet OR responses are
- *  below the k>=3 anonymity floor on either session. */
+ *  plus — for sessions they FLAGGED — whether a DISCRETE, recorded downstream faculty
+ *  action exists that is traceable to their own voice: an AI suggestion issued to the
+ *  teacher whose generation window CONTAINS this session (so the learner's flag was part
+ *  of the signal that produced it). NEVER a class-average lift — a cohort effect is never
+ *  attributed to one learner. action_* stay null/false until such an action exists. */
 export interface MyImpactRow {
   attendance_date: string;
   course_code: string | null;
   course_name: string | null;
   my_understood: number;          // the learner's own 1..5 rating for that session
   flagged: boolean;               // my_understood <= 2
-  next_attendance_date: string | null;
-  improved: boolean | null;       // class avg rose next time; null = awaiting / masked
+  // The single discrete downstream action recorded for this flagged class, traceable to
+  // the learner's own flag. 'verdict_worked' = teacher attested it helped; 'suggestion_issued'
+  // = a follow-up suggestion was issued to the teacher; null = nothing yet (no causal claim).
+  action_taken: boolean;
+  action_kind: 'verdict_worked' | 'suggestion_issued' | null;
+  action_detail: string | null;  // the concrete thing the teacher was advised to do
+  action_date: string | null;    // when that suggestion was generated
 }
 
 /** Per-college admin summary. fn_scf_admin_college_summary (aggregates only).
@@ -167,6 +205,26 @@ export interface AdminTrendRow {
   responses: number;
   students: number;
   avg_understood: number | null;
+}
+
+/** Per-learning-facilitator FEEDBACK coverage. fn_scf_facilitator_feedback_coverage.
+ *  Denominator (taught_sessions) = distinct sessions the facilitator TAUGHT (attendance
+ *  marked), drawn from student_attendance — NOT from session_feedback — so facilitators
+ *  who taught but received zero feedback appear with coverage_pct = 0 (the whole point).
+ *  Aggregates only: never per-student understood / checklist / free_text. */
+export interface FacilitatorCoverageRow {
+  institution_id: string;
+  institution_name: string | null;
+  staff_id: string;
+  facilitator_name: string | null;
+  designation: string | null;
+  department_name: string | null;
+  taught_sessions: number;
+  covered_sessions: number;
+  coverage_pct: number;
+  responses: number;
+  last_taught: string | null;
+  last_feedback: string | null;
 }
 
 /** A carry-forward re-ask for a pending session. fn_scf_carryforward_for_learner (PR B).
@@ -256,4 +314,21 @@ export interface PulseTotals {
   avg_understood: number | null;                      // null when suppressed
   dist: Record<string, number> | null;               // {"1":n,...,"5":n} or null
   checklist_counts: Record<string, number> | null;   // {item_key:n} or null
+}
+
+/** The caller learner's OWN confirmed-attendance snapshot (fn_scf_my_confirmed_attendance).
+ *  Forward-only from enforcement_start: confirmed_pct = present-AND-feedback / (present+absent).
+ *  Below min_marks the % is still "building up" (settle-in floor, #6) and is not yet judged
+ *  against pass_line. Never mutates attendance; official_pct is shown for context only. */
+export interface MyConfirmedAttendance {
+  present_marks: number;
+  absent_marks: number;
+  confirmed_present: number;
+  total_marks: number;
+  official_pct: number;
+  confirmed_pct: number;
+  enforcement_start: string;
+  gate_mode: 'off' | 'visibility' | 'hard';
+  pass_line: number;   // 75
+  min_marks: number;   // 10 — settle-in floor
 }

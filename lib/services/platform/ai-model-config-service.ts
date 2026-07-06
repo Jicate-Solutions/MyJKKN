@@ -219,8 +219,28 @@ function getHardcodedFallback(featureKey: string): ResolvedModel {
     'voice_memo.transcribe': fallback(featureKey, 'groq', 'whisper-large-v3'),
     'voice_memo.sentiment': fallback(featureKey, 'google', 'gemini-2.5-flash-lite'),
     'admission.briefing': fallback(featureKey, 'openai', 'gpt-4o-mini'),
-    'admission.ai_insights': fallback(featureKey, 'openai', 'gpt-4o-mini'),
+    'admission.ai_insights': fallback(featureKey, 'anthropic', 'claude-sonnet-4-5'),
     'ai_pulse.anomaly_detection': fallback(featureKey, 'openai', 'gpt-4o-mini'),
+    // Adoption program 2026-07-02 — each entry mirrors the model the call site
+    // hardcoded before adoption (cutover invariant: degraded mode == old behavior).
+    'scf.generate_suggestions': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
+    'scf.learner_notes': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
+    'session_feedback.escalation': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
+    'session_feedback.suggest_improvement': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
+    'feedback.classify': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
+    'induction.generate_playbook': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
+    'induction.session_effectiveness': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
+    'cdc.career_guidance': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
+    'ai_query.natural_language': fallback(featureKey, 'anthropic', 'claude-sonnet-4-20250514'),
+    'work_pulse.analyze': fallback(featureKey, 'anthropic', 'claude-sonnet-4-20250514'),
+    'work_pulse.translate': fallback(featureKey, 'anthropic', 'claude-haiku-4-5-20251001'),
+    'attention_bar.assistant': fallback(featureKey, 'anthropic', 'claude-haiku-4-5-20251001'),
+    // rcltp generate route is EKSAQ-gated scaffold (no model in code yet) —
+    // forward-default to the platform workhorse.
+    'rcltp.question_generation': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
+    'admission.ai_service': fallback(featureKey, 'anthropic', 'claude-sonnet-4-5'),
+    'admission.agentic_query': fallback(featureKey, 'anthropic', 'claude-3-5-haiku-20241022'),
+    'admission.ai_response': fallback(featureKey, 'anthropic', 'claude-3-5-haiku-20241022'),
   };
 
   return FALLBACKS[featureKey] ?? fallback(featureKey, 'openai', 'gpt-4o-mini');

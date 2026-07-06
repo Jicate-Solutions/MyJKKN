@@ -214,6 +214,9 @@ export interface Program {
   program_duration_yrs?: number | null;
   pattern_type?: PatternType | null;
   is_part_time?: boolean | null;
+  // Read-only in the Programs module — owned by Admission → Settings → Seat Config
+  sanctioned_intake?: number | null;
+  actual_intake?: number | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;

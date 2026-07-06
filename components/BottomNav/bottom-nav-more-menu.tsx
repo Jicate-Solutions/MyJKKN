@@ -51,7 +51,8 @@ export const GROUP_TILE_GRADIENTS: Record<string, string> = {
   'Learners Council':        'bg-gradient-to-br from-violet-500 via-purple-600 to-indigo-700',
 
   // People / HR — warm rose
-  'Human Resources':         'bg-gradient-to-br from-rose-400 via-pink-500 to-rose-700',
+  'Employee Management':     'bg-gradient-to-br from-rose-400 via-pink-500 to-rose-700',
+  'HR Management':           'bg-gradient-to-br from-rose-500 via-red-500 to-rose-800',
 
   // Living / Wellness — amber / orange
   'Campus Living':           'bg-gradient-to-br from-amber-400 via-orange-500 to-amber-700',

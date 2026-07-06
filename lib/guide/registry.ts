@@ -47,6 +47,8 @@ import { GUIDES as EVENTS_GUIDES, REQUIRES as EVENTS_REQUIRES } from "../events/
 import { GUIDES as RESOURCES_GUIDES, REQUIRES as RESOURCES_REQUIRES } from "../resource-management/guide/content";
 import { GUIDES as VAC_GUIDES, REQUIRES as VAC_REQUIRES } from "../vac/guide/content";
 import { GUIDES as OKR_GUIDES, REQUIRES as OKR_REQUIRES } from "../okr/guide/content";
+import { GUIDES as SCHOOLS_NETWORK_GUIDES, REQUIRES as SCHOOLS_NETWORK_REQUIRES } from "../admission/schools-network/guide/content";
+import { GUIDES as FOUNDATION_GUIDES, REQUIRES as FOUNDATION_REQUIRES } from "../foundation/guide/content";
 
 /* ────────────────────────────────────────────────────────────────────────
  * PERSONA ACCESS — which permission keys grant each canonical persona (OR'd
@@ -62,11 +64,11 @@ import { GUIDES as OKR_GUIDES, REQUIRES as OKR_REQUIRES } from "../okr/guide/con
  * ──────────────────────────────────────────────────────────────────────── */
 export const PERSONA_REQUIRES: Record<CanonicalPersona, string[]> = {
   learner: [],
-  facilitator: [AI_PULSE_REQUIRES.faculty, PDE_REQUIRES.faculty, ACADEMIC_REQUIRES.faculty, STARTUP_REQUIRES.mentor, STARTUP_REQUIRES.evaluator, SOLUTIONS_REQUIRES.delivery_team, IMS_REQUIRES.cashier, BOS_REQUIRES.member],
+  facilitator: [AI_PULSE_REQUIRES.faculty, PDE_REQUIRES.faculty, ACADEMIC_REQUIRES.faculty, STARTUP_REQUIRES.mentor, STARTUP_REQUIRES.evaluator, SOLUTIONS_REQUIRES.delivery_team, IMS_REQUIRES.cashier, BOS_REQUIRES.member, FOUNDATION_REQUIRES.facilitator],
   "unit-lead": [AI_PULSE_REQUIRES.champion, CAMPUS_REQUIRES.warden, CAMPUS_REQUIRES.mess, IMS_REQUIRES.storekeeper, BOS_REQUIRES.chairman, LEARNERS_COUNCIL_REQUIRES.member, EVENTS_REQUIRES.organiser],
-  coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor, BILLING_REQUIRES["finance-officer"], ACADEMIC_REQUIRES.coordinator, STARTUP_REQUIRES.coordinator, SOLUTIONS_REQUIRES.sales_lead, ORGANIZATIONS_REQUIRES.viewer, IMS_REQUIRES.requester, MEETINGS_REQUIRES.host, LEARNERS_COUNCIL_REQUIRES.coordinator, EVENTS_REQUIRES.proposer, RESOURCES_REQUIRES.requester, OKR_REQUIRES.contributor],
+  coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor, BILLING_REQUIRES["finance-officer"], ACADEMIC_REQUIRES.coordinator, STARTUP_REQUIRES.coordinator, SOLUTIONS_REQUIRES.sales_lead, ORGANIZATIONS_REQUIRES.viewer, IMS_REQUIRES.requester, MEETINGS_REQUIRES.host, LEARNERS_COUNCIL_REQUIRES.coordinator, EVENTS_REQUIRES.proposer, RESOURCES_REQUIRES.requester, OKR_REQUIRES.contributor, SCHOOLS_NETWORK_REQUIRES.coordinator, FOUNDATION_REQUIRES.coordinator],
   supervisor: [AI_PULSE_REQUIRES.hod, HR_REQUIRES.manager, ACADEMIC_REQUIRES.hod, ACADEMIC_REQUIRES.principal, SOLUTIONS_REQUIRES.finance_officer, IMS_REQUIRES.approver, BOS_REQUIRES.principal, LEARNERS_REQUIRES.advisor, RESOURCES_REQUIRES.approver, OKR_REQUIRES.manager],
-  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin, BILLING_REQUIRES["finance-admin"], STARTUP_REQUIRES.admin, SOLUTIONS_REQUIRES.module_admin, ORGANIZATIONS_REQUIRES["registry-admin"], IMS_REQUIRES.admin, BOS_REQUIRES.coordinator, MEETINGS_REQUIRES.admin, LEARNERS_REQUIRES.staff, RESOURCES_REQUIRES.admin, VAC_REQUIRES.admin, OKR_REQUIRES.admin],
+  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin, BILLING_REQUIRES["finance-admin"], STARTUP_REQUIRES.admin, SOLUTIONS_REQUIRES.module_admin, ORGANIZATIONS_REQUIRES["registry-admin"], IMS_REQUIRES.admin, BOS_REQUIRES.coordinator, MEETINGS_REQUIRES.admin, LEARNERS_REQUIRES.staff, RESOURCES_REQUIRES.admin, VAC_REQUIRES.admin, OKR_REQUIRES.admin, SCHOOLS_NETWORK_REQUIRES.admin],
   "platform-admin": [],
   parent: [],
   external: [],
@@ -931,7 +933,63 @@ export const okrGuide: ModuleGuide = {
   routes: [],
 };
 
-export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide, academicGuide, startupStudioGuide, solutionsGuide, organizationsGuide, imsGuide, bosGuide, meetingsGuide, learnersGuide, learnersCouncilGuide, eventsGuide, resourceManagementGuide, vacGuide, okrGuide];
+/* ── Schools Network (admission sub-module — outreach to K-12 schools) ──────
+ * coordinator (outreach coordinator + program lead) → coordinator lane,
+ * admin (Director / module admin who manages partners + master tables) →
+ * module-admin lane. NO learner lane: every viewer is JKKN staff (headmasters
+ * use the separate /schools-portal magic-link interface, not this admin UI).
+ * Each lane section-gated by its own schools_network.* key (fail-closed).
+ * basePath is more specific than admissionGuide's /admission, so the
+ * longest-prefix matcher in route-map.ts picks this module on any
+ * /admission/schools-network/* route.
+ * ────────────────────────────────────────────────────────────────────────── */
+export const schoolsNetworkGuide: ModuleGuide = {
+  module: "schools-network",
+  basePath: "/admission/schools-network",
+  lanes: {
+    coordinator: {
+      sections: withRequires(
+        SCHOOLS_NETWORK_GUIDES.lanes.coordinator.sections,
+        SCHOOLS_NETWORK_REQUIRES.coordinator,
+      ),
+      startHere: SCHOOLS_NETWORK_GUIDES.lanes.coordinator.startHere,
+      title: SCHOOLS_NETWORK_GUIDES.lanes.coordinator.title,
+      tagline: SCHOOLS_NETWORK_GUIDES.lanes.coordinator.tagline,
+    },
+    "module-admin": {
+      sections: withRequires(
+        SCHOOLS_NETWORK_GUIDES.lanes.admin.sections,
+        SCHOOLS_NETWORK_REQUIRES.admin,
+      ),
+      startHere: SCHOOLS_NETWORK_GUIDES.lanes.admin.startHere,
+      title: SCHOOLS_NETWORK_GUIDES.lanes.admin.title,
+      tagline: SCHOOLS_NETWORK_GUIDES.lanes.admin.tagline,
+    },
+  },
+  routes: [],
+};
+
+export const foundationGuide: ModuleGuide = {
+  module: "foundation",
+  basePath: "/foundation",
+  lanes: {
+    coordinator: {
+      sections: withRequires(FOUNDATION_GUIDES.lanes.coordinator.sections, FOUNDATION_REQUIRES.coordinator),
+      startHere: FOUNDATION_GUIDES.lanes.coordinator.startHere,
+      title: FOUNDATION_GUIDES.lanes.coordinator.title,
+      tagline: FOUNDATION_GUIDES.lanes.coordinator.tagline,
+    },
+    facilitator: {
+      sections: withRequires(FOUNDATION_GUIDES.lanes.facilitator.sections, FOUNDATION_REQUIRES.facilitator),
+      startHere: FOUNDATION_GUIDES.lanes.facilitator.startHere,
+      title: FOUNDATION_GUIDES.lanes.facilitator.title,
+      tagline: FOUNDATION_GUIDES.lanes.facilitator.tagline,
+    },
+  },
+  routes: [],
+};
+
+export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide, academicGuide, startupStudioGuide, solutionsGuide, organizationsGuide, imsGuide, bosGuide, meetingsGuide, learnersGuide, learnersCouncilGuide, eventsGuide, resourceManagementGuide, vacGuide, okrGuide, schoolsNetworkGuide, foundationGuide];
 
 /** Canonical personas at least one module contributes real sections to. A
  *  persona NOT in this set is sparse (composeLane returns the platform-overview
@@ -968,6 +1026,7 @@ const MODULE_LABELS: Record<string, string> = {
   "resource-management": "Resource Management",
   vac: "Value-Added Courses",
   okr: "OKR",
+  "schools-network": "Schools Network",
 };
 
 /** Human label for a module namespace; falls back to the raw id if unknown. */
@@ -1008,6 +1067,7 @@ const MODULE_GLOSSARIES: Record<string, GlossaryTerm[]> = {
   "resource-management": RESOURCES_GUIDES.glossary ?? [],
   vac: VAC_GUIDES.glossary ?? [],
   okr: OKR_GUIDES.glossary ?? [],
+  "schools-network": SCHOOLS_NETWORK_GUIDES.glossary ?? [],
 };
 
 /** "Words to know" terms for one module; empty array if module unknown. */

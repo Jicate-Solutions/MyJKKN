@@ -4,8 +4,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connection } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createServiceRoleClient, getAuthUser } from '@/lib/supabase/server';
+import {
+  resolveChatModel,
+  recordChatCall,
+} from '@/lib/services/platform/ai-clients/chat';
 
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+
+// Model resolves at runtime from ai_model_config (feature_key below);
+// resolveChatModel never throws — hardcoded fallback on any config failure.
+const FEATURE_KEY = 'work_pulse.translate';
+
 
 // Tamil Unicode range
 const TAMIL_REGEX = /[\u0B80-\u0BFF]/;
@@ -51,18 +60,32 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Model from ai_model_config — resolved after the Tamil-detection
+    // short-circuit so non-Tamil requests never touch config. Never throws.
+    const { model_id: modelId } = await resolveChatModel(FEATURE_KEY);
+
     // Translate via Claude Haiku (cost-efficient)
     const anthropic = new Anthropic({ apiKey: ANTHROPIC_KEY });
-    const message = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1024,
-      messages: [
-        {
-          role: 'user',
-          content: `Translate the following Tamil text to English. Preserve the meaning and context. Return ONLY the English translation, nothing else.\n\nTamil text: ${text}`,
-        },
-      ],
-    });
+    const aiStartedAt = Date.now();
+    let message;
+    try {
+      message = await anthropic.messages.create({
+        model: modelId,
+        max_tokens: 1024,
+        messages: [
+          {
+            role: 'user',
+            content: `Translate the following Tamil text to English. Preserve the meaning and context. Return ONLY the English translation, nothing else.\n\nTamil text: ${text}`,
+          },
+        ],
+      });
+    } catch (aiErr) {
+      // Record the failed invocation (internally non-throwing), then rethrow —
+      // the outer catch keeps the existing 500 response.
+      await recordChatCall(FEATURE_KEY, 'anthropic', modelId, aiStartedAt, null, aiErr);
+      throw aiErr;
+    }
+    await recordChatCall(FEATURE_KEY, 'anthropic', modelId, aiStartedAt, message);
 
     const content = message.content[0];
     const translation = content.type === 'text' ? content.text.trim() : '';

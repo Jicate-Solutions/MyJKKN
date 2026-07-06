@@ -15,7 +15,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const sb = supabase as any;
     const [programmeRes, enrollmentsRes] = await Promise.all([
       sb.from('cdc_training_programmes')
@@ -62,7 +62,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
     const body: UpdateTrainingProgrammeDto = await request.json();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const { data, error } = await (supabase as any)
       .from('cdc_training_programmes')
       .update({ ...body, updated_by: user.id, updated_at: new Date().toISOString() })
@@ -72,6 +72,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
     if (error) {
       console.error('[cdc/training] PATCH error:', error);
+      // L5: surface an RLS denial (42501) as a clean 403, not a masked 500.
+      if (error.code === '42501') {
+        return NextResponse.json({ error: 'You do not have permission to update this training programme' }, { status: 403 });
+      }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
     return NextResponse.json({ data });

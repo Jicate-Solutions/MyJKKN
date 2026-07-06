@@ -26,8 +26,15 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import Anthropic from '@anthropic-ai/sdk';
+import {
+  resolveChatModel,
+  recordChatCall,
+} from '@/lib/services/platform/ai-clients/chat';
 
-const MODEL = 'claude-sonnet-4-6';
+// Model comes from ai_model_config (admin-governed) — resolved once per run via
+// resolveChatModel(FEATURE_KEY), which never throws (hardcoded fallback on any
+// config failure).
+const FEATURE_KEY = 'session_feedback.escalation';
 
 const SUMMARY_SYSTEM = `You write a 2-3 sentence briefing for a department head or principal about ONE class whose students gave anonymous post-class feedback indicating low understanding. You receive ONLY aggregate numbers and anonymized comment themes — never any student identity. Speak only in aggregate themes; NEVER quote a comment verbatim and NEVER refer to an individual student. Be concrete, India higher-education context aware, and end with the single most useful next step for the teacher. Return PLAIN TEXT only (2-3 sentences, no markdown, no preamble).`;
 
@@ -53,6 +60,7 @@ type Escalation = {
 
 async function summarize(
   anthropic: Anthropic | null,
+  modelId: string,
   e: Escalation
 ): Promise<string> {
   const avg = e.avg_understood ?? 'n/a';
@@ -68,12 +76,20 @@ Anonymized student comment themes:
 ${texts.map((t) => `- ${String(t).trim()}`).join('\n')}
 
 Write the 2-3 sentence leadership briefing now.`;
-    const resp = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 220,
-      system: SUMMARY_SYSTEM,
-      messages: [{ role: 'user', content: userPrompt }],
-    });
+    const t0 = Date.now();
+    let resp: Anthropic.Message;
+    try {
+      resp = await anthropic.messages.create({
+        model: modelId,
+        max_tokens: 220,
+        system: SUMMARY_SYSTEM,
+        messages: [{ role: 'user', content: userPrompt }],
+      });
+    } catch (apiErr) {
+      await recordChatCall(FEATURE_KEY, 'anthropic', modelId, t0, null, apiErr);
+      throw apiErr; // outer catch keeps the template fallback — summarize NEVER throws outward
+    }
+    await recordChatCall(FEATURE_KEY, 'anthropic', modelId, t0, resp);
     const text = resp.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
       .map((b) => b.text)
@@ -134,11 +150,14 @@ export async function GET(request: NextRequest) {
   // 2) Generate a per-class AI summary (graceful template fallback).
   const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
   const anthropic = apiKey ? new Anthropic({ apiKey }) : null;
+  // Resolve the model from ai_model_config ONCE per run (never throws — hardcoded
+  // fallback on any config failure), before the parallel summarize fan-out.
+  const { model_id: modelId } = await resolveChatModel(FEATURE_KEY);
   const summaries: Record<string, string> = {};
   await Promise.all(
     escalations.map(async (e) => {
       const key = `${e.faculty_email}|${e.course_code}`;
-      summaries[key] = await summarize(anthropic, e);
+      summaries[key] = await summarize(anthropic, modelId, e);
     })
   );
 

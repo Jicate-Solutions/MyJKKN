@@ -89,23 +89,58 @@ export interface MyBill {
   kind: BillingCategoryKind | null;
   totalAmount: number;
   balanceAmount: number;
+  paidAmount: number;
   dueDate: string | null;
   status: string | null;
+  /**
+   * Grouping label — trimmed academic_years.academic_year_name when the bill
+   * carries one, otherwise inferred from due_date (Indian AY: June–May).
+   */
+  academicYear: string;
+  /** True when academicYear was inferred from due_date, not stored on the bill. */
+  yearInferred: boolean;
+}
+
+/** One receipt line — which bill this payment settled (drives the PDF table). */
+export interface MyReceiptItem {
+  billId: string;
+  billDescription: string;
+  billDueDate: string | null;
+  billAmount: number | null;
+  amountPaid: number;
+}
+
+export interface MyReceiptRefund {
+  date: string | null;
+  category: string | null;
+  method: string | null;
+  amount: number;
 }
 
 export interface MyReceipt {
   id: string;
   receiptNumber: string;
+  receiptDate: string | null;
   amount: number;
   paidDate: string | null;
   mode: string | null;
   reference: string | null;
+  payerName: string | null;
+  remarks: string | null;
+  /** Grouping label — from the linked bills' academic year, else the paid date. */
+  academicYear: string;
+  items: MyReceiptItem[];
+  /** Processed refunds only — total already deducted from this payment. */
+  refundedAmount: number;
+  refunds: MyReceiptRefund[];
 }
 
 export interface MyBillsData {
   totalDue: number;
+  totalBilled: number;
+  totalPaid: number;
   currency: string;
-  /** Outstanding only (balance > 0). */
+  /** All active bills (cancelled/superseded excluded) — client derives outstanding. */
   bills: MyBill[];
   receipts: MyReceipt[];
 }

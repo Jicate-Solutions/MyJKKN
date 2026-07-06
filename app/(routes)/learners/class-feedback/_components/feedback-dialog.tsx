@@ -25,6 +25,24 @@ import type { PendingSession } from '@/types/session-feedback';
 
 const BRAND = '#0b6d41';
 
+// Words for a 1..5 understanding rating, matching UNDERSTOOD_SCALE — so the personalised
+// carry-forward re-ask shows the learner the SAME label they tapped last time.
+const UNDERSTOOD_WORD: Record<number, string> = {
+  1: 'Lost',
+  2: 'Shaky',
+  3: 'OK',
+  4: 'Good',
+  5: 'Clear',
+};
+
+/** Short, human date like "Tue 24 Jun" for the prior-session reference. */
+function formatPriorDate(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
 // 1–5 understanding scale. Lowest = "Lost", highest = "Crystal clear".
 const UNDERSTOOD_SCALE: { value: number; label: string }[] = [
   { value: 1, label: 'Lost' },
@@ -89,6 +107,10 @@ export function FeedbackDialog({ session, onOpenChange, source = 'async' }: Feed
     return carry.prior_unmet_items.map((k) => byKey.get(k) ?? k);
   }, [carry, items]);
 
+  // The learner's OWN prior rating + when, for the personalised re-ask. (#2)
+  const priorWord = carry ? UNDERSTOOD_WORD[carry.prior_understood] ?? null : null;
+  const priorDate = formatPriorDate(carry?.prior_session_date);
+
   const open = session !== null;
 
   const courseLabel =
@@ -150,17 +172,29 @@ export function FeedbackDialog({ session, onOpenChange, source = 'async' }: Feed
                 <History className="mt-0.5 h-4 w-4 shrink-0" style={{ color: BRAND }} />
                 <p className="text-sm leading-snug">
                   Last <span className="font-medium">{carry.course_name || carry.course_code}</span>
+                  {priorDate ? (
+                    <> on <span className="font-medium">{priorDate}</span></>
+                  ) : null}
+                  {priorWord ? (
+                    <>
+                      , you rated it{' '}
+                      <span className="font-medium">
+                        {carry.prior_understood}/5 · {priorWord}
+                      </span>
+                    </>
+                  ) : null}
                   {carryItemLabels.length > 0 ? (
                     <>
-                      : you flagged{' '}
+                      {priorWord ? ' and flagged ' : ': you flagged '}
                       <span className="font-medium">{carryItemLabels.join(', ')}</span>
                     </>
-                  ) : (
+                  ) : !priorWord ? (
                     <> you said you were lost</>
-                  )}{' '}
-                  — better this time?
+                  ) : null}
+                  {' '}— clearer for you this time?
                 </p>
               </div>
+
               <div className="flex gap-2">
                 {CARRYFORWARD_CHOICES.map((choice) => {
                   const selected = cfChoice === choice;

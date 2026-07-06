@@ -8,22 +8,15 @@ import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { MessageSquare, ClipboardCheck, BarChart3, AlertTriangle } from 'lucide-react';
+import { MessageSquare, BarChart3, AlertTriangle } from 'lucide-react';
 
 const LANES = [
   {
     href: '/learners/class-feedback',
     title: 'Give Class Feedback',
     who: 'Learners',
-    desc: 'After each class, a 10-second checklist + “did I understand?” — submitting confirms your attendance.',
+    desc: 'After each class, a 10-second checklist + “did I understand?” — submitting confirms your attendance. Also shows which sessions are confirmed vs still present-pending.',
     icon: MessageSquare,
-  },
-  {
-    href: '/learners/my-attendance-feedback',
-    title: 'My Attendance Feedback',
-    who: 'Learners',
-    desc: 'See which sessions are confirmed and which are still present-pending until you give feedback.',
-    icon: ClipboardCheck,
   },
   {
     href: '/academic/session-feedback/faculty',

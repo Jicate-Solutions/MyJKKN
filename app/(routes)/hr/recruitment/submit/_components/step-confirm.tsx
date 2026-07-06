@@ -21,6 +21,7 @@ interface StepConfirmProps {
   onBack: () => void;
   onSubmit: () => void;
   isSubmitting: boolean;
+  isUploading?: boolean;
   submitted: boolean;
   onDone: () => void;
 }
@@ -32,7 +33,7 @@ function formatBytes(bytes: number) {
 
 export function StepConfirm({
   resumeFilename, resumeSizeBytes, details,
-  onBack, onSubmit, isSubmitting, submitted, onDone,
+  onBack, onSubmit, isSubmitting, isUploading, submitted, onDone,
 }: StepConfirmProps) {
   if (submitted) {
     return (
@@ -114,7 +115,7 @@ export function StepConfirm({
         </Button>
         <Button type="button" className="flex-1" onClick={onSubmit} disabled={isSubmitting}>
           {isSubmitting ? (
-            <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Submitting…</>
+            <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{isUploading ? 'Uploading Resume…' : 'Submitting…'}</>
           ) : (
             'Submit Application'
           )}

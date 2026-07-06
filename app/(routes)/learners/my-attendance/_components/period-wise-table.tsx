@@ -60,6 +60,7 @@ import {
 import type { StudentAttendanceRecord } from '@/types/student-attendance';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useConfirmationStatus } from '@/hooks/use-session-feedback';
 
 interface PeriodWiseAttendanceTableProps {
   data: StudentAttendanceRecord[];
@@ -97,6 +98,42 @@ export function PeriodWiseAttendanceTable({ data }: PeriodWiseAttendanceTablePro
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [globalFilter, setGlobalFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+
+  // Present-pending indicator: cross-reference the learner's confirmation status
+  // (fn_scf_confirmation_status) over the range actually shown in this table.
+  // StudentAttendanceRecord carries no timetable_id/period_id, so we match on
+  // (date, course_code). To stay conservative we flag a row "feedback pending"
+  // ONLY when a (date, course_code) is pending AND not also confirmed elsewhere,
+  // and only when course_code is present — no coarse/ambiguous false positives.
+  const { from, to } = useMemo(() => {
+    if (data.length === 0) return { from: '', to: '' };
+    let min = data[0].date;
+    let max = data[0].date;
+    for (const r of data) {
+      if (r.date < min) min = r.date;
+      if (r.date > max) max = r.date;
+    }
+    return { from: min, to: max };
+  }, [data]);
+
+  const { data: confirmationRows } = useConfirmationStatus(from, to);
+
+  const pendingCourseKeys = useMemo(() => {
+    const state = new Map<string, { pending: boolean; confirmed: boolean }>();
+    for (const row of confirmationRows ?? []) {
+      if (!row.course_code) continue;
+      const key = `${row.attendance_date}__${row.course_code}`;
+      const prev = state.get(key) ?? { pending: false, confirmed: false };
+      if (row.confirmed) prev.confirmed = true;
+      else prev.pending = true;
+      state.set(key, prev);
+    }
+    const keys = new Set<string>();
+    for (const [key, s] of state) {
+      if (s.pending && !s.confirmed) keys.add(key);
+    }
+    return keys;
+  }, [confirmationRows]);
 
   // Define columns
   const columns: ColumnDef<StudentAttendanceRecord>[] = useMemo(
@@ -220,9 +257,14 @@ export function PeriodWiseAttendanceTable({ data }: PeriodWiseAttendanceTablePro
         cell: ({ row }) => {
           const status = row.getValue('status') as string;
           const isPresent = status === 'Present';
+          const courseCode = row.original.course_code;
+          const isFeedbackPending =
+            isPresent &&
+            !!courseCode &&
+            pendingCourseKeys.has(`${row.original.date}__${courseCode}`);
 
           return (
-            <div className="flex justify-center">
+            <div className="flex flex-wrap items-center justify-center gap-1.5">
               <Badge
                 className={cn(
                   'gap-1 px-2.5 py-0.5 font-medium',
@@ -238,6 +280,15 @@ export function PeriodWiseAttendanceTable({ data }: PeriodWiseAttendanceTablePro
                 )}
                 {status}
               </Badge>
+              {isFeedbackPending && (
+                <Badge
+                  title="Present, but not yet confirmed — submit post-class feedback to confirm. You're never counted absent for this."
+                  className="gap-1 border-transparent bg-amber-100 px-2 py-0.5 font-medium text-amber-800 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-300"
+                >
+                  <Clock className="h-3 w-3" />
+                  Feedback pending
+                </Badge>
+              )}
             </div>
           );
         },
@@ -247,7 +298,7 @@ export function PeriodWiseAttendanceTable({ data }: PeriodWiseAttendanceTablePro
         },
       },
     ],
-    []
+    [pendingCourseKeys]
   );
 
   // Filter data by status

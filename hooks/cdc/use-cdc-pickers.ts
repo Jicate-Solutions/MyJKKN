@@ -65,3 +65,63 @@ export function useStaffForPicker() {
     staleTime: 5 * 60 * 1000,
   });
 }
+
+/**
+ * Distinct semester labels for a training programme's target department, so the
+ * "Add semester" dialog populates from real MyJKKN data instead of free text.
+ * Pass the programme's target_department_id; when null/undefined the route falls
+ * back to the caller's institution-wide distinct semesters so the field is never
+ * empty. Label === value === the cleaned semester name we store in semester_label.
+ */
+export function useSemestersForDepartmentPicker(departmentId?: string | null) {
+  return useQuery<PickerOption[]>({
+    queryKey: ['cdc-picker-semesters', departmentId ?? 'all'],
+    queryFn: () =>
+      fetchPickerOptions(
+        `/api/cdc/pickers/semesters${departmentId ? `?department_id=${encodeURIComponent(departmentId)}` : ''}`,
+        'semesters'
+      ),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+// Learner with program / department / batch dimensions, for UIs that FILTER and
+// select-all (e.g. the training bulk-enroll "Filter & select" mode, BUG-004199).
+export interface DetailedLearnerOption {
+  id: string;
+  name: string;
+  register_number: string | null;
+  program_id: string | null;
+  program_name: string | null;
+  department_id: string | null;
+  department_name: string | null;
+  batch_id: string | null;       // admission-year id (the academic "batch")
+  batch_name: string | null;
+}
+
+/**
+ * Active + graduated learners with program / department / admission-batch, for
+ * filter-and-select UIs. Same institution-scoped service-role source as
+ * useLearnersForPicker, richer projection. 5000-row cap matches the plain picker.
+ */
+export function useDetailedLearnersForPicker(enabled = true) {
+  return useQuery<DetailedLearnerOption[]>({
+    queryKey: ['cdc-picker-learners-detailed'],
+    queryFn: async () => {
+      try {
+        const res = await fetch('/api/cdc/pickers/learners-detailed', { credentials: 'include' });
+        if (!res.ok) {
+          console.error(`[cdc-pickers] Failed to load detailed learners: HTTP ${res.status}`);
+          return [];
+        }
+        const json = await res.json();
+        return (json.learners as DetailedLearnerOption[]) || [];
+      } catch (err) {
+        console.error('[cdc-pickers] Failed to load detailed learners:', err);
+        return [];
+      }
+    },
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  });
+}

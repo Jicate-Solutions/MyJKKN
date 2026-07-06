@@ -203,23 +203,12 @@ export const POLICY_KEYS = {
   // Consumed by app/(routes)/pde/page.tsx — the new unified PDE module hub.
   NAV_PDE_DEFAULT_LANDING: 'nav.pde.default_landing',
 
-  // HR Recruitment approvals — viewer-scope enforcement.
-  // Consumed by lib/services/hr/recruitment-service.ts (resolveViewerScope).
-  // Master toggle (boolean) + per-role scope_rules (JSONB object).
-  // Editable via /hr/admin/recruitment-approvals-scope (super-admin UI).
-  HR_RECRUITMENT_APPROVALS_ENFORCE_SCOPING: 'hr.recruitment.approvals.enforce_scoping',
-  HR_RECRUITMENT_APPROVALS_SCOPE_RULES: 'hr.recruitment.approvals.scope_rules',
-
-  // HR Recruitment approvals — role-match enforcement on Approve action.
-  // Consumed by lib/services/hr/recruitment-service.ts (approveCandidate).
-  // Seeded by 20260516120000_seed_recruitment_role_enforcement_policies.sql.
-  // Editable via /hr/admin/recruitment-approvals-scope (super-admin UI).
-  // When enforce_role_match=true, the caller's role_keys must include
-  // approval_chain[current_step].approver_role OR overlap with override_roles
-  // OR the caller must be super_admin. When false (default), today's behavior
-  // is preserved — any user with hr.recruitment.approve can approve any step.
-  HR_RECRUITMENT_APPROVALS_ENFORCE_ROLE_MATCH: 'hr.recruitment.approvals.enforce_role_match',
-  HR_RECRUITMENT_APPROVALS_OVERRIDE_ROLES: 'hr.recruitment.approvals.override_roles',
+  // HR Recruitment approvals — the platform_policies-driven viewer-scoping +
+  // role-match toggles (enforce_scoping / scope_rules / enforce_role_match /
+  // override_roles) were REMOVED 2026-07-06. Step-approver enforcement is now
+  // ALWAYS ON and driven by the approval-flow chain itself
+  // (/hr/admin/recruitment-approval-flows). Policy rows deleted by migration
+  // 20260706130000_remove_recruitment_approvals_scope_policies.sql.
 
   // -- Forms (W3-M9 follow-up — workflow engine + notifications) -------------
   // Object: per-event notification templates rendered by the form-submission
@@ -321,6 +310,25 @@ export const POLICY_KEYS = {
   SOCIAL_COMPLIANCE_MIN_POSTS: 'social.compliance.min_posts',
   SOCIAL_FOLLOWBACK_RATIO_THRESHOLD: 'social.followback_ratio_threshold',
   SOCIAL_REALTIME_ENABLED: 'social.realtime_enabled',
+
+  // Post-class feedback → attendance confirmation ("show the split").
+  // gate_mode: off | visibility (show completion, non-blocking) | hard.
+  // window_hours: grace window after class within which feedback is due; also
+  // splits present-pending into within-window vs overdue on the dashboard.
+  // Seeded as global system rows in platform_policies; edited via admin policy UI.
+  SESSION_FEEDBACK_GATE_MODE: 'session_feedback.gate_mode',
+  SESSION_FEEDBACK_WINDOW_HOURS: 'session_feedback.window_hours',
+  // Faculty-engagement adoption (2026-07-04). When TRUE, the DERIVED, non-destructive
+  // "effective attendance %" (present-but-no-feedback lowers a learner's attendance %)
+  // is computed for eligibility surfaces. Default FALSE (dark). Compliance sign-off
+  // required before enabling — exam-eligibility regulatory surface (spec R2). Never
+  // mutates attendance_data. Seeded by 20260731020000_scf_hard_gate_enforcement_and_coupling.sql.
+  SESSION_FEEDBACK_ATTENDANCE_COUPLING_ENABLED: 'session_feedback.attendance_coupling_enabled',
+  // Forward-only rollout (2026-07-05). Sessions before this IST date are grandfathered:
+  // never marked incomplete/overdue and excluded from confirmed-attendance eligibility.
+  // Resolved by fn_scf_faculty_completion (and, in Build 2, fn_scf_effective_attendance).
+  // Seeded by 20260705_scf_enforcement_start_date_forward_only.sql. Default '2026-07-05'.
+  SESSION_FEEDBACK_ENFORCEMENT_START_DATE: 'session_feedback.enforcement_start_date',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];

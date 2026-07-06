@@ -18,7 +18,7 @@
 // Spec: specs/post-class-feedback-attendance-gate-2026-06-15.md (admin lane)
 
 import { useMemo } from 'react';
-import { AlertTriangle, Building2, Users, BarChart3, TrendingDown } from 'lucide-react';
+import { AlertTriangle, Building2, Users, BarChart3, TrendingDown, Gauge } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { format, subDays } from 'date-fns';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -50,11 +50,17 @@ import {
   useAdminCollegeSummary,
   useAdminFacultySummary,
   useAdminTrend,
+  useFacilitatorFeedbackCoverage,
 } from '@/hooks/use-session-feedback';
+import { LoopActivityCard } from '../_components/loop-activity-card';
+import { FacilitatorStrengthsCard } from '../_components/facilitator-strengths-card';
+import { LearnerTrajectoryCard } from '../_components/learner-trajectory-card';
+import { StrugglingNotesSentCard } from '../_components/struggling-notes-sent-card';
 import type {
   AdminCollegeSummaryRow,
   AdminFacultySummaryRow,
   AdminTrendRow,
+  FacilitatorCoverageRow,
 } from '@/types/session-feedback';
 
 const BRAND_GREEN = '#0b6d41';
@@ -64,6 +70,13 @@ function avgColor(avg: number | null): string {
   if (avg == null) return 'text-muted-foreground';
   if (avg < 3) return 'text-red-600';
   if (avg < 3.5) return 'text-amber-600';
+  return 'text-green-600';
+}
+
+/** Color a coverage %: red 0–24, amber 25–59, green 60+. */
+function coverageColor(pct: number): string {
+  if (pct < 25) return 'text-red-600';
+  if (pct < 60) return 'text-amber-600';
   return 'text-green-600';
 }
 
@@ -130,10 +143,33 @@ export default function AdminFeedbackDashboardPage() {
   const college = useAdminCollegeSummary(from, to);
   const faculty = useAdminFacultySummary(from, to);
   const trend = useAdminTrend(from, to);
+  const coverage = useFacilitatorFeedbackCoverage(from, to);
 
   const collegeRows = (college.data ?? []) as AdminCollegeSummaryRow[];
   const facultyRows = (faculty.data ?? []) as AdminFacultySummaryRow[];
   const trendRows = (trend.data ?? []) as AdminTrendRow[];
+  const coverageRows = (coverage.data ?? []) as FacilitatorCoverageRow[];
+
+  // Coverage headline: how many facilitators have collected ANY feedback, and what
+  // fraction of all taught sessions are covered (the adoption gap, in one line).
+  const coverageTotals = useMemo(() => {
+    const total = coverageRows.length;
+    const drivers = coverageRows.filter((r) => r.covered_sessions > 0).length;
+    let taught = 0;
+    let covered = 0;
+    for (const r of coverageRows) {
+      taught += r.taught_sessions;
+      covered += r.covered_sessions;
+    }
+    return {
+      total,
+      drivers,
+      nonDrivers: total - drivers,
+      taught,
+      covered,
+      pct: taught > 0 ? Math.round((covered / taught) * 1000) / 10 : 0,
+    };
+  }, [coverageRows]);
 
   // Headline totals across all colleges in scope (cheap client roll-up).
   const totals = useMemo(() => {
@@ -287,6 +323,124 @@ export default function AdminFeedbackDashboardPage() {
           </TableShell>
         </CardContent>
       </Card>
+
+      {/* Feedback Coverage by Learning Facilitator — who is DRIVING the loop vs not.
+          Denominator = sessions actually taught (attendance marked), drawn from
+          student_attendance, so a facilitator who taught but got zero feedback shows
+          at 0% ("Never"). This is the view the session_feedback-only summaries cannot
+          produce. Attendance-marking coverage lives in the facilitator attendance
+          report (/academic/attendance/reports), so it is not duplicated here. */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Gauge className="h-5 w-5" style={{ color: BRAND_GREEN }} />
+            Feedback Coverage by Learning Facilitator
+          </CardTitle>
+          <CardDescription>
+            {coverageTotals.total > 0 ? (
+              <>
+                <span className="font-medium text-foreground">
+                  {coverageTotals.drivers} of {coverageTotals.total}
+                </span>{' '}
+                learning facilitators have collected feedback —{' '}
+                <span className="font-medium text-red-600">
+                  {coverageTotals.nonDrivers} not yet
+                </span>
+                . {coverageTotals.covered} of {coverageTotals.taught} taught sessions
+                covered ({coverageTotals.pct}%). Coverage = sessions with at least one
+                learner response &divide; sessions actually taught (attendance marked).
+              </>
+            ) : (
+              'Sessions actually taught vs. sessions that collected feedback, per learning facilitator.'
+            )}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <TableShell
+            isLoading={coverage.isLoading}
+            isError={coverage.isError}
+            error={coverage.error}
+            isEmpty={coverageRows.length === 0}
+            emptyLabel="No taught sessions in this period."
+          >
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Learning facilitator</TableHead>
+                  <TableHead>Department</TableHead>
+                  <TableHead className="text-right">Taught</TableHead>
+                  <TableHead className="text-right">With feedback</TableHead>
+                  <TableHead className="w-[22%]">Coverage</TableHead>
+                  <TableHead className="text-right">Last feedback</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {coverageRows.map((r) => (
+                  <TableRow key={r.staff_id}>
+                    <TableCell className="font-medium">
+                      {r.facilitator_name ?? (
+                        <span className="italic text-muted-foreground">Unknown</span>
+                      )}
+                      {r.designation ? (
+                        <span className="block text-xs font-normal text-muted-foreground">
+                          {r.designation}
+                        </span>
+                      ) : null}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {r.department_name ?? '—'}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {r.taught_sessions}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {r.covered_sessions}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 flex-1 rounded-full bg-muted">
+                          <div
+                            className="h-2 rounded-full"
+                            style={{
+                              width: `${Math.max(0, Math.min(100, r.coverage_pct))}%`,
+                              backgroundColor:
+                                r.coverage_pct <= 0 ? '#dc2626' : BRAND_GREEN,
+                            }}
+                            aria-hidden
+                          />
+                        </div>
+                        <span
+                          className={`w-10 text-right text-xs font-semibold tabular-nums ${coverageColor(r.coverage_pct)}`}
+                        >
+                          {r.coverage_pct.toFixed(0)}%
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right text-xs">
+                      {r.last_feedback ? (
+                        <span className="whitespace-nowrap text-muted-foreground">
+                          {r.last_feedback}
+                        </span>
+                      ) : (
+                        <Badge variant="destructive">Never</Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableShell>
+        </CardContent>
+      </Card>
+
+      {/* SCF self-improving-loop intelligence — streams #2–#4 (orchestrator-wired).
+          Loop Activity panel (#4) · Facilitator Strengths board (#3c) · Learner
+          Trajectory at-risk early-warning (#3a). from/to share the dashboard window. */}
+      <LoopActivityCard from={from} to={to} />
+      <FacilitatorStrengthsCard from={from} to={to} />
+      <LearnerTrajectoryCard from={from} to={to} />
+      {/* "A support note went out" — leadership sees that a note was sent, never its text (#2 visibility). */}
+      <StrugglingNotesSentCard from={from} to={to} />
 
       {/* Faculty Summary */}
       <Card className="mb-6">

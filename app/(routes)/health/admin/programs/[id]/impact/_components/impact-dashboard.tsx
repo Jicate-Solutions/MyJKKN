@@ -104,10 +104,10 @@ function Bar({
 }
 
 function PolicyCard({ policy }: { policy: ProgramImpact['policy'] }) {
-  const completionLabel =
-    policy.completion_rule === 'watch_and_quiz'
-      ? 'Watch the video and pass the quiz'
-      : 'Watch the video';
+  const hasQuiz = policy.completion_rule === 'watch_and_quiz';
+  const completionLabel = hasQuiz
+    ? 'Watch the video and pass the quiz'
+    : 'Watch the video';
   return (
     <Card className="border-slate-200 bg-slate-50/60">
       <CardHeader className="pb-3">
@@ -121,19 +121,25 @@ function PolicyCard({ policy }: { policy: ProgramImpact['policy'] }) {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <dl
+          className={`grid grid-cols-1 gap-3 ${
+            hasQuiz ? 'sm:grid-cols-3' : 'sm:grid-cols-2'
+          }`}
+        >
           <div>
             <dt className="text-xs text-slate-400">A day counts as done when</dt>
             <dd className="text-sm font-medium text-slate-700">
               {completionLabel}
             </dd>
           </div>
-          <div>
-            <dt className="text-xs text-slate-400">Quiz pass mark</dt>
-            <dd className="text-sm font-medium text-slate-700">
-              {policy.quiz_pass_pct}%
-            </dd>
-          </div>
+          {hasQuiz && (
+            <div>
+              <dt className="text-xs text-slate-400">Quiz pass mark</dt>
+              <dd className="text-sm font-medium text-slate-700">
+                {policy.quiz_pass_pct}%
+              </dd>
+            </div>
+          )}
           <div>
             <dt className="text-xs text-slate-400">Adoption window</dt>
             <dd className="text-sm font-medium text-slate-700">
@@ -208,6 +214,12 @@ export function ImpactDashboard({ programId }: ImpactDashboardProps) {
   const retention = data.retention ?? [];
   const maxRetention = Math.max(1, ...retention.map((r) => r.viewers));
   const activation = data.activation;
+  // Quiz metrics are meaningless for watch-only programs: isComplete() ignores
+  // quiz_score when completion_rule === 'watch', so "Quiz pass rate" reads as a
+  // misleading 0% on a program that has no pass/fail quiz (quiz_score may still
+  // be set by graded form fields, but it gates nothing). Surface the quiz tile
+  // and Learning card only when the policy actually requires passing a quiz.
+  const hasQuiz = data.policy.completion_rule === 'watch_and_quiz';
 
   return (
     <div className="space-y-6">
@@ -229,7 +241,11 @@ export function ImpactDashboard({ programId }: ImpactDashboardProps) {
       </div>
 
       {/* Headline stats */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div
+        className={`grid grid-cols-2 gap-3 ${
+          hasQuiz ? 'sm:grid-cols-4' : 'sm:grid-cols-3'
+        }`}
+      >
         <StatTile
           icon={<Users className="h-5 w-5 text-emerald-600" />}
           value={num(data.reach.unique_participants)}
@@ -242,12 +258,14 @@ export function ImpactDashboard({ programId }: ImpactDashboardProps) {
           label={`Completed all ${data.days_total} days`}
           accent="border-teal-100 bg-teal-50/60"
         />
-        <StatTile
-          icon={<GraduationCap className="h-5 w-5 text-blue-600" />}
-          value={pct(data.learning.pass_rate_pct)}
-          label="Quiz pass rate"
-          accent="border-blue-100 bg-blue-50/60"
-        />
+        {hasQuiz && (
+          <StatTile
+            icon={<GraduationCap className="h-5 w-5 text-blue-600" />}
+            value={pct(data.learning.pass_rate_pct)}
+            label="Quiz pass rate"
+            accent="border-blue-100 bg-blue-50/60"
+          />
+        )}
         <StatTile
           icon={<ThumbsUp className="h-5 w-5 text-amber-600" />}
           value={
@@ -391,36 +409,42 @@ export function ImpactDashboard({ programId }: ImpactDashboardProps) {
         </CardContent>
       </Card>
 
-      {/* Learning + Usefulness + Adoption row */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base text-slate-800">
-              <GraduationCap className="h-4 w-4 text-blue-600" />
-              Learning
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-slate-500">Quiz attempts</span>
-              <span className="font-medium text-slate-800">
-                {num(data.learning.quiz_attempts)}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Average score</span>
-              <span className="font-medium text-slate-800">
-                {pct(data.learning.avg_quiz_score)}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Pass rate</span>
-              <span className="font-medium text-slate-800">
-                {pct(data.learning.pass_rate_pct)}
-              </span>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Learning (quiz programs only) + Usefulness + Adoption row */}
+      <div
+        className={`grid grid-cols-1 gap-4 ${
+          hasQuiz ? 'lg:grid-cols-3' : 'lg:grid-cols-2'
+        }`}
+      >
+        {hasQuiz && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base text-slate-800">
+                <GraduationCap className="h-4 w-4 text-blue-600" />
+                Learning
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Quiz attempts</span>
+                <span className="font-medium text-slate-800">
+                  {num(data.learning.quiz_attempts)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Average score</span>
+                <span className="font-medium text-slate-800">
+                  {pct(data.learning.avg_quiz_score)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Pass rate</span>
+                <span className="font-medium text-slate-800">
+                  {pct(data.learning.pass_rate_pct)}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader className="pb-3">

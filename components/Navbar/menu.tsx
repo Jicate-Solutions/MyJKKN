@@ -13,7 +13,7 @@ import {
   TooltipProvider
 } from '@/components/ui/tooltip';
 import { motion, AnimatePresence } from 'motion/react';
-import { GetRoleBasedPages, RolePermissionData, MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
+import { GetRoleBasedPages, RolePermissionData, MENU_PERMISSIONS, filterToInductionOnlyMenu } from '@/lib/sidebarMenuLink';
 import { getModulesBySection } from '@/lib/navigation/modules';
 import { getPageRegistry, getPageByPath } from '@/lib/navigation/page-registry';
 import { filterByPermissions } from '@/lib/navigation/permission-filter';
@@ -29,6 +29,7 @@ import {
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
 import { useCommitteeMembership } from '@/hooks/events/marathon/use-committee-membership';
 import { useIsHosteler } from '@/hooks/campus-living/use-is-hosteler';
+import { useIsInductionOnly } from '@/hooks/use-my-lifecycle-status';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
 import { FavoritesSidebarSection } from '@/components/Favorites/FavoritesSidebarSection';
 import { FavoriteStar } from '@/components/Favorites/FavoriteStar';
@@ -91,6 +92,9 @@ export function Menu({ isOpen }: MenuProps) {
   // residents (learners_profiles accommodation = hostel), not every student.
   const isStudentRole = userProfile?.role === 'student';
   const { data: isHosteler } = useIsHosteler(isStudentRole);
+  // Pre-onboarding (induction-only) learners: scope the sidebar to My Induction +
+  // My Profile. Proxy.ts is the real gate; this hides links that would only redirect.
+  const isInductionOnly = useIsInductionOnly(isStudentRole);
 
   // Build RolePermissionData from usePermissions (multi-role merged)
   const roleData = useMemo((): RolePermissionData | null => {
@@ -167,7 +171,8 @@ export function Menu({ isOpen }: MenuProps) {
   // since `MODULES` deliberately does not carry submenu data — same trade-off as
   // bottom-navbar.tsx. Sections with zero accessible menus (after permission
   // filtering) are dropped, exactly as before.
-  const pagesRaw = GetRoleBasedPages(pathname, roleData);
+  const pagesRawBase = GetRoleBasedPages(pathname, roleData);
+  const pagesRaw = isInductionOnly ? filterToInductionOnlyMenu(pagesRawBase) : pagesRawBase;
 
   // Adapt menu labels based on institution type (school → classes/terms, college → programs/semesters)
   const pagesAdapted = useMemo(
@@ -418,6 +423,14 @@ export function Menu({ isOpen }: MenuProps) {
                   // Skip Dashboard ('/') — it has no sub-pages and stays a plain link.
                   const moduleSlug = href === '/' ? null : href.replace(/^\//, '').split('/')[0]!;
 
+                  // Rows with hand-authored submenus self-anchor under their full-path
+                  // key so several accordion rows can share one top-level slug (e.g.
+                  // /hr, /hr/recruitment and /hr/admin each expand independently).
+                  // Auto-discovery rows keep the one-anchor-per-slug competition below,
+                  // which exists so siblings never re-list the same manifest children.
+                  const hasExplicitSubmenus = submenus.length > 0 && !noSubmenus;
+                  const accordionKey = hasExplicitSubmenus && moduleSlug ? href.replace(/^\//, '') : moduleSlug;
+
                   // Children source priority:
                   //  1. `noSubmenus: true` on the row → plain link, no
                   //     children at all (skip both submenus and manifest).
@@ -430,7 +443,7 @@ export function Menu({ isOpen }: MenuProps) {
                   //
                   // Only the anchor row for each slug gets sub-pages; non-anchor
                   // siblings render as plain links.
-                  const isAnchor = moduleSlug ? anchorBySlug.get(moduleSlug) === href : false;
+                  const isAnchor = moduleSlug ? (hasExplicitSubmenus || anchorBySlug.get(moduleSlug) === href) : false;
                   const moduleSubPages = (isAnchor && !noSubmenus)
                     ? (submenus.length > 0
                         ? submenus.map((sub) => {
@@ -475,7 +488,7 @@ export function Menu({ isOpen }: MenuProps) {
                   // - No accessible direct children → plain link
                   // - Otherwise → accordion
                   const useAccordion = isOpen !== false && directChildren.length > 0;
-                  const isExpanded = useAccordion && expandedModule === moduleSlug;
+                  const isExpanded = useAccordion && expandedModule === accordionKey;
 
                   return (
                     <div className='w-full group/row' key={href}>
@@ -496,10 +509,10 @@ export function Menu({ isOpen }: MenuProps) {
                                     // via the module's /dashboard sub-page (auto-discovered),
                                     // Ctrl+K, or direct URL.
                                     e.preventDefault();
-                                    toggleModule(moduleSlug!);
+                                    toggleModule(accordionKey!);
                                   }}
                                   aria-expanded={isExpanded}
-                                  aria-controls={isExpanded ? `sidebar-submenu-${moduleSlug}` : undefined}
+                                  aria-controls={isExpanded ? `sidebar-submenu-${accordionKey}` : undefined}
                                   asChild
                                 >
                                   <Link href={href}>
@@ -590,7 +603,7 @@ export function Menu({ isOpen }: MenuProps) {
                         <AnimatePresence initial={false}>
                           {isExpanded && (
                             <motion.ul
-                              id={`sidebar-submenu-${moduleSlug}`}
+                              id={`sidebar-submenu-${accordionKey}`}
                               initial={{ height: 0, opacity: 0 }}
                               animate={{ height: 'auto', opacity: 1 }}
                               exit={{ height: 0, opacity: 0 }}

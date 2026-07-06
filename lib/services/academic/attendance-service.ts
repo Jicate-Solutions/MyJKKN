@@ -911,7 +911,15 @@ export class AttendanceService {
            sections(section_name)`
         )
         .eq('institution_id', filters.institution_id)
-        .eq('academic_year_id', filters.academic_year_id)
+        // Updated: 2026-06-29 - Do NOT gate on academic_year_id. A timetable's
+        // validity is its OWN start_date/end_date window (enforced per-timetable
+        // below), NOT the calendar bounds of the academic_year row it is tagged
+        // with. Timetables are routinely scheduled across the academic-year
+        // boundary (e.g. a 2025-26-tagged timetable running Jun–Oct 2026). The
+        // remaining filters (degree/program/department/semester + the date-range
+        // check below) already pin the result to a single class; the AY equality
+        // only added a way to wrongly exclude it. Mirrors the faculty
+        // getFacultyTodayPeriods fix so both paths show periods by timetable date.
         .eq('degree_id', filters.degree_id)
         .eq('program_id', filters.program_id)
         .eq('department_id', filters.department_id)
@@ -1462,6 +1470,30 @@ export class AttendanceService {
                     if (isAssignedViaSubSlotIds) return true;
                   }
                 }
+              }
+
+              // Added: 2026-06-29 - Practical periods (period_mode='practical') assign
+              // staff per BATCH in practical_config.batches[].staff_mapping (an object
+              // keyed by course_id whose values are staff_id arrays), NOT in
+              // staff_ids/staff_members/sub_slots. Without this the assigned faculty's
+              // practical period was filtered out of the search results too. Mirrors the
+              // getFacultyTodayPeriods practical fix.
+              if (
+                slot.period_mode === 'practical' &&
+                slot.practical_config &&
+                Array.isArray(slot.practical_config.batches)
+              ) {
+                const inPracticalBatch = slot.practical_config.batches.some(
+                  (batch: any) => {
+                    const mapping = batch?.staff_mapping;
+                    if (!mapping || typeof mapping !== 'object') return false;
+                    return Object.values(mapping).some(
+                      (list: any) =>
+                        Array.isArray(list) && list.includes(staffIdForFiltering)
+                    );
+                  }
+                );
+                if (inPracticalBatch) return true;
               }
 
               return false;

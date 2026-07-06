@@ -1,11 +1,15 @@
 // app/(routes)/audit/care/[cycleId]/page.tsx
-// CARE audit detail — owner scoring sheet + live pillar/index strip +
+// Culture-audit detail — owner scoring sheet + live pillar/index strip +
 // second-scorer invite + post-completion results & corrective-move composer.
-// Spec: specs/care-audit-module-spec-2026-06-12.md §5.
+// Spec: specs/carre-v2-upgrade-spec-2026-07-05.md §3.
 //
-// Access: owner + leadership via fn_care_get_audit (RPC-enforced, no page
-// guard — denials render explicitly per rule #27). Leadership gets a
-// read-only sheet; only the owner can score and invite.
+// FRAMEWORK-AWARE: a cycle id is exactly one framework. This page loads CARRE
+// first (fn_carre_get_audit); if that returns not_found it is a v1 CARE cycle,
+// so it falls back to fn_care_get_audit. Historical CARE audits render with the
+// 4-pillar /80 math; CARRE audits render with the 5-pillar /100 math (incl. the
+// Respect override). Owner scoring + invites dispatch to the framework-matched
+// RPCs. Access is RPC-enforced (no page guard) — denials render explicitly
+// (rule #27). Leadership gets a read-only sheet; only the owner scores/invites.
 
 'use client';
 
@@ -34,18 +38,26 @@ import {
   useCareAudit,
   useCreateCareInvite,
   useUpsertCareScore,
+  useCarreAudit,
+  useCreateCarreInvite,
+  useUpsertCarreScore,
 } from '@/hooks/audit';
 import { CareScoreSheet, type SheetValue } from '../_components/care-score-sheet';
 import { CareSummaryStrip } from '../_components/care-summary-strip';
 import { CareResultsPanel } from '../_components/care-results-panel';
-import {
-  careIndex,
-  type CareScoreInput,
-} from '@/lib/services/audit/care-scoring-service';
+import { careIndex } from '@/lib/services/audit/care-scoring-service';
+import { carreIndex } from '@/lib/services/audit/carre-scoring-service';
 import type {
   CareAuditDetail,
   CareRpcDenial,
 } from '@/lib/services/audit/care-audit-service';
+import type {
+  CarreAuditDetail,
+  CarreRpcDenial,
+} from '@/lib/services/audit/carre-audit-service';
+
+type AnyDetail = CareAuditDetail | CarreAuditDetail;
+type ScoreInput = { parameter_code: string; score: number };
 
 function formatDate(iso: string | null | undefined) {
   if (!iso) return '—';
@@ -60,21 +72,38 @@ function formatDate(iso: string | null | undefined) {
   }
 }
 
-export default function CareAuditDetailPage({
+export default function CultureAuditDetailPage({
   params,
 }: {
   params: Promise<{ cycleId: string }>;
 }) {
   const { cycleId } = use(params);
   const { profile } = useAuth();
-  const { data, isLoading, error } = useCareAudit(cycleId);
-  const upsertScore = useUpsertCareScore();
-  const createInvite = useCreateCareInvite();
+
+  // Load CARRE first; fall back to CARE only when CARRE says not_found.
+  const carreQ = useCarreAudit(cycleId);
+  const carreData = carreQ.data;
+  const carreNotFound =
+    !!carreData && !carreData.success && (carreData as CarreRpcDenial).reason === 'not_found';
+  const careQ = useCareAudit(carreNotFound ? cycleId : undefined);
+  const careData = careQ.data;
+
+  const isCarre = !!(carreData && carreData.success);
+  const framework: 'CARE' | 'CARRE' = isCarre ? 'CARRE' : 'CARE';
+
+  const detail: AnyDetail | null = isCarre
+    ? (carreData as CarreAuditDetail)
+    : careData && careData.success
+      ? (careData as CareAuditDetail)
+      : null;
+
+  const upsertCareScore = useUpsertCareScore();
+  const upsertCarreScore = useUpsertCarreScore();
+  const createCareInvite = useCreateCareInvite();
+  const createCarreInvite = useCreateCarreInvite();
   const [invitedEmail, setInvitedEmail] = useState('');
 
-  const detail = data && data.success ? (data as CareAuditDetail) : null;
-
-  const ownerScores = useMemo<CareScoreInput[]>(
+  const ownerScores = useMemo<ScoreInput[]>(
     () =>
       (detail?.scores ?? [])
         .filter((s) => s.scorer_role === 'owner')
@@ -82,7 +111,7 @@ export default function CareAuditDetailPage({
     [detail],
   );
 
-  const participantScores = useMemo<CareScoreInput[]>(
+  const participantScores = useMemo<ScoreInput[]>(
     () =>
       (detail?.scores ?? [])
         .filter((s) => s.scorer_role === 'participant')
@@ -103,18 +132,20 @@ export default function CareAuditDetailPage({
     return values;
   }, [detail]);
 
-  const { index } = careIndex(ownerScores);
+  const { index } = isCarre ? carreIndex(ownerScores) : careIndex(ownerScores);
   const complete = index !== null;
+  const itemCount = isCarre ? 25 : 20;
+  const settingCode = isCarre
+    ? (detail as CarreAuditDetail | null)?.snapshot?.setting_code
+    : undefined;
 
   async function handleScore(code: string, score: number) {
     if (!detail?.is_owner) return;
     const existingNote = sheetValues[code]?.evidence_note ?? null;
-    const result = await upsertScore.mutateAsync({
-      cycleId,
-      parameterCode: code,
-      score,
-      evidenceNote: existingNote,
-    });
+    const input = { cycleId, parameterCode: code, score, evidenceNote: existingNote };
+    const result = isCarre
+      ? await upsertCarreScore.mutateAsync(input)
+      : await upsertCareScore.mutateAsync(input);
     if (!result.success) {
       toast.error(`Could not save score (${(result as CareRpcDenial).reason})`);
     }
@@ -124,28 +155,28 @@ export default function CareAuditDetailPage({
     if (!detail?.is_owner) return;
     const existingScore = sheetValues[code]?.score;
     if (existingScore === undefined) return; // note saves ride the score row
-    const result = await upsertScore.mutateAsync({
-      cycleId,
-      parameterCode: code,
-      score: existingScore,
-      evidenceNote: note,
-    });
+    const input = { cycleId, parameterCode: code, score: existingScore, evidenceNote: note };
+    const result = isCarre
+      ? await upsertCarreScore.mutateAsync(input)
+      : await upsertCareScore.mutateAsync(input);
     if (!result.success) {
       toast.error(`Could not save note (${(result as CareRpcDenial).reason})`);
     }
   }
 
   async function handleInvite() {
-    const result = await createInvite.mutateAsync({
-      cycleId,
-      invitedEmail: invitedEmail.trim() || undefined,
-    });
+    const input = { cycleId, invitedEmail: invitedEmail.trim() || undefined };
+    const result = isCarre
+      ? await createCarreInvite.mutateAsync(input)
+      : await createCareInvite.mutateAsync(input);
     if (!result.success) {
       toast.error(`Could not create invite (${(result as CareRpcDenial).reason})`);
       return;
     }
     toast.success(result.existing ? 'Existing invite link loaded' : 'Invite link created');
   }
+
+  const invitePending = isCarre ? createCarreInvite.isPending : createCareInvite.isPending;
 
   function copyInviteLink(token: string) {
     const url = `${window.location.origin}/audit/care/score/${token}`;
@@ -156,9 +187,11 @@ export default function CareAuditDetailPage({
   // --------------------------------------------------------------------
   // Loading / denial states (rule #27 — explicit, never a silent redirect)
   // --------------------------------------------------------------------
+  const isLoading = carreQ.isLoading || (carreNotFound && careQ.isLoading);
+
   if (isLoading) {
     return (
-      <ContentLayout title="CARE Audit">
+      <ContentLayout title="Culture Audit">
         <div className="space-y-4 max-w-5xl">
           <Skeleton className="h-24 w-full" />
           <Skeleton className="h-20 w-full" />
@@ -168,23 +201,31 @@ export default function CareAuditDetailPage({
     );
   }
 
-  if (error || !data || !data.success) {
-    const reason = data && !data.success ? (data as CareRpcDenial).reason : 'error';
+  if (!detail) {
+    // Resolve which response drives the denial: a non-not_found CARRE denial,
+    // else the CARE fallback's denial, else genuinely not found.
+    const denial: CareRpcDenial | CarreRpcDenial | null =
+      carreData && !carreData.success && (carreData as CarreRpcDenial).reason !== 'not_found'
+        ? (carreData as CarreRpcDenial)
+        : careData && !careData.success
+          ? (careData as CareRpcDenial)
+          : null;
+    const reason = denial?.reason ?? (carreQ.error || careQ.error ? 'error' : 'not_found');
     const copyByReason: Record<string, string> = {
-      not_found: 'This CARE audit does not exist (or was deleted).',
+      not_found: 'This culture audit does not exist (or was deleted).',
       forbidden:
-        'You do not have access to this CARE audit. It is visible to its owner and to audit leadership — contact the initiative owner if you believe you should see it.',
+        'You do not have access to this audit. It is visible to its owner and to audit leadership — contact the initiative owner if you believe you should see it.',
       not_authenticated: 'Your session expired. Re-login and try again.',
-      error: (error as Error)?.message ?? 'Could not load this CARE audit.',
+      error: ((carreQ.error || careQ.error) as Error)?.message ?? 'Could not load this culture audit.',
     };
     return (
-      <ContentLayout title="CARE Audit">
+      <ContentLayout title="Culture Audit">
         <div className="max-w-xl">
           <Card className="border-destructive/40">
             <CardContent className="pt-6 flex items-start gap-3">
               <ShieldAlert className="h-5 w-5 text-destructive flex-shrink-0" />
               <div className="space-y-2">
-                <p className="text-sm font-medium">Cannot open this CARE audit</p>
+                <p className="text-sm font-medium">Cannot open this culture audit</p>
                 <p className="text-xs text-muted-foreground">
                   {copyByReason[reason] ?? copyByReason.error}
                 </p>
@@ -199,16 +240,17 @@ export default function CareAuditDetailPage({
     );
   }
 
-  const d = detail!;
+  const d = detail;
+  const frameworkLabel = d.snapshot?.framework ?? framework;
   const overdue = new Date(d.cycle.re_audit_date) < new Date();
 
   return (
-    <ContentLayout title="CARE Audit">
+    <ContentLayout title="Culture Audit">
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/dashboard' },
           { label: 'Audit', href: '/audit' },
-          { label: 'CARE', href: `/audit/care/${cycleId}` },
+          { label: frameworkLabel, href: `/audit/care/${cycleId}` },
         ]}
       />
 
@@ -222,8 +264,13 @@ export default function CareAuditDetailPage({
                   <HeartHandshake className="h-4 w-4 text-rose-600 flex-shrink-0" />
                   <h2 className="text-lg font-semibold truncate">{d.cycle.name}</h2>
                   <Badge variant="secondary" className="uppercase text-[10px]">
-                    CARE v{d.snapshot?.version ?? '1.0'}
+                    {frameworkLabel} v{d.snapshot?.version ?? (isCarre ? '2.0' : '1.0')}
                   </Badge>
+                  {isCarre && settingCode && (
+                    <Badge variant="outline" className="text-[10px]">
+                      {settingCode}
+                    </Badge>
+                  )}
                 </div>
                 {d.cycle.audience && (
                   <p className="text-sm text-muted-foreground">{d.cycle.audience}</p>
@@ -249,7 +296,7 @@ export default function CareAuditDetailPage({
         </Card>
 
         {/* Live pillar / index strip */}
-        <CareSummaryStrip ownerScores={ownerScores} />
+        <CareSummaryStrip ownerScores={ownerScores} framework={framework} />
 
         {/* Second scorer */}
         <Card>
@@ -262,7 +309,7 @@ export default function CareAuditDetailPage({
           <CardContent className="space-y-3">
             <p className="text-xs text-muted-foreground">
               Invite ONE participant representative (staff or learner) to score the
-              same 20 items <strong>blind</strong> — they never see your scores
+              same {itemCount} items <strong>blind</strong> — they never see your scores
               before submitting. A gap of ≥ 2 on any item becomes a Clarity finding.
             </p>
             {d.invite ? (
@@ -277,7 +324,7 @@ export default function CareAuditDetailPage({
                   </Badge>
                   {d.invite.accepted_by ? (
                     <Badge variant="outline" className="text-[10px] border-emerald-300 text-emerald-700">
-                      {participantScores.length > 0 ? `Scored ${participantScores.length}/20` : 'Opened — not yet scored'}
+                      {participantScores.length > 0 ? `Scored ${participantScores.length}/${itemCount}` : 'Opened — not yet scored'}
                     </Badge>
                   ) : (
                     <Badge variant="outline" className="text-[10px]">
@@ -308,9 +355,9 @@ export default function CareAuditDetailPage({
                   placeholder="Participant email (optional, for your records)"
                   className="max-w-xs text-xs h-8"
                 />
-                <Button size="sm" onClick={handleInvite} disabled={createInvite.isPending}>
+                <Button size="sm" onClick={handleInvite} disabled={invitePending}>
                   <UserPlus className="h-3.5 w-3.5 mr-1" />
-                  {createInvite.isPending ? 'Creating…' : 'Generate scoring link'}
+                  {invitePending ? 'Creating…' : 'Generate scoring link'}
                 </Button>
               </div>
             ) : (
@@ -323,7 +370,7 @@ export default function CareAuditDetailPage({
         <Card>
           <CardHeader>
             <CardTitle className="text-base">
-              Scoring sheet — 20 items, 0–4
+              Scoring sheet — {itemCount} items, 0–4
               {!d.is_owner && (
                 <Badge variant="outline" className="ml-2 text-[10px]">
                   Read-only (you are not the owner)
@@ -341,6 +388,7 @@ export default function CareAuditDetailPage({
             <CareScoreSheet
               parameters={d.snapshot?.parameters ?? []}
               values={sheetValues}
+              settingCode={settingCode}
               onScore={(code, score) => void handleScore(code, score)}
               onNote={(code, note) => void handleNote(code, note)}
               disabled={!d.is_owner || d.cycle.phase === 'closed'}
@@ -348,7 +396,7 @@ export default function CareAuditDetailPage({
           </CardContent>
         </Card>
 
-        {/* Results + corrective moves (only once all 20 owner scores exist) */}
+        {/* Results + corrective moves (only once all owner scores exist) */}
         {complete && (
           <CareResultsPanel
             cycleId={cycleId}
@@ -356,6 +404,7 @@ export default function CareAuditDetailPage({
             participantScores={participantScores}
             institutionId={profile?.institution_id ?? null}
             requesterId={profile?.id ?? null}
+            framework={framework}
           />
         )}
       </div>

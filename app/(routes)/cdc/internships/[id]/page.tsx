@@ -33,6 +33,7 @@ import Loading from '@/components/Loading/Loading';
 import { useCdcInternshipDetail } from '@/hooks/cdc/use-cdc-internships';
 import { useAuth } from '@/hooks/use-auth';
 import type { IssueCertificatePayload } from '@/types/cdc/internships';
+import { AddToLinkedInButton } from '@/components/linkedin/add-to-linkedin-button';
 
 const STATUS_COLOR: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-800',
@@ -248,6 +249,22 @@ function CdcInternshipDetailContent({
                       No PDF uploaded
                     </Button>
                   )}
+                </div>
+                <div className="mt-4 pt-4 border-t border-green-200">
+                  <AddToLinkedInButton
+                    className="w-full"
+                    cert={{
+                      name: internship.site?.site_name
+                        ? `Corporate Internship — ${internship.site.site_name}`
+                        : 'Corporate Internship',
+                      certId: internship.certificate.certificate_number,
+                      certUrl:
+                        internship.certificate.verification_url ||
+                        internship.certificate.certificate_pdf_url ||
+                        undefined,
+                      issuedAt: internship.certificate.issued_date,
+                    }}
+                  />
                 </div>
               </CardContent>
             </Card>

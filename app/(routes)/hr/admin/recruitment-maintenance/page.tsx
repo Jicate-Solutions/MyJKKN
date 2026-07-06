@@ -8,8 +8,8 @@
 // confirmation checkbox → "Apply backfill". No JSONB shown anywhere. Plain
 // English consequences only.
 //
-// Pattern reference: app/(routes)/hr/admin/recruitment-approvals-scope/page.tsx
-// (SuperAdminOnly + ContentLayout wrapper, English-consequence body).
+// Pattern reference: app/(routes)/hr/admin/recruitment-approval-flows/page.tsx
+// (guarded ContentLayout wrapper, English-consequence body).
 // ============================================================================
 
 export const navMeta = {

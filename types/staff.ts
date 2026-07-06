@@ -253,6 +253,12 @@ export interface StaffFilters {
   login_enabled?: boolean;
   page?: number;
   limit?: number;
+  /**
+   * Cross-institution teaching assignment lookup (staff planning "Other
+   * institutions" picker). Requires academic.staff.planning.edit; the API
+   * returns a reduced, active-only column set for the target institution.
+   */
+  for_teaching_assignment?: boolean;
 }
 
 export interface StaffListResponse {

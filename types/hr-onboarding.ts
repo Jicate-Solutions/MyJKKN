@@ -35,6 +35,14 @@ export interface HROnboardingStep {
    * already, others (welcome meeting) are flexible.
    */
   expected_by_day?: number;
+  // ----- Dynamic assignment (2026-07-06 pre-join onboarding stage) ----------
+  /** custom_roles.role_key whose holders must complete this step. */
+  assigned_role?: string;
+  /**
+   * Specific person (by email in the template; resolved to a profiles.id
+   * at instance-stamp time by the onboarding start route).
+   */
+  assigned_user_email?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,13 +114,13 @@ export interface HROnboardingChecklistView extends HROnboardingChecklist {
 /**
  * Render the steps[] array as a human-editable text block, one step per line:
  *
- *   1. ID card issued (by day 1)
- *   2. JKKN email setup (by day 2)
- *   3. Principal welcome meeting (by day 2)
+ *   1. ID card issued (by day 1) [role: hr_officer]
+ *   2. JKKN email setup (by day 2) [role: it_admin]
+ *   3. Principal welcome meeting [user: principal@jkkn.ac.in]
  *
- * Round-trips cleanly through parseStepsText. The "by day N" suffix is
- * optional in input — the parser accepts a leading "1." through "10.", a
- * step title, and an optional trailing "(by day N)" / "(day N)" / "(N days)".
+ * Round-trips cleanly through parseStepsText. The "by day N" suffix and the
+ * assignee tag are both optional. `[role: xxx]` routes the step to holders of
+ * that custom_roles.role_key; `[user: email]` pins a specific person.
  */
 export function formatStepsText(steps: HROnboardingStep[]): string {
   if (!Array.isArray(steps) || steps.length === 0) return '';
@@ -121,8 +129,13 @@ export function formatStepsText(steps: HROnboardingStep[]): string {
     .sort((a, b) => a.order - b.order)
     .map((s) => {
       const day = s.expected_by_day;
-      const suffix = typeof day === 'number' ? ` (by day ${day})` : '';
-      return `${s.order}. ${s.title}${suffix}`;
+      const daySuffix = typeof day === 'number' ? ` (by day ${day})` : '';
+      const assigneeSuffix = s.assigned_user_email
+        ? ` [user: ${s.assigned_user_email}]`
+        : s.assigned_role
+        ? ` [role: ${s.assigned_role}]`
+        : '';
+      return `${s.order}. ${s.title}${daySuffix}${assigneeSuffix}`;
     })
     .join('\n');
 }
@@ -152,15 +165,29 @@ export function parseStepsText(input: unknown): HROnboardingStep[] {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     // Strip leading "1.", "2.", "10.", etc. (optional).
-    const titleAndDay = line.replace(/^\s*\d+\.\s*/, '');
+    let rest = line.replace(/^\s*\d+\.\s*/, '');
+
+    // Pull off optional trailing assignee tag: "[role: xxx]" or "[user: email]".
+    // Parsed BEFORE the day suffix so both orders round-trip.
+    let assignedRole: string | undefined;
+    let assignedUserEmail: string | undefined;
+    const assigneeMatch = rest.match(/\s*\[\s*(role|user)\s*:\s*([^\]]+?)\s*\]\s*$/i);
+    if (assigneeMatch) {
+      rest = rest.slice(0, assigneeMatch.index).trim();
+      const kind = assigneeMatch[1]!.toLowerCase();
+      const value = assigneeMatch[2]!.trim();
+      if (kind === 'role' && value) assignedRole = value.toLowerCase();
+      if (kind === 'user' && value) assignedUserEmail = value.toLowerCase();
+    }
+
     // Pull off optional trailing "(by day N)" / "(day N)" / "(N days)".
-    const dayMatch = titleAndDay.match(
+    const dayMatch = rest.match(
       /\s*\((?:by\s+day\s+|day\s+)?(\d+)(?:\s*days?)?\)\s*$/i,
     );
-    let title = titleAndDay;
+    let title = rest;
     let expectedByDay: number | undefined;
     if (dayMatch) {
-      title = titleAndDay.slice(0, dayMatch.index).trim();
+      title = rest.slice(0, dayMatch.index).trim();
       expectedByDay = Number.parseInt(dayMatch[1]!, 10);
       if (!Number.isFinite(expectedByDay) || expectedByDay < 0) {
         expectedByDay = undefined;
@@ -176,6 +203,8 @@ export function parseStepsText(input: unknown): HROnboardingStep[] {
     if (typeof expectedByDay === 'number') {
       step.expected_by_day = expectedByDay;
     }
+    if (assignedRole) step.assigned_role = assignedRole;
+    if (assignedUserEmail) step.assigned_user_email = assignedUserEmail;
     out.push(step);
   }
   return out;

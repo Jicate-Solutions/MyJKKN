@@ -306,10 +306,23 @@ export function StaffPlanDetailsPage({
                                 className='flex items-center justify-between p-3 bg-muted/50 rounded-lg'
                               >
                                 <div>
-                                  <p className='font-medium text-sm'>
-                                    {assignment.staff?.first_name}{' '}
-                                    {assignment.staff?.last_name}
-                                  </p>
+                                  <div className='flex items-center gap-1.5'>
+                                    <p className='font-medium text-sm'>
+                                      {assignment.staff?.first_name}{' '}
+                                      {assignment.staff?.last_name}
+                                    </p>
+                                    {assignment.staff?.institution_id &&
+                                      staffPlan.institution_id &&
+                                      assignment.staff.institution_id !==
+                                        staffPlan.institution_id && (
+                                        <Badge
+                                          variant='outline'
+                                          className='text-[10px] border-amber-300 text-amber-700'
+                                        >
+                                          Visiting
+                                        </Badge>
+                                      )}
+                                  </div>
                                   <p className='text-xs text-muted-foreground'>
                                     {assignment.staff?.staff_id || 'No ID'}
                                   </p>

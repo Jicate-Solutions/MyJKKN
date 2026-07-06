@@ -2,7 +2,7 @@
 // app/(routes)/staff/list/page.tsx
 
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
@@ -25,6 +25,8 @@ import BulkUploadStaff from './_components/bulk-upload-staff';
 import { CreateMissingProfilesButton } from './_components/create-missing-profiles-button';
 import { BulkUploadStaffImages } from './_components/bulk-upload-staff-images';
 import { StaffFilters as StaffFiltersType, Staff } from '@/types/staff';
+import { StaffProfileCompletionCard } from './_components/staff-profile-completion-card';
+import { calculateStaffProfileCompletion } from '@/lib/utils/staff-profile-completion';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Users, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -77,6 +79,15 @@ export default function StaffPage() {
   // const canDeleteStaff = isSuperAdmin || canAccess('staff', 'delete');
 
   const staffList = staffData?.data || [];
+
+  // For `own_records` users (faculty, librarians, etc.) the list is a single
+  // row — their own staff record. Compute its completion so they get the same
+  // profile-completion bar learners see on /learners/my-profile.
+  const ownRecord = isOwnRecordsScope ? staffList[0] : undefined;
+  const ownRecordCompletion = useMemo(
+    () => (ownRecord ? calculateStaffProfileCompletion(ownRecord) : null),
+    [ownRecord]
+  );
 
   // Memoized filter change handler to prevent unnecessary re-renders
   const handleFilterChange = useCallback(
@@ -229,6 +240,17 @@ export default function StaffPage() {
                 </div>
               </div>
             </div>
+
+            {/* Profile completion bar — own_records users (faculty et al.) see
+                a personal completion summary for their single staff record,
+                mirroring the learner /learners/my-profile experience. */}
+            {!isLoading && isOwnRecordsScope && ownRecord && ownRecordCompletion && (
+              <StaffProfileCompletionCard
+                completion={ownRecordCompletion}
+                canEdit={canEditStaff}
+                editHref={`/staff/list/${ownRecord.id}/edit`}
+              />
+            )}
 
             {/* Action Buttons — gated by permissions:
                   - Download Template / Bulk Upload Images: read-only or edit-level

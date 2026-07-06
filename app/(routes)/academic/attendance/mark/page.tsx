@@ -210,7 +210,7 @@ export default function AttendanceMarkPage() {
         // Build query
         // Updated: 2025-10-09 - Added timetable_format to query for batch timetable support
         // Updated: 2026-03-10 - Include semesters join to eliminate separate semester query
-        let query = supabase
+        const query = supabase
           .from('timetables')
           .select(
             `
@@ -235,10 +235,13 @@ export default function AttendanceMarkPage() {
           )
           .eq('id', timetableId);
 
-        // Only filter by institution for non-super admins
-        if (!isSuperAdmin && profile?.institution_id) {
-          query = query.eq('institution_id', profile.institution_id);
-        }
+        // Updated: 2026-07-06 (cross-institution teaching) - Do NOT filter the
+        // timetable load by profile.institution_id. A visiting staff (assigned
+        // via staff planning to a sister institution's timetable) belongs to a
+        // DIFFERENT institution than the timetable, and this filter made the
+        // load fail with "Failed to load class information". Row access is
+        // still gated by timetables RLS, and save authorization is enforced
+        // separately by validateStaffAssignment.
 
         // Fetch timetable data with all related information
         const { data: timetableData, error: timetableError } =

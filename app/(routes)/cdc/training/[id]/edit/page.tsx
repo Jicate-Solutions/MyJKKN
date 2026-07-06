@@ -18,6 +18,7 @@ import { useAcademicYears } from '@/hooks/use-academic-years';
 import { ArrowLeft, BookOpen, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import type { UpdateTrainingProgrammeDto, TrainingProgrammeStatus } from '@/types/cdc/training';
+import { TrainerPicker } from '../../_components/trainer-picker';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -60,6 +61,8 @@ function EditTrainingProgrammeContent({ params }: Props) {
         end_date: programme.end_date ?? null,
         status: programme.status,
         external_provider: programme.external_provider ?? null,
+        trainer_name: programme.trainer_name ?? null,
+        trainer_staff_id: programme.trainer_staff_id ?? null,
         target_department_id: programme.target_department_id ?? null,   // BUG-004073
         academic_year_label: programme.academic_year_label ?? null,     // BUG-004073
       });
@@ -278,6 +281,22 @@ function EditTrainingProgrammeContent({ params }: Props) {
                     value={form.external_provider ?? ''}
                     onChange={(e) => set('external_provider', e.target.value || null)}
                     placeholder="e.g. NSDC, TCS iON"
+                  />
+                </div>
+
+                {/* Trainer — BUG-004076 + data-driven picker (staff or external) */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="trainer_name">Trainer</Label>
+                  <TrainerPicker
+                    id="trainer_name"
+                    value={{ trainerStaffId: form.trainer_staff_id ?? null, trainerName: form.trainer_name ?? null }}
+                    onChange={(next) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        trainer_staff_id: next.trainerStaffId,
+                        trainer_name: next.trainerName,
+                      }))
+                    }
                   />
                 </div>
 

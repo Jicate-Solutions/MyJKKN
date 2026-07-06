@@ -1,7 +1,8 @@
 /**
  * Feedback Spine — AI classify worker.
  *
- * One claude-sonnet-4-6 call per feedback event → {sentiment, intent, topic,
+ * One Claude call per feedback event (model from ai_model_config,
+ * feature_key 'feedback.classify') → {sentiment, intent, topic,
  * draft_reply}. This is the "take advantage of AI" layer: it turns raw feedback
  * text into structured signal the loops can act on, and drafts a personalized
  * reply a human approves before sending.
@@ -13,13 +14,21 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import {
+  resolveChatModel,
+  recordChatCall,
+} from '@/lib/services/platform/ai-clients/chat';
 import type {
   FeedbackClassification,
   AiSentiment,
   AiIntent,
 } from '@/lib/types/feedback-spine';
 
-const MODEL = 'claude-sonnet-4-6';
+// Model comes from ai_model_config (admin-governed) — resolved per call via
+// resolveChatModel(FEATURE_KEY), which never throws (hardcoded fallback on any
+// config failure). The caller (feedback-classify cron) loops BATCH=25 rows; the
+// service's 60s cache makes the repeated resolution a single DB read per run.
+const FEATURE_KEY = 'feedback.classify';
 const SENTIMENTS: AiSentiment[] = ['positive', 'neutral', 'negative', 'mixed'];
 const INTENTS: AiIntent[] = [
   'praise',
@@ -43,13 +52,26 @@ export async function classifyFeedback(
   const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
 
+  const { model_id: modelId } = await resolveChatModel(FEATURE_KEY);
   const anthropic = new Anthropic({ apiKey });
-  const resp = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: 400,
-    system: SYSTEM,
-    messages: [{ role: 'user', content: content.slice(0, 4000) }],
-  });
+  const t0 = Date.now();
+  let resp: Anthropic.Message;
+  try {
+    resp = await anthropic.messages.create({
+      model: modelId,
+      max_tokens: 400,
+      system: SYSTEM,
+      messages: [{ role: 'user', content: content.slice(0, 4000) }],
+    });
+  } catch (err) {
+    // Record the failed invocation (recordChatCall is internally non-throwing,
+    // MUST be awaited — serverless drops un-awaited promises), then RETHROW:
+    // the cron catches per-row and leaves ai_processed_at NULL so a later run
+    // retries. Swallowing here would break that retry queue.
+    await recordChatCall(FEATURE_KEY, 'anthropic', modelId, t0, null, err);
+    throw err;
+  }
+  await recordChatCall(FEATURE_KEY, 'anthropic', modelId, t0, resp);
 
   const text = resp.content
     .filter((b): b is Anthropic.TextBlock => b.type === 'text')
@@ -75,6 +97,8 @@ export async function classifyFeedback(
     intent,
     topic: (parsed.topic || 'general').toString().slice(0, 80),
     draft_reply: (parsed.draft_reply || '').toString().slice(0, 600),
-    model: MODEL,
+    // ACTUAL model from the response (not the config value) — the caller writes
+    // this to feedback_events.ai_model, so the audit column must stay truthful.
+    model: resp.model,
   };
 }

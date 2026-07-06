@@ -7,6 +7,10 @@ import { routeMatcher } from './lib/auth/route-matcher';
 import { FEATURE_FLAGS } from './lib/config/feature-flags';
 import { StudentValidationService } from './lib/services/auth/student-validation-service';
 import { PARENT_SESSION_COOKIE, verifyParentSession } from './lib/auth/parent-jwt';
+import {
+  SCHOOL_PORTAL_SESSION_COOKIE,
+  verifySchoolPortalSession,
+} from './lib/auth/school-portal-jwt';
 
 // Parent Portal pages that are reachable WITHOUT a parent_session (the auth
 // funnel). Everything else under /parent/* requires a valid parent_session JWT.
@@ -51,6 +55,49 @@ async function handleParentPortal(request: NextRequest, currentPath: string) {
   return res;
 }
 
+// Schools Network HM Portal — same dual-auth shape as the parent portal:
+// HMs are NOT in auth.users, so /schools-portal/* must be reachable without
+// a Supabase session. The login + verify pages are unauthenticated; the
+// dashboard / update-contact pages require a school_portal_session JWT.
+//
+// API auth for /api/schools-portal/* is enforced in-route via
+// resolveHmSession() (see lib/services/schools-portal/session-guard.ts) —
+// /api/* paths short-circuit isPublicPath() and don't need a per-route
+// gate in this proxy.
+const SCHOOL_PORTAL_PUBLIC_PATHS = new Set([
+  '/schools-portal',
+  '/schools-portal/login',
+  '/schools-portal/verify',
+]);
+
+const SCHOOL_PORTAL_REDIRECT_WHEN_AUTHED = new Set([
+  '/schools-portal',
+  '/schools-portal/login',
+]);
+
+async function handleSchoolsPortal(request: NextRequest, currentPath: string) {
+  const token = request.cookies.get(SCHOOL_PORTAL_SESSION_COOKIE)?.value;
+  const claims = await verifySchoolPortalSession(token);
+
+  if (claims && SCHOOL_PORTAL_REDIRECT_WHEN_AUTHED.has(currentPath)) {
+    return NextResponse.redirect(
+      new URL('/schools-portal/dashboard', request.url),
+    );
+  }
+
+  if (!claims && !SCHOOL_PORTAL_PUBLIC_PATHS.has(currentPath)) {
+    const url = new URL('/schools-portal/login', request.url);
+    url.searchParams.set('redirectedFrom', currentPath);
+    return NextResponse.redirect(url);
+  }
+
+  const res = NextResponse.next();
+  res.headers.set('Cache-Control', 'no-store, must-revalidate');
+  res.headers.set('X-Content-Type-Options', 'nosniff');
+  res.headers.set('X-Frame-Options', 'SAMEORIGIN');
+  return res;
+}
+
 // Define public paths - optimized with Set for O(1) lookup
 const PUBLIC_PATHS_SET = new Set([
   '/', // Allow root path to avoid ERR_FAILED issues
@@ -74,6 +121,7 @@ const PUBLIC_PATHS_SET = new Set([
   '/terms', // Terms of Use — public, required for Meta App Review
   '/data-deletion', // Data Deletion instructions — public, required for Meta App Review
   '/meet', // Universal Booking directory — public, no login (U4)
+  '/employers/submit', // CDC employer self-submit vacancy form — public, no login
   '/api/admission/leads/refer', // Agent referral API
   '/api/admission/leads/inbound' // Inbound webhook API
 ]);
@@ -92,6 +140,7 @@ const PUBLIC_PATH_PREFIXES = [
   '/p/', // Wellness Programs public patient page (/p/[token]) — QR-scanned, no login (token-validated server-side)
   '/api/public/health-programs/', // Wellness Programs public view tracking — token-keyed, no login
   '/api/calendar/feed/', // ICS calendar feed — token-keyed bearer secret, no login (Google Calendar polls this)
+  '/verify/', // Public certificate verification (/verify/[number]) — QR-scanned by recruiters, no login. Also the LinkedIn "See credential" target. Page under app/verify/ is public-by-design but was never allowlisted (307→login bug); pde_certificates was empty so it stayed latent.
 ];
 
 // Regex for static assets - single check instead of multiple endsWith
@@ -114,6 +163,26 @@ const isPublicPath = (path: string): boolean => {
   // Special cases
   if (path.startsWith('/api') || path.includes('favicon.ico')) return true;
 
+  return false;
+};
+
+// Pre-onboarding (induction-only) learners — admission-funnel statuses (enquiry,
+// enquiry_submitted, reserved, admitted) — may reach ONLY these authenticated
+// paths; everything else redirects to /learners/my-induction. Mirrors the
+// guest/driver scoping pattern below. NOTE: /auth/* and /auth/complete-profile are
+// already public (short-circuit in isPublicPath above), so they don't need listing
+// here. Spec: specs/pre-onboarding-induction-access-2026-06-29.md
+const INDUCTION_ONLY_EXACT_PATHS = new Set([
+  '/learners/my-profile', // profile completion — the My Induction nudge target
+  '/unauthorized',
+  '/error'
+]);
+const INDUCTION_ONLY_PREFIXES = ['/learners/my-induction'];
+const isInductionOnlyAllowedPath = (path: string): boolean => {
+  if (INDUCTION_ONLY_EXACT_PATHS.has(path)) return true;
+  for (const prefix of INDUCTION_ONLY_PREFIXES) {
+    if (path === prefix || path.startsWith(prefix + '/')) return true;
+  }
   return false;
 };
 
@@ -146,6 +215,16 @@ export async function proxy(request: NextRequest) {
     // staff /auth/login).
     if (currentPath === '/parent' || currentPath.startsWith('/parent/')) {
       return handleParentPortal(request, currentPath);
+    }
+
+    // Schools Network HM Portal — same dual-auth shape as the parent portal.
+    // HMs sign in via magic link (no Supabase session). Gate /schools-portal/*
+    // with the school_portal_session JWT before the staff Supabase flow runs.
+    if (
+      currentPath === '/schools-portal' ||
+      currentPath.startsWith('/schools-portal/')
+    ) {
+      return handleSchoolsPortal(request, currentPath);
     }
 
     // NOTE: /api/parent/* (and every other /api/*) is handled by the
@@ -373,7 +452,18 @@ export async function proxy(request: NextRequest) {
           isGraduated: validation.isGraduated
         });
 
-        if (!validation.allowed) {
+        if (validation.accessTier === 'induction_only') {
+          // Pre-onboarding learner — RESTRICTED to the induction whitelist. They
+          // are legitimately logged in (do NOT sign out); just scope them down to
+          // My Induction (+ feedback) + profile completion, redirecting everything
+          // else. Same shape as the guest/driver redirect below.
+          if (!isInductionOnlyAllowedPath(currentPath)) {
+            console.log('[Proxy] 🎓 Induction-only learner - redirecting', currentPath, '→ /learners/my-induction');
+            return NextResponse.redirect(new URL('/learners/my-induction', request.url));
+          }
+          console.log('[Proxy] 🎓 Induction-only learner - allowing:', currentPath);
+          // Whitelisted path — fall through and let the middleware continue.
+        } else if (!validation.allowed) {
           // Student blocked due to lifecycle status
           console.log('[Proxy] ❌ Student BLOCKED - reason:', validation.reason);
 
@@ -534,6 +624,7 @@ export const config = {
     '/guest/:path*',
     '/driver/:path*',
     '/parent/:path*',
+    '/schools-portal/:path*',
     // Match all paths except public ones
     '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|auth/test-login|auth/lti-login|auth/audit-login|auth/dev-login|icons|pwa-test.html).*)'
   ]

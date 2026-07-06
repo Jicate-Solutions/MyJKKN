@@ -192,9 +192,12 @@ export default function OnboardingChecklistsPage() {
         kind: 'textarea',
         englishLabel: 'Steps (one per line)',
         englishHint:
-          'One step per line. Optional "(by day N)" suffix sets when the step is expected to complete. Example:\n1. ID card issued (by day 1)\n2. JKKN email setup (by day 2)\n3. HOD intro meeting (by day 3)\n4. 30-day probation check-in (by day 30)',
+          'One step per line. Optional "(by day N)" sets when the step is expected to complete. ' +
+          'Optional "[role: role_key]" assigns the step to holders of that role; "[user: email]" pins a specific person — ' +
+          'only the assignee can tick their step during candidate onboarding, and the staff record is created only after ALL steps are done. Example:\n' +
+          '1. ID card issued (by day 1) [role: hr_officer]\n2. JKKN email setup (by day 2) [role: it_admin]\n3. HOD intro meeting (by day 3) [user: hod.cs@jkkn.ac.in]\n4. 30-day probation check-in (by day 30)',
         placeholder:
-          '1. ID card issued (by day 1)\n2. JKKN email setup (by day 2)\n3. HOD intro meeting (by day 3)',
+          '1. ID card issued (by day 1) [role: hr_officer]\n2. JKKN email setup (by day 2)\n3. HOD intro meeting [user: hod@jkkn.ac.in]',
         required: true,
       },
       {

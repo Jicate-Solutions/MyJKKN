@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useCreateImsTransfer } from '@/hooks/ims/use-ims-transfers';
 import { useImsItems } from '@/hooks/ims/use-ims-inventory';
 import { useImsStoresByInstitution } from '@/hooks/ims/use-ims-stores';
+import { useImsDeptScope } from '@/hooks/ims/use-ims-dept-scope';
 import { usePermissions } from '@/hooks/use-permissions';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
@@ -37,6 +38,12 @@ export function NewRequestSlideover({
 }: NewRequestSlideoverProps) {
   const { userProfile } = usePermissions();
   const createTransfer = useCreateImsTransfer();
+  // Transfers insert into ims_indent_requests, which the dept-scoped RLS gate
+  // also covers. The form has no department field, so a department-scoped user
+  // would insert department_id = NULL and fail the WITH CHECK (and couldn't
+  // read the row back). Stamp their own department so the request is valid and
+  // visible to them. Mirrors the indent form's RLS alignment.
+  const { data: deptScope } = useImsDeptScope();
 
   const [purpose, setPurpose] = useState('');
   const [urgency, setUrgency] = useState<ImsIndentUrgency>('normal');
@@ -164,6 +171,15 @@ export function NewRequestSlideover({
       toast.error('Some items are missing a unit. Check the destination store catalog.');
       return;
     }
+    // Fail-closed: a department-scoped user with no department on their profile
+    // can never satisfy the RLS insert check. Block with a clear message rather
+    // than letting the DB throw an opaque row-level-security violation.
+    if (deptScope?.scopedNoDept) {
+      toast.error(
+        'No department is assigned to your profile. Please contact an administrator before requesting a transfer.'
+      );
+      return;
+    }
 
     try {
       await createTransfer.mutateAsync({
@@ -176,6 +192,11 @@ export function NewRequestSlideover({
           source_store_id: storeId,
           destination_institution_id: destinationInstitutionId,
           destination_store_id: destinationStoreId,
+          // Scoped users must tag the request with their own department so it
+          // passes (and stays visible under) the dept-scoped RLS policy.
+          ...(deptScope?.isScoped && deptScope.departmentId
+            ? { department_id: deptScope.departmentId }
+            : {}),
           items: lines.map((l) => ({
             item_id: l.item_id,
             quantity: l.quantity,
@@ -377,7 +398,12 @@ export function NewRequestSlideover({
             <Button
               className="flex-1"
               onClick={handleSubmit}
-              disabled={createTransfer.isPending || !destinationStoreId || lines.length === 0}
+              disabled={
+                createTransfer.isPending ||
+                !destinationStoreId ||
+                lines.length === 0 ||
+                deptScope?.scopedNoDept
+              }
             >
               {createTransfer.isPending ? 'Submitting...' : 'Submit Request →'}
             </Button>

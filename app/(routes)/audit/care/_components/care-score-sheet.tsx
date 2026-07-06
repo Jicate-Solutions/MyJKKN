@@ -1,7 +1,14 @@
 // app/(routes)/audit/care/_components/care-score-sheet.tsx
-// The 20-item CARE scoring sheet, grouped by pillar, 0–4 anchored buttons +
-// per-item evidence note. Shared by the owner page (per-item save) and the
-// participant page (local state, single submit) — the parent owns persistence.
+// The pillar-grouped scoring sheet (0–4 anchored buttons + per-item evidence
+// note). Shared by the owner page (per-item save) and the participant page
+// (local state, single submit) — the parent owns persistence.
+//
+// FRAMEWORK-AWARE (additive for CARRE v2.0): the sheet auto-detects CARE
+// (4 pillars, 20 items) vs CARRE (5 pillars incl. Respect, 25 items) from the
+// item CODE PREFIX — `CARRE-*` codes never collide with `CARE-*`. A CARRE
+// audit additionally shows the evidence anchor matched to the cycle's setting
+// (ACAD/CLIN/ADMIN/EVENT) via the optional `settingCode` prop. CARE audits
+// render exactly as before (no prop change at their call sites).
 
 'use client';
 
@@ -10,53 +17,108 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import {
-  PILLAR_LABELS,
-  PILLAR_ORDER,
-  SCORE_ANCHORS,
-  pillarFromCode,
-  type CarePillar,
+  PILLAR_LABELS as CARE_PILLAR_LABELS,
+  PILLAR_ORDER as CARE_PILLAR_ORDER,
+  pillarFromCode as carePillarFromCode,
 } from '@/lib/services/audit/care-scoring-service';
-import type { CareSnapshotParameter } from '@/lib/services/audit/care-audit-service';
+import {
+  PILLAR_LABELS as CARRE_PILLAR_LABELS,
+  PILLAR_ORDER as CARRE_PILLAR_ORDER,
+  SCORE_ANCHORS,
+  pillarFromCode as carrePillarFromCode,
+} from '@/lib/services/audit/carre-scoring-service';
+
+/** The union of the CARE (C/A/R/E) and CARRE (C/A/R/RS/E) pillar keys. */
+type AnyPillar = 'C' | 'A' | 'R' | 'RS' | 'E';
+
+/**
+ * Loose parameter shape both snapshots satisfy: CARE evidence anchors are
+ * `{ label, required }`, CARRE anchors are `{ setting, label }`.
+ */
+export interface ScoreSheetParameter {
+  code: string;
+  name: string;
+  description: string;
+  parameter_group: number;
+  framework_mapping: Record<string, string>;
+  evidence_required: Array<{ setting?: string; label: string; required?: boolean }>;
+}
 
 export interface SheetValue {
   score?: number;
   evidence_note?: string;
 }
 
-const PILLAR_QUESTIONS: Record<CarePillar, string> = {
+const PILLAR_QUESTIONS: Record<AnyPillar, string> = {
   C: 'Does every participant know what this is, what success looks like, and why it matters?',
   A: 'Is effort acknowledged frequently, specifically, and informally — not just outcomes, formally?',
   R: 'Are there visible, attainable, distributed ways to be seen for progress and achievement?',
+  RS: 'Are people treated with dignity — corrected privately, safe to speak, addressed respectfully, with their time and a working channel for disrespect?',
   E: 'Do participants have real choices, real ownership, and real authority within the initiative?',
 };
 
-const PILLAR_COLORS: Record<CarePillar, string> = {
+const PILLAR_COLORS: Record<AnyPillar, string> = {
   C: 'border-sky-300 bg-sky-50 text-sky-800 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-200',
   A: 'border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-200',
   R: 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200',
+  RS: 'border-violet-300 bg-violet-50 text-violet-800 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-200',
   E: 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200',
 };
+
+/** Strip either the `CARE-` or `CARRE-` prefix for the compact code label. */
+function shortCode(code: string): string {
+  return code.replace(/^CARR?E-/, '');
+}
+
+/** Pick the evidence anchor for this setting; fall back to the first anchor. */
+function evidenceHint(
+  item: ScoreSheetParameter,
+  settingCode: string | undefined,
+): string | undefined {
+  const ev = item.evidence_required;
+  if (!Array.isArray(ev) || ev.length === 0) return undefined;
+  if (settingCode) {
+    const matched = ev.find((e) => e.setting === settingCode);
+    if (matched) return matched.label;
+  }
+  return ev[0]?.label;
+}
 
 export function CareScoreSheet({
   parameters,
   values,
   onScore,
   onNote,
+  settingCode,
   disabled = false,
 }: {
-  parameters: CareSnapshotParameter[];
+  parameters: ScoreSheetParameter[];
   values: Record<string, SheetValue>;
   onScore: (code: string, score: number) => void;
   /** Called on note blur — parents persist then (owner) or buffer (participant). */
   onNote: (code: string, note: string) => void;
+  /** CARRE only: the audit's setting (ACAD/CLIN/ADMIN/EVENT) — selects the anchor. */
+  settingCode?: string;
   disabled?: boolean;
 }) {
-  const byPillar = PILLAR_ORDER.map((pillar) => ({
-    pillar,
-    items: parameters
-      .filter((p) => pillarFromCode(p.code) === pillar)
-      .sort((a, b) => a.code.localeCompare(b.code)),
-  })).filter((g) => g.items.length > 0);
+  // Framework auto-detection from the frozen catalog's code prefix.
+  const isCarre = parameters.some((p) => p.code.startsWith('CARRE-'));
+  const order: AnyPillar[] = isCarre
+    ? [...CARRE_PILLAR_ORDER]
+    : [...CARE_PILLAR_ORDER];
+  const labels = (isCarre ? CARRE_PILLAR_LABELS : CARE_PILLAR_LABELS) as Record<string, string>;
+  const pillarFromCode: (code: string) => AnyPillar | null = isCarre
+    ? carrePillarFromCode
+    : carePillarFromCode;
+
+  const byPillar = order
+    .map((pillar) => ({
+      pillar,
+      items: parameters
+        .filter((p) => pillarFromCode(p.code) === pillar)
+        .sort((a, b) => a.code.localeCompare(b.code)),
+    }))
+    .filter((g) => g.items.length > 0);
 
   return (
     <div className="space-y-6">
@@ -67,7 +129,7 @@ export function CareScoreSheet({
           <div key={pillar} className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className={cn('text-xs font-semibold', PILLAR_COLORS[pillar])}>
-                {pillar} — {PILLAR_LABELS[pillar]}
+                {pillar} — {labels[pillar]}
               </Badge>
               <span className="text-xs text-muted-foreground italic">
                 {PILLAR_QUESTIONS[pillar]}
@@ -82,6 +144,7 @@ export function CareScoreSheet({
                   key={item.code}
                   item={item}
                   value={values[item.code]}
+                  evidence={evidenceHint(item, settingCode)}
                   onScore={(s) => onScore(item.code, s)}
                   onNote={(n) => onNote(item.code, n)}
                   disabled={disabled}
@@ -98,32 +161,33 @@ export function CareScoreSheet({
 function ScoreItem({
   item,
   value,
+  evidence,
   onScore,
   onNote,
   disabled,
 }: {
-  item: CareSnapshotParameter;
+  item: ScoreSheetParameter;
   value: SheetValue | undefined;
+  evidence: string | undefined;
   onScore: (score: number) => void;
   onNote: (note: string) => void;
   disabled: boolean;
 }) {
   const [note, setNote] = useState(value?.evidence_note ?? '');
   const [noteOpen, setNoteOpen] = useState(!!value?.evidence_note);
-  const evidenceHint = item.evidence_required?.[0]?.label;
 
   return (
     <div className="p-3 space-y-2" data-care-item={item.code}>
       <div className="flex items-start gap-3">
         <span className="font-mono text-[11px] text-muted-foreground w-16 flex-shrink-0 pt-0.5">
-          {item.code.replace('CARE-', '')}
+          {shortCode(item.code)}
         </span>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium">{item.name}</div>
           <p className="text-xs text-muted-foreground">{item.description}</p>
-          {evidenceHint && (
+          {evidence && (
             <p className="text-[11px] text-muted-foreground mt-1">
-              <span className="font-medium">Evidence to look for:</span> {evidenceHint}
+              <span className="font-medium">Evidence to look for:</span> {evidence}
             </p>
           )}
         </div>
