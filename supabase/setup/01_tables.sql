@@ -5882,3 +5882,37 @@ CREATE INDEX IF NOT EXISTS idx_cdc_training_enrollments_cohort_membership
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cohorts_cdc_training_programme
   ON public.cohorts ((config->>'cdc_training_programme_id'))
   WHERE kind = 'cdc';
+
+
+-- ── Cohort Core — M2: outcome-capture-at-close (Phase 7 · THE MOAT) ───────────
+-- Migration: supabase/migrations/20260731091000_cohort_outcome_capture.sql (2026-07-05).
+-- The captured OUTCOME BASELINE of a cohort member at the moment its membership
+-- closes (transitions into graduated | removed). Written by a DATABASE TRIGGER
+-- (see 04_triggers.sql: fn_capture_cohort_outcome / trg_cohort_capture_outcome)
+-- so the moat's fuel cannot be bypassed by any service that forgets. RLS +
+-- policies in 03_policies.sql. institution_id is NOT NULL (copied from the parent
+-- cohort by the trigger) to close the role_has_institution_access(NULL)=TRUE hole.
+CREATE TABLE IF NOT EXISTS public.cohort_outcomes (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  cohort_id        uuid NOT NULL REFERENCES public.cohorts(id) ON DELETE CASCADE,
+  membership_id    uuid REFERENCES public.cohort_memberships(id) ON DELETE SET NULL,
+  member_ref       uuid NOT NULL,
+  member_type      text NOT NULL
+                     CHECK (member_type IN ('team','student','learner','staff')),
+  kind             text NOT NULL
+                     CHECK (kind IN ('sf100','foundations','cdc','trainer')),
+  captured_at      timestamptz NOT NULL DEFAULT now(),
+  outcome_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+  source           text NOT NULL DEFAULT 'trigger'
+                     CHECK (source IN ('trigger','service','backfill','manual')),
+  institution_id   uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_cohort_outcomes_cohort_id      ON public.cohort_outcomes (cohort_id);
+CREATE INDEX IF NOT EXISTS idx_cohort_outcomes_institution_id ON public.cohort_outcomes (institution_id);
+CREATE INDEX IF NOT EXISTS idx_cohort_outcomes_member         ON public.cohort_outcomes (member_type, member_ref);
+CREATE INDEX IF NOT EXISTS idx_cohort_outcomes_kind           ON public.cohort_outcomes (kind);
+-- One captured baseline per membership (a membership closes exactly once).
+CREATE UNIQUE INDEX IF NOT EXISTS uidx_cohort_outcomes_membership
+  ON public.cohort_outcomes (membership_id)
+  WHERE membership_id IS NOT NULL;

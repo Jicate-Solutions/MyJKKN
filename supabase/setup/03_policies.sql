@@ -7574,3 +7574,36 @@ CREATE POLICY cohort_memberships_foundations_self_insert ON public.cohort_member
         AND c.kind = 'foundations'
     )
   );
+
+
+-- ── Cohort Core — M2: cohort_outcomes RLS (Phase 7 · THE MOAT) ────────────────
+-- Migration: supabase/migrations/20260731091000_cohort_outcome_capture.sql (2026-07-05).
+-- Institution-scoped (cohort_outcomes.institution_id is NOT NULL, copied from the
+-- parent cohort). SELECT→cohort.view; INSERT→cohort.manage (manual/service
+-- capture; the trigger is SECURITY DEFINER and bypasses RLS); UPDATE/DELETE
+-- admin-only (a captured baseline is a tamper-resistant moat record).
+ALTER TABLE public.cohort_outcomes ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS cohort_outcomes_select_permission ON public.cohort_outcomes;
+CREATE POLICY cohort_outcomes_select_permission ON public.cohort_outcomes
+  FOR SELECT USING (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.view'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohort_outcomes_insert_permission ON public.cohort_outcomes;
+CREATE POLICY cohort_outcomes_insert_permission ON public.cohort_outcomes
+  FOR INSERT WITH CHECK (
+    (select is_super_admin()) OR (select is_admin())
+    OR ((select user_has_permission('cohort.manage'::text))
+        AND (select role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS cohort_outcomes_update_permission ON public.cohort_outcomes;
+CREATE POLICY cohort_outcomes_update_permission ON public.cohort_outcomes
+  FOR UPDATE USING ((select is_super_admin()) OR (select is_admin()));
+
+DROP POLICY IF EXISTS cohort_outcomes_delete_permission ON public.cohort_outcomes;
+CREATE POLICY cohort_outcomes_delete_permission ON public.cohort_outcomes
+  FOR DELETE USING ((select is_super_admin()) OR (select is_admin()));
