@@ -101,8 +101,12 @@ export async function POST(
 
     // Generate certificate number
     const certNum = `CDC-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.jkkn.ai';
-    const verificationUrl = `${baseUrl}/cdc/internships/${id}/verify/${certNum}`;
+    // Public verification page — allowlisted in proxy.ts as '/verify/*' and used
+    // as the LinkedIn "See credential" target, so it MUST resolve without login.
+    // The previous '/cdc/internships/{id}/verify/{cert}' path was auth-gated AND
+    // had no page (broken 3 ways). Default to www.jkkn.ai (the public alias).
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.jkkn.ai';
+    const verificationUrl = `${baseUrl}/verify/${certNum}`;
 
     const institutionId = assignment.institution_id || profile.institution_id;
 
