@@ -1712,3 +1712,10 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Consent is an OPTIONAL admin toggle: `platform_policies` row `foundation.require_parental_consent` = false (default OFF); app reads via `fn_get_policy_bool`. NOT a hard gate.
 - Location: `supabase/migrations/20260706063000_fp_students_cohorts_enrollments.sql`. APPLIED to prod via Management API 2026-07-06 (verified). PR-B1 of the Foundation build.
 - Permission keys to add in code: `foundation.students.manage`, `foundation.cohorts.view`, `foundation.cohorts.manage` (lib/constants/permissions.ts). Spec: `specs/nv-foundation-programme-TECH-SPEC-2026-07-05.md`.
+
+### Foundation programme — item bank + assessments + shared topic map (PR-B2a) — 2026-07-06
+- New tables: `exam_topic_map` (generalized exam→topic junction keyed to `exam_definitions`, additive companion to legacy `cdc_exam_topic_map` which stays on `cdc_training_types` until Stage-2/PR-C), `fp_items` (item bank, tagged exam+topic+difficulty, `source` = licensed|authored for hybrid sourcing; staff-only, holds answers), `fp_assessments` (diagnostic|practice|mock), `fp_assessment_items` (ordered junction).
+- Seeds 4 school subject-topics into the SHARED `cdc_exam_syllabus_topics` (sch_physics/chemistry/biology/mathematics; Physics+Chem is_shared across NEET+JEE) + 9 `exam_topic_map` rows (NEET→P/C/B, JEE Main+Adv→P/C/M). Realizes Decision #1 (shared taxonomy) additively.
+- RLS: content tables, permission-gated (`foundation.items.*`, `foundation.assessments.*`); `exam_topic_map` read any-authed. NO student PII here.
+- Verified: 4 tables, 18 total topics (14 govt + 4 school), legacy `cdc_exam_topic_map` UNCHANGED (68 rows). Applied to prod via Management API 2026-07-06.
+- Location: `supabase/migrations/20260706064000_fp_item_bank_assessments.sql`. Permission keys to add in code: `foundation.items.view/manage`, `foundation.assessments.view/manage`.
