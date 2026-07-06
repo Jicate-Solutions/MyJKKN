@@ -548,8 +548,19 @@ export class SF100Service extends BaseService {
     if (error) throw new Error('Failed to list enrollments: ' + error.message);
 
     const total = count || 0;
+    // Flatten the joined registration → the admin Enrollments TABLE
+    // (sf100-enrollments-table.tsx) reads FLAT `team_name` / `college`
+    // (also its sort accessorKeys), but ENROLLMENT_SELECT returns them NESTED under
+    // `registration`. Without this every row showed "—" for team name + college
+    // even though the data is present. Mirrors the flatten the other list methods
+    // in this file already do (e.g. the CSV export + graduation paths).
+    const rows = (data || []).map((row: any) => ({
+      ...row,
+      team_name: row.registration?.team_name ?? null,
+      college: row.registration?.institution?.name ?? null,
+    }));
     return {
-      data: (data || []) as SF100Enrollment[],
+      data: rows as SF100Enrollment[],
       metadata: { total, page, limit, totalPages: total > 0 ? Math.ceil(total / limit) : 0 },
     };
   }
