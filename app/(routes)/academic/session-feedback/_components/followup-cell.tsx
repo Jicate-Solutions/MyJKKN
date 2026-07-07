@@ -8,6 +8,7 @@
 
 import { ArrowUp, ArrowDown, Minus } from 'lucide-react';
 import type { EscalationFollowupRow } from '@/types/session-feedback';
+import { UnderstandingBand } from '@/components/session-feedback/understanding-band';
 
 /** Follow-up indicator: next-session understanding + a lift arrow. */
 export function FollowupCell({ row }: { row: EscalationFollowupRow }) {
@@ -46,7 +47,7 @@ export function FollowupCell({ row }: { row: EscalationFollowupRow }) {
   return (
     <div className="flex flex-col items-end gap-0.5">
       <span className="text-sm font-semibold tabular-nums text-foreground">
-        {row.next_avg_understood.toFixed(2)}
+        <UnderstandingBand avg={row.next_avg_understood} />
         <span className="ml-1 text-[11px] font-normal text-muted-foreground">
           ({row.next_responses ?? 0} resp.)
         </span>

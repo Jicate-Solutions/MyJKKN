@@ -56,6 +56,7 @@ import { LoopActivityCard } from '../_components/loop-activity-card';
 import { FacilitatorStrengthsCard } from '../_components/facilitator-strengths-card';
 import { LearnerTrajectoryCard } from '../_components/learner-trajectory-card';
 import { StrugglingNotesSentCard } from '../_components/struggling-notes-sent-card';
+import { UnderstandingBand } from '@/components/session-feedback/understanding-band';
 import type {
   AdminCollegeSummaryRow,
   AdminFacultySummaryRow,
@@ -301,13 +302,7 @@ export default function AdminFeedbackDashboardPage() {
                       {r.students}
                     </TableCell>
                     <TableCell className="text-right">
-                      <span
-                        className={`font-semibold tabular-nums ${avgColor(r.avg_understood)}`}
-                      >
-                        {r.avg_understood != null
-                          ? r.avg_understood.toFixed(2)
-                          : '—'}
-                      </span>
+                      <UnderstandingBand avg={r.avg_understood} />
                     </TableCell>
                     <TableCell className="text-right">
                       {r.low_sessions > 0 ? (
@@ -493,13 +488,7 @@ export default function AdminFeedbackDashboardPage() {
                       {r.responses}
                     </TableCell>
                     <TableCell className="text-right">
-                      <span
-                        className={`font-semibold tabular-nums ${avgColor(r.avg_understood)}`}
-                      >
-                        {r.avg_understood != null
-                          ? r.avg_understood.toFixed(2)
-                          : '—'}
-                      </span>
+                      <UnderstandingBand avg={r.avg_understood} />
                     </TableCell>
                     <TableCell className="text-right">
                       {r.low_sessions > 0 ? (
@@ -564,13 +553,7 @@ export default function AdminFeedbackDashboardPage() {
                         {r.students}
                       </TableCell>
                       <TableCell className="text-right">
-                        <span
-                          className={`font-semibold tabular-nums ${avgColor(r.avg_understood)}`}
-                        >
-                          {r.avg_understood != null
-                            ? r.avg_understood.toFixed(2)
-                            : '—'}
-                        </span>
+                        <UnderstandingBand avg={r.avg_understood} />
                       </TableCell>
                       <TableCell>
                         <div
