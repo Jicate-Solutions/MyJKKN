@@ -13,7 +13,7 @@
 //     session-feedback module, not copied;
 //   • the headline is the SAME <ConfirmationSplitCards/> already shown on the
 //     Statistics tab.
-// Only the small page-local presentational helpers (avgColor / coverageColor /
+// Only the small page-local presentational helpers (coverageColor /
 // TableShell) are re-declared here — they are not exported by the source page,
 // and this file may not edit anything under session-feedback/**.
 //
@@ -69,13 +69,6 @@ import type { DashboardFilterState } from './dashboard-filters';
 
 const BRAND_GREEN = '#0b6d41';
 
-/** Color an understanding average: red < 3, amber < 3.5, green otherwise. */
-function avgColor(avg: number | null): string {
-  if (avg == null) return 'text-muted-foreground';
-  if (avg < 3) return 'text-red-600';
-  if (avg < 3.5) return 'text-amber-600';
-  return 'text-green-600';
-}
 
 /** Color a coverage %: red 0–24, amber 25–59, green 60+. */
 function coverageColor(pct: number): string {
@@ -264,12 +257,8 @@ export function FeedbackConfirmationTab({
         </Card>
         <Card>
           <CardContent className="flex flex-col gap-1 p-4">
-            <span className="text-xs text-muted-foreground">Avg understood</span>
-            <span
-              className={`text-2xl font-semibold tabular-nums ${avgColor(totals.avg)}`}
-            >
-              {totals.avg != null ? totals.avg.toFixed(2) : '—'}
-            </span>
+            <span className="text-xs text-muted-foreground">Understanding</span>
+            <UnderstandingBand avg={totals.avg} />
           </CardContent>
         </Card>
         <Card>

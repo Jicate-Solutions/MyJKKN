@@ -494,11 +494,11 @@ function FacultyRewardCard({ rows }: { rows: FacultySummaryRow[] }) {
       <CardHeader>
         <div className="flex items-center gap-2">
           <Trophy className="h-5 w-5 text-amber-500" />
-          <CardTitle>You&apos;re at or above {REWARD_THRESHOLD.toFixed(1)} — here&apos;s what&apos;s working</CardTitle>
+          <CardTitle>Your classes are landing well — here&apos;s what&apos;s working</CardTitle>
         </div>
         <CardDescription>
-          Your learners&apos; average understanding across the last 30 days is{' '}
-          <strong className="text-green-800">{stats.overallAvg.toFixed(1)} / 5</strong>. Keep
+          Your learners&apos; understanding across the last 30 days is{' '}
+          <strong className="text-green-800">holding up well</strong>. Keep
           doing what you&apos;re doing.
         </CardDescription>
       </CardHeader>
@@ -509,7 +509,7 @@ function FacultyRewardCard({ rows }: { rows: FacultySummaryRow[] }) {
             <span>
               <strong>{stats.goodSessions}</strong> of your{' '}
               <strong>{stats.sessions}</strong> sessions scored{' '}
-              <strong>Good or Clear</strong> (4+/5) on understanding.
+              <strong>Good or Clear</strong> on understanding.
             </span>
           </li>
           <li className="flex items-start gap-2">
