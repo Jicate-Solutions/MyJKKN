@@ -78,6 +78,7 @@ import { FollowupCell } from '../_components/followup-cell';
 import { AiSuggestionDialog } from '../_components/ai-suggestion-dialog';
 import { AiTaskButton } from '@/components/ai-tasks/ai-task-button';
 import { LivePulseSection } from '../_components/live-pulse-control';
+import { UnderstandingBand } from '@/components/session-feedback/understanding-band';
 
 const BRAND_GREEN = '#0b6d41';
 
@@ -86,14 +87,7 @@ function formatDate(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : format(d, 'd MMM yyyy');
 }
 
-// ── Understanding (quality) — unchanged from the original L3 view ────────────
-function understandingBand(avg: number | null): 'good' | 'warn' | 'bad' | 'none' {
-  if (avg === null || Number.isNaN(avg)) return 'none';
-  if (avg >= 4) return 'good';
-  if (avg >= 3) return 'warn';
-  return 'bad';
-}
-
+// ── Understanding (quality) — banded display (anti-gaming: never the raw number) ──
 const BAND_BAR: Record<'good' | 'warn' | 'bad' | 'none', string> = {
   good: 'bg-green-500',
   warn: 'bg-amber-500',
@@ -108,28 +102,10 @@ const BAND_BADGE: Record<'good' | 'warn' | 'bad' | 'none', string> = {
   none: 'bg-muted text-muted-foreground border-border',
 };
 
+// Understanding is shown as a qualitative band (Strong / Mixed / Low) + colour bar,
+// never the raw average — see components/session-feedback/understanding-band.tsx.
 function UnderstandingCell({ avg }: { avg: number | null }) {
-  const band = understandingBand(avg);
-  const pct =
-    avg === null || Number.isNaN(avg) ? 0 : Math.max(0, Math.min(100, (avg / 5) * 100));
-  return (
-    <div className="flex items-center gap-2">
-      <Badge variant="outline" className={BAND_BADGE[band]}>
-        {avg === null || Number.isNaN(avg) ? '—' : avg.toFixed(1)}
-      </Badge>
-      <div
-        className="h-2 w-20 overflow-hidden rounded-full bg-muted"
-        role="img"
-        aria-label={
-          avg === null || Number.isNaN(avg)
-            ? 'No understanding signal'
-            : `Average understanding ${avg.toFixed(1)} out of 5`
-        }
-      >
-        <div className={`h-full rounded-full ${BAND_BAR[band]}`} style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
+  return <UnderstandingBand avg={avg} />;
 }
 
 // ── Completion (coverage) ────────────────────────────────────────────────────
@@ -375,9 +351,7 @@ function TopicsToRevisitSection({ from, to }: { from: string; to: string }) {
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{r.responses}</TableCell>
                     <TableCell className="text-right">
-                      <span className="font-semibold tabular-nums text-red-600">
-                        {r.avg_understood != null ? r.avg_understood.toFixed(2) : '—'}
-                      </span>
+                      <UnderstandingBand avg={r.avg_understood} />
                     </TableCell>
                     <TableCell className="text-right">
                       <Badge variant="outline" className={BAND_BADGE.bad}>
