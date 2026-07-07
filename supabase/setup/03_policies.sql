@@ -7771,3 +7771,23 @@ FOR UPDATE USING (
   user_has_permission('academic.attendance.mark')
   AND staff_teaches_in_institution(institution_id)
 );
+
+-- ============================================================================
+-- School Master (global lookup: authenticated read, permission-gated writes)
+-- ============================================================================
+ALTER TABLE public.school_master ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY school_master_select ON public.school_master
+  FOR SELECT TO authenticated USING (true);
+CREATE POLICY school_master_insert ON public.school_master
+  FOR INSERT TO authenticated
+  WITH CHECK (public.user_has_permission('learners.school_master.create'));
+CREATE POLICY school_master_update ON public.school_master
+  FOR UPDATE TO authenticated
+  USING (public.user_has_permission('learners.school_master.edit'))
+  WITH CHECK (public.user_has_permission('learners.school_master.edit'));
+CREATE POLICY school_master_delete ON public.school_master
+  FOR DELETE TO authenticated
+  USING (public.user_has_permission('learners.school_master.delete'));
+
+REVOKE ALL ON public.school_master FROM anon;

@@ -33,6 +33,8 @@ type Filters = {
   semester_id?: string;
   route_id?: string;
   stop_id?: string;
+  district?: string;
+  search?: string;
 };
 
 type Kind =
@@ -45,6 +47,8 @@ type Kind =
   | 'admission_year'
   | 'routes'
   | 'route_stops'
+  | 'school_districts'
+  | 'schools'
   | 'names';
 
 export async function POST(
@@ -237,6 +241,39 @@ export async function POST(
           .order('sequence_order', { ascending: true });
         if (error) throw error;
         return NextResponse.json({ data: data ?? [] });
+      }
+
+      case 'school_districts': {
+        // Districts that have active State Board schools — drives the Last
+        // School cascade's District dropdown in the academic step.
+        const { data, error } = await (svc as any).rpc('fn_school_master_districts', {
+          p_board: 'state_board',
+        });
+        if (error) throw error;
+        return NextResponse.json({ data: data ?? [] });
+      }
+
+      case 'schools': {
+        // State Board schools for one district, server-side searched (trigram
+        // ILIKE). Mirrors SchoolMasterService.getSchools for the public form.
+        if (!filters.district) {
+          return NextResponse.json({ data: [], total: 0 });
+        }
+        let q = (svc as any)
+          .from('school_master')
+          .select('id, school_name, district', { count: 'exact' })
+          .eq('board', 'state_board')
+          .eq('district', filters.district)
+          .eq('is_active', true)
+          .order('school_name', { ascending: true })
+          .limit(50);
+        if (filters.search?.trim()) {
+          const term = filters.search.trim().replace(/[%_]/g, '\\$&');
+          q = q.ilike('school_name', `%${term}%`);
+        }
+        const { data, error, count } = await q;
+        if (error) throw error;
+        return NextResponse.json({ data: data ?? [], total: count ?? 0 });
       }
 
       case 'names': {

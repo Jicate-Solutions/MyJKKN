@@ -353,7 +353,13 @@ export const PERMISSION_CATEGORIES = [
 
       // Learner Finance Section
       { key: 'learners.finance.view', label: 'View Finance Details (Fee Structure)' },
-      { key: 'learners.finance.edit', label: 'Edit Finance Details (Fee Structure)' }
+      { key: 'learners.finance.edit', label: 'Edit Finance Details (Fee Structure)' },
+
+      // School Master (Last School dropdown lookup)
+      { key: 'learners.school_master.view', label: 'View School Master' },
+      { key: 'learners.school_master.create', label: 'Create School Master Entries' },
+      { key: 'learners.school_master.edit', label: 'Edit School Master Entries' },
+      { key: 'learners.school_master.delete', label: 'Delete School Master Entries' }
     ]
   },
   {

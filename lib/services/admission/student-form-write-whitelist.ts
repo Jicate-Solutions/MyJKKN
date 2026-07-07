@@ -24,7 +24,9 @@ export const STUDENT_WRITABLE_COLUMNS = {
   ],
   academic: [
     'tenth_marks', 'twelfth_marks',
-    'last_school', 'board_of_study',
+    // last_school_id (school_master FK) + school_district come from the
+    // Board → District → School cascade; both null/empty for manual entries.
+    'last_school', 'last_school_id', 'school_district', 'board_of_study',
     'neet_roll_number', 'neet_score',
     'counseling_applied', 'counseling_number',
     'scholarship_type',

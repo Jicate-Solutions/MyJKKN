@@ -22,14 +22,41 @@ import {
   TWELFTH_GROUP_LABEL_MAP,
   type TwelfthGroupKey,
 } from '@/lib/utils/mappings/enquiry-excel-mappings';
+import {
+  LastSchoolField,
+  type LastSchoolFetchers,
+} from '@/components/learners/last-school-field';
+import { useMemo } from 'react';
 
 interface Props {
   lang: Language;
   data: Record<string, any>;
+  token: string;
   degreeType?: 'ug' | 'pg';
   onContinue: (fields: Record<string, any>) => void;
   onBack: () => void;
   submitting: boolean;
+}
+
+// The public form has no authenticated Supabase session — school-master reads
+// go through the token-validated course-options endpoint (service-role).
+function buildSchoolFetchers(token: string): LastSchoolFetchers {
+  const post = async (body: Record<string, unknown>) => {
+    const res = await fetch(`/api/student-form/${encodeURIComponent(token)}/course-options`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`course-options ${res.status}`);
+    return res.json();
+  };
+  return {
+    fetchDistricts: async () => (await post({ kind: 'school_districts' })).data ?? [],
+    fetchSchools: async ({ district, search }) => {
+      const json = await post({ kind: 'schools', filters: { district, search } });
+      return { schools: json.data ?? [], total: json.total ?? 0 };
+    },
+  };
 }
 
 // Match enquiry form's group options verbatim so the admin-side UI and the
@@ -101,12 +128,14 @@ function SubjectInput({
 
 export function StepAcademicInformation({
   data,
+  token,
   degreeType,
   onContinue,
   onBack,
   submitting,
 }: Props) {
   const isPG = degreeType === 'pg';
+  const schoolFetchers = useMemo(() => buildSchoolFetchers(token), [token]);
   const [v, setV] = useState({
     // tenth_marks JSONB:
     //   { max_marks, obtained_marks, percentage }
@@ -124,6 +153,8 @@ export function StepAcademicInformation({
     // 100 marks). Same spread-after-default pattern as 10th.
     twelfth_marks: { max_marks: '600', ...(data.twelfth_marks ?? {}) },
     last_school: data.last_school ?? '',
+    last_school_id: data.last_school_id ?? null,
+    school_district: data.school_district ?? '',
     board_of_study: data.board_of_study ?? '',
     neet_roll_number: data.neet_roll_number ?? '',
     neet_score: data.neet_score ?? '',
@@ -310,17 +341,10 @@ export function StepAcademicInformation({
         </h2>
       </header>
 
-      {/* Previous Schooling / College — always visible */}
+      {/* Previous Schooling / College — always visible. Board renders FIRST:
+          for State Board it drives the District → School dropdown cascade
+          (with manual entry fallback) inside LastSchoolField. */}
       <Section title={{ en: isPG ? 'Previous College' : 'Previous Schooling', ta: isPG ? 'முந்தைய கல்லூரி' : 'கடந்த கல்வி' }}>
-        <Field label={isPG ? 'College Name & Place / கல்லூரி பெயர் மற்றும் இடம்' : 'Last School / கடந்த பள்ளி'}>
-          <Input
-            value={v.last_school}
-            onChange={(e) => set('last_school', e.target.value)}
-            placeholder={isPG ? 'College name and place' : 'School name'}
-            className="h-12"
-          />
-        </Field>
-
         {!isPG && (
           <Field label="Board of Study / வாரியம்">
             <Select
@@ -340,6 +364,26 @@ export function StepAcademicInformation({
             </Select>
           </Field>
         )}
+
+        <Field label={isPG ? 'College Name & Place / கல்லூரி பெயர் மற்றும் இடம்' : 'Last School / கடந்த பள்ளி'}>
+          <LastSchoolField
+            board={(v.board_of_study || '').toLowerCase().replace(/\s+/g, '_')}
+            isPG={isPG}
+            value={v.last_school}
+            schoolId={v.last_school_id}
+            district={v.school_district || null}
+            onChange={({ name, schoolId, district }) =>
+              setV((p) => ({
+                ...p,
+                last_school: name,
+                last_school_id: schoolId,
+                school_district: district ?? '',
+              }))
+            }
+            fetchers={schoolFetchers}
+            placeholder={isPG ? 'College name and place' : 'School name'}
+          />
+        </Field>
       </Section>
 
       {/* PG-specific: Previous Qualification */}
