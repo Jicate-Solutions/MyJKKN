@@ -1027,6 +1027,7 @@ const MODULE_LABELS: Record<string, string> = {
   vac: "Value-Added Courses",
   okr: "OKR",
   "schools-network": "Schools Network",
+  foundation: "Foundation Programme",
 };
 
 /** Human label for a module namespace; falls back to the raw id if unknown. */
@@ -1068,6 +1069,7 @@ const MODULE_GLOSSARIES: Record<string, GlossaryTerm[]> = {
   vac: VAC_GUIDES.glossary ?? [],
   okr: OKR_GUIDES.glossary ?? [],
   "schools-network": SCHOOLS_NETWORK_GUIDES.glossary ?? [],
+  foundation: FOUNDATION_GUIDES.glossary ?? [],
 };
 
 /** "Words to know" terms for one module; empty array if module unknown. */
