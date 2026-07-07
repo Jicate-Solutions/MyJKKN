@@ -494,12 +494,11 @@ function FacultyRewardCard({ rows }: { rows: FacultySummaryRow[] }) {
       <CardHeader>
         <div className="flex items-center gap-2">
           <Trophy className="h-5 w-5 text-amber-500" />
-          <CardTitle>Your classes are landing well — here&apos;s what&apos;s working</CardTitle>
+          <CardTitle>Here&apos;s what&apos;s working in your classes</CardTitle>
         </div>
         <CardDescription>
-          Your learners&apos; understanding across the last 30 days is{' '}
-          <strong className="text-green-800">holding up well</strong>. Keep
-          doing what you&apos;re doing.
+          You&apos;ve had a good run across the last 30 days — keep doing what
+          you&apos;re doing.
         </CardDescription>
       </CardHeader>
       <CardContent>

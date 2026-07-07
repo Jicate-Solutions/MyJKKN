@@ -29,9 +29,9 @@ export function FollowupCell({ row }: { row: EscalationFollowupRow }) {
 
   const lift = row.lift; // next_avg - escalated_avg
   // Noise band: a lift this small is sampling noise on a tiny class, not a real
-  // change in understanding — showing it as a number reads to the teacher like a
-  // verdict on their teaching. Collapse |lift| < 0.5 into a neutral "about the
-  // same" (no number); only show a signed one-decimal figure once it clears the band.
+  // change in understanding. Below it → a neutral "about the same"; above it →
+  // "improved" / "worse". NEVER a numeric delta — a signed lift figure still reads
+  // to the teacher as a graded number (anti-gaming; same rule as the band itself).
   const NOISE_BAND = 0.5;
   const meaningful = lift != null && Math.abs(lift) >= NOISE_BAND;
   const improved = meaningful && (lift as number) > 0;
@@ -54,14 +54,7 @@ export function FollowupCell({ row }: { row: EscalationFollowupRow }) {
       </span>
       <span className={`flex items-center gap-1 text-xs font-medium ${liftColor}`}>
         <LiftArrow className="h-3.5 w-3.5" aria-hidden />
-        {meaningful ? (
-          <>
-            {((lift as number) > 0 ? '+' : '') + (lift as number).toFixed(1)}
-            <span className="font-normal">{liftLabel}</span>
-          </>
-        ) : (
-          <span className="font-normal">{liftLabel}</span>
-        )}
+        <span className="font-normal">{liftLabel}</span>
       </span>
       <span className="text-[11px] text-muted-foreground">
         next on {row.next_attendance_date}
