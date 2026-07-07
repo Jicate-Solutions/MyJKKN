@@ -125,7 +125,16 @@ jobs:
           # Supabase calls, never render JSX. Same class as the other lib/ backend
           # layers. NOTE: `components/ai-tasks/` is deliberately NOT exempt — the
           # AiTaskButton renders and must keep requiring visual proof.
-          NON_UI_REGEX='^(supabase/|scripts/|docs/|specs/|\.claude/|\.github/|lib/services/|lib/utils/|lib/db/|lib/auth/|lib/api/|lib/instagram/|lib/ai-tasks/|lib/types/|types/|app/api/|__tests__/|e2e/|next\.config\.ts|playwright\.config\.ts|serwist\.config\.mjs|package\.json|vercel\.json|README\.md|CHANGELOG\.md|LICENSE|\.gitignore|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig\.json|tsconfig\..*\.json)'
+          # `lib/constants/` added 2026-07-07 (PRs #1856 table-module-map,
+          # #1858 CARRE classify): pure data maps (module to label, auditable-
+          # module lists), same class as `lib/types/`, never render JSX. They
+          # blocked zero-UI config PRs on a screenshot that cannot exist.
+          # `lib/guide/registry.ts` added same day (#1859 smart-guide wiring):
+          # the MODULE_LABELS + MODULE_GLOSSARIES data registry (text maps, no
+          # JSX). Scoped to registry.ts ONLY, NOT all of `lib/guide/`, because
+          # `lib/guide/use-progress.ts` is a React hook (hooks tie to UI, see
+          # the lib/hooks note above) and must keep requiring visual proof.
+          NON_UI_REGEX='^(supabase/|scripts/|docs/|specs/|\.claude/|\.github/|lib/services/|lib/utils/|lib/db/|lib/auth/|lib/api/|lib/instagram/|lib/ai-tasks/|lib/constants/|lib/guide/registry\.ts|lib/types/|types/|app/api/|__tests__/|e2e/|next\.config\.ts|playwright\.config\.ts|serwist\.config\.mjs|package\.json|vercel\.json|README\.md|CHANGELOG\.md|LICENSE|\.gitignore|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig\.json|tsconfig\..*\.json)'
 
           # Anything outside the non-UI set means the gate applies.
           UI_TOUCHING=$(echo "$CHANGED" | grep -vE "$NON_UI_REGEX" || true)
