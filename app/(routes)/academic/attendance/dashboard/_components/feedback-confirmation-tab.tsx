@@ -57,6 +57,7 @@ import { LoopActivityCard } from '@/app/(routes)/academic/session-feedback/_comp
 import { FacilitatorStrengthsCard } from '@/app/(routes)/academic/session-feedback/_components/facilitator-strengths-card';
 import { LearnerTrajectoryCard } from '@/app/(routes)/academic/session-feedback/_components/learner-trajectory-card';
 import { StrugglingNotesSentCard } from '@/app/(routes)/academic/session-feedback/_components/struggling-notes-sent-card';
+import { UnderstandingBand } from '@/components/session-feedback/understanding-band';
 import type {
   AdminCollegeSummaryRow,
   AdminFacultySummaryRow,
@@ -330,13 +331,7 @@ export function FeedbackConfirmationTab({
                       {r.students}
                     </TableCell>
                     <TableCell className="text-right">
-                      <span
-                        className={`font-semibold tabular-nums ${avgColor(r.avg_understood)}`}
-                      >
-                        {r.avg_understood != null
-                          ? r.avg_understood.toFixed(2)
-                          : '—'}
-                      </span>
+                      <UnderstandingBand avg={r.avg_understood} />
                     </TableCell>
                     <TableCell className="text-right">
                       {r.low_sessions > 0 ? (
@@ -525,13 +520,7 @@ export function FeedbackConfirmationTab({
                       {r.responses}
                     </TableCell>
                     <TableCell className="text-right">
-                      <span
-                        className={`font-semibold tabular-nums ${avgColor(r.avg_understood)}`}
-                      >
-                        {r.avg_understood != null
-                          ? r.avg_understood.toFixed(2)
-                          : '—'}
-                      </span>
+                      <UnderstandingBand avg={r.avg_understood} />
                     </TableCell>
                     <TableCell className="text-right">
                       {r.low_sessions > 0 ? (
@@ -601,13 +590,7 @@ export function FeedbackConfirmationTab({
                         {r.students}
                       </TableCell>
                       <TableCell className="text-right">
-                        <span
-                          className={`font-semibold tabular-nums ${avgColor(r.avg_understood)}`}
-                        >
-                          {r.avg_understood != null
-                            ? r.avg_understood.toFixed(2)
-                            : '—'}
-                        </span>
+                        <UnderstandingBand avg={r.avg_understood} />
                       </TableCell>
                       <TableCell>
                         <div
