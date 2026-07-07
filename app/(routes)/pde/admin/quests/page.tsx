@@ -24,7 +24,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAdminQuests, useUpdateQuestStatus } from '@/hooks/pde/use-pde-phase2';
+import { useAdminQuests, useUpdateQuestStatus, pdePhase2Keys } from '@/hooks/pde/use-pde-phase2';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { BeatLoader } from 'react-spinners';
 import {
   Plus,
@@ -37,6 +39,7 @@ import {
   MoreHorizontal,
   Pencil,
   Archive,
+  RotateCcw,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -88,6 +91,36 @@ export default function AdminQuestsPage() {
     quest_type: filterType !== 'all' ? (filterType as QuestType) : undefined,
   });
   const updateStatus = useUpdateQuestStatus();
+  const qc = useQueryClient();
+
+  // Reset a quest's pilot data — wipes its enrollments + submissions via the
+  // existing super-admin-gated POST route, behind a hard confirm() guard.
+  const handleResetPilot = async (questId: string) => {
+    if (
+      !window.confirm(
+        'This permanently deletes ALL enrollments and submissions for this quest. Continue?'
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/pde/admin/quests/${questId}/reset`, {
+        method: 'POST',
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json?.error || 'Reset failed');
+      }
+      const { deleted_enrollments = 0, deleted_submissions = 0 } = json?.data ?? {};
+      toast.success(
+        `Pilot data reset — removed ${deleted_enrollments} enrollment(s) and ${deleted_submissions} submission(s).`
+      );
+      // 2-element prefix matches the list query regardless of active filters.
+      qc.invalidateQueries({ queryKey: [...pdePhase2Keys.all, 'admin-quests'] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Reset failed');
+    }
+  };
 
   const filtered = (quests || []).filter((q: PDEQuest) => {
     if (!search.trim()) return true;
@@ -290,6 +323,13 @@ export default function AdminQuestsPage() {
                                   Archive
                                 </DropdownMenuItem>
                               )}
+                              <DropdownMenuItem
+                                onClick={() => handleResetPilot(quest.id)}
+                                className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+                              >
+                                <RotateCcw className="mr-2 h-4 w-4" />
+                                Reset pilot data
+                              </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
