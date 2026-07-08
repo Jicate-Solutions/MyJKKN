@@ -98,7 +98,8 @@ export function FacilitatorPulseCard({ from, to }: { from: string; to: string })
         <CardDescription>
           Each row is a facilitator&apos;s work-signals for this period: sessions they
           marked, sessions the room confirmed (&ge;3 learner responses), live pulses,
-          lesson links and loop verdicts. The customary biometric record stays
+          lesson links, loop verdicts and student votes answered on their loop notes
+          (volume only — never how they voted). The customary biometric record stays
           separate — this is what the work itself evidences. Watch the gap between
           marked and witnessed.
           {cov && (
@@ -140,6 +141,12 @@ export function FacilitatorPulseCard({ from, to }: { from: string; to: string })
                   <TableHead className='text-right'>Lessons</TableHead>
                   <TableHead className='text-right'>Notes</TableHead>
                   <TableHead className='text-right'>Verdicts</TableHead>
+                  <TableHead
+                    className='text-right'
+                    title='Student Better/Same/Worse answers received on this facilitator&apos;s loop notes — count only, never the split'
+                  >
+                    Student votes
+                  </TableHead>
                   {cov && (
                     <TableHead
                       className='text-right'
@@ -176,6 +183,7 @@ export function FacilitatorPulseCard({ from, to }: { from: string; to: string })
                       <TableCell className='text-right tabular-nums'>{r.lessons_linked}</TableCell>
                       <TableCell className='text-right tabular-nums'>{r.notes_received}</TableCell>
                       <TableCell className='text-right tabular-nums'>{r.verdicts_given}</TableCell>
+                      <TableCell className='text-right tabular-nums'>{r.votes_received}</TableCell>
                       {cov &&
                         (() => {
                           const c = covByEmail.get(r.faculty_email.toLowerCase());

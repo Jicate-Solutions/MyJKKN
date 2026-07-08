@@ -31,6 +31,7 @@ import type {
   MyLoopNote,
   NoteResolutionCounts,
   FacilitatorPulseRow,
+  MyPulseRow,
   MarksCoverageResponse,
 } from '@/types/session-feedback';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -282,6 +283,28 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to load facilitator pulse: ${error.message}`);
     return (data ?? []) as FacilitatorPulseRow[];
+  }
+
+  /**
+   * My Pulse — the CALLER's own work-signals over the last 30 days
+   * (fn_scf_my_pulse: self-scoped by the caller's email, no leadership gate,
+   * always one row — zeros when no signal yet). Decorative surface: failures
+   * return null and the card simply doesn't render.
+   */
+  static async getMyPulse(): Promise<MyPulseRow | null> {
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase.rpc('fn_scf_my_pulse');
+      if (error) {
+        logger.warn('academic/session-feedback', 'my-pulse load failed', error);
+        return null;
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      return (row ?? null) as MyPulseRow | null;
+    } catch (err) {
+      logger.warn('academic/session-feedback', 'my-pulse load failed', err);
+      return null;
+    }
   }
 
   /**
