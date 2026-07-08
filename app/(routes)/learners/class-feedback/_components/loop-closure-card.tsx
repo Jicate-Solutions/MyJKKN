@@ -18,11 +18,24 @@
 
 import { useMemo } from 'react';
 import { format, subDays } from 'date-fns';
-import { Sparkles, ArrowRight, TrendingUp, Clock3, MessageSquareQuote, Wand2 } from 'lucide-react';
+import {
+  Sparkles,
+  ArrowRight,
+  TrendingUp,
+  Clock3,
+  MessageSquareQuote,
+  Wand2,
+  ThumbsUp,
+  MinusCircle,
+  ThumbsDown,
+  CheckCircle,
+  Loader2,
+} from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { useChecklistConfig } from '@/hooks/use-session-feedback';
-import { useLoopClosure } from '@/hooks/use-learner-loop';
+import { useLoopClosure, useCastResolutionVote } from '@/hooks/use-learner-loop';
 import type { LoopClosureRow } from '@/types/scf-learner-loop';
 
 const BRAND = '#0b6d41';
@@ -46,6 +59,67 @@ function formatDate(iso: string | null): string {
   const d = new Date(`${iso}T00:00:00`);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
+type ResolutionVote = 'better' | 'same' | 'worse';
+
+const VOTE_OPTIONS: { value: ResolutionVote; label: string; Icon: typeof ThumbsUp }[] = [
+  { value: 'better', label: 'Better', Icon: ThumbsUp },
+  { value: 'same', label: 'Same', Icon: MinusCircle },
+  { value: 'worse', label: 'Worse', Icon: ThumbsDown },
+];
+
+const VOTE_SAID: Record<ResolutionVote, string> = {
+  better: 'You said: better — thanks, that closes your loop.',
+  same: 'You said: same — noted honestly; the loop keeps working on it.',
+  worse: 'You said: worse — noted honestly; the loop keeps working on it.',
+};
+
+/** The learner's explicit word on whether the change worked FOR THEM.
+ *  One tap, changeable, stored per (note, learner); shown to staff only as
+ *  3+ aggregates. This is the loop's fourth witness. */
+function ResolutionAsk({
+  suggestionId,
+  savedVote,
+}: {
+  suggestionId: string;
+  savedVote: ResolutionVote | null;
+}) {
+  const castVote = useCastResolutionVote();
+
+  if (savedVote) {
+    return (
+      <p className="flex items-center gap-1.5 border-t pt-2 text-xs text-muted-foreground">
+        <CheckCircle className="h-3.5 w-3.5 text-green-600" aria-hidden />
+        {VOTE_SAID[savedVote]}
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t pt-2">
+      <span className="text-xs text-muted-foreground">
+        In your own words — since this change, is that class better for you?
+      </span>
+      {VOTE_OPTIONS.map(({ value, label, Icon }) => (
+        <Button
+          key={value}
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1.5 text-xs"
+          disabled={castVote.isPending}
+          onClick={() => castVote.mutate({ suggestionId, vote: value })}
+        >
+          {castVote.isPending && castVote.variables?.vote === value ? (
+            <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+          ) : (
+            <Icon className="h-3 w-3" aria-hidden />
+          )}
+          {label}
+        </Button>
+      ))}
+    </div>
+  );
 }
 
 export function LoopClosureCard() {
@@ -185,6 +259,17 @@ export function LoopClosureCard() {
                     Across the whole class, average understanding also rose by{' '}
                     {row.cohort_lift.toFixed(1)} after this change.
                   </p>
+                ) : null}
+
+                {/* The learner's OWN word on it — Better/Same/Worse. Only asked once a real
+                    change is on record AND they've sat a later class (so it's answerable).
+                    Faculty/leadership only ever see this in groups of 3+ (k-floor in the
+                    aggregate fn), never who said what. */}
+                {row.suggestion_id && hasNext ? (
+                  <ResolutionAsk
+                    suggestionId={row.suggestion_id}
+                    savedVote={row.my_resolution_vote}
+                  />
                 ) : null}
               </li>
             );

@@ -23,6 +23,8 @@ export interface LoopClosureRow {
   my_next_date: string | null;        // 'YYYY-MM-DD'
   my_understanding_rose: boolean;     // my_next_understood > my_prior_understood (the learner's OWN win)
   my_delta: number | null;            // my_next_understood - my_prior_understood (null until a later session)
+  suggestion_id: string | null;       // the winning note behind the_change — target for the resolution vote
+  my_resolution_vote: 'better' | 'same' | 'worse' | null; // the learner's explicit confirm (null = not yet asked/answered)
 }
 
 /** fn_scf_my_struggling_note — the calling learner's most-recent AI-written support note.
