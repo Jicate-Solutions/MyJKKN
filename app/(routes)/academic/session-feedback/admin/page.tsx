@@ -56,6 +56,7 @@ import { LoopActivityCard } from '../_components/loop-activity-card';
 import { FacilitatorStrengthsCard } from '../_components/facilitator-strengths-card';
 import { LearnerTrajectoryCard } from '../_components/learner-trajectory-card';
 import { StrugglingNotesSentCard } from '../_components/struggling-notes-sent-card';
+import { UnderstandingBand } from '@/components/session-feedback/understanding-band';
 import type {
   AdminCollegeSummaryRow,
   AdminFacultySummaryRow,
@@ -65,13 +66,6 @@ import type {
 
 const BRAND_GREEN = '#0b6d41';
 
-/** Color an understanding average: red < 3, amber < 3.5, green otherwise. */
-function avgColor(avg: number | null): string {
-  if (avg == null) return 'text-muted-foreground';
-  if (avg < 3) return 'text-red-600';
-  if (avg < 3.5) return 'text-amber-600';
-  return 'text-green-600';
-}
 
 /** Color a coverage %: red 0–24, amber 25–59, green 60+. */
 function coverageColor(pct: number): string {
@@ -233,12 +227,8 @@ export default function AdminFeedbackDashboardPage() {
         </Card>
         <Card>
           <CardContent className="flex flex-col gap-1 p-4">
-            <span className="text-xs text-muted-foreground">Avg understood</span>
-            <span
-              className={`text-2xl font-semibold tabular-nums ${avgColor(totals.avg)}`}
-            >
-              {totals.avg != null ? totals.avg.toFixed(2) : '—'}
-            </span>
+            <span className="text-xs text-muted-foreground">Understanding</span>
+            <UnderstandingBand avg={totals.avg} />
           </CardContent>
         </Card>
         <Card>
@@ -301,13 +291,7 @@ export default function AdminFeedbackDashboardPage() {
                       {r.students}
                     </TableCell>
                     <TableCell className="text-right">
-                      <span
-                        className={`font-semibold tabular-nums ${avgColor(r.avg_understood)}`}
-                      >
-                        {r.avg_understood != null
-                          ? r.avg_understood.toFixed(2)
-                          : '—'}
-                      </span>
+                      <UnderstandingBand avg={r.avg_understood} />
                     </TableCell>
                     <TableCell className="text-right">
                       {r.low_sessions > 0 ? (
@@ -493,13 +477,7 @@ export default function AdminFeedbackDashboardPage() {
                       {r.responses}
                     </TableCell>
                     <TableCell className="text-right">
-                      <span
-                        className={`font-semibold tabular-nums ${avgColor(r.avg_understood)}`}
-                      >
-                        {r.avg_understood != null
-                          ? r.avg_understood.toFixed(2)
-                          : '—'}
-                      </span>
+                      <UnderstandingBand avg={r.avg_understood} />
                     </TableCell>
                     <TableCell className="text-right">
                       {r.low_sessions > 0 ? (
@@ -564,13 +542,7 @@ export default function AdminFeedbackDashboardPage() {
                         {r.students}
                       </TableCell>
                       <TableCell className="text-right">
-                        <span
-                          className={`font-semibold tabular-nums ${avgColor(r.avg_understood)}`}
-                        >
-                          {r.avg_understood != null
-                            ? r.avg_understood.toFixed(2)
-                            : '—'}
-                        </span>
+                        <UnderstandingBand avg={r.avg_understood} />
                       </TableCell>
                       <TableCell>
                         <div
