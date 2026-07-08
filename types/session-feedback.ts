@@ -403,3 +403,24 @@ export interface FacilitatorPulseRow {
   verdicts_given: number;
   last_signal_at: string | null;
 }
+
+/** Signal 8 — marks coverage for one facilitator's planned courses in the
+ *  active COE exam cycle. COURSE COMPLETENESS, not a facilitator act: COE
+ *  marks are entered by the exam cell (~4 operator accounts; faculty_id never
+ *  filled), so this may never be presented as proof the facilitator entered
+ *  anything. courses_expected = planned courses COE examines this cycle
+ *  (registrations ∪ CIA rows); courses_marks_in = those with CIA entries. */
+export interface MarksCoverageRow {
+  faculty_email: string;
+  courses_expected: number;
+  courses_marks_in: number;
+}
+
+export interface MarksCoverageResponse {
+  configured: boolean;
+  session_code: string | null;
+  rows: MarksCoverageRow[];
+  /** Present (true) only when the planned-code list was truncated server-side
+   *  and coverage may undercount — surfaced, never silent. */
+  codes_capped?: boolean;
+}

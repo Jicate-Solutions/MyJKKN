@@ -31,6 +31,7 @@ import type {
   MyLoopNote,
   NoteResolutionCounts,
   FacilitatorPulseRow,
+  MarksCoverageResponse,
 } from '@/types/session-feedback';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -281,6 +282,28 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to load facilitator pulse: ${error.message}`);
     return (data ?? []) as FacilitatorPulseRow[];
+  }
+
+  /**
+   * Signal 8 — marks coverage for the pulse roster (server route joins the
+   * COE exam-cycle data; same leadership gate as the pulse — the route calls
+   * fn_scf_facilitator_pulse with the caller's session). Decorative to the
+   * pulse board: failures return null and the column simply doesn't render.
+   */
+  static async getMarksCoverage(
+    from: string,
+    to: string,
+  ): Promise<MarksCoverageResponse | null> {
+    try {
+      const res = await fetch(
+        `/api/academic/session-feedback/marks-coverage?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      );
+      if (!res.ok) return null;
+      const body = (await res.json()) as MarksCoverageResponse;
+      return body.configured ? body : null;
+    } catch {
+      return null;
+    }
   }
 
   /**
