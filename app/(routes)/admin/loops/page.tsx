@@ -24,6 +24,7 @@ import {
   getEnhancedUserProfile,
 } from '@/lib/supabase/server';
 import { LoopControlTower } from './_components/loop-control-tower';
+import { LoopTower, type LoopTowerStats } from './_components/loop-tower';
 import type { LoopTier, LoopTone, LoopExample } from './_components/types';
 
 async function cnt(query: unknown): Promise<number | null> {
@@ -217,13 +218,13 @@ export default async function LoopControlTowerPage() {
   // card's static config string. ────────────────────────────────────────────
   const schedById = new Map<
     string,
-    { enabled: boolean; days_of_week: number[] | null; minute_of_day: number; last_status: string | null }
+    { enabled: boolean; days_of_week: number[] | null; minute_of_day: number; last_status: string | null; last_fired_at: string | null }
   >();
   const modelByKey = new Map<string, string>();
   try {
     const { data } = await admin
       .from('ai_routine_schedules')
-      .select('routine_id, enabled, days_of_week, minute_of_day, last_status');
+      .select('routine_id, enabled, days_of_week, minute_of_day, last_status, last_fired_at');
     for (const r of data ?? []) schedById.set(r.routine_id, r);
   } catch {
     /* fall back to static cfg strings */
@@ -552,8 +553,62 @@ export default async function LoopControlTowerPage() {
 
   const asOf = new Date().toISOString().slice(0, 10);
 
+  // ── Loop Tower stats (the loopcraft stack, live) ───────────────────────────
+  // IST day start → UTC instant, so "today" matches the campus day.
+  // Same inline-Date idiom as since7/since14 above: floor now to the IST day
+  // boundary (UTC+5:30 = 19_800_000 ms), then express it back as a UTC instant.
+  const istDayStartUtc = new Date(
+    Math.floor((Date.now() + 19_800_000) / 86_400_000) * 86_400_000 - 19_800_000,
+  ).toISOString();
+  const [
+    maxCallsToday,
+    apiCallsToday,
+    maxlaneDoneToday,
+    maxlaneErrorToday,
+    scfNotes,
+    scfMeasured,
+    scfVerdicts,
+    scfPositiveLifts,
+    spineAiDrafts,
+    spineFaculty,
+    learnerNotes7d,
+    escalations7d,
+  ] = await Promise.all([
+    cnt(admin.from('ai_model_usage').select('*', { count: 'exact', head: true }).eq('provider', 'claude_code').gte('created_at', istDayStartUtc)),
+    cnt(admin.from('ai_model_usage').select('*', { count: 'exact', head: true }).neq('provider', 'claude_code').gte('created_at', istDayStartUtc)),
+    cnt(admin.from('max_lane_requests').select('*', { count: 'exact', head: true }).eq('status', 'done').gte('requested_at', istDayStartUtc)),
+    cnt(admin.from('max_lane_requests').select('*', { count: 'exact', head: true }).eq('status', 'error').gte('requested_at', istDayStartUtc)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback')),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').not('outcome_measured_at', 'is', null)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').not('human_verdict', 'is', null)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').gt('outcome_lift', 0.05)),
+    cnt(admin.from('curriculum_lesson').select('*', { count: 'exact', head: true }).eq('source', 'bos_ai')),
+    cnt(admin.from('curriculum_lesson').select('*', { count: 'exact', head: true }).eq('source', 'faculty')),
+    cnt(admin.from('scf_learner_notes').select('*', { count: 'exact', head: true }).gte('created_at', since7)),
+    cnt(admin.from('session_feedback_escalations').select('*', { count: 'exact', head: true }).gte('created_at', since7)),
+  ]);
+  const sched = [...schedById.values()];
+  const towerStats: LoopTowerStats = {
+    maxCallsToday,
+    apiCallsToday,
+    routinesEnabled: sched.filter((r) => r.enabled).length || null,
+    routinesTotal: sched.length || null,
+    routinesFiredToday: sched.filter((r) => r.last_fired_at && r.last_fired_at >= istDayStartUtc).length,
+    maxlaneDoneToday,
+    maxlaneErrorToday,
+    scfNotes,
+    scfMeasured,
+    scfVerdicts,
+    scfPositiveLifts,
+    spineAiDrafts,
+    spineFaculty,
+    learnerNotes7d,
+    escalations7d,
+  };
+
   return (
     <ContentLayout title="Loop Control Tower — every loop in MyJKKN, and whether it’s working">
+      <div className="mb-6"><LoopTower stats={towerStats} /></div>
       <LoopControlTower tiers={tiers} summary={summary} asOf={asOf} />
     </ContentLayout>
   );
