@@ -9,7 +9,8 @@
 
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import {
   ArrowLeft,
   Building2,
@@ -41,10 +42,226 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 
-import { getPartner, getPartnerRollup } from '../../_lib/api';
-import { PARTNER_STATUS_LABEL, formatInr } from '../../_lib/types';
+import {
+  getPartner,
+  getPartnerRollup,
+  listPartnerSchools,
+  updatePartnerSchoolStatus,
+} from '../../_lib/api';
+import {
+  AI_SESSION_STATUS_LABEL,
+  PARTNER_STATUS_LABEL,
+  WEBSITE_STATUS_LABEL,
+  formatInr,
+} from '../../_lib/types';
+import type {
+  AiSessionStatus,
+  PartnerSchool,
+  WebsiteStatus,
+} from '../../_lib/types';
+
+/**
+ * Member Schools — the partner's schools with their two status dropdowns
+ * (AI session, website) that the field team maintains. Backed by
+ * program_partner_schools; RLS scopes to super/admin or the school's owner /
+ * this partner's lead, so a program_lead sees only their own schools.
+ */
+function MemberSchoolsCard({ partnerId }: { partnerId: string }) {
+  const qc = useQueryClient();
+  const query = useQuery({
+    queryKey: ['schools-network', 'partner-schools', partnerId],
+    queryFn: () => listPartnerSchools(partnerId),
+  });
+  const mutation = useMutation({
+    mutationFn: (input: {
+      schoolId: string;
+      aiSessionStatus?: AiSessionStatus;
+      websiteStatus?: WebsiteStatus;
+    }) => updatePartnerSchoolStatus(partnerId, input),
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey: ['schools-network', 'partner-schools', partnerId],
+      });
+      toast.success('Status updated');
+    },
+    onError: (e) => toast.error((e as Error)?.message ?? 'Update failed'),
+  });
+
+  const rows: PartnerSchool[] = query.data?.rows ?? [];
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Building2 className="h-4 w-4 text-muted-foreground" />
+          <CardTitle className="text-base">
+            Member Schools{rows.length > 0 ? ` (${rows.length})` : ''}
+          </CardTitle>
+        </div>
+        <CardDescription>
+          Schools under this programme. Set each school&apos;s AI-session and
+          website status — changes save immediately.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {query.isLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-9 w-full" />
+            ))}
+          </div>
+        ) : rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-6 text-center">
+            No schools linked to this programme yet.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>School</TableHead>
+                  <TableHead>District</TableHead>
+                  <TableHead>Owner</TableHead>
+                  <TableHead className="w-[170px]">AI Session</TableHead>
+                  <TableHead className="w-[170px]">Website</TableHead>
+                  <TableHead>Branding</TableHead>
+                  <TableHead>Site</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell className="font-medium">
+                      {row.schoolName ? (
+                        <Link
+                          href={`/admission/schools-network/${row.schoolId}`}
+                          className="text-primary hover:underline"
+                        >
+                          {row.schoolName}
+                        </Link>
+                      ) : (
+                        '—'
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {row.district ?? '—'}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {row.ownerName ? (
+                        row.ownerUserId ? (
+                          <Link
+                            href={`/users/${row.ownerUserId}`}
+                            className="text-primary hover:underline"
+                          >
+                            {row.ownerName}
+                          </Link>
+                        ) : (
+                          row.ownerName
+                        )
+                      ) : (
+                        <span className="text-amber-600">Unassigned</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={row.aiSessionStatus}
+                        onValueChange={(v) =>
+                          mutation.mutate({
+                            schoolId: row.schoolId,
+                            aiSessionStatus: v as AiSessionStatus,
+                          })
+                        }
+                        disabled={mutation.isPending}
+                      >
+                        <SelectTrigger className="h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(
+                            Object.keys(
+                              AI_SESSION_STATUS_LABEL
+                            ) as AiSessionStatus[]
+                          ).map((k) => (
+                            <SelectItem key={k} value={k}>
+                              {AI_SESSION_STATUS_LABEL[k]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={row.websiteStatus}
+                        onValueChange={(v) =>
+                          mutation.mutate({
+                            schoolId: row.schoolId,
+                            websiteStatus: v as WebsiteStatus,
+                          })
+                        }
+                        disabled={mutation.isPending}
+                      >
+                        <SelectTrigger className="h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(
+                            Object.keys(WEBSITE_STATUS_LABEL) as WebsiteStatus[]
+                          ).map((k) => (
+                            <SelectItem key={k} value={k}>
+                              {WEBSITE_STATUS_LABEL[k]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      {row.brandingDone ? (
+                        <Badge variant="secondary">Done</Badge>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {row.domainUrl ? (
+                        <a
+                          href={row.domainUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-1 text-primary hover:underline"
+                        >
+                          <Globe className="h-3 w-3" /> Visit
+                        </a>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function PartnerDetailContent({ partnerId }: { partnerId: string }) {
   // The two endpoints return their payloads FLAT (no nested { partner, rollup }
@@ -190,6 +407,9 @@ function PartnerDetailContent({ partnerId }: { partnerId: string }) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Member schools + their maintainable status */}
+      <MemberSchoolsCard partnerId={partnerId} />
 
       {partner.notes && (
         <Card>

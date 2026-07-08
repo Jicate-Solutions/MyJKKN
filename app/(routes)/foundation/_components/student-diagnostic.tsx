@@ -30,6 +30,7 @@ import {
   useRevisionPlans,
   useStudentExams,
   useStudentProgress,
+  useTopics,
   useWeaknessMap,
 } from '@/hooks/foundation/use-foundation';
 import type {
@@ -129,8 +130,17 @@ function ProgressSummary({
   examId: string;
 }) {
   const { data, isLoading } = useStudentProgress(studentId, examId);
+  // The weakness map is the ground-truth attempts signal; the progress-summary
+  // RPC (fn_fp_student_progress) can lag behind it. Read it here so this strip
+  // never claims "no attempts" while the map below shows topics the student has
+  // already attempted.
+  const { data: weaknessRows, isLoading: weaknessLoading } = useWeaknessMap(
+    studentId,
+    examId,
+  );
 
-  if (isLoading) return <Skeleton className="h-24 w-full rounded-xl" />;
+  if (isLoading || weaknessLoading)
+    return <Skeleton className="h-24 w-full rounded-xl" />;
   const p = (data ?? {}) as StudentProgress;
 
   const cells: { label: string; value: string }[] = [];
@@ -152,6 +162,17 @@ function ProgressSummary({
   push('Topics tracked', p.topics_tracked);
   push('Weak topics', p.topics_weak);
 
+  // Fallback: if the progress RPC returned nothing usable but the weakness map
+  // has rows, derive the strip from the map so it stays consistent with what the
+  // student clearly has (attempts + tracked topics) instead of contradicting it.
+  const rows = weaknessRows ?? [];
+  if (cells.length === 0 && rows.length > 0) {
+    const mapAttempts = rows.reduce((sum, r) => sum + (r.attempts_count ?? 0), 0);
+    if (mapAttempts > 0) push('Attempts', mapAttempts);
+    push('Topics tracked', rows.length);
+  }
+
+  // Only the genuinely-empty state (no summary AND no attempted topics) shows this.
   if (cells.length === 0) {
     return (
       <div className="rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">
@@ -336,7 +357,13 @@ function RevisionPlans({
 }
 
 function RevisionPlanCard({ plan }: { plan: RevisionPlan }) {
-  const steps = extractSteps(plan.plan);
+  // The generated plan stores topic_id (a UUID) with no display name; resolve it
+  // so the plan renders as readable steps instead of a raw JSON dump.
+  const { data: topics } = useTopics();
+  const nameById = new Map<string, string>(
+    (topics ?? []).map((t) => [t.id, t.display_name] as const),
+  );
+  const steps = extractSteps(plan.plan, nameById);
   const generatedAt = plan.generated_at
     ? new Date(plan.generated_at).toLocaleDateString(undefined, {
         day: 'numeric',
@@ -392,6 +419,7 @@ function RevisionPlanCard({ plan }: { plan: RevisionPlan }) {
  */
 function extractSteps(
   plan: any,
+  nameById?: Map<string, string>,
 ): { title: string; detail?: string }[] {
   if (!plan) return [];
   const arr =
@@ -406,10 +434,36 @@ function extractSteps(
     .map((entry: any) => {
       if (typeof entry === 'string') return { title: entry };
       if (entry && typeof entry === 'object') {
+        // fn_fp_generate_revision_plan emits { topic_id, mastery_score,
+        // attempts_count, recommended_item_ids } with NO display name — resolve
+        // the topic_id to a readable name and synthesize a detail line from the
+        // numeric fields, so the plan renders as steps rather than a JSON blob.
         const title =
-          entry.title ?? entry.topic ?? entry.name ?? entry.label ?? '';
-        const detail =
+          entry.title ??
+          entry.topic ??
+          entry.name ??
+          entry.label ??
+          (entry.topic_id
+            ? (nameById?.get(entry.topic_id) ?? 'Weak topic')
+            : '');
+        let detail =
           entry.detail ?? entry.reason ?? entry.description ?? entry.note;
+        if (
+          detail == null &&
+          (entry.mastery_score != null ||
+            Array.isArray(entry.recommended_item_ids))
+        ) {
+          const bits: string[] = [];
+          if (entry.mastery_score != null)
+            bits.push(`${Math.round(Number(entry.mastery_score) * 100)}% mastery`);
+          if (Array.isArray(entry.recommended_item_ids))
+            bits.push(
+              `${entry.recommended_item_ids.length} practice item${
+                entry.recommended_item_ids.length === 1 ? '' : 's'
+              }`,
+            );
+          detail = bits.join(' · ') || undefined;
+        }
         if (!title && !detail) return null;
         return { title: String(title || detail), detail: title ? detail : undefined };
       }

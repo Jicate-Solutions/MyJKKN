@@ -94,8 +94,33 @@ export interface AutobalanceResult {
   unassigned: number;
 }
 
+/** One assigned fresher (mentee) under a mentor, for the admin console. */
+export interface MentorMentee {
+  mentor_learner_id: string;
+  fresher_learner_id: string;
+  fresher_name: string;
+  fresher_register: string | null;
+  has_feedback: boolean;
+}
+
+/** A fresher enrolled in the induction but not yet assigned to any mentor. */
+export interface UnassignedFresher {
+  fresher_learner_id: string;
+  fresher_name: string;
+  fresher_register: string | null;
+}
+
 export class InductionVolunteerService {
   // ── Manage (Induction Lead / college coordinator) ──────────────────────────
+
+  /** True if I coordinate ANY induction event. Used only to let an appointed event
+   *  coordinator (who may lack the induction.view permission) into the induction module
+   *  UI; per-event authorization stays enforced by every RPC's can_manage_training gate. */
+  static async isAnyEventCoordinator(): Promise<boolean> {
+    const { data, error } = await getSupabase().rpc('fn_induction_is_any_event_coordinator');
+    if (error) throw error;
+    return Boolean(data);
+  }
 
   /** Search senior students of the event's college appointable as peer mentors. */
   static async assignablePeerMentors(eventId: string, query: string): Promise<AssignablePeerMentor[]> {
@@ -195,6 +220,17 @@ export class InductionVolunteerService {
     return (data as number) ?? 0;
   }
 
+  /** Attendance ALREADY saved for MY group on one session — so the attendance dialog can
+   *  seed prior marks instead of resetting everyone to Present (which would clobber the
+   *  mentor's own earlier absentees on a re-save). Self-scoped server-side. */
+  static async mySessionAttendance(sessionId: string): Promise<{ learner_id: string; status: string }[]> {
+    const { data, error } = await getSupabase().rpc('fn_induction_my_session_attendance', {
+      p_session_id: sessionId,
+    });
+    if (error) throw error;
+    return (data as { learner_id: string; status: string }[]) ?? [];
+  }
+
   // ── Training (mentor self-steps + read) ─────────────────────────────────────
 
   /** My per-event training progress. Empty for non-mentors. */
@@ -253,5 +289,65 @@ export class InductionVolunteerService {
     });
     if (error) throw error;
     return (data as number) ?? 0;
+  }
+
+  // ── Year-round mentoring (P2c-2): monthly check-ins ─────────────────────────
+
+  /** How many monthly check-ins are already scheduled for this induction. */
+  static async countMonthlyCheckins(eventId: string): Promise<number> {
+    const { data, error } = await getSupabase().rpc('fn_induction_count_monthly_checkins', {
+      p_event_id: eventId,
+    });
+    if (error) throw error;
+    return (data as number) ?? 0;
+  }
+
+  /** Admin: create a monthly check-in for each month from after induction to the
+   *  freshers' first-year end. Idempotent — returns how many NEW ones were made. */
+  static async generateMonthlyCheckins(eventId: string): Promise<number> {
+    const { data, error } = await getSupabase().rpc('fn_induction_generate_monthly_checkins', {
+      p_event_id: eventId,
+    });
+    if (error) throw error;
+    return (data as number) ?? 0;
+  }
+
+  // ── Admin console: manage each mentor's mentee-freshers ──────────────────────
+
+  /** Every mentor's assigned freshers (one row per mentor↔fresher). */
+  static async adminMentorMentees(eventId: string): Promise<MentorMentee[]> {
+    const { data, error } = await getSupabase().rpc('fn_induction_admin_mentor_mentees', {
+      p_event_id: eventId,
+    });
+    if (error) throw error;
+    return (data as MentorMentee[]) ?? [];
+  }
+
+  /** Freshers enrolled in the induction but not assigned to any mentor. */
+  static async adminUnassignedFreshers(eventId: string): Promise<UnassignedFresher[]> {
+    const { data, error } = await getSupabase().rpc('fn_induction_admin_unassigned_freshers', {
+      p_event_id: eventId,
+    });
+    if (error) throw error;
+    return (data as UnassignedFresher[]) ?? [];
+  }
+
+  /** Assign (or move) a fresher to a mentor. */
+  static async adminAssignFresher(eventId: string, mentorLearnerId: string, fresherLearnerId: string): Promise<void> {
+    const { error } = await getSupabase().rpc('fn_induction_admin_assign_fresher', {
+      p_event_id: eventId,
+      p_mentor_learner_id: mentorLearnerId,
+      p_fresher_learner_id: fresherLearnerId,
+    });
+    if (error) throw error;
+  }
+
+  /** Remove a fresher from their mentor's group (back to the unassigned pool). */
+  static async adminUnassignFresher(eventId: string, fresherLearnerId: string): Promise<void> {
+    const { error } = await getSupabase().rpc('fn_induction_admin_unassign_fresher', {
+      p_event_id: eventId,
+      p_fresher_learner_id: fresherLearnerId,
+    });
+    if (error) throw error;
   }
 }

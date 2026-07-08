@@ -24,7 +24,7 @@ import {
   getEnhancedUserProfile,
 } from '@/lib/supabase/server';
 import { LoopControlTower } from './_components/loop-control-tower';
-import type { LoopTier, LoopTone } from './_components/types';
+import type { LoopTier, LoopTone, LoopExample } from './_components/types';
 
 async function cnt(query: unknown): Promise<number | null> {
   try {
@@ -38,6 +38,103 @@ async function cnt(query: unknown): Promise<number | null> {
 }
 
 const n = (v: number | null) => (v === null ? '—' : String(v));
+
+// ── SCF effectiveness: the ACTUAL work, not just counts ──────────────────────
+// The raw scf_ai_suggestions row count is inflated when a single course's window
+// regenerates repeatedly, so it misleads ("215 tips" while only 9 real classes
+// were coached). This reads the honest picture: distinct classes coached, the
+// measured-outcome split (a tip is only "measured" once its class is re-taught
+// and re-rated — lift > +0.2 = "helped"), and a few DISTINCT recent examples so
+// a reader can eyeball the real advice and see whose profile reflects it.
+type ScfEffectiveness = {
+  distinctClasses: number | null;
+  rawRows: number | null;
+  measured: number;
+  helped: number;
+  didNotMove: number;
+  examples: LoopExample[];
+};
+
+function scfExcerpt(suggestion: unknown): string {
+  if (!suggestion || typeof suggestion !== 'object') return '(no text)';
+  const s = suggestion as Record<string, unknown>;
+  // 'improvement' tips key on summary; 'success' write-ups on whatWorked.
+  const raw =
+    (typeof s.summary === 'string' && s.summary) ||
+    (typeof s.whatWorked === 'string' && s.whatWorked) ||
+    '';
+  const trimmed = String(raw).trim();
+  if (!trimmed) return '(no text)';
+  return trimmed.length > 150 ? `${trimmed.slice(0, 150)}…` : trimmed;
+}
+
+async function loadScfEffectiveness(
+  admin: ReturnType<typeof createServiceRoleClient>,
+): Promise<ScfEffectiveness> {
+  const empty: ScfEffectiveness = {
+    distinctClasses: null,
+    rawRows: null,
+    measured: 0,
+    helped: 0,
+    didNotMove: 0,
+    examples: [],
+  };
+  try {
+    // 1) Honest counts — dedup (course, faculty) in JS; bucket the measured lift.
+    const { data: rows, error } = await admin
+      .from('scf_ai_suggestions')
+      .select('course_code, faculty_email, outcome_lift')
+      .eq('domain', 'session_feedback');
+    if (error) return empty;
+
+    const distinct = new Set<string>();
+    let measured = 0;
+    let helped = 0;
+    let didNotMove = 0;
+    for (const r of rows ?? []) {
+      distinct.add(`${r.course_code}|${r.faculty_email ?? ''}`);
+      if (r.outcome_lift !== null && r.outcome_lift !== undefined) {
+        measured++;
+        if (Number(r.outcome_lift) > 0.2) helped++;
+        else didNotMove++;
+      }
+    }
+
+    // 2) A few DISTINCT recent examples (most-recent per class). Pull a recent
+    //    slice with the suggestion text, then dedup by class keeping the newest.
+    const { data: recent } = await admin
+      .from('scf_ai_suggestions')
+      .select('course_code, faculty_email, kind, generated_at, suggestion')
+      .eq('domain', 'session_feedback')
+      .order('generated_at', { ascending: false })
+      .limit(60);
+    const seen = new Set<string>();
+    const examples: LoopExample[] = [];
+    for (const r of recent ?? []) {
+      const key = `${r.course_code}|${r.faculty_email ?? ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      examples.push({
+        ref: String(r.course_code),
+        who: (r.faculty_email as string | null) ?? 'course-level',
+        text: scfExcerpt(r.suggestion),
+        tag: r.kind === 'success' ? 'what worked' : 'coaching',
+      });
+      if (examples.length >= 3) break;
+    }
+
+    return {
+      distinctClasses: distinct.size,
+      rawRows: (rows ?? []).length,
+      measured,
+      helped,
+      didNotMove,
+      examples,
+    };
+  } catch {
+    return empty;
+  }
+}
 
 export default async function LoopControlTowerPage() {
   const { profile } = await getEnhancedUserProfile();
@@ -65,8 +162,6 @@ export default async function LoopControlTowerPage() {
   const since7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   const [
-    scfGen,
-    scfMeasured,
     scfResponses7d,
     indSessGen,
     indSessMeasured,
@@ -79,8 +174,8 @@ export default async function LoopControlTowerPage() {
     decisionsGraded,
     messPolicy,
   ] = await Promise.all([
-    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback')),
-    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').not('outcome_lift', 'is', null)),
+    // SCF generated/measured counts now come from loadScfEffectiveness (deduped
+    // to distinct classes) — the raw row count was misleading, see below.
     // Proxy for the loop's fuel: student ratings RECEIVED into session_feedback
     // (the table fn_scf_candidate_windows reads), by created_at over the last
     // 7d. Intake, not the exact acted-on set — the loop's candidacy windows on
@@ -112,6 +207,10 @@ export default async function LoopControlTowerPage() {
   ]);
 
   const messOn = messPolicy === true;
+
+  // SCF effectiveness — the honest, deduplicated picture + real examples so the
+  // card can show WHAT the loop actually produced and WHOSE profile it reflects.
+  const scfEff = await loadScfEffectiveness(admin);
 
   // ── Live config, read from the SAME tables /admin/ai-routines edits, so the
   // two pages can't drift. Best-effort: any read failure falls back to each
@@ -196,12 +295,18 @@ export default async function LoopControlTowerPage() {
             'scf.generate_suggestions',
             'daily 11:15 IST · claude-sonnet-4-6 · schedule editable, thresholds in code',
           ),
-          status: 'Live · measuring',
+          status: scfEff.measured > 0 ? 'Live · measuring' : 'Live · awaiting outcomes',
           tone: 'live',
           gates: ['on', 'on', 'on', 'on'],
           metrics: [
-            { v: n(scfGen), k: 'tips generated', tone: 'good' },
-            { v: n(scfMeasured), k: 'measured yet', tone: 'mute' },
+            { v: n(scfEff.distinctClasses), k: 'classes coached', tone: 'good' },
+            scfEff.measured > 0
+              ? {
+                  v: `${scfEff.helped}↑ / ${scfEff.didNotMove}→`,
+                  k: 'helped / didn’t move',
+                  tone: scfEff.helped > 0 ? 'good' : 'warn',
+                }
+              : { v: '0', k: 'measured — awaiting re-teach', tone: 'mute' },
             {
               v: n(scfResponses7d),
               k: 'ratings received (7d)',
@@ -213,13 +318,21 @@ export default async function LoopControlTowerPage() {
                     : 'good',
             },
           ],
+          examples: scfEff.examples,
+          verifyHref: '/academic/session-feedback/admin',
+          verifyLabel: 'Verify on the Session Feedback admin view →',
           noteTag: 'Now',
           note:
-            scfResponses7d == null
-              ? 'Reads student session-feedback directly. The 7-day ratings count didn’t load just now (transient) — reload to refresh; it doesn’t reflect the loop’s health.'
-              : scfResponses7d > 0
-                ? 'Reads student session-feedback directly — well fueled (raw ratings received in the last 7 days above; the loop coaches the classes among them with enough responses). It’s early because a tip’s effect is only measurable once that class is re-taught and re-rated, not because of missing input.'
-                : 'Reads student session-feedback directly. No ratings received in the last 7 days — likely a weekend/term-break lull, but worth a glance if it persists, since the loop only coaches classes with enough recent responses.',
+            `Coaching ${scfEff.distinctClasses ?? '—'} distinct classes` +
+            (scfEff.rawRows != null &&
+            scfEff.distinctClasses != null &&
+            scfEff.rawRows > scfEff.distinctClasses * 3
+              ? ` (the raw ${scfEff.rawRows}-tip figure is inflated — one course regenerated many times, so distinct classes is the honest count).`
+              : '.') +
+            (scfEff.measured > 0
+              ? ` Of those, ${scfEff.measured} have been re-taught and re-rated: ${scfEff.helped} improved, ${scfEff.didNotMove} did not move.`
+              : ` No outcomes measured yet — expected, not broken: a tip’s effect can only be scored once that class is taught again and re-rated, and none of the coached classes has had a later session yet.`) +
+            ` The examples below are the loop’s actual recent output; open a coached teacher’s Session Feedback to verify.`,
         },
         {
           id: 'induction-session',

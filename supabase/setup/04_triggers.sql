@@ -1489,3 +1489,9 @@ DROP TRIGGER IF EXISTS trg_cohort_proposals_guard ON public.cohort_adjustment_pr
 CREATE TRIGGER trg_cohort_proposals_guard
   BEFORE UPDATE ON public.cohort_adjustment_proposals
   FOR EACH ROW EXECUTE FUNCTION public.fn_cohort_proposal_guard();
+
+-- School Master: keep updated_at fresh
+DROP TRIGGER IF EXISTS school_master_touch_updated_at ON public.school_master;
+CREATE TRIGGER school_master_touch_updated_at
+  BEFORE UPDATE ON public.school_master
+  FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();

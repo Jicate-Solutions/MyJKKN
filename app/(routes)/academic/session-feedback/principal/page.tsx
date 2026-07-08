@@ -49,6 +49,7 @@ import { useEscalationFollowups } from '@/hooks/use-session-feedback';
 import type { EscalationFollowupRow } from '@/types/session-feedback';
 import { FollowupCell } from '../_components/followup-cell';
 import { ScfLeadershipConcernsCard } from '../_components/scf-leadership-concerns-card';
+import { UnderstandingBand } from '@/components/session-feedback/understanding-band';
 
 const BRAND_GREEN = '#0b6d41';
 
@@ -175,11 +176,7 @@ export default function PrincipalEscalationPage() {
                         {r.responses}
                       </TableCell>
                       <TableCell className="text-right">
-                        <span className="font-semibold tabular-nums text-red-600">
-                          {r.avg_understood != null
-                            ? r.avg_understood.toFixed(2)
-                            : '—'}
-                        </span>
+                        <UnderstandingBand avg={r.avg_understood} />
                       </TableCell>
                       <TableCell className="text-right">
                         <Badge variant="destructive">{r.low_understanding}</Badge>

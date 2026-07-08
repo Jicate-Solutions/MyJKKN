@@ -26,12 +26,33 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { SCHOLARSHIP_TYPE_OPTIONS } from '@/lib/constants/learner-dropdown-values';
+import {
+  SCHOLARSHIP_TYPE_OPTIONS,
+  BOARD_OF_STUDY_OPTIONS,
+} from '@/lib/constants/learner-dropdown-values';
 import {
   NEW_TWELFTH_SUBJECTS,
   TWELFTH_GROUP_LABEL_MAP,
   type TwelfthGroupKey,
 } from '@/lib/utils/mappings/enquiry-excel-mappings';
+import {
+  LastSchoolField,
+  type LastSchoolFetchers,
+} from '@/components/learners/last-school-field';
+import { SchoolMasterService } from '@/lib/services/school-master-service';
+
+// Admin-side data adapters for the Last School cascade (authenticated
+// Supabase reads; the public student-form injects token-endpoint fetchers).
+const schoolMasterFetchers: LastSchoolFetchers = {
+  fetchDistricts: () => SchoolMasterService.getDistricts(),
+  fetchSchools: ({ district, search }) =>
+    SchoolMasterService.getSchools({ board: 'state_board', district, search, limit: 50 }),
+  matchExactName: (name, district) =>
+    SchoolMasterService.findByExactName(name, {
+      board: 'state_board',
+      district: district ?? undefined,
+    }),
+};
 
 interface AcademicInformationProps {
   form: UseFormReturn<any>;
@@ -40,6 +61,12 @@ interface AcademicInformationProps {
 
 export function AcademicInformationSection({ form, degreeType }: AcademicInformationProps) {
   const isPG = degreeType === 'pg';
+
+  // Last School cascade inputs (board drives district→school for state_board)
+  const boardOfStudy = useWatch({ control: form.control, name: 'board_of_study' });
+  const lastSchoolId = useWatch({ control: form.control, name: 'last_school_id' });
+  const schoolDistrict = useWatch({ control: form.control, name: 'school_district' });
+
   // ============================================
   // AUTO-CALCULATION: 10th Marks Percentage
   // ============================================
@@ -532,22 +559,10 @@ export function AcademicInformationSection({ form, degreeType }: AcademicInforma
 
   return (
     <div className="space-y-6">
-      {/* College / School Information — always visible */}
+      {/* College / School Information — always visible.
+          Board renders FIRST: for State Board it drives the District → School
+          cascade inside LastSchoolField (manual entry stays available). */}
       <div className="grid gap-4 md:grid-cols-2">
-        <FormField
-          control={form.control}
-          name="last_school"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>{isPG ? 'College Name & Place' : 'Last School/College Attended'}</FormLabel>
-              <FormControl>
-                <Input placeholder={isPG ? 'Enter college name and place' : 'Enter school/college name'} {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
         {!isPG && (
           <FormField
             control={form.control}
@@ -562,12 +577,11 @@ export function AcademicInformationSection({ form, degreeType }: AcademicInforma
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    <SelectItem value="state_board">State Board</SelectItem>
-                    <SelectItem value="cbse">CBSE</SelectItem>
-                    <SelectItem value="icse">ICSE</SelectItem>
-                    <SelectItem value="matriculation">Matriculation</SelectItem>
-                    <SelectItem value="anglo_indian">Anglo Indian</SelectItem>
-                    <SelectItem value="others">Others</SelectItem>
+                    {BOARD_OF_STUDY_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 <FormMessage />
@@ -575,6 +589,33 @@ export function AcademicInformationSection({ form, degreeType }: AcademicInforma
             )}
           />
         )}
+
+        <FormField
+          control={form.control}
+          name="last_school"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>{isPG ? 'College Name & Place' : 'Last School/College Attended'}</FormLabel>
+              <FormControl>
+                <LastSchoolField
+                  board={boardOfStudy}
+                  isPG={isPG}
+                  value={field.value || ''}
+                  schoolId={lastSchoolId || null}
+                  district={schoolDistrict || null}
+                  onChange={({ name, schoolId, district }) => {
+                    field.onChange(name);
+                    form.setValue('last_school_id', schoolId ?? '', { shouldDirty: true });
+                    form.setValue('school_district', district ?? '', { shouldDirty: true });
+                  }}
+                  fetchers={schoolMasterFetchers}
+                  placeholder={isPG ? 'Enter college name and place' : 'Enter school/college name'}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
       </div>
 
       {/* PG-specific fields: Previous Course/Degree + Percentage */}

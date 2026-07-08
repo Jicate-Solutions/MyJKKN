@@ -125,6 +125,9 @@ export const enquiryFormSchema = z.object({
 
   // Academic Information
   last_school: z.string().nullable().optional(),
+  // FK to school_master when picked from the dropdown; null for manual entries
+  last_school_id: z.string().nullable().optional(),
+  school_district: z.string().nullable().optional(),
   board_of_study: z.string().nullable().optional(),
   tenth_marks: z.object({
     max_marks: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
@@ -444,6 +447,8 @@ const fieldToTabMap: Record<string, string> = {
 
   // Academic Information
   last_school: 'academic-information',
+  last_school_id: 'academic-information',
+  school_district: 'academic-information',
   board_of_study: 'academic-information',
   tenth_marks: 'academic-information',
   twelfth_marks: 'academic-information',
@@ -767,6 +772,8 @@ export function EnquiryForm({
 
           // Academic
           last_school: learner.last_school || '',
+          last_school_id: learner.last_school_id || '',
+          school_district: learner.school_district || '',
           board_of_study: learner.board_of_study?.toLowerCase().replace(/\s+/g, '_') || '',
           tenth_marks: {
             max_marks: learner.tenth_marks?.max_marks ? String(learner.tenth_marks.max_marks) : '',
@@ -923,6 +930,8 @@ export function EnquiryForm({
 
           // Academic
           last_school: '',
+          last_school_id: '',
+          school_district: '',
           board_of_study: '',
           tenth_marks: {
             max_marks: '',
@@ -1126,6 +1135,11 @@ export function EnquiryForm({
 
       // Academic Information (NOT NULL fields) - Convert to UPPERCASE
       last_school: toUpperCaseField(values.last_school) || '',
+      // school_master link — blank → undefined so '' never reaches the uuid column.
+      // school_district keeps the master's casing so the district dropdown
+      // re-matches on edit (do NOT uppercase it).
+      last_school_id: formatUUID(values.last_school_id || undefined),
+      school_district: values.school_district || undefined,
       board_of_study: toUpperCaseField(values.board_of_study) || '',
       tenth_marks: values.tenth_marks || {
         max_marks: '',

@@ -4701,6 +4701,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/learners/school-master",
+        "label": "School Master",
+        "iconName": "GraduationCap",
+        "children": []
       }
     ]
   },

@@ -218,6 +218,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners/analytics': 'learners.dashboard.view',
   '/learners/change-requests': 'learners.change-requests.view',
   '/learners/change-requests/[id]': 'learners.change-requests.view',
+  '/learners/school-master': 'learners.school_master.view',
 
   // Learner Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
   // Spec: specs/counselor-taxonomy-spec.md. Role seed:
@@ -1980,12 +1981,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           // 2026-07-06: absorbed the old "My Attendance Feedback" tab — this one
           // page now shows BOTH pending sessions (with inline confirm) AND the
           // confirmed-session history, so there is a single feedback tab, not two.
-          // The old /learners/my-attendance-feedback route redirects here.
+          // Renamed to the JKKN house term "Learning Studio Feedback" (JKKN calls
+          // classrooms "Learning Studios"). The old /learners/my-attendance-feedback
+          // route now redirects here via next.config.ts, which also drops it from
+          // the auto-generated nav surfaces.
           href: '/learners/class-feedback',
-          label: 'Class Feedback',
-          active:
-            pathname.startsWith('/learners/class-feedback') ||
-            pathname.startsWith('/learners/my-attendance-feedback'),
+          label: 'Learning Studio Feedback',
+          active: pathname.startsWith('/learners/class-feedback'),
           icon: MessageSquare,
           submenus: []
         },
@@ -2081,6 +2083,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/learners/profiles', label: 'Learner Profiles', active: pathname.startsWith('/learners/profiles') },
             { href: '/learners/alumni', label: 'Alumni & Graduates', active: pathname.startsWith('/learners/alumni') },
             { href: '/learners/change-requests', label: 'Change Requests', active: pathname.startsWith('/learners/change-requests') },
+            { href: '/learners/school-master', label: 'School Master', active: pathname.startsWith('/learners/school-master') },
           ]
         }
       ]

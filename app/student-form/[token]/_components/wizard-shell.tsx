@@ -364,6 +364,7 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
           <StepAcademicInformation
             lang={lang}
             data={data}
+            token={token}
             degreeType={degreeType}
             onContinue={(fields) => handleStepContinue('academic', fields)}
             onBack={() => setStep(3)}

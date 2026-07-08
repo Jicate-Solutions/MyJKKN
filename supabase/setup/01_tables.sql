@@ -5994,3 +5994,34 @@ CREATE INDEX IF NOT EXISTS idx_cohort_proposals_status ON public.cohort_adjustme
 CREATE UNIQUE INDEX IF NOT EXISTS uidx_cohort_proposals_one_open_per_cohort
   ON public.cohort_adjustment_proposals (based_on_cohort_id)
   WHERE status IN ('pending','applied');
+
+-- ============================================================================
+-- School Master (Last School dropdown lookup — board+district-wise)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.school_master (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_name text NOT NULL,
+  board text NOT NULL DEFAULT 'state_board',
+  district text NOT NULL,
+  state text NOT NULL DEFAULT 'Tamil Nadu',
+  pincode text,
+  udise_code text,
+  is_active boolean NOT NULL DEFAULT true,
+  created_by uuid REFERENCES public.profiles(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS school_master_board_district_name_uq
+  ON public.school_master (board, district, lower(school_name));
+CREATE INDEX IF NOT EXISTS school_master_board_district_idx
+  ON public.school_master (board, district);
+CREATE INDEX IF NOT EXISTS school_master_name_trgm_idx
+  ON public.school_master USING gin (school_name extensions.gin_trgm_ops);
+
+-- learners_profiles: additive nullable FK to school_master
+ALTER TABLE public.learners_profiles
+  ADD COLUMN IF NOT EXISTS last_school_id uuid REFERENCES public.school_master(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS learners_profiles_last_school_id_idx
+  ON public.learners_profiles (last_school_id)
+  WHERE last_school_id IS NOT NULL;

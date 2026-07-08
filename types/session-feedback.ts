@@ -332,3 +332,41 @@ export interface MyConfirmedAttendance {
   pass_line: number;   // 75
   min_marks: number;   // 10 — settle-in floor
 }
+
+/** One unverdicted AI improvement note for a course+facilitator, surfaced at the
+ *  NEXT attendance-marking of that course (verdict-at-next-class card). Aggregate
+ *  guidance only — never per-student content, never a raw understanding number
+ *  (the card renders bands via understandingLevel; anti-gaming, same rule as
+ *  the faculty dashboard). */
+export interface PendingVerdictSuggestion {
+  id: string;
+  course_code: string;
+  kind: 'improvement';
+  suggestion: {
+    summary?: string;
+    quickWin?: string;
+    likelyCauses?: string[];
+    suggestedAdjustments?: { title: string; how: string }[];
+    whatToWatchNext?: string;
+  } | null;
+  generated_at: string;
+  input_avg_understood: number | null;
+  outcome_avg_understood: number | null;
+  outcome_measured_at: string | null;
+}
+
+/** One facilitator's work-evidenced presence signals over a range
+ *  (fn_scf_facilitator_pulse — leadership-gated aggregate). Presence signals
+ *  only: no understanding scores, no ranks. */
+export interface FacilitatorPulseRow {
+  faculty_email: string;
+  faculty_name: string;
+  institution_id: string | null;
+  sessions_marked: number;
+  sessions_witnessed: number;
+  pulses_run: number;
+  lessons_linked: number;
+  notes_received: number;
+  verdicts_given: number;
+  last_signal_at: string | null;
+}

@@ -9,10 +9,10 @@ import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Rocket, CalendarDays, Building2, Library } from 'lucide-react';
+import { Plus, Rocket, CalendarDays, Building2, Library, MessagesSquare } from 'lucide-react';
 import { toast } from 'sonner';
 import { CoordinatorsPanel } from './_components/coordinators-panel';
 
@@ -91,8 +91,8 @@ export default function InductionLandingPage() {
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {rows.map((r) => (
-              <Link key={r.id} href={`/events/induction/${r.id}`} className="block">
-                <Card className="h-full transition-colors hover:border-primary">
+              <Card key={r.id} className="h-full flex flex-col transition-colors hover:border-primary">
+                <Link href={`/events/induction/${r.id}`} className="block flex-1">
                   <CardHeader>
                     <div className="flex items-center justify-between gap-2">
                       <CardTitle className="text-base">{r.name}</CardTitle>
@@ -114,8 +114,18 @@ export default function InductionLandingPage() {
                       )}
                     </CardDescription>
                   </CardHeader>
-                </Card>
-              </Link>
+                </Link>
+                {/* Direct entry to the Senior Peer Mentor console (mentors + their freshers).
+                    Reachable in one click from the Induction list rather than buried on the
+                    event page. Access is enforced by the console's own gate + route guard. */}
+                <CardFooter className="mt-auto pt-0">
+                  <Button asChild variant="ghost" size="sm" className="text-xs px-2 text-primary hover:text-primary">
+                    <Link href={`/events/induction/${r.id}/mentors`}>
+                      <MessagesSquare className="h-3.5 w-3.5 mr-1.5" /> Senior Peer Mentors
+                    </Link>
+                  </Button>
+                </CardFooter>
+              </Card>
             ))}
           </div>
         )}

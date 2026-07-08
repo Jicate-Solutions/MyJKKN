@@ -59364,6 +59364,7 @@ export type Database = {
           is_profile_complete: boolean
           last_name: string | null
           last_school: string
+          last_school_id: string | null
           learner_type: string | null
           legacy_fee_mode: boolean
           lifecycle_status: Database["public"]["Enums"]["lifecycle_status"]
@@ -59471,6 +59472,7 @@ export type Database = {
           is_profile_complete?: boolean
           last_name?: string | null
           last_school: string
+          last_school_id?: string | null
           learner_type?: string | null
           legacy_fee_mode?: boolean
           lifecycle_status?: Database["public"]["Enums"]["lifecycle_status"]
@@ -59578,6 +59580,7 @@ export type Database = {
           is_profile_complete?: boolean
           last_name?: string | null
           last_school?: string
+          last_school_id?: string | null
           learner_type?: string | null
           legacy_fee_mode?: boolean
           lifecycle_status?: Database["public"]["Enums"]["lifecycle_status"]
@@ -79412,6 +79415,56 @@ export type Database = {
             columns: ["snap_semester_id"]
             isOneToOne: false
             referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      school_master: {
+        Row: {
+          board: string
+          created_at: string
+          created_by: string | null
+          district: string
+          id: string
+          is_active: boolean
+          pincode: string | null
+          school_name: string
+          state: string
+          udise_code: string | null
+          updated_at: string
+        }
+        Insert: {
+          board?: string
+          created_at?: string
+          created_by?: string | null
+          district: string
+          id?: string
+          is_active?: boolean
+          pincode?: string | null
+          school_name: string
+          state?: string
+          udise_code?: string | null
+          updated_at?: string
+        }
+        Update: {
+          board?: string
+          created_at?: string
+          created_by?: string | null
+          district?: string
+          id?: string
+          is_active?: boolean
+          pincode?: string | null
+          school_name?: string
+          state?: string
+          udise_code?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "school_master_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -103599,6 +103652,13 @@ export type Database = {
           resulted_in_unassigned: boolean
           sqlstate: string
           tier_order: number
+        }[]
+      }
+      fn_school_master_districts: {
+        Args: { p_board?: string }
+        Returns: {
+          district: string
+          school_count: number
         }[]
       }
       fn_seat_analytics_daily_pivot: {

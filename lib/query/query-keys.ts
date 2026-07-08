@@ -35,6 +35,14 @@ export const queryKeys = {
     list: (institutionId: string | null, academicYearId: string | null) =>
       [...queryKeys.transportCollectables.all, 'list', institutionId, academicYearId] as const,
   },
+  schoolMaster: {
+    all: ['school-master'] as const,
+    districts: (board: string) =>
+      [...queryKeys.schoolMaster.all, 'districts', board] as const,
+    list: (filters: unknown) =>
+      [...queryKeys.schoolMaster.all, 'list', filters] as const,
+    detail: (id: string) => [...queryKeys.schoolMaster.all, 'detail', id] as const,
+  },
   calendar: {
     all: ['calendar'] as const,
     items: (query: unknown) => ['calendar', 'items', query] as const,

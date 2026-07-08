@@ -373,6 +373,20 @@ export class SF100Service extends BaseService {
         .maybeSingle();
 
       if (cohort?.id) {
+        // MOAT (M6) — assign this team a control/treatment experiment arm AT
+        // ENROLMENT, INLINE in the cohort.create-gated mirror INSERT below. It MUST
+        // be set here, not via the separate cohort.edit-gated
+        // fn_assign_experiment_arms_for_cohort UPDATE — that RPC silently matches 0
+        // rows (RLS filters, no error) for a create-only enrolment coordinator,
+        // which would leave a HOLLOW A/B (no team ever armed during the cohort's
+        // life, then arms assigned post-hoc at close driving a noise-based change).
+        // Setting it inline guarantees the arm PRECEDES the outcome. Deterministic
+        // 50/50 by a stable bit of the enrollment id (even → control, odd → treatment).
+        const armHex = enrollment.id.replace(/-/g, '').slice(-1);
+        const armBit = parseInt(armHex, 16);
+        const experimentArm =
+          Number.isNaN(armBit) ? 'control' : armBit % 2 === 0 ? 'control' : 'treatment';
+
         const { data: membership, error: memErr } = await this.supabase
           .from('cohort_memberships')
           .upsert(
@@ -388,6 +402,7 @@ export class SF100Service extends BaseService {
                 sf100_enrollment_id: enrollment.id,
                 registration_id: registrationId,
                 current_phase: startingPhase,
+                experiment_arm: experimentArm,
               },
             },
             { onConflict: 'cohort_id,member_type,member_ref' }
@@ -533,8 +548,19 @@ export class SF100Service extends BaseService {
     if (error) throw new Error('Failed to list enrollments: ' + error.message);
 
     const total = count || 0;
+    // Flatten the joined registration → the admin Enrollments TABLE
+    // (sf100-enrollments-table.tsx) reads FLAT `team_name` / `college`
+    // (also its sort accessorKeys), but ENROLLMENT_SELECT returns them NESTED under
+    // `registration`. Without this every row showed "—" for team name + college
+    // even though the data is present. Mirrors the flatten the other list methods
+    // in this file already do (e.g. the CSV export + graduation paths).
+    const rows = (data || []).map((row: any) => ({
+      ...row,
+      team_name: row.registration?.team_name ?? null,
+      college: row.registration?.institution?.name ?? null,
+    }));
     return {
-      data: (data || []) as SF100Enrollment[],
+      data: rows as SF100Enrollment[],
       metadata: { total, page, limit, totalPages: total > 0 ? Math.ceil(total / limit) : 0 },
     };
   }
