@@ -117,9 +117,12 @@ const timetableFormSchema = z
     attendance_mode: z
       .enum(['period_wise', 'session_wise'])
       .default('period_wise'),
-    class_incharge_id: z.string().min(1, {
-      message: 'Please select a class incharge.'
-    })
+    // class_incharge_id is nullable at the DB level and stays NULL for
+    // period_wise (college) timetables (see 20260610_add_attendance_mode_and_class_incharge.sql).
+    // Only session_wise (school) timetables require it — enforced in the
+    // refine below, not here, so editing existing period_wise timetables
+    // isn't blocked by a field that was never meant to apply to them.
+    class_incharge_id: z.string().optional()
   })
   .refine(
     (data) => {
@@ -144,6 +147,19 @@ const timetableFormSchema = z
     {
       message: 'Please select a section for section-level timetables.',
       path: ['section_id']
+    }
+  )
+  .refine(
+    (data) => {
+      // Class incharge is required only for day-wise (session_wise) attendance
+      if (data.attendance_mode === 'session_wise' && !data.class_incharge_id) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: 'Please select a class incharge for day-wise attendance.',
+      path: ['class_incharge_id']
     }
   );
 
@@ -1219,7 +1235,7 @@ export default function EditTimetablePage() {
                     )}
                   />
 
-                  {/* Class Incharge — always shown and required (independent of attendance mode) */}
+                  {/* Class Incharge — always shown, but only required when attendance_mode='session_wise' (see refine above) */}
                   {(
                     <FormField
                       control={form.control}
