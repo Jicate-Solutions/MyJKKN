@@ -174,6 +174,11 @@ const sessionFeedbackSummarize: AiTaskType = {
     const lowResponses = Number(row?.low_responses ?? 0);
     const avgUnderstood = row?.avg_understood != null ? Number(row.avg_understood) : null;
     const freeTexts: string[] = Array.isArray(row?.free_texts) ? row.free_texts : []; // server-side ONLY
+    // Closed-window session dates (two-sided 48h window) — travel via itemContext
+    // so recordResult can stamp suggestion.contributing_dates.
+    const sessionDates: string[] = Array.isArray(row?.session_dates)
+      ? row.session_dates.map((d: unknown) => String(d))
+      : [];
 
     // Small-n floor → skip the LLM (no batch item created).
     if (responses < 3) {
@@ -241,6 +246,7 @@ Generate the teaching-improvement JSON now.`;
       itemContext: {
         course_code: courseCode, p_faculty_email: pFacultyEmail, loop_institution_id: loopInstitutionId,
         from, to, responses, low_responses: lowResponses, avg_understood: avgUnderstood,
+        session_dates: sessionDates,
       },
     };
   },
@@ -254,6 +260,11 @@ Generate the teaching-improvement JSON now.`;
     const loopInstitutionId = (itemContext.loop_institution_id as string | null) ?? null;
     const courseCode = String(itemContext.course_code);
     const pFacultyEmail = (itemContext.p_faculty_email as string | null) ?? null;
+    // Closed-window session dates from buildSubmitItem — stamped so the recorded
+    // note cites its evidence base (two-sided 48h window).
+    const sessionDates: string[] = Array.isArray(itemContext.session_dates)
+      ? (itemContext.session_dates as unknown[]).map((d) => String(d))
+      : [];
 
     let suggestionId: string | null = null;
     try {
@@ -266,7 +277,8 @@ Generate the teaching-improvement JSON now.`;
         p_input_responses: itemContext.responses,
         p_input_low: itemContext.low_responses,
         p_input_avg: itemContext.avg_understood,
-        p_suggestion: suggestion,
+        p_suggestion:
+          sessionDates.length > 0 ? { ...suggestion, contributing_dates: sessionDates } : suggestion,
         p_model: message.model,
       });
       suggestionId = typeof recordedId === 'string' ? recordedId : null;

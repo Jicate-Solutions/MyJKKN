@@ -117,6 +117,10 @@ type SignalRow = {
   low_responses: number;
   avg_understood: number | null;
   free_texts: string[] | null;
+  // Exact contributing session dates (ISO yyyy-mm-dd) from fn_scf_ai_signal —
+  // only closed-window sessions since the two-sided 48h window (2026-07-09).
+  // The recorded note cites these (suggestion.contributing_dates).
+  session_dates: string[] | null;
 };
 
 // A course+faculty+institution tuple to process in a run
@@ -138,6 +142,7 @@ type JudgeContext = {
   free_texts: string[];
   normFaculty: string | null;
   recentSince: string;
+  session_dates: string[];
 };
 type GenContext = {
   target: CourseTarget;
@@ -145,6 +150,7 @@ type GenContext = {
   responses: number;
   low_responses: number;
   avg: number;
+  session_dates: string[];
 };
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -165,6 +171,7 @@ function signalFromCtx(ctx: JudgeContext): SignalRow {
     low_responses: ctx.low_responses,
     avg_understood: ctx.avg,
     free_texts: ctx.free_texts,
+    session_dates: ctx.session_dates ?? [],
   };
 }
 
@@ -319,8 +326,15 @@ function buildGenerationParams(
       ? 'Capture what worked as reusable success-pattern JSON now.'
       : 'Generate the teaching-improvement JSON now.';
 
+  // Cite the exact contributing sessions (closed-window only, per the two-sided
+  // 48h window) — falls back to the candidate range if dates are missing.
+  const sessionDates: string[] = Array.isArray(signal.session_dates) ? signal.session_dates : [];
+  const sessionsLine =
+    sessionDates.length > 0 ? sessionDates.join(', ') : `${windowFrom} to ${windowTo}`;
+
   const userPrompt = `Course: ${courseCode}
 Window: ${windowFrom} to ${windowTo}
+Sessions covered (feedback window closed — the sample is final): ${sessionsLine}
 Responses: ${signal.responses}
 Students who reported low understanding: ${signal.low_responses}
 Understanding level (qualitative): ${understandingBandWord(signal.avg_understood)}
@@ -567,6 +581,7 @@ export async function GET(request: NextRequest) {
                 responses: ctx.responses,
                 low_responses: ctx.low_responses,
                 avg: ctx.avg,
+                session_dates: ctx.session_dates ?? [],
               };
               chainedGen.push({
                 customId: `gen-${chainedGen.length}`,
@@ -608,6 +623,13 @@ export async function GET(request: NextRequest) {
             const { suggestion, modelUsed } = parseSuggestionMessage(item.message);
             if (suggestion !== null) {
               try {
+                // Deterministic citation: the exact closed-window session dates ride
+                // in the payload so the note's UI can always show its evidence base
+                // (never depends on the model choosing to mention them).
+                const suggestionWithDates =
+                  (ctx.session_dates ?? []).length > 0
+                    ? { ...suggestion, contributing_dates: ctx.session_dates }
+                    : suggestion;
                 await admin.rpc('fn_scf_record_suggestion', {
                   p_institution_id: ctx.target.institution_id,
                   p_course_code: ctx.target.course_code,
@@ -617,7 +639,7 @@ export async function GET(request: NextRequest) {
                   p_input_responses: ctx.responses,
                   p_input_low: Number(ctx.low_responses ?? 0),
                   p_input_avg: ctx.avg,
-                  p_suggestion: suggestion,
+                  p_suggestion: suggestionWithDates,
                   p_model: modelUsed,
                   p_kind: ctx.kind,
                 });
@@ -784,6 +806,7 @@ export async function GET(request: NextRequest) {
         .filter((t) => t.length > 0);
       const freeTextCount = freeTexts.length;
       const lowResponses = Number(signal?.low_responses ?? 0);
+      const sessionDates: string[] = (signal?.session_dates ?? []).map((d) => String(d));
 
       if (responses < MIN_RESPONSES || avgUnderstood === null) {
         skipped++;
@@ -819,6 +842,7 @@ export async function GET(request: NextRequest) {
           free_texts: freeTexts,
           normFaculty,
           recentSince,
+          session_dates: sessionDates,
         };
         judgeReqs.push({
           customId: `judge-${judgeReqs.length}`,
@@ -859,6 +883,7 @@ export async function GET(request: NextRequest) {
         responses,
         low_responses: lowResponses,
         avg: avgUnderstood,
+        session_dates: sessionDates,
       };
       genReqs.push({
         customId: `gen-${genReqs.length}`,

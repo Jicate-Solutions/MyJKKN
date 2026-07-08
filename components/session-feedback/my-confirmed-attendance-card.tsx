@@ -9,12 +9,12 @@
 
 import { ShieldCheck, AlertTriangle, TrendingUp, Info } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import { useMyConfirmedAttendance } from '@/hooks/use-session-feedback';
+import { useMyConfirmedAttendance, useFeedbackWindowHours } from '@/hooks/use-session-feedback';
 
 const BRAND = '#0b6d41';
-// Decision #11 — feedback confirms attendance only within this window of the class
-// (mirrors the server session_feedback.window_hours default). Copy hint only.
-const CONFIRM_WINDOW_HOURS = 48;
+// Two-sided 48h window — the hours come from the shared session_feedback.window_hours
+// config lever (copy hint only; the server fns enforce). Fallback until the read resolves.
+const DEFAULT_WINDOW_HOURS = 48;
 
 function fmtDate(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
@@ -24,6 +24,8 @@ function fmtDate(iso: string): string {
 
 export function MyConfirmedAttendanceCard() {
   const { data, isLoading, isError } = useMyConfirmedAttendance();
+  const { data: configWindowHours } = useFeedbackWindowHours();
+  const CONFIRM_WINDOW_HOURS = configWindowHours ?? DEFAULT_WINDOW_HOURS;
 
   // Fail-safe: never render a broken/misleading card. Hidden while loading, on error,
   // when the caller is not a learner (null), or when enforcement is off entirely.

@@ -99,6 +99,15 @@ function NoteRow({
 
   const summary = note.suggestion?.summary?.trim();
   const quickWin = note.suggestion?.quickWin?.trim();
+  // Evidence base: the exact closed-window sessions this note coached on
+  // (two-sided 48h window) — stamped deterministically by the generator, so the
+  // citation never depends on the AI text choosing to mention the dates.
+  const contributingDates = (note.suggestion?.contributing_dates ?? [])
+    .map((d) => {
+      const parsed = new Date(`${d}T00:00:00`);
+      return Number.isNaN(parsed.getTime()) ? d : format(parsed, 'd MMM');
+    })
+    .join(', ');
   const measured = note.outcome_measured_at != null;
   const beforeBand = BAND_WORD[understandingLevel(note.input_avg_understood)];
   const afterBand = BAND_WORD[understandingLevel(note.outcome_avg_understood)];
@@ -128,6 +137,12 @@ function NoteRow({
       </div>
 
       {summary && <p className="text-sm text-muted-foreground">{summary}</p>}
+      {contributingDates && (
+        <p className="text-[11px] text-muted-foreground">
+          From your classes on {contributingDates} (feedback window closed — the
+          sample is final).
+        </p>
+      )}
       {quickWin && (
         <p className="text-xs text-muted-foreground">
           <span className="font-medium text-foreground">Quick win:</span> {quickWin}

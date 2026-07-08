@@ -41,7 +41,19 @@ export const scfQueryKeys = {
   openPulsesForLearner: () => [...scfQueryKeys.all, 'open-pulses-learner'] as const,
   pulseTotals: (pulseId: string) => [...scfQueryKeys.all, 'pulse-totals', pulseId] as const,
   myConfirmedAttendance: () => [...scfQueryKeys.all, 'my-confirmed-attendance'] as const,
+  windowHours: () => [...scfQueryKeys.all, 'window-hours'] as const,
 };
+
+/** Shared feedback-window length (hours) — the session_feedback.window_hours
+ *  config lever behind the two-sided 48h window. UX hint only; the submit RPC
+ *  enforces the close server-side. */
+export function useFeedbackWindowHours() {
+  return useQuery({
+    queryKey: scfQueryKeys.windowHours(),
+    queryFn: () => SessionFeedbackService.getFeedbackWindowHours(),
+    staleTime: 5 * 60 * 1000,
+  });
+}
 
 export function useChecklistConfig(institutionId?: string | null) {
   return useQuery({

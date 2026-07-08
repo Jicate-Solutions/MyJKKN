@@ -348,6 +348,9 @@ export interface PendingVerdictSuggestion {
     likelyCauses?: string[];
     suggestedAdjustments?: { title: string; how: string }[];
     whatToWatchNext?: string;
+    /** Exact closed-window session dates the note coached on (two-sided 48h
+     *  window, 2026-07-09) — stamped deterministically by the generator. */
+    contributing_dates?: string[];
   } | null;
   generated_at: string;
   input_avg_understood: number | null;
@@ -368,6 +371,9 @@ export interface MyLoopNote {
     likelyCauses?: string[];
     suggestedAdjustments?: { title: string; how: string }[];
     whatToWatchNext?: string;
+    /** Exact closed-window session dates the note coached on (two-sided 48h
+     *  window, 2026-07-09) — stamped deterministically by the generator. */
+    contributing_dates?: string[];
   } | null;
   generated_at: string;
   input_avg_understood: number | null;
