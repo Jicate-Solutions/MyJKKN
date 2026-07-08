@@ -401,6 +401,25 @@ export interface FacilitatorPulseRow {
   lessons_linked: number;
   notes_received: number;
   verdicts_given: number;
+  /** Student Better/Same/Worse answers received on this facilitator's loop
+   *  notes — VOLUME ONLY. The split stays behind the k>=3 floor in
+   *  fn_scf_note_resolution_counts, never on the board. */
+  votes_received: number;
+  last_signal_at: string | null;
+}
+
+/** The caller's OWN work-signals over the last 30 days (fn_scf_my_pulse —
+ *  self-scoped by the caller's email; always exactly one row, zeros when no
+ *  signal). Same doctrine as the board: presence signals only, no scores,
+ *  no comparisons, no ranks. */
+export interface MyPulseRow {
+  sessions_marked: number;
+  sessions_witnessed: number;
+  pulses_run: number;
+  lessons_linked: number;
+  notes_received: number;
+  verdicts_given: number;
+  votes_received: number;
   last_signal_at: string | null;
 }
 
