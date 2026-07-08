@@ -53,8 +53,10 @@ export function StrugglingNoteCard() {
             </p>
           )}
 
-          {/* One-tap follow-up — the note's own outcome. Changeable any time. */}
-          {note.reached_out == null ? (
+          {/* One-tap follow-up — the note's own outcome. Changeable any time.
+              Gated on note.id: during the deploy→migrate gap the old fn shape
+              has no id, and a tap would silently fail — hide until it exists. */}
+          {note.id == null ? null : note.reached_out == null ? (
             <div className="flex flex-wrap items-center gap-2 border-t pt-2">
               <span className="text-xs text-muted-foreground">Have you had that chat yet?</span>
               <Button
