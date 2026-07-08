@@ -32,6 +32,14 @@
       "schedule": "*/30 * * * *"
     },
     {
+      "path": "/api/cron/scf-generate-suggestions?secret=${CRON_SECRET}",
+      "schedule": "47 5 * * *"
+    },
+    {
+      "path": "/api/cron/scf-measure-outcomes?secret=${CRON_SECRET}",
+      "schedule": "47 2 * * *"
+    },
+    {
       "path": "/api/cron/induction-generate-playbook?mode=collect&secret=${CRON_SECRET}",
       "schedule": "*/30 * * * *"
     },
