@@ -5594,6 +5594,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/procurement/purchase-orders",
+        "label": "Purchase Orders",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/procurement/requests",
         "label": "Requests",
         "iconName": "FileText",

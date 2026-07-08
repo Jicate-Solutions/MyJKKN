@@ -31,7 +31,7 @@ const STAGES = [
     description: 'Award vendors and issue approved purchase orders.',
     href: '/procurement/purchase-orders',
     icon: FileText,
-    live: false,
+    live: true,
   },
   {
     key: 'grn',

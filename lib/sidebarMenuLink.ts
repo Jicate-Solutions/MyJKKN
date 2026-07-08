@@ -1086,6 +1086,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/procurement/rfqs': 'procurement.view',
   '/procurement/rfqs/[id]': 'procurement.view',
   '/procurement/rfqs/[id]/quotations': 'procurement.view',
+  '/procurement/purchase-orders': 'procurement.view',
+  '/procurement/purchase-orders/[id]': 'procurement.view',
   '/meetings': 'meetings.view',
   // Universal Booking sub-surfaces (reconcile 2026-06-19) — gate each by its
   // module permission so the sidebar submenus render per-role.
@@ -2180,6 +2182,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/procurement', label: 'Overview', active: pathname === '/procurement' },
             { href: '/procurement/requests', label: 'Purchase Requests', active: pathname.startsWith('/procurement/requests') },
             { href: '/procurement/rfqs', label: 'RFQs', active: pathname.startsWith('/procurement/rfqs') },
+            { href: '/procurement/purchase-orders', label: 'Purchase Orders', active: pathname.startsWith('/procurement/purchase-orders') },
           ]
         }
       ]

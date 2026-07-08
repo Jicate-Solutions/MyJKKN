@@ -14,6 +14,7 @@ import {
   useAwardLine,
   useUnawardLine,
 } from '@/hooks/procurement/use-quotations';
+import { useGeneratePOsFromRfq } from '@/hooks/procurement/use-purchase-orders';
 import type { CreateQuotationItemDto } from '@/types/procurement';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -53,6 +54,20 @@ export default function RfqQuotationsPage() {
   const deleteQuotation = useDeleteQuotation(rfqId);
   const awardLine = useAwardLine(rfqId);
   const unawardLine = useUnawardLine(rfqId);
+  const generatePOs = useGeneratePOsFromRfq();
+  const canGeneratePO = isSuperAdmin || canAccess('procurement', 'po_create');
+  const hasAwarded = comparison.some((r) => r.quotes.some((q) => q.awarded));
+
+  const handleGeneratePOs = async () => {
+    if (!profile?.id) return;
+    try {
+      const pos = await generatePOs.mutateAsync({ rfqId, userId: profile.id });
+      toast.success(`Generated ${pos.length} purchase order${pos.length === 1 ? '' : 's'}`);
+      router.push('/procurement/purchase-orders');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to generate POs');
+    }
+  };
 
   const [addOpen, setAddOpen] = useState(false);
   const [vendorId, setVendorId] = useState('');
@@ -234,8 +249,13 @@ export default function RfqQuotationsPage() {
 
         {/* Item-wise comparison */}
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base">Item-wise Comparison</CardTitle>
+            {canGeneratePO && hasAwarded && (
+              <Button onClick={handleGeneratePOs} disabled={generatePOs.isPending}>
+                {generatePOs.isPending ? 'Generating...' : 'Generate Purchase Orders'}
+              </Button>
+            )}
           </CardHeader>
           <CardContent>
             {compLoading ? (
