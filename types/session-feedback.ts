@@ -377,6 +377,17 @@ export interface MyLoopNote {
   human_verdict_at: string | null;
 }
 
+/** Student-confirmed resolution aggregate for one note (fn_scf_note_resolution_counts).
+ *  The fn enforces a k>=3 floor — a note with fewer than 3 votes returns NO row, so
+ *  staff can never reconstruct an individual learner's answer from a tiny class. */
+export interface NoteResolutionCounts {
+  suggestion_id: string;
+  better: number;
+  same: number;
+  worse: number;
+  total: number;
+}
+
 /** One facilitator's work-evidenced presence signals over a range
  *  (fn_scf_facilitator_pulse — leadership-gated aggregate). Presence signals
  *  only: no understanding scores, no ranks. */

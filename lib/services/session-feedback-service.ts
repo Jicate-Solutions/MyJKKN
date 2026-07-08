@@ -29,6 +29,7 @@ import type {
   MyConfirmedAttendance,
   PendingVerdictSuggestion,
   MyLoopNote,
+  NoteResolutionCounts,
   FacilitatorPulseRow,
 } from '@/types/session-feedback';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -368,6 +369,34 @@ export class SessionFeedbackService {
       return (data as MyLoopNote[] | null) ?? [];
     } catch (err) {
       logger.warn('academic/session-feedback', 'my-loop-notes read threw', err);
+      return [];
+    }
+  }
+
+  /**
+   * Student-confirmed resolution aggregates for a set of notes — the loop's
+   * fourth witness. fn_scf_note_resolution_counts enforces the k>=3 anonymity
+   * floor server-side: notes with fewer than 3 votes simply return no row.
+   * Decorative surface: failures log and return [].
+   */
+  static async getNoteResolutionCounts(
+    suggestionIds: string[],
+  ): Promise<NoteResolutionCounts[]> {
+    if (suggestionIds.length === 0) return [];
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase.rpc('fn_scf_note_resolution_counts', {
+        p_suggestion_ids: suggestionIds,
+      });
+      if (error) {
+        logger.warn('academic/session-feedback', 'resolution-counts read failed', {
+          error: error.message,
+        });
+        return [];
+      }
+      return (data as NoteResolutionCounts[] | null) ?? [];
+    } catch (err) {
+      logger.warn('academic/session-feedback', 'resolution-counts read threw', err);
       return [];
     }
   }
