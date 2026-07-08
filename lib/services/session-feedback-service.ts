@@ -28,6 +28,7 @@ import type {
   PulseTotals,
   MyConfirmedAttendance,
   PendingVerdictSuggestion,
+  FacilitatorPulseRow,
 } from '@/types/session-feedback';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -259,6 +260,25 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to save your verdict: ${error.message}`);
     return data === true;
+  }
+
+
+  /**
+   * Facilitator Pulse — work-evidenced presence signals per facilitator
+   * (leadership-gated; fn_scf_facilitator_pulse raises for non-leadership).
+   * Presence signals only — no understanding scores, no ranks.
+   */
+  static async getFacilitatorPulse(
+    from: string,
+    to: string,
+  ): Promise<FacilitatorPulseRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_facilitator_pulse', {
+      p_from: from,
+      p_to: to,
+    });
+    if (error) throw new Error(`Failed to load facilitator pulse: ${error.message}`);
+    return (data ?? []) as FacilitatorPulseRow[];
   }
 
   /**
