@@ -73,17 +73,37 @@ export class SessionFeedbackService {
 
   /** The feedback-window length (hours) from the shared config lever
    *  session_feedback.window_hours — the SAME row every server-side window fn
-   *  reads, so the UI hint and the enforcement can't drift apart. Fail-soft to
-   *  48 (the seeded global value): the server fns remain the source of truth. */
+   *  reads, so the UI hint and the enforcement can't drift apart. The caller's
+   *  own institution_id is resolved as the scope so a per-institution override
+   *  reads the same row the server enforces with (deep-review #1898 consensus
+   *  finding: a global-only read would drift under a tenant override and the
+   *  client race-guard would block still-valid submissions). Fail-soft to 48:
+   *  the server fns remain the source of truth. */
   static async getFeedbackWindowHours(): Promise<number> {
     const supabase = getSupabase();
+    let scopeId: string | null = null;
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      if (auth?.user?.id) {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('institution_id')
+          .eq('id', auth.user.id)
+          .maybeSingle();
+        scopeId = (prof?.institution_id as string | null) ?? null;
+      }
+    } catch {
+      // fall through to the global-scope read
+    }
     const { data, error } = await supabase.rpc('fn_get_policy_int', {
       p_key: 'session_feedback.window_hours',
       p_default: 48,
-      p_scope_id: null,
+      p_scope_id: scopeId,
     });
-    if (error || data == null || Number.isNaN(Number(data))) return 48;
-    return Number(data);
+    const n = Number(data);
+    // <= 0 guards a misconfigured lever (0 would disable every row client-side).
+    if (error || data == null || Number.isNaN(n) || n <= 0) return 48;
+    return n;
   }
 
   /** The caller learner's OWN confirmed-attendance snapshot (transparency, #7).
