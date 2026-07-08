@@ -1,0 +1,159 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { ContentLayout } from '@/components/layout/content-layout';
+import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
+import { usePurchaseRequests } from '@/hooks/procurement/use-purchase-requests';
+import {
+  PR_STATUS_CONFIG,
+  type PurchaseRequestStatus,
+  type PurchaseRequestFilters,
+} from '@/types/procurement';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Plus, Eye, Search } from 'lucide-react';
+import { BeatLoader } from 'react-spinners';
+
+export default function PurchaseRequestsPage() {
+  const router = useRouter();
+  const { profile } = useAuth();
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canCreate = isSuperAdmin || canAccess('procurement', 'request_create');
+
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+
+  const filters: PurchaseRequestFilters = {
+    search: search || undefined,
+    status: statusFilter !== 'all' ? (statusFilter as PurchaseRequestStatus) : undefined,
+    institution_id: profile?.institution_id || undefined,
+  };
+
+  const { data: response, isLoading } = usePurchaseRequests(filters);
+  const requests = response?.data ?? [];
+
+  return (
+    <ContentLayout title="Purchase Requests">
+      <div className="space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight">Purchase Requests</h2>
+            <p className="text-muted-foreground">
+              Restock and new-item requests routed for approval.
+            </p>
+          </div>
+          {canCreate && (
+            <Button onClick={() => router.push('/procurement/requests/new')}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Request
+            </Button>
+          )}
+        </div>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex flex-col sm:flex-row gap-4">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by request number..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-full sm:w-[180px]">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  {Object.entries(PR_STATUS_CONFIG).map(([key, config]) => (
+                    <SelectItem key={key} value={key}>
+                      {config.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-0">
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <BeatLoader color="hsl(var(--primary))" size={10} />
+              </div>
+            ) : requests.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                <p>No purchase requests found</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Request #</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Requested By</TableHead>
+                    <TableHead>Items</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {requests.map((req) => {
+                    const statusConfig = PR_STATUS_CONFIG[req.status];
+                    return (
+                      <TableRow key={req.id}>
+                        <TableCell className="font-medium">{req.request_number}</TableCell>
+                        <TableCell>{new Date(req.created_at).toLocaleDateString()}</TableCell>
+                        <TableCell className="capitalize">
+                          {req.request_type.replace('_', ' ')}
+                        </TableCell>
+                        <TableCell>{req.requested_by_profile?.full_name || '-'}</TableCell>
+                        <TableCell>{req.item_count ?? '-'}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{statusConfig.label}</Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => router.push(`/procurement/requests/${req.id}`)}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </ContentLayout>
+  );
+}

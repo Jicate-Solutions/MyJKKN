@@ -227,6 +227,9 @@ const NAV_EXCLUDE = new Set<string>([
   // IMS /new forms (invoked from list-page "+ New" buttons)
   '/ims/stock/grn/new',
 
+  // Procurement /new forms (invoked from list-page "+ New" buttons)
+  '/procurement/requests/new',
+
   // OKR /new + /create wizard forms
   '/okr/elective/new',
   '/okr/objectives/new',
