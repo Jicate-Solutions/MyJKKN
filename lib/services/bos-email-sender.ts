@@ -21,6 +21,10 @@ export interface BosSmtpConfig {
   sender_email: string;
   sender_name: string;
   default_cc_emails: string[] | null;
+  // Optional Academic-Council-only From override. Same SMTP account; only the
+  // visible From: identity differs. NULL = fall back to sender_email/name.
+  ac_sender_email: string | null;
+  ac_sender_name: string | null;
 }
 
 export interface SendEmailAttachment {
@@ -40,6 +44,13 @@ export interface SendEmailInput {
   cc?: string[];
   /** Optional file attachments (PDF, etc.). */
   attachments?: SendEmailAttachment[];
+  /**
+   * Optional From: override. When set, replaces the config's sender_email /
+   * sender_name for THIS send only (same SMTP account/credentials). Used for
+   * Academic Council notices, which send from a different identity than BoS.
+   */
+  fromEmail?: string | null;
+  fromName?: string | null;
 }
 
 export interface SendEmailResult {
@@ -72,7 +83,7 @@ export async function resolveBosSmtpConfig(
   const { data, error } = await supabase
     .from('smtp_configuration')
     .select(
-      'smtp_host, smtp_port, smtp_secure, smtp_user, smtp_password_encrypted, sender_email, sender_name, default_cc_emails',
+      'smtp_host, smtp_port, smtp_secure, smtp_user, smtp_password_encrypted, sender_email, sender_name, default_cc_emails, ac_sender_email, ac_sender_name',
     )
     .eq('institution_code', counsellingCode)
     .eq('is_active', true)
@@ -134,10 +145,15 @@ export async function sendBosEmail(
       ...(input.cc ?? []),
     ].filter(Boolean);
 
+    // Resolve the From: identity. A per-send override (input.fromEmail) wins —
+    // that's how Academic Council notices go out from a different address than
+    // BoS while reusing the same authenticated SMTP account. Empty/null falls
+    // back to the config's default sender.
+    const fromEmail = input.fromEmail?.trim() || cfg.sender_email;
+    const fromName = (input.fromName ?? cfg.sender_name)?.trim() || '';
+
     const info = await transporter.sendMail({
-      from: cfg.sender_name
-        ? `"${cfg.sender_name}" <${cfg.sender_email}>`
-        : cfg.sender_email,
+      from: fromName ? `"${fromName}" <${fromEmail}>` : fromEmail,
       to: input.to,
       cc: cc.length > 0 ? cc : undefined,
       subject: input.subject,

@@ -86377,6 +86377,8 @@ export type Database = {
       }
       smtp_configuration: {
         Row: {
+          ac_sender_email: string | null
+          ac_sender_name: string | null
           created_at: string | null
           default_cc_emails: string[] | null
           id: string
@@ -86392,6 +86394,8 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          ac_sender_email?: string | null
+          ac_sender_name?: string | null
           created_at?: string | null
           default_cc_emails?: string[] | null
           id?: string
@@ -86407,6 +86411,8 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          ac_sender_email?: string | null
+          ac_sender_name?: string | null
           created_at?: string | null
           default_cc_emails?: string[] | null
           id?: string

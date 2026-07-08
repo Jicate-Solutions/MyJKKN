@@ -317,6 +317,19 @@ export async function POST(
             s.replace(/Board of Studies meeting notice/gi, 'Academic Council meeting notice');
           html = swap(html);
           subject = swap(subject);
+          // The template hardcodes the shared BoS mailbox in the "inform us
+          // through mail at ..." reply line. Academic Council notices should
+          // direct replies to the AC sender identity instead (falls back to
+          // the default sender when no AC override is configured). Rewrite the
+          // whole <a> — both the mailto href and the visible text — so a
+          // mismatched href/label in the stored template can't leak through.
+          const acReplyEmail = smtpConfig.ac_sender_email?.trim() || smtpConfig.sender_email;
+          if (acReplyEmail) {
+            html = html.replace(
+              /(inform us through mail at\s*<a[^>]*href="mailto:)[^"]*("[^>]*>)[^<]*(<\/a>)/i,
+              `$1${acReplyEmail}$2${acReplyEmail}$3`,
+            );
+          }
         }
       } else {
         // Defensive fallback when the DB template isn't present yet.
@@ -370,6 +383,11 @@ export async function POST(
         to: m.email!,
         subject,
         html,
+        // Academic Council notices go out from a dedicated From: identity when
+        // one is configured (same SMTP account, different address). BoS
+        // meetings pass no override and keep the default sender.
+        fromEmail: isAcMeeting ? smtpConfig.ac_sender_email : undefined,
+        fromName: isAcMeeting ? smtpConfig.ac_sender_name : undefined,
         text: `Dear ${m.display_name},\n\nYou are invited to ${meetingTitle} scheduled on ${meetingDate} ${meetingTimeVenue}.\n\nMeeting details: ${meetingUrl}\n\n—\nBoard of Studies`,
         attachments: perRecipientPdf
           ? [
