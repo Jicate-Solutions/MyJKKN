@@ -69,8 +69,9 @@ const UNDERSTOOD_WORD: Record<number, string> = {
 // Anonymity-safe: it speaks only to/about this one student, never references peers,
 // never blames or names the teacher, never sounds alarmed.
 const SYSTEM_PROMPT = `You are a caring student-support assistant at an Indian higher-education institution. A student has rated their OWN understanding of one course lower across their last three classes — they may be quietly struggling.
-Write a SHORT note (2-3 sentences, ~40-60 words) addressed directly to the student as "you". Be warm and human. Normalise that finding a subject hard for a stretch is common and completely okay. Gently encourage them to reach out EARLY to their course faculty or mentor for help, and reassure them that support is there for them.
-NEVER shame the student or sound alarmed. NEVER blame, criticise, or mention the teacher. NEVER mention or compare them to other students. Do not promise specific grades or outcomes. Use plain, natural, India-context English — no emojis, no markdown, no quotation marks.
+Write a SHORT note (3-4 sentences, ~50-90 words) addressed directly to the student as "you". Be warm and human. Normalise that finding a subject hard for a stretch is common and completely okay.
+Make it CONCRETE using ONLY the data provided: refer to what the student's own class checklist says was not happening for them (the items are given) and roughly when (their recent classes). Suggest ONE clear next step — a short chat with the named course facilitator (or their mentor, if no facilitator name is given) — and hand them the opening line: what to ask about, drawn from their own marked items.
+NEVER shame the student or sound alarmed. NEVER blame or criticise the facilitator — if a name is given, use it ONLY as the person to approach for help. NEVER mention or compare them to other students. Do not invent anything not in the data. Do not promise specific grades or outcomes. Use plain, natural, India-context English — no emojis, no markdown, no quotation marks.
 Return ONLY the note text, nothing else.`;
 
 // ── types ────────────────────────────────────────────────────────────────────
@@ -83,6 +84,10 @@ type CandidateRow = {
   ratings: number[] | null;
   rated_on: string[] | null;
   net_decline: number | null;
+  // Actionable-note inputs (2026-07-09): the learner's OWN recurring unmet
+  // checklist labels across the 3 sliding classes + the facilitator to approach.
+  unmet_items: string[] | null;
+  faculty_name: string | null;
 };
 
 // ── helpers ────────────────────────────────────────────────────────────────────
@@ -102,14 +107,30 @@ async function generateNote(
   modelId: string,
   courseLabel: string,
   ratings: number[],
+  ratedOn: string[],
+  unmetItems: string[],
+  facultyName: string | null,
 ): Promise<{ note: string | null; modelUsed: string }> {
   if (!anthropic) return { note: null, modelUsed: 'none' };
 
   const trend = ratings
     .map((r) => `${r}/5 (${UNDERSTOOD_WORD[r] ?? '?'})`)
     .join(' → ');
+  // Human dates ("1 Jul") so the note can say when — parity with the facilitator
+  // notes' contributing_dates citation (2026-07-09).
+  const dates = ratedOn
+    .map((d) => {
+      const p = new Date(`${d}T00:00:00`);
+      return Number.isNaN(p.getTime())
+        ? d
+        : p.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    })
+    .join(', ');
   const userPrompt = `Course: ${courseLabel}
 The student's own "how well did you understand?" ratings over their last 3 classes, oldest to newest (1=Lost … 5=Crystal clear): ${trend}.
+Those classes were on: ${dates || 'dates unavailable'}.
+Checklist items the student could NOT tick in at least 2 of those classes (each item describes something that should happen in class — for this student it did NOT): ${unmetItems.length > 0 ? unmetItems.join('; ') : '(none marked — rely on the ratings only)'}.
+Course facilitator to approach: ${facultyName ?? '(name unavailable — suggest their mentor instead)'}.
 Write the supportive note now.`;
 
   try {
@@ -248,7 +269,15 @@ export async function GET(request: NextRequest) {
         if (ratings.length < 3) return 'skipped';
         const courseLabel = c.course_name || c.course_code;
 
-        const { note, modelUsed } = await generateNote(anthropic, modelId, courseLabel, ratings);
+        const { note, modelUsed } = await generateNote(
+          anthropic,
+          modelId,
+          courseLabel,
+          ratings,
+          Array.isArray(c.rated_on) ? c.rated_on.map(String) : [],
+          Array.isArray(c.unmet_items) ? c.unmet_items.map(String) : [],
+          c.faculty_name ?? null,
+        );
         if (!note) {
           // NO template fallback (decision #3) — write nothing; learner sees nothing.
           return 'skipped';

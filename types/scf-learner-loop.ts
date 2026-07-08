@@ -36,4 +36,13 @@ export interface StrugglingNoteRow {
   course_name: string | null;
   note: string;          // the AI-written supportive note (shown to the learner only)
   generated_at: string;  // ISO timestamp the note was generated
+  id: string;            // note row id — target for the reached-out tap (2026-07-09)
+  reached_out: boolean | null; // the learner's own one-tap follow-up; null = not answered
+}
+
+/** The caller's OWN senior peer mentor from their induction group (mentee side).
+ *  Used by the support-note card to point at a real person (2026-07-09). */
+export interface MyMentorRow {
+  mentor_name: string;
+  mentor_register: string | null;
 }
