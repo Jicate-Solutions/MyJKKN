@@ -180,3 +180,61 @@ export async function uploadParentPortalAttachment(opts: UploadOptions): Promise
     url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
   };
 }
+
+export interface ProcurementQuotationUploadOptions {
+  institutionName: string;
+  rfqNumber: string;
+  file: File;
+}
+
+export interface ProcurementQuotationUploadResult {
+  name: string;
+  driveFileId: string;
+  url: string;
+}
+
+/**
+ * Upload a vendor quotation document to
+ *   <ROOT> / Procurement / <Institution> / Quotations / <RFQ>
+ * and grant anyone-with-link read (staff view via the stored URL). Returns the
+ * metadata to persist on procurement_quotations.document_url / document_file_id.
+ */
+export async function uploadProcurementQuotation(
+  opts: ProcurementQuotationUploadOptions
+): Promise<ProcurementQuotationUploadResult> {
+  if (!isDriveConfigured()) throw new Error('Google Drive is not configured.');
+  const drive = createDriveClient();
+
+  const folderId = await ensureFolderPath(drive, [
+    'Procurement',
+    opts.institutionName,
+    'Quotations',
+    opts.rfqNumber,
+  ]);
+
+  const buffer = Buffer.from(await opts.file.arrayBuffer());
+  const safeName = (opts.file.name || 'quotation').replace(/[\r\n]/g, ' ').slice(0, 200);
+  const storedName = `${Date.now()}-${safeName}`;
+
+  const created = await drive.files.create({
+    requestBody: { name: storedName, parents: [folderId] },
+    media: { mimeType: opts.file.type || 'application/octet-stream', body: Readable.from(buffer) },
+    fields: 'id, webViewLink',
+    supportsAllDrives: true,
+  });
+
+  const fileId = created.data.id;
+  if (!fileId) throw new Error('Drive upload returned no file id.');
+
+  await drive.permissions.create({
+    fileId,
+    requestBody: { role: 'reader', type: 'anyone' },
+    supportsAllDrives: true,
+  });
+
+  return {
+    name: opts.file.name || storedName,
+    driveFileId: fileId,
+    url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
+  };
+}

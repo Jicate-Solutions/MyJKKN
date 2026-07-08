@@ -229,6 +229,8 @@ const NAV_EXCLUDE = new Set<string>([
 
   // Procurement /new forms (invoked from list-page "+ New" buttons)
   '/procurement/requests/new',
+  // Quotations & comparison — button-invoked from the RFQ detail page
+  '/procurement/rfqs/[id]/quotations',
 
   // OKR /new + /create wizard forms
   '/okr/elective/new',

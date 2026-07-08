@@ -31,7 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ArrowLeft, FileDown, Send, X, UserPlus } from 'lucide-react';
+import { ArrowLeft, FileDown, Send, X, UserPlus, ClipboardList } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 
@@ -103,6 +103,10 @@ export default function RfqDetailPage() {
 
         {/* Actions */}
         <div className="flex flex-wrap gap-3">
+          <Button onClick={() => router.push(`/procurement/rfqs/${rfq.id}/quotations`)}>
+            <ClipboardList className="mr-2 h-4 w-4" />
+            Quotations &amp; Comparison
+          </Button>
           <Button variant="outline" onClick={() => downloadRequirementListPdf(rfq)}>
             <FileDown className="mr-2 h-4 w-4" />
             Requirement List (PDF)

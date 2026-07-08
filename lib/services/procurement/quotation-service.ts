@@ -1,0 +1,208 @@
+// lib/services/procurement/quotation-service.ts
+//
+// Vendor Quotation service (PRD steps 5-6). Captures a vendor's quotation (header
+// + per-RFQ-item unit prices + optional uploaded document), builds the item-wise
+// comparison matrix, and awards each RFQ line to a vendor. Award is unique per
+// RFQ line (DB partial unique index uq_pqi_one_award_per_rfq_item).
+
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import type {
+  ProcurementQuotation,
+  QuotationWithItems,
+  CreateQuotationDto,
+  ComparisonRow,
+} from '@/types/procurement';
+
+export class ProcurementQuotationService {
+  private static get supabase() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return createClientSupabaseClient() as any;
+  }
+
+  /** All quotations (with items + supplier) for an RFQ. */
+  static async getQuotationsForRfq(rfqId: string): Promise<QuotationWithItems[]> {
+    try {
+      const { data: quotations, error } = await this.supabase
+        .from('procurement_quotations')
+        .select('*, supplier:ims_suppliers(id,name,code,email)')
+        .eq('rfq_id', rfqId)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+
+      const ids = (quotations || []).map((q: any) => q.id);
+      if (ids.length === 0) return [];
+
+      const { data: items, error: itemsErr } = await this.supabase
+        .from('procurement_quotation_items')
+        .select('*')
+        .in('quotation_id', ids);
+      if (itemsErr) throw itemsErr;
+
+      const byQuotation = new Map<string, any[]>();
+      for (const it of items || []) {
+        const list = byQuotation.get(it.quotation_id) || [];
+        list.push(it);
+        byQuotation.set(it.quotation_id, list);
+      }
+      return (quotations || []).map((q: any) => ({
+        ...q,
+        items: byQuotation.get(q.id) || [],
+      })) as QuotationWithItems[];
+    } catch (error) {
+      console.error('[ProcurementQuotationService] getQuotationsForRfq:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a quotation for one vendor on an RFQ. UNIQUE(rfq_id, supplier_id)
+   * prevents a second quotation from the same vendor. Advances the RFQ from
+   * 'sent' to 'quotations_received' on the first quote.
+   */
+  static async createQuotation(
+    dto: CreateQuotationDto,
+    userId: string
+  ): Promise<ProcurementQuotation> {
+    try {
+      if (!dto.items?.length) throw new Error('A quotation must price at least one item.');
+
+      const total = dto.items.reduce(
+        (sum, i) => sum + Number(i.unit_price || 0) * Number(i.quantity ?? 0),
+        0
+      );
+
+      const { data: header, error: headerErr } = await this.supabase
+        .from('procurement_quotations')
+        .insert({
+          institution_id: dto.institution_id,
+          rfq_id: dto.rfq_id,
+          supplier_id: dto.supplier_id,
+          vendor_quote_number: dto.vendor_quote_number ?? null,
+          quote_date: dto.quote_date ?? null,
+          validity_date: dto.validity_date ?? null,
+          payment_terms: dto.payment_terms ?? null,
+          delivery_time_days: dto.delivery_time_days ?? null,
+          total_amount: total,
+          document_url: dto.document_url ?? null,
+          document_file_id: dto.document_file_id ?? null,
+          status: 'received',
+          notes: dto.notes ?? null,
+          created_by: userId,
+        })
+        .select()
+        .single();
+      if (headerErr) throw headerErr;
+
+      const itemRows = dto.items.map((i) => ({
+        quotation_id: header.id,
+        rfq_item_id: i.rfq_item_id,
+        unit_price: i.unit_price,
+        quantity: i.quantity ?? null,
+        delivery_time_days: i.delivery_time_days ?? null,
+        remarks: i.remarks ?? null,
+      }));
+      const { error: itemsErr } = await this.supabase
+        .from('procurement_quotation_items')
+        .insert(itemRows);
+      if (itemsErr) throw itemsErr;
+
+      // Advance RFQ status (best-effort; guarded so it only moves from 'sent').
+      await this.supabase
+        .from('procurement_rfqs')
+        .update({ status: 'quotations_received', updated_at: new Date().toISOString() })
+        .eq('id', dto.rfq_id)
+        .eq('status', 'sent');
+
+      return header as ProcurementQuotation;
+    } catch (error) {
+      console.error('[ProcurementQuotationService] createQuotation:', error);
+      throw error;
+    }
+  }
+
+  static async deleteQuotation(id: string): Promise<void> {
+    const { error } = await this.supabase.from('procurement_quotations').delete().eq('id', id);
+    if (error) throw error;
+  }
+
+  /**
+   * Item-wise comparison for an RFQ: one row per RFQ item, each with every
+   * vendor's quote for that item + the lowest price (for highlighting).
+   */
+  static async getComparison(rfqId: string): Promise<ComparisonRow[]> {
+    try {
+      const [{ data: rfqItems, error: riErr }, quotations] = await Promise.all([
+        this.supabase
+          .from('procurement_rfq_items')
+          .select('*')
+          .eq('rfq_id', rfqId)
+          .order('created_at', { ascending: true }),
+        this.getQuotationsForRfq(rfqId),
+      ]);
+      if (riErr) throw riErr;
+
+      return (rfqItems || []).map((ri: any): ComparisonRow => {
+        const quotes = quotations
+          .flatMap((q) =>
+            q.items
+              .filter((qi) => qi.rfq_item_id === ri.id)
+              .map((qi) => ({
+                quotation_id: q.id,
+                quotation_item_id: qi.id,
+                supplier_id: q.supplier_id,
+                supplier_name: q.supplier?.name ?? q.supplier_id,
+                unit_price: qi.unit_price,
+                delivery_time_days: qi.delivery_time_days,
+                awarded: qi.awarded,
+              }))
+          )
+          .sort((a, b) => a.unit_price - b.unit_price);
+        return {
+          rfq_item_id: ri.id,
+          item_name: ri.item_name,
+          item_spec: ri.item_spec,
+          quantity: ri.quantity,
+          unit_label: ri.unit_label,
+          quotes,
+          lowest_price: quotes.length ? quotes[0].unit_price : null,
+        };
+      });
+    } catch (error) {
+      console.error('[ProcurementQuotationService] getComparison:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Award one RFQ line to a vendor's quotation item. Clears any prior winner for
+   * the same line FIRST (the partial unique index allows only one awarded row per
+   * rfq_item, so the old flag must drop before the new one is set).
+   */
+  static async awardLine(rfqItemId: string, quotationItemId: string): Promise<void> {
+    try {
+      await this.supabase
+        .from('procurement_quotation_items')
+        .update({ awarded: false })
+        .eq('rfq_item_id', rfqItemId)
+        .eq('awarded', true);
+
+      const { error } = await this.supabase
+        .from('procurement_quotation_items')
+        .update({ awarded: true })
+        .eq('id', quotationItemId);
+      if (error) throw error;
+    } catch (error) {
+      console.error('[ProcurementQuotationService] awardLine:', error);
+      throw error;
+    }
+  }
+
+  static async unawardLine(rfqItemId: string): Promise<void> {
+    const { error } = await this.supabase
+      .from('procurement_quotation_items')
+      .update({ awarded: false })
+      .eq('rfq_item_id', rfqItemId)
+      .eq('awarded', true);
+    if (error) throw error;
+  }
+}

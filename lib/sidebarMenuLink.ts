@@ -1085,6 +1085,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/procurement/requests/[id]': 'procurement.view',
   '/procurement/rfqs': 'procurement.view',
   '/procurement/rfqs/[id]': 'procurement.view',
+  '/procurement/rfqs/[id]/quotations': 'procurement.view',
   '/meetings': 'meetings.view',
   // Universal Booking sub-surfaces (reconcile 2026-06-19) — gate each by its
   // module permission so the sidebar submenus render per-role.
