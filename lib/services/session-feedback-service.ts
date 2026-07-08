@@ -27,7 +27,9 @@ import type {
   OpenPulseForLearner,
   PulseTotals,
   MyConfirmedAttendance,
+  PendingVerdictSuggestion,
 } from '@/types/session-feedback';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 // Untyped client — session_feedback tables are not in the generated types yet.
 const getSupabase = (): any => createClientSupabaseClient();
@@ -257,6 +259,58 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to save your verdict: ${error.message}`);
     return data === true;
+  }
+
+  /**
+   * Verdict-at-next-class: the latest UNVERDICTED improvement note addressed to
+   * the CALLER for this course, generated before today — i.e. today's class (the
+   * one just marked) happened AFTER the advice, so "did you try it?" is now
+   * answerable. Read is RLS-scoped (institution) + filtered to the caller's own
+   * faculty_email; fn_scf_set_verdict re-authorizes on write (defense in depth).
+   * This surface is decorative to attendance-marking, so failures LOG and return
+   * null — they must never block or noise the save flow.
+   */
+  static async getPendingVerdictSuggestion(
+    courseCode: string,
+  ): Promise<PendingVerdictSuggestion | null> {
+    try {
+      const supabase = getSupabase();
+      const { data: userData } = await supabase.auth.getUser();
+      const email: string | undefined = userData?.user?.email
+        ?.trim()
+        .toLowerCase();
+      if (!email || !courseCode) return null;
+
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const { data, error } = await supabase
+        .from('scf_ai_suggestions')
+        .select(
+          'id, course_code, kind, suggestion, generated_at, input_avg_understood, outcome_avg_understood, outcome_measured_at',
+        )
+        .eq('domain', 'session_feedback')
+        .eq('kind', 'improvement')
+        .eq('course_code', courseCode)
+        .eq('faculty_email', email)
+        .is('human_verdict', null)
+        .lt('generated_at', todayStart.toISOString())
+        .order('generated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        logger.warn('academic/session-feedback', 'pending-verdict read failed', {
+          courseCode,
+          error: error.message,
+        });
+        return null;
+      }
+      return (data as PendingVerdictSuggestion | null) ?? null;
+    } catch (err) {
+      logger.warn('academic/session-feedback', 'pending-verdict read threw', err);
+      return null;
+    }
   }
 
   // ---------------------------------------------------------------------------
