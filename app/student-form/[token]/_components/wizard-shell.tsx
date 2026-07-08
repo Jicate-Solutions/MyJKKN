@@ -345,6 +345,7 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
           <StepContactDetails
             lang={lang}
             data={data}
+            token={token}
             onContinue={(fields) => handleStepContinue('contact', fields)}
             onBack={() => setStep(1)}
             submitting={submitting}

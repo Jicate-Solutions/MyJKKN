@@ -35,6 +35,14 @@ export const queryKeys = {
     list: (institutionId: string | null, academicYearId: string | null) =>
       [...queryKeys.transportCollectables.all, 'list', institutionId, academicYearId] as const,
   },
+  postalCodes: {
+    all: ['postal-codes'] as const,
+    lookup: (pincode: string) =>
+      [...queryKeys.postalCodes.all, 'lookup', pincode] as const,
+    detail: (id: string) => [...queryKeys.postalCodes.all, 'detail', id] as const,
+    list: (filters: unknown) =>
+      [...queryKeys.postalCodes.all, 'list', filters] as const,
+  },
   schoolMaster: {
     all: ['school-master'] as const,
     districts: (board: string) =>

@@ -72,7 +72,9 @@ export const STUDENT_WRITABLE_COLUMNS = {
     'student_mobile', 'student_email',
     'permanent_address_street', 'permanent_address_state',
     'permanent_address_district', 'permanent_address_taluk',
-    'permanent_address_pin_code',
+    // post_office_id (postal_codes FK) comes from the pincode lookup's
+    // optional post-office pick; null when not chosen.
+    'permanent_address_pin_code', 'post_office_id',
   ],
 } as const;
 

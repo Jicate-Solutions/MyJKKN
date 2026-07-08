@@ -219,6 +219,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners/change-requests': 'learners.change-requests.view',
   '/learners/change-requests/[id]': 'learners.change-requests.view',
   '/learners/school-master': 'learners.school_master.view',
+  '/learners/postal-codes': 'learners.postal_codes.view',
 
   // Learner Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
   // Spec: specs/counselor-taxonomy-spec.md. Role seed:
@@ -2084,6 +2085,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/learners/alumni', label: 'Alumni & Graduates', active: pathname.startsWith('/learners/alumni') },
             { href: '/learners/change-requests', label: 'Change Requests', active: pathname.startsWith('/learners/change-requests') },
             { href: '/learners/school-master', label: 'School Master', active: pathname.startsWith('/learners/school-master') },
+            { href: '/learners/postal-codes', label: 'Postal Codes', active: pathname.startsWith('/learners/postal-codes') },
           ]
         }
       ]

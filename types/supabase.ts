@@ -59366,6 +59366,7 @@ export type Database = {
           last_school: string
           last_school_id: string | null
           learner_type: string | null
+          post_office_id: string | null
           legacy_fee_mode: boolean
           lifecycle_status: Database["public"]["Enums"]["lifecycle_status"]
           location_type: string | null
@@ -59474,6 +59475,7 @@ export type Database = {
           last_school: string
           last_school_id?: string | null
           learner_type?: string | null
+          post_office_id?: string | null
           legacy_fee_mode?: boolean
           lifecycle_status?: Database["public"]["Enums"]["lifecycle_status"]
           location_type?: string | null
@@ -59582,6 +59584,7 @@ export type Database = {
           last_school?: string
           last_school_id?: string | null
           learner_type?: string | null
+          post_office_id?: string | null
           legacy_fee_mode?: boolean
           lifecycle_status?: Database["public"]["Enums"]["lifecycle_status"]
           location_type?: string | null
@@ -70785,6 +70788,51 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      postal_codes: {
+        Row: {
+          created_at: string
+          district: string
+          district_id: string
+          division: string | null
+          id: string
+          is_active: boolean
+          latitude: number | null
+          longitude: number | null
+          office_name: string
+          pincode: string
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          district: string
+          district_id: string
+          division?: string | null
+          id?: string
+          is_active?: boolean
+          latitude?: number | null
+          longitude?: number | null
+          office_name: string
+          pincode: string
+          state?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          district?: string
+          district_id?: string
+          division?: string | null
+          id?: string
+          is_active?: boolean
+          latitude?: number | null
+          longitude?: number | null
+          office_name?: string
+          pincode?: string
+          state?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       privilege_group_reviewers: {
         Row: {

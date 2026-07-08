@@ -1495,3 +1495,9 @@ DROP TRIGGER IF EXISTS school_master_touch_updated_at ON public.school_master;
 CREATE TRIGGER school_master_touch_updated_at
   BEFORE UPDATE ON public.school_master
   FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
+
+-- Postal Codes: keep updated_at fresh
+DROP TRIGGER IF EXISTS postal_codes_touch_updated_at ON public.postal_codes;
+CREATE TRIGGER postal_codes_touch_updated_at
+  BEFORE UPDATE ON public.postal_codes
+  FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();

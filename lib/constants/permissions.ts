@@ -359,7 +359,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.school_master.view', label: 'View School Master' },
       { key: 'learners.school_master.create', label: 'Create School Master Entries' },
       { key: 'learners.school_master.edit', label: 'Edit School Master Entries' },
-      { key: 'learners.school_master.delete', label: 'Delete School Master Entries' }
+      { key: 'learners.school_master.delete', label: 'Delete School Master Entries' },
+
+      // Postal Codes (pincode → district lookup + map coordinates)
+      { key: 'learners.postal_codes.view', label: 'View Postal Codes' },
+      { key: 'learners.postal_codes.create', label: 'Create Postal Code Entries' },
+      { key: 'learners.postal_codes.edit', label: 'Edit Postal Code Entries' },
+      { key: 'learners.postal_codes.delete', label: 'Delete Postal Code Entries' }
     ]
   },
   {
