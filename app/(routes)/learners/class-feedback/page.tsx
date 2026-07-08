@@ -105,6 +105,17 @@ export default function LearnerSessionFeedbackPage() {
             <p className="text-sm text-muted-foreground">
               A quick 10-second check after each class. Give it within {CONFIRM_WINDOW_HOURS} hours to confirm your attendance.
             </p>
+            {/* The two-contract declaration (Director, 8 Jul): say BOTH promises openly.
+                Anonymity is about what the FACILITATOR sees; personalisation is what the
+                SYSTEM does for the learner. Keeping them side by side is what makes the
+                personalised follow-ups below feel like service, not surveillance. */}
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Anonymous to your facilitator</span> — your
+              ratings only ever appear in groups of 3 or more, never with your name.{' '}
+              <span className="font-medium text-foreground">Personalised for you</span> — MyJKKN reads
+              your own answers to support your learning; your facilitator never sees them with your
+              name on it.
+            </p>
           </div>
           {pendingCount > 0 && (
             <Badge className="bg-[#ffde59] text-amber-900 border-amber-300 text-sm px-3 py-1">

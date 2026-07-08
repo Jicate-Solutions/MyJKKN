@@ -6,7 +6,7 @@
 
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { LoopClosureRow, StrugglingNoteRow } from '@/types/scf-learner-loop';
 
@@ -37,6 +37,31 @@ export function useLoopClosure(from: string, to: string) {
       return (data || []) as LoopClosureRow[];
     },
     staleTime: 60_000,
+  });
+}
+
+/**
+ * The learner's explicit close of the loop: Better / Same / Worse on the note
+ * their own flag fed. fn_scf_cast_resolution_vote is authority-bound server-side
+ * (the caller must have a flagged (<=2) session inside the note's window), and
+ * upserts — a learner can change their answer. Invalidates loop-closure so the
+ * card re-renders with the saved vote.
+ */
+export function useCastResolutionVote() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { suggestionId: string; vote: 'better' | 'same' | 'worse' }) => {
+      const supabase = getSupabase();
+      const { data, error } = await supabase.rpc('fn_scf_cast_resolution_vote', {
+        p_suggestion_id: input.suggestionId,
+        p_vote: input.vote,
+      });
+      if (error) throw new Error(`Failed to save your answer: ${error.message}`);
+      return data === true;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: scfLearnerLoopKeys.all });
+    },
   });
 }
 

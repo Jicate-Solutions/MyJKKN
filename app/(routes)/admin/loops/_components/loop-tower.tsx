@@ -26,6 +26,7 @@ export interface LoopTowerStats {
   scfNotes: number | null;
   scfMeasured: number | null;
   scfVerdicts: number | null;
+  scfStudentConfirms: number | null;
   scfPositiveLifts: number | null;
   spineAiDrafts: number | null;
   spineFaculty: number | null;
@@ -136,6 +137,7 @@ export function LoopTower({ stats }: { stats: LoopTowerStats }) {
                 <Chip label='measured' value={n(s.scfMeasured)} />
                 <Chip label='positive lifts' value={n(s.scfPositiveLifts)} />
                 <Chip label='verdicts' value={n(s.scfVerdicts)} />
+                <Chip label='student confirms' value={n(s.scfStudentConfirms)} />
                 <Chip label='spine drafts (AI)' value={n(s.spineAiDrafts)} />
                 <Chip label='spine (faculty)' value={n(s.spineFaculty)} />
                 <Chip label='learner notes 7d' value={n(s.learnerNotes7d)} />

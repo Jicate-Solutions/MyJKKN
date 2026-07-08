@@ -46,7 +46,7 @@ import {
 } from 'lucide-react';
 import { SessionFeedbackService } from '@/lib/services/session-feedback-service';
 import { understandingLevel } from '@/components/session-feedback/understanding-band';
-import type { MyLoopNote } from '@/types/session-feedback';
+import type { MyLoopNote, NoteResolutionCounts } from '@/types/session-feedback';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 type Verdict = 'tried_helped' | 'tried_no_change' | 'not_tried';
@@ -72,7 +72,13 @@ const BAND_WORD: Record<string, string> = {
   none: '—',
 };
 
-function NoteRow({ note }: { note: MyLoopNote }) {
+function NoteRow({
+  note,
+  confirms,
+}: {
+  note: MyLoopNote;
+  confirms: NoteResolutionCounts | undefined;
+}) {
   const [saving, setSaving] = useState<Verdict | null>(null);
   const [savedVerdict, setSavedVerdict] = useState<Verdict | null>(
     note.human_verdict,
@@ -134,6 +140,18 @@ function NoteRow({ note }: { note: MyLoopNote }) {
           {beforeBand !== '—' && beforeBand !== afterBand ? ` (was ${beforeBand})` : ''}.
         </p>
       )}
+      {/* The fourth witness — students who flagged the class say whether it got
+          better FOR THEM. Appears only at 3+ answers (k-floor in the fn), so no
+          individual is ever reconstructable. */}
+      {confirms && (
+        <p className="text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">
+            Students who flagged this class say
+          </span>
+          : {confirms.better} better · {confirms.same} same · {confirms.worse} worse
+          {' '}({confirms.total} answered, anonymous)
+        </p>
+      )}
 
       {savedVerdict ? (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -170,11 +188,22 @@ function NoteRow({ note }: { note: MyLoopNote }) {
 
 export function MyLoopNotesCard() {
   const [notes, setNotes] = useState<MyLoopNote[] | null>(null);
+  const [confirmsById, setConfirmsById] = useState<Map<string, NoteResolutionCounts>>(
+    new Map(),
+  );
 
   useEffect(() => {
     let cancelled = false;
     SessionFeedbackService.getMyLoopNotes().then((rows) => {
-      if (!cancelled) setNotes(rows);
+      if (cancelled) return;
+      setNotes(rows);
+      if (rows.length === 0) return;
+      SessionFeedbackService.getNoteResolutionCounts(rows.map((r) => r.id)).then(
+        (counts) => {
+          if (cancelled) return;
+          setConfirmsById(new Map(counts.map((c) => [c.suggestion_id, c])));
+        },
+      );
     });
     return () => {
       cancelled = true;
@@ -206,7 +235,7 @@ export function MyLoopNotesCard() {
         ) : (
           <div className="space-y-4">
             {notes.map((n) => (
-              <NoteRow key={n.id} note={n} />
+              <NoteRow key={n.id} note={n} confirms={confirmsById.get(n.id)} />
             ))}
           </div>
         )}
