@@ -71,6 +71,21 @@ export class SessionFeedbackService {
     return (data || []) as PendingSession[];
   }
 
+  /** The feedback-window length (hours) from the shared config lever
+   *  session_feedback.window_hours — the SAME row every server-side window fn
+   *  reads, so the UI hint and the enforcement can't drift apart. Fail-soft to
+   *  48 (the seeded global value): the server fns remain the source of truth. */
+  static async getFeedbackWindowHours(): Promise<number> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_get_policy_int', {
+      p_key: 'session_feedback.window_hours',
+      p_default: 48,
+      p_scope_id: null,
+    });
+    if (error || data == null || Number.isNaN(Number(data))) return 48;
+    return Number(data);
+  }
+
   /** The caller learner's OWN confirmed-attendance snapshot (transparency, #7).
    *  Forward-only; NOT gated on attendance_coupling_enabled — a learner may always see
    *  their own number. Returns null when the caller is not a learner or has no in-scope marks. */

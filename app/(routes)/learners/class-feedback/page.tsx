@@ -16,7 +16,11 @@ import {
   Sparkles,
   ChevronRight,
 } from 'lucide-react';
-import { usePendingSessions, useConfirmationStatus } from '@/hooks/use-session-feedback';
+import {
+  usePendingSessions,
+  useConfirmationStatus,
+  useFeedbackWindowHours,
+} from '@/hooks/use-session-feedback';
 import type { PendingSession } from '@/types/session-feedback';
 import { FeedbackDialog } from './_components/feedback-dialog';
 import { MyVoiceReceipt } from './_components/my-voice-receipt';
@@ -32,18 +36,21 @@ const BRAND = '#0b6d41';
 // "Learning Studio Feedback" (the URL stays /learners/class-feedback).
 export const navMeta = { label: 'Learning Studio Feedback' };
 
-// Decision #11 (2026-07-05): feedback confirms attendance ONLY within this window of the
-// class. Mirrors the server-side session_feedback.window_hours default (48h). This is a
-// UX hint — the confirmed-attendance fns are the source of truth for the actual count.
-const CONFIRM_WINDOW_HOURS = 48;
+// Two-sided 48h window (Director, 2026-07-08): feedback CLOSES window_hours after
+// the class — past the window, submission is rejected by fn_scf_submit_feedback and
+// the session no longer appears in the pending list. The hours come from the shared
+// session_feedback.window_hours config lever (useFeedbackWindowHours); this default
+// only covers the moment before the config read resolves.
+const DEFAULT_WINDOW_HOURS = 48;
 
-// Interpret the class day at IST midnight (matching the server fns) and check whether the
-// confirmation window is still open. Feedback for older classes is still welcome — it just
-// no longer counts toward attendance, so we LABEL it rather than hide it.
-function withinConfirmWindow(attendanceDate: string): boolean {
+// Interpret the class day at IST midnight (matching the server fns) and check whether
+// the feedback window is still open. Expired sessions normally never reach this page
+// (fn_scf_pending_for_learner filters them) — this is a race-guard for a session that
+// expires while the page is open.
+function withinFeedbackWindow(attendanceDate: string, windowHours: number): boolean {
   const classMidnightIST = new Date(`${attendanceDate}T00:00:00+05:30`).getTime();
   if (Number.isNaN(classMidnightIST)) return true; // unknown date → never mislabel
-  return Date.now() <= classMidnightIST + CONFIRM_WINDOW_HOURS * 3600 * 1000;
+  return Date.now() <= classMidnightIST + windowHours * 3600 * 1000;
 }
 
 function formatDate(iso: string): string {
@@ -65,6 +72,8 @@ function formatTime(t: string | null): string | null {
 
 export default function LearnerSessionFeedbackPage() {
   const { data: pending, isLoading, isError, error } = usePendingSessions(30);
+  const { data: configWindowHours } = useFeedbackWindowHours();
+  const windowHours = configWindowHours ?? DEFAULT_WINDOW_HOURS;
   const [activeSession, setActiveSession] = useState<PendingSession | null>(null);
   const [activeSource, setActiveSource] = useState<'async' | 'live_poll'>('async');
 
@@ -103,7 +112,8 @@ export default function LearnerSessionFeedbackPage() {
               Learning Studio Feedback
             </h1>
             <p className="text-sm text-muted-foreground">
-              A quick 10-second check after each class. Give it within {CONFIRM_WINDOW_HOURS} hours to confirm your attendance.
+              A quick 10-second check after each class. Give it within {windowHours} hours — after
+              that the window closes and feedback can no longer be given.
             </p>
             {/* The two-contract declaration (Director, 8 Jul): say BOTH promises openly.
                 Anonymity is about what the FACILITATOR sees; personalisation is what the
@@ -173,17 +183,21 @@ export default function LearnerSessionFeedbackPage() {
                   const courseLabel = s.course_name || s.course_code || 'Class session';
                   const time = formatTime(s.start_time);
                   const periodBits = [s.period_name, time].filter(Boolean).join(' · ');
-                  // #11: past the window, feedback is still welcome but no longer confirms attendance.
-                  const confirmsAttendance = withinConfirmWindow(s.attendance_date);
+                  // Two-sided 48h window: past the window the submit RPC rejects, so the
+                  // row is disabled with an explicit label (race-guard — the server stops
+                  // listing expired sessions, so this normally never renders).
+                  const windowOpen = withinFeedbackWindow(s.attendance_date, windowHours);
                   return (
                     <li key={`${s.attendance_date}-${s.timetable_id}-${s.period_id}`}>
                       <button
                         type="button"
+                        disabled={!windowOpen}
                         onClick={() => {
+                          if (!windowOpen) return;
                           setActiveSource('async');
                           setActiveSession(s);
                         }}
-                        className="w-full text-left px-4 py-4 flex items-center gap-4 hover:bg-muted/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6d41]/30 focus-visible:ring-inset"
+                        className="w-full text-left px-4 py-4 flex items-center gap-4 hover:bg-muted/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6d41]/30 focus-visible:ring-inset disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:bg-transparent"
                       >
                         <div className="min-w-0 flex-1 space-y-1">
                           <div className="font-medium truncate">
@@ -211,22 +225,22 @@ export default function LearnerSessionFeedbackPage() {
                                 {s.faculty_name}
                               </span>
                             )}
-                            {!confirmsAttendance && (
+                            {!windowOpen && (
                               <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-500">
                                 <Clock className="h-3.5 w-3.5" />
-                                Too late to confirm attendance
+                                Feedback window closed
                               </span>
                             )}
                           </div>
                         </div>
-                        {confirmsAttendance ? (
+                        {windowOpen ? (
                           <span className="hidden sm:inline-flex items-center gap-1 text-xs font-medium" style={{ color: BRAND }}>
                             <CheckCircle2 className="h-4 w-4" />
                             Give feedback
                           </span>
                         ) : (
-                          <span className="hidden sm:inline-flex items-center gap-1 text-xs font-medium text-muted-foreground" title={`The ${CONFIRM_WINDOW_HOURS}-hour window to confirm attendance for this class has passed. Your feedback still helps your faculty, but it no longer counts toward attendance.`}>
-                            Feedback only
+                          <span className="hidden sm:inline-flex items-center gap-1 text-xs font-medium text-muted-foreground" title={`The ${windowHours}-hour feedback window for this class has closed — feedback can no longer be given for it.`}>
+                            Window closed
                           </span>
                         )}
                         <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />

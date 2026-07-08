@@ -172,6 +172,11 @@ export async function POST(req: NextRequest) {
         : null;
     // free_texts stays server-side ONLY — fed to the model, never returned.
     const freeTexts: string[] = Array.isArray(row?.free_texts) ? row.free_texts : [];
+    // Contributing session dates (closed-window only — two-sided 48h window):
+    // stamped onto the recorded suggestion so every note cites its evidence base.
+    const sessionDates: string[] = Array.isArray(row?.session_dates)
+      ? row.session_dates.map((d: unknown) => String(d))
+      : [];
 
     // 5) Below the small-n floor → skip the LLM (saves cost + avoids noise).
     if (responses < 3) {
@@ -314,7 +319,8 @@ Generate the teaching-improvement JSON now.`;
         p_input_responses: responses,
         p_input_low: lowResponses,
         p_input_avg: avgUnderstood,
-        p_suggestion: suggestion,
+        p_suggestion:
+          sessionDates.length > 0 ? { ...suggestion, contributing_dates: sessionDates } : suggestion,
         p_model: resp.model,
       });
       // RETURNS uuid → the new scf_ai_suggestions row id.
