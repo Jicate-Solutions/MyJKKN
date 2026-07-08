@@ -84,7 +84,7 @@ Use ONLY the data provided; ground every suggestion in it. Be concrete and India
 Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exactly:
 { "summary": "...", "likelyCauses": ["..."], "suggestedAdjustments": [{"title":"...","how":"..."}], "quickWin": "...", "whatToWatchNext": "..." }
 Give 2-4 likelyCauses and 3-5 suggestedAdjustments. whatToWatchNext must describe, in words only, whether understanding holds or improves in the next session — never cite a number, score, average, or target.
-CRITICAL: Never express understanding as a number, score, average, rating out of 5, or percentage, and never state a numeric target or threshold to reach. Describe understanding and its trend in words only (e.g. "understanding was strong", "a small cluster still struggled"). You may state how many students responded.`;
+CRITICAL: Never express understanding as a number, score, average, rating out of 5, or percentage, and never state a numeric target or threshold to reach. Describe understanding and its trend in words only (e.g. "understanding was strong", "a small cluster still struggled"). You may state how many learners responded.`;
 
 // Facilitator-facing understanding must never reach the model as a raw number: a
 // printed baseline/target invites gaming ("keep scoring 3.6"). Feed a qualitative
@@ -210,7 +210,7 @@ const sessionFeedbackSummarize: AiTaskType = {
 
     const commentBlock = freeTexts.length > 0
       ? freeTexts.map((t) => `- ${String(t).trim()}`).join('\n')
-      : '- (no written comments — use the numeric signals)';
+      : '- (no written comments — use the understanding level and response counts above)';
     const userPrompt = `Course: ${courseCode}
 Window: ${from} to ${to}
 Responses: ${responses}

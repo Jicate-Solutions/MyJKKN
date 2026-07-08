@@ -60,8 +60,10 @@ export function UnderstandingBand({
   className?: string;
 }) {
   const level = understandingLevel(avg);
+  // <div>, not <span>: Badge renders a <div>, and a span may not contain a div
+  // (invalid HTML5 phrasing-content nesting). inline-flex keeps it visually inline.
   return (
-    <span className={`inline-flex items-center gap-2 ${className}`}>
+    <div className={`inline-flex items-center gap-2 ${className}`}>
       <Badge variant="outline" className={`font-medium ${BADGE[level]}`}>
         {WORD[level]}
       </Badge>
@@ -72,7 +74,7 @@ export function UnderstandingBand({
       >
         <span className={`block h-full w-full rounded-full ${BAR[level]}`} />
       </span>
-    </span>
+    </div>
   );
 }
 
