@@ -47,6 +47,7 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
   },
   {
     "id": "work-pulse-analyze",
+    "maxLane": true,
     "name": "Work Pulse Weekly Analysis",
     "category": "misc-ai",
     "type": "endpoint",
@@ -58,7 +59,7 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "configKnobs": "MODEL=claude-sonnet-4-20250514 (config row 'work_pulse.analyze' — /admin/ai-models), max_tokens=4096, LLM_TIMEOUT=60000ms, LOOKBACK_DAYS=7, ACTIVITY_LIMIT=500, EXISTING_PATTERNS_LIMIT=50, TIER thresholds S>=100/A>=50/B>=20/else C",
     "sideEffects": "WRITES: inserts/updates rows in wp_patterns; AND for training-type patterns inserts a notifications row + fans out user_notifications to affected users (in-app 'Training Opportunity' notifications). Honest-empty (writes nothing) if no pulse entries in the past 7 days.",
     "safeToManualTrigger": false,
-    "notes": "Auth: x-api-key header matching WORK_PULSE_API_KEY, OR a super_admin session. Despite the 'Weekly AI analysis' label there is NO cron for it in vercel.json — it must be fired externally (e.g. n8n/manual). Marked unsafe to fire casually because a run can push in-app training-win notifications to real users and mutate the pattern board; re-running duplicates that. Needs ANTHROPIC_API_KEY/CLAUDE_API_KEY (503 if missing)."
+    "notes": "Auth: x-api-key header matching WORK_PULSE_API_KEY, OR a super_admin session. Despite the 'Weekly AI analysis' label there is NO cron for it in vercel.json — it must be fired externally (e.g. n8n/manual). Marked unsafe to fire casually because a run can push in-app training-win notifications to real users and mutate the pattern board; re-running duplicates that. Needs ANTHROPIC_API_KEY/CLAUDE_API_KEY (503 if missing). Max lane: on-demand via the ⚡ button — a Mac-side runner twin executes on the Claude Max subscription (₹0 API) and is guard-idempotent with the API path."
   },
   {
     "id": "work-pulse-translate",
