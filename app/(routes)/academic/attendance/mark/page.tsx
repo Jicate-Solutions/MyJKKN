@@ -1241,8 +1241,11 @@ export default function AttendanceMarkPage() {
               `${staff.first_name || ''} ${
                 staff.last_name || ''
               }`.trim() || markerName;
+            // institution_email first: it is the auth/login identity every
+            // downstream email-join (feedback, SCF notes, verdict card,
+            // Facilitator Pulse) keys on; staff.email is a personal contact.
             markerEmail =
-              staff.email || staff.institution_email || markerEmail;
+              staff.institution_email || staff.email || markerEmail;
           }
         } catch (error) {
           logger.warn('academic/attendance/mark', 'Could not fetch staff details, using profile data', error);
@@ -1333,7 +1336,7 @@ export default function AttendanceMarkPage() {
           faculty_name:
             staff.full_name ||
             `${staff.first_name || ''} ${staff.last_name || ''}`.trim(),
-          faculty_email: staff.email || staff.institution_email || '',
+          faculty_email: staff.institution_email || staff.email || '',
           is_primary: staff.is_primary || false
         }));
       } else if (assignedStaff.length === 1) {
@@ -1344,7 +1347,7 @@ export default function AttendanceMarkPage() {
           faculty_name:
             faculty.full_name ||
             `${faculty.first_name || ''} ${faculty.last_name || ''}`.trim(),
-          faculty_email: faculty.email || faculty.institution_email || ''
+          faculty_email: faculty.institution_email || faculty.email || ''
         };
       }
 
