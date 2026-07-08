@@ -134,5 +134,19 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "sideEffects": "GitHub only: closes duplicate DRAFT PRs (reversible, with explanatory comment), adds visual-proof-skip labels, flips drafts to Ready, comments on overlaps. Never merges. Telegram digest + artifact update.",
     "safeToManualTrigger": true,
     "notes": "Fully mechanical (bash + gh + python, no LLM) — it keeps working even when the Claude subscription is rate-limited. Runs on the Mac via launchd; the ⚡ button queues an on-demand pass through the same Mac poller. Built 2026-07-08 as loopcraft level-4 (spawn/review/respawn) over the nightly fixer."
+  },
+  {
+    "id": "copo-attainment",
+    "name": "CO/PO Attainment Loop — COE→OBE Direct Rollup (NBA)",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Weekly · Sun 03:41 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/copo-attainment",
+    "callsClaude": false,
+    "whatItDoes": "The measurement leg of the NBA outcome-attainment loop. Weekly it syncs course outcomes from BoS syllabi into obe_course_outcomes, reads per-student marks READ-ONLY from the COE database for each institution's current exam term, computes per-course direct attainment (% of learners at/above the configured threshold, CIA + declared results), stores the trend vs the prior term, and emits accreditation evidence (NAAC 7.3.d + NBA T1_CO). HONEST GRAIN: COE has no assessment→CO tagging, so every number is a course-level proxy (grain=course_proxy, co_tagged=false, machine-readable) — never presented as CO-tagged attainment.",
+    "configKnobs": "All methodology numbers are platform_policies rows (copo_attainment.*): master_enabled=false (DARK), threshold_pct=60, direct_weight=0.8, indirect_weight=0.2 (indirect side not built — inert), target_level=2, level bands 70/60/50. Every value is a DEFAULT awaiting Director/Academic Council ratification.",
+    "sideEffects": "DB writes only, all in MyJKKN (COE is read-only, never written): upserts obe_course_outcomes (never overwrites existing COs), obe_course_attainment_rollup, and is_auto=true quality_evidence_mappings rows (NAAC 7.3.d + NBA T1_CO, loop_key copo_attainment). Never clobbers manually-curated (is_auto=false) mappings. No notifications, no external messages.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'copo-attainment' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer or ?secret=). Fully idempotent — re-running refreshes the same rollup + evidence rows. NO-OPS entirely while copo_attainment.master_enabled=false (ships DARK). Blocker for true CO-tagged attainment: Academic Office must author assessment→CO maps (obe_assessment_co_marks is the target substrate)."
   }
 ];
