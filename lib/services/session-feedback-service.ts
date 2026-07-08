@@ -28,6 +28,7 @@ import type {
   PulseTotals,
   MyConfirmedAttendance,
   PendingVerdictSuggestion,
+  MyLoopNote,
   FacilitatorPulseRow,
 } from '@/types/session-feedback';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -330,6 +331,44 @@ export class SessionFeedbackService {
     } catch (err) {
       logger.warn('academic/session-feedback', 'pending-verdict read threw', err);
       return null;
+    }
+  }
+
+  /**
+   * All AI notes addressed to the CALLER, newest first — the faculty page's
+   * "Notes from your feedback loop" card. Unlike getPendingVerdictSuggestion
+   * (one course, unverdicted, pre-today), this is the full personal history:
+   * both kinds, verdicted or not, so a note is always findable after the
+   * one-tap attendance ask has passed. Decorative surface: failures LOG and
+   * return [] — never an error state on the faculty page.
+   */
+  static async getMyLoopNotes(limit = 20): Promise<MyLoopNote[]> {
+    try {
+      const supabase = getSupabase();
+      const { data: userData } = await supabase.auth.getUser();
+      const email = userData?.user?.email?.trim().toLowerCase();
+      if (!email) return [];
+
+      const { data, error } = await supabase
+        .from('scf_ai_suggestions')
+        .select(
+          'id, course_code, kind, suggestion, generated_at, input_avg_understood, outcome_avg_understood, outcome_measured_at, human_verdict, human_verdict_at',
+        )
+        .eq('domain', 'session_feedback')
+        .eq('faculty_email', email)
+        .order('generated_at', { ascending: false })
+        .limit(limit);
+
+      if (error) {
+        logger.warn('academic/session-feedback', 'my-loop-notes read failed', {
+          error: error.message,
+        });
+        return [];
+      }
+      return (data as MyLoopNote[] | null) ?? [];
+    } catch (err) {
+      logger.warn('academic/session-feedback', 'my-loop-notes read threw', err);
+      return [];
     }
   }
 
