@@ -3,6 +3,7 @@ import { type AIRoutine } from './types';
 export const ADMISSION_AI_ROUTINES: AIRoutine[] = [
   {
     "id": "admission-insights-generate",
+    "maxLane": true,
     "name": "Admission CRM AI Insights Generator",
     "category": "admission-ai",
     "type": "endpoint",
@@ -14,7 +15,7 @@ export const ADMISSION_AI_ROUTINES: AIRoutine[] = [
     "configKnobs": "MODEL=claude-sonnet-4-5 (config row 'admission.ai_insights' — /admin/ai-models), MAX_TOKENS=4096, HOT_LEAD_NO_CONTACT_DAYS=3, STALE_LEAD_DAYS=7, OVERDUE_FOLLOWUP_DAYS=7, WEEKLY_TREND_WINDOW_DAYS=7, PRIOR_WEEK_WINDOW_DAYS=14, MIN_SOURCE_LEADS_SHOWN=3, LEAD_ID_SAMPLE_CAP=20, INSIGHT_COUNT_TARGET=5-8, EXPIRES_HOURS_CRITICAL=24, EXPIRES_HOURS_GENERAL=72",
     "sideEffects": "DB write (regenerate-guarded): DELETEs all existing non-dismissed rows in admission_ai_insights for the institution, then INSERTs the newly generated insight rows. No emails/WhatsApp/notifications sent.",
     "safeToManualTrigger": true,
-    "notes": "POST only. Requires a logged-in user, an institutionId in the JSON body, and institution access (verified via role_has_institution_access RPC — rejects other tenants' IDs). Needs CLAUDE_API_KEY (or ANTHROPIC_API_KEY) set. Uses the service-role client to bypass RLS for the lead read + insight write. This IS the live path: admission Insights page -> AIInsightsService.generateInsights -> this route. Idempotent regen (delete-then-insert), so re-running just refreshes the insight set; honest-empty if Claude returns 0 insights."
+    "notes": "POST only. Requires a logged-in user, an institutionId in the JSON body, and institution access (verified via role_has_institution_access RPC — rejects other tenants' IDs). Needs CLAUDE_API_KEY (or ANTHROPIC_API_KEY) set. Uses the service-role client to bypass RLS for the lead read + insight write. This IS the live path: admission Insights page -> AIInsightsService.generateInsights -> this route. Idempotent regen (delete-then-insert), so re-running just refreshes the insight set; honest-empty if Claude returns 0 insights. Max lane: on-demand via the ⚡ button — a Mac-side runner twin executes on the Claude Max subscription (₹0 API) and is guard-idempotent with the API path."
   },
   {
     "id": "ai-query",
