@@ -54,6 +54,7 @@ import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { AccreditationService } from '@/lib/services/accreditation/accreditation-service';
 import { ACCREDITATION_BODIES } from '@/lib/types/accreditation';
+import { QualityLoopsSection } from './_components/quality-loops-section';
 
 // ----------------------------------------------------------------------------
 // NAAC's 10 attributes (Binary + MBGL framework). Each shows its seeded
@@ -355,6 +356,9 @@ export default function NAACDashboardPage() {
             );
           })}
         </div>
+
+        {/* Quality Loops — Metric 7.3 QAS (Loop → accreditation bridge, PR-2 of 2) */}
+        <QualityLoopsSection selectedInstitution={selectedInstitution} />
 
         {/* Footer */}
         <Card className="bg-muted/30">
