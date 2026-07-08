@@ -91,12 +91,13 @@ export function StrugglingNoteCard() {
             <p className="flex flex-wrap items-center gap-1.5 border-t pt-2 text-xs text-muted-foreground">
               <CheckCircle className="h-3.5 w-3.5 text-green-600" aria-hidden />
               You said you&apos;ve reached out — that&apos;s exactly the right move.
-              {/* Mistap escape: the answer stays changeable (r2 LOW). */}
+              {/* Mistap escape (r2/r3): Undo CLEARS the answer back to
+                  unanswered (null) — it must not silently flip it to "No". */}
               <button
                 type="button"
                 className="underline underline-offset-2 hover:text-foreground disabled:opacity-50"
                 disabled={reachedOut.isPending}
-                onClick={() => reachedOut.mutate({ noteId, reachedOut: false })}
+                onClick={() => reachedOut.mutate({ noteId, reachedOut: null })}
               >
                 Undo
               </button>

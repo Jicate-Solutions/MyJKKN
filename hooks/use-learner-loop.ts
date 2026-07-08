@@ -46,7 +46,7 @@ export function useMyMentor() {
 export function useNoteReachedOut() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { noteId: string; reachedOut: boolean }) => {
+    mutationFn: async (input: { noteId: string; reachedOut: boolean | null }) => {
       const supabase = getSupabase();
       const { error } = await supabase.rpc('fn_scf_learner_note_reached_out', {
         p_note_id: input.noteId,

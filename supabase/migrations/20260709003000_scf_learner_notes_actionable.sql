@@ -91,10 +91,11 @@ BEGIN
            FROM public.session_feedback_checklist_config c
            WHERE c.is_active = true
              AND (c.institution_id IS NULL OR c.institution_id = l.institution_id)
-             -- Config-drift guard (deep-review #1902 r2): an item added to the
-             -- config AFTER these classes was never shown to the learner — it
-             -- must not be cited as their struggle.
-             AND c.created_at::date <= l.rated_on[3]
+             -- Config-drift guard (deep-review #1902 r2, bound corrected r3):
+             -- a cited item must have existed BEFORE ALL THREE classes — bound on
+             -- the OLDEST (rated_on[1]). Bounding on the newest let an item added
+             -- mid-window count absent-as-unmet for the earlier classes.
+             AND c.created_at::date <= l.rated_on[1]
              AND (
                SELECT count(*)
                FROM unnest(l.checklists) AS cl(checklist)
@@ -200,9 +201,8 @@ BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'fn_scf_learner_note_reached_out: not authenticated';
   END IF;
-  IF p_reached_out IS NULL THEN
-    RAISE EXCEPTION 'fn_scf_learner_note_reached_out: answer required';
-  END IF;
+  -- p_reached_out NULL = CLEAR the answer (the card's Undo restores the
+  -- unanswered state rather than silently flipping the signal to "No" — r3).
   SELECT lp.id INTO v_lp FROM public.learners_profiles lp WHERE lp.profile_id = auth.uid();
   IF v_lp IS NULL THEN
     RAISE EXCEPTION 'fn_scf_learner_note_reached_out: caller is not a learner';
@@ -213,7 +213,7 @@ BEGIN
   -- r1/r2 flagged it as possibly missing; it is not.
   UPDATE public.scf_learner_notes n
   SET reached_out = p_reached_out,
-      reached_out_at = now(),
+      reached_out_at = CASE WHEN p_reached_out IS NULL THEN NULL ELSE now() END,
       updated_at = now()
   WHERE n.id = p_note_id
     AND n.learner_id = v_lp          -- own note only (SECDEF bypasses RLS — the gate lives here)
@@ -248,11 +248,15 @@ BEGIN
   RETURN QUERY
   -- Name only — no register number or other peer PII leaves the fn until a
   -- consumer actually needs it (deep-review #1902 LOW, data minimisation).
+  -- Tenant-bound (r3): mentor and mentee must share an institution, mirroring
+  -- the faculty_name join — defense-in-depth against a malformed group row.
   SELECT btrim(coalesce(mlp.first_name,'') || ' ' || coalesce(mlp.last_name,''))::text
   FROM public.induction_feedback_volunteer_group g
   JOIN public.induction_feedback_volunteers v ON v.id = g.volunteer_id AND v.is_active
   JOIN public.learners_profiles mlp ON mlp.id = v.learner_id
+  JOIN public.learners_profiles me  ON me.id = v_lp
   WHERE g.learner_id = v_lp
+    AND mlp.institution_id = me.institution_id
   ORDER BY g.created_at DESC
   LIMIT 1;
 END;
