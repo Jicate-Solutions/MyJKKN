@@ -106,6 +106,20 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'cohort-moat-autopropose' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer or ?secret=). Safe to manual-trigger: it only queues PENDING suggestions (no auto-apply, no messages), and re-running is a no-op for cohorts that already have one. Does nothing at all until a cohort genuinely closes with both arms scored."
   },
   {
+    "id": "accreditation-loop-evidence",
+    "name": "Accreditation — Loop→AQAR Evidence Rollup (NAAC 6.5)",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 04:23 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/accreditation-loop-evidence",
+    "callsClaude": false,
+    "whatItDoes": "Turns every measured self-improving-loop cycle into NAAC Criterion 6.5 (IQAC) accreditation evidence. Each night it sweeps the four quality loops — SCF teaching suggestions, induction session-effectiveness, the induction annual playbook, and the mess Choose-Your-Menu loop — and upserts one quality_evidence_mappings row per measured outcome (baseline, result, lift, Better/Same/Worse votes) so the AQAR narrative is backed by live machine-measured evidence instead of nothing.",
+    "configKnobs": "Metric mapping pinned: scf_teaching + induction_session → 6.5.2, induction_playbook + mess_menu → 6.5.3. Only MEASURED cycles emit (outcome_measured_at / measured_at set); rows with no derivable institution are skipped. period_label = 'AY YYYY-YY' (June cutoff, IST). No model, no thresholds.",
+    "sideEffects": "DB writes only: upserts is_auto=true rows into quality_evidence_mappings (NAAC / 6.5.x), refreshing metadata + mapped_at on re-run. NEVER touches manually-curated (is_auto=false) mappings. No notifications, no external messages.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'accreditation-loop-evidence' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer or ?secret=). Safe to manual-trigger: fully idempotent — re-running refreshes the same evidence rows (natural key source_table+source_id+body_code+metric_code). Loop→AQAR bridge PR 1/2; PR 2 renders these rows in the /accreditation UI by loop_key."
+  },
+  {
     "id": "overnight-bugfix",
     "maxLane": true,
     "name": "Overnight Bug-Fixer (draft-PR pipeline)",
