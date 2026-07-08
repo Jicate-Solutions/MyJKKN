@@ -173,6 +173,11 @@ export default async function LoopControlTowerPage() {
     decisionsTotal,
     decisionsPending,
     decisionsGraded,
+    refLeads,
+    refRouted,
+    checkinsScheduled,
+    pdeQuestsOpen,
+    pdeDemos,
     messPolicy,
   ] = await Promise.all([
     // SCF generated/measured counts now come from loadScfEffectiveness (deduped
@@ -193,6 +198,15 @@ export default async function LoopControlTowerPage() {
     cnt(admin.from('director_decisions').select('*', { count: 'exact', head: true })),
     cnt(admin.from('director_decisions').select('*', { count: 'exact', head: true }).eq('status', 'pending_outcome')),
     cnt(admin.from('director_decisions').select('*', { count: 'exact', head: true }).eq('status', 'graded')),
+    // Induction referral→desk loop (#1887): student referrals from induction and
+    // how many were auto-routed to the working desk (assigned_counselor_id).
+    cnt(admin.from('admission_leads').select('*', { count: 'exact', head: true }).eq('source', 'referral').not('referred_by_id', 'is', null)),
+    cnt(admin.from('admission_leads').select('*', { count: 'exact', head: true }).eq('source', 'referral').not('referred_by_id', 'is', null).not('assigned_counselor_id', 'is', null)),
+    // Senior-peer-mentor monthly check-ins (event_sessions kind='mentor_checkin').
+    cnt(admin.from('event_sessions').select('*', { count: 'exact', head: true }).eq('kind', 'mentor_checkin')),
+    // PDE quest→demonstration loop.
+    cnt(admin.from('pde_quests').select('*', { count: 'exact', head: true }).eq('status', 'open')),
+    cnt(admin.from('pde_demonstrations').select('*', { count: 'exact', head: true })),
     admin
       .from('platform_policies')
       // Match the mess-menu-loop cron's canonical read exactly: the key is
@@ -483,6 +497,48 @@ export default async function LoopControlTowerPage() {
           noteTag: 'Why not a loop',
           note: 'No Generate, no Measure — it’s the input pipe. It feeds the SCF and Mess loops rather than being one. The classify ratio above is the spine’s own backlog (session ratings arrive faster than the ~50/day classifier drains); it does NOT gate the SCF loop, which reads the session_feedback table directly.',
         },
+        {
+          id: 'mentor-checkins',
+          name: 'Senior Peer Mentor Check-in Loop',
+          subid: 'induction · monthly cadence',
+          plain:
+            'Twenty 3rd-year mentors each hold a fresher group for the whole first year: a scheduled monthly check-in (attendance + kiosk feedback via the mentor’s existing tools) keeps the mentorship beating after induction week ends.',
+          cfg: 'monthly 15th 10:00 · sessions pre-generated to May 2027 · training + lifecycle gated · no LLM',
+          status: 'Wired · first beat 15 Aug',
+          tone: 'sched',
+          gates: ['on', 'on', 'off', 'off'],
+          metrics: [
+            { v: n(checkinsScheduled), k: 'check-ins scheduled', tone: 'good' },
+            { v: '20', k: 'mentors enrolled', tone: 'mute' },
+            { v: '15 Aug', k: 'first beat', tone: 'mute' },
+          ],
+          verifyHref: '/events/induction',
+          verifyLabel: 'Verify on the induction console →',
+          noteTag: 'Why not self-improving',
+          note: 'It cycles (monthly) and acts (check-in + captured feedback) but nothing yet measures whether mentored freshers fare better than unmentored — gate M is the upgrade path once a semester of check-ins exists.',
+        },
+        {
+          id: 'pde-quest',
+          name: 'PDE Quest → Demonstration Loop',
+          subid: 'pde · capability evidence',
+          plain:
+            'A published quest invites learners to build; submissions become reviewed demonstrations that credit real capabilities. The pilot quest opened 8 Jul — demonstrations are the loop’s first evidence beat.',
+          cfg: 'event-driven (submissions) · human review · no cron',
+          status:
+            (pdeQuestsOpen ?? 0) > 0
+              ? (pdeDemos ?? 0) > 0
+                ? 'Live · demonstrating'
+                : 'Open · awaiting first demos'
+              : 'Dark · no open quest',
+          tone: (pdeQuestsOpen ?? 0) > 0 ? 'early' : 'dark',
+          gates: ['on', 'on', 'off', 'off'],
+          metrics: [
+            { v: n(pdeQuestsOpen), k: 'quests open', tone: (pdeQuestsOpen ?? 0) > 0 ? 'good' : 'warn' },
+            { v: n(pdeDemos), k: 'demonstrations', tone: (pdeDemos ?? 0) > 0 ? 'good' : 'mute' },
+          ],
+          noteTag: 'Why not self-improving',
+          note: 'Generate and Act are live (quest → submission → review). No measure of whether demonstrated capability changes anything downstream yet — that wire comes after the first cohort of demos exists.',
+        },
       ],
     },
     {
@@ -508,6 +564,24 @@ export default async function LoopControlTowerPage() {
           ],
           noteTag: 'Why half a loop',
           note: 'It closes Measure (outcome vs the decision’s own target) — the strongest of this tier. Gate F is a human: someone reads the verdict and decides differently next time; the system doesn’t auto-adjust.',
+        },
+        {
+          id: 'referral-desk',
+          name: 'Induction Referral → Working Desk Loop',
+          subid: 'induction · L3 weld (#1887)',
+          plain:
+            'A fresher refers a friend during induction → the lead is auto-routed to a configured working desk, which calls and works it toward a join. The measure is real joins from referred leads.',
+          cfg: 'event-driven (referral submit) · desk = platform_policies row · no LLM',
+          status: (refRouted ?? 0) > 0 ? 'Live · desk working leads' : 'Wired · awaiting referrals',
+          tone: (refRouted ?? 0) > 0 ? 'live' : 'sched',
+          gates: ['on', 'on', 'on', 'half'],
+          metrics: [
+            { v: n(refLeads), k: 'referral leads', tone: 'good' },
+            { v: n(refRouted), k: 'routed to the desk', tone: (refRouted ?? 0) > 0 ? 'good' : 'warn' },
+            { v: 'joins', k: 'the measure — pending desk calls', tone: 'mute' },
+          ],
+          noteTag: 'Why half a loop',
+          note: 'Welded 8 Jul: every referral now lands on a working desk instead of evaporating. Measure is the funnel (referred → joined); feed-forward is the desk human deciding whom to call next — the system routes, people close.',
         },
         {
           id: 'arps',
