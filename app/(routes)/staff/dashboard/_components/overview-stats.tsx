@@ -91,7 +91,7 @@ export function OverviewStats({ data, isLoading }: OverviewStatsProps) {
   if (isLoading) {
     return (
       <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-4'>
-        {Array.from({ length: 8 }).map((_, i) => (
+        {Array.from({ length: 9 }).map((_, i) => (
           <Card key={`loading-card-${i}`}>
             <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
               <Skeleton className='h-4 w-24' />
@@ -179,6 +179,14 @@ export function OverviewStats({ data, isLoading }: OverviewStatsProps) {
       icon: UserX,
       color: 'bg-gray-500',
       delay: 0.7
+    },
+    {
+      title: 'Inactive Profiles',
+      value: data.inactiveProfiles.toLocaleString(),
+      subtitle: 'Profiles deactivated (e.g. view-only staff)',
+      icon: UserX,
+      color: 'bg-rose-500',
+      delay: 0.8
     }
   ];
 
