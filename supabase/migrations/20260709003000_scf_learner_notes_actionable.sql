@@ -91,15 +91,28 @@ BEGIN
            FROM public.session_feedback_checklist_config c
            WHERE c.is_active = true
              AND (c.institution_id IS NULL OR c.institution_id = l.institution_id)
+             -- Config-drift guard (deep-review #1902 r2): an item added to the
+             -- config AFTER these classes was never shown to the learner — it
+             -- must not be cited as their struggle.
+             AND c.created_at::date <= l.rated_on[3]
              AND (
                SELECT count(*)
                FROM unnest(l.checklists) AS cl(checklist)
                -- Only classes where the learner actually FILLED a checklist count
                -- toward "unmet" — a NULL/absent blob must not mark every label
                -- unmet and make the note cite struggles the learner never flagged
-               -- (deep-review #1902 consensus MEDIUM).
+               -- (deep-review #1902 r1 consensus MEDIUM).
+               -- DISPOSITION (r2): an ABSENT key in a non-null blob stays "unmet"
+               -- BY DESIGN — the dialog only writes keys the learner toggles, so
+               -- requiring an explicit false would return zero items forever
+               -- (verified against feedback-dialog.tsx onCheckedChange). Absent =
+               -- shown-but-not-ticked, the same semantic fn_scf_loop_closure_for_learner
+               -- and fn_scf_carryforward_for_learner already use.
+               -- Text compare, NOT a ::boolean cast: a learner-controlled non-boolean
+               -- checklist value must not raise and take down the whole generator
+               -- run (deep-review #1902 r2 LOW — cast-poisoning).
                WHERE cl.checklist IS NOT NULL
-                 AND COALESCE((cl.checklist ->> c.item_key)::boolean, false) = false
+                 AND (cl.checklist ->> c.item_key) IS DISTINCT FROM 'true'
              ) >= 2
            ORDER BY c.sort_order
          )::text[] AS unmet_items,
@@ -195,6 +208,9 @@ BEGIN
     RAISE EXCEPTION 'fn_scf_learner_note_reached_out: caller is not a learner';
   END IF;
 
+  -- updated_at EXISTS on scf_learner_notes (verified against prod information_schema
+  -- 2026-07-09 + the rolled-back tap test exercised this exact UPDATE) — deep-review
+  -- r1/r2 flagged it as possibly missing; it is not.
   UPDATE public.scf_learner_notes n
   SET reached_out = p_reached_out,
       reached_out_at = now(),

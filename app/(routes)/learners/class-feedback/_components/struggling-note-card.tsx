@@ -31,6 +31,9 @@ export function StrugglingNoteCard() {
   if (!note) return null;
 
   const courseLabel = note.course_name || note.course_code;
+  // Const local so the null-narrowing survives into the onClick closures
+  // (property narrowing does not persist into closures in TS).
+  const noteId = note.id;
 
   return (
     <Card className="border-[#0b6d41]/30 bg-[#fbfbee]/70 dark:bg-muted/40">
@@ -56,7 +59,7 @@ export function StrugglingNoteCard() {
           {/* One-tap follow-up — the note's own outcome. Changeable any time.
               Gated on note.id: during the deploy→migrate gap the old fn shape
               has no id, and a tap would silently fail — hide until it exists. */}
-          {note.id == null ? null : note.reached_out == null ? (
+          {noteId == null ? null : note.reached_out == null ? (
             <div className="flex flex-wrap items-center gap-2 border-t pt-2">
               <span className="text-xs text-muted-foreground">Have you had that chat yet?</span>
               <Button
@@ -64,7 +67,7 @@ export function StrugglingNoteCard() {
                 size="sm"
                 className="h-7 gap-1.5 text-xs"
                 disabled={reachedOut.isPending}
-                onClick={() => reachedOut.mutate({ noteId: note.id, reachedOut: true })}
+                onClick={() => reachedOut.mutate({ noteId, reachedOut: true })}
               >
                 {reachedOut.isPending && reachedOut.variables?.reachedOut === true ? (
                   <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
@@ -76,7 +79,7 @@ export function StrugglingNoteCard() {
                 size="sm"
                 className="h-7 gap-1.5 text-xs"
                 disabled={reachedOut.isPending}
-                onClick={() => reachedOut.mutate({ noteId: note.id, reachedOut: false })}
+                onClick={() => reachedOut.mutate({ noteId, reachedOut: false })}
               >
                 {reachedOut.isPending && reachedOut.variables?.reachedOut === false ? (
                   <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
@@ -85,9 +88,18 @@ export function StrugglingNoteCard() {
               </Button>
             </div>
           ) : note.reached_out ? (
-            <p className="flex items-center gap-1.5 border-t pt-2 text-xs text-muted-foreground">
+            <p className="flex flex-wrap items-center gap-1.5 border-t pt-2 text-xs text-muted-foreground">
               <CheckCircle className="h-3.5 w-3.5 text-green-600" aria-hidden />
               You said you&apos;ve reached out — that&apos;s exactly the right move.
+              {/* Mistap escape: the answer stays changeable (r2 LOW). */}
+              <button
+                type="button"
+                className="underline underline-offset-2 hover:text-foreground disabled:opacity-50"
+                disabled={reachedOut.isPending}
+                onClick={() => reachedOut.mutate({ noteId, reachedOut: false })}
+              >
+                Undo
+              </button>
             </p>
           ) : (
             <div className="flex flex-wrap items-center gap-2 border-t pt-2">
@@ -99,7 +111,7 @@ export function StrugglingNoteCard() {
                 size="sm"
                 className="h-7 gap-1.5 text-xs"
                 disabled={reachedOut.isPending}
-                onClick={() => reachedOut.mutate({ noteId: note.id, reachedOut: true })}
+                onClick={() => reachedOut.mutate({ noteId, reachedOut: true })}
               >
                 {reachedOut.isPending ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : null}
                 I&apos;ve reached out now

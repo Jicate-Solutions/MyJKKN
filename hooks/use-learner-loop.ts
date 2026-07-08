@@ -7,6 +7,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { LoopClosureRow, StrugglingNoteRow, MyMentorRow } from '@/types/scf-learner-loop';
 
@@ -55,6 +56,11 @@ export function useNoteReachedOut() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: scfLearnerLoopKeys.strugglingNote() });
+    },
+    // A failed tap must be VISIBLE (deep-review #1902 r2 consensus): silently
+    // re-enabling the button would quietly drop the note's outcome signal.
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : 'Could not save your answer — please try again.');
     },
   });
 }
