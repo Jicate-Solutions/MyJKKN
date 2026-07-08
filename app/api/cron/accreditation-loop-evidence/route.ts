@@ -1,12 +1,14 @@
 // =====================================================================
 // Accreditation — loop→AQAR evidence rollup (IQAC bridge, PR 1/2)
 // =====================================================================
-// Turns every MEASURED self-improving-loop cycle into a NAAC Criterion-6.5
-// quality_evidence_mappings row via fn_accreditation_rollup_loop_evidence():
-//   scf_ai_suggestions (session_feedback)  → 6.5.2  loop_key 'scf_teaching'
-//   induction_session_effectiveness        → 6.5.2  loop_key 'induction_session'
-//   scf_ai_suggestions (induction)         → 6.5.3  loop_key 'induction_playbook'
-//   mess_menu_recommendations              → 6.5.3  loop_key 'mess_menu'
+// Turns every MEASURED self-improving-loop cycle into a NAAC Metric-7.3
+// "Quality Assurance System" quality_evidence_mappings row (Binary Accreditation
+// Framework 2024, Attribute 7: Governance; legacy: maps to Criterion 6.5 (IQAC)
+// under the outgoing framework) via fn_accreditation_rollup_loop_evidence():
+//   scf_ai_suggestions (session_feedback)  → 7.3.f  loop_key 'scf_teaching'
+//   induction_session_effectiveness        → 7.3.d  loop_key 'induction_session'
+//   scf_ai_suggestions (induction)         → 7.3.d  loop_key 'induction_playbook'
+//   mess_menu_recommendations              → 7.3.f  loop_key 'mess_menu'
 // Idempotent by construction: the fn upserts on the junction's natural key
 // (source_table, source_id, body_code, metric_code), refreshing metadata +
 // mapped_at, and never clobbers manually-curated (is_auto=false) mappings.

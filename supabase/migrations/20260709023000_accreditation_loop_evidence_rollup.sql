@@ -1,20 +1,25 @@
 -- ============================================================================
 -- Accreditation — Loop → AQAR evidence rollup (IQAC bridge, PR 1/2)
 -- File: 20260709023000_accreditation_loop_evidence_rollup.sql | Date: 2026-07-09
+-- Framework: NAAC Reforms 2024 — Binary Accreditation Framework.
+--   IQAC/quality-loop evidence lives at Attribute 7: Governance and
+--   Administration → Metric 7.3 "Quality Assurance System", facets lettered a–f.
+--   (Legacy note: maps to Criterion 6.5 (IQAC) under the outgoing framework.)
 --
 -- WHAT THIS ADDS
 --   MyJKKN's self-improving quality loops (SCF teaching, induction session +
 --   playbook, mess Choose-Your-Menu) measure outcomes vs baselines but emitted
 --   NOTHING into the accreditation evidence junction. This migration turns every
 --   MEASURED loop cycle into a quality_evidence_mappings row tagged NAAC
---   Criterion 6.5 (IQAC), so the AQAR/IQAC narrative is backed by live,
---   machine-measured quality-loop evidence — extending the CANONICAL fan-out
---   mechanism (same junction the induction/anti-ragging fan-outs write to),
---   NOT a parallel mechanism.
+--   Metric 7.3 (Quality Assurance System), so the AQAR/IQAC narrative is backed
+--   by live, machine-measured quality-loop evidence — extending the CANONICAL
+--   fan-out mechanism (same junction the induction/anti-ragging fan-outs write
+--   to), NOT a parallel mechanism.
 --
---   1. Seed three NAAC Criterion 6.5 metric rows (idempotent; style copied from
---      the induction 5.1.3/7.2.1 seed in 20260628120000). Existing 6.1.1/6.2.1
---      rows use an "Attribute" taxonomy and are NOT touched.
+--   1. Seed three NAAC Metric-7.3 facet rows (idempotent; style copied from the
+--      induction 5.1.3/7.2.1 seed in 20260628120000). The existing prod row
+--      7.3.1 ('IQAC meeting frequency + AQAR submission timeliness', category
+--      'Attribute 7: Governance') is NOT touched; new rows use the SAME category.
 --   2. fn_accreditation_ay_label(timestamptz) — 'AY 2026-27' label, June cutoff,
 --      computed in IST (a July-2026 measurement belongs to AY 2026-27; a
 --      May-2026 one to AY 2025-26).
@@ -29,12 +34,17 @@
 --      /admin/ai-routines; NOT a raw vercel.json cron.
 --
 -- LOOP → METRIC CONTRACT (PINNED — PR-2 renders by these loop_key values):
---   scf_ai_suggestions (domain='session_feedback') → 6.5.2, loop_key 'scf_teaching'
---   induction_session_effectiveness               → 6.5.2, loop_key 'induction_session'
---   scf_ai_suggestions (domain='induction')       → 6.5.3, loop_key 'induction_playbook'
---   mess_menu_recommendations                     → 6.5.3, loop_key 'mess_menu'
+--   scf_ai_suggestions (domain='session_feedback') → 7.3.f, loop_key 'scf_teaching'
+--     (students rate → facilitator note → next class → Better/Same/Worse re-vote
+--      = periodic stakeholder satisfaction survey WITH feedback provided — facet f)
+--   induction_session_effectiveness               → 7.3.d, loop_key 'induction_session'
+--     (session performance assessed vs baseline, fed back to the system — facet d)
+--   scf_ai_suggestions (domain='induction')       → 7.3.d, loop_key 'induction_playbook'
+--   mess_menu_recommendations                     → 7.3.f, loop_key 'mess_menu'
 --     (mess loop is currently DARK — 0 measured rows is fine; the rollup emits
 --      evidence the day the loop produces its first measured cycle.)
+--   7.3.e is seeded RESERVED (the quality-circle PRACTICE itself — the
+--   /admin/loops Control Tower); no per-row emission yet.
 --   Decisions-Verdict / ARPS are NOT included (no clean measured-outcome table;
 --   ARPS admission_action_log is admissions-marketing domain, out of IQAC scope
 --   for this bridge — documented in the PR body).
@@ -64,25 +74,26 @@
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
--- 1. Seed NAAC Criterion 6.5 (IQAC) metric rows — idempotent on (metric_type,
---    metric_code). 6.5.x verified unseeded in prod; 6.1.1/6.2.1 (different
---    "Attribute" taxonomy) are not touched or renamed.
+-- 1. Seed NAAC Metric 7.3 "Quality Assurance System" facet rows — idempotent on
+--    (metric_type, metric_code). 7.3.d/e/f verified unseeded in prod; the
+--    existing 7.3.1 row is not touched or renamed, and the category matches it
+--    exactly ('Attribute 7: Governance').
 -- ----------------------------------------------------------------------------
 INSERT INTO public.sh_accreditation_metrics
   (metric_type, metric_code, metric_name, category, is_active, is_system, notes)
 VALUES
-  ('NAAC', '6.5.1',
-   'IQAC — institutionalized quality review mechanisms',
-   'Criterion 6 — Governance, Leadership and Management (IQAC)', true, true,
-   'Reserved for institution-level quality review loops (e.g. decisions-verdict / ARPS) once their outcome tables emit measured cycles. Seeded by the loop→AQAR bridge (PR 1/2); no auto-emitter yet.'),
-  ('NAAC', '6.5.2',
-   'IQAC — teaching-learning quality loops (reviewed outcomes vs baseline)',
-   'Criterion 6 — Governance, Leadership and Management (IQAC)', true, true,
-   'Auto-rolled from the self-improving teaching loops: SCF session-feedback teaching loop (per-suggestion measured understanding lift) and the induction session-effectiveness loop (per-topic RTM-corrected net effect). One evidence row per measured cycle, refreshed daily by fn_accreditation_rollup_loop_evidence.'),
-  ('NAAC', '6.5.3',
-   'IQAC — quality improvement initiatives with measured outcomes',
-   'Criterion 6 — Governance, Leadership and Management (IQAC)', true, true,
-   'Auto-rolled from the non-classroom self-improving loops: the induction annual playbook loop (cohort value-balanced join score vs prior cohort) and the mess Choose-Your-Menu loop (rating/waste lift vs trailing baseline). One evidence row per measured cycle, refreshed daily by fn_accreditation_rollup_loop_evidence.')
+  ('NAAC', '7.3.d',
+   'Quality Assurance System — audits & performance assessment with feedback to the system (Metric 7.3 facet d)',
+   'Attribute 7: Governance', true, true,
+   'Auto-rolled from self-improving loop outcome measurements (induction session-effectiveness + annual playbook loops etc.): performance assessed vs baseline, fed back to the system. One evidence row per measured cycle, refreshed daily by fn_accreditation_rollup_loop_evidence. Legacy mapping: Criterion 6.5 (IQAC) under the outgoing framework.'),
+  ('NAAC', '7.3.e',
+   'Quality Assurance System — practice of quality circles / self-improving loops (facet e)',
+   'Attribute 7: Governance', true, true,
+   'RESERVED; represents the loop practice itself (/admin/loops Control Tower); no per-row emission yet. Legacy mapping: Criterion 6.5 (IQAC) under the outgoing framework.'),
+  ('NAAC', '7.3.f',
+   'Quality Assurance System — periodic stakeholder satisfaction survey with feedback provided (facet f)',
+   'Attribute 7: Governance', true, true,
+   'Auto-rolled from stakeholder-feedback loops (SCF session-feedback teaching loop, mess Choose-Your-Menu loop): periodic stakeholder satisfaction measured, acted on, and re-measured with feedback provided. One evidence row per measured cycle, refreshed daily by fn_accreditation_rollup_loop_evidence. Legacy mapping: Criterion 6.5 (IQAC) under the outgoing framework.')
 ON CONFLICT (metric_type, metric_code) DO NOTHING;
 
 -- ----------------------------------------------------------------------------
@@ -131,19 +142,22 @@ DECLARE
   v_playbook integer := 0;
   v_mess     integer := 0;
 BEGIN
-  -- ── (a) SCF teaching loop → 6.5.2 ─────────────────────────────────────────
-  -- One row per MEASURED suggestion (domain='session_feedback'). Institution
-  -- comes straight off the row (nullable → NULL-institution rows are skipped;
-  -- the junction's institution_id is NOT NULL). Student Better/Same/Worse
-  -- resolution votes are folded in as counts (k-anonymous aggregate only —
-  -- never voter identities). faculty_email is deliberately NOT copied into
-  -- evidence metadata (identity hygiene; the source row remains linked via
-  -- source_table/source_id for auditors with access).
+  -- ── (a) SCF teaching loop → 7.3.f (stakeholder satisfaction + feedback) ────
+  -- Students rate → facilitator note → next class re-measured → Better/Same/
+  -- Worse re-vote = a periodic stakeholder satisfaction survey WITH feedback
+  -- provided (facet f, verbatim). One row per MEASURED suggestion
+  -- (domain='session_feedback'). Institution comes straight off the row
+  -- (nullable → NULL-institution rows are skipped; the junction's
+  -- institution_id is NOT NULL). Student Better/Same/Worse resolution votes are
+  -- folded in as counts (k-anonymous aggregate only — never voter identities).
+  -- faculty_email is deliberately NOT copied into evidence metadata (identity
+  -- hygiene; the source row remains linked via source_table/source_id for
+  -- auditors with access).
   INSERT INTO public.quality_evidence_mappings
     (source_table, source_id, institution_id, body_code, metric_code,
      period_label, mapped_by, is_auto, metadata, mapped_at)
   SELECT
-    'scf_ai_suggestions', s.id, s.institution_id, 'NAAC', '6.5.2',
+    'scf_ai_suggestions', s.id, s.institution_id, 'NAAC', '7.3.f',
     public.fn_accreditation_ay_label(s.outcome_measured_at),
     NULL, true,
     jsonb_build_object(
@@ -193,7 +207,8 @@ BEGIN
     WHERE public.quality_evidence_mappings.is_auto;
   GET DIAGNOSTICS v_scf = ROW_COUNT;
 
-  -- ── (b) Induction session-effectiveness loop → 6.5.2 ──────────────────────
+  -- ── (b) Induction session-effectiveness loop → 7.3.d (performance assessed
+  --        vs baseline, fed back to the system) ──────────────────────────────
   -- One row per measured topic (RTM-corrected net effect; institution_id is
   -- NOT NULL by DDL). measure_status='insufficient_rtm_data' rows are honest
   -- measurement attempts — included, with the status visible in metadata and
@@ -202,7 +217,7 @@ BEGIN
     (source_table, source_id, institution_id, body_code, metric_code,
      period_label, mapped_by, is_auto, metadata, mapped_at)
   SELECT
-    'induction_session_effectiveness', e.id, e.institution_id, 'NAAC', '6.5.2',
+    'induction_session_effectiveness', e.id, e.institution_id, 'NAAC', '7.3.d',
     public.fn_accreditation_ay_label(e.outcome_measured_at),
     NULL, true,
     jsonb_build_object(
@@ -239,7 +254,7 @@ BEGIN
     WHERE public.quality_evidence_mappings.is_auto;
   GET DIAGNOSTICS v_ise = ROW_COUNT;
 
-  -- ── (c) Induction annual playbook loop → 6.5.3 ────────────────────────────
+  -- ── (c) Induction annual playbook loop → 7.3.d ─────────────────────────────
   -- The ONE-memory induction cohort loop (scf_ai_suggestions domain='induction',
   -- 20260628130000): per-domain reuse of the numeric columns —
   -- outcome_avg_understood holds the cohort's VALUE-BALANCED JOIN SCORE and
@@ -249,7 +264,7 @@ BEGIN
     (source_table, source_id, institution_id, body_code, metric_code,
      period_label, mapped_by, is_auto, metadata, mapped_at)
   SELECT
-    'scf_ai_suggestions', s.id, s.institution_id, 'NAAC', '6.5.3',
+    'scf_ai_suggestions', s.id, s.institution_id, 'NAAC', '7.3.d',
     public.fn_accreditation_ay_label(s.outcome_measured_at),
     NULL, true,
     jsonb_build_object(
@@ -284,7 +299,7 @@ BEGIN
     WHERE public.quality_evidence_mappings.is_auto;
   GET DIAGNOSTICS v_playbook = ROW_COUNT;
 
-  -- ── (d) Mess Choose-Your-Menu loop → 6.5.3 ────────────────────────────────
+  -- ── (d) Mess Choose-Your-Menu loop → 7.3.f ─────────────────────────────────
   -- Loop is currently DARK (0 measured rows) — emitting now means evidence
   -- appears automatically the day the loop produces its first measured cycle.
   -- delta prefers rating_lift; falls back to waste_lift (both are
@@ -293,7 +308,7 @@ BEGIN
     (source_table, source_id, institution_id, body_code, metric_code,
      period_label, mapped_by, is_auto, metadata, mapped_at)
   SELECT
-    'mess_menu_recommendations', m.id, m.institution_id, 'NAAC', '6.5.3',
+    'mess_menu_recommendations', m.id, m.institution_id, 'NAAC', '7.3.f',
     public.fn_accreditation_ay_label(m.measured_at),
     NULL, true,
     jsonb_build_object(
@@ -357,7 +372,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_accreditation_rollup_loop_evidence() FROM a
 GRANT  EXECUTE ON FUNCTION public.fn_accreditation_rollup_loop_evidence() TO service_role;
 
 COMMENT ON FUNCTION public.fn_accreditation_rollup_loop_evidence() IS
-  'Loop→AQAR bridge (PR 1/2): idempotently upserts one NAAC Criterion-6.5 quality_evidence_mappings row per MEASURED self-improving-loop cycle (SCF teaching 6.5.2, induction session 6.5.2, induction playbook 6.5.3, mess menu 6.5.3). Re-runnable daily — refreshes metadata/period/mapped_at on conflict, never clobbers manual (is_auto=false) mappings. Returns per-loop upsert counts. service_role only (cron).';
+  'Loop→AQAR bridge (PR 1/2): idempotently upserts one NAAC Metric-7.3 (Quality Assurance System, Binary Accreditation Framework 2024) quality_evidence_mappings row per MEASURED self-improving-loop cycle (SCF teaching 7.3.f, induction session 7.3.d, induction playbook 7.3.d, mess menu 7.3.f; legacy: maps to Criterion 6.5 (IQAC) under the outgoing framework). Re-runnable daily — refreshes metadata/period/mapped_at on conflict, never clobbers manual (is_auto=false) mappings. Returns per-loop upsert counts. service_role only (cron).';
 
 -- ----------------------------------------------------------------------------
 -- 4. Dispatcher schedule seed — daily at 04:23 IST (minute_of_day 263), all 7
