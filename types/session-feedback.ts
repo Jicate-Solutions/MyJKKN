@@ -355,6 +355,28 @@ export interface PendingVerdictSuggestion {
   outcome_measured_at: string | null;
 }
 
+/** One AI note addressed to the logged-in facilitator, for the always-visible
+ *  "Notes from your feedback loop" card on the faculty page. Same anti-gaming
+ *  rule as PendingVerdictSuggestion: averages render as band words only. */
+export interface MyLoopNote {
+  id: string;
+  course_code: string;
+  kind: 'improvement' | 'success';
+  suggestion: {
+    summary?: string;
+    quickWin?: string;
+    likelyCauses?: string[];
+    suggestedAdjustments?: { title: string; how: string }[];
+    whatToWatchNext?: string;
+  } | null;
+  generated_at: string;
+  input_avg_understood: number | null;
+  outcome_avg_understood: number | null;
+  outcome_measured_at: string | null;
+  human_verdict: 'tried_helped' | 'tried_no_change' | 'not_tried' | null;
+  human_verdict_at: string | null;
+}
+
 /** One facilitator's work-evidenced presence signals over a range
  *  (fn_scf_facilitator_pulse — leadership-gated aggregate). Presence signals
  *  only: no understanding scores, no ranks. */
