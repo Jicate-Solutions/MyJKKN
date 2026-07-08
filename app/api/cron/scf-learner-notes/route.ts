@@ -130,7 +130,7 @@ async function generateNote(
 The student's own "how well did you understand?" ratings over their last 3 classes, oldest to newest (1=Lost … 5=Crystal clear): ${trend}.
 Those classes were on: ${dates || 'dates unavailable'}.
 Checklist items the student could NOT tick in at least 2 of those classes (each item describes something that should happen in class — for this student it did NOT): ${unmetItems.length > 0 ? unmetItems.join('; ') : '(none marked — rely on the ratings only)'}.
-Course facilitator to approach: ${facultyName ?? '(name unavailable — suggest their mentor instead)'}.
+Course facilitator to approach: ${facultyName ?? '(name unavailable — suggest a quick word with the course facilitator right after class, or the student support desk)'}.
 Write the supportive note now.`;
 
   try {

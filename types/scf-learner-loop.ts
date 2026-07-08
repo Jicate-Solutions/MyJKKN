@@ -44,5 +44,4 @@ export interface StrugglingNoteRow {
  *  Used by the support-note card to point at a real person (2026-07-09). */
 export interface MyMentorRow {
   mentor_name: string;
-  mentor_register: string | null;
 }

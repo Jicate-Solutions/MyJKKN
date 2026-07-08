@@ -27,12 +27,16 @@ export function useMyMentor() {
     queryKey: scfLearnerLoopKeys.myMentor(),
     queryFn: async (): Promise<MyMentorRow | null> => {
       const supabase = getSupabase();
+      // Fail-soft null, no retries: this line is decorative — during the
+      // deploy→migrate gap the RPC doesn't exist yet, and 3 default retries
+      // per learner would be an error storm for nothing (deep-review #1902).
       const { data, error } = await supabase.rpc('fn_induction_my_mentor');
-      if (error) throw new Error(`Failed to load your mentor: ${error.message}`);
+      if (error) return null;
       const rows = (data || []) as MyMentorRow[];
       return rows.length > 0 && rows[0].mentor_name ? rows[0] : null;
     },
     staleTime: 5 * 60 * 1000,
+    retry: false,
   });
 }
 

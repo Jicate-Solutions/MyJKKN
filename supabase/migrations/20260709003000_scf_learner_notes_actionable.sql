@@ -94,7 +94,12 @@ BEGIN
              AND (
                SELECT count(*)
                FROM unnest(l.checklists) AS cl(checklist)
-               WHERE COALESCE((cl.checklist ->> c.item_key)::boolean, false) = false
+               -- Only classes where the learner actually FILLED a checklist count
+               -- toward "unmet" — a NULL/absent blob must not mark every label
+               -- unmet and make the note cite struggles the learner never flagged
+               -- (deep-review #1902 consensus MEDIUM).
+               WHERE cl.checklist IS NOT NULL
+                 AND COALESCE((cl.checklist ->> c.item_key)::boolean, false) = false
              ) >= 2
            ORDER BY c.sort_order
          )::text[] AS unmet_items,
@@ -102,7 +107,11 @@ BEGIN
          -- is_active — staff.email is the PERSONAL address and must not be joined).
          (SELECT NULLIF(btrim(coalesce(s.first_name,'') || ' ' || coalesce(s.last_name,'')), '')
           FROM public.staff s
-          WHERE lower(s.institution_email) = l.faculty_email AND s.is_active = true
+          WHERE lower(s.institution_email) = l.faculty_email
+            AND s.is_active = true
+            -- Tenant-bound: a duplicated institution_email across tenants must not
+            -- surface another institution's staff name (deep-review #1902 LOW).
+            AND s.institution_id = l.institution_id
           LIMIT 1) AS faculty_name
   FROM last3 l
   WHERE l.ratings[1] >= l.ratings[2]       -- non-increasing across the 3
@@ -207,7 +216,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_scf_learner_note_reached_out(uuid, boolean)
 -- 5. fn_induction_my_mentor — the caller's OWN senior peer mentor (mentee side)
 -- =============================================================================
 CREATE OR REPLACE FUNCTION public.fn_induction_my_mentor()
- RETURNS TABLE(mentor_name text, mentor_register text)
+ RETURNS TABLE(mentor_name text)
  LANGUAGE plpgsql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
@@ -221,8 +230,9 @@ BEGIN
   IF v_lp IS NULL THEN RETURN; END IF;
 
   RETURN QUERY
-  SELECT btrim(coalesce(mlp.first_name,'') || ' ' || coalesce(mlp.last_name,''))::text,
-         mlp.register_number::text
+  -- Name only — no register number or other peer PII leaves the fn until a
+  -- consumer actually needs it (deep-review #1902 LOW, data minimisation).
+  SELECT btrim(coalesce(mlp.first_name,'') || ' ' || coalesce(mlp.last_name,''))::text
   FROM public.induction_feedback_volunteer_group g
   JOIN public.induction_feedback_volunteers v ON v.id = g.volunteer_id AND v.is_active
   JOIN public.learners_profiles mlp ON mlp.id = v.learner_id
