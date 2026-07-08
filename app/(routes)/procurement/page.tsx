@@ -23,7 +23,7 @@ const STAGES = [
     description: 'Generate requirement lists, collect and compare vendor quotations.',
     href: '/procurement/rfqs',
     icon: FileSearch,
-    live: false,
+    live: true,
   },
   {
     key: 'purchase-orders',

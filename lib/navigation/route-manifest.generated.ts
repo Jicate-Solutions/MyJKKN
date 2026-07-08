@@ -5605,6 +5605,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/procurement/rfqs",
+        "label": "Rfqs",
+        "iconName": "FileText",
+        "children": []
       }
     ]
   },
