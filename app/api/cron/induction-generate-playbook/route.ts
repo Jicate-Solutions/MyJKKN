@@ -243,7 +243,16 @@ function parsePlaybookMessage(
       .replace(/^```(?:json)?\s*/i, '')
       .replace(/\s*```$/i, '')
       .trim();
-    const playbook = JSON.parse(jsonStr) as Record<string, unknown>;
+    // Tolerant extraction (2026-07-09): slice the outermost {...} when the
+    // model wraps the object in prose/trailing text (maiden Max-chain receipt).
+    let playbook: Record<string, unknown>;
+    try {
+      playbook = JSON.parse(jsonStr) as Record<string, unknown>;
+    } catch {
+      const m = jsonStr.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error('no JSON object in model output');
+      playbook = JSON.parse(m[0]) as Record<string, unknown>;
+    }
     return { playbook, modelUsed: message.model };
   } catch (err) {
     console.error('[cron/induction-generate-playbook] AI generation failed:', err);

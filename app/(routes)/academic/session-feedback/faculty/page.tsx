@@ -78,6 +78,8 @@ import { FollowupCell } from '../_components/followup-cell';
 import { AiSuggestionDialog } from '../_components/ai-suggestion-dialog';
 import { AiTaskButton } from '@/components/ai-tasks/ai-task-button';
 import { LivePulseSection } from '../_components/live-pulse-control';
+import { MyLoopNotesCard } from '../_components/my-loop-notes-card';
+import { MyPulseCard } from '../_components/my-pulse-card';
 import { UnderstandingBand } from '@/components/session-feedback/understanding-band';
 
 const BRAND_GREEN = '#0b6d41';
@@ -686,6 +688,14 @@ export default function FacultySessionInsightPage() {
       <Suspense fallback={null}>
         <TopicsToRevisitSection from={from} to={to} />
       </Suspense>
+
+      {/* Inbox — every AI note addressed to this facilitator, permanently findable
+          (Topics-to-revisit rows vanish on recovery; the attendance ask is transient) */}
+      <MyLoopNotesCard />
+
+      {/* Evidence — the caller's OWN 8 work-signals in one place (the board's
+          self-scoped mirror; no scores, no comparisons — anti-gaming doctrine) */}
+      <MyPulseCard />
 
       {/* Coverage — who confirmed, who's pending */}
       <CompletionSection from={from} to={to} />

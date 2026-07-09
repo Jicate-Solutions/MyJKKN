@@ -49,6 +49,17 @@ import {
   type District,
   type Taluk
 } from '@/lib/data/locations';
+import {
+  PostalCodeField,
+  type PostalCodeFetchers,
+} from '@/components/learners/postal-code-field';
+import { PostalCodeService } from '@/lib/services/postal-code-service';
+
+// Admin-side data adapter (authenticated Supabase read; the public
+// student-form injects a token-endpoint fetcher instead).
+const postalFetchers: PostalCodeFetchers = {
+  lookupPincode: (pin) => PostalCodeService.lookupPincode(pin),
+};
 
 interface ContactDetailsProps {
   form: UseFormReturn<any>;
@@ -69,6 +80,11 @@ export function ContactDetailsSection({ form }: ContactDetailsProps) {
   const selectedDistrictId = useWatch({
     control: form.control,
     name: 'permanent_address_district'
+  });
+
+  const postOfficeId = useWatch({
+    control: form.control,
+    name: 'post_office_id'
   });
 
   // Get available options based on selections - memoize to prevent recalculation
@@ -352,7 +368,8 @@ export function ContactDetailsSection({ form }: ContactDetailsProps) {
             )}
           />
 
-          {/* PIN Code with numeric input */}
+          {/* PIN Code — postal-master lookup auto-fills District (and the
+              optional Post Office pick links precise lat/long for maps) */}
           <FormField
             control={form.control}
             name='permanent_address_pin_code'
@@ -360,16 +377,27 @@ export function ContactDetailsSection({ form }: ContactDetailsProps) {
               <FormItem>
                 <FormLabel>PIN Code <span className="text-red-500">*</span></FormLabel>
                 <FormControl>
-                  <Input
-                    {...field}
-                    type='number'
-                    placeholder='Enter 6-digit PIN code'
-                    maxLength={6}
-                    minLength={6}
-                    inputMode='numeric'
+                  <PostalCodeField
+                    pincode={field.value || ''}
+                    postOfficeId={postOfficeId || null}
+                    fetchers={postalFetchers}
+                    onChange={({ pincode, postOfficeId: nextOffice, districtId }) => {
+                      field.onChange(pincode);
+                      form.setValue('post_office_id', nextOffice ?? '', { shouldDirty: true });
+                      if (districtId) {
+                        if (!form.getValues('permanent_address_state')) {
+                          form.setValue('permanent_address_state', 'tamil_nadu', { shouldDirty: true });
+                        }
+                        if (form.getValues('permanent_address_district') !== districtId) {
+                          form.setValue('permanent_address_district', districtId, { shouldDirty: true });
+                          // Taluk belongs to the previous district — reset for re-pick
+                          form.setValue('permanent_address_taluk', '', { shouldDirty: true });
+                        }
+                      }
+                    }}
                   />
                 </FormControl>
-                <FormDescription>Must be exactly 6 digits</FormDescription>
+                <FormDescription>Must be exactly 6 digits — district auto-fills from the postal directory</FormDescription>
                 <FormMessage />
               </FormItem>
             )}

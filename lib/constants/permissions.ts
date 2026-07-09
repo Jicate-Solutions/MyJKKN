@@ -359,7 +359,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.school_master.view', label: 'View School Master' },
       { key: 'learners.school_master.create', label: 'Create School Master Entries' },
       { key: 'learners.school_master.edit', label: 'Edit School Master Entries' },
-      { key: 'learners.school_master.delete', label: 'Delete School Master Entries' }
+      { key: 'learners.school_master.delete', label: 'Delete School Master Entries' },
+
+      // Postal Codes (pincode → district lookup + map coordinates)
+      { key: 'learners.postal_codes.view', label: 'View Postal Codes' },
+      { key: 'learners.postal_codes.create', label: 'Create Postal Code Entries' },
+      { key: 'learners.postal_codes.edit', label: 'Edit Postal Code Entries' },
+      { key: 'learners.postal_codes.delete', label: 'Delete Postal Code Entries' }
     ]
   },
   {
@@ -1525,7 +1531,7 @@ export const PERMISSION_CATEGORIES = [
 
       // Reports (accreditation)
       { key: 'campus_living.reports.view', label: 'View Reports' },
-      { key: 'campus_living.reports.naac_4_1_4', label: 'NAAC Criterion 4.1.4 (Hostel Infra)' },
+      { key: 'campus_living.reports.naac_4_1_4', label: 'NAAC 3.1 — Physical Infrastructure (Binary framework)' },
       { key: 'campus_living.reports.nirf_facilities', label: 'NIRF Facilities for Students' },
       { key: 'campus_living.reports.aicte_eoa', label: 'AICTE EOA Hostel Section' },
       { key: 'campus_living.reports.anti_ragging_quarterly', label: 'Anti-Ragging Quarterly Report' },

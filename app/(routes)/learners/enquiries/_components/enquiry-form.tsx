@@ -198,6 +198,8 @@ export const enquiryFormSchema = z.object({
   permanent_address_district: z.string().min(1, 'District is required'),
   permanent_address_state: z.string().min(1, 'State is required'),
   permanent_address_pin_code: z.string().min(1, 'PIN code is required'),
+  // postal_codes FK when a post office was picked for the pincode (optional)
+  post_office_id: z.string().nullable().optional(),
 
   // Accommodation Preferences
   accommodation_type: z.string().min(1, 'Accommodation type is required'),
@@ -482,6 +484,7 @@ const fieldToTabMap: Record<string, string> = {
   permanent_address_district: 'contact-details',
   permanent_address_state: 'contact-details',
   permanent_address_pin_code: 'contact-details',
+  post_office_id: 'contact-details',
 
   // Accommodation Preferences
   accommodation_type: 'accommodation-preferences',
@@ -872,6 +875,7 @@ export function EnquiryForm({
             return talukId || '';
           })(),
           permanent_address_pin_code: learner.permanent_address_pin_code || '',
+          post_office_id: learner.post_office_id || '',
 
           // Accommodation
           accommodation_type: learner.accommodation_type || '',
@@ -991,6 +995,7 @@ export function EnquiryForm({
           permanent_address_district: '',
           permanent_address_state: '',
           permanent_address_pin_code: '',
+          post_office_id: '',
 
           // Accommodation
           accommodation_type: '',
@@ -1201,6 +1206,8 @@ export function EnquiryForm({
         values.permanent_address_state
       ) || '',
       permanent_address_pin_code: values.permanent_address_pin_code || '',
+      // Blank → null so '' never reaches the uuid column (22P02)
+      post_office_id: formatUUID(values.post_office_id || undefined),
       permanent_address_state: getLocationNameById(
         values.permanent_address_state,
         'state'

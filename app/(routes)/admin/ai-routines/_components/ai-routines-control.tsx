@@ -155,7 +155,17 @@ function RoutineRow({
                   <Clock className="h-3.5 w-3.5" /> {r.schedule}
                 </span>
               )}
-              {r.maxLane ? <MaxLaneNote /> : null}
+              {r.maxLane ? (
+                <MaxLaneNote />
+              ) : !r.callsClaude ? (
+                <span className="text-xs text-muted-foreground">
+                  rules-based — no AI calls, so there&apos;s nothing to shift to the Max lane
+                </span>
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  live-response AI — it answers in the page, so it can&apos;t be queued to the Max lane
+                </span>
+              )}
               {schedule ? (
                 <button type="button" onClick={() => setEditing((v) => !v)} className="text-[#0b6d41] hover:underline">
                   {editing ? 'Close' : 'Edit schedule'}

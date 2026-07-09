@@ -38,6 +38,7 @@ import { cn } from '@/lib/utils';
 import { formatAdmissionYear } from '@/lib/utils/admission-year-format';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
+import { ViewOnMapLink } from '@/components/learners/view-on-map-link';
 import { formatTwelfthGroup } from '@/lib/utils/mappings/enquiry-excel-mappings';
 import { useQuery } from '@tanstack/react-query';
 import { DegreeService } from '@/lib/services/organization/degree-service';
@@ -786,6 +787,10 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                         Pincode
                       </h4>
                       <p className="text-sm">{learner.permanent_address_pin_code || 'Not specified'}</p>
+                      <ViewOnMapLink
+                        postOfficeId={learner.post_office_id}
+                        pincode={learner.permanent_address_pin_code}
+                      />
                     </div>
                   </div>
                 </div>

@@ -6025,3 +6025,33 @@ ALTER TABLE public.learners_profiles
 CREATE INDEX IF NOT EXISTS learners_profiles_last_school_id_idx
   ON public.learners_profiles (last_school_id)
   WHERE last_school_id IS NOT NULL;
+
+-- ============================================================================
+-- Postal Codes (TN post offices — pincode → district + lat/long lookup)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.postal_codes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  pincode text NOT NULL CHECK (pincode ~ '^[0-9]{6}$'),
+  office_name text NOT NULL,
+  division text,
+  district text NOT NULL,
+  district_id text NOT NULL,
+  state text NOT NULL DEFAULT 'Tamil Nadu',
+  latitude numeric(10,7),
+  longitude numeric(10,7),
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS postal_codes_pin_office_uq
+  ON public.postal_codes (pincode, lower(office_name));
+CREATE INDEX IF NOT EXISTS postal_codes_pincode_idx
+  ON public.postal_codes (pincode);
+
+-- learners_profiles: additive nullable FK to postal_codes
+ALTER TABLE public.learners_profiles
+  ADD COLUMN IF NOT EXISTS post_office_id uuid REFERENCES public.postal_codes(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS learners_profiles_post_office_id_idx
+  ON public.learners_profiles (post_office_id)
+  WHERE post_office_id IS NOT NULL;

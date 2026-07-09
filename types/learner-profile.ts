@@ -125,6 +125,8 @@ export interface LearnerProfile {
   last_school: string;
   /** FK to school_master when the school was picked from the dropdown; null for manual entries. */
   last_school_id?: string | null;
+  /** FK to postal_codes when a post office was picked for the address pincode. */
+  post_office_id?: string | null;
   board_of_study: string;
   tenth_marks?: {
     max_marks?: string;
@@ -313,6 +315,7 @@ export const learnerProfileSchema = z.object({
   // Previous Education (always required)
   last_school: z.string().min(2, 'Last school is required'),
   last_school_id: z.string().uuid().nullable().optional(),
+  post_office_id: z.string().uuid().nullable().optional(),
   board_of_study: z.string().min(2, 'Board of study is required'),
   tenth_marks: z.object({
     max_marks: z.string(),
@@ -436,6 +439,7 @@ export interface UpdateLearnerProfileDto {
   // Previous Education
   last_school?: string;
   last_school_id?: string | null;
+  post_office_id?: string | null;
   board_of_study?: string;
   tenth_marks?: {
     max_marks?: string;

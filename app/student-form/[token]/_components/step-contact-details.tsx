@@ -19,14 +19,39 @@ import {
   getTaluksByDistrict,
   getLocationIdByName,
 } from '@/lib/data/locations';
+import {
+  PostalCodeField,
+  type PostalCodeFetchers,
+} from '@/components/learners/postal-code-field';
 import type { Language } from './language-toggle';
 
 interface Props {
   lang: Language;
   data: Record<string, any>;
+  token: string;
   onContinue: (fields: Record<string, any>) => void;
   onBack: () => void;
   submitting: boolean;
+}
+
+// No authenticated session on the public form — postal lookups go through the
+// token-validated course-options endpoint (service-role).
+function buildPostalFetchers(token: string): PostalCodeFetchers {
+  return {
+    lookupPincode: async (pincode) => {
+      const res = await fetch(
+        `/api/student-form/${encodeURIComponent(token)}/course-options`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kind: 'postal_lookup', filters: { pincode } }),
+        },
+      );
+      if (!res.ok) throw new Error(`postal_lookup ${res.status}`);
+      const json = await res.json();
+      return json.data ?? { offices: [], districts: [] };
+    },
+  };
 }
 
 function Req() {
@@ -72,10 +97,12 @@ function Field({
 
 export function StepContactDetails({
   data,
+  token,
   onContinue,
   onBack,
   submitting,
 }: Props) {
+  const postalFetchers = useMemo(() => buildPostalFetchers(token), [token]);
   // Stored permanent_address_* values may be display NAMES ('TAMIL NADU',
   // 'SALEM', 'METTUR') rather than the snake_case IDs the <Select>s use, so
   // resolve them to IDs up front — otherwise the dropdowns render blank on
@@ -93,6 +120,7 @@ export function StepContactDetails({
       permanent_address_taluk:
         getLocationIdByName(data.permanent_address_taluk, 'taluk', stateId) || '',
       permanent_address_pin_code: data.permanent_address_pin_code ?? '',
+      post_office_id: data.post_office_id ?? null,
     };
   });
   const set = <K extends keyof typeof v>(k: K, val: typeof v[K]) =>
@@ -225,13 +253,28 @@ export function StepContactDetails({
         </Field>
 
         <Field label="Pincode / அஞ்சல் குறியீடு">
-          <Input
-            value={v.permanent_address_pin_code}
-            onChange={(e) => set('permanent_address_pin_code', e.target.value)}
+          <PostalCodeField
+            pincode={v.permanent_address_pin_code}
+            postOfficeId={v.post_office_id}
+            fetchers={postalFetchers}
             placeholder="6-digit pincode"
-            inputMode="numeric"
-            maxLength={6}
-            className="h-12"
+            onChange={({ pincode, postOfficeId, districtId }) =>
+              setV((p) => ({
+                ...p,
+                permanent_address_pin_code: pincode,
+                post_office_id: postOfficeId,
+                ...(districtId
+                  ? {
+                      permanent_address_state: 'tamil_nadu',
+                      permanent_address_district: districtId,
+                      // Taluk belongs to the previous district — reset if changed
+                      ...(p.permanent_address_district !== districtId
+                        ? { permanent_address_taluk: '' }
+                        : {}),
+                    }
+                  : {}),
+              }))
+            }
           />
         </Field>
       </Section>

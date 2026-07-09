@@ -28,7 +28,11 @@ import type {
   PulseTotals,
   MyConfirmedAttendance,
   PendingVerdictSuggestion,
+  MyLoopNote,
+  NoteResolutionCounts,
   FacilitatorPulseRow,
+  MyPulseRow,
+  MarksCoverageResponse,
 } from '@/types/session-feedback';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -65,6 +69,41 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to load pending sessions: ${error.message}`);
     return (data || []) as PendingSession[];
+  }
+
+  /** The feedback-window length (hours) from the shared config lever
+   *  session_feedback.window_hours — the SAME row every server-side window fn
+   *  reads, so the UI hint and the enforcement can't drift apart. The caller's
+   *  own institution_id is resolved as the scope so a per-institution override
+   *  reads the same row the server enforces with (deep-review #1898 consensus
+   *  finding: a global-only read would drift under a tenant override and the
+   *  client race-guard would block still-valid submissions). Fail-soft to 48:
+   *  the server fns remain the source of truth. */
+  static async getFeedbackWindowHours(): Promise<number> {
+    const supabase = getSupabase();
+    let scopeId: string | null = null;
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      if (auth?.user?.id) {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('institution_id')
+          .eq('id', auth.user.id)
+          .maybeSingle();
+        scopeId = (prof?.institution_id as string | null) ?? null;
+      }
+    } catch {
+      // fall through to the global-scope read
+    }
+    const { data, error } = await supabase.rpc('fn_get_policy_int', {
+      p_key: 'session_feedback.window_hours',
+      p_default: 48,
+      p_scope_id: scopeId,
+    });
+    const n = Number(data);
+    // <= 0 guards a misconfigured lever (0 would disable every row client-side).
+    if (error || data == null || Number.isNaN(n) || n <= 0) return 48;
+    return n;
   }
 
   /** The caller learner's OWN confirmed-attendance snapshot (transparency, #7).
@@ -282,6 +321,50 @@ export class SessionFeedbackService {
   }
 
   /**
+   * My Pulse — the CALLER's own work-signals over the last 30 days
+   * (fn_scf_my_pulse: self-scoped by the caller's email, no leadership gate,
+   * always one row — zeros when no signal yet). Decorative surface: failures
+   * return null and the card simply doesn't render.
+   */
+  static async getMyPulse(): Promise<MyPulseRow | null> {
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase.rpc('fn_scf_my_pulse');
+      if (error) {
+        logger.warn('academic/session-feedback', 'my-pulse load failed', error);
+        return null;
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      return (row ?? null) as MyPulseRow | null;
+    } catch (err) {
+      logger.warn('academic/session-feedback', 'my-pulse load failed', err);
+      return null;
+    }
+  }
+
+  /**
+   * Signal 8 — marks coverage for the pulse roster (server route joins the
+   * COE exam-cycle data; same leadership gate as the pulse — the route calls
+   * fn_scf_facilitator_pulse with the caller's session). Decorative to the
+   * pulse board: failures return null and the column simply doesn't render.
+   */
+  static async getMarksCoverage(
+    from: string,
+    to: string,
+  ): Promise<MarksCoverageResponse | null> {
+    try {
+      const res = await fetch(
+        `/api/academic/session-feedback/marks-coverage?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      );
+      if (!res.ok) return null;
+      const body = (await res.json()) as MarksCoverageResponse;
+      return body.configured ? body : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Verdict-at-next-class: the latest UNVERDICTED improvement note addressed to
    * the CALLER for this course, generated before today — i.e. today's class (the
    * one just marked) happened AFTER the advice, so "did you try it?" is now
@@ -330,6 +413,72 @@ export class SessionFeedbackService {
     } catch (err) {
       logger.warn('academic/session-feedback', 'pending-verdict read threw', err);
       return null;
+    }
+  }
+
+  /**
+   * All AI notes addressed to the CALLER, newest first — the faculty page's
+   * "Notes from your feedback loop" card. Unlike getPendingVerdictSuggestion
+   * (one course, unverdicted, pre-today), this is the full personal history:
+   * both kinds, verdicted or not, so a note is always findable after the
+   * one-tap attendance ask has passed. Decorative surface: failures LOG and
+   * return [] — never an error state on the faculty page.
+   */
+  static async getMyLoopNotes(limit = 20): Promise<MyLoopNote[]> {
+    try {
+      const supabase = getSupabase();
+      const { data: userData } = await supabase.auth.getUser();
+      const email = userData?.user?.email?.trim().toLowerCase();
+      if (!email) return [];
+
+      const { data, error } = await supabase
+        .from('scf_ai_suggestions')
+        .select(
+          'id, course_code, kind, suggestion, generated_at, input_avg_understood, outcome_avg_understood, outcome_measured_at, human_verdict, human_verdict_at',
+        )
+        .eq('domain', 'session_feedback')
+        .eq('faculty_email', email)
+        .order('generated_at', { ascending: false })
+        .limit(limit);
+
+      if (error) {
+        logger.warn('academic/session-feedback', 'my-loop-notes read failed', {
+          error: error.message,
+        });
+        return [];
+      }
+      return (data as MyLoopNote[] | null) ?? [];
+    } catch (err) {
+      logger.warn('academic/session-feedback', 'my-loop-notes read threw', err);
+      return [];
+    }
+  }
+
+  /**
+   * Student-confirmed resolution aggregates for a set of notes — the loop's
+   * fourth witness. fn_scf_note_resolution_counts enforces the k>=3 anonymity
+   * floor server-side: notes with fewer than 3 votes simply return no row.
+   * Decorative surface: failures log and return [].
+   */
+  static async getNoteResolutionCounts(
+    suggestionIds: string[],
+  ): Promise<NoteResolutionCounts[]> {
+    if (suggestionIds.length === 0) return [];
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase.rpc('fn_scf_note_resolution_counts', {
+        p_suggestion_ids: suggestionIds,
+      });
+      if (error) {
+        logger.warn('academic/session-feedback', 'resolution-counts read failed', {
+          error: error.message,
+        });
+        return [];
+      }
+      return (data as NoteResolutionCounts[] | null) ?? [];
+    } catch (err) {
+      logger.warn('academic/session-feedback', 'resolution-counts read threw', err);
+      return [];
     }
   }
 

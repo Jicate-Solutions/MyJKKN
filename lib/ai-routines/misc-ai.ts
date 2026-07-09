@@ -47,6 +47,7 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
   },
   {
     "id": "work-pulse-analyze",
+    "maxLane": true,
     "name": "Work Pulse Weekly Analysis",
     "category": "misc-ai",
     "type": "endpoint",
@@ -58,7 +59,7 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "configKnobs": "MODEL=claude-sonnet-4-20250514 (config row 'work_pulse.analyze' — /admin/ai-models), max_tokens=4096, LLM_TIMEOUT=60000ms, LOOKBACK_DAYS=7, ACTIVITY_LIMIT=500, EXISTING_PATTERNS_LIMIT=50, TIER thresholds S>=100/A>=50/B>=20/else C",
     "sideEffects": "WRITES: inserts/updates rows in wp_patterns; AND for training-type patterns inserts a notifications row + fans out user_notifications to affected users (in-app 'Training Opportunity' notifications). Honest-empty (writes nothing) if no pulse entries in the past 7 days.",
     "safeToManualTrigger": false,
-    "notes": "Auth: x-api-key header matching WORK_PULSE_API_KEY, OR a super_admin session. Despite the 'Weekly AI analysis' label there is NO cron for it in vercel.json — it must be fired externally (e.g. n8n/manual). Marked unsafe to fire casually because a run can push in-app training-win notifications to real users and mutate the pattern board; re-running duplicates that. Needs ANTHROPIC_API_KEY/CLAUDE_API_KEY (503 if missing)."
+    "notes": "Auth: x-api-key header matching WORK_PULSE_API_KEY, OR a super_admin session. Despite the 'Weekly AI analysis' label there is NO cron for it in vercel.json — it must be fired externally (e.g. n8n/manual). Marked unsafe to fire casually because a run can push in-app training-win notifications to real users and mutate the pattern board; re-running duplicates that. Needs ANTHROPIC_API_KEY/CLAUDE_API_KEY (503 if missing). Max lane: on-demand via the ⚡ button — a Mac-side runner twin executes on the Claude Max subscription (₹0 API) and is guard-idempotent with the API path."
   },
   {
     "id": "work-pulse-translate",
@@ -103,5 +104,35 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "sideEffects": "DB writes only: may INSERT one status='pending' row into cohort_adjustment_proposals per closed cohort (proposed_by NULL = system-generated). NEVER auto-applies — a human must approve (M7) before any program change lands. Idempotent: skips cohorts that already have an open/applied proposal (a partial unique index also enforces one-open-per-cohort). No notifications, no external messages.",
     "safeToManualTrigger": true,
     "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'cohort-moat-autopropose' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer or ?secret=). Safe to manual-trigger: it only queues PENDING suggestions (no auto-apply, no messages), and re-running is a no-op for cohorts that already have one. Does nothing at all until a cohort genuinely closes with both arms scored."
+  },
+  {
+    "id": "overnight-bugfix",
+    "maxLane": true,
+    "name": "Overnight Bug-Fixer (draft-PR pipeline)",
+    "category": "misc-ai",
+    "type": "service",
+    "schedule": "Nightly · 22:00 IST · Mac launchd (com.local.overnight-v2)",
+    "triggerPath": "/api/admin/ai-routines/max-run",
+    "callsClaude": true,
+    "whatItDoes": "While everyone sleeps, it picks up to 3 of the oldest open bugs from /admin/bug-reports, verifies each is STILL a bug in today's code (liveness gate: merged-PR search + in-code reproduction), fixes it in an isolated worktree off production main, runs the repo's bespoke CI gates locally (Step 2.7 mirror: nav-config, radix, permissions-catalog + PR-scoped typecheck), and opens a DRAFT pull request. It never merges — a human reviews in the morning.",
+    "configKnobs": "MAX_BUGS=3/night (⚡ button runs 1), BUG_TIMEOUT=20min/bug, MODEL=sonnet (headless claude -p on the Max subscription — dev tooling, not product AI), forbidden paths: auth/middleware/migrations/RLS/payment/admin; routable modules mirror /fixmyjkkn",
+    "sideEffects": "Opens DRAFT PRs on GitHub (Jicate-Solutions/MyJKKN) and comments on duplicates. NEVER merges, never touches production data — the bug board is read-only to it. Telegram summary per run.",
+    "safeToManualTrigger": true,
+    "notes": "Runs on the Mac via launchd, not Vercel — the ⚡ Run-on-Max button queues a max_lane_requests row that the Mac poller claims (button run = 1 bug, capped 30 min). Welded 2026-07-08 with the loopcraft MetaLoop: dedupe vs open PRs, gate-mirror before push, engine-limit alarm. Companion routine: overnight-judge."
+  },
+  {
+    "id": "overnight-judge",
+    "maxLane": true,
+    "name": "Overnight Morning Judge (PR pile MetaLoop)",
+    "category": "misc-ai",
+    "type": "service",
+    "schedule": "Daily · 07:15 IST · Mac launchd (com.local.overnight-judge)",
+    "triggerPath": "/api/admin/ai-routines/max-run",
+    "callsClaude": false,
+    "whatItDoes": "The review half of the overnight loop: every morning it sweeps the open overnight PRs — closes exact duplicates (identical files + same symptom, keeps the newest), warns when two drafts touch the same file, flips clean backend-only fixes to Ready (using the Visual Proof Gate's own classifier), snapshots CI after the flip, and publishes a daily verdict to the live artifact page plus a Telegram digest. Humans stay the only merge authority.",
+    "configKnobs": "Duplicate rule: identical changed-file set + title similarity >= 0.4; ready-flip only for zero-rendering-surface diffs (NON_UI_REGEX verbatim from visual-proof-gate.yml); JUDGE_MODE=dry prints the plan without acting.",
+    "sideEffects": "GitHub only: closes duplicate DRAFT PRs (reversible, with explanatory comment), adds visual-proof-skip labels, flips drafts to Ready, comments on overlaps. Never merges. Telegram digest + artifact update.",
+    "safeToManualTrigger": true,
+    "notes": "Fully mechanical (bash + gh + python, no LLM) — it keeps working even when the Claude subscription is rate-limited. Runs on the Mac via launchd; the ⚡ button queues an on-demand pass through the same Mac poller. Built 2026-07-08 as loopcraft level-4 (spawn/review/respawn) over the nightly fixer."
   }
 ];

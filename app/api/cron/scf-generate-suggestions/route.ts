@@ -90,6 +90,7 @@ const WIDENED_MIN_ASKS = 2;
 // output shape is identical — the record RPC stores the same JSON structure.
 const SYSTEM_PROMPT = `You are a teaching-improvement assistant for an Indian higher-education institution. A class's students gave anonymous post-class feedback on how well they understood a session. You receive ONLY aggregate signals and anonymized comment text — never any student identity.
 Use ONLY the data provided; ground every suggestion in it. Be concrete and India-context aware. NEVER quote a comment verbatim and NEVER refer to an individual student — speak only in aggregate themes so no student can be identified.
+NEVER state counts, sample sizes, response numbers, averages, percentages, rating scales, or trigger thresholds in your output — describe group size ONLY in the words given (e.g. a few learners, a small group) and understanding ONLY in the qualitative band words given. Printed numbers teach students and staff how to game the loop.
 Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exactly:
 { "summary": "...", "likelyCauses": ["..."], "suggestedAdjustments": [{"title":"...","how":"..."}], "quickWin": "...", "whatToWatchNext": "..." }
 Give 2-4 likelyCauses and 3-5 suggestedAdjustments. whatToWatchNext must describe, in words only, whether understanding holds or improves in the next session — never cite a number, score, average, or target.
@@ -98,6 +99,7 @@ CRITICAL: Never express understanding as a number, score, average, rating out of
 // The POSITIVE flip-side: when a class lands exceptionally well, capture WHAT WORKED.
 const SUCCESS_SYSTEM_PROMPT = `You are a teaching-excellence assistant for an Indian higher-education institution. A class's students gave anonymous post-class feedback, and this session landed exceptionally well (high understanding, positive comments). You receive ONLY aggregate signals and anonymized comment text — never any student identity.
 Your job: capture WHAT WORKED so the facilitator can deliberately repeat it and peers teaching the same course can learn from it. Use ONLY the data provided; ground every point in it. Be concrete and India-context aware. NEVER quote a comment verbatim and NEVER refer to an individual student — speak only in aggregate themes so no student can be identified.
+NEVER state counts, sample sizes, response numbers, averages, percentages, rating scales, or trigger thresholds in your output — describe group size ONLY in the words given (e.g. a few learners, a small group) and understanding ONLY in the qualitative band words given. Printed numbers teach students and staff how to game the loop.
 Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exactly:
 { "whatWorked": "...", "whyItLanded": ["..."], "replicateIn": [{"context":"...","how":"..."}], "shareWithPeers": "...", "watchNext": "..." }
 Give 2-4 whyItLanded and 2-3 replicateIn. watchNext must describe, in words only, whether this strong understanding is sustained in the next session — never cite a number, score, average, or target.
@@ -117,6 +119,10 @@ type SignalRow = {
   low_responses: number;
   avg_understood: number | null;
   free_texts: string[] | null;
+  // Exact contributing session dates (ISO yyyy-mm-dd) from fn_scf_ai_signal —
+  // only closed-window sessions since the two-sided 48h window (2026-07-09).
+  // The recorded note cites these (suggestion.contributing_dates).
+  session_dates: string[] | null;
 };
 
 // A course+faculty+institution tuple to process in a run
@@ -138,6 +144,7 @@ type JudgeContext = {
   free_texts: string[];
   normFaculty: string | null;
   recentSince: string;
+  session_dates: string[];
 };
 type GenContext = {
   target: CourseTarget;
@@ -145,6 +152,7 @@ type GenContext = {
   responses: number;
   low_responses: number;
   avg: number;
+  session_dates: string[];
 };
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -165,6 +173,7 @@ function signalFromCtx(ctx: JudgeContext): SignalRow {
     low_responses: ctx.low_responses,
     avg_understood: ctx.avg,
     free_texts: ctx.free_texts,
+    session_dates: ctx.session_dates ?? [],
   };
 }
 
@@ -173,6 +182,17 @@ function signalFromCtx(ctx: JudgeContext): SignalRow {
 // loop still records the numeric avg to the backend (p_input_avg) for its own
 // measurement; only what the AI SEES and SAYS is qualitative. Bands mirror the
 // generator's own gate thresholds (LOW_UNDERSTOOD_THRESHOLD / STANDOUT_THRESHOLD).
+// Group size in WORDS for the prompt (Director, 2026-07-09: printed counts in
+// tiny samples let a student subtract themselves and teach the trigger recipe).
+function groupSizeWord(n: number): string {
+  // NaN/0-safe (deep-review 2026-07-09 LOW, rounds 1+2): callers guard at
+  // declaration (Number(x ?? 0)), but NaN < 6 / NaN < 16 are both false (would
+  // print "a larger group"), and 0 is not "a few learners" — an empty or
+  // uncountable sample gets the neutral phrase instead of a fabricated size.
+  if (!Number.isFinite(n) || n <= 0) return 'the group';
+  return n < 6 ? 'a few learners' : n < 16 ? 'a small group' : 'a larger group';
+}
+
 function understandingBandWord(avg: number | null | undefined): string {
   if (avg === null || avg === undefined || Number.isNaN(Number(avg))) return 'unknown';
   const a = Number(avg);
@@ -319,10 +339,16 @@ function buildGenerationParams(
       ? 'Capture what worked as reusable success-pattern JSON now.'
       : 'Generate the teaching-improvement JSON now.';
 
+  // Cite the exact contributing sessions (closed-window only, per the two-sided
+  // 48h window) — falls back to the candidate range if dates are missing.
+  const sessionDates: string[] = Array.isArray(signal.session_dates) ? signal.session_dates : [];
+  const sessionsLine =
+    sessionDates.length > 0 ? sessionDates.join(', ') : `${windowFrom} to ${windowTo}`;
+
   const userPrompt = `Course: ${courseCode}
 Window: ${windowFrom} to ${windowTo}
-Responses: ${signal.responses}
-Students who reported low understanding: ${signal.low_responses}
+Sessions covered (feedback window closed — the sample is final): ${sessionsLine}
+Group size (words only — never repeat numbers): ${groupSizeWord(Number(signal.responses ?? 0))}
 Understanding level (qualitative): ${understandingBandWord(signal.avg_understood)}
 
 Anonymized student comments:
@@ -353,7 +379,16 @@ function parseSuggestionMessage(
       .replace(/^```(?:json)?\s*/i, '')
       .replace(/\s*```$/i, '')
       .trim();
-    const suggestion = JSON.parse(jsonStr) as Record<string, unknown>;
+    // Tolerant extraction (2026-07-09): slice the outermost {...} when the
+    // model wraps the object in prose/trailing text (maiden Max-chain receipt).
+    let suggestion: Record<string, unknown>;
+    try {
+      suggestion = JSON.parse(jsonStr) as Record<string, unknown>;
+    } catch {
+      const m = jsonStr.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error('no JSON object in model output');
+      suggestion = JSON.parse(m[0]) as Record<string, unknown>;
+    }
     return { suggestion, modelUsed: message.model };
   } catch (err) {
     console.error('[cron/scf-generate-suggestions] AI generation failed:', err);
@@ -567,6 +602,7 @@ export async function GET(request: NextRequest) {
                 responses: ctx.responses,
                 low_responses: ctx.low_responses,
                 avg: ctx.avg,
+                session_dates: ctx.session_dates ?? [],
               };
               chainedGen.push({
                 customId: `gen-${chainedGen.length}`,
@@ -608,6 +644,13 @@ export async function GET(request: NextRequest) {
             const { suggestion, modelUsed } = parseSuggestionMessage(item.message);
             if (suggestion !== null) {
               try {
+                // Deterministic citation: the exact closed-window session dates ride
+                // in the payload so the note's UI can always show its evidence base
+                // (never depends on the model choosing to mention them).
+                const suggestionWithDates =
+                  (ctx.session_dates ?? []).length > 0
+                    ? { ...suggestion, contributing_dates: ctx.session_dates }
+                    : suggestion;
                 await admin.rpc('fn_scf_record_suggestion', {
                   p_institution_id: ctx.target.institution_id,
                   p_course_code: ctx.target.course_code,
@@ -617,7 +660,7 @@ export async function GET(request: NextRequest) {
                   p_input_responses: ctx.responses,
                   p_input_low: Number(ctx.low_responses ?? 0),
                   p_input_avg: ctx.avg,
-                  p_suggestion: suggestion,
+                  p_suggestion: suggestionWithDates,
                   p_model: modelUsed,
                   p_kind: ctx.kind,
                 });
@@ -784,6 +827,7 @@ export async function GET(request: NextRequest) {
         .filter((t) => t.length > 0);
       const freeTextCount = freeTexts.length;
       const lowResponses = Number(signal?.low_responses ?? 0);
+      const sessionDates: string[] = (signal?.session_dates ?? []).map((d) => String(d));
 
       if (responses < MIN_RESPONSES || avgUnderstood === null) {
         skipped++;
@@ -819,6 +863,7 @@ export async function GET(request: NextRequest) {
           free_texts: freeTexts,
           normFaculty,
           recentSince,
+          session_dates: sessionDates,
         };
         judgeReqs.push({
           customId: `judge-${judgeReqs.length}`,
@@ -859,6 +904,7 @@ export async function GET(request: NextRequest) {
         responses,
         low_responses: lowResponses,
         avg: avgUnderstood,
+        session_dates: sessionDates,
       };
       genReqs.push({
         customId: `gen-${genReqs.length}`,

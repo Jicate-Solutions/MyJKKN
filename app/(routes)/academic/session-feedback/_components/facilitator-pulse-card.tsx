@@ -38,15 +38,22 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { SessionFeedbackService } from '@/lib/services/session-feedback-service';
-import type { FacilitatorPulseRow } from '@/types/session-feedback';
+import type {
+  FacilitatorPulseRow,
+  MarksCoverageResponse,
+} from '@/types/session-feedback';
 
 type PulseState = { key: string; rows?: FacilitatorPulseRow[]; error?: string };
+type CoverageState = { key: string; data: MarksCoverageResponse | null };
 
 export function FacilitatorPulseCard({ from, to }: { from: string; to: string }) {
   // Stale-key pattern: state is only ever set asynchronously (no sync setState
   // in the effect body); a range change makes the previous result stale, which
   // reads as "loading" until the new fetch resolves.
   const [state, setState] = useState<PulseState | null>(null);
+  // Signal 8 (marks coverage) is decorative to the board: it loads separately
+  // and the whole column stays hidden until (unless) it resolves with data.
+  const [coverage, setCoverage] = useState<CoverageState | null>(null);
   const rangeKey = `${from}|${to}`;
 
   useEffect(() => {
@@ -62,6 +69,9 @@ export function FacilitatorPulseCard({ from, to }: { from: string; to: string })
             error: e instanceof Error ? e.message : 'Failed to load',
           });
       });
+    SessionFeedbackService.getMarksCoverage(from, to).then((c) => {
+      if (!cancelled) setCoverage({ key: `${from}|${to}`, data: c });
+    });
     return () => {
       cancelled = true;
     };
@@ -70,6 +80,13 @@ export function FacilitatorPulseCard({ from, to }: { from: string; to: string })
   const current = state?.key === rangeKey ? state : null;
   const rows = current?.rows ?? null;
   const error = current?.error ?? null;
+
+  const rawCov = coverage?.key === rangeKey ? coverage.data : null;
+  // Narrowed handle: non-null only when the route resolved with a live cycle.
+  const cov = rawCov?.session_code ? rawCov : null;
+  const covByEmail = new Map(
+    (cov?.rows ?? []).map((c) => [c.faculty_email, c]),
+  );
 
   return (
     <Card>
@@ -81,9 +98,21 @@ export function FacilitatorPulseCard({ from, to }: { from: string; to: string })
         <CardDescription>
           Each row is a facilitator&apos;s work-signals for this period: sessions they
           marked, sessions the room confirmed (&ge;3 learner responses), live pulses,
-          lesson links and loop verdicts. The customary biometric record stays
+          lesson links, loop verdicts and student votes answered on their loop notes
+          (volume only — never how they voted). The customary biometric record stays
           separate — this is what the work itself evidences. Watch the gap between
           marked and witnessed.
+          {cov && (
+            <>
+              {' '}
+              &ldquo;Marks in&rdquo; is the {cov.session_code}{' '}exam cycle: of the
+              courses each facilitator is planned to teach that COE examines, how
+              many have internal marks entered. Marks are entered by the exam
+              cell in COE — this is course completeness, never proof the
+              facilitator entered them. &ldquo;&mdash;&rdquo; means none of their
+              planned courses sit in this cycle.
+            </>
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -112,6 +141,23 @@ export function FacilitatorPulseCard({ from, to }: { from: string; to: string })
                   <TableHead className='text-right'>Lessons</TableHead>
                   <TableHead className='text-right'>Notes</TableHead>
                   <TableHead className='text-right'>Verdicts</TableHead>
+                  <TableHead
+                    className='text-right'
+                    title='Student Better/Same/Worse answers received on this facilitator&apos;s loop notes — count only, never the split'
+                  >
+                    Student votes
+                  </TableHead>
+                  {cov && (
+                    <TableHead
+                      className='text-right'
+                      title={`Courses with internal marks in for the ${cov.session_code} cycle — entered by the exam cell, not the facilitator`}
+                    >
+                      Marks in{' '}
+                      <span className='block text-[10px] font-normal text-muted-foreground'>
+                        exam cell
+                      </span>
+                    </TableHead>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -137,6 +183,18 @@ export function FacilitatorPulseCard({ from, to }: { from: string; to: string })
                       <TableCell className='text-right tabular-nums'>{r.lessons_linked}</TableCell>
                       <TableCell className='text-right tabular-nums'>{r.notes_received}</TableCell>
                       <TableCell className='text-right tabular-nums'>{r.verdicts_given}</TableCell>
+                      <TableCell className='text-right tabular-nums'>{r.votes_received}</TableCell>
+                      {cov &&
+                        (() => {
+                          const c = covByEmail.get(r.faculty_email.toLowerCase());
+                          return (
+                            <TableCell className='text-right tabular-nums'>
+                              {c && c.courses_expected > 0
+                                ? `${c.courses_marks_in}/${c.courses_expected}`
+                                : '—'}
+                            </TableCell>
+                          );
+                        })()}
                     </TableRow>
                   );
                 })}

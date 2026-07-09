@@ -7791,3 +7791,23 @@ CREATE POLICY school_master_delete ON public.school_master
   USING (public.user_has_permission('learners.school_master.delete'));
 
 REVOKE ALL ON public.school_master FROM anon;
+
+-- ============================================================================
+-- Postal Codes (static lookup: authenticated read only, no write policies)
+-- ============================================================================
+ALTER TABLE public.postal_codes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY postal_codes_select ON public.postal_codes
+  FOR SELECT TO authenticated USING (true);
+REVOKE ALL ON public.postal_codes FROM anon;
+
+-- Postal Codes: admin CRUD (added 20260731104000) — writes permission-gated
+CREATE POLICY postal_codes_insert ON public.postal_codes
+  FOR INSERT TO authenticated
+  WITH CHECK (public.user_has_permission('learners.postal_codes.create'));
+CREATE POLICY postal_codes_update ON public.postal_codes
+  FOR UPDATE TO authenticated
+  USING (public.user_has_permission('learners.postal_codes.edit'))
+  WITH CHECK (public.user_has_permission('learners.postal_codes.edit'));
+CREATE POLICY postal_codes_delete ON public.postal_codes
+  FOR DELETE TO authenticated
+  USING (public.user_has_permission('learners.postal_codes.delete'));

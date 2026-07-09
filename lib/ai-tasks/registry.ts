@@ -81,16 +81,28 @@ const SF_LEADERSHIP_ROLES = new Set([
 
 const SF_SYSTEM_PROMPT = `You are a teaching-improvement assistant for an Indian higher-education institution. A class's students gave anonymous post-class feedback on how well they understood a session. You receive ONLY aggregate signals and anonymized comment text — never any student identity.
 Use ONLY the data provided; ground every suggestion in it. Be concrete and India-context aware. NEVER quote a comment verbatim and NEVER refer to an individual student — speak only in aggregate themes so no student can be identified.
+NEVER state counts, sample sizes, response numbers, averages, percentages, rating scales, or trigger thresholds in your output — describe group size ONLY in the words given (e.g. a few learners, a small group) and understanding ONLY in the qualitative band words given. Printed numbers teach students and staff how to game the loop.
 Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exactly:
 { "summary": "...", "likelyCauses": ["..."], "suggestedAdjustments": [{"title":"...","how":"..."}], "quickWin": "...", "whatToWatchNext": "..." }
 Give 2-4 likelyCauses and 3-5 suggestedAdjustments. whatToWatchNext must describe, in words only, whether understanding holds or improves in the next session — never cite a number, score, average, or target.
-CRITICAL: Never express understanding as a number, score, average, rating out of 5, or percentage, and never state a numeric target or threshold to reach. Describe understanding and its trend in words only (e.g. "understanding was strong", "a small cluster still struggled"). You may state how many students responded.`;
+CRITICAL: Never express understanding as a number, score, average, rating out of 5, or percentage, and never state a numeric target or threshold to reach. Describe understanding and its trend in words only (e.g. "understanding was strong", "a small cluster still struggled"). You may state how many learners responded.`;
 
 // Facilitator-facing understanding must never reach the model as a raw number: a
 // printed baseline/target invites gaming ("keep scoring 3.6"). Feed a qualitative
 // band instead. Mirrors the sync route (ai-suggest-improvement) + the SCF cron.
 // Thresholds match the generator gate: LOW < 3, MIXED < 4.5, STRONG >= 4.5. The
 // loop still records the numeric avg to the backend for its own measurement.
+// Group size in WORDS for the prompt (Director, 2026-07-09: printed counts in
+// tiny samples let a student subtract themselves and teach the trigger recipe).
+function groupSizeWord(n: number): string {
+  // NaN/0-safe (deep-review 2026-07-09 LOW, rounds 1+2): callers guard at
+  // declaration (Number(x ?? 0)), but NaN < 6 / NaN < 16 are both false (would
+  // print "a larger group"), and 0 is not "a few learners" — an empty or
+  // uncountable sample gets the neutral phrase instead of a fabricated size.
+  if (!Number.isFinite(n) || n <= 0) return 'the group';
+  return n < 6 ? 'a few learners' : n < 16 ? 'a small group' : 'a larger group';
+}
+
 function understandingBandWord(avg: number | null | undefined): string {
   if (avg === null || avg === undefined || Number.isNaN(Number(avg))) return 'unknown';
   const a = Number(avg);
@@ -174,6 +186,11 @@ const sessionFeedbackSummarize: AiTaskType = {
     const lowResponses = Number(row?.low_responses ?? 0);
     const avgUnderstood = row?.avg_understood != null ? Number(row.avg_understood) : null;
     const freeTexts: string[] = Array.isArray(row?.free_texts) ? row.free_texts : []; // server-side ONLY
+    // Closed-window session dates (two-sided 48h window) — travel via itemContext
+    // so recordResult can stamp suggestion.contributing_dates.
+    const sessionDates: string[] = Array.isArray(row?.session_dates)
+      ? row.session_dates.map((d: unknown) => String(d))
+      : [];
 
     // Small-n floor → skip the LLM (no batch item created).
     if (responses < 3) {
@@ -210,11 +227,10 @@ const sessionFeedbackSummarize: AiTaskType = {
 
     const commentBlock = freeTexts.length > 0
       ? freeTexts.map((t) => `- ${String(t).trim()}`).join('\n')
-      : '- (no written comments — use the numeric signals)';
+      : '- (no written comments — use the understanding level and group size above)';  // deep-review 2026-07-09 LOW: the prompt no longer carries response counts — do not invite the model to cite them
     const userPrompt = `Course: ${courseCode}
 Window: ${from} to ${to}
-Responses: ${responses}
-Students who reported low understanding: ${lowResponses}
+Group size (words only — never repeat numbers): ${groupSizeWord(responses)}
 Understanding level (qualitative): ${understandingBandWord(avgUnderstood)}
 
 Anonymized student comments:
@@ -241,6 +257,7 @@ Generate the teaching-improvement JSON now.`;
       itemContext: {
         course_code: courseCode, p_faculty_email: pFacultyEmail, loop_institution_id: loopInstitutionId,
         from, to, responses, low_responses: lowResponses, avg_understood: avgUnderstood,
+        session_dates: sessionDates,
       },
     };
   },
@@ -254,6 +271,11 @@ Generate the teaching-improvement JSON now.`;
     const loopInstitutionId = (itemContext.loop_institution_id as string | null) ?? null;
     const courseCode = String(itemContext.course_code);
     const pFacultyEmail = (itemContext.p_faculty_email as string | null) ?? null;
+    // Closed-window session dates from buildSubmitItem — stamped so the recorded
+    // note cites its evidence base (two-sided 48h window).
+    const sessionDates: string[] = Array.isArray(itemContext.session_dates)
+      ? (itemContext.session_dates as unknown[]).map((d) => String(d))
+      : [];
 
     let suggestionId: string | null = null;
     try {
@@ -266,7 +288,8 @@ Generate the teaching-improvement JSON now.`;
         p_input_responses: itemContext.responses,
         p_input_low: itemContext.low_responses,
         p_input_avg: itemContext.avg_understood,
-        p_suggestion: suggestion,
+        p_suggestion:
+          sessionDates.length > 0 ? { ...suggestion, contributing_dates: sessionDates } : suggestion,
         p_model: message.model,
       });
       suggestionId = typeof recordedId === 'string' ? recordedId : null;

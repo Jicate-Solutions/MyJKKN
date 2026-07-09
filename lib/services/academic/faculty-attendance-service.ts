@@ -205,11 +205,16 @@ export class FacultyAttendanceService {
         const timetableData = timetable.timetable_data as TimetableDataStructure | null;
         const periodsRaw = timetable.periods as any;
 
-        // Helper: resolve period definition from either array or object format
+        // Helper: resolve period definition from either array or object format.
+        // Array entries carry the identifier as `id` OR `period_id` depending on
+        // which timetable builder wrote them (AHS timetables use `period_id`
+        // only) — match both, or every slot silently drops at the lookup.
         const findPeriodDef = (periodId: string): any => {
           if (!periodsRaw) return null;
           if (Array.isArray(periodsRaw)) {
-            return periodsRaw.find((p: any) => p.id === periodId);
+            return periodsRaw.find(
+              (p: any) => p.id === periodId || p.period_id === periodId
+            );
           }
           if (typeof periodsRaw === 'object' && periodsRaw[periodId]) {
             return { id: periodId, ...periodsRaw[periodId] };
@@ -783,11 +788,15 @@ export class FacultyAttendanceService {
           const timetableData = timetable.timetable_data as TimetableDataStructure | null;
           const periodsRaw = timetable.periods as any;
 
-          // Helper: resolve period definition from either array or object format
+          // Helper: resolve period definition from either array or object format.
+          // Array entries carry the identifier as `id` OR `period_id` (AHS
+          // timetables use `period_id` only) — match both.
           const findPeriodDef = (pId: string): any => {
             if (!periodsRaw) return null;
             if (Array.isArray(periodsRaw)) {
-              return periodsRaw.find((p: any) => p.id === pId);
+              return periodsRaw.find(
+                (p: any) => p.id === pId || p.period_id === pId
+              );
             }
             if (typeof periodsRaw === 'object' && periodsRaw[pId]) {
               return { id: pId, ...periodsRaw[pId] };

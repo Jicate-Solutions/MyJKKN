@@ -46,12 +46,14 @@ export function FollowupCell({ row }: { row: EscalationFollowupRow }) {
 
   return (
     <div className="flex flex-col items-end gap-0.5">
-      <span className="text-sm font-semibold tabular-nums text-foreground">
+      {/* <div>, not <span>: UnderstandingBand renders a <div> (Badge), and a span
+          may not contain a div. Rendered as a flex item, span/div are identical. */}
+      <div className="text-sm font-semibold tabular-nums text-foreground">
         <UnderstandingBand avg={row.next_avg_understood} />
         <span className="ml-1 text-[11px] font-normal text-muted-foreground">
           ({row.next_responses ?? 0} resp.)
         </span>
-      </span>
+      </div>
       <span className={`flex items-center gap-1 text-xs font-medium ${liftColor}`}>
         <LiftArrow className="h-3.5 w-3.5" aria-hidden />
         <span className="font-normal">{liftLabel}</span>

@@ -348,11 +348,50 @@ export interface PendingVerdictSuggestion {
     likelyCauses?: string[];
     suggestedAdjustments?: { title: string; how: string }[];
     whatToWatchNext?: string;
+    /** Exact closed-window session dates the note coached on (two-sided 48h
+     *  window, 2026-07-09) — stamped deterministically by the generator. */
+    contributing_dates?: string[];
   } | null;
   generated_at: string;
   input_avg_understood: number | null;
   outcome_avg_understood: number | null;
   outcome_measured_at: string | null;
+}
+
+/** One AI note addressed to the logged-in facilitator, for the always-visible
+ *  "Notes from your feedback loop" card on the faculty page. Same anti-gaming
+ *  rule as PendingVerdictSuggestion: averages render as band words only. */
+export interface MyLoopNote {
+  id: string;
+  course_code: string;
+  kind: 'improvement' | 'success';
+  suggestion: {
+    summary?: string;
+    quickWin?: string;
+    likelyCauses?: string[];
+    suggestedAdjustments?: { title: string; how: string }[];
+    whatToWatchNext?: string;
+    /** Exact closed-window session dates the note coached on (two-sided 48h
+     *  window, 2026-07-09) — stamped deterministically by the generator. */
+    contributing_dates?: string[];
+  } | null;
+  generated_at: string;
+  input_avg_understood: number | null;
+  outcome_avg_understood: number | null;
+  outcome_measured_at: string | null;
+  human_verdict: 'tried_helped' | 'tried_no_change' | 'not_tried' | null;
+  human_verdict_at: string | null;
+}
+
+/** Student-confirmed resolution aggregate for one note (fn_scf_note_resolution_counts).
+ *  The fn enforces a k>=3 floor — a note with fewer than 3 votes returns NO row, so
+ *  staff can never reconstruct an individual learner's answer from a tiny class. */
+export interface NoteResolutionCounts {
+  suggestion_id: string;
+  better: number;
+  same: number;
+  worse: number;
+  total: number;
 }
 
 /** One facilitator's work-evidenced presence signals over a range
@@ -368,5 +407,45 @@ export interface FacilitatorPulseRow {
   lessons_linked: number;
   notes_received: number;
   verdicts_given: number;
+  /** Student Better/Same/Worse answers received on this facilitator's loop
+   *  notes — VOLUME ONLY. The split stays behind the k>=3 floor in
+   *  fn_scf_note_resolution_counts, never on the board. */
+  votes_received: number;
   last_signal_at: string | null;
+}
+
+/** The caller's OWN work-signals over the last 30 days (fn_scf_my_pulse —
+ *  self-scoped by the caller's email; always exactly one row, zeros when no
+ *  signal). Same doctrine as the board: presence signals only, no scores,
+ *  no comparisons, no ranks. */
+export interface MyPulseRow {
+  sessions_marked: number;
+  sessions_witnessed: number;
+  pulses_run: number;
+  lessons_linked: number;
+  notes_received: number;
+  verdicts_given: number;
+  votes_received: number;
+  last_signal_at: string | null;
+}
+
+/** Signal 8 — marks coverage for one facilitator's planned courses in the
+ *  active COE exam cycle. COURSE COMPLETENESS, not a facilitator act: COE
+ *  marks are entered by the exam cell (~4 operator accounts; faculty_id never
+ *  filled), so this may never be presented as proof the facilitator entered
+ *  anything. courses_expected = planned courses COE examines this cycle
+ *  (registrations ∪ CIA rows); courses_marks_in = those with CIA entries. */
+export interface MarksCoverageRow {
+  faculty_email: string;
+  courses_expected: number;
+  courses_marks_in: number;
+}
+
+export interface MarksCoverageResponse {
+  configured: boolean;
+  session_code: string | null;
+  rows: MarksCoverageRow[];
+  /** Present (true) only when the planned-code list was truncated server-side
+   *  and coverage may undercount — surfaced, never silent. */
+  codes_capped?: boolean;
 }

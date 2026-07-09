@@ -78,7 +78,7 @@ export default async function MyBillsPage() {
   // Header context (own row — RLS-scoped).
   const { data: learnerRow } = await supabase
     .from('learners_profiles')
-    .select('first_name, last_name, roll_number, college_email, institution:institution_id ( name )')
+    .select('first_name, last_name, roll_number, college_email, institution_id, institution:institution_id ( name )')
     .eq('id', learnerId)
     .maybeSingle();
 
@@ -275,9 +275,11 @@ export default async function MyBillsPage() {
       <div className='space-y-6 mt-6'>
         <MyBillsClient
           data={data}
+          learnerId={learnerId}
           learnerName={learnerName}
           rollNumber={learnerRow?.roll_number ?? ''}
           collegeEmail={learnerRow?.college_email ?? ''}
+          institutionId={learnerRow?.institution_id ?? null}
           institutionName={institutionName}
         />
       </div>

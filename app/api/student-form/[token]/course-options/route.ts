@@ -35,6 +35,7 @@ type Filters = {
   stop_id?: string;
   district?: string;
   search?: string;
+  pincode?: string;
 };
 
 type Kind =
@@ -49,6 +50,7 @@ type Kind =
   | 'route_stops'
   | 'school_districts'
   | 'schools'
+  | 'postal_lookup'
   | 'names';
 
 export async function POST(
@@ -274,6 +276,28 @@ export async function POST(
         const { data, error, count } = await q;
         if (error) throw error;
         return NextResponse.json({ data: data ?? [], total: count ?? 0 });
+      }
+
+      case 'postal_lookup': {
+        // Post offices for a 6-digit pincode — powers the address section's
+        // district auto-fill + optional post-office pick. Mirrors
+        // PostalCodeService.lookupPincode for the public form.
+        const pin = (filters.pincode ?? '').trim();
+        if (!/^[0-9]{6}$/.test(pin)) {
+          return NextResponse.json({ data: { offices: [], districts: [] } });
+        }
+        const { data, error } = await (svc as any)
+          .from('postal_codes')
+          .select('*')
+          .eq('pincode', pin)
+          .eq('is_active', true)
+          .order('office_name', { ascending: true });
+        if (error) throw error;
+        const offices = data ?? [];
+        const districts = [
+          ...new Map(offices.map((o: any) => [o.district_id, o])).values(),
+        ].map((o: any) => ({ district: o.district, district_id: o.district_id }));
+        return NextResponse.json({ data: { offices, districts } });
       }
 
       case 'names': {

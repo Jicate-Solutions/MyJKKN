@@ -29,6 +29,15 @@ export interface ResolveContext {
    * (verify/refund/webhook resolve by accountId). Null/omit = institution default.
    */
   feeHead?: string | null;
+  /**
+   * Set to 'create-order' when resolving credentials to CREATE a new payment
+   * order. In production this rejects test-mode keys (fail closed): Razorpay's
+   * sandbox checkout SIMULATES success (UPI QR auto-"pays" in ~15s without any
+   * money), so a real bill routed to a test account gets marked paid and
+   * receipted with zero capture. Verify/refund/webhook/cron resolution must NOT
+   * set this so historical test transactions stay serviceable.
+   */
+  purpose?: 'create-order';
 }
 
 function envCredentials(): RazorpayCredentials | null {
@@ -45,10 +54,43 @@ function envCredentials(): RazorpayCredentials | null {
   };
 }
 
+/** True when the key is a Razorpay sandbox key (prefix wins over the stored mode label). */
+export function isTestModeKey(keyId: string | null | undefined, mode?: string | null): boolean {
+  return !!keyId?.startsWith('rzp_test_') || mode === 'test';
+}
+
+/**
+ * Whether sandbox (test-mode) payments may be CREATED in this runtime.
+ * Non-production always may (local/preview rehearsals); production only with
+ * the explicit RAZORPAY_ALLOW_TEST_PAYMENTS=true escape hatch.
+ */
+export function sandboxPaymentsAllowed(): boolean {
+  const isProduction = (process.env.VERCEL_ENV ?? process.env.NODE_ENV) === 'production';
+  return !isProduction || process.env.RAZORPAY_ALLOW_TEST_PAYMENTS === 'true';
+}
+
+/**
+ * Fail closed at order creation: never open a REAL payment on a test-mode key
+ * in production. Judged by the key prefix (rzp_test_), not the stored `mode`
+ * label, so a mislabeled vault row can't slip through. Escape hatch for a
+ * deliberate sandbox rehearsal: RAZORPAY_ALLOW_TEST_PAYMENTS=true.
+ */
+function assertUsableForNewOrder(creds: RazorpayCredentials, ctx: ResolveContext): RazorpayCredentials {
+  if (ctx.purpose !== 'create-order') return creds;
+  if (!isTestModeKey(creds.keyId, creds.mode)) return creds;
+  if (sandboxPaymentsAllowed()) return creds;
+  throw new Error(
+    'Online payment is not configured for this fee type yet. ' +
+      `No live Razorpay account matches institution=${ctx.institutionId ?? 'none'} feeHead=${ctx.feeHead ?? 'default'} ` +
+      `(resolution fell back to a TEST-mode ${creds.source} key, where checkout fakes success without capturing money). ` +
+      'Add a live account for this institution/fee head in Payment Accounts.',
+  );
+}
+
 export async function resolveRazorpayCredentials(ctx: ResolveContext): Promise<RazorpayCredentials> {
   if (ctx.accountId) {
     const pinned = await RazorpayAccountVault.getById(ctx.accountId);
-    if (pinned) return pinned;
+    if (pinned) return assertUsableForNewOrder(pinned, ctx);
     // Pinned account vanished (deleted) — fall through to institution/env.
   }
 
@@ -59,11 +101,11 @@ export async function resolveRazorpayCredentials(ctx: ResolveContext): Promise<R
   // transaction can't be served by the env account.
   if (ctx.institutionId && RazorpayAccountVault.isConfigured()) {
     const active = await RazorpayAccountVault.getForInstitution(ctx.institutionId, ctx.feeHead ?? null);
-    if (active) return active;
+    if (active) return assertUsableForNewOrder(active, ctx);
   }
 
   const env = envCredentials();
-  if (env) return env;
+  if (env) return assertUsableForNewOrder(env, ctx);
 
   throw new Error(
     '[resolve-razorpay-credentials] No Razorpay account configured for ' +
