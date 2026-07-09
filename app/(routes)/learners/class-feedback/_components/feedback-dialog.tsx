@@ -56,15 +56,46 @@ const UNDERSTOOD_SCALE: { value: number; label: string }[] = [
 const CARRYFORWARD_CHOICES = ['Yes', 'Partly', 'No'] as const;
 type CarryforwardChoice = (typeof CARRYFORWARD_CHOICES)[number];
 
+// ── Attention check (Director interview, 2026-07-09 07:15) ──────────────────
+// Roughly 1 in 7 dialog opens ask "which class is this?" before the form shows:
+// the real course plus two decoys drawn from the learner's OTHER pending course
+// labels. Catches autopilot (blind-tapping 5/Clear down the pending list), and
+// nothing more: NO storage, NO punishment — a wrong tap just lets you try
+// again, and closing the dialog is never blocked. Purely client-side. The check
+// is SKIPPED entirely when the learner has fewer than 3 distinct pending
+// courses (fewer than 2 distinct decoys can't disguise the answer — the check
+// would be theater).
+const ATTENTION_CHECK_RATE = 1 / 7;
+
+/** Unbiased in-place Fisher–Yates; returns a new array. */
+function shuffle<T>(input: T[]): T[] {
+  const a = [...input];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 interface FeedbackDialogProps {
   /** The pending session being confirmed; null = dialog closed. */
   session: PendingSession | null;
   onOpenChange: (open: boolean) => void;
   /** Capture channel — 'live_poll' when answering an in-class Live Pulse. Default 'async'. */
   source?: 'async' | 'live_poll';
+  /**
+   * The learner's full pending list — the decoy pool for the occasional
+   * attention check. Optional: absent (e.g. live-poll opens) → no check.
+   */
+  pendingSessions?: PendingSession[];
 }
 
-export function FeedbackDialog({ session, onOpenChange, source = 'async' }: FeedbackDialogProps) {
+export function FeedbackDialog({
+  session,
+  onOpenChange,
+  source = 'async',
+  pendingSessions,
+}: FeedbackDialogProps) {
   const { data: checklistConfig, isLoading: loadingChecklist } = useChecklistConfig();
   const { data: carryforward } = useCarryforward();
   const submit = useSubmitFeedback();
@@ -74,6 +105,12 @@ export function FeedbackDialog({ session, onOpenChange, source = 'async' }: Feed
   const [freeText, setFreeText] = useState('');
   const [cfChoice, setCfChoice] = useState<CarryforwardChoice | null>(null);
 
+  // Attention check: shuffled options for THIS open (null = no check rolled),
+  // whether it's been passed, and the last wrong tap (gentle inline feedback).
+  const [attnOptions, setAttnOptions] = useState<string[] | null>(null);
+  const [attnPassed, setAttnPassed] = useState(true);
+  const [attnWrong, setAttnWrong] = useState<string | null>(null);
+
   // Reset the form whenever a new session is opened.
   useEffect(() => {
     if (session) {
@@ -81,8 +118,27 @@ export function FeedbackDialog({ session, onOpenChange, source = 'async' }: Feed
       setChecklist({});
       setFreeText('');
       setCfChoice(null);
+
+      // Roll the occasional attention check for this open. Re-rolls on every
+      // open by design — deliberately stateless (no storage, no punishment).
+      const realLabel = session.course_name || session.course_code || '';
+      const decoyPool = Array.from(
+        new Set(
+          (pendingSessions ?? [])
+            .map((p) => p.course_name || p.course_code || '')
+            .filter((l) => l && l !== realLabel),
+        ),
+      );
+      if (realLabel && decoyPool.length >= 2 && Math.random() < ATTENTION_CHECK_RATE) {
+        setAttnOptions(shuffle([realLabel, ...shuffle(decoyPool).slice(0, 2)]));
+        setAttnPassed(false);
+      } else {
+        setAttnOptions(null);
+        setAttnPassed(true);
+      }
+      setAttnWrong(null);
     }
-  }, [session]);
+  }, [session, pendingSessions]);
 
   const items = useMemo(() => checklistConfig ?? [], [checklistConfig]);
 
@@ -119,6 +175,7 @@ export function FeedbackDialog({ session, onOpenChange, source = 'async' }: Feed
 
   async function handleSubmit() {
     if (!session) return;
+    if (!attnPassed) return; // form is gated behind the attention check
     if (understood === null) {
       toast.error('Pick how well you understood the class.');
       return;
@@ -164,6 +221,50 @@ export function FeedbackDialog({ session, onOpenChange, source = 'async' }: Feed
           </DialogDescription>
         </DialogHeader>
 
+        {/* Attention check gate — the form stays hidden until the correct tap.
+            Wrong taps only mark the option and invite another try; Cancel below
+            always works (no punishment). */}
+        {!attnPassed && attnOptions ? (
+          <div className="space-y-3 py-2">
+            <p className="text-sm font-medium">
+              Quick check — which class are you giving feedback for?
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Just making sure the right class gets your answer.
+            </p>
+            <div className="space-y-2">
+              {attnOptions.map((opt) => {
+                const isWrongTap = attnWrong === opt;
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => {
+                      if (opt === courseLabel) {
+                        setAttnPassed(true);
+                        setAttnWrong(null);
+                      } else {
+                        setAttnWrong(opt);
+                      }
+                    }}
+                    className={`w-full rounded-md border px-3 py-2.5 text-left text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6d41]/40 ${
+                      isWrongTap
+                        ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400'
+                        : 'border-input bg-background hover:bg-muted'
+                    }`}
+                  >
+                    {opt}
+                    {isWrongTap && (
+                      <span className="mt-0.5 block text-xs font-normal">
+                        Not this one — check the class name at the top, then try again.
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
         <div className="space-y-5 py-1">
           {/* Carry-forward re-ask: last time you took this course, you flagged X. */}
           {carry && (
@@ -300,6 +401,7 @@ export function FeedbackDialog({ session, onOpenChange, source = 'async' }: Feed
             Submitting confirms your attendance for this class.
           </p>
         </div>
+        )}
 
         <DialogFooter>
           <Button
@@ -313,7 +415,7 @@ export function FeedbackDialog({ session, onOpenChange, source = 'async' }: Feed
           <Button
             type="button"
             onClick={handleSubmit}
-            disabled={submit.isPending}
+            disabled={submit.isPending || !attnPassed}
             className="bg-[#0b6d41] hover:bg-[#0b6d41]/90"
           >
             {submit.isPending ? (
