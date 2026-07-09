@@ -81,6 +81,7 @@ const SF_LEADERSHIP_ROLES = new Set([
 
 const SF_SYSTEM_PROMPT = `You are a teaching-improvement assistant for an Indian higher-education institution. A class's students gave anonymous post-class feedback on how well they understood a session. You receive ONLY aggregate signals and anonymized comment text — never any student identity.
 Use ONLY the data provided; ground every suggestion in it. Be concrete and India-context aware. NEVER quote a comment verbatim and NEVER refer to an individual student — speak only in aggregate themes so no student can be identified.
+NEVER state counts, sample sizes, response numbers, averages, percentages, rating scales, or trigger thresholds in your output — describe group size ONLY in the words given (e.g. a few students, a small group) and understanding ONLY in the qualitative band words given. Printed numbers teach students and staff how to game the loop.
 Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exactly:
 { "summary": "...", "likelyCauses": ["..."], "suggestedAdjustments": [{"title":"...","how":"..."}], "quickWin": "...", "whatToWatchNext": "..." }
 Give 2-4 likelyCauses and 3-5 suggestedAdjustments. whatToWatchNext must describe, in words only, whether understanding holds or improves in the next session — never cite a number, score, average, or target.
@@ -91,6 +92,12 @@ CRITICAL: Never express understanding as a number, score, average, rating out of
 // band instead. Mirrors the sync route (ai-suggest-improvement) + the SCF cron.
 // Thresholds match the generator gate: LOW < 3, MIXED < 4.5, STRONG >= 4.5. The
 // loop still records the numeric avg to the backend for its own measurement.
+// Group size in WORDS for the prompt (Director, 2026-07-09: printed counts in
+// tiny samples let a student subtract themselves and teach the trigger recipe).
+function groupSizeWord(n: number): string {
+  return n < 6 ? 'a few students' : n < 16 ? 'a small group' : 'a larger group';
+}
+
 function understandingBandWord(avg: number | null | undefined): string {
   if (avg === null || avg === undefined || Number.isNaN(Number(avg))) return 'unknown';
   const a = Number(avg);
@@ -218,8 +225,7 @@ const sessionFeedbackSummarize: AiTaskType = {
       : '- (no written comments — use the understanding level and response counts above)';
     const userPrompt = `Course: ${courseCode}
 Window: ${from} to ${to}
-Responses: ${responses}
-Students who reported low understanding: ${lowResponses}
+Group size (words only — never repeat numbers): ${groupSizeWord(responses)}
 Understanding level (qualitative): ${understandingBandWord(avgUnderstood)}
 
 Anonymized student comments:
