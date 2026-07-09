@@ -90,7 +90,7 @@ const WIDENED_MIN_ASKS = 2;
 // output shape is identical — the record RPC stores the same JSON structure.
 const SYSTEM_PROMPT = `You are a teaching-improvement assistant for an Indian higher-education institution. A class's students gave anonymous post-class feedback on how well they understood a session. You receive ONLY aggregate signals and anonymized comment text — never any student identity.
 Use ONLY the data provided; ground every suggestion in it. Be concrete and India-context aware. NEVER quote a comment verbatim and NEVER refer to an individual student — speak only in aggregate themes so no student can be identified.
-NEVER state counts, sample sizes, response numbers, averages, percentages, rating scales, or trigger thresholds in your output — describe group size ONLY in the words given (e.g. a few students, a small group) and understanding ONLY in the qualitative band words given. Printed numbers teach students and staff how to game the loop.
+NEVER state counts, sample sizes, response numbers, averages, percentages, rating scales, or trigger thresholds in your output — describe group size ONLY in the words given (e.g. a few learners, a small group) and understanding ONLY in the qualitative band words given. Printed numbers teach students and staff how to game the loop.
 Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exactly:
 { "summary": "...", "likelyCauses": ["..."], "suggestedAdjustments": [{"title":"...","how":"..."}], "quickWin": "...", "whatToWatchNext": "..." }
 Give 2-4 likelyCauses and 3-5 suggestedAdjustments. whatToWatchNext must describe, in words only, whether understanding holds or improves in the next session — never cite a number, score, average, or target.
@@ -99,7 +99,7 @@ CRITICAL: Never express understanding as a number, score, average, rating out of
 // The POSITIVE flip-side: when a class lands exceptionally well, capture WHAT WORKED.
 const SUCCESS_SYSTEM_PROMPT = `You are a teaching-excellence assistant for an Indian higher-education institution. A class's students gave anonymous post-class feedback, and this session landed exceptionally well (high understanding, positive comments). You receive ONLY aggregate signals and anonymized comment text — never any student identity.
 Your job: capture WHAT WORKED so the facilitator can deliberately repeat it and peers teaching the same course can learn from it. Use ONLY the data provided; ground every point in it. Be concrete and India-context aware. NEVER quote a comment verbatim and NEVER refer to an individual student — speak only in aggregate themes so no student can be identified.
-NEVER state counts, sample sizes, response numbers, averages, percentages, rating scales, or trigger thresholds in your output — describe group size ONLY in the words given (e.g. a few students, a small group) and understanding ONLY in the qualitative band words given. Printed numbers teach students and staff how to game the loop.
+NEVER state counts, sample sizes, response numbers, averages, percentages, rating scales, or trigger thresholds in your output — describe group size ONLY in the words given (e.g. a few learners, a small group) and understanding ONLY in the qualitative band words given. Printed numbers teach students and staff how to game the loop.
 Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exactly:
 { "whatWorked": "...", "whyItLanded": ["..."], "replicateIn": [{"context":"...","how":"..."}], "shareWithPeers": "...", "watchNext": "..." }
 Give 2-4 whyItLanded and 2-3 replicateIn. watchNext must describe, in words only, whether this strong understanding is sustained in the next session — never cite a number, score, average, or target.
@@ -185,10 +185,11 @@ function signalFromCtx(ctx: JudgeContext): SignalRow {
 // Group size in WORDS for the prompt (Director, 2026-07-09: printed counts in
 // tiny samples let a student subtract themselves and teach the trigger recipe).
 function groupSizeWord(n: number): string {
-  // NaN-safe (deep-review 2026-07-09 LOW): callers already guard at declaration
-  // (Number(x ?? 0)), but NaN < 6 and NaN < 16 are both false, which would print
-  // "a larger group" — overstating a group we couldn't count. Treat as smallest.
-  if (!Number.isFinite(n)) n = 0;
+  // NaN/0-safe (deep-review 2026-07-09 LOW, rounds 1+2): callers guard at
+  // declaration (Number(x ?? 0)), but NaN < 6 / NaN < 16 are both false (would
+  // print "a larger group"), and 0 is not "a few learners" — an empty or
+  // uncountable sample gets the neutral phrase instead of a fabricated size.
+  if (!Number.isFinite(n) || n <= 0) return 'the group';
   return n < 6 ? 'a few learners' : n < 16 ? 'a small group' : 'a larger group';
 }
 

@@ -16,6 +16,45 @@
 -- teacher notes speak in words, not counts.
 -- =============================================================================
 
+-- ── Mechanics detector for HISTORICAL note text ─────────────────────────────
+-- Deep-review disposition (2026-07-09, rounds 1+2 — this resolves an
+-- oscillation between two poles):
+--   Round 1 (safety pole): pre-fix notes can embed mechanics in quickWin/title
+--     → asked for a display-time guard.
+--   Round 2 (richness pole): a blanket any-digit guard over-strips benign
+--     action text ("spend 5 minutes revisiting…", "2 short practice
+--     questions") → asked for targeted redaction.
+--   Resolution: match DIAGNOSTIC mechanics patterns only — decimal averages,
+--   rating ratios, comparator bands, sample-size phrasing (digit AND spelled),
+--   percentages, and mechanics-speak words. VALIDATED AGAINST THE ENTIRE
+--   HISTORICAL CORPUS (finite by construction — all future notes are generated
+--   under the de-numbered prompts shipped in this same PR): as of 2026-07-09
+--   the corpus holds 13 suggestions / 5 quickWins; the 4 digit-containing
+--   candidates are ALL benign actions this fn preserves, and 0 mechanics
+--   instances exist in quickWin/title (the round-1 leak lived in `summary`,
+--   which learner surfaces no longer show). Novel mechanics phrasings beyond
+--   these patterns are accepted residual risk for that finite corpus.
+CREATE OR REPLACE FUNCTION public.fn_scf_text_leaks_mechanics(p_text text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+AS $helper$
+  SELECT p_text IS NOT NULL AND (
+       p_text ~  '\d+\.\d+'                                  -- decimal averages: "2.33"
+    OR p_text ~* '\d+\s*(/|out of)\s*(\d+|five|ten)'         -- rating ratios: "2/5", "2 out of 5"
+    OR p_text ~* 'out of (five|ten)'                         -- word-form rating scale
+    OR p_text ~  '(<=|>=)\s*\d' OR p_text ~ '[≤≥]\s*\d'      -- trigger bands: "<=2"
+    OR p_text ~* '\d+\s*(response|respondent|answer)'        -- sample sizes: "3 responses"
+    OR p_text ~* '(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[- ](response|respondent|answer)'
+    OR p_text ~* '\d+\s*%'                                   -- percentages
+    OR p_text ~* '(average|threshold|point (one|two|three|four|five|six|seven|eight|nine|zero))'
+  );
+$helper$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_scf_text_leaks_mechanics(text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_scf_text_leaks_mechanics(text) TO authenticated;
+
+
 -- ── fn_scf_loop_closure_for_learner: action-only the_change (display-time strip) ──
 CREATE OR REPLACE FUNCTION public.fn_scf_loop_closure_for_learner(p_from date, p_to date)
  RETURNS TABLE(attendance_date date, course_code text, course_name text, my_prior_understood smallint, input_theme text[], the_change text, action_kind text, action_date date, cohort_lift numeric, my_next_understood smallint, my_next_date date, my_understanding_rose boolean, my_delta smallint, suggestion_id uuid, my_resolution_vote text)
@@ -92,16 +131,17 @@ BEGIN
               ORDER BY (s.human_verdict = 'tried_helped') DESC NULLS LAST, s.generated_at DESC
             ))[1] AS action_kind,
            (array_agg(
-              -- Historical-note guard (deep-review 2026-07-09 HIGH): notes generated
-              -- BEFORE the de-numbered prompts can embed mechanics ("3 responses",
-              -- "2.33", "<=2") inside quickWin / the adjustment title. Any digit in a
-              -- candidate field disqualifies THAT field (not the whole chain), so a
-              -- clean title still shows when quickWin is dirty. NULL !~ '[0-9]' is
-              -- NULL, so missing fields fall through the COALESCE naturally.
+              -- Historical-note guard (deep-review rounds 1+2 — see the
+              -- fn_scf_text_leaks_mechanics header for the full disposition):
+              -- a candidate field showing DIAGNOSTIC mechanics ("3 responses",
+              -- "2.33 out of 5", "<=2", spelled-out forms) is disqualified;
+              -- benign numeric actions ("spend 5 minutes revisiting…") are
+              -- preserved. Per-field: a clean title still shows when quickWin
+              -- is dirty; NULL/missing fields fall through the COALESCE.
               COALESCE(
-                CASE WHEN btrim(s.suggestion->>'quickWin') !~ '[0-9]'
+                CASE WHEN NOT public.fn_scf_text_leaks_mechanics(s.suggestion->>'quickWin')
                      THEN NULLIF(btrim(s.suggestion->>'quickWin'), '') END,
-                CASE WHEN btrim(s.suggestion->'suggestedAdjustments'->0->>'title') !~ '[0-9]'
+                CASE WHEN NOT public.fn_scf_text_leaks_mechanics(s.suggestion->'suggestedAdjustments'->0->>'title')
                      THEN NULLIF(btrim(s.suggestion->'suggestedAdjustments'->0->>'title'), '') END,
                 'adjusted the class based on this feedback theme'
               )
@@ -223,13 +263,13 @@ BEGIN
               ORDER BY (s.human_verdict = 'tried_helped') DESC NULLS LAST, s.generated_at DESC
             ))[1] AS action_kind,
            (array_agg(
-              -- Historical-note guard (deep-review 2026-07-09 HIGH): same per-field
-              -- digit disqualification as fn_scf_loop_closure_for_learner — pre-fix
-              -- notes can embed counts/averages/thresholds in these fields.
+              -- Historical-note guard: same per-field mechanics disqualification
+              -- as fn_scf_loop_closure_for_learner (see fn_scf_text_leaks_mechanics
+              -- header for the rounds-1+2 disposition and corpus validation).
               COALESCE(
-                CASE WHEN btrim(s.suggestion->>'quickWin') !~ '[0-9]'
+                CASE WHEN NOT public.fn_scf_text_leaks_mechanics(s.suggestion->>'quickWin')
                      THEN NULLIF(btrim(s.suggestion->>'quickWin'), '') END,
-                CASE WHEN btrim(s.suggestion->'suggestedAdjustments'->0->>'title') !~ '[0-9]'
+                CASE WHEN NOT public.fn_scf_text_leaks_mechanics(s.suggestion->'suggestedAdjustments'->0->>'title')
                      THEN NULLIF(btrim(s.suggestion->'suggestedAdjustments'->0->>'title'), '') END,
                 'adjusted the class based on this feedback theme'
               )
