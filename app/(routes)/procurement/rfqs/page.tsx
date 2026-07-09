@@ -191,6 +191,17 @@ export default function RfqsPage() {
           <DialogHeader>
             <DialogTitle>Create RFQ from approved request</DialogTitle>
           </DialogHeader>
+          {/* Institution chooser co-located with the PR picker: approved requests are
+              institution-scoped, so a multi-institution user must pick the institution
+              here to see its approved requests. Renders nothing for single-institution users. */}
+          <InstitutionFilter
+            value={effectiveInstitution}
+            onChange={(id) => {
+              setInstitutionId(id);
+              setSelectedPR('');
+            }}
+            hint="Approved requests are shown for this institution."
+          />
           <div className="space-y-2">
             <Label>Approved purchase request</Label>
             <Select value={selectedPR} onValueChange={setSelectedPR}>
@@ -200,7 +211,8 @@ export default function RfqsPage() {
               <SelectContent>
                 {approvedPRs.length === 0 ? (
                   <div className="px-3 py-2 text-sm text-muted-foreground">
-                    No approved requests available
+                    No approved requests in this institution. Approve a request first, or
+                    switch institution above.
                   </div>
                 ) : (
                   approvedPRs.map((pr) => (
