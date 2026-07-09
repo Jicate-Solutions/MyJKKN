@@ -68,6 +68,7 @@ function TypeBadge({ type }: { type: AIRoutine['type'] }) {
 function RoutineRow({
   r,
   schedule,
+  maxSchedule,
   configMap,
   maxRequest,
   onMaxQueued,
@@ -75,6 +76,10 @@ function RoutineRow({
 }: {
   r: AIRoutine;
   schedule?: ScheduleRow;
+  /** Local Max-lane schedule (`maxlane:<id>` row, managed=false so the cloud
+   *  dispatcher ignores it) — the Max-lane box's schedule-sync applies edits
+   *  to its Task Scheduler within 15 min, same window as the dispatcher. */
+  maxSchedule?: ScheduleRow;
   configMap: Map<string, ModelConfigEntry>;
   maxRequest?: MaxLaneRequest;
   onMaxQueued: () => void;
@@ -82,6 +87,7 @@ function RoutineRow({
 }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [editingMax, setEditingMax] = useState(false);
   const [running, setRunning] = useState(false);
   const [last, setLast] = useState<RunState>(undefined);
 
@@ -171,6 +177,27 @@ function RoutineRow({
                   {editing ? 'Close' : 'Edit schedule'}
                 </button>
               ) : null}
+              {maxSchedule ? (
+                <span className="flex items-center gap-1">
+                  <CalendarClock className="h-3.5 w-3.5" />
+                  Max lane:{' '}
+                  {maxSchedule.enabled ? (
+                    <>
+                      {fmtDays(maxSchedule.days_of_week)} at{' '}
+                      <span className="font-medium text-foreground">{fmtTime(maxSchedule.minute_of_day)} IST</span>
+                    </>
+                  ) : (
+                    <span className="text-amber-600 dark:text-amber-400">paused</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setEditingMax((v) => !v)}
+                    className="ml-1 text-[#0b6d41] hover:underline"
+                  >
+                    {editingMax ? 'Close' : 'Edit'}
+                  </button>
+                </span>
+              ) : null}
               <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
@@ -216,6 +243,17 @@ function RoutineRow({
             onSaved={(next) => {
               onScheduleSaved(next);
               setEditing(false);
+            }}
+          />
+        ) : null}
+
+        {editingMax && maxSchedule ? (
+          <ScheduleEditor
+            schedule={maxSchedule}
+            onCancel={() => setEditingMax(false)}
+            onSaved={(next) => {
+              onScheduleSaved(next);
+              setEditingMax(false);
             }}
           />
         ) : null}
@@ -322,6 +360,7 @@ export function AiRoutinesControl() {
                   key={r.id}
                   r={r}
                   schedule={map.get(r.id)}
+                  maxSchedule={map.get(`maxlane:${r.id}`)}
                   configMap={configMap}
                   maxRequest={maxMap.get(r.id)}
                   onMaxQueued={refetchMax}
