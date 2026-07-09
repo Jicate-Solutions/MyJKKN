@@ -27,8 +27,13 @@
 -- seed-shaped and prod-shaped row match; metric_name/calculation_method are
 -- never modified, so the cricket-policy text is preserved wherever it lives.
 --
--- ORDERING inside this file matters: 1.3.1 → 1.6.1 runs FIRST to free the
+-- ORDERING inside this file matters: 1.3.1 → 6.4.1 runs FIRST to free the
 -- 1.3.x slot before 1.2.1 → 1.3.1 lands there.
+--
+-- AMENDED 2026-07-09 (commit 2): original target for the cross-cutting row was
+-- 1.6.1; orchestrator vet on PR #1907 flagged that Binary 1.6 = Indian
+-- Knowledge System, which gender/ethics/sustainability is not. Director
+-- decision 2026-07-09: re-home at 6.4 Value Education (Attribute 6).
 --
 -- HARD DEPENDENCY: accreditation_metric_crosswalk is created by
 -- 20260709030000_naac_catalog_binary_framework_sync.sql (PR #1903). This
