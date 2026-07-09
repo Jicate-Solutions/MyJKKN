@@ -10,6 +10,7 @@
     "lib/services/procurement/**/*.ts",
     "lib/procurement/**/*.ts",
     "hooks/procurement/**/*.ts",
+    "components/procurement/**/*.tsx",
     "app/(routes)/procurement/**/*.tsx"
   ],
   "exclude": ["node_modules"]

@@ -1,10 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { useCreatePurchaseRequest } from '@/hooks/procurement/use-purchase-requests';
+import { CatalogItemPicker } from '@/components/procurement/catalog-item-picker';
+import type { DomainCtx } from '@/lib/services/procurement/domain-adapters/types';
 import type {
   PurchaseRequestType,
   CreatePurchaseRequestItemDto,
@@ -27,11 +29,15 @@ import { toast } from 'sonner';
 type ItemRow = CreatePurchaseRequestItemDto;
 
 const emptyRow = (): ItemRow => ({
+  domain_item_id: null,
   item_name: '',
   item_spec: '',
   required_quantity: 1,
+  unit_id: null,
   unit_label: '',
   reason: '',
+  current_stock: null,
+  reorder_level: null,
   estimated_cost: undefined,
 });
 
@@ -45,6 +51,16 @@ export default function NewPurchaseRequestPage() {
   const [items, setItems] = useState<ItemRow[]>([emptyRow()]);
 
   const isNewItem = requestType === 'new_item';
+
+  // Ambient context handed to the domain adapter's catalog search.
+  const ctx: DomainCtx = useMemo(
+    () => ({
+      institutionId: profile?.institution_id ?? '',
+      storeId: null,
+      userId: profile?.id ?? '',
+    }),
+    [profile?.institution_id, profile?.id]
+  );
 
   const updateItem = (idx: number, patch: Partial<ItemRow>) =>
     setItems((rows) => rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
@@ -64,6 +80,10 @@ export default function NewPurchaseRequestPage() {
     }
     if (isNewItem && cleaned.some((i) => !i.reason?.trim())) {
       toast.error('New-item requests require a reason for every item.');
+      return;
+    }
+    if (!isNewItem && cleaned.some((i) => !i.domain_item_id)) {
+      toast.error('Restock lines must be picked from the inventory catalog. Use "New item" for items not yet in inventory.');
       return;
     }
 
@@ -111,7 +131,20 @@ export default function NewPurchaseRequestPage() {
                 <Label>Request type</Label>
                 <Select
                   value={requestType}
-                  onValueChange={(v) => setRequestType(v as PurchaseRequestType)}
+                  onValueChange={(v) => {
+                    setRequestType(v as PurchaseRequestType);
+                    // Switching types invalidates catalog linkage — reset name + link so
+                    // a restock pick can't leak into a new-item request (or vice versa).
+                    setItems((rows) =>
+                      rows.map((r) => ({
+                        ...r,
+                        item_name: '',
+                        domain_item_id: null,
+                        current_stock: null,
+                        reorder_level: null,
+                      }))
+                    );
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -147,11 +180,41 @@ export default function NewPurchaseRequestPage() {
               <div key={idx} className="grid gap-3 sm:grid-cols-12 items-start border-b pb-4 last:border-0">
                 <div className="sm:col-span-4 space-y-1">
                   <Label className="text-xs">Item name</Label>
-                  <Input
-                    value={item.item_name}
-                    onChange={(e) => updateItem(idx, { item_name: e.target.value })}
-                    placeholder="e.g. A4 paper"
-                  />
+                  {isNewItem ? (
+                    <Input
+                      value={item.item_name}
+                      onChange={(e) => updateItem(idx, { item_name: e.target.value })}
+                      placeholder="e.g. A4 paper"
+                    />
+                  ) : (
+                    <>
+                      <CatalogItemPicker
+                        domain="ims"
+                        ctx={ctx}
+                        value={item.item_name || null}
+                        placeholder="Pick an inventory item…"
+                        onSelect={(sel) =>
+                          updateItem(idx, {
+                            domain_item_id: sel.domainItemId,
+                            item_name: sel.name,
+                            item_spec: sel.spec ?? item.item_spec ?? '',
+                            unit_id: sel.unitId ?? null,
+                            unit_label: sel.unitLabel ?? item.unit_label ?? '',
+                            current_stock: sel.currentStock ?? null,
+                            reorder_level: sel.reorderLevel ?? null,
+                            estimated_cost:
+                              item.estimated_cost ?? (sel.costPrice != null ? sel.costPrice : undefined),
+                          })
+                        }
+                      />
+                      {item.reorder_level != null && (
+                        <p className="text-[11px] text-muted-foreground">
+                          Reorder level: {item.reorder_level}
+                          {item.current_stock != null && ` · in stock: ${item.current_stock}`}
+                        </p>
+                      )}
+                    </>
+                  )}
                 </div>
                 <div className="sm:col-span-3 space-y-1">
                   <Label className="text-xs">Specification</Label>
