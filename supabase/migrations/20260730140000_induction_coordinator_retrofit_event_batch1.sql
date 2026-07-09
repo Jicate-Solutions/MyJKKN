@@ -361,6 +361,13 @@ BEGIN
   ORDER BY 2;
 END $function$;
 
+-- AMENDED 2026-07-09 (deep-review PR #1911 CRITICAL — replay ordering): the emitter
+-- below now carries the Binary Metric 6.3 codes 6.3.1/6.3.2 (Director decision
+-- 2026-07-09) instead of the retired Criterion codes 5.1.3/7.2.1. This file sorts
+-- AFTER 20260709034000_induction_naac_rekey_63.sql (which re-keyed catalog +
+-- junction + this fn to 6.3.x on live prod), so on a clean replay the old array here
+-- would have clobbered the emitter back to codes the catalog no longer holds —
+-- evidence emitted at orphan codes. Behaviorally identical to prod's live definition.
 CREATE OR REPLACE FUNCTION public.fn_induction_emit_naac_evidence(p_event_id uuid)
 RETURNS integer
 LANGUAGE plpgsql
@@ -455,7 +462,7 @@ BEGIN
 
   -- Upsert one evidence row per NAAC criterion (source row = the induction_programs
   -- satellite). Refresh metadata + mapped_at on conflict so re-running re-snapshots.
-  FOREACH v_metric IN ARRAY ARRAY['5.1.3','7.2.1'] LOOP
+  FOREACH v_metric IN ARRAY ARRAY['6.3.1','6.3.2'] LOOP
     INSERT INTO public.quality_evidence_mappings
       (source_table, source_id, institution_id, body_code, metric_code,
        period_label, mapped_by, is_auto, metadata, mapped_at)
