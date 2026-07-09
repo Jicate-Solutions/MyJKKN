@@ -35,6 +35,13 @@ export function useCreateQuotation() {
   });
 }
 
+export function useCreateVendor() {
+  return useMutation({
+    mutationFn: (input: { institution_id: string; name: string; code?: string | null; email?: string | null }) =>
+      ProcurementQuotationService.createVendor(input),
+  });
+}
+
 export function useDeleteQuotation(rfqId: string) {
   const queryClient = useQueryClient();
   return useMutation({

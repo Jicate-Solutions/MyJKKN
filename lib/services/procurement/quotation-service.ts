@@ -55,6 +55,35 @@ export class ProcurementQuotationService {
   }
 
   /**
+   * Create a vendor (ims_suppliers row) inline from the quotation dialog, so a
+   * quotation can be captured even when the institution has no registered vendors
+   * yet. code is NOT NULL — auto-generate one when the user doesn't supply it.
+   */
+  static async createVendor(input: {
+    institution_id: string;
+    name: string;
+    code?: string | null;
+    email?: string | null;
+  }): Promise<{ id: string; name: string; code: string; email: string | null }> {
+    const name = input.name?.trim();
+    if (!name) throw new Error('Vendor name is required.');
+    const code = input.code?.trim() || `V-${String(Date.now()).slice(-6)}`;
+    const { data, error } = await this.supabase
+      .from('ims_suppliers')
+      .insert({
+        name,
+        code,
+        email: input.email?.trim() || null,
+        institution_id: input.institution_id,
+        is_active: true,
+      })
+      .select('id, name, code, email')
+      .single();
+    if (error) throw error;
+    return data as { id: string; name: string; code: string; email: string | null };
+  }
+
+  /**
    * Create a quotation for one vendor on an RFQ. UNIQUE(rfq_id, supplier_id)
    * prevents a second quotation from the same vendor. Advances the RFQ from
    * 'sent' to 'quotations_received' on the first quote.

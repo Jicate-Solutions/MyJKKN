@@ -5,11 +5,12 @@ import { useRouter, useParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useRfq } from '@/hooks/procurement/use-rfqs';
+import { useRfq, useVendorsForSelect } from '@/hooks/procurement/use-rfqs';
 import {
   useQuotationsForRfq,
   useComparison,
   useCreateQuotation,
+  useCreateVendor,
   useDeleteQuotation,
   useAwardLine,
   useUnawardLine,
@@ -51,7 +52,11 @@ export default function RfqQuotationsPage() {
   const { data: rfq, isLoading: rfqLoading } = useRfq(rfqId);
   const { data: quotations = [] } = useQuotationsForRfq(rfqId);
   const { data: comparison = [], isLoading: compLoading } = useComparison(rfqId);
+  // All active suppliers in the RFQ's OWN institution (not the viewer's profile
+  // institution) — this is the pool a quotation's vendor is chosen/created from.
+  const { data: allVendors = [] } = useVendorsForSelect(rfq?.institution_id || undefined);
   const createQuotation = useCreateQuotation();
+  const createVendor = useCreateVendor();
   const deleteQuotation = useDeleteQuotation(rfqId);
   const awardLine = useAwardLine(rfqId);
   const unawardLine = useUnawardLine(rfqId);
@@ -71,7 +76,11 @@ export default function RfqQuotationsPage() {
   };
 
   const [addOpen, setAddOpen] = useState(false);
+  const [vendorMode, setVendorMode] = useState<'existing' | 'new'>('existing');
   const [vendorId, setVendorId] = useState('');
+  const [newVendorName, setNewVendorName] = useState('');
+  const [newVendorCode, setNewVendorCode] = useState('');
+  const [newVendorEmail, setNewVendorEmail] = useState('');
   const [quoteNumber, setQuoteNumber] = useState('');
   const [deliveryDays, setDeliveryDays] = useState('');
   const [paymentTerms, setPaymentTerms] = useState('');
@@ -80,15 +89,19 @@ export default function RfqQuotationsPage() {
   const [uploading, setUploading] = useState(false);
   const [extracting, setExtracting] = useState(false);
 
-  // Vendors attached to the RFQ that haven't quoted yet.
+  // Institution suppliers that haven't already quoted on this RFQ.
   const quotedSupplierIds = new Set(quotations.map((q) => q.supplier_id));
   const availableVendors = useMemo(
-    () => (rfq?.vendors ?? []).filter((v) => !quotedSupplierIds.has(v.supplier_id)),
-    [rfq?.vendors, quotations] // eslint-disable-line react-hooks/exhaustive-deps
+    () => allVendors.filter((v) => !quotedSupplierIds.has(v.id)),
+    [allVendors, quotations] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const resetForm = () => {
+    setVendorMode('existing');
     setVendorId('');
+    setNewVendorName('');
+    setNewVendorCode('');
+    setNewVendorEmail('');
     setQuoteNumber('');
     setDeliveryDays('');
     setPaymentTerms('');
@@ -97,9 +110,14 @@ export default function RfqQuotationsPage() {
   };
 
   const handleAdd = async () => {
-    if (!rfq || !profile?.id || !profile?.institution_id) return;
-    if (!vendorId) {
-      toast.error('Select a vendor.');
+    if (!rfq || !profile?.id) return;
+    const institutionId = rfq.institution_id; // quotation belongs to the RFQ's institution
+    if (vendorMode === 'existing' && !vendorId) {
+      toast.error('Select a vendor, or switch to “New vendor”.');
+      return;
+    }
+    if (vendorMode === 'new' && !newVendorName.trim()) {
+      toast.error('Enter the new vendor’s name.');
       return;
     }
     const items: CreateQuotationItemDto[] = rfq.items.map((it) => ({
@@ -113,6 +131,18 @@ export default function RfqQuotationsPage() {
     }
 
     try {
+      // Resolve the vendor — create it inline if the admin entered a new one.
+      let supplierId = vendorId;
+      if (vendorMode === 'new') {
+        const created = await createVendor.mutateAsync({
+          institution_id: institutionId,
+          name: newVendorName,
+          code: newVendorCode || null,
+          email: newVendorEmail || null,
+        });
+        supplierId = created.id;
+      }
+
       // Optional document upload to Drive.
       let document_url: string | null = null;
       let document_file_id: string | null = null;
@@ -120,7 +150,7 @@ export default function RfqQuotationsPage() {
         setUploading(true);
         const fd = new FormData();
         fd.append('file', file);
-        fd.append('institutionId', profile.institution_id);
+        fd.append('institutionId', institutionId);
         fd.append('rfqNumber', rfq.rfq_number);
         const res = await fetch('/api/procurement/quotations/upload', { method: 'POST', body: fd });
         setUploading(false);
@@ -135,9 +165,9 @@ export default function RfqQuotationsPage() {
 
       await createQuotation.mutateAsync({
         dto: {
-          institution_id: profile.institution_id,
+          institution_id: institutionId,
           rfq_id: rfq.id,
-          supplier_id: vendorId,
+          supplier_id: supplierId,
           vendor_quote_number: quoteNumber || null,
           delivery_time_days: deliveryDays ? Number(deliveryDays) : null,
           payment_terms: paymentTerms || null,
@@ -254,29 +284,13 @@ export default function RfqQuotationsPage() {
               <p className="text-muted-foreground">{rfq.rfq_number}</p>
             </div>
           </div>
-          {canManage && availableVendors.length > 0 && (
+          {canManage && (
             <Button onClick={() => setAddOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
               Add Quotation
             </Button>
           )}
         </div>
-
-        {/* No vendors attached -> quotations can't be captured yet. Explain why. */}
-        {canManage && (rfq.vendors?.length ?? 0) === 0 && (
-          <Card className="border-amber-400/50">
-            <CardContent className="pt-6 text-sm">
-              No vendors are attached to this RFQ yet. Go to the{' '}
-              <button
-                className="font-medium text-primary underline"
-                onClick={() => router.push(`/procurement/rfqs/${rfqId}`)}
-              >
-                RFQ page
-              </button>{' '}
-              and add vendors, then capture each vendor’s quotation here.
-            </CardContent>
-          </Card>
-        )}
 
         {/* Received quotations */}
         <Card>
@@ -432,22 +446,73 @@ export default function RfqQuotationsPage() {
             <DialogTitle>Add Vendor Quotation</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1">
+            {/* Vendor: pick an existing supplier or create one inline (no need to
+                pre-register vendors on the RFQ first). */}
+            <div className="space-y-2">
+              <div className="flex items-center">
                 <Label>Vendor</Label>
+                <div className="ml-auto inline-flex rounded-md border p-0.5 text-xs">
+                  <button
+                    type="button"
+                    className={`px-2 py-0.5 rounded ${vendorMode === 'existing' ? 'bg-primary text-primary-foreground' : ''}`}
+                    onClick={() => setVendorMode('existing')}
+                  >
+                    Existing
+                  </button>
+                  <button
+                    type="button"
+                    className={`px-2 py-0.5 rounded ${vendorMode === 'new' ? 'bg-primary text-primary-foreground' : ''}`}
+                    onClick={() => setVendorMode('new')}
+                  >
+                    + New vendor
+                  </button>
+                </div>
+              </div>
+              {vendorMode === 'existing' ? (
                 <Select value={vendorId} onValueChange={setVendorId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select vendor..." />
+                    <SelectValue
+                      placeholder={availableVendors.length ? 'Select vendor…' : 'No registered vendors — add a new one'}
+                    />
                   </SelectTrigger>
                   <SelectContent>
-                    {availableVendors.map((v) => (
-                      <SelectItem key={v.supplier_id} value={v.supplier_id}>
-                        {v.supplier?.name ?? v.supplier_id}
-                      </SelectItem>
-                    ))}
+                    {availableVendors.length === 0 ? (
+                      <div className="px-3 py-2 text-sm text-muted-foreground">
+                        No registered vendors. Switch to “+ New vendor”.
+                      </div>
+                    ) : (
+                      availableVendors.map((v) => (
+                        <SelectItem key={v.id} value={v.id}>
+                          {v.name}
+                          {v.code ? ` (${v.code})` : ''}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
-              </div>
+              ) : (
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <Input
+                    placeholder="Vendor name *"
+                    value={newVendorName}
+                    onChange={(e) => setNewVendorName(e.target.value)}
+                  />
+                  <Input
+                    placeholder="Code (optional)"
+                    value={newVendorCode}
+                    onChange={(e) => setNewVendorCode(e.target.value)}
+                  />
+                  <Input
+                    type="email"
+                    placeholder="Email (optional)"
+                    value={newVendorEmail}
+                    onChange={(e) => setNewVendorEmail(e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1">
                 <Label>Vendor quote #</Label>
                 <Input value={quoteNumber} onChange={(e) => setQuoteNumber(e.target.value)} placeholder="Optional" />
@@ -558,8 +623,17 @@ export default function RfqQuotationsPage() {
             >
               Cancel
             </Button>
-            <Button onClick={handleAdd} disabled={createQuotation.isPending || uploading}>
-              {uploading ? 'Uploading...' : createQuotation.isPending ? 'Saving...' : 'Save quotation'}
+            <Button
+              onClick={handleAdd}
+              disabled={createQuotation.isPending || createVendor.isPending || uploading}
+            >
+              {uploading
+                ? 'Uploading...'
+                : createVendor.isPending
+                  ? 'Creating vendor...'
+                  : createQuotation.isPending
+                    ? 'Saving...'
+                    : 'Save quotation'}
             </Button>
           </DialogFooter>
         </DialogContent>
