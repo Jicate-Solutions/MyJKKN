@@ -258,7 +258,14 @@ export class PaymentGatewayService {
 
         // Resolve the institution + fee-head Razorpay account (falls back to the
         // institution default, then the common env account when unconfigured).
-        const provider = await getPaymentProvider('billing', { institutionId, feeHead });
+        // purpose: 'create-order' fails closed in production if resolution lands
+        // on a test-mode key — sandbox checkout fakes success (UPI QR auto-pays)
+        // and would receipt a bill with no money captured.
+        const provider = await getPaymentProvider('billing', {
+          institutionId,
+          feeHead,
+          purpose: 'create-order',
+        });
         const rzpAccountId = (provider as RazorpayProvider).accountId ?? null;
         const amountPaise = toPaise(totalAmount);
 

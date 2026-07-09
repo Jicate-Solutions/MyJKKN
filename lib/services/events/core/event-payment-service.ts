@@ -105,6 +105,9 @@ export class EventPaymentService {
       // none configured, incl. external participants with no institution_id).
       const provider = await getPaymentProvider('events', {
         institutionId: registration.institution_id ?? undefined,
+        // Fail closed in production if this resolves to a test-mode key —
+        // sandbox checkout fakes success without capturing money.
+        purpose: 'create-order',
       });
       const rzpAccountId = (provider as { accountId?: string }).accountId ?? null;
       const amountPaise = toPaise(params.amount);

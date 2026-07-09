@@ -108,7 +108,7 @@ const KEY_CONSEQUENCE: Record<string, string> = {
   'cdc.default_internship_skip_weekends': 'When ON, Saturday/Sunday do not count toward total internship duration for corporate internships.',
   'cdc.min_attendance_pct_for_internship_certificate': 'Learners below this percentage do not qualify for the internship completion certificate.',
   'cdc.parent_consent_required_under_age': 'Learners younger than this age must supply a parent consent URL in the internship willingness form. Set to 0 to disable.',
-  'cdc.naac_export_column_mapping': 'Column-mapping object for NAAC Criterion 5.2.1 exports. Update when NAAC publishes a new template.',
+  'cdc.naac_export_column_mapping': 'Column-mapping object for NAAC 8.2 — Graduate Progression (Binary framework) exports. Update when NAAC publishes a new template.',
   'cdc.aicte_export_column_mapping': 'Column-mapping object for AICTE Annual Return exports. Update when AICTE publishes a new template.',
   'cdc.aicte_include_internal_placements': 'When OFF, placements with JKKN-internal recruiters (e.g. JICATE Solutions) are excluded from the AICTE-reported placement %.',
 };

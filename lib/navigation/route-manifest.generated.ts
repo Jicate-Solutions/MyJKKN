@@ -3797,7 +3797,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/hr/admin/recruitment-approval-flows",
             "label": "Recruitment Approval Flows",
             "iconName": "GitBranch",
-            "children": []
+            "children": [
+              {
+                "path": "/hr/admin/recruitment-approval-flows/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
           },
           {
             "path": "/hr/admin/recruitment-maintenance",
