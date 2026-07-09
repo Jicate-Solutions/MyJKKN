@@ -1762,3 +1762,9 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - `scf_learner_notes` + `reached_out`/`reached_out_at`; `fn_scf_my_struggling_note` (DROP+CREATE) + id/reached_out; NEW `fn_scf_learner_note_reached_out(note_id, bool)` — learner-own one-tap follow-up (the note's outcome signal). NEW `fn_induction_my_mentor()` — mentee-side senior-peer-mentor lookup (⚠️ dark until first-year profile linkage: 0/425 group mentees have profiles today).
 - All fns SECDEF + anon/PUBLIC revoked; trend fn service_role-only, others authenticated.
 - Location: `supabase/migrations/20260709003000_scf_learner_notes_actionable.sql`. Validated 2026-07-09 in rolled-back prod txn (incl. reached-out tap as the real note owner). Generators (cron `scf-learner-notes` + Mac runner `learner-notes.mjs`) updated in lockstep to cite items/dates/facilitator. Apply AFTER the code PR deploys.
+
+### Verdict integrity — claims vs numbers (leadership-only) — 2026-07-09
+- Director interview 07:00 ("what if Devi bluffed?"): contradiction → alert leadership; repeat pattern → leadership-only track record (facilitator never sees a score kept on them). Derived state only — nothing new written.
+- `fn_scf_verdict_track_record(from,to)` per-facilitator (verdicts/measured/agreed/contradicted) + `fn_scf_verdict_contradictions(from,to)` row-level (verdict='tried_helped' AND measured outcome_lift<=0). Agreement semantics documented in-file (not_tried excluded; tried_no_change never flagged — honest modesty). Leadership gate mirrors fn_scf_leadership_concerns; anon/PUBLIC revoked.
+- UI: ScfVerdictIntegrityCard on the PRINCIPAL page only (decision: never embed on a faculty surface). Dark until a verdict has a measured outcome; today shows devi.p 1-of-1 matched.
+- Location: `supabase/migrations/20260709014500_scf_verdict_integrity.sql`. Validated rolled-back as the Director (track: devi 1/1/1/0; contradictions: 0). Apply AFTER code deploys.
