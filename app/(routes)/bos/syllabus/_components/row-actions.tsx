@@ -19,7 +19,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { MoreHorizontal, Edit2, Copy, History, Trash2, FileDown, Loader2, FileSpreadsheet, FileText } from 'lucide-react';
+import { MoreHorizontal, Edit2, Copy, History, Trash2, FileDown, Loader2, FileSpreadsheet, FileText, FileCode2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
 import { generateCourseSyllabusPDF, extractPOKeys } from '@/lib/utils/bos/course-syllabus-pdf';
@@ -163,6 +163,11 @@ export function SyllabusPdfDownloadButton({
         po_keys: poKeys,
         pso_keys: psoKeys,
         assessment_structure: syllabus.assessment_structure,
+        concept_applications: syllabus.concept_applications,
+        assessment_pattern: syllabus.assessment_pattern,
+        capstone_project: syllabus.capstone_project,
+        capstone_rubric: syllabus.capstone_rubric,
+        llc_conference: syllabus.llc_conference,
       });
 
       toast.success('PDF downloaded', { id: tid });
@@ -191,6 +196,60 @@ export function SyllabusPdfDownloadButton({
           </Button>
         </TooltipTrigger>
         <TooltipContent side='top'>Download Syllabus PDF</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+// ── v3.5 HTML Download Button ─────────────────────────────────────────────────
+// Downloads the branded v3.5 HTML document (green JKKN template, capstone
+// cards, LLC panel) from /api/bos/syllabus/[id]/export-pdf?format=v35 —
+// print-ready via the browser's print-to-PDF.
+export function SyllabusHtmlDownloadButton({ syllabus }: { syllabus: BosCourseSyllabus }) {
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const [loading, setLoading] = useState(false);
+
+  if (!isSuperAdmin && !canAccess('academic.bos-syllabus', 'view')) return null;
+
+  const handleClick = async () => {
+    setLoading(true);
+    const tid = toast.loading(`Generating v3.5 HTML for ${syllabus.course_code}…`);
+    try {
+      const res = await fetch(`/api/bos/syllabus/${syllabus.id}/export-pdf?format=v35`);
+      if (!res.ok) throw new Error('Failed to generate HTML');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${syllabus.course_code}-syllabus-v35.html`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('HTML downloaded', { id: tid });
+    } catch (e) {
+      toast.error((e as Error).message, { id: tid });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant='ghost'
+            size='icon'
+            className='h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50'
+            onClick={handleClick}
+            disabled={loading}
+            aria-label={`Download v3.5 HTML for ${syllabus.course_code}`}
+          >
+            {loading
+              ? <Loader2 className='h-4 w-4 animate-spin' />
+              : <FileCode2 className='h-4 w-4' />}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side='top'>Download v3.5 HTML (print-ready)</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );
@@ -278,6 +337,11 @@ export function SyllabusDocxDownloadButton({
         po_keys: poKeys,
         pso_keys: psoKeys,
         assessment_structure: syllabus.assessment_structure,
+        concept_applications: syllabus.concept_applications,
+        assessment_pattern: syllabus.assessment_pattern,
+        capstone_project: syllabus.capstone_project,
+        capstone_rubric: syllabus.capstone_rubric,
+        llc_conference: syllabus.llc_conference,
       });
 
       toast.success('Word file downloaded', { id: tid });

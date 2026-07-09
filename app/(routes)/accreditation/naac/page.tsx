@@ -377,7 +377,7 @@ export default function NAACDashboardPage() {
             </p>
             <p>
               Evidence rows are auto-emitted by fan-out triggers (PR-A5
-              anti-ragging → 7.7.1; PR-A3 admission → 2.1.1 on demand).
+              anti-ragging → 7.7.1; PR-A3 admission → 8.1.1 on demand).
               Additional fan-outs will wire up as each source module is retrofitted.
             </p>
           </CardContent>

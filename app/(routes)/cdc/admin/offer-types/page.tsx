@@ -6,7 +6,7 @@ export default function OfferTypesPage() {
     <MasterTablePage
       tableName="cdc_offer_types"
       title="Offer Types"
-      description="Placement offer categories. The 'counts toward placement' flag controls whether this offer type is included in NAAC 5.2.1 and AICTE placement statistics."
+      description="Placement offer categories. The 'counts toward placement' flag controls whether this offer type is included in NAAC 8.2 (Graduate Progression) and AICTE placement statistics."
       breadcrumbs={[
         { label: 'CDC', href: '/cdc' },
         { label: 'Admin', href: '/cdc/admin' },

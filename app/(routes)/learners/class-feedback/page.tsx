@@ -304,6 +304,10 @@ export default function LearnerSessionFeedbackPage() {
       <FeedbackDialog
         session={activeSession}
         source={activeSource}
+        // Decoy pool for the occasional attention check (Director, 2026-07-09):
+        // ~1-in-7 opens ask "which class is this?" using the OTHER pending
+        // course labels; skipped under 3 distinct pending courses. Client-only.
+        pendingSessions={sessions}
         onOpenChange={(open) => {
           if (!open) setActiveSession(null);
         }}
