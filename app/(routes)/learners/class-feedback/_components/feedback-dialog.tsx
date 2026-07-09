@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -111,6 +111,19 @@ export function FeedbackDialog({
   const [attnPassed, setAttnPassed] = useState(true);
   const [attnWrong, setAttnWrong] = useState<string | null>(null);
 
+  // Decoy pool via a latest-ref (skeptic review HIGH, 2026-07-09): the reset
+  // effect below must fire ONLY on session identity. With pendingSessions in
+  // its deps, a background refetch that changes the pending list (e.g. a
+  // session expiring past its 48h window, or refetchOnWindowFocus after a
+  // tab switch) would re-fire the reset MID-ENTRY — wiping the learner's
+  // half-entered feedback and possibly re-injecting a fresh attention check.
+  // The ref is updated in its own effect (declared before the reset effect,
+  // so commit order keeps it current) without ever being a reactive dep.
+  const pendingRef = useRef<PendingSession[] | undefined>(pendingSessions);
+  useEffect(() => {
+    pendingRef.current = pendingSessions;
+  }, [pendingSessions]);
+
   // Reset the form whenever a new session is opened.
   useEffect(() => {
     if (session) {
@@ -124,7 +137,7 @@ export function FeedbackDialog({
       const realLabel = session.course_name || session.course_code || '';
       const decoyPool = Array.from(
         new Set(
-          (pendingSessions ?? [])
+          (pendingRef.current ?? [])
             .map((p) => p.course_name || p.course_code || '')
             .filter((l) => l && l !== realLabel),
         ),
@@ -138,7 +151,7 @@ export function FeedbackDialog({
       }
       setAttnWrong(null);
     }
-  }, [session, pendingSessions]);
+  }, [session]);
 
   const items = useMemo(() => checklistConfig ?? [], [checklistConfig]);
 
