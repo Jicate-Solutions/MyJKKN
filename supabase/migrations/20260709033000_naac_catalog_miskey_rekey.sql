@@ -94,21 +94,22 @@ BEGIN
 END $$;
 
 -- ----------------------------------------------------------------------------
--- 1. 1.3.1 → 1.6.1 FIRST (frees the 1.3.x slot for step 2).
---    Cross-cutting-issues content belongs to the Binary 1.6 (IKS/cross-cutting)
---    family, not 1.3 (flexibility).
+-- 1. 1.3.1 → 6.4.1 FIRST (frees the 1.3.x slot for step 2).
+--    Director decision 2026-07-09 (after orchestrator vet on PR #1907):
+--    cross-cutting issues (gender/ethics/sustainability) is NOT IKS
+--    (Binary 1.6); its Binary home is 6.4 Value Education, Attribute 6.
 -- ----------------------------------------------------------------------------
 UPDATE public.sh_accreditation_metrics
-SET metric_code = '1.6.1',
-    category    = 'Attribute 1: Curriculum',
+SET metric_code = '6.4.1',
+    category    = 'Attribute 6: Extended Curricular',
     notes = COALESCE(notes, '')
-      || ' | RE-KEYED 2026-07-09 from 1.3.1 (catalog mis-key corrected, Binary framework audit): Binary 1.3 = curriculum flexibility (CBCS/MEME); cross-cutting-issues content belongs at 1.6 (IKS/cross-cutting family).'
+      || ' | RE-KEYED 2026-07-09 from 1.3.1 (catalog mis-key corrected, Binary framework audit): Binary 1.3 = curriculum flexibility (CBCS/MEME); cross-cutting-issues content re-homed at 6.4 Value Education (Director decision 2026-07-09 — not 1.6/IKS).'
 WHERE metric_type = 'NAAC'
   AND metric_code = '1.3.1'
   AND metric_name = 'Integration of cross-cutting issues (gender, ethics, sustainability)'
   AND NOT EXISTS (
     SELECT 1 FROM public.sh_accreditation_metrics t
-    WHERE t.metric_type = 'NAAC' AND t.metric_code = '1.6.1');
+    WHERE t.metric_type = 'NAAC' AND t.metric_code = '6.4.1');
 
 -- ----------------------------------------------------------------------------
 -- 2. 1.2.1 → 1.3.1 (flexibility content; Binary 1.2 = stakeholder feedback,
