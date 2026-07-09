@@ -80,7 +80,16 @@ export class LoopEvidenceService {
       query = query.eq('institution_id', filters.institutionId);
     }
     if (filters.period) {
-      query = query.eq('period_label', filters.period);
+      // Deep-review MEDIUM (2026-07-08): the dashboard buckets null-period rows
+      // under the current AY ((r.period_label ?? currentAY)) — a plain .eq()
+      // silently drops them from the export, so the downloaded NAAC draft
+      // contradicts the on-screen tiles. Mirror the dashboard: for the CURRENT
+      // AY, null period_label counts as current.
+      if (filters.period === this.currentAcademicYearLabel()) {
+        query = query.or(`period_label.is.null,period_label.eq.${filters.period}`);
+      } else {
+        query = query.eq('period_label', filters.period);
+      }
     }
 
     const { data, error } = await query;
@@ -124,9 +133,13 @@ export class LoopEvidenceService {
       if (!summary.last_measured_at || row.mapped_at > summary.last_measured_at) {
         summary.last_measured_at = row.mapped_at;
         // Rows arrive newest-first, but don't rely on order — track explicitly.
-        if (meta.outcome && typeof meta.outcome === 'object') {
-          summary.latest_outcome = meta.outcome as Record<string, unknown>;
-        }
+        // Deep-review MEDIUM (2026-07-08): set unconditionally — keeping an
+        // OLDER cycle's numbers when the newest row lacks meta.outcome would
+        // print stale figures under "Latest measured outcome" in the draft.
+        summary.latest_outcome =
+          meta.outcome && typeof meta.outcome === 'object'
+            ? (meta.outcome as Record<string, unknown>)
+            : null;
         if (meta.loop_name) summary.loop_name = meta.loop_name;
         summary.metric_code = row.metric_code;
       }
@@ -169,8 +182,12 @@ export class LoopEvidenceService {
   }
 
   private static describeDeltas(loop: QualityLoopSummary): string {
-    const { improved, no_change, worse } = loop.deltas;
-    return `${improved} improved, ${no_change} no change, ${worse} declined`;
+    // Deep-review MEDIUM (2026-07-08): `cycles` includes n/a rows — omitting
+    // them here made the three numbers sum to less than the stated cycle
+    // count, a self-inconsistent figure in a NAAC-bound document.
+    const { improved, no_change, worse, na } = loop.deltas;
+    const base = `${improved} improved, ${no_change} no change, ${worse} declined`;
+    return na > 0 ? `${base}, ${na} not yet comparable` : base;
   }
 
   /**
