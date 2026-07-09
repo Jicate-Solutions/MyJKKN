@@ -591,3 +591,32 @@ BEGIN
 END $function$;
 
 NOTIFY pgrst, 'reload schema';
+
+-- ----------------------------------------------------------------------------
+-- ACL re-assertion (ADDED 2026-07-09, secdef-anon gate): this file re-creates
+-- ten SECURITY DEFINER functions but originally asserted no ACLs — on a clean
+-- replay it runs AFTER the earlier revokes, and Supabase's default privileges
+-- hand anon EXECUTE straight back to every re-created function. Locks below
+-- mirror prod's live grants exactly (verified 2026-07-09: EXECUTE =
+-- authenticated + service_role on all ten; anon/PUBLIC excluded). Idempotent.
+-- ----------------------------------------------------------------------------
+REVOKE EXECUTE ON FUNCTION public.fn_induction_appoint_feedback_volunteer(uuid, uuid, integer) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_appoint_feedback_volunteer(uuid, uuid, integer) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_assignable_peer_mentors(uuid, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_assignable_peer_mentors(uuid, text) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_auto_enroll(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_auto_enroll(uuid) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_auto_split_batches(uuid, integer) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_auto_split_batches(uuid, integer) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_autobalance_feedback_volunteers(uuid, integer) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_autobalance_feedback_volunteers(uuid, integer) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_day_feedback_summary(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_day_feedback_summary(uuid) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_day_roster(uuid, integer) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_day_roster(uuid, integer) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_emit_naac_evidence(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_emit_naac_evidence(uuid) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_feedback_method_mix(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_feedback_method_mix(uuid) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_list_feedback_volunteers(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_list_feedback_volunteers(uuid) TO authenticated, service_role;
