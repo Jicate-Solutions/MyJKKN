@@ -4573,7 +4573,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       },
       {
         "path": "/learners/class-feedback",
-        "label": "Class Feedback",
+        "label": "Learning Studio Feedback",
         "iconName": "GraduationCap",
         "children": []
       },
@@ -4618,12 +4618,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/learners/my-attendance",
         "label": "My Attendance",
-        "iconName": "GraduationCap",
-        "children": []
-      },
-      {
-        "path": "/learners/my-attendance-feedback",
-        "label": "My Attendance Feedback",
         "iconName": "GraduationCap",
         "children": []
       },
