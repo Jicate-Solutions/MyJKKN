@@ -6,6 +6,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { useCreatePurchaseRequest } from '@/hooks/procurement/use-purchase-requests';
 import { CatalogItemPicker } from '@/components/procurement/catalog-item-picker';
+import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { registeredDomainOptions } from '@/lib/services/procurement/domain-adapters/registry';
 import type { DomainCtx, ProcurementDomain } from '@/lib/services/procurement/domain-adapters/types';
 import type {
@@ -57,16 +58,21 @@ export default function NewPurchaseRequestPage() {
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<ItemRow[]>([emptyRow()]);
 
+  // Institution scope — defaults to the user's own; a multi-institution user can
+  // switch, which re-scopes the catalog search and the institution the PR is raised for.
+  const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
+  const effectiveInstitution = institutionId ?? profile?.institution_id ?? '';
+
   const isNewItem = requestType === 'new_item';
 
   // Ambient context handed to the domain adapter's catalog search.
   const ctx: DomainCtx = useMemo(
     () => ({
-      institutionId: profile?.institution_id ?? '',
+      institutionId: effectiveInstitution,
       storeId: null,
       userId: profile?.id ?? '',
     }),
-    [profile?.institution_id, profile?.id]
+    [effectiveInstitution, profile?.id]
   );
 
   const updateItem = (idx: number, patch: Partial<ItemRow>) =>
@@ -76,8 +82,8 @@ export default function NewPurchaseRequestPage() {
     setItems((rows) => (rows.length > 1 ? rows.filter((_, i) => i !== idx) : rows));
 
   const handleSubmit = async () => {
-    if (!profile?.id || !profile?.institution_id) {
-      toast.error('Your profile has no institution set — contact an administrator.');
+    if (!profile?.id || !effectiveInstitution) {
+      toast.error('No institution selected — pick one or contact an administrator.');
       return;
     }
     const cleaned = items.filter((i) => i.item_name.trim());
@@ -97,7 +103,7 @@ export default function NewPurchaseRequestPage() {
     try {
       const created = await createPR.mutateAsync({
         data: {
-          institution_id: profile.institution_id,
+          institution_id: effectiveInstitution,
           domain,
           request_type: requestType,
           notes: notes || null,
@@ -134,6 +140,15 @@ export default function NewPurchaseRequestPage() {
             <CardTitle className="text-base">Request details</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <InstitutionFilter
+              value={effectiveInstitution || undefined}
+              onChange={(id) => {
+                setInstitutionId(id);
+                // Different institution = different inventory catalog; clear picks.
+                setItems([emptyRow()]);
+              }}
+              hint="Which institution’s inventory this request is raised against."
+            />
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Module (inventory)</Label>

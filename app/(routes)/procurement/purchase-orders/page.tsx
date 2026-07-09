@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { usePurchaseOrders } from '@/hooks/procurement/use-purchase-orders';
+import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { PO_STATUS_CONFIG, type PoStatus, type PurchaseOrderFilters } from '@/types/procurement';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -34,11 +35,13 @@ export default function PurchaseOrdersPage() {
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
+  const effectiveInstitution = institutionId ?? profile?.institution_id ?? undefined;
 
   const filters: PurchaseOrderFilters = {
     search: search || undefined,
     status: statusFilter !== 'all' ? (statusFilter as PoStatus) : undefined,
-    institution_id: profile?.institution_id || undefined,
+    institution_id: effectiveInstitution,
   };
 
   const { data: response, isLoading } = usePurchaseOrders(filters);
@@ -79,6 +82,12 @@ export default function PurchaseOrdersPage() {
                   ))}
                 </SelectContent>
               </Select>
+              <InstitutionFilter
+                value={effectiveInstitution}
+                onChange={setInstitutionId}
+                label={null}
+                className="w-full sm:w-[200px]"
+              />
             </div>
           </CardContent>
         </Card>

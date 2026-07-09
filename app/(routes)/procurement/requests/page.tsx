@@ -6,6 +6,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { usePurchaseRequests } from '@/hooks/procurement/use-purchase-requests';
+import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import {
   PR_STATUS_CONFIG,
   type PurchaseRequestStatus,
@@ -41,11 +42,13 @@ export default function PurchaseRequestsPage() {
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
+  const effectiveInstitution = institutionId ?? profile?.institution_id ?? undefined;
 
   const filters: PurchaseRequestFilters = {
     search: search || undefined,
     status: statusFilter !== 'all' ? (statusFilter as PurchaseRequestStatus) : undefined,
-    institution_id: profile?.institution_id || undefined,
+    institution_id: effectiveInstitution,
   };
 
   const { data: response, isLoading } = usePurchaseRequests(filters);
@@ -94,6 +97,12 @@ export default function PurchaseRequestsPage() {
                   ))}
                 </SelectContent>
               </Select>
+              <InstitutionFilter
+                value={effectiveInstitution}
+                onChange={setInstitutionId}
+                label={null}
+                className="w-full sm:w-[200px]"
+              />
             </div>
           </CardContent>
         </Card>

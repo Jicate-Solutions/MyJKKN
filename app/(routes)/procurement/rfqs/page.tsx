@@ -10,6 +10,7 @@ import {
   useApprovedRequestsForSelect,
   useCreateRfqFromPR,
 } from '@/hooks/procurement/use-rfqs';
+import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { RFQ_STATUS_CONFIG, type RfqStatus, type RfqFilters } from '@/types/procurement';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -50,20 +51,20 @@ export default function RfqsPage() {
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
+  const effectiveInstitution = institutionId ?? profile?.institution_id ?? undefined;
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedPR, setSelectedPR] = useState<string>('');
 
   const filters: RfqFilters = {
     search: search || undefined,
     status: statusFilter !== 'all' ? (statusFilter as RfqStatus) : undefined,
-    institution_id: profile?.institution_id || undefined,
+    institution_id: effectiveInstitution,
   };
 
   const { data: response, isLoading } = useRfqs(filters);
   const rfqs = response?.data ?? [];
-  const { data: approvedPRs = [] } = useApprovedRequestsForSelect(
-    profile?.institution_id || undefined
-  );
+  const { data: approvedPRs = [] } = useApprovedRequestsForSelect(effectiveInstitution);
   const createRfq = useCreateRfqFromPR();
 
   const handleCreate = async () => {
@@ -122,6 +123,12 @@ export default function RfqsPage() {
                   ))}
                 </SelectContent>
               </Select>
+              <InstitutionFilter
+                value={effectiveInstitution}
+                onChange={setInstitutionId}
+                label={null}
+                className="w-full sm:w-[200px]"
+              />
             </div>
           </CardContent>
         </Card>

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { useGrns } from '@/hooks/procurement/use-grns';
+import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { GRN_STATUS_CONFIG, type GrnStatus, type GrnFilters } from '@/types/procurement';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -34,11 +35,13 @@ export default function GrnListPage() {
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
+  const effectiveInstitution = institutionId ?? profile?.institution_id ?? undefined;
 
   const filters: GrnFilters = {
     search: search || undefined,
     status: statusFilter !== 'all' ? (statusFilter as GrnStatus) : undefined,
-    institution_id: profile?.institution_id || undefined,
+    institution_id: effectiveInstitution,
   };
 
   const { data: response, isLoading } = useGrns(filters);
@@ -80,6 +83,12 @@ export default function GrnListPage() {
                   ))}
                 </SelectContent>
               </Select>
+              <InstitutionFilter
+                value={effectiveInstitution}
+                onChange={setInstitutionId}
+                label={null}
+                className="w-full sm:w-[220px]"
+              />
             </div>
           </CardContent>
         </Card>
