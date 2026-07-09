@@ -220,8 +220,8 @@ export function FeedbackDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onOpenChange(false)}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[85dvh] w-[calc(100%-2rem)] flex-col rounded-lg sm:max-w-md">
+        <DialogHeader className="shrink-0">
           <DialogTitle style={{ color: BRAND }}>{courseLabel}</DialogTitle>
           <DialogDescription>
             {[
@@ -234,6 +234,11 @@ export function FeedbackDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {/* Scroll container: the dialog is height-capped (max-h above), so the
+            body scrolls while header/footer stay pinned — critical on mobile
+            where the full form is taller than the viewport. The -mx-1/px-1
+            pair keeps focus rings from being clipped by overflow. */}
+        <div className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1">
         {/* Attention check gate — the form stays hidden until the correct tap.
             Wrong taps only mark the option and invite another try; Cancel below
             always works (no punishment). */}
@@ -415,8 +420,9 @@ export function FeedbackDialog({
           </p>
         </div>
         )}
+        </div>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0 gap-2 sm:gap-0">
           <Button
             type="button"
             variant="outline"

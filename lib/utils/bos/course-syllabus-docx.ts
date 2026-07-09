@@ -45,6 +45,11 @@ import type {
 	BosPoMapping,
 	BosPracticalTopic,
 	BosAssessmentStructure,
+	BosConceptApplicationsData,
+	BosAssessmentPatternData,
+	BosCapstoneProjectData,
+	BosCapstoneRubricData,
+	BosLlcConferenceData,
 } from '@/types/bos'
 
 // ── Layout (mirrors PDF dimensions) ───────────────────────────────────────────
@@ -56,8 +61,10 @@ const TABLE_W_DXA = convertMillimetersToTwip(190) // 190 mm content width
 const MC0 = convertMillimetersToTwip(30) // Label column
 const MC1 = convertMillimetersToTwip(40) // Section 2 "Total Hours"
 const MC2 = convertMillimetersToTwip(50) // Section 2 "Contact Hours"
-const MC3 = convertMillimetersToTwip(42) // Section 4 description tail
-const MC4 = convertMillimetersToTwip(28) // Section 4 K-values
+// 36 + 34 (was 42 + 28): the K column matches the PDF's 34mm so a full
+// six-code Fink's set ("FK, AP, IN, HD, CA, LHL") holds two lines at 10pt.
+const MC3 = convertMillimetersToTwip(36) // Section 4 description tail
+const MC4 = convertMillimetersToTwip(34) // Section 4 K-values
 const MASTER_COLS = [MC0, MC1, MC2, MC3, MC4]
 
 const FONT = 'Times New Roman'
@@ -123,6 +130,13 @@ export interface CourseSyllabusDOCXData {
 
 	// v1.2 Assessment Structure (Total 100) + Concept Applications + Capstones
 	assessment_structure?: BosAssessmentStructure
+
+	// v3.5 Fink's Formative + Capstone blocks (five dedicated JSONB columns)
+	concept_applications?: BosConceptApplicationsData
+	assessment_pattern?: BosAssessmentPatternData
+	capstone_project?: BosCapstoneProjectData
+	capstone_rubric?: BosCapstoneRubricData
+	llc_conference?: BosLlcConferenceData
 }
 
 // ── Style helpers ─────────────────────────────────────────────────────────────
@@ -144,7 +158,11 @@ function noBorder() {
 
 function run(text: string, opts: { bold?: boolean; size?: number } = {}): TextRun {
 	return new TextRun({
-		text,
+		// Collapse tab/newline/space runs (mirrors the PDF's sanitize):
+		// PDF-extracted source rows carry stray tabs that Word renders as
+		// gaping holes. Deliberately NOT trimmed — label runs like
+		// "Primary (AI-proof): " rely on their trailing space.
+		text: text.replace(/\s+/g, ' '),
 		bold: opts.bold ?? false,
 		font: FONT,
 		size: opts.size ?? FONT_SIZE,
@@ -186,6 +204,8 @@ function tc(
 		rowSpan?: number
 		columnSpan?: number
 		valign?: (typeof VerticalAlign)[keyof typeof VerticalAlign]
+		/** Hex fill (no #), e.g. 'F0F0F0' — mirrors the PDF's shaded rows. */
+		shading?: string
 	} = {},
 ): TableCell {
 	return new TableCell({
@@ -193,6 +213,7 @@ function tc(
 		columnSpan: opts.columnSpan,
 		verticalAlign: opts.valign ?? VerticalAlign.TOP,
 		borders: cellBorders(),
+		shading: opts.shading ? { fill: opts.shading } : undefined,
 		children: paragraphs,
 	})
 }
@@ -389,9 +410,10 @@ function rowsCLOs(data: CourseSyllabusDOCXData): TableRow[] {
 				new TableRow({
 					children: [
 						tc([p(`CO ${c.clo_number}`, { bold: true, alignment: AlignmentType.CENTER })]),
-						// Description spans 3 columns (40+50+42 = 132mm) = PDF descW
-						tc([p(c.description)], { columnSpan: 3 }),
-						tc([p(c.k_values.join(', '), { bold: true, alignment: AlignmentType.CENTER })]),
+						// Description spans 3 columns (40+50+36 = 126mm) = PDF descW
+						tc([p(c.description, { alignment: AlignmentType.JUSTIFIED })], { columnSpan: 3 }),
+						// 10pt like the PDF — six Fink codes fit two lines in 34mm.
+						tc([p(c.k_values.join(', '), { bold: true, size: SUB_SIZE, alignment: AlignmentType.CENTER })]),
 					],
 				}),
 		),
@@ -759,6 +781,218 @@ function buildAssessmentStructure(data: CourseSyllabusDOCXData): (Paragraph | Ta
 	return out
 }
 
+// ── v3.5 Fink's Formative + Capstone blocks — separate tables ─────────────────
+// Rendered in document order: Concept Applications → Assessment Pattern →
+// Capstone Project → Capstone Rubric → Learners Led Conference. Every block is
+// optional — legacy rows without the v3.5 columns render unchanged.
+function buildV35Sections(data: CourseSyllabusDOCXData): (Paragraph | Table)[] {
+	const out: (Paragraph | Table)[] = []
+
+	const heading = (text: string) => {
+		out.push(new Paragraph({ spacing: COMPACT_SPACING }))
+		out.push(p(text, { bold: true, size: FONT_SIZE }))
+	}
+
+	// Inline **bold** markers (the source documents' <strong> phrases) become
+	// bold runs; text without markers renders as one regular run.
+	const richP = (text: string, opts: { size?: number } = {}) =>
+		pRuns(
+			text.trim().split('**')
+				.map((part, i) => (part ? run(part, { bold: i % 2 === 1, size: opts.size }) : null))
+				.filter((r): r is TextRun => r !== null),
+			{ alignment: AlignmentType.JUSTIFIED },
+		)
+
+	// Concept Applications (Formative Learning Activities)
+	const ca = data.concept_applications
+	if (ca && ((ca.activities?.length ?? 0) > 0 || ca.intro_note?.trim())) {
+		heading('CONCEPT APPLICATIONS (FORMATIVE LEARNING ACTIVITIES):')
+		if (ca.intro_note?.trim()) {
+			out.push(new Table({
+				width: { size: TABLE_W_DXA, type: WidthType.DXA },
+				columnWidths: [TABLE_W_DXA],
+				rows: [new TableRow({ children: [tc([richP(ca.intro_note)])] })],
+			}))
+		}
+		const acts = ca.activities ?? []
+		if (acts.length > 0) {
+			const unitW = convertMillimetersToTwip(22)
+			const dimW = convertMillimetersToTwip(30)
+			const restW = Math.floor((TABLE_W_DXA - unitW - dimW) / 2)
+			// 10pt (SUB_SIZE), left-aligned body — mirrors the PDF's compact
+			// Concept Applications table styling.
+			const rows: TableRow[] = [
+				new TableRow({
+					tableHeader: true,
+					children: [
+						tc([p('Unit', { bold: true, size: SUB_SIZE, alignment: AlignmentType.CENTER })]),
+						tc([p("Fink's Dim.", { bold: true, size: SUB_SIZE, alignment: AlignmentType.CENTER })]),
+						tc([p('Task', { bold: true, size: SUB_SIZE, alignment: AlignmentType.CENTER })]),
+						tc([p('Deliverable & Notes', { bold: true, size: SUB_SIZE, alignment: AlignmentType.CENTER })]),
+					],
+				}),
+				...acts.map((a, i) =>
+					new TableRow({
+						children: [
+							tc([p(a.unit || String(a.sno ?? i + 1), { bold: true, size: SUB_SIZE, alignment: AlignmentType.CENTER })]),
+							tc([p(a.finks_dimension || '', { size: SUB_SIZE, alignment: AlignmentType.CENTER })]),
+							tc([p(a.task || '', { size: SUB_SIZE, alignment: AlignmentType.JUSTIFIED })]),
+							tc([p(a.deliverable_notes || '', { size: SUB_SIZE, alignment: AlignmentType.JUSTIFIED })]),
+						],
+					}),
+				),
+			]
+			out.push(new Table({ width: { size: TABLE_W_DXA, type: WidthType.DXA }, columnWidths: [unitW, dimW, restW, restW], rows }))
+		}
+	}
+
+	// Assessment Pattern (Internal | External split + internal component rows)
+	const ap = data.assessment_pattern
+	if (ap && ((ap.components?.length ?? 0) > 0 || ap.internal_marks != null || ap.external_marks != null)) {
+		heading('ASSESSMENT PATTERN:')
+		const comps = ap.components ?? []
+		const snoW = convertMillimetersToTwip(16)
+		const marksW = convertMillimetersToTwip(22)
+		const compW = TABLE_W_DXA - snoW - marksW
+		const rows: TableRow[] = []
+		if (ap.internal_marks != null || ap.external_marks != null) {
+			rows.push(new TableRow({
+				children: [
+					tc(
+						[p(`Internal = ${ap.internal_marks ?? '-'} Marks   |   External = ${ap.external_marks ?? '-'} Marks`, { bold: true, alignment: AlignmentType.CENTER })],
+						{ columnSpan: 3, shading: 'F0F0F0' },
+					),
+				],
+			}))
+		}
+		if (comps.length > 0) {
+			rows.push(new TableRow({
+				children: [
+					tc([p('S.No', { bold: true, alignment: AlignmentType.CENTER })]),
+					tc([p('Component', { bold: true, alignment: AlignmentType.CENTER })]),
+					tc([p('Marks', { bold: true, alignment: AlignmentType.CENTER })]),
+				],
+			}))
+			comps.forEach((c, i) => {
+				rows.push(new TableRow({
+					children: [
+						tc([p(String(c.sno ?? i + 1), { alignment: AlignmentType.CENTER })]),
+						tc([p(c.component || '')]),
+						tc([p(c.marks != null ? String(c.marks) : '-', { alignment: AlignmentType.CENTER })]),
+					],
+				}))
+			})
+			const total = comps.reduce((s, c) => s + (Number(c.marks) || 0), 0)
+			rows.push(new TableRow({
+				children: [
+					tc([p('Total Internal', { bold: true, alignment: AlignmentType.RIGHT })], { columnSpan: 2 }),
+					tc([p(String(total), { bold: true, alignment: AlignmentType.CENTER })]),
+				],
+			}))
+		}
+		if (rows.length > 0) {
+			out.push(new Table({ width: { size: TABLE_W_DXA, type: WidthType.DXA }, columnWidths: [snoW, compW, marksW], rows }))
+		}
+		const noteRows: TableRow[] = []
+		if (ap.activities_note?.trim()) {
+			noteRows.push(new TableRow({ children: [tc([p(ap.activities_note.trim(), { size: SUB_SIZE })])] }))
+		}
+		if (ap.note?.trim()) {
+			noteRows.push(new TableRow({ children: [tc([p(`Note: ${ap.note.trim()}`, { size: SUB_SIZE })])] }))
+		}
+		if (noteRows.length > 0) {
+			out.push(new Table({ width: { size: TABLE_W_DXA, type: WidthType.DXA }, columnWidths: [TABLE_W_DXA], rows: noteRows }))
+		}
+	}
+
+	// Capstone Project — choose ONE of FIVE (option cards)
+	const cp = data.capstone_project
+	if (cp && ((cp.options?.length ?? 0) > 0 || cp.intro_note?.trim())) {
+		heading('CAPSTONE PROJECT (CHOOSE ONE OF FIVE):')
+		if (cp.intro_note?.trim()) {
+			out.push(new Table({
+				width: { size: TABLE_W_DXA, type: WidthType.DXA },
+				columnWidths: [TABLE_W_DXA],
+				rows: [new TableRow({ children: [tc([richP(cp.intro_note)])] })],
+			}))
+		}
+		const opts = cp.options ?? []
+		if (opts.length > 0) {
+			// Full-width card per option (mirrors the source documents): bold
+			// "Option N — Title" header, then Primary / Support / LLC paragraphs.
+			const rows: TableRow[] = opts.map((opt, i) => {
+				const paras: Paragraph[] = [
+					p(`Option ${opt.option_no ?? i + 1} — ${opt.title || ''}`, { bold: true }),
+				]
+				const addPart = (label: string, val?: string) => {
+					if (val && val.trim()) paras.push(pRuns([run(`${label}: `, { bold: true }), run(val.trim())], { alignment: AlignmentType.JUSTIFIED }))
+				}
+				addPart('Primary (AI-proof)', opt.primary)
+				addPart('Support', opt.support)
+				addPart('LLC', opt.llc)
+				return new TableRow({ children: [tc(paras, { valign: VerticalAlign.TOP })] })
+			})
+			out.push(new Table({ width: { size: TABLE_W_DXA, type: WidthType.DXA }, columnWidths: [TABLE_W_DXA], rows }))
+		}
+	}
+
+	// Capstone Rubric (criterion rows, common to all options)
+	const cr = data.capstone_rubric
+	if (cr && (cr.criteria?.length ?? 0) > 0) {
+		const criteria = cr.criteria ?? []
+		heading(cr.note?.trim() ? `CAPSTONE RUBRIC (${cr.note.trim()}):` : 'CAPSTONE RUBRIC:')
+		const marksW = convertMillimetersToTwip(22)
+		const critW = TABLE_W_DXA - marksW
+		const total = criteria.reduce((s, c) => s + (Number(c.marks) || 0), 0)
+		const rows: TableRow[] = [
+			new TableRow({
+				tableHeader: true,
+				children: [
+					tc([p('Criterion', { bold: true, alignment: AlignmentType.CENTER })]),
+					tc([p('Marks', { bold: true, alignment: AlignmentType.CENTER })]),
+				],
+			}),
+			...criteria.map(c =>
+				new TableRow({
+					children: [
+						tc([p(c.criterion || '', { alignment: AlignmentType.JUSTIFIED })]),
+						tc([p(c.marks != null ? String(c.marks) : '-', { alignment: AlignmentType.CENTER })]),
+					],
+				}),
+			),
+			new TableRow({
+				children: [
+					tc([p('TOTAL', { bold: true, alignment: AlignmentType.RIGHT })]),
+					tc([p(String(total), { bold: true, alignment: AlignmentType.CENTER })]),
+				],
+			}),
+		]
+		out.push(new Table({ width: { size: TABLE_W_DXA, type: WidthType.DXA }, columnWidths: [critW, marksW], rows }))
+	}
+
+	// End-of-Course Learners Led Conference — one self-contained panel like
+	// the source documents: a single inline header line (bold "LLC <title>"
+	// + regular "— <subtitle>") above the description paragraph.
+	const llc = data.llc_conference
+	if (llc && (llc.title?.trim() || llc.subtitle?.trim() || llc.description?.trim())) {
+		out.push(new Paragraph({ spacing: COMPACT_SPACING }))
+		const rows: TableRow[] = [
+			new TableRow({
+				children: [tc([pRuns([
+					run(`LLC   ${llc.title?.trim() || 'End-of-Course Learners Led Conference'}`, { bold: true }),
+					...(llc.subtitle?.trim() ? [run(` — ${llc.subtitle.trim()}`, { size: SUB_SIZE })] : []),
+				])], { shading: 'F0F0F0' })],
+			}),
+		]
+		if (llc.description?.trim()) {
+			rows.push(new TableRow({ children: [tc([richP(llc.description)])] }))
+		}
+		out.push(new Table({ width: { size: TABLE_W_DXA, type: WidthType.DXA }, columnWidths: [TABLE_W_DXA], rows }))
+	}
+
+	return out
+}
+
 // ── Master table assembly ─────────────────────────────────────────────────────
 function buildMasterTable(data: CourseSyllabusDOCXData): Table {
 	const rows: TableRow[] = [
@@ -788,14 +1022,15 @@ export async function generateCourseSyllabusDOCX(data: CourseSyllabusDOCXData): 
 	const body: (Paragraph | Table)[] = []
 	body.push(...buildInstitutionHeader(data, leftLogo, rightLogo))
 	body.push(buildMasterTable(data))
-	// Signature stays separate — its [95, 95] grid doesn't fit the master grid.
-	// An empty paragraph between the master and signature keeps them
-	// structurally independent without showing a visible gap (the master
-	// table's bottom border + signature's top border read as one line).
-	body.push(new Paragraph({ spacing: { line: LINE_276, lineRule: LineRuleType.AUTO, before: 0, after: 0 } }))
-	body.push(buildSignatureTable())
 	body.push(...buildPOMapping(data))
 	body.push(...buildAssessmentStructure(data))
+	body.push(...buildV35Sections(data))
+	// Signature LAST — matches the v3.5 documents, where Course Designer /
+	// BoS Chairman sign off below the full assessment spec (after the LLC
+	// block). The empty paragraph keeps it structurally separate from the
+	// preceding table (two adjacent tables would merge in Word).
+	body.push(new Paragraph({ spacing: { line: LINE_276, lineRule: LineRuleType.AUTO, before: 0, after: 0 } }))
+	body.push(buildSignatureTable())
 
 	const doc = new Document({
 		styles: {

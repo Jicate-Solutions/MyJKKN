@@ -408,6 +408,11 @@ export interface BosSyllabusContent {
   pedagogy?: BosPedagogyData;
   po_mappings?: BosPOMappingsData;
   assessment_structure?: BosAssessmentStructure;
+  concept_applications?: BosConceptApplicationsData;
+  assessment_pattern?: BosAssessmentPatternData;
+  capstone_project?: BosCapstoneProjectData;
+  capstone_rubric?: BosCapstoneRubricData;
+  llc_conference?: BosLlcConferenceData;
 }
 
 // ── Assessment Structure (v1.2) ──────────────────────────────────────────────
@@ -434,6 +439,78 @@ export interface BosAssessmentStructure {
   concept_applications_note?: string;
   exhibition_note?: string;
   capstones?: BosCapstone[];
+}
+
+// ── Fink's Formative + Capstone blocks (v3.5) ────────────────────────────────
+// Five dedicated JSONB columns on bos_course_syllabi (20260709 migration),
+// separating what v1.2 crammed into assessment_structure.
+
+// One formative activity row of "Concept Applications (Formative Learning
+// Activities)" — anchored to a unit/lab task, shaped by a Fink's dimension.
+export interface BosConceptApplication {
+  id?: string;
+  sno?: number;
+  unit: string;              // e.g. "Word Tasks 1-2"
+  finks_dimension: string;   // e.g. "Foundational Knowledge", "Caring"
+  task: string;
+  deliverable_notes: string; // deliverable + 3-4 sentence reflection prompt
+}
+
+export interface BosConceptApplicationsData {
+  intro_note?: string;
+  activities?: BosConceptApplication[];
+}
+
+// One internal-component row of the "Assessment Pattern" table.
+export interface BosAssessmentPatternComponent {
+  id?: string;
+  sno?: number;
+  component: string; // e.g. "CIA I, CIA II & Model Examination"
+  marks: number;
+}
+
+export interface BosAssessmentPatternData {
+  internal_marks?: number;  // e.g. 30
+  external_marks?: number;  // e.g. 70
+  components?: BosAssessmentPatternComponent[];
+  activities_note?: string; // "* Activities: Assignment / Case study / …"
+  note?: string;            // formative-vs-summative footnote
+}
+
+// One "choose ONE of FIVE" capstone option card.
+export interface BosCapstoneOption {
+  id?: string;
+  option_no?: number;
+  title: string;    // e.g. "The Document Kit for a Real Event"
+  primary?: string; // PRIMARY (AI-proof) deliverable
+  support?: string; // ~400-word reflection brief
+  llc?: string;     // what is demonstrated live at the LLC
+}
+
+export interface BosCapstoneProjectData {
+  intro_note?: string;
+  options?: BosCapstoneOption[];
+}
+
+// One criterion row of the common capstone rubric.
+export interface BosCapstoneRubricCriterion {
+  id?: string;
+  sno?: number;
+  criterion: string;
+  marks: number;
+}
+
+export interface BosCapstoneRubricData {
+  total_marks?: number; // e.g. 10
+  note?: string;        // "10 marks · common to all 5 options"
+  criteria?: BosCapstoneRubricCriterion[];
+}
+
+// End-of-course Learners Led Conference description block.
+export interface BosLlcConferenceData {
+  title?: string;
+  subtitle?: string;   // "cohort audience · faculty + Senior Learner facilitate…"
+  description?: string;
 }
 
 export interface BosCourseSyllabus {
@@ -469,6 +546,11 @@ export interface BosCourseSyllabus {
   pedagogy?: BosPedagogyData;
   po_mappings?: BosPOMappingsData;
   assessment_structure?: BosAssessmentStructure;
+  concept_applications?: BosConceptApplicationsData;
+  assessment_pattern?: BosAssessmentPatternData;
+  capstone_project?: BosCapstoneProjectData;
+  capstone_rubric?: BosCapstoneRubricData;
+  llc_conference?: BosLlcConferenceData;
 
   // Metadata
   created_by: string; // User ID
