@@ -15,6 +15,7 @@ import {
   useUnawardLine,
 } from '@/hooks/procurement/use-quotations';
 import { useGeneratePOsFromRfq } from '@/hooks/procurement/use-purchase-orders';
+import { downloadQuotationTemplate, parseQuotationFile } from '@/lib/procurement/quotation-import';
 import type { CreateQuotationItemDto } from '@/types/procurement';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -35,7 +36,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ArrowLeft, Plus, Trash2, FileText, Award, X, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, FileText, Award, X, ExternalLink, Download, Upload } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 
@@ -154,6 +155,29 @@ export default function RfqQuotationsPage() {
     }
   };
 
+  // Parse a filled CSV/Excel price sheet into the per-item price fields (editable after).
+  const handleImportPrices = async (f: File | null) => {
+    if (!f || !rfq) return;
+    try {
+      const { prices: parsed, matched, unmatched } = await parseQuotationFile(f, rfq.items);
+      if (matched === 0) {
+        toast.error('No matching item prices found — download and use the template.');
+        return;
+      }
+      setPrices((prev) => {
+        const next = { ...prev };
+        for (const [id, price] of Object.entries(parsed)) next[id] = String(price);
+        return next;
+      });
+      toast.success(
+        `Imported ${matched} of ${rfq.items.length} price${matched === 1 ? '' : 's'}` +
+          (unmatched.length ? ` · ${unmatched.length} row(s) unmatched` : '')
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not read the file');
+    }
+  };
+
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     try {
       await fn();
@@ -200,6 +224,22 @@ export default function RfqQuotationsPage() {
             </Button>
           )}
         </div>
+
+        {/* No vendors attached -> quotations can't be captured yet. Explain why. */}
+        {canManage && (rfq.vendors?.length ?? 0) === 0 && (
+          <Card className="border-amber-400/50">
+            <CardContent className="pt-6 text-sm">
+              No vendors are attached to this RFQ yet. Go to the{' '}
+              <button
+                className="font-medium text-primary underline"
+                onClick={() => router.push(`/procurement/rfqs/${rfqId}`)}
+              >
+                RFQ page
+              </button>{' '}
+              and add vendors, then capture each vendor’s quotation here.
+            </CardContent>
+          </Card>
+        )}
 
         {/* Received quotations */}
         <Card>
@@ -391,7 +431,38 @@ export default function RfqQuotationsPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>Unit prices</Label>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label>Unit prices</Label>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => downloadQuotationTemplate(rfq.rfq_number, rfq.items)}
+                  >
+                    <Download className="mr-1 h-3.5 w-3.5" />
+                    Template
+                  </Button>
+                  <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-3 py-1.5 text-sm hover:bg-accent">
+                    <Upload className="h-3.5 w-3.5" />
+                    Import CSV/Excel
+                    <input
+                      type="file"
+                      accept=".csv,.xlsx,.xls"
+                      className="hidden"
+                      onChange={(e) => {
+                        handleImportPrices(e.target.files?.[0] ?? null);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Download the template, fill the <code>unit_price</code> column, and import it —
+                or type prices below. A vendor PDF can be attached as reference under
+                “Quotation document”.
+              </p>
               {rfq.items.map((it) => (
                 <div key={it.id} className="flex items-center gap-3">
                   <div className="flex-1 text-sm">
