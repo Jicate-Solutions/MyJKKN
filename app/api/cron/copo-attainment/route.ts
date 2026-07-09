@@ -21,6 +21,13 @@
 //   3. fn_copo_emit_attainment_evidence() — rollups → quality_evidence_mappings
 //      (NAAC 7.3.d + NBA T1_CO, loop_key 'copo_attainment').
 //
+// PER-COLLEGE THRESHOLD (Director 2026-07-09: 'Let each college choose'):
+// the attainment threshold resolves per institution — an institution-scoped
+// platform_policies override row wins over the global fallback row (mirrors
+// the canonical fn_get_policy precedence; the SQL fns use fn_get_policy
+// itself). Each rollup row records the threshold it was computed with
+// (threshold_pct_used) plus its source in metadata.
+//
 // Split-college note: one COE institution can map to two MyJKKN institutions
 // (CAS Self/Aided). Each course is stamped to the single mapped institution
 // that actually teaches that course_code; when ambiguous (or unmatched) the
@@ -110,8 +117,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
 
+  // Global FALLBACK threshold; per-institution override rows win (below).
   const thresholdRaw = await readPolicy(supabase, 'copo_attainment.threshold_pct');
-  const threshold = typeof thresholdRaw === 'number' ? thresholdRaw : 60;
+  const globalThreshold = typeof thresholdRaw === 'number' ? thresholdRaw : 60;
 
   // 1. CO substrate: BoS CLOs → obe_course_outcomes (idempotent).
   const { data: backfill, error: backfillError } = await supabase.rpc(
@@ -164,6 +172,36 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       codeToInstitutions.set(c.course_code, set);
     }
 
+    // PER-COLLEGE threshold: institution-scoped override rows for the mapped
+    // institutions (fn_get_policy precedence: institution > global > 60).
+    const { data: overrideRows, error: overrideError } = await supabase
+      .from('platform_policies')
+      .select('scope_id, value')
+      .eq('policy_key', 'copo_attainment.threshold_pct')
+      .eq('scope_type', 'institution')
+      .eq('is_active', true)
+      .in('scope_id', mappedIds);
+    if (overrideError) {
+      return NextResponse.json(
+        { ok: false, step: 'threshold_resolve', error: overrideError.message },
+        { status: 500 },
+      );
+    }
+    const thresholdByInstitution = new Map<string, number>();
+    for (const o of overrideRows ?? []) {
+      if (o.scope_id && typeof o.value === 'number') {
+        thresholdByInstitution.set(o.scope_id as string, o.value);
+      }
+    }
+    const institutionForCode = (code: string): { id: string; matchKind: string } => {
+      const matched = codeToInstitutions.get(code);
+      if (matched && matched.size === 1) return { id: [...matched][0], matchKind: 'unique_course_match' };
+      if (matched && matched.size > 1) return { id: mappedIds[0], matchKind: 'ambiguous_first_mapped' };
+      return { id: mappedIds[0], matchKind: 'unmatched_first_mapped' };
+    };
+    const thresholdForCode = (code: string): number =>
+      thresholdByInstitution.get(institutionForCode(code).id) ?? globalThreshold;
+
     const aggs = new Map<string, CourseAgg>();
     const getAgg = (code: string, name: string | null, program: string | null): CourseAgg => {
       let a = aggs.get(code);
@@ -187,7 +225,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       if (!r.course_code || r.internal_percentage == null) continue;
       const a = getAgg(r.course_code, r.course_name, r.program_code);
       a.internal_learner_count += 1;
-      if (r.internal_percentage >= threshold) a.internal_meeting_threshold += 1;
+      if (r.internal_percentage >= thresholdForCode(r.course_code)) a.internal_meeting_threshold += 1;
       a.internal_pct_sum += r.internal_percentage;
       a.internal_pct_n += 1;
     }
@@ -196,7 +234,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       if (!r.course_code || r.percentage == null) continue;
       const a = getAgg(r.course_code, r.course_name, r.program_code);
       a.final_learner_count += 1;
-      if (r.percentage >= threshold) a.final_meeting_threshold += 1;
+      if (r.percentage >= thresholdForCode(r.course_code)) a.final_meeting_threshold += 1;
       if (r.is_pass === true) a.final_pass_count += 1;
       a.total_pct_sum += r.percentage;
       a.total_pct_n += 1;
@@ -207,13 +245,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     const rows = [...aggs.values()].map((a) => {
-      const matched = codeToInstitutions.get(a.course_code);
-      const institutionId =
-        matched && matched.size === 1 ? [...matched][0] : mappedIds[0];
-      const matchKind =
-        matched && matched.size === 1 ? 'unique_course_match'
-        : matched && matched.size > 1 ? 'ambiguous_first_mapped'
-        : 'unmatched_first_mapped';
+      const { id: institutionId, matchKind } = institutionForCode(a.course_code);
+      const courseThreshold = thresholdForCode(a.course_code);
       return {
         institution_id: institutionId,
         course_code: a.course_code,
@@ -221,7 +254,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         program_code: a.program_code,
         session_code: term.session_code,
         session_end_date: term.exam_end_date,
-        threshold_pct_used: threshold,
+        threshold_pct_used: courseThreshold,
         internal_learner_count: a.internal_learner_count,
         internal_meeting_threshold: a.internal_meeting_threshold,
         internal_attainment_pct:
@@ -248,6 +281,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           myjkkn_institution_ids: mappedIds,
           institution_match: matchKind,
           term_pick_reason: term.reason,
+          threshold_source: thresholdByInstitution.has(institutionId)
+            ? 'institution_override'
+            : 'global_fallback',
         },
       };
     });

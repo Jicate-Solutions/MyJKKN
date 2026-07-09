@@ -41,7 +41,11 @@
 --
 -- WHAT THIS ADDS
 --   1. 8 config rows (platform_policies) — every methodology number a config
---      row, all flagged 'DEFAULT — Director/Academic Council must ratify'.
+--      row. threshold_pct is PER-COLLEGE (Director 2026-07-09: 'Let each
+--      college choose'): the global row is the FALLBACK, institution-scoped
+--      override rows win via fn_get_policy. Weights 80/20 RATIFIED by
+--      Director 2026-07-09; remaining values are DEFAULTS awaiting
+--      Director/Academic Council ratification.
 --   2. Metric seeds: NAAC 7.3.d (idempotent; sibling PR #1899 seeds the same
 --      row — either merge order is safe, ON CONFLICT DO NOTHING) + NBA T1_CO
 --      'Course Outcomes assessment' (already in prod; seeded for repo parity).
@@ -72,6 +76,15 @@
 -- 1. Config rows — every methodology number is a Director-ratifiable row.
 --    Shape mirrors mess.choose.loop.* (20260727000000): scope_type='global',
 --    conflict target = uq_platform_policies_key_scope.
+--
+--    PER-COLLEGE THRESHOLD (Director 2026-07-09: 'Let each college choose'):
+--    the threshold_pct GLOBAL row is a FALLBACK. A college's Academic Council
+--    ratifies its own value as an INSTITUTION-scoped override row
+--    (scope_type='institution', scope_id=<institution uuid>, same policy_key),
+--    which takes precedence via the canonical fn_get_policy resolver
+--    (institution-override > global — 20260429000002). Every threshold reader
+--    in this loop resolves through fn_get_policy with the institution id.
+--    WEIGHTS 80/20: RATIFIED by Director 2026-07-09.
 -- ----------------------------------------------------------------------------
 INSERT INTO public.platform_policies
   (policy_key, scope_type, value, data_type, classification, publication_state, is_active, description)
@@ -79,11 +92,11 @@ VALUES
   ('copo_attainment.master_enabled', 'global', 'false'::jsonb, 'boolean', 'major', 'published', true,
    'CO/PO attainment loop master switch. DARK until ratified. DEFAULT — Director/Academic Council must ratify before go-live.'),
   ('copo_attainment.threshold_pct', 'global', '60'::jsonb, 'number', 'major', 'published', true,
-   'A learner "meets" a course outcome when their course percentage >= this. DEFAULT — Director/Academic Council must ratify before go-live.'),
+   'A learner "meets" a course outcome when their course percentage >= this. FALLBACK 60% — each college''s Academic Council ratifies its own value; per-institution override rows take precedence.'),
   ('copo_attainment.direct_weight', 'global', '0.8'::jsonb, 'number', 'major', 'published', true,
-   'Weight of DIRECT (marks-based) attainment in the final CO attainment blend. Indirect side not built yet — inert until it is. DEFAULT — Director/Academic Council must ratify before go-live.'),
+   'Weight of DIRECT (marks-based) attainment in the final CO attainment blend. RATIFIED by Director 2026-07-09 (indirect side remains OFF until poll data matures).'),
   ('copo_attainment.indirect_weight', 'global', '0.2'::jsonb, 'number', 'major', 'published', true,
-   'Weight of INDIRECT (survey-based) attainment in the final CO attainment blend. Indirect side not built yet — inert until it is. DEFAULT — Director/Academic Council must ratify before go-live.'),
+   'Weight of INDIRECT (survey-based) attainment in the final CO attainment blend. RATIFIED by Director 2026-07-09 (indirect side remains OFF until poll data matures).'),
   ('copo_attainment.target_level', 'global', '2'::jsonb, 'number', 'major', 'published', true,
    'Target attainment level (of 3) a course outcome should reach; below target flags the course for action in the loop. DEFAULT — Director/Academic Council must ratify before go-live.'),
   ('copo_attainment.level3_min_pct', 'global', '70'::jsonb, 'number', 'major', 'published', true,
@@ -198,17 +211,11 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_target_pct numeric;
   v_inserted   integer := 0;
   v_courses    integer := 0;
   v_syllabi    integer := 0;
   v_total      integer := 0;
 BEGIN
-  v_target_pct := COALESCE((SELECT (value #>> '{}')::numeric
-                            FROM public.platform_policies
-                            WHERE policy_key = 'copo_attainment.threshold_pct'
-                              AND scope_type = 'global' AND is_active), 60);
-
   SELECT count(*) INTO v_syllabi
   FROM public.bos_course_syllabi b
   WHERE b.is_latest AND NOT b.is_archived
@@ -239,7 +246,10 @@ BEGIN
       s.institution_id, s.course_id, 'CO' || s.clo_number, s.description,
       s.k_values[1],
       CASE WHEN array_length(s.k_values, 1) > 1 THEN s.k_values[2:] ELSE NULL END,
-      v_target_pct, s.clo_number, true
+      -- PER-COLLEGE threshold: institution override wins, global row is the
+      -- fallback, 60 is the defensive default (fn_get_policy, 20260429000002)
+      COALESCE((public.fn_get_policy('copo_attainment.threshold_pct', s.institution_id))::numeric, 60),
+      s.clo_number, true
     FROM src s
     ON CONFLICT (course_id, co_code) DO NOTHING
     RETURNING course_id
@@ -261,7 +271,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_copo_backfill_course_outcomes() FROM anon, 
 GRANT  EXECUTE ON FUNCTION public.fn_copo_backfill_course_outcomes() TO service_role;
 
 COMMENT ON FUNCTION public.fn_copo_backfill_course_outcomes() IS
-  'CO/PO attainment loop: idempotently copies BoS CLOs (bos_course_syllabi.course_learning_outcomes) into obe_course_outcomes, keyed to each taught course_id, institution-scoped. Never overwrites existing CO rows. target_percentage read from copo_attainment.threshold_pct config at runtime. service_role only (cron).';
+  'CO/PO attainment loop: idempotently copies BoS CLOs (bos_course_syllabi.course_learning_outcomes) into obe_course_outcomes, keyed to each taught course_id, institution-scoped. Never overwrites existing CO rows. target_percentage resolved PER INSTITUTION via fn_get_policy(copo_attainment.threshold_pct, institution_id) — institution override > global fallback (Director 2026-07-09: each college chooses). service_role only (cron).';
 
 -- ----------------------------------------------------------------------------
 -- 5. fn_copo_record_course_attainment — upserts rollup rows computed by the
@@ -417,7 +427,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_copo_record_course_attainment(jsonb) FROM a
 GRANT  EXECUTE ON FUNCTION public.fn_copo_record_course_attainment(jsonb) TO service_role;
 
 COMMENT ON FUNCTION public.fn_copo_record_course_attainment(jsonb) IS
-  'CO/PO attainment loop: upserts course-grain direct-attainment rollup rows computed by /api/cron/copo-attainment from COE reads. Owns level banding (config bands), trend delta vs prior session, and the grain=course_proxy/co_tagged=false honesty stamp. service_role only (cron).';
+  'CO/PO attainment loop: upserts course-grain direct-attainment rollup rows computed by /api/cron/copo-attainment from COE reads. threshold_pct_used per row carries the PER-INSTITUTION threshold the cron resolved via fn_get_policy (institution override > global fallback). Owns level banding (config bands), trend delta vs prior session, and the grain=course_proxy/co_tagged=false honesty stamp. service_role only (cron).';
 
 -- ----------------------------------------------------------------------------
 -- 6. fn_copo_emit_attainment_evidence — rollup rows → quality_evidence_mappings

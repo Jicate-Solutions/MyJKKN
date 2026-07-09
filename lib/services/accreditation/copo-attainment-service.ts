@@ -10,8 +10,12 @@
 // proxy rows as CO-tagged attainment.
 //
 // RLS: SELECT requires accreditation.view + institution scope (admins bypass).
-// Config: copo_attainment.* rows in platform_policies (authenticated-readable)
-// — all DEFAULTS awaiting Director/Academic Council ratification.
+// Config: copo_attainment.* rows in platform_policies (authenticated-readable).
+// PER-COLLEGE THRESHOLD (Director 2026-07-09): threshold_pct's global row is a
+// FALLBACK — an institution-scoped override row (scope_type='institution',
+// scope_id=<institution uuid>) wins, mirroring fn_get_policy precedence.
+// Weights 80/20 RATIFIED by Director 2026-07-09; remaining values are DEFAULTS
+// awaiting Director/Academic Council ratification.
 // ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -33,7 +37,10 @@ export type CopoPolicyKey = (typeof COPO_POLICY_KEYS)[keyof typeof COPO_POLICY_K
 
 export interface CopoAttainmentConfig {
   masterEnabled: boolean;
+  /** Resolved for the requested institution when one is passed:
+   *  institution-scoped override row > global fallback row > 60. */
   thresholdPct: number;
+  thresholdPctSource: 'institution_override' | 'global_fallback';
   directWeight: number;
   indirectWeight: number;
   targetLevel: number;
@@ -82,8 +89,12 @@ const SELECT_COLS =
   'prior_rollup_id, prev_attainment_pct, delta_pct, metadata, computed_at';
 
 /** The 8 methodology config rows, with the same defensive defaults the SQL
- *  fns use (a missing row falls back rather than throwing). */
-export async function getCopoAttainmentConfig(): Promise<CopoAttainmentConfig> {
+ *  fns use (a missing row falls back rather than throwing). Pass an
+ *  institutionId to resolve that college's ratified threshold override
+ *  (institution > global > 60 — fn_get_policy precedence). */
+export async function getCopoAttainmentConfig(
+  institutionId?: string,
+): Promise<CopoAttainmentConfig> {
   const supabase = createClientSupabaseClient();
   const { data, error } = await supabase
     .from('platform_policies')
@@ -92,6 +103,20 @@ export async function getCopoAttainmentConfig(): Promise<CopoAttainmentConfig> {
     .eq('scope_type', 'global')
     .eq('is_active', true);
   if (error) throw error;
+
+  let overrideThreshold: number | null = null;
+  if (institutionId) {
+    const { data: ov, error: ovError } = await supabase
+      .from('platform_policies')
+      .select('value')
+      .eq('policy_key', COPO_POLICY_KEYS.THRESHOLD_PCT)
+      .eq('scope_type', 'institution')
+      .eq('scope_id', institutionId)
+      .eq('is_active', true)
+      .maybeSingle();
+    if (ovError) throw ovError;
+    if (typeof ov?.value === 'number') overrideThreshold = ov.value;
+  }
 
   const byKey = new Map<string, unknown>(
     (data ?? []).map((r) => [r.policy_key as string, r.value]),
@@ -102,7 +127,9 @@ export async function getCopoAttainmentConfig(): Promise<CopoAttainmentConfig> {
   };
   return {
     masterEnabled: byKey.get(COPO_POLICY_KEYS.MASTER_ENABLED) === true,
-    thresholdPct: num(COPO_POLICY_KEYS.THRESHOLD_PCT, 60),
+    thresholdPct: overrideThreshold ?? num(COPO_POLICY_KEYS.THRESHOLD_PCT, 60),
+    thresholdPctSource:
+      overrideThreshold != null ? 'institution_override' : 'global_fallback',
     directWeight: num(COPO_POLICY_KEYS.DIRECT_WEIGHT, 0.8),
     indirectWeight: num(COPO_POLICY_KEYS.INDIRECT_WEIGHT, 0.2),
     targetLevel: num(COPO_POLICY_KEYS.TARGET_LEVEL, 2),
