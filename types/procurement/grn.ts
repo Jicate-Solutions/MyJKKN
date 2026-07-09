@@ -90,6 +90,34 @@ export interface CreateGrnInput {
   lines: GrnLineInput[];
 }
 
+export type ReplacementStatus = 'pending' | 'received';
+
+export interface ProcurementGrnReplacement {
+  id: string;
+  grn_item_id: string;
+  rejected_quantity: number;
+  reason: string | null;
+  status: ReplacementStatus;
+  replacement_grn_item_id: string | null;
+  created_at: string;
+  // joined from the originating grn_item for display:
+  grn_item?: {
+    id: string;
+    item_name: string;
+    is_chemical: boolean;
+    domain_item_id: string | null;
+  } | null;
+}
+
+/** Payload when the supplier delivers replacement goods for a rejected line. */
+export interface ReceiveReplacementInput {
+  replacement_id: string;
+  accepted_quantity: number;
+  batch_number?: string | null;
+  expiry_date?: string | null;
+  manufacturing_date?: string | null;
+}
+
 export interface GrnFilters {
   institution_id?: string;
   store_id?: string;

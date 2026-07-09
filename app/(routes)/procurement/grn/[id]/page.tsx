@@ -1,14 +1,23 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useGrn, useVerifyGrn, useCancelGrn } from '@/hooks/procurement/use-grns';
-import { GRN_STATUS_CONFIG, GRN_MATCH_CONFIG } from '@/types/procurement';
+import {
+  useGrn,
+  useVerifyGrn,
+  useCancelGrn,
+  useReplacements,
+  useReceiveReplacement,
+} from '@/hooks/procurement/use-grns';
+import { GRN_STATUS_CONFIG, GRN_MATCH_CONFIG, type ProcurementGrnReplacement } from '@/types/procurement';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Table,
   TableBody,
@@ -17,7 +26,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ArrowLeft, CheckCircle2, AlertTriangle } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { ArrowLeft, CheckCircle2, AlertTriangle, PackagePlus } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 
@@ -30,8 +46,25 @@ export default function GrnDetailPage() {
   const canVerify = isSuperAdmin || canAccess('procurement', 'grn_verify');
 
   const { data: grn, isLoading } = useGrn(id);
+  const { data: replacements = [] } = useReplacements(id);
   const verifyGrn = useVerifyGrn();
   const cancelGrn = useCancelGrn();
+  const receiveReplacement = useReceiveReplacement(id);
+
+  // Receive-replacement dialog state.
+  const [repTarget, setRepTarget] = useState<ProcurementGrnReplacement | null>(null);
+  const [repQty, setRepQty] = useState('');
+  const [repBatch, setRepBatch] = useState('');
+  const [repExpiry, setRepExpiry] = useState('');
+  const [repMfg, setRepMfg] = useState('');
+
+  const openReceive = (r: ProcurementGrnReplacement) => {
+    setRepTarget(r);
+    setRepQty(String(r.rejected_quantity));
+    setRepBatch('');
+    setRepExpiry('');
+    setRepMfg('');
+  };
 
   if (isLoading) {
     return (
@@ -206,6 +239,52 @@ export default function GrnDetailPage() {
           </CardContent>
         </Card>
 
+        {/* Replacements — rejected lines awaiting a replacement delivery */}
+        {replacements.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Replacements</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0 overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Item</TableHead>
+                    <TableHead className="text-right">Rejected qty</TableHead>
+                    <TableHead>Reason</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {replacements.map((r) => (
+                    <TableRow key={r.id}>
+                      <TableCell className="font-medium">{r.grn_item?.item_name || '—'}</TableCell>
+                      <TableCell className="text-right">{Number(r.rejected_quantity)}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground max-w-[220px]">
+                        {r.reason || '—'}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={r.status === 'received' ? 'default' : 'outline'}>
+                          {r.status === 'received' ? 'Received' : 'Pending'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {r.status === 'pending' && canVerify && (
+                          <Button variant="outline" size="sm" onClick={() => openReceive(r)}>
+                            <PackagePlus className="mr-2 h-4 w-4" />
+                            Receive
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
+
         {grn.verified_at && (
           <p className="text-sm text-muted-foreground">
             Verified by {grn.verified_by_profile?.full_name || 'user'} on{' '}
@@ -213,6 +292,71 @@ export default function GrnDetailPage() {
           </p>
         )}
       </div>
+
+      {/* Receive-replacement dialog */}
+      <Dialog open={!!repTarget} onOpenChange={(o) => !o && setRepTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Receive replacement — {repTarget?.grn_item?.item_name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>Accepted quantity</Label>
+              <Input type="number" value={repQty} onChange={(e) => setRepQty(e.target.value)} />
+              <p className="text-xs text-muted-foreground">
+                Up to {repTarget ? Number(repTarget.rejected_quantity) : 0} awaiting replacement.
+              </p>
+            </div>
+            {repTarget?.grn_item?.is_chemical && (
+              <div className="rounded-md bg-amber-50 dark:bg-amber-950/30 p-2 text-xs text-amber-700 dark:text-amber-400">
+                Chemical item — batch number and expiry date are required to post to inventory.
+              </div>
+            )}
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Batch no.</Label>
+                <Input value={repBatch} onChange={(e) => setRepBatch(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Expiry date</Label>
+                <Input type="date" value={repExpiry} onChange={(e) => setRepExpiry(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Mfg date</Label>
+                <Input type="date" value={repMfg} onChange={(e) => setRepMfg(e.target.value)} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRepTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={receiveReplacement.isPending || !(Number(repQty) > 0)}
+              onClick={async () => {
+                if (!repTarget) return;
+                await run(
+                  () =>
+                    receiveReplacement.mutateAsync({
+                      input: {
+                        replacement_id: repTarget.id,
+                        accepted_quantity: Number(repQty),
+                        batch_number: repBatch || null,
+                        expiry_date: repExpiry || null,
+                        manufacturing_date: repMfg || null,
+                      },
+                      userId: profile!.id,
+                    }),
+                  'Replacement received — stock posted to inventory.'
+                );
+                setRepTarget(null);
+              }}
+            >
+              {receiveReplacement.isPending ? 'Receiving…' : 'Receive & post'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </ContentLayout>
   );
 }

@@ -18,6 +18,8 @@ import type {
   ProcurementGrn,
   GrnWithItems,
   ProcurementGrnItem,
+  ProcurementGrnReplacement,
+  ReceiveReplacementInput,
   CreateGrnInput,
   GrnFilters,
 } from '@/types/procurement';
@@ -346,6 +348,202 @@ export class ProcurementGrnService {
       return (finalGrn ?? locked) as ProcurementGrn;
     } catch (error) {
       console.error('[ProcurementGrnService] verifyGrn:', error);
+      throw error;
+    }
+  }
+
+  /** Pending + fulfilled replacements raised from a GRN's rejected lines. */
+  static async getReplacements(grnId: string): Promise<ProcurementGrnReplacement[]> {
+    const { data: items, error: itemsErr } = await this.supabase
+      .from('procurement_grn_items')
+      .select('id')
+      .eq('grn_id', grnId);
+    if (itemsErr) throw itemsErr;
+    const ids = (items || []).map((i: any) => i.id);
+    if (!ids.length) return [];
+
+    const { data, error } = await this.supabase
+      .from('procurement_grn_replacements')
+      .select('*, grn_item:procurement_grn_items(id,item_name,is_chemical,domain_item_id)')
+      .in('grn_item_id', ids)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return (data || []) as ProcurementGrnReplacement[];
+  }
+
+  /**
+   * Receive replacement goods for a previously-rejected line (PRD steps 13-14).
+   * Creates a dedicated single-line "replacement" GRN (already inspected, so it lands
+   * 'completed'), posts the accepted qty to inventory through the domain adapter,
+   * advances the PO, and links the fulfilment back to the pending replacement row.
+   *
+   * Concurrency: the pending->received claim is the mutex (taken BEFORE posting) so
+   * two receivers can't double-post stock. On any downstream failure the claim is
+   * rolled back to 'pending' — best-effort atomicity without a DB transaction.
+   */
+  static async receiveReplacement(
+    input: ReceiveReplacementInput,
+    userId: string
+  ): Promise<ProcurementGrn> {
+    const accepted = Number(input.accepted_quantity);
+    if (!(accepted > 0)) throw new Error('Accepted replacement quantity must be greater than zero.');
+
+    // 1) Load the pending replacement + its originating line + parent GRN.
+    const { data: rep, error: repErr } = await this.supabase
+      .from('procurement_grn_replacements')
+      .select(
+        '*, grn_item:procurement_grn_items(id,item_name,is_chemical,domain_item_id,cost_price,po_item_id,grn_id)'
+      )
+      .eq('id', input.replacement_id)
+      .single();
+    if (repErr) throw repErr;
+    if (rep.status !== 'pending') throw new Error('This replacement has already been received.');
+
+    const originItem = rep.grn_item;
+    if (!originItem) throw new Error('Replacement is missing its originating GRN line.');
+    if (accepted > Number(rep.rejected_quantity) + 0.001) {
+      throw new Error(
+        `Accepted (${accepted}) exceeds the rejected quantity awaiting replacement (${rep.rejected_quantity}).`
+      );
+    }
+
+    const { data: parentGrn, error: pgErr } = await this.supabase
+      .from('procurement_grn')
+      .select('id,institution_id,store_id,domain,purchase_order_id,supplier_id,grn_number')
+      .eq('id', originItem.grn_id)
+      .single();
+    if (pgErr) throw pgErr;
+
+    // 2) Chemical gate — same rule as verify: batch + expiry required to post.
+    const errors = validateLineForVerify({
+      item_name: originItem.item_name,
+      is_chemical: originItem.is_chemical,
+      accepted_quantity: accepted,
+      batch_number: input.batch_number,
+      expiry_date: input.expiry_date,
+    });
+    if (errors.length) throw new Error(errors.join(' '));
+
+    // 3) Claim the replacement (mutex). Only one receiver wins the pending->received flip.
+    const { data: claimed, error: claimErr } = await this.supabase
+      .from('procurement_grn_replacements')
+      .update({ status: 'received' })
+      .eq('id', input.replacement_id)
+      .eq('status', 'pending')
+      .select()
+      .single();
+    if (claimErr) throw claimErr;
+    if (!claimed) throw new Error('Replacement was already received by someone else; refresh.');
+
+    try {
+      const domain = (parentGrn.domain ?? 'ims') as ProcurementDomain;
+      const ctx: DomainCtx = {
+        institutionId: parentGrn.institution_id,
+        storeId: parentGrn.store_id,
+        userId,
+      };
+      const adapter = getAdapter(domain);
+      const costPrice = Number(originItem.cost_price ?? 0);
+
+      // 4) Create the replacement GRN header (pre-inspected -> completed).
+      const grnNumber = await this.generateGrnNumber(parentGrn.institution_id);
+      const { data: grn, error: grnErr } = await this.supabase
+        .from('procurement_grn')
+        .insert({
+          institution_id: parentGrn.institution_id,
+          store_id: parentGrn.store_id ?? null,
+          grn_number: grnNumber,
+          purchase_order_id: parentGrn.purchase_order_id,
+          supplier_id: parentGrn.supplier_id,
+          domain,
+          status: 'completed',
+          received_by: userId,
+          verified_by: userId,
+          verified_at: new Date().toISOString(),
+          notes: `Replacement for ${parentGrn.grn_number} — ${originItem.item_name}`,
+        })
+        .select()
+        .single();
+      if (grnErr) throw grnErr;
+
+      // 5) Its single line.
+      const match = matchLine({
+        orderedRemaining: Number(rep.rejected_quantity),
+        invoiceQty: accepted,
+        receivedQty: accepted,
+      });
+      const { data: newItem, error: niErr } = await this.supabase
+        .from('procurement_grn_items')
+        .insert({
+          grn_id: grn.id,
+          po_item_id: originItem.po_item_id,
+          domain_item_id: originItem.domain_item_id ?? null,
+          item_name: originItem.item_name,
+          ordered_quantity: Number(rep.rejected_quantity),
+          invoice_quantity: accepted,
+          received_quantity: accepted,
+          accepted_quantity: accepted,
+          rejected_quantity: 0,
+          mismatch_flag: match.mismatch_flag,
+          mismatch_remarks: match.reason,
+          match_status: match.match_status,
+          batch_number: input.batch_number ?? null,
+          expiry_date: input.expiry_date ?? null,
+          manufacturing_date: input.manufacturing_date ?? null,
+          cost_price: costPrice,
+          is_chemical: originItem.is_chemical ?? false,
+        })
+        .select()
+        .single();
+      if (niErr) throw niErr;
+
+      // 6) Post to inventory.
+      if (originItem.domain_item_id) {
+        await adapter.postReceipt(
+          {
+            domainItemId: originItem.domain_item_id,
+            acceptedQuantity: accepted,
+            costPrice,
+            totalValue: costPrice * accepted,
+            batchNumber: input.batch_number,
+            expiryDate: input.expiry_date,
+            manufacturingDate: input.manufacturing_date,
+            grnId: grn.id,
+            grnNumber,
+            purchaseOrderId: parentGrn.purchase_order_id,
+          },
+          ctx
+        );
+      }
+
+      // 7) Advance the PO line + recompute PO status.
+      const { data: poItem } = await this.supabase
+        .from('procurement_purchase_order_items')
+        .select('id, received_quantity')
+        .eq('id', originItem.po_item_id)
+        .single();
+      if (poItem) {
+        await this.supabase
+          .from('procurement_purchase_order_items')
+          .update({ received_quantity: Number(poItem.received_quantity ?? 0) + accepted })
+          .eq('id', originItem.po_item_id);
+        await this.refreshPoReceiptStatus(parentGrn.purchase_order_id);
+      }
+
+      // 8) Link the fulfilment back to the pending row.
+      await this.supabase
+        .from('procurement_grn_replacements')
+        .update({ replacement_grn_item_id: newItem.id })
+        .eq('id', input.replacement_id);
+
+      return grn as ProcurementGrn;
+    } catch (error) {
+      // Roll the claim back so the replacement can be retried.
+      await this.supabase
+        .from('procurement_grn_replacements')
+        .update({ status: 'pending', replacement_grn_item_id: null })
+        .eq('id', input.replacement_id);
+      console.error('[ProcurementGrnService] receiveReplacement:', error);
       throw error;
     }
   }
