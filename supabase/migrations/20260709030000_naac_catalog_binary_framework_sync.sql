@@ -173,9 +173,19 @@ WITH CHECK (is_super_admin() OR is_admin());
 -- is a RESOLVER — one current-framework answer per (body_code, legacy_code,
 -- college_type) lookup. The seed guard below assumes that invariant; this
 -- index ENFORCES it, and makes a concurrent double-seed unable to reproduce
--- duplicate current_code=NULL rows (NULLs not distinct). The original 4-col
--- UNIQUE above stays as the seed's ON CONFLICT target — belt-and-suspenders
--- for the unchanged single-run path, vestigial once this index exists.
+-- duplicate current_code=NULL rows (NULLs not distinct).
+-- REVIEW DISPOSITIONS (r2, 2026-07-09 — settled facts, do not re-litigate):
+--   * 1:1 (not 1:many) per lookup key is the DOMAIN decision: every mapping in
+--     this file, 033000 and 034000 is sub-code→single-code (6.5.1→7.3.d,
+--     6.5.2→7.3.e, … — the "6.5 → 7.3 facets" comment is 1:1 at sub-code
+--     grain); two answers per key is exactly the resolver ambiguity flagged on
+--     PR #1907. Prod verified 0 dupes on this grain across all rows before the
+--     index was applied live (2026-07-09). An abort on a drifted 1:many row is
+--     the constraint surfacing invalid data — fail-loud by design.
+--   * 20260709034000 resolves home-TBD rows by UPDATE-in-place (verified), so
+--     index-before-resolve is replay-safe.
+--   * NULLS NOT DISTINCT needs PG 15+ — same requirement as the 4-col UNIQUE
+--     above (this project: PG 15.6).
 CREATE UNIQUE INDEX IF NOT EXISTS accreditation_metric_crosswalk_resolver_key
   ON public.accreditation_metric_crosswalk (body_code, legacy_code, college_type)
   NULLS NOT DISTINCT;
@@ -219,7 +229,11 @@ WHERE NOT EXISTS (
   WHERE c.body_code = v.body_code
     AND c.legacy_code = v.legacy_code
     AND c.college_type IS NOT DISTINCT FROM v.college_type)
-ON CONFLICT (body_code, legacy_code, current_code, college_type) DO NOTHING;
+-- Arbiter = the 3-col resolver key (r2 fix): guard predicate, ON CONFLICT
+-- arbiter and enforcing index now agree on one column set, so a concurrent
+-- double-seed lands in DO NOTHING instead of an uncaught unique_violation.
+-- (The 4-col table UNIQUE remains — implied by 3-col uniqueness, harmless.)
+ON CONFLICT (body_code, legacy_code, college_type) DO NOTHING;
 
 -- ----------------------------------------------------------------------------
 -- 5. Mark the induction rows LEGACY (notes-only; codes NOT re-keyed;
