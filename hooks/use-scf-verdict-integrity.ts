@@ -33,7 +33,10 @@ export interface VerdictTrackRecordRow {
 // (input_avg_understood / outcome_lift) were removed from the RPC — the alert
 // is qualitative by design and the card never displayed them.
 export interface VerdictContradictionRow {
-  id: string;
+  /** Optional ONLY for the deploy gap: code deploys before the migration
+   *  re-applies, so the live fn may briefly return id-less rows (old shape).
+   *  The card falls back to a composite key until the migration lands. */
+  id?: string;
   course_code: string;
   faculty_email: string | null;
   human_verdict: string;

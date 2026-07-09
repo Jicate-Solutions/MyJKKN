@@ -53,11 +53,36 @@ export function ScfVerdictIntegrityCard({ from, to }: { from?: string; to?: stri
     return { from: format(subDays(today, 90), 'yyyy-MM-dd'), to: format(today, 'yyyy-MM-dd') };
   }, [from, to]);
 
-  const { data: track } = useVerdictTrackRecord(range.from, range.to);
-  const { data: contradictions } = useVerdictContradictions(range.from, range.to);
+  const { data: track, error: trackError } = useVerdictTrackRecord(range.from, range.to);
+  const { data: contradictions, error: contraError } = useVerdictContradictions(
+    range.from,
+    range.to,
+  );
 
   const rows = (track ?? []).filter((r) => r.measured > 0);
   const alerts = contradictions ?? [];
+
+  // Gate-denied (non-leadership caller) → self-hide, as designed. Any OTHER
+  // error must NOT read as an all-clear (deep-review r2 MEDIUM): a transient
+  // RPC/network failure on an integrity surface gets an explicit notice.
+  const firstError = trackError ?? contraError;
+  if (firstError) {
+    if (String(firstError.message).includes('not authorized')) return null;
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Scale className="h-5 w-5" style={{ color: BRAND_GREEN }} aria-hidden />
+            Claims vs numbers
+          </CardTitle>
+          <CardDescription className="text-amber-700 dark:text-amber-400">
+            Couldn&apos;t load the verdict-integrity data right now — this is a loading
+            problem, not an all-clear. Refresh to retry.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
 
   // Dark until at least one verdict has been independently measured.
   if (rows.length === 0 && alerts.length === 0) return null;
@@ -85,11 +110,13 @@ export function ScfVerdictIntegrityCard({ from, to }: { from?: string; to?: stri
                 : `${alerts.length} claims disagree with the measured numbers`}
             </p>
             <ul className="space-y-1 text-xs text-amber-900/90 dark:text-amber-200/90">
-              {alerts.map((a) => (
+              {alerts.map((a, i) => (
                 // key = suggestion uuid (deep-review 2026-07-09 MEDIUM): a composite
                 // course+email+date key is NOT unique — two same-verdict suggestions
                 // on the same day would collapse and silently drop an alert row.
-                <li key={a.id}>
+                // Index fallback covers the deploy gap while the live fn still
+                // returns the id-less old shape (deep-review r2 LOW).
+                <li key={a.id ?? `${a.course_code}-${a.faculty_email}-${a.verdict_on}-${i}`}>
                   <span className="font-medium">{a.course_code}</span> · {a.faculty_email} said
                   &quot;helped&quot; on {a.verdict_on}, but the class&apos;s measured understanding
                   did not rise. Worth a conversation, not a conclusion.
