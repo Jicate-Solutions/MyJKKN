@@ -78,6 +78,8 @@ export interface GrnLineInput {
   batch_number?: string | null;
   expiry_date?: string | null;
   manufacturing_date?: string | null;
+  /** Actual invoice unit price → the batch's cost_price (overrides the PO estimate). */
+  cost?: number | null;
 }
 
 export interface CreateGrnInput {

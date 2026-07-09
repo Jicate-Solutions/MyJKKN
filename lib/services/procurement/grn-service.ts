@@ -163,6 +163,8 @@ export class ProcurementGrnService {
             costPrice = Number(poItem.unit_price ?? catItem.costPrice ?? 0);
           }
         }
+        // Prefer the actual invoice unit price for the batch's cost when supplied.
+        if (line.cost != null && Number(line.cost) > 0) costPrice = Number(line.cost);
 
         const received = Number(line.received_quantity ?? 0);
         const accepted = Number(line.accepted_quantity ?? 0);

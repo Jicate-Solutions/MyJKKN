@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Sparkles } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 
@@ -41,6 +41,9 @@ export default function NewGrnPage() {
   const [invoiceAmount, setInvoiceAmount] = useState('');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<LineDraft[] | null>(null);
+  const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
+  const [reading, setReading] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   // Seed drafts once the PO loads. Default received = full outstanding qty, all accepted.
   const drafts = useMemo<LineDraft[]>(() => {
@@ -101,6 +104,68 @@ export default function NewGrnPage() {
     );
   }
 
+  // Read the uploaded invoice PDF via Claude and pre-fill the header + line fields.
+  const handleReadInvoice = async () => {
+    if (!invoiceFile || !po) return;
+    setReading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', invoiceFile);
+      fd.append('items', JSON.stringify(po.items.map((i) => ({ id: i.id, item_name: i.item_name }))));
+      const res = await fetch('/api/procurement/grn/extract-invoice', { method: 'POST', body: fd });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Invoice reading failed');
+
+      const { header, lines: extracted, matched, unmatched } = json as {
+        header: { invoice_number: string | null; invoice_date: string | null; invoice_total: number | null };
+        lines: Array<{
+          po_item_id: string | null;
+          quantity: number;
+          unit_price: number;
+          batch_number: string | null;
+          expiry_date: string | null;
+          manufacturing_date: string | null;
+        }>;
+        matched: number;
+        unmatched: string[];
+      };
+
+      if (header?.invoice_number) setInvoiceNumber(header.invoice_number);
+      if (header?.invoice_date) setInvoiceDate(header.invoice_date);
+      if (header?.invoice_total != null) setInvoiceAmount(String(header.invoice_total));
+
+      const byPo = new Map(extracted.filter((l) => l.po_item_id).map((l) => [l.po_item_id as string, l]));
+      setLines((prev) => {
+        const base = prev ?? drafts;
+        return base.map((l) => {
+          const ex = byPo.get(l.po_item_id);
+          if (!ex) return l;
+          const qty = Number(ex.quantity) || 0;
+          return {
+            ...l,
+            invoice_quantity: qty,
+            received_quantity: qty,
+            accepted_quantity: qty,
+            rejected_quantity: 0,
+            batch_number: ex.batch_number ?? l.batch_number,
+            expiry_date: ex.expiry_date ?? l.expiry_date,
+            manufacturing_date: ex.manufacturing_date ?? l.manufacturing_date,
+            cost: ex.unit_price ?? l.cost,
+          };
+        });
+      });
+
+      toast.success(
+        `Read ${matched} of ${po.items.length} line${matched === 1 ? '' : 's'} — review before confirming` +
+          (unmatched?.length ? ` · ${unmatched.length} unmatched` : '')
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not read the invoice');
+    } finally {
+      setReading(false);
+    }
+  };
+
   const submit = async () => {
     const payload = drafts
       .filter((l) => Number(l.received_quantity) > 0)
@@ -115,6 +180,7 @@ export default function NewGrnPage() {
         batch_number: l.batch_number,
         expiry_date: l.expiry_date,
         manufacturing_date: l.manufacturing_date,
+        cost: l.cost ?? null,
       }));
 
     if (payload.length === 0) {
@@ -123,12 +189,31 @@ export default function NewGrnPage() {
     }
 
     try {
+      // Persist the invoice document to Drive (best-effort record on the GRN).
+      let invoice_document_url: string | null = null;
+      if (invoiceFile) {
+        setUploading(true);
+        const fd = new FormData();
+        fd.append('file', invoiceFile);
+        fd.append('institutionId', po.institution_id);
+        fd.append('poNumber', po.po_number);
+        const res = await fetch('/api/procurement/grn/upload', { method: 'POST', body: fd });
+        setUploading(false);
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || 'Invoice upload failed');
+        }
+        const { attachment } = await res.json();
+        invoice_document_url = attachment.url;
+      }
+
       const grn = await createGrn.mutateAsync({
         input: {
           purchase_order_id: po.id,
           invoice_number: invoiceNumber || null,
           invoice_date: invoiceDate || null,
           invoice_amount: invoiceAmount ? Number(invoiceAmount) : null,
+          invoice_document_url,
           notes: notes || null,
           lines: payload,
         },
@@ -137,6 +222,7 @@ export default function NewGrnPage() {
       toast.success(`GRN ${grn.grn_number} created — pending verification.`);
       router.push(`/procurement/grn/${grn.id}`);
     } catch (e) {
+      setUploading(false);
       toast.error(e instanceof Error ? e.message : 'Failed to create GRN');
     }
   };
@@ -154,27 +240,52 @@ export default function NewGrnPage() {
           </div>
         </div>
 
-        {/* Invoice header */}
+        {/* Invoice header + AI reading */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Supplier invoice</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-1">
-              <Label>Invoice number</Label>
-              <Input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
+          <CardContent className="space-y-4">
+            {/* Upload the invoice PDF and let AI pre-fill the receiving details. */}
+            <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+              <Label className="text-xs">Invoice document (PDF)</Label>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  type="file"
+                  accept=".pdf,image/*"
+                  className="max-w-xs"
+                  onChange={(e) => setInvoiceFile(e.target.files?.[0] ?? null)}
+                />
+                {invoiceFile?.type === 'application/pdf' && (
+                  <Button type="button" variant="secondary" size="sm" onClick={handleReadInvoice} disabled={reading}>
+                    <Sparkles className="mr-1 h-3.5 w-3.5" />
+                    {reading ? 'Reading invoice…' : 'Read invoice (AI)'}
+                  </Button>
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                AI reads the invoice and fills quantity, unit cost, batch no. &amp; expiry below —
+                review and adjust before confirming. The file is stored on the GRN.
+              </p>
             </div>
-            <div className="space-y-1">
-              <Label>Invoice date</Label>
-              <Input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label>Invoice amount (₹)</Label>
-              <Input
-                type="number"
-                value={invoiceAmount}
-                onChange={(e) => setInvoiceAmount(e.target.value)}
-              />
+
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-1">
+                <Label>Invoice number</Label>
+                <Input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label>Invoice date</Label>
+                <Input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label>Invoice amount (₹)</Label>
+                <Input
+                  type="number"
+                  value={invoiceAmount}
+                  onChange={(e) => setInvoiceAmount(e.target.value)}
+                />
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -249,7 +360,7 @@ export default function NewGrnPage() {
                   )}
 
                   {/* Batch tracking — required for chemicals at verification */}
-                  <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="grid gap-3 sm:grid-cols-4">
                     <div className="space-y-1">
                       <Label className="text-xs">Batch no. <span className="text-muted-foreground">(chemicals)</span></Label>
                       <Input
@@ -271,6 +382,14 @@ export default function NewGrnPage() {
                         type="date"
                         value={l.manufacturing_date ?? ''}
                         onChange={(e) => update(idx, { manufacturing_date: e.target.value || null })}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Unit cost (₹)</Label>
+                      <Input
+                        type="number"
+                        value={l.cost ?? ''}
+                        onChange={(e) => update(idx, { cost: e.target.value === '' ? null : Number(e.target.value) })}
                       />
                     </div>
                   </div>
@@ -314,8 +433,8 @@ export default function NewGrnPage() {
           <Button variant="outline" onClick={() => router.push(`/procurement/purchase-orders/${po.id}`)}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={createGrn.isPending}>
-            {createGrn.isPending ? 'Creating…' : 'Create GRN'}
+          <Button onClick={submit} disabled={createGrn.isPending || uploading}>
+            {uploading ? 'Uploading invoice…' : createGrn.isPending ? 'Creating…' : 'Create GRN'}
           </Button>
         </div>
       </div>
