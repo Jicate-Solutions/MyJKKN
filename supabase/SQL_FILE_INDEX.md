@@ -1763,6 +1763,12 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - All fns SECDEF + anon/PUBLIC revoked; trend fn service_role-only, others authenticated.
 - Location: `supabase/migrations/20260709003000_scf_learner_notes_actionable.sql`. Validated 2026-07-09 in rolled-back prod txn (incl. reached-out tap as the real note owner). Generators (cron `scf-learner-notes` + Mac runner `learner-notes.mjs`) updated in lockstep to cite items/dates/facilitator. Apply AFTER the code PR deploys.
 
+### No-mechanics leak fix — learner surfaces show the ACTION, never the diagnostic — 2026-07-09
+- Director interview 07:20 ("won't they start gaming the system?"): the learner loop-closure card + My Voice receipt quoted the TEACHER's AI note verbatim incl. sample sizes/averages/trigger bands — a 3-person sample lets a learner subtract themselves; printed thresholds teach the trigger recipe.
+- `fn_scf_loop_closure_for_learner` + `fn_scf_my_impact` (CREATE OR REPLACE, RETURNS unchanged): learner-facing the_change/action_detail = COALESCE(quickWin, first suggestedAdjustments title, generic line) — display-time, covers all existing notes. Staff surface (fn_scf_loop_activity) untouched.
+- All FOUR teacher-note generator prompts de-numbered in the same PR (cron, Mac runner [which was still sending the RAW average — the "2.33" source], ⚡ button route, ai-tasks registry): words-only group size + band words + explicit never-state-numbers rule.
+- Location: `supabase/migrations/20260709021500_scf_no_mechanics_leak.sql`. Validated rolled-back as darsiniva (the screenshot case): the_change → the quickWin action text. Apply AFTER code deploys.
+
 ### Verdict integrity — claims vs numbers (leadership-only) — 2026-07-09
 - Director interview 07:00 ("what if Devi bluffed?"): contradiction → alert leadership; repeat pattern → leadership-only track record (facilitator never sees a score kept on them). Derived state only — nothing new written.
 - `fn_scf_verdict_track_record(from,to)` per-facilitator (verdicts/measured/agreed/contradicted) + `fn_scf_verdict_contradictions(from,to)` row-level (verdict='tried_helped' AND measured outcome_lift<=0, k>=3 outcome-responses floor; returns suggestion id, NO row-level class numerics). Agreement semantics documented in-file (not_tried excluded; tried_no_change never flagged — honest modesty). Leadership gate mirrors fn_scf_leadership_concerns; NON-SUPER callers never receive rows keyed to their own login email (teaching hod/coordinator never sees a score kept on them); IST date anchoring; anon/PUBLIC revoked.
