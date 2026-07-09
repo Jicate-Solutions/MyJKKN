@@ -130,8 +130,17 @@ export class LoopEvidenceService {
       else if (delta === 'worse') summary.deltas.worse += 1;
       else summary.deltas.na += 1;
 
-      if (!summary.last_measured_at || row.mapped_at > summary.last_measured_at) {
-        summary.last_measured_at = row.mapped_at;
+      // Skeptic r2 (2026-07-09): mapped_at is the ROLLUP-RUN time and refreshes
+      // nightly for in-window rows (#1899's upsert design) — reading it for a
+      // "measured" field would show "yesterday 04:23" forever. The pinned
+      // metadata contract carries the authoritative measured_at; mapped_at is
+      // only the fallback for legacy/manual rows without one.
+      const measuredAt =
+        typeof meta.measured_at === 'string' && meta.measured_at
+          ? meta.measured_at
+          : row.mapped_at;
+      if (!summary.last_measured_at || measuredAt > summary.last_measured_at) {
+        summary.last_measured_at = measuredAt;
         // Rows arrive newest-first, but don't rely on order — track explicitly.
         // Deep-review MEDIUM (2026-07-08): set unconditionally — keeping an
         // OLDER cycle's numbers when the newest row lacks meta.outcome would
