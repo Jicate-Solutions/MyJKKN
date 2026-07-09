@@ -11,8 +11,9 @@
 --   old code  seeded metric_name                                        Binary home
 --   1.2.1     'Programs offering flexibility (electives, minors)'       1.3 (curriculum
 --             — flexibility content; Binary 1.2 = stakeholder feedback   flexibility CBCS/MEME)
---   1.3.1     'Integration of cross-cutting issues (gender, ethics,     1.6 (IKS /
---             sustainability)' — Binary 1.3 = flexibility                cross-cutting family)
+--   1.3.1     'Integration of cross-cutting issues (gender, ethics,     6.4 (Value Education,
+--             sustainability)' — Binary 1.3 = flexibility;               Attribute 6; Director
+--             gender/ethics/sustainability is NOT IKS (Binary 1.6)       decision 2026-07-09)
 --   2.3.1     'Faculty retention % over last 3 years'                   7.10 (Attribute 7
 --             — Binary Attribute 7 Governance owns retention             Governance)
 --   6.2.1     'Sports participation + achievements'                     6.5 (SPORTS — see
