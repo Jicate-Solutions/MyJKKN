@@ -359,6 +359,59 @@ export interface CoeCiaStudentDetail {
   marks_status: string | null;
 }
 
+/** One COE declared-result row per student × course (final_marks_detailed_view),
+ *  used by the CO/PO attainment loop to compute per-course attainment proxies. */
+export interface CoeFinalStudentDetail {
+  student_id: string | null;
+  course_code: string | null;
+  course_name: string | null;
+  program_code: string | null;
+  internal_marks_obtained: number | null;
+  internal_marks_maximum: number | null;
+  external_marks_obtained: number | null;
+  external_marks_maximum: number | null;
+  total_marks_obtained: number | null;
+  total_marks_maximum: number | null;
+  percentage: number | null;
+  is_pass: boolean | null;
+}
+
+/**
+ * Per-student, per-course declared results for one session + COE institution
+ * (from `final_marks_detailed_view`; filtered by `institutions_id` — the view
+ * carries the COE institution UUID, not the code). Pages explicitly like
+ * `getCoeCiaStudentDetail` (COE PostgREST caps responses at ~1000 rows).
+ */
+export async function getCoeFinalStudentDetail(
+  sessionCode: string,
+  coeInstitutionId: string,
+): Promise<CoeFinalStudentDetail[]> {
+  const coe = createCoeDbClient();
+  const cols =
+    'student_id, course_code, course_name, program_code, ' +
+    'internal_marks_obtained, internal_marks_maximum, ' +
+    'external_marks_obtained, external_marks_maximum, ' +
+    'total_marks_obtained, total_marks_maximum, percentage, is_pass';
+  const pageSize = 1000;
+  const out: CoeFinalStudentDetail[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await coe
+      .from('final_marks_detailed_view')
+      .select(cols)
+      .eq('session_code', sessionCode)
+      .eq('institutions_id', coeInstitutionId)
+      .eq('is_active', true)
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(`COE final_marks_detailed_view read failed: ${error.message}`);
+    const rows = (data ?? []) as unknown as CoeFinalStudentDetail[];
+    out.push(...rows);
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+  return out;
+}
+
 /**
  * Per-student, per-course CIA detail for one session + institution.
  *
@@ -386,7 +439,7 @@ export async function getCoeCiaStudentDetail(
       .eq('is_active', true)
       .range(from, from + pageSize - 1);
     if (error) throw new Error(`COE cia_marks_detailed_view read failed: ${error.message}`);
-    const rows = (data ?? []) as CoeCiaStudentDetail[];
+    const rows = (data ?? []) as unknown as CoeCiaStudentDetail[];
     out.push(...rows);
     if (rows.length < pageSize) break;
     from += pageSize;
