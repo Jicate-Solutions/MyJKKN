@@ -169,6 +169,17 @@ CREATE POLICY "accred_metric_crosswalk_manage" ON public.accreditation_metric_cr
 USING (is_super_admin() OR is_admin())
 WITH CHECK (is_super_admin() OR is_admin());
 
+-- Resolver invariant (AMENDED 2026-07-09, deep-review PR #1924): the crosswalk
+-- is a RESOLVER — one current-framework answer per (body_code, legacy_code,
+-- college_type) lookup. The seed guard below assumes that invariant; this
+-- index ENFORCES it, and makes a concurrent double-seed unable to reproduce
+-- duplicate current_code=NULL rows (NULLs not distinct). The original 4-col
+-- UNIQUE above stays as the seed's ON CONFLICT target — belt-and-suspenders
+-- for the unchanged single-run path, vestigial once this index exists.
+CREATE UNIQUE INDEX IF NOT EXISTS accreditation_metric_crosswalk_resolver_key
+  ON public.accreditation_metric_crosswalk (body_code, legacy_code, college_type)
+  NULLS NOT DISTINCT;
+
 -- Crosswalk seeds ------------------------------------------------------------
 -- AMENDED 2026-07-09 (post-apply hardening): seed only legacy codes that have NO
 -- mapping row yet for the same (body_code, legacy_code, college_type). The original
