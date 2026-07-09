@@ -150,6 +150,20 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "notes": "Fully mechanical (bash + gh + python, no LLM) — it keeps working even when the Claude subscription is rate-limited. Runs on the Mac via launchd; the ⚡ button queues an on-demand pass through the same Mac poller. Built 2026-07-08 as loopcraft level-4 (spawn/review/respawn) over the nightly fixer."
   },
   {
+    "id": "cdc-placement-outcomes",
+    "name": "CDC Placement-Outcome Measure (gates ①③ — DARK)",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Weekly · Sun 03:15 IST via dispatcher (effectively monthly — idempotent per calendar-month window)",
+    "triggerPath": "/api/cron/cdc-placement-outcomes",
+    "callsClaude": false,
+    "whatItDoes": "Measures each graduating cohort's (program × passing-out year) placement + higher-studies conversion from alumni_outcomes, compares it against the prior cohort's baseline, and files the result as NAAC 8.2.1 evidence ('Placement + higher studies progression' — the NIRF GO parameter, ~20-25% of the NIRF score). Measurement + evidence only: nobody acts on the deltas yet — that needs a named CDC owner (Director decision pending), so this is honestly NOT a self-improving loop today.",
+    "configKnobs": "cdc_placement_loop.master_enabled=false (DARK — config row), cdc_placement_loop.min_cohort_size=10 (config row; labeling threshold — smaller cohorts are computed but flagged small_cohort per Director decision 2026-07-09 'Compute, but label small group'), delta deadband=±2.0pp on progression rate (fixed in fn), June AY cutoff",
+    "sideEffects": "WRITES cdc_placement_outcome_cycles (one row per cohort per month, change-only; cohort AGGREGATES only, never per-student rows) and upserts quality_evidence_mappings (NAAC 8.2.1, is_auto=true, small_cohort flag in metadata). No notifications, no human messages. Full no-op while dark.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'cdc-placement-outcomes'), NOT a raw vercel.json cron. Auth: CRON_SECRET. Idempotent: re-runs within the same IST month update the same cycle rows; identical re-measures write nothing. Both data sources (cdc_placements, alumni_outcomes) had 0 rows at build time (2026-07-09) — the machinery is dark and honest about it."
+  },
+  {
     "id": "copo-attainment",
     "name": "CO/PO Attainment Loop — COE→OBE Direct Rollup (NBA)",
     "category": "misc-ai",
