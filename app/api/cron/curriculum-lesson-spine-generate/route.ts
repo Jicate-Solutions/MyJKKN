@@ -178,8 +178,18 @@ function parseSpineMessage(message: Anthropic.Message | null): ParsedSpine | nul
       .map((b) => b.text)
       .join('')
       .trim();
-    const jsonStr = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-    return JSON.parse(jsonStr) as ParsedSpine;
+    let jsonStr = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    // Tolerant extraction (2026-07-09, maiden Max-chain receipt): the model
+    // sometimes wraps the object in prose or trailing text — slice the
+    // outermost {...} instead of failing the whole course (mirrors the
+    // admission-insights parse path).
+    try {
+      return JSON.parse(jsonStr) as ParsedSpine;
+    } catch {
+      const m = jsonStr.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error('no JSON object in model output');
+      return JSON.parse(m[0]) as ParsedSpine;
+    }
   } catch (err) {
     console.error('[cron/curriculum-lesson-spine-generate] AI output parse failed:', err);
     return null;

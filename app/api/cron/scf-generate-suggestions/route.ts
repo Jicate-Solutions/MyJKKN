@@ -367,7 +367,16 @@ function parseSuggestionMessage(
       .replace(/^```(?:json)?\s*/i, '')
       .replace(/\s*```$/i, '')
       .trim();
-    const suggestion = JSON.parse(jsonStr) as Record<string, unknown>;
+    // Tolerant extraction (2026-07-09): slice the outermost {...} when the
+    // model wraps the object in prose/trailing text (maiden Max-chain receipt).
+    let suggestion: Record<string, unknown>;
+    try {
+      suggestion = JSON.parse(jsonStr) as Record<string, unknown>;
+    } catch {
+      const m = jsonStr.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error('no JSON object in model output');
+      suggestion = JSON.parse(m[0]) as Record<string, unknown>;
+    }
     return { suggestion, modelUsed: message.model };
   } catch (err) {
     console.error('[cron/scf-generate-suggestions] AI generation failed:', err);
