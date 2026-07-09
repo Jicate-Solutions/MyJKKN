@@ -185,7 +185,11 @@ function signalFromCtx(ctx: JudgeContext): SignalRow {
 // Group size in WORDS for the prompt (Director, 2026-07-09: printed counts in
 // tiny samples let a student subtract themselves and teach the trigger recipe).
 function groupSizeWord(n: number): string {
-  return n < 6 ? 'a few students' : n < 16 ? 'a small group' : 'a larger group';
+  // NaN-safe (deep-review 2026-07-09 LOW): callers already guard at declaration
+  // (Number(x ?? 0)), but NaN < 6 and NaN < 16 are both false, which would print
+  // "a larger group" — overstating a group we couldn't count. Treat as smallest.
+  if (!Number.isFinite(n)) n = 0;
+  return n < 6 ? 'a few learners' : n < 16 ? 'a small group' : 'a larger group';
 }
 
 function understandingBandWord(avg: number | null | undefined): string {

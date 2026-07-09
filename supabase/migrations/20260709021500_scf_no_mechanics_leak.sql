@@ -74,7 +74,13 @@ BEGIN
   -- Strongest wins (teacher attested 'helped' > merely issued), tie-broken by recency.
   -- Mirrors fn_scf_my_impact.acted, plus carries outcome_lift (class-wide) for corroboration.
   acted AS (
-    SELECT t.attendance_date,
+    -- institution_id is in SELECT + GROUP BY + the outer join keys (deep-review
+    -- 2026-07-09 MEDIUM): mine/themed are one-row-per-institution (DISTINCT ON
+    -- includes it); grouping acted by date+course alone would let a learner with
+    -- same-day same-course feedback in two institutions join the OTHER tenant's
+    -- suggestion text.
+    SELECT t.institution_id,
+           t.attendance_date,
            t.course_code,
            (array_agg(
               s.id
@@ -86,9 +92,17 @@ BEGIN
               ORDER BY (s.human_verdict = 'tried_helped') DESC NULLS LAST, s.generated_at DESC
             ))[1] AS action_kind,
            (array_agg(
+              -- Historical-note guard (deep-review 2026-07-09 HIGH): notes generated
+              -- BEFORE the de-numbered prompts can embed mechanics ("3 responses",
+              -- "2.33", "<=2") inside quickWin / the adjustment title. Any digit in a
+              -- candidate field disqualifies THAT field (not the whole chain), so a
+              -- clean title still shows when quickWin is dirty. NULL !~ '[0-9]' is
+              -- NULL, so missing fields fall through the COALESCE naturally.
               COALESCE(
-                NULLIF(btrim(s.suggestion->>'quickWin'), ''),
-                NULLIF(btrim(s.suggestion->'suggestedAdjustments'->0->>'title'), ''),
+                CASE WHEN btrim(s.suggestion->>'quickWin') !~ '[0-9]'
+                     THEN NULLIF(btrim(s.suggestion->>'quickWin'), '') END,
+                CASE WHEN btrim(s.suggestion->'suggestedAdjustments'->0->>'title') !~ '[0-9]'
+                     THEN NULLIF(btrim(s.suggestion->'suggestedAdjustments'->0->>'title'), '') END,
                 'adjusted the class based on this feedback theme'
               )
               ORDER BY (s.human_verdict = 'tried_helped') DESC NULLS LAST, s.generated_at DESC
@@ -111,7 +125,7 @@ BEGIN
       AND s.course_code          = t.course_code
       AND lower(s.faculty_email) = t.faculty
       AND t.attendance_date BETWEEN s.window_from AND s.window_to
-    GROUP BY t.attendance_date, t.course_code
+    GROUP BY t.institution_id, t.attendance_date, t.course_code
   )
   SELECT
     t.attendance_date,
@@ -133,7 +147,8 @@ BEGIN
     rv.vote                                            AS my_resolution_vote
   FROM themed t
   JOIN acted a
-    ON  a.attendance_date = t.attendance_date
+    ON  a.institution_id  = t.institution_id
+    AND a.attendance_date = t.attendance_date
     AND a.course_code IS NOT DISTINCT FROM t.course_code
   -- The learner's OWN earliest subsequent same-course session AFTER the change took effect
   -- (strictly after both the flagged date and the suggestion date). Their own rating only.
@@ -196,7 +211,10 @@ BEGIN
   -- wins (teacher attested 'helped' > merely issued), tie-broken by recency.
   -- Only the learner's OWN flagged sessions (my_understood <= 2) can earn this.
   acted AS (
-    SELECT m.attendance_date,
+    -- institution_id in SELECT + GROUP BY + outer join keys (deep-review
+    -- 2026-07-09 MEDIUM): same cross-tenant collapse risk as loop_closure's acted.
+    SELECT m.institution_id,
+           m.attendance_date,
            m.course_code,
            true AS action_taken,
            (array_agg(
@@ -205,25 +223,38 @@ BEGIN
               ORDER BY (s.human_verdict = 'tried_helped') DESC NULLS LAST, s.generated_at DESC
             ))[1] AS action_kind,
            (array_agg(
+              -- Historical-note guard (deep-review 2026-07-09 HIGH): same per-field
+              -- digit disqualification as fn_scf_loop_closure_for_learner — pre-fix
+              -- notes can embed counts/averages/thresholds in these fields.
               COALESCE(
-                NULLIF(btrim(s.suggestion->>'quickWin'), ''),
-                NULLIF(btrim(s.suggestion->'suggestedAdjustments'->0->>'title'), ''),
+                CASE WHEN btrim(s.suggestion->>'quickWin') !~ '[0-9]'
+                     THEN NULLIF(btrim(s.suggestion->>'quickWin'), '') END,
+                CASE WHEN btrim(s.suggestion->'suggestedAdjustments'->0->>'title') !~ '[0-9]'
+                     THEN NULLIF(btrim(s.suggestion->'suggestedAdjustments'->0->>'title'), '') END,
                 'adjusted the class based on this feedback theme'
               )
               ORDER BY (s.human_verdict = 'tried_helped') DESC NULLS LAST, s.generated_at DESC
             ))[1] AS action_detail,
            (array_agg(
-              s.generated_at::date
+              -- IST local date (deep-review 2026-07-09 MEDIUM): must match
+              -- loop_closure's action_date or the two learner surfaces disagree on
+              -- the same action's date for notes generated after ~18:30 UTC.
+              (s.generated_at AT TIME ZONE 'Asia/Kolkata')::date
               ORDER BY (s.human_verdict = 'tried_helped') DESC NULLS LAST, s.generated_at DESC
             ))[1] AS action_date
     FROM mine m
     JOIN public.scf_ai_suggestions s
-      ON  s.institution_id          = m.institution_id
+      ON  s.domain                  = 'session_feedback'  -- deep-review 2026-07-09 HIGH: without
+      AND s.kind                    = 'improvement'        -- these two filters (present in the sibling
+                                                           -- loop_closure fn) a foreign-module or
+                                                           -- success-kind row sharing inst/course/
+                                                           -- faculty/window surfaces wrong action text.
+      AND s.institution_id          = m.institution_id
       AND s.course_code             = m.course_code
       AND lower(s.faculty_email)    = m.faculty
       AND m.attendance_date BETWEEN s.window_from AND s.window_to
     WHERE m.my_understood <= 2
-    GROUP BY m.attendance_date, m.course_code
+    GROUP BY m.institution_id, m.attendance_date, m.course_code
   )
   SELECT m.attendance_date,
          m.course_code,
@@ -236,7 +267,8 @@ BEGIN
          a.action_date
   FROM mine m
   LEFT JOIN acted a
-    ON  a.attendance_date  = m.attendance_date
+    ON  a.institution_id   = m.institution_id
+    AND a.attendance_date  = m.attendance_date
     AND a.course_code IS NOT DISTINCT FROM m.course_code
   ORDER BY m.attendance_date DESC;
 END;

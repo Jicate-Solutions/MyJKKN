@@ -95,7 +95,11 @@ CRITICAL: Never express understanding as a number, score, average, rating out of
 // Group size in WORDS for the prompt (Director, 2026-07-09: printed counts in
 // tiny samples let a student subtract themselves and teach the trigger recipe).
 function groupSizeWord(n: number): string {
-  return n < 6 ? 'a few students' : n < 16 ? 'a small group' : 'a larger group';
+  // NaN-safe (deep-review 2026-07-09 LOW): callers already guard at declaration
+  // (Number(x ?? 0)), but NaN < 6 and NaN < 16 are both false, which would print
+  // "a larger group" — overstating a group we couldn't count. Treat as smallest.
+  if (!Number.isFinite(n)) n = 0;
+  return n < 6 ? 'a few learners' : n < 16 ? 'a small group' : 'a larger group';
 }
 
 function understandingBandWord(avg: number | null | undefined): string {
@@ -222,7 +226,7 @@ const sessionFeedbackSummarize: AiTaskType = {
 
     const commentBlock = freeTexts.length > 0
       ? freeTexts.map((t) => `- ${String(t).trim()}`).join('\n')
-      : '- (no written comments — use the understanding level and response counts above)';
+      : '- (no written comments — use the understanding level and group size above)';  // deep-review 2026-07-09 LOW: the prompt no longer carries response counts — do not invite the model to cite them
     const userPrompt = `Course: ${courseCode}
 Window: ${from} to ${to}
 Group size (words only — never repeat numbers): ${groupSizeWord(responses)}
