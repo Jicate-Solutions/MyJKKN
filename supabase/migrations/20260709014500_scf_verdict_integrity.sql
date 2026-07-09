@@ -19,6 +19,17 @@
 --
 -- Leadership gate mirrors fn_scf_leadership_concerns: super sees all; every
 -- other allowed role is bounded to their own institution.
+--
+-- Deep-review 2026-07-09 dispositions (panels have no cross-round memory):
+--   • Own-row exclusion (MEDIUM, consensus): hod/coordinator are themselves
+--     teaching facilitators — a non-super caller NEVER receives rows keyed to
+--     their own login email, preserving "the facilitator never sees a score
+--     kept on them". profiles.email is the login (institution) email, the same
+--     identity session_feedback.faculty_email carries post-#1888 heal.
+--   • Institution-wide visibility for hod/coordinator (MEDIUM): ACCEPTED
+--     deliberately — the gate mirrors fn_scf_leadership_concerns, which already
+--     exposes institution-wide SCF escalations to the same role list.
+--     Department scoping would diverge the two leadership lanes.
 -- =============================================================================
 
 CREATE OR REPLACE FUNCTION public.fn_scf_verdict_track_record(p_from date, p_to date)
@@ -27,13 +38,14 @@ CREATE OR REPLACE FUNCTION public.fn_scf_verdict_track_record(p_from date, p_to 
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
-DECLARE v_inst uuid; v_super boolean; v_allowed boolean;
+DECLARE v_inst uuid; v_super boolean; v_allowed boolean; v_email text;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_scf_verdict_track_record: not authenticated'; END IF;
   SELECT p.institution_id,
          (p.role = 'super_admin' OR p.is_super_admin = true),
-         (p.role = ANY (ARRAY['super_admin','administrator','institution_admin','dean','hod','principal','coordinator']) OR p.is_super_admin = true)
-    INTO v_inst, v_super, v_allowed
+         (p.role = ANY (ARRAY['super_admin','administrator','institution_admin','dean','hod','principal','coordinator']) OR p.is_super_admin = true),
+         lower(p.email)
+    INTO v_inst, v_super, v_allowed, v_email
   FROM public.profiles p WHERE p.id = auth.uid();
   IF NOT COALESCE(v_allowed, false) THEN
     RAISE EXCEPTION 'fn_scf_verdict_track_record: not authorized';
@@ -52,8 +64,12 @@ BEGIN
   WHERE s.domain = 'session_feedback'
     AND s.human_verdict IS NOT NULL
     AND s.human_verdict <> 'not_tried'        -- no effect claimed → nothing to check
-    AND s.human_verdict_at::date BETWEEN p_from AND p_to
+    -- IST local date (deep-review LOW): verdicts land near midnight IST; a raw
+    -- ::date is UTC and shifts evening verdicts to the previous day.
+    AND (s.human_verdict_at AT TIME ZONE 'Asia/Kolkata')::date BETWEEN p_from AND p_to
     AND (v_super OR s.institution_id = v_inst)
+    -- Own-row exclusion — see header disposition. Supers (Director lane) see all.
+    AND (v_super OR lower(s.faculty_email) IS DISTINCT FROM v_email)
   GROUP BY s.faculty_email, s.institution_id
   ORDER BY contradicted DESC, verdicts DESC;
 END;
@@ -63,35 +79,57 @@ REVOKE EXECUTE ON FUNCTION public.fn_scf_verdict_track_record(date, date) FROM a
 GRANT  EXECUTE ON FUNCTION public.fn_scf_verdict_track_record(date, date) TO authenticated;
 
 
-CREATE OR REPLACE FUNCTION public.fn_scf_verdict_contradictions(p_from date, p_to date)
- RETURNS TABLE(course_code text, faculty_email text, human_verdict text, verdict_on date, input_avg_understood numeric, outcome_lift numeric, window_from date, window_to date)
+-- Return-shape change vs the first-applied version (deep-review 2026-07-09):
+--   + id            — stable per-suggestion key; without it two same-day
+--                     same-verdict rows collapse under React's list key and an
+--                     alert silently disappears (MEDIUM, consensus).
+--   − input_avg_understood, − outcome_lift — row-level class numerics removed
+--                     (LOW): the only consumer (Claims-vs-numbers card) never
+--                     displayed them, and returning them relied on the upstream
+--                     measurer's k-floor to avoid tiny-class averages leaking.
+--                     The alert is qualitative by design ("worth a conversation,
+--                     not a conclusion").
+-- DROP first: CREATE OR REPLACE cannot change a RETURNS TABLE shape, and the
+-- prior shape is already live on prod (pre-applied for the visual proof).
+DROP FUNCTION IF EXISTS public.fn_scf_verdict_contradictions(date, date);
+
+CREATE FUNCTION public.fn_scf_verdict_contradictions(p_from date, p_to date)
+ RETURNS TABLE(id uuid, course_code text, faculty_email text, human_verdict text, verdict_on date, window_from date, window_to date)
  LANGUAGE plpgsql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
-DECLARE v_inst uuid; v_super boolean; v_allowed boolean;
+DECLARE v_inst uuid; v_super boolean; v_allowed boolean; v_email text;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_scf_verdict_contradictions: not authenticated'; END IF;
   SELECT p.institution_id,
          (p.role = 'super_admin' OR p.is_super_admin = true),
-         (p.role = ANY (ARRAY['super_admin','administrator','institution_admin','dean','hod','principal','coordinator']) OR p.is_super_admin = true)
-    INTO v_inst, v_super, v_allowed
+         (p.role = ANY (ARRAY['super_admin','administrator','institution_admin','dean','hod','principal','coordinator']) OR p.is_super_admin = true),
+         lower(p.email)
+    INTO v_inst, v_super, v_allowed, v_email
   FROM public.profiles p WHERE p.id = auth.uid();
   IF NOT COALESCE(v_allowed, false) THEN
     RAISE EXCEPTION 'fn_scf_verdict_contradictions: not authorized';
   END IF;
 
   RETURN QUERY
-  SELECT s.course_code, s.faculty_email, s.human_verdict,
-         s.human_verdict_at::date AS verdict_on,
-         s.input_avg_understood, s.outcome_lift, s.window_from, s.window_to
+  SELECT s.id, s.course_code, s.faculty_email, s.human_verdict,
+         (s.human_verdict_at AT TIME ZONE 'Asia/Kolkata')::date AS verdict_on,   -- IST, matches track_record's window
+         s.window_from, s.window_to
   FROM public.scf_ai_suggestions s
   WHERE s.domain = 'session_feedback'
     AND s.human_verdict = 'tried_helped'
     AND s.outcome_lift IS NOT NULL
     AND s.outcome_lift <= 0
-    AND s.human_verdict_at::date BETWEEN p_from AND p_to
+    -- k>=3 floor on the OUTCOME class size (deep-review LOW): a "numbers say it
+    -- didn't help" alert built on 1-2 next-session answers is noise, and this fn
+    -- must not depend on the upstream measurer's floor staying in place.
+    AND COALESCE(s.outcome_responses, 0) >= 3
+    AND (s.human_verdict_at AT TIME ZONE 'Asia/Kolkata')::date BETWEEN p_from AND p_to
     AND (v_super OR s.institution_id = v_inst)
+    -- Own-row exclusion — same invariant as fn_scf_verdict_track_record: a
+    -- teaching hod/coordinator never sees a contradiction row about themselves.
+    AND (v_super OR lower(s.faculty_email) IS DISTINCT FROM v_email)
   ORDER BY s.human_verdict_at DESC;
 END;
 $function$;

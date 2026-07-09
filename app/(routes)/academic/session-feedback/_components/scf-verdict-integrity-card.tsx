@@ -43,6 +43,10 @@ import {
 const BRAND_GREEN = '#0b6d41';
 
 export function ScfVerdictIntegrityCard({ from, to }: { from?: string; to?: string }) {
+  // Default window uses the browser's local date; the SQL side anchors verdict
+  // dates AT TIME ZONE 'Asia/Kolkata' (deep-review 2026-07-09 LOW), so for IST
+  // users the day boundary matches exactly. A ±1-day skew for a rare non-IST
+  // leadership viewer only widens/narrows a 90-day default — accepted.
   const range = useMemo(() => {
     if (from && to) return { from, to };
     const today = new Date();
@@ -82,7 +86,10 @@ export function ScfVerdictIntegrityCard({ from, to }: { from?: string; to?: stri
             </p>
             <ul className="space-y-1 text-xs text-amber-900/90 dark:text-amber-200/90">
               {alerts.map((a) => (
-                <li key={`${a.course_code}-${a.faculty_email}-${a.verdict_on}`}>
+                // key = suggestion uuid (deep-review 2026-07-09 MEDIUM): a composite
+                // course+email+date key is NOT unique — two same-verdict suggestions
+                // on the same day would collapse and silently drop an alert row.
+                <li key={a.id}>
                   <span className="font-medium">{a.course_code}</span> · {a.faculty_email} said
                   &quot;helped&quot; on {a.verdict_on}, but the class&apos;s measured understanding
                   did not rise. Worth a conversation, not a conclusion.

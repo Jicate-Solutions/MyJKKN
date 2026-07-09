@@ -27,13 +27,17 @@ export interface VerdictTrackRecordRow {
   contradicted: number;
 }
 
+// Shape mirrors fn_scf_verdict_contradictions post deep-review 2026-07-09:
+// `id` is the suggestion row's uuid (stable React list key — two same-day
+// same-verdict rows must not collapse); the row-level class numerics
+// (input_avg_understood / outcome_lift) were removed from the RPC — the alert
+// is qualitative by design and the card never displayed them.
 export interface VerdictContradictionRow {
+  id: string;
   course_code: string;
   faculty_email: string | null;
   human_verdict: string;
   verdict_on: string;
-  input_avg_understood: number | null;
-  outcome_lift: number | null;
   window_from: string;
   window_to: string;
 }
