@@ -137,6 +137,23 @@ interface DeptDigest {
   recent_miss_count: number;
 }
 
+// Gate ④ (feed-forward). The department's PREVIOUS measured outcome, read
+// back from ai_pulse_cycle_outcomes via fn_ai_pulse_prior_dept_outcome. This
+// is what makes the next recommendation a function of the last measured
+// result rather than of the current cycle alone.
+interface PriorOutcome {
+  demo_date: string | null;
+  net_effect: number | null;
+  human_verdict: string | null;
+  goal_status: string | null;
+  stage_reached: string | null;
+}
+
+// Default mirrors the loop_noise_band_pct dial seeded in
+// 20260709093100_ai_pulse_measure_verdict_seed.sql. Read from config at
+// runtime; this constant only covers the pre-apply window.
+const NOISE_BAND_PCT_FALLBACK = 5;
+
 // ---------------------------------------------------------------------------
 // Route
 // ---------------------------------------------------------------------------
@@ -474,6 +491,46 @@ export async function GET(req: NextRequest) {
     }
 
     // -- 11. Compose + deliver. ------------------------------------------
+    // -- 10b. Gate ④ — feed-forward. --------------------------------------
+    //    Read each HOD department's PRIOR measured outcome. When the last
+    //    cycle was humanly verdicted 'intervened' and the RTM-corrected lift
+    //    landed inside the noise band, the intervention demonstrably did
+    //    nothing — so the digest says "change approach" instead of repeating
+    //    the same nudge. This closes the loop: the next recommendation is a
+    //    function of the last measured outcome.
+    //
+    //    Degrades to pre-gate-④ behaviour, never 500s. The reader fn and the
+    //    loop_noise_band_pct dial ship in 20260709093000 / …093100. Until
+    //    those migrations are applied to a given environment, every read here
+    //    errors and priorByDept simply stays empty. A judge that is not yet
+    //    installed must not take the digest down with it.
+    let noiseBandPct = NOISE_BAND_PCT_FALLBACK;
+    {
+      const { data: bandRow } = await supabase
+        .from('ai_pulse_policies')
+        .select('value_jsonb')
+        .eq('config_key', 'loop_noise_band_pct')
+        .eq('is_active', true)
+        .maybeSingle();
+      const raw = bandRow?.value_jsonb;
+      const n = typeof raw === 'number' ? raw : Number(raw);
+      if (Number.isFinite(n) && n >= 0) noiseBandPct = n;
+    }
+
+    const priorByDept = new Map<string, PriorOutcome>();
+    for (const deptId of hodsByDept.keys()) {
+      const { data: priorRows, error: priorErr } = await supabase.rpc(
+        'fn_ai_pulse_prior_dept_outcome',
+        { p_dept_id: deptId, p_exclude_cycle_id: latestCycleId },
+      );
+      if (priorErr) continue; // fn absent (schema unapplied) or no access
+      const p = (Array.isArray(priorRows) ? priorRows[0] : priorRows) as
+        | PriorOutcome
+        | undefined;
+      if (p) priorByDept.set(deptId, p);
+    }
+
+    // -- 11. Deliver. -----------------------------------------------------
     //    One bell notification per recipient. created_by = recipient
     //    (per-user pattern, friday-reflection). idempotency_key keyed on
     //    (cycle, recipient) so a re-fire is a per-recipient no-op.
@@ -484,6 +541,9 @@ export async function GET(req: NextRequest) {
       hod_notifications: 0,
       principal_notifications: 0,
       skipped_existing: 0,
+      // Gate ④: departments told to change approach because their last
+      // intervention produced no measurable lift.
+      feed_forward_escalations: 0,
       errors: [] as string[],
     };
 
@@ -555,8 +615,11 @@ export async function GET(req: NextRequest) {
     for (const [deptId, hodIds] of hodsByDept.entries()) {
       const d = digestByDept.get(deptId);
       if (!d) continue; // department inactive / not in active list
+      const prior = priorByDept.get(deptId) ?? null;
+      const escalate = isNoLiftIntervention(prior, noiseBandPct);
+      if (escalate) summary.feed_forward_escalations += 1;
       const title = `AI Pulse weekly digest — ${d.department_name}`;
-      const body = buildDeptBody(d, cycleLabel);
+      const body = buildDeptBody(d, cycleLabel, prior, noiseBandPct);
       const metadata = {
         source: 'cron:ai_pulse_weekly_digest',
         scope: 'department',
@@ -568,6 +631,11 @@ export async function GET(req: NextRequest) {
         recent_miss_count: d.recent_miss_count,
         anomaly_count: d.anomaly_count,
         gold_proxy_count: d.gold_proxy_count,
+        // Gate ④ provenance — what the last measured outcome said.
+        prior_cycle_date: prior?.demo_date ?? null,
+        prior_human_verdict: prior?.human_verdict ?? null,
+        prior_net_effect: prior?.net_effect ?? null,
+        feed_forward_escalated: escalate,
       };
       for (const uid of hodIds) {
         await deliver(uid, title, body, metadata, 'hod');
@@ -611,6 +679,9 @@ export async function GET(req: NextRequest) {
       processed: summary.departments,
       sent: summary.hod_notifications + summary.principal_notifications,
       skipped: summary.skipped_existing,
+      // 'escalations' is on the dispatcher's summarize() allowlist, so gate ④
+      // becomes visible in the Control Tower instead of hiding under summary.
+      escalations: summary.feed_forward_escalations,
       summary: { ...summary, elapsed_ms: Date.now() - startedAt },
     });
   } catch (err) {
@@ -627,7 +698,34 @@ export async function GET(req: NextRequest) {
 // Plain-language bell bodies (12th-grade, no jargon dumps).
 // ---------------------------------------------------------------------------
 
-function buildDeptBody(d: DeptDigest, cycleLabel: string): string {
+// Gate ④ predicate. True only when a human said they intervened AND the
+// RTM-corrected effect is measurable AND it sits inside the noise band.
+//
+// net_effect is a RATE delta (engaged_rate is a 0..1 ratio), while the dial
+// loop_noise_band_pct is a percentage — hence the ×100.
+//
+// A NULL net_effect means "we could not measure" (no baseline, or too few
+// untreated departments for a regression line). That is NOT the same as
+// "no effect", and must never be escalated as though the intervention
+// failed. Absence of evidence is not evidence of absence.
+function isNoLiftIntervention(
+  prior: PriorOutcome | null,
+  noiseBandPct: number,
+): boolean {
+  if (!prior) return false;
+  if (prior.human_verdict !== 'intervened') return false;
+  if (prior.net_effect === null || prior.net_effect === undefined) return false;
+  const effect = Number(prior.net_effect);
+  if (!Number.isFinite(effect)) return false;
+  return Math.abs(effect) * 100 <= noiseBandPct;
+}
+
+function buildDeptBody(
+  d: DeptDigest,
+  cycleLabel: string,
+  prior: PriorOutcome | null = null,
+  noiseBandPct: number = NOISE_BAND_PCT_FALLBACK,
+): string {
   const lines: string[] = [];
   lines.push(`Latest AI Pulse cycle (${cycleLabel}):`);
   if (d.attendance_count > 0) {
@@ -645,6 +743,19 @@ function buildDeptBody(d: DeptDigest, cycleLabel: string): string {
   }
   if (d.recent_miss_count > 0) {
     lines.push(`Missed ${d.recent_miss_count} of the last 8 weeks. Please follow up.`);
+  }
+  // Gate ④ — the loop's output re-entering its own input.
+  if (isNoLiftIntervention(prior, noiseBandPct)) {
+    const pp = (Math.abs(Number(prior!.net_effect)) * 100).toFixed(1);
+    lines.push(
+      `Last cycle you stepped in, and the measured change was ${pp} points — inside the ±${noiseBandPct}-point range we treat as noise.`,
+    );
+    lines.push('Repeating the same approach is unlikely to move it. Try a different one.');
+  } else if (prior?.human_verdict === 'intervened' && prior.net_effect === null) {
+    // Honest about not knowing, rather than silent.
+    lines.push(
+      'Last cycle you stepped in, but there was not enough comparable data to measure whether it helped.',
+    );
   }
   return lines.join(' ');
 }
