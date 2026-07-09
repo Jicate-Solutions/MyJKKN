@@ -159,6 +159,8 @@ export async function GET(req: NextRequest) {
   if (cycleIds.length === 0) {
     return NextResponse.json({
       ok: true,
+      processed: 0,
+      flagged: 0,
       summary: {
         cycles_scanned: 0,
         flags_created: 0,
@@ -503,5 +505,16 @@ export async function GET(req: NextRequest) {
 
   console.log('[cron/ai-pulse-anomaly-scan]', summary);
 
-  return NextResponse.json({ ok: true, summary, errors });
+  // Top-level numeric keys for ai-routine-dispatcher's summarize(): it reads
+  // only top-level allowlisted numerics, so these were invisible under `summary`
+  // and the Control Tower reported a bare "HTTP 200". `summary` kept as-is.
+  return NextResponse.json({
+    ok: true,
+    processed: summary.cycles_scanned,
+    candidates: summary.candidates,
+    flagged: summary.flags_created,
+    skipped: summary.flags_skipped_existing,
+    summary,
+    errors,
+  });
 }

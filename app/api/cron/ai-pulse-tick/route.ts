@@ -402,5 +402,20 @@ export async function GET(req: NextRequest) {
 
   console.log('[cron/ai-pulse-tick]', summary);
 
-  return NextResponse.json({ ok: true, summary });
+  // Top-level numeric keys so ai-routine-dispatcher's summarize() can report
+  // what this run actually did. It reads ONLY top-level keys from a fixed
+  // allowlist (generated/measured/skipped/created/sent/processed/...), so the
+  // numbers nested under `summary` were invisible and the Control Tower showed
+  // a bare "HTTP 200". `summary` is kept unchanged for existing consumers.
+  return NextResponse.json({
+    ok: true,
+    processed: summary.institutions_processed,
+    created: summary.created,
+    skipped: summary.existed,
+    sent: acknowledgments.reduce(
+      (n, a) => n + (a.action === 'acknowledged' ? (a.passers ?? 0) : 0),
+      0,
+    ),
+    summary,
+  });
 }

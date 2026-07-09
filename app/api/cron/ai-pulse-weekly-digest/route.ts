@@ -184,6 +184,8 @@ export async function GET(req: NextRequest) {
         ok: true,
         job: JOB_NAME,
         ran_at: new Date().toISOString(),
+        processed: 0,
+        sent: 0,
         summary: { reason: 'no_cycles', notifications_created: 0 },
       });
     }
@@ -215,6 +217,8 @@ export async function GET(req: NextRequest) {
         ok: true,
         job: JOB_NAME,
         ran_at: new Date().toISOString(),
+        processed: 0,
+        sent: 0,
         summary: { reason: 'no_departments', notifications_created: 0 },
       });
     }
@@ -597,10 +601,16 @@ export async function GET(req: NextRequest) {
 
     console.log(`[cron:${JOB_NAME}]`, { ...summary, elapsed_ms: Date.now() - startedAt });
 
+    // Top-level numeric keys for ai-routine-dispatcher's summarize(): it reads
+    // only top-level allowlisted numerics, so everything under `summary` was
+    // invisible and the Control Tower showed a bare "HTTP 200".
     return NextResponse.json({
       ok: true,
       job: JOB_NAME,
       ran_at: new Date().toISOString(),
+      processed: summary.departments,
+      sent: summary.hod_notifications + summary.principal_notifications,
+      skipped: summary.skipped_existing,
       summary: { ...summary, elapsed_ms: Date.now() - startedAt },
     });
   } catch (err) {
