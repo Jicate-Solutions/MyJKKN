@@ -105,6 +105,8 @@ export interface StudentBill {
   item_category?: {
     id: string;
     category_name: string;
+    /** Fee head (tuition/hostel/transport/…) — drives online-payment account routing. */
+    kind?: string | null;
     amount?: number | null;
     frequency?: 'monthly' | 'quarterly' | 'yearly' | 'one-time';
   };

@@ -1,12 +1,14 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import {
   BarChart3,
+  Bus,
   CalendarClock,
   CheckCircle2,
   ChevronDown,
+  CreditCard,
   Download,
   Eye,
   GraduationCap,
@@ -25,6 +27,9 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { MyBill, MyBillsData, MyReceipt } from '@/types/billing';
+import type { StudentBill } from '@/types/billing-schedule';
+import { PaymentSelectionModal } from '@/components/billing/payment-selection-modal';
+import { useConnectedFeeHeads } from '@/hooks/billing/use-connected-fee-heads';
 import { FEE_HEAD_LABELS, fmtDate, groupByYear, inr, isOverdue } from './shared';
 import { ReceiptDialog, downloadMyReceiptPdf, type ReceiptPdfContext } from './receipt-dialog';
 
@@ -36,27 +41,79 @@ const MyBillsAnalytics = dynamic(
 
 interface MyBillsClientProps {
   data: MyBillsData;
+  learnerId: string;
   learnerName: string;
   rollNumber: string;
   collegeEmail: string;
+  institutionId: string | null;
   institutionName: string;
 }
 
 export function MyBillsClient({
   data,
+  learnerId,
   learnerName,
   rollNumber,
   collegeEmail,
+  institutionId,
   institutionName,
 }: MyBillsClientProps) {
   const { totalDue, totalBilled, totalPaid, bills, receipts } = data;
   const [viewReceipt, setViewReceipt] = useState<MyReceipt | null>(null);
+  // Bill the student clicked "Pay" on — the modal opens scoped to its category.
+  const [payBill, setPayBill] = useState<MyBill | null>(null);
 
   const pdfCtx: ReceiptPdfContext = { learnerName, rollNumber, collegeEmail, institutionName };
 
   const outstanding = bills.filter((b) => b.balanceAmount > 0);
-  const outstandingGroups = groupByYear(outstanding);
+
+  // Pay Online is offered per bill, only when that bill's fee head has a
+  // connected Razorpay account (same source of truth as the admin flow);
+  // everything else is settled at the accounts office — no button on those rows.
+  const { data: connectivity } = useConnectedFeeHeads(institutionId);
+  const canPayBill = (b: MyBill) => {
+    if (!connectivity) return false;
+    if (connectivity.allConnected) return true;
+    return !!b.kind && connectivity.feeHeads.includes(b.kind);
+  };
+
+  // The shared PaymentSelectionModal speaks the admin StudentBill shape — adapt
+  // the lean MyBill row to the fields it (and the amount selector) reads.
+  // Each Pay button pays exactly ITS bill: the modal receives only the clicked
+  // bill (pre-ticked), so the order routes to that bill's category account.
+  const modalBills = useMemo(() => {
+    if (!payBill) return [];
+    const b = payBill;
+    return [
+      {
+        id: b.id,
+        student_id: learnerId,
+        institution_id: institutionId ?? '',
+        bill_description: b.description,
+        due_date: b.dueDate,
+        total_amount: b.totalAmount,
+        final_amount: b.totalAmount,
+        balance_amount: b.balanceAmount,
+        bill_balance: b.balanceAmount,
+        status: b.status ?? 'pending',
+        item_category: {
+          id: '',
+          category_name: b.categoryName ?? b.description,
+          kind: b.kind,
+        },
+        academic_year:
+          b.academicYear && b.academicYear !== 'Other'
+            ? { id: '', academic_year_name: b.academicYear }
+            : undefined,
+      } as unknown as StudentBill,
+    ];
+  }, [payBill, learnerId, institutionId]);
+  // Transport bills (TMS-generated, category kind='transport') render in their
+  // own section, so they're excluded from the academic-year groups below.
+  const transportOutstanding = outstanding.filter((b) => b.kind === 'transport');
+  const outstandingGroups = groupByYear(outstanding.filter((b) => b.kind !== 'transport'));
   const receiptGroups = groupByYear(receipts);
+  const transportDue = transportOutstanding.reduce((sum, b) => sum + b.balanceAmount, 0);
 
   const clearedPct =
     totalBilled > 0 ? Math.min(100, Math.round(((totalBilled - totalDue) / totalBilled) * 100)) : 0;
@@ -130,34 +187,62 @@ export function MyBillsClient({
           </TabsTrigger>
         </TabsList>
 
-        {/* ── Outstanding, grouped by academic year ───────────────────── */}
+        {/* ── Outstanding: transport section first, then academic years ── */}
         <TabsContent value='outstanding' className='mt-4 space-y-4'>
-          {outstandingGroups.length === 0 ? (
+          {outstanding.length === 0 ? (
             <EmptyState
               icon={<CheckCircle2 className='h-8 w-8 text-emerald-600 dark:text-emerald-400' />}
               title='No outstanding bills'
               subtitle="You're all caught up — nothing due right now."
             />
           ) : (
-            outstandingGroups.map((group, index) => {
-              const groupDue = group.items.reduce((sum, b) => sum + b.balanceAmount, 0);
-              const hasOverdue = group.items.some((b) => isOverdue(b.dueDate));
-              return (
+            <>
+              {transportOutstanding.length > 0 && (
                 <YearSection
-                  key={group.year}
-                  year={group.year}
-                  defaultOpen={index === 0 || hasOverdue}
-                  meta={`${group.items.length} ${group.items.length === 1 ? 'bill' : 'bills'}`}
-                  amount={inr(groupDue)}
+                  year='Transport'
+                  label='Transport Fees'
+                  icon={<Bus className='h-4 w-4 shrink-0 text-muted-foreground' />}
+                  defaultOpen
+                  meta={`${transportOutstanding.length} ${
+                    transportOutstanding.length === 1 ? 'bill' : 'bills'
+                  }`}
+                  amount={inr(transportDue)}
                   amountClassName='text-destructive'
                   amountLabel='due'
                 >
-                  {group.items.map((bill) => (
-                    <BillRow key={bill.id} bill={bill} />
+                  {transportOutstanding.map((bill) => (
+                    <BillRow
+                      key={bill.id}
+                      bill={bill}
+                      onPayOnline={canPayBill(bill) ? () => setPayBill(bill) : undefined}
+                    />
                   ))}
                 </YearSection>
-              );
-            })
+              )}
+              {outstandingGroups.map((group, index) => {
+                const groupDue = group.items.reduce((sum, b) => sum + b.balanceAmount, 0);
+                const hasOverdue = group.items.some((b) => isOverdue(b.dueDate));
+                return (
+                  <YearSection
+                    key={group.year}
+                    year={group.year}
+                    defaultOpen={index === 0 || hasOverdue}
+                    meta={`${group.items.length} ${group.items.length === 1 ? 'bill' : 'bills'}`}
+                    amount={inr(groupDue)}
+                    amountClassName='text-destructive'
+                    amountLabel='due'
+                  >
+                    {group.items.map((bill) => (
+                      <BillRow
+                        key={bill.id}
+                        bill={bill}
+                        onPayOnline={canPayBill(bill) ? () => setPayBill(bill) : undefined}
+                      />
+                    ))}
+                  </YearSection>
+                );
+              })}
+            </>
           )}
         </TabsContent>
 
@@ -212,6 +297,16 @@ export function MyBillsClient({
       </Tabs>
 
       <ReceiptDialog receipt={viewReceipt} ctx={pdfCtx} onClose={() => setViewReceipt(null)} />
+
+      <PaymentSelectionModal
+        open={!!payBill}
+        onOpenChange={(next) => {
+          if (!next) setPayBill(null);
+        }}
+        bills={modalBills}
+        studentId={learnerId}
+        initialSelectedBillIds={payBill ? [payBill.id] : undefined}
+      />
     </div>
   );
 }
@@ -220,6 +315,9 @@ export function MyBillsClient({
 
 interface YearSectionProps {
   year: string;
+  /** Overrides the derived "Academic Year {year}" heading (e.g. "Transport Fees"). */
+  label?: string;
+  icon?: ReactNode;
   meta: string;
   amount: string;
   amountLabel: string;
@@ -230,6 +328,8 @@ interface YearSectionProps {
 
 function YearSection({
   year,
+  label,
+  icon,
   meta,
   amount,
   amountLabel,
@@ -243,9 +343,10 @@ function YearSection({
         <CollapsibleTrigger className='group flex min-h-[44px] w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50 sm:px-5'>
           <div className='flex min-w-0 items-center gap-2.5'>
             <ChevronDown className='h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=closed]:-rotate-90' />
+            {icon}
             <div className='min-w-0'>
               <div className='font-semibold'>
-                {year === 'Other' ? 'Other fees' : `Academic Year ${year}`}
+                {label ?? (year === 'Other' ? 'Other fees' : `Academic Year ${year}`)}
               </div>
               <div className='text-xs text-muted-foreground'>{meta}</div>
             </div>
@@ -265,7 +366,14 @@ function YearSection({
 
 /* ── One outstanding bill ─────────────────────────────────────────────── */
 
-function BillRow({ bill }: { bill: MyBill }) {
+function BillRow({
+  bill,
+  onPayOnline,
+}: {
+  bill: MyBill;
+  /** Present only when this bill's fee head has a connected payment account. */
+  onPayOnline?: () => void;
+}) {
   const overdue = isOverdue(bill.dueDate);
   const partiallyPaid = bill.paidAmount > 0;
   const paidPct =
@@ -308,12 +416,22 @@ function BillRow({ bill }: { bill: MyBill }) {
           </div>
         )}
       </div>
-      <div className='shrink-0 sm:text-right'>
-        <div className='text-lg font-semibold tabular-nums text-destructive'>
-          {inr(bill.balanceAmount)}
+      <div className='flex shrink-0 items-center justify-between gap-3 sm:justify-end'>
+        <div className='sm:text-right'>
+          <div className='text-lg font-semibold tabular-nums text-destructive'>
+            {inr(bill.balanceAmount)}
+          </div>
+          {bill.totalAmount !== bill.balanceAmount && (
+            <div className='text-xs tabular-nums text-muted-foreground'>
+              of {inr(bill.totalAmount)}
+            </div>
+          )}
         </div>
-        {bill.totalAmount !== bill.balanceAmount && (
-          <div className='text-xs tabular-nums text-muted-foreground'>of {inr(bill.totalAmount)}</div>
+        {onPayOnline && (
+          <Button size='sm' onClick={onPayOnline} className='gap-1.5' aria-label='Pay this bill online'>
+            <CreditCard className='h-3.5 w-3.5' />
+            <span>Pay</span>
+          </Button>
         )}
       </div>
     </div>
