@@ -9,6 +9,11 @@ import type {
 	BosWebResource,
 	BosPoMapping,
 	BosAssessmentStructure,
+	BosConceptApplicationsData,
+	BosAssessmentPatternData,
+	BosCapstoneProjectData,
+	BosCapstoneRubricData,
+	BosLlcConferenceData,
 } from '@/types/bos'
 
 // ── Layout ────────────────────────────────────────────────────────────────────
@@ -39,10 +44,22 @@ interface BosMixedLine {
 	prefixEnd: number
 	halign?: 'left' | 'center' | 'right'
 	justify?: boolean
+	// Rich mode: when set, the line renders as a sequence of word tokens with
+	// per-token bold (inline **bold** phrases mid-sentence — something the
+	// prefixEnd model cannot express). `glue` tokens attach to the previous
+	// token with no gap (punctuation after a marker boundary). When `justify`
+	// is also set, the inter-token gaps stretch to fill the cell width —
+	// measured and drawn with the same math, so no autoTable-style mismatch.
+	// Takes precedence over prefixEnd.
+	segments?: Array<{ text: string; bold: boolean; glue?: boolean }>
 }
 
 interface BosMixedMeta {
 	lines: BosMixedLine[]
+	// Draw size for the whole cell (defaults to FONT_SIZE). Must match the
+	// cell's styles.fontSize so autoTable's height calc and our custom draw
+	// agree on the line height.
+	fontSize?: number
 }
 
 // Draws one line with words distributed evenly across `maxWidth`. Tokens
@@ -155,16 +172,43 @@ function table(
 			const padding = 2
 			const xLeft = data.cell.x + padding
 			const cellW = data.cell.width
-			const fontSizeMM = (FONT_SIZE * 25.4) / 72
+			const metaFs = meta.fontSize ?? FONT_SIZE
+			const fontSizeMM = (metaFs * 25.4) / 72
 			const lineHeight = fontSizeMM * 1.15
 
-			doc.setFontSize(FONT_SIZE)
+			doc.setFontSize(metaFs)
 			doc.setTextColor(0, 0, 0)
 			let yLine = data.cell.y + padding
 
 			for (const line of meta.lines) {
 				const t = line.text
-				if (line.justify && t.length > 0) {
+				if (line.segments && line.segments.length > 0) {
+					// Rich mode: walk the word tokens, optionally stretching the
+					// inter-token gaps to justify the line across the cell.
+					const toks = line.segments
+					const tokW = toks.map(tk => {
+						doc.setFont('times', tk.bold ? 'bold' : 'normal')
+						return doc.getTextWidth(tk.text)
+					})
+					doc.setFont('times', 'normal')
+					const spaceW = doc.getTextWidth(' ')
+					const gaps = toks.filter((tk, i) => i > 0 && !tk.glue).length
+					let gapW = spaceW
+					if (line.justify && gaps > 0) {
+						const wordsW = tokW.reduce((s, w) => s + w, 0)
+						const extra = (cellW - padding * 2 - wordsW - spaceW * gaps) / gaps
+						// Same guard as drawJustifiedLine: don't stretch sparse
+						// lines grotesquely.
+						if (extra > 0 && extra <= spaceW * 3) gapW = spaceW + extra
+					}
+					let xSeg = xLeft
+					toks.forEach((tk, i) => {
+						if (i > 0 && !tk.glue) xSeg += gapW
+						doc.setFont('times', tk.bold ? 'bold' : 'normal')
+						doc.text(tk.text, xSeg, yLine, { baseline: 'top' })
+						xSeg += tokW[i]
+					})
+				} else if (line.justify && t.length > 0) {
 					// Justify mode: spread tokens evenly across the cell width.
 					// Works for both mixed-font and single-font lines.
 					drawJustifiedLine(doc, t, line.prefixEnd, xLeft, yLine, cellW - padding * 2)
@@ -191,7 +235,11 @@ function table(
 				yLine += lineHeight
 			}
 		},
-		didDrawPage: ({ pageNumber }) => {
+		didDrawPage: () => {
+			// autoTable's own pageNumber restarts at 1 for every table — with
+			// many tables per document that stamps "Page 1" all over. Use the
+			// document's true page number instead.
+			const pageNumber = doc.getCurrentPageInfo().pageNumber
 			doc.setFont('times', 'normal')
 			doc.setFontSize(7)
 			doc.setTextColor(128, 128, 128)
@@ -201,6 +249,74 @@ function table(
 		},
 	})
 	return lastY(doc)
+}
+
+// ── Inline **bold** wrap (v3.5 paragraph blocks) ─────────────────────────────
+// Parses "**bold phrase**" markers (mirroring the source documents' <strong>
+// spans) and wraps the words into cell-width lines of bold/regular segments
+// for the _bosMixed rich renderer. Lines are left-anchored; the height
+// contract is the same as wrapBoldPrefixRest — one BosMixedLine per visual
+// line, joined with '\n' as the cell content for autoTable's height calc.
+function wrapRichText(doc: jsPDF, text: string, maxWidth: number, fontSize: number = FONT_SIZE): BosMixedLine[] {
+	// Tokenize into words carrying their bold state. A token is "glued" when
+	// the marker boundary sits mid-word (e.g. "**…Capstone**: a") — the `:`
+	// must attach to the previous word with no space, or the output reads
+	// "Capstone : a".
+	const tokens: Array<{ word: string; bold: boolean; glue: boolean }> = []
+	{
+		let prevEndsWithSpace = true
+		sanitize(text).split('**').forEach((part, i) => {
+			const isBold = i % 2 === 1 // odd segments sit inside ** … **
+			if (!part) return
+			const startsWithSpace = /^\s/.test(part)
+			part.split(/\s+/).filter(Boolean).forEach((w, wi) => {
+				tokens.push({
+					word: w,
+					bold: isBold,
+					glue: wi === 0 && !startsWithSpace && !prevEndsWithSpace && tokens.length > 0,
+				})
+			})
+			prevEndsWithSpace = /\s$/.test(part)
+		})
+	}
+
+	doc.setFontSize(fontSize)
+	doc.setFont('times', 'normal')
+	const spaceW = doc.getTextWidth(' ')
+	const wordW = (w: string, bold: boolean) => {
+		doc.setFont('times', bold ? 'bold' : 'normal')
+		return doc.getTextWidth(w)
+	}
+
+	const lines: BosMixedLine[] = []
+	let cur: Array<{ text: string; bold: boolean; glue?: boolean }> = []
+	let lineW = 0
+	const flush = () => {
+		if (cur.length > 0) {
+			const text = cur.map((tk, i) => (i === 0 || tk.glue ? tk.text : ` ${tk.text}`)).join('')
+			lines.push({ text, prefixEnd: 0, segments: cur })
+		}
+		cur = []
+		lineW = 0
+	}
+	for (const t of tokens) {
+		const w = wordW(t.word, t.bold)
+		if (t.glue && cur.length > 0) {
+			// Attach directly to the previous token — no gap, no line break.
+			cur.push({ text: t.word, bold: t.bold, glue: true })
+			lineW += w
+			continue
+		}
+		if (cur.length > 0 && lineW + spaceW + w > maxWidth) flush()
+		const isLineStart = cur.length === 0
+		cur.push({ text: t.word, bold: t.bold })
+		lineW += isLineStart ? w : spaceW + w
+	}
+	flush()
+	// Justify every wrapped line except the paragraph's final one, matching
+	// the halign:'justify' look of the document's plain cells.
+	for (let i = 0; i < lines.length - 1; i++) lines[i].justify = true
+	return lines
 }
 
 // Auto-shrink font size until `text` fits within `maxWidth` in Times Bold.
@@ -344,7 +460,13 @@ function sanitize(text: string): string {
 		s = s.split(ch).join(rep)
 	}
 	// Strip any remaining non-Latin-1 characters
-	return s.replace(/[^\x00-\xFF]/g, '')
+	s = s.replace(/[^\x00-\xFF]/g, '')
+	// Collapse tab/newline/space runs and trim. Source rows extracted from
+	// PDFs carry stray tabs and trailing newlines; a trailing newline makes
+	// jsPDF treat the visible line as non-final and justify-stretch it across
+	// the full cell ("To    Gain    knowledge…"), and the phantom empty line
+	// inflates the row height.
+	return s.replace(/\s+/g, ' ').trim()
 }
 
 // ── Default Bloom's legend (fallback when taxonomy not supplied) ───────────────
@@ -426,6 +548,13 @@ export interface CourseSyllabusPDFData {
 
 	// v1.2 Assessment Structure (Total 100) + Concept Applications + Capstones
 	assessment_structure?: BosAssessmentStructure
+
+	// v3.5 Fink's Formative + Capstone blocks (five dedicated JSONB columns)
+	concept_applications?: BosConceptApplicationsData
+	assessment_pattern?: BosAssessmentPatternData
+	capstone_project?: BosCapstoneProjectData
+	capstone_rubric?: BosCapstoneRubricData
+	llc_conference?: BosLlcConferenceData
 }
 
 // ── Main generator ────────────────────────────────────────────────────────────
@@ -527,7 +656,9 @@ export function renderCourseSyllabusPDF(
 
 	// ── SECTION 4: CLOs ───────────────────────────────────────────────────────
 	if (data.clos && data.clos.length > 0) {
-		const kW = 28
+		// 34mm + 10pt keeps a full six-code Fink's set ("FK, AP, IN, HD, CA,
+		// LHL") to at most two lines instead of three at the old 28mm/12pt.
+		const kW = 34
 		const descW = TABLE_W - LABEL_W - kW
 
 		// Prefer taxonomy k_values; fall back to Bloom's defaults
@@ -552,7 +683,7 @@ export function renderCourseSyllabusPDF(
 			...data.clos.map(c => [
 				bold(`CO ${c.clo_number}`, { halign: 'center' }),
 				cell(sanitize(c.description)),
-				bold(c.k_values.join(', '), { halign: 'center' }),
+				bold(c.k_values.join(', '), { halign: 'center', fontSize: 10 }),
 			]),
 			...(fullLegend ? [[{ ...span(fullLegend, 3, { halign: 'center', fontSize: 10, fontStyle: 'bold' }) }]] : []),
 		]
@@ -791,26 +922,6 @@ export function renderCourseSyllabusPDF(
 			1: { cellWidth: TABLE_W - LABEL_W },
 		})
 	}
-	// ── SECTION 7: Signature row (bottom of document) ────────────────────────
-	y = table(doc, y, [
-		[
-			{
-				content: 'Course Designer\nName:\nDesignation:',
-				_bosMixed: {
-					lines: [
-						{ text: 'Course Designer', prefixEnd: 'Course Designer'.length, halign: 'center' },
-						{ text: 'Name:', prefixEnd: 'Name:'.length, halign: 'left' },
-						{ text: 'Designation:', prefixEnd: 'Designation:'.length, halign: 'left' },
-					],
-				},
-				styles: { minCellHeight: 30, valign: 'top' },
-			},
-			bold('Verified by BoS Chairman', { halign: 'center', minCellHeight: 30, valign: 'top' }),
-		],
-	], {
-		0: { cellWidth: TABLE_W / 2 },
-		1: { cellWidth: TABLE_W / 2 },
-	})
 	// ── SECTION 8: CO-PO Mapping ─────────────────────────────────────────────
 	if (data.po_mappings && data.po_mappings.length > 0) {
 		if (y + 50 > A4_H - 15) {
@@ -972,6 +1083,208 @@ export function renderCourseSyllabusPDF(
 			}
 		}
 	}
+
+	// ── SECTION 10: v3.5 Fink's Formative + Capstone blocks ──────────────────
+	// Rendered in document order: Concept Applications → Assessment Pattern →
+	// Capstone Project → Capstone Rubric → Learners Led Conference. Every block
+	// is optional — legacy rows without the v3.5 columns render unchanged.
+	const sectionHeading = (text: string) => {
+		if (y + 40 > A4_H - 15) { doc.addPage(); y = MARGIN } else { y += 10 }
+		doc.setFont('times', 'bold')
+		doc.setFontSize(12)
+		doc.setTextColor(0, 0, 0)
+		doc.text(text, MARGIN, y)
+		y += 6
+	}
+
+	// Full-width paragraph row. Text carrying inline **bold** markers (the
+	// source documents' <strong> phrases) renders via the rich segment path;
+	// plain text falls back to a normal left-aligned cell.
+	const paragraphRow = (text: string): AnyCell[][] => {
+		const t = text.trim()
+		if (t.includes('**')) {
+			const lines = wrapRichText(doc, t, TABLE_W - 4)
+			return [[{ content: lines.map(l => l.text).join('\n'), _bosMixed: { lines }, styles: { valign: 'top' } }]]
+		}
+		return [[cell(sanitize(t), { halign: 'left' })]]
+	}
+
+	// Concept Applications (Formative Learning Activities)
+	const ca = data.concept_applications
+	if (ca && ((ca.activities?.length ?? 0) > 0 || ca.intro_note?.trim())) {
+		sectionHeading('CONCEPT APPLICATIONS (FORMATIVE LEARNING ACTIVITIES):')
+		if (ca.intro_note?.trim()) {
+			y = table(doc, y, paragraphRow(ca.intro_note), { 0: { cellWidth: TABLE_W } })
+		}
+		const acts = ca.activities ?? []
+		if (acts.length > 0) {
+			const unitW = 22, dimW = 30
+			const restW = (TABLE_W - unitW - dimW) / 2
+			// 10pt body (matches the v3.5 HTML documents' compact table style).
+			// Task/Deliverable cells justify through the rich renderer — NEVER
+			// autoTable's 'justify', which re-wraps at draw time and clips rows.
+			const caFs = 10
+			const richJustified = (text: string): AnyCell => {
+				const lines = wrapRichText(doc, text, restW - 4, caFs)
+				return {
+					content: lines.map(l => l.text).join('\n'),
+					_bosMixed: { lines, fontSize: caFs },
+					styles: { valign: 'top', fontSize: caFs },
+				}
+			}
+			const rows: AnyCell[][] = [
+				[
+					bold('Unit', { halign: 'center', fontSize: caFs }),
+					bold("Fink's Dim.", { halign: 'center', fontSize: caFs }),
+					bold('Task', { halign: 'center', fontSize: caFs }),
+					bold('Deliverable & Notes', { halign: 'center', fontSize: caFs }),
+				],
+				...acts.map((a, i) => [
+					bold(sanitize(a.unit || String(a.sno ?? i + 1)), { halign: 'center', valign: 'top', fontSize: caFs }),
+					cell(sanitize(a.finks_dimension || ''), { halign: 'center', valign: 'top', fontSize: caFs }),
+					richJustified(a.task || ''),
+					richJustified(a.deliverable_notes || ''),
+				]),
+			]
+			y = table(doc, y, rows, { 0: { cellWidth: unitW }, 1: { cellWidth: dimW }, 2: { cellWidth: restW }, 3: { cellWidth: restW } })
+		}
+	}
+
+	// Assessment Pattern (Internal | External split + internal component rows)
+	const ap = data.assessment_pattern
+	if (ap && ((ap.components?.length ?? 0) > 0 || ap.internal_marks != null || ap.external_marks != null)) {
+		sectionHeading('ASSESSMENT PATTERN:')
+		const comps = ap.components ?? []
+		const snoW = 16, marksW = 22
+		const rows: AnyCell[][] = []
+		if (ap.internal_marks != null || ap.external_marks != null) {
+			rows.push([{
+				...span(
+					`Internal = ${ap.internal_marks ?? '-'} Marks   |   External = ${ap.external_marks ?? '-'} Marks`,
+					3,
+					{ fontStyle: 'bold', halign: 'center', fillColor: [240, 240, 240] },
+				),
+			}])
+		}
+		if (comps.length > 0) {
+			rows.push([bold('S.No', { halign: 'center' }), bold('Component', { halign: 'center' }), bold('Marks', { halign: 'center' })])
+			comps.forEach((c, i) => {
+				rows.push([
+					cell(String(c.sno ?? i + 1), { halign: 'center' }),
+					cell(sanitize(c.component || ''), { halign: 'left' }),
+					cell(c.marks != null ? String(c.marks) : '-', { halign: 'center' }),
+				])
+			})
+			const total = comps.reduce((s, c) => s + (Number(c.marks) || 0), 0)
+			rows.push([{ ...span('Total Internal', 2, { fontStyle: 'bold', halign: 'right' }) }, bold(String(total), { halign: 'center' })])
+		}
+		if (rows.length > 0) {
+			y = table(doc, y, rows, { 0: { cellWidth: snoW }, 1: { cellWidth: TABLE_W - snoW - marksW }, 2: { cellWidth: marksW } })
+		}
+		const noteRows: AnyCell[][] = []
+		if (ap.activities_note?.trim()) noteRows.push([cell(sanitize(ap.activities_note).trim(), { halign: 'left', fontSize: 10 })])
+		if (ap.note?.trim()) noteRows.push([cell(`Note: ${sanitize(ap.note).trim()}`, { halign: 'left', fontSize: 10, fontStyle: 'italic' })])
+		if (noteRows.length > 0) {
+			y = table(doc, y, noteRows, { 0: { cellWidth: TABLE_W } })
+		}
+	}
+
+	// Capstone Project — choose ONE of FIVE (option cards)
+	const cp = data.capstone_project
+	if (cp && ((cp.options?.length ?? 0) > 0 || cp.intro_note?.trim())) {
+		sectionHeading('CAPSTONE PROJECT (CHOOSE ONE OF FIVE):')
+		if (cp.intro_note?.trim()) {
+			y = table(doc, y, paragraphRow(cp.intro_note), { 0: { cellWidth: TABLE_W } })
+		}
+		const opts = cp.options ?? []
+		if (opts.length > 0) {
+			// Full-width card per option (mirrors the source documents): a bold
+			// "Option N — Title" header line, then the Primary / Support / LLC
+			// paragraphs with bold labels. One row per option so page breaks
+			// fall between cards, never inside a label.
+			const bodyMaxText = TABLE_W - 4
+			const rows: AnyCell[][] = []
+			for (const [i, opt] of opts.entries()) {
+				const lines: BosMixedLine[] = []
+				lines.push(...wrapBoldPrefixRest(
+					doc,
+					sanitize(`Option ${opt.option_no ?? i + 1} — ${opt.title || ''}`),
+					'',
+					bodyMaxText,
+				))
+				const addPart = (label: string, val?: string) => {
+					if (val && val.trim()) lines.push(...wrapBoldPrefixRest(doc, `${label}: `, sanitize(val).trim(), bodyMaxText))
+				}
+				addPart('Primary (AI-proof)', opt.primary)
+				addPart('Support', opt.support)
+				addPart('LLC', opt.llc)
+				rows.push([
+					{ content: lines.map(l => l.text).join('\n'), _bosMixed: { lines }, styles: { valign: 'top' } },
+				])
+			}
+			y = table(doc, y, rows, { 0: { cellWidth: TABLE_W } })
+		}
+	}
+
+	// Capstone Rubric (criterion rows, common to all options)
+	const cr = data.capstone_rubric
+	if (cr && (cr.criteria?.length ?? 0) > 0) {
+		const criteria = cr.criteria ?? []
+		sectionHeading(cr.note?.trim() ? `CAPSTONE RUBRIC (${sanitize(cr.note).trim()}):` : 'CAPSTONE RUBRIC:')
+		const marksW = 22
+		const total = criteria.reduce((s, c) => s + (Number(c.marks) || 0), 0)
+		const rows: AnyCell[][] = [
+			[bold('Criterion', { halign: 'center' }), bold('Marks', { halign: 'center' })],
+			...criteria.map(c => [
+				cell(sanitize(c.criterion || ''), { halign: 'left' }),
+				cell(c.marks != null ? String(c.marks) : '-', { halign: 'center' }),
+			]),
+			[bold('TOTAL', { halign: 'right' }), bold(String(total), { halign: 'center' })],
+		]
+		y = table(doc, y, rows, { 0: { cellWidth: TABLE_W - marksW }, 1: { cellWidth: marksW } })
+	}
+
+	// End-of-Course Learners Led Conference — one self-contained panel like
+	// the source documents: a single inline header line (bold "LLC <title>"
+	// + regular "— <subtitle>") above the description paragraph.
+	const llc = data.llc_conference
+	if (llc && (llc.title?.trim() || llc.subtitle?.trim() || llc.description?.trim())) {
+		if (y + 40 > A4_H - 15) { doc.addPage(); y = MARGIN } else { y += 10 }
+		const rows: AnyCell[][] = []
+		const headerLines = wrapBoldPrefixRest(
+			doc,
+			`${sanitize(`LLC   ${llc.title?.trim() || 'End-of-Course Learners Led Conference'}`)} `,
+			llc.subtitle?.trim() ? sanitize(`— ${llc.subtitle}`) : '',
+			TABLE_W - 4,
+		)
+		rows.push([{ content: headerLines.map(l => l.text).join('\n'), _bosMixed: { lines: headerLines }, styles: { valign: 'top', fillColor: [240, 240, 240] } }])
+		if (llc.description?.trim()) rows.push(...paragraphRow(llc.description))
+		y = table(doc, y, rows, { 0: { cellWidth: TABLE_W } })
+	}
+
+	// ── SECTION 11: Signature row — end of document, after the LLC block ─────
+	// (Moved from its pre-mapping position to match the v3.5 documents, where
+	// Course Designer / BoS Chairman sign off below the full assessment spec.)
+	if (y + 40 > A4_H - 15) { doc.addPage(); y = MARGIN } else { y += 8 }
+	y = table(doc, y, [
+		[
+			{
+				content: 'Course Designer\nName:\nDesignation:',
+				_bosMixed: {
+					lines: [
+						{ text: 'Course Designer', prefixEnd: 'Course Designer'.length, halign: 'center' },
+						{ text: 'Name:', prefixEnd: 'Name:'.length, halign: 'left' },
+						{ text: 'Designation:', prefixEnd: 'Designation:'.length, halign: 'left' },
+					],
+				},
+				styles: { minCellHeight: 30, valign: 'top' },
+			},
+			bold('Verified by BoS Chairman', { halign: 'center', minCellHeight: 30, valign: 'top' }),
+		],
+	], {
+		0: { cellWidth: TABLE_W / 2 },
+		1: { cellWidth: TABLE_W / 2 },
+	})
 
 }
 
