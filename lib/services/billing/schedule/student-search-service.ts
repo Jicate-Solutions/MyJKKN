@@ -332,6 +332,7 @@ export class StudentSearchService {
           item_category:billing_categories(
             id,
             category_name,
+            kind,
             amount,
             frequency
           ),

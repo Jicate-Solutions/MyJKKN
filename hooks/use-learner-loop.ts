@@ -7,8 +7,9 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { LoopClosureRow, StrugglingNoteRow } from '@/types/scf-learner-loop';
+import type { LoopClosureRow, StrugglingNoteRow, MyMentorRow } from '@/types/scf-learner-loop';
 
 const getSupabase = () => createClientSupabaseClient();
 
@@ -17,7 +18,52 @@ export const scfLearnerLoopKeys = {
   loopClosure: (from: string, to: string) =>
     [...scfLearnerLoopKeys.all, 'loop-closure', from, to] as const,
   strugglingNote: () => [...scfLearnerLoopKeys.all, 'struggling-note'] as const,
+  myMentor: () => [...scfLearnerLoopKeys.all, 'my-mentor'] as const,
 };
+
+/** The caller's OWN senior peer mentor (mentee side of the induction volunteer
+ *  groups). null when the learner has no assigned mentor — consumers self-scope. */
+export function useMyMentor() {
+  return useQuery({
+    queryKey: scfLearnerLoopKeys.myMentor(),
+    queryFn: async (): Promise<MyMentorRow | null> => {
+      const supabase = getSupabase();
+      // Fail-soft null, no retries: this line is decorative — during the
+      // deploy→migrate gap the RPC doesn't exist yet, and 3 default retries
+      // per learner would be an error storm for nothing (deep-review #1902).
+      const { data, error } = await supabase.rpc('fn_induction_my_mentor');
+      if (error) return null;
+      const rows = (data || []) as MyMentorRow[];
+      return rows.length > 0 && rows[0].mentor_name ? rows[0] : null;
+    },
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+}
+
+/** One-tap follow-up on the support note: did the learner reach out? Turns the
+ *  note from comfort into a measurable loop (2026-07-09). */
+export function useNoteReachedOut() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { noteId: string; reachedOut: boolean | null }) => {
+      const supabase = getSupabase();
+      const { error } = await supabase.rpc('fn_scf_learner_note_reached_out', {
+        p_note_id: input.noteId,
+        p_reached_out: input.reachedOut,
+      });
+      if (error) throw new Error(`Failed to save your answer: ${error.message}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: scfLearnerLoopKeys.strugglingNote() });
+    },
+    // A failed tap must be VISIBLE (deep-review #1902 r2 consensus): silently
+    // re-enabling the button would quietly drop the note's outcome signal.
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : 'Could not save your answer — please try again.');
+    },
+  });
+}
 
 /**
  * #3b — the honest loop-closure feed for the calling learner.
