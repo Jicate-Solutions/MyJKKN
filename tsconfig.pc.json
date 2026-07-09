@@ -11,7 +11,8 @@
     "lib/procurement/**/*.ts",
     "hooks/procurement/**/*.ts",
     "components/procurement/**/*.tsx",
-    "app/(routes)/procurement/**/*.tsx"
+    "app/(routes)/procurement/**/*.tsx",
+    "app/api/procurement/**/*.ts"
   ],
   "exclude": ["node_modules"]
 }

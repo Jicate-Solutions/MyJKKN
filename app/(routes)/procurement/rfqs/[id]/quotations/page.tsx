@@ -36,7 +36,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ArrowLeft, Plus, Trash2, FileText, Award, X, ExternalLink, Download, Upload } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, FileText, Award, X, ExternalLink, Download, Upload, Sparkles } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 
@@ -78,6 +78,7 @@ export default function RfqQuotationsPage() {
   const [prices, setPrices] = useState<Record<string, string>>({});
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [extracting, setExtracting] = useState(false);
 
   // Vendors attached to the RFQ that haven't quoted yet.
   const quotedSupplierIds = new Set(quotations.map((q) => q.supplier_id));
@@ -175,6 +176,42 @@ export default function RfqQuotationsPage() {
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not read the file');
+    }
+  };
+
+  // Read prices from the attached vendor PDF via Claude, then fill the fields for review.
+  const handleExtractPdf = async () => {
+    if (!file || !rfq) return;
+    setExtracting(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('items', JSON.stringify(rfq.items.map((it) => ({ id: it.id, item_name: it.item_name }))));
+      const res = await fetch('/api/procurement/quotations/extract-pdf', { method: 'POST', body: fd });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Extraction failed');
+      const { prices: parsed, matched, unmatched } = json as {
+        prices: Record<string, number>;
+        matched: number;
+        unmatched: string[];
+      };
+      if (!matched) {
+        toast.error('No prices could be read from the PDF. Enter them manually or use the template.');
+        return;
+      }
+      setPrices((prev) => {
+        const next = { ...prev };
+        for (const [id, price] of Object.entries(parsed)) next[id] = String(price);
+        return next;
+      });
+      toast.success(
+        `AI read ${matched} of ${rfq.items.length} price${matched === 1 ? '' : 's'} — review before saving` +
+          (unmatched.length ? ` · ${unmatched.length} line(s) unmatched` : '')
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not read the PDF');
+    } finally {
+      setExtracting(false);
     }
   };
 
@@ -492,6 +529,23 @@ export default function RfqQuotationsPage() {
                 accept=".pdf,image/*,.xlsx,.xls,.csv"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               />
+              {file?.type === 'application/pdf' && (
+                <div className="flex items-center gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleExtractPdf}
+                    disabled={extracting}
+                  >
+                    <Sparkles className="mr-1 h-3.5 w-3.5" />
+                    {extracting ? 'Reading PDF…' : 'Read prices from PDF (AI)'}
+                  </Button>
+                  <span className="text-[11px] text-muted-foreground">
+                    Fills the prices above for you to review.
+                  </span>
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>
